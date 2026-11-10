@@ -18,6 +18,8 @@ import 'redux/services/flow_watch/flow_watch.dart';
 import 'redux/services/flow_watch/flow_watch_dispatcher.dart';
 import 'redux/services/live_values/live_values.dart';
 import 'redux/services/live_values/live_values_dispatcher.dart';
+import 'redux/services/traffic/traffic.dart';
+import 'redux/services/traffic/traffic_dispatcher.dart';
 import 'redux/services/tree_watch/tree_watch.dart';
 import 'redux/services/tree_watch/tree_watch_dispatcher.dart';
 import 'redux/services/wyrm_connection/wyrm_connection.dart';
@@ -142,6 +144,10 @@ class AppDependencies {
     listener: FlowPreviewDispatcher(store: _store),
   );
 
+  late final traffic = TrafficService(
+    listener: TrafficDispatcher(store: _store),
+  );
+
   late final connectivity = ConnectivityService(
     listener: ConnectivityDispatcher(store: _store),
   );
@@ -156,5 +162,6 @@ class AppDependencies {
     await agentTasks.start();
     await flowWatch.start();
     await flowPreview.start();
+    await traffic.start();
   }
 }

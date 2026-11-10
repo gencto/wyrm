@@ -252,39 +252,132 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m102(version, language) => "Studio ${version} · ${language}";
 
-  static String m103(level) => "needs ${level}";
+  static String m103(n) => "ACL denials grew by ${n}";
 
-  static String m104(agent) => "Each task is a node: ${agent}/tasks/<id>";
+  static String m104(from) =>
+      "acl_denied was ${from} when this screen was last shown";
 
-  static String m105(site) => "TLS · certificate of the ${site} CA";
+  static String m105(n) => "Standby is ${n} records behind";
 
-  static String m106(site) => "Tree · ${site}";
+  static String m106(n) => "Forks moved aside after a split: ${n}";
 
-  static String m107(unit) => "unit ${unit}";
+  static String m107(site) => "${site} waits for Authorize";
 
-  static String m108(d) => "up ${d}";
+  static String m108(n) => "A downstream broker that relays sites: ${n}";
 
-  static String m109(v) => "Version ${v} · deployed";
+  static String m109(id) => "sys/links/${id}/state is failed; its log says why";
 
-  static String m110(site) => "via ${site}";
+  static String m110(id) => "${id} failed";
 
-  static String m111(keys) => "${keys} saves · Esc cancels";
+  static String m111(cn) => "${cn} waits in quarantine";
 
-  static String m112(n, who) => "${n} waiting to be let in: ${who}";
+  static String m112(cn) => "Unknown certificate CN ${cn}";
 
-  static String m113(value) => "was ${value}";
+  static String m113(cn, t) => "Unknown certificate CN ${cn} since ${t}";
 
-  static String m114(n) => "Watch groups · ${n}";
+  static String m114(size) =>
+      "Everything the broker owns is in its `data_dir` (here ${size}). Studio does not take backups: they hold the site\'s keys and are made on the host. The steps, ready to copy:";
 
-  static String m115(user) => "Welcome, ${user}";
+  static String m115(n) =>
+      "Sets of records moved aside after both brokers were active (a healed split): ${n}. The audit record `standby_forked` says which.";
 
-  static String m116(value) => "would run on ${value}";
+  static String m116(n) =>
+      "${n} registry records are not on the standby yet: a takeover now would lose them.";
 
-  static String m117(value) => "would write ${value}";
+  static String m117(n) => "Clear disconnected links (${n})…";
 
-  static String m118(level) => "Turning this on needs ${level} level";
+  static String m118(ids) =>
+      "${ids}\n\nTheir ids are retired and cannot be used again.";
 
-  static String m119(site) => "wyrmd on ${site}";
+  static String m119(n) => "Clear ${n} disconnected links…";
+
+  static String m120(ids) => "Removed: ${ids}";
+
+  static String m121(title) => "Copy: ${title}";
+
+  static String m122(url) => "Link to the guide copied: ${url}";
+
+  static String m123(id) => "link: ${id}";
+
+  static String m124(n) => "Lines copied: ${n}";
+
+  static String m125(path) => "Saved ${path}";
+
+  static String m126(n) =>
+      "${n} lines from the broker\'s ring · newest first · `sys/~act/get_log`";
+
+  static String m127(t) => "started ${t}";
+
+  static String m128(n) => "Needs a look · ${n}";
+
+  static String m129(standby) =>
+      "2. In `wyrmd.json5` on both hosts: `${standby}` and `peers.listen`; a lease `arbiter` on a third host is recommended.";
+
+  static String m130(t) => "${t} · now";
+
+  static String m131(n) => "of ${n}";
+
+  static String m132(name) =>
+      "File ${name}. A .cbor file is sent as it is; a JSON file is encoded first.";
+
+  static String m133(name) => "Profile ${name} put";
+
+  static String m134(name) => "Profile ${name} removed";
+
+  static String m135(reason) =>
+      "This broker does not list its profiles through the gateway (${reason}). You can still put one; it is then served at pub/<name>.";
+
+  static String m136(name) => "Remove profile ${name}";
+
+  static String m137(name) =>
+      "The broker stops serving pub/${name} and records it in the audit journal (profile_remove).";
+
+  static String m138(cn) => "external · CN ${cn}";
+
+  static String m139(size) => "history ${size} · open History";
+
+  static String m140(id) => "${id} failed · open Links";
+
+  static String m141(site) => "${site} · open Sites";
+
+  static String m142(cn) => "${cn} waits · open Quarantine";
+
+  static String m143(measure, from, to) =>
+      "${measure} in and out per second from ${from} to ${to}";
+
+  static String m144(level) => "needs ${level}";
+
+  static String m145(agent) => "Each task is a node: ${agent}/tasks/<id>";
+
+  static String m146(site) => "TLS · certificate of the ${site} CA";
+
+  static String m147(site) => "Tree · ${site}";
+
+  static String m148(unit) => "unit ${unit}";
+
+  static String m149(d) => "up ${d}";
+
+  static String m150(v) => "Version ${v} · deployed";
+
+  static String m151(site) => "via ${site}";
+
+  static String m152(keys) => "${keys} saves · Esc cancels";
+
+  static String m153(n, who) => "${n} waiting to be let in: ${who}";
+
+  static String m154(value) => "was ${value}";
+
+  static String m155(n) => "Watch groups · ${n}";
+
+  static String m156(user) => "Welcome, ${user}";
+
+  static String m157(value) => "would run on ${value}";
+
+  static String m158(value) => "would write ${value}";
+
+  static String m159(level) => "Turning this on needs ${level} level";
+
+  static String m160(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -1385,7 +1478,341 @@ class MessageLookup extends MessageLookupByLibrary {
       "Studio is signed in here",
     ),
     "studioVersion": m102,
+    "sysActiveNote": MessageLookupByLibrary.simpleMessage(
+      "Serves links, flows, the gateway and peers. Answers `sys/replication/**` for its standby.",
+    ),
     "sysAdminOnly": MessageLookupByLibrary.simpleMessage("sys/**, admin only"),
+    "sysArbiterLease": MessageLookupByLibrary.simpleMessage("Arbiter lease"),
+    "sysAttnAcl": m103,
+    "sysAttnAclDetail": m104,
+    "sysAttnBehind": m105,
+    "sysAttnBehindDetail": m106,
+    "sysAttnBehindPlain": MessageLookupByLibrary.simpleMessage(
+      "standby_lag is above 0: a takeover now loses records",
+    ),
+    "sysAttnBroker": m107,
+    "sysAttnBrokerPlain": MessageLookupByLibrary.simpleMessage(
+      "A downstream broker",
+    ),
+    "sysAttnBrokerRelays": m108,
+    "sysAttnFork": MessageLookupByLibrary.simpleMessage(
+      "The standby moved a fork aside",
+    ),
+    "sysAttnLinkDetail": m109,
+    "sysAttnLinkFailed": m110,
+    "sysAttnNoStandby": MessageLookupByLibrary.simpleMessage(
+      "No standby follows this broker",
+    ),
+    "sysAttnNoStandbyDetail": MessageLookupByLibrary.simpleMessage(
+      "standby_connected is 0",
+    ),
+    "sysAttnOpenAudit": MessageLookupByLibrary.simpleMessage("Open Audit ›"),
+    "sysAttnOpenAvail": MessageLookupByLibrary.simpleMessage(
+      "Open Availability ›",
+    ),
+    "sysAttnOpenLinks": MessageLookupByLibrary.simpleMessage("Open in Links ›"),
+    "sysAttnOpenQuarantine": MessageLookupByLibrary.simpleMessage(
+      "Open Quarantine ›",
+    ),
+    "sysAttnOpenSites": MessageLookupByLibrary.simpleMessage("Open in Sites ›"),
+    "sysAttnQuarantine": m111,
+    "sysAttnQuarantineDetail": m112,
+    "sysAttnQuarantineSince": m113,
+    "sysBackup": MessageLookupByLibrary.simpleMessage("Back up and restore"),
+    "sysBackupNote": m114,
+    "sysBackupNoteNoSize": MessageLookupByLibrary.simpleMessage(
+      "Everything the broker owns is in its `data_dir`. Studio does not take backups: they hold the site\'s keys and are made on the host. The steps, ready to copy:",
+    ),
+    "sysBackupWarning": MessageLookupByLibrary.simpleMessage(
+      "A backup holds the site CA and the gateway key: whoever reads it is an administrator. Encrypt it and keep it where only the broker\'s administrators can read it.",
+    ),
+    "sysBannerBehind": MessageLookupByLibrary.simpleMessage(
+      "The standby is behind",
+    ),
+    "sysBannerBoth": MessageLookupByLibrary.simpleMessage(
+      "The standby is behind and moved a fork aside",
+    ),
+    "sysBannerFork": MessageLookupByLibrary.simpleMessage(
+      "The standby moved a fork aside",
+    ),
+    "sysBannerForks": m115,
+    "sysBannerLag": m116,
+    "sysBrokerAll": MessageLookupByLibrary.simpleMessage("broker (all)"),
+    "sysBrokerLogLevel": MessageLookupByLibrary.simpleMessage(
+      "Broker log level",
+    ),
+    "sysBytes": MessageLookupByLibrary.simpleMessage("Bytes"),
+    "sysClear": m117,
+    "sysClearAsk": MessageLookupByLibrary.simpleMessage(
+      "Clear these disconnected links?",
+    ),
+    "sysClearAskBody": m118,
+    "sysClearBoard": m119,
+    "sysClearConfirm": MessageLookupByLibrary.simpleMessage("Clear"),
+    "sysClearFooter": MessageLookupByLibrary.simpleMessage(
+      "`sys/~act/clear_conns` · config · asks before it runs",
+    ),
+    "sysClearNone": MessageLookupByLibrary.simpleMessage(
+      "Clear disconnected links…",
+    ),
+    "sysClearOne": MessageLookupByLibrary.simpleMessage(
+      "Clear 1 disconnected link…",
+    ),
+    "sysCleared": m120,
+    "sysClearedNone": MessageLookupByLibrary.simpleMessage(
+      "The broker removed no link.",
+    ),
+    "sysCmdBackup": MessageLookupByLibrary.simpleMessage(
+      "Back up (broker stopped)",
+    ),
+    "sysCmdBackupNote": MessageLookupByLibrary.simpleMessage(
+      "Consistent and simplest. With a filesystem snapshot (LVM, btrfs, ZFS) the broker can keep running.",
+    ),
+    "sysCmdCheck": MessageLookupByLibrary.simpleMessage(
+      "Before a restart with a changed file",
+    ),
+    "sysCmdCheckNote": MessageLookupByLibrary.simpleMessage(
+      "The configuration parses and validates; exit code 1 otherwise.",
+    ),
+    "sysCmdVerify": MessageLookupByLibrary.simpleMessage("Check a copy"),
+    "sysCmdVerifyNote": MessageLookupByLibrary.simpleMessage(
+      "Checks every control-plane store offline: CRC, HMAC chain, anchors. Run it on the restored data_dir before a start.",
+    ),
+    "sysCollecting": MessageLookupByLibrary.simpleMessage("Collecting…"),
+    "sysCommandCopied": MessageLookupByLibrary.simpleMessage("Commands copied"),
+    "sysCopy": MessageLookupByLibrary.simpleMessage("Copy"),
+    "sysCopyCommand": m121,
+    "sysDownstream": MessageLookupByLibrary.simpleMessage("Downstream"),
+    "sysElsewhere": MessageLookupByLibrary.simpleMessage(
+      "Also broker settings, kept where they are used:",
+    ),
+    "sysElsewhereAccess": MessageLookupByLibrary.simpleMessage(
+      "Roles and grants › Access",
+    ),
+    "sysElsewhereHistory": MessageLookupByLibrary.simpleMessage(
+      "Retention and purge › History",
+    ),
+    "sysElsewhereLinks": MessageLookupByLibrary.simpleMessage(
+      "Admission of new links › Links › Quarantine",
+    ),
+    "sysElsewhereSites": MessageLookupByLibrary.simpleMessage(
+      "Tokens for sites below › Sites",
+    ),
+    "sysEvery5s": MessageLookupByLibrary.simpleMessage("every 5 s"),
+    "sysFactLiveliness": MessageLookupByLibrary.simpleMessage("Liveliness"),
+    "sysFactSite": MessageLookupByLibrary.simpleMessage("Site"),
+    "sysFilter": MessageLookupByLibrary.simpleMessage("Filter"),
+    "sysFilterHint": MessageLookupByLibrary.simpleMessage(
+      "text in the target or message",
+    ),
+    "sysFlow": MessageLookupByLibrary.simpleMessage(
+      "WAL, files, storage, history",
+    ),
+    "sysForks": MessageLookupByLibrary.simpleMessage("Forks moved aside"),
+    "sysFrames": MessageLookupByLibrary.simpleMessage("Frames"),
+    "sysGetLog": MessageLookupByLibrary.simpleMessage("Get log"),
+    "sysGroupLinks": MessageLookupByLibrary.simpleMessage("Links and sites"),
+    "sysGroupProcess": MessageLookupByLibrary.simpleMessage("Process and disk"),
+    "sysGuideCopied": m122,
+    "sysGuideLink": MessageLookupByLibrary.simpleMessage(
+      "Guide: docs/operations.md › Warm standby ›",
+    ),
+    "sysHeld": MessageLookupByLibrary.simpleMessage("What the standby holds"),
+    "sysHeldControl": MessageLookupByLibrary.simpleMessage("Control plane"),
+    "sysHeldControlNote": MessageLookupByLibrary.simpleMessage(
+      "Registry, flow definitions and gateway users: the WAL records themselves, checked against the HMAC chain.",
+    ),
+    "sysHeldHistory": MessageLookupByLibrary.simpleMessage("History"),
+    "sysHeldHistoryNote": MessageLookupByLibrary.simpleMessage(
+      "Every series’ rows from the change journal, written into the standby’s own day files.",
+    ),
+    "sysHeldSecrets": MessageLookupByLibrary.simpleMessage(
+      "Secrets and link data",
+    ),
+    "sysHeldSecretsNote": MessageLookupByLibrary.simpleMessage(
+      "secrets.bin, link tokens, link data_dirs and packages: sealed parts of 1 MiB, files up to 64 MiB, removed when gone here.",
+    ),
+    "sysHeldStorage": MessageLookupByLibrary.simpleMessage("Broker storage"),
+    "sysHeldStorageNote": MessageLookupByLibrary.simpleMessage(
+      "The storage change journal, applied into the standby’s own storage (full tree beyond 20,000 changes).",
+    ),
+    "sysIn": MessageLookupByLibrary.simpleMessage("in"),
+    "sysLag": MessageLookupByLibrary.simpleMessage("Lag"),
+    "sysLevelMore": MessageLookupByLibrary.simpleMessage(
+      "Level and more severe",
+    ),
+    "sysLines": MessageLookupByLibrary.simpleMessage("Lines"),
+    "sysLinkSource": m123,
+    "sysLogCopied": m124,
+    "sysLogLevelNote": MessageLookupByLibrary.simpleMessage(
+      "Staged in Review and apply; once applied it takes effect at once, no restart, and replaces `RUST_LOG`. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link\'s own level: Links › the link › Log.",
+    ),
+    "sysLogNeedsConfig": MessageLookupByLibrary.simpleMessage(
+      "The log is read with config on sys.",
+    ),
+    "sysLogNotSaved": MessageLookupByLibrary.simpleMessage(
+      "Cannot save the log",
+    ),
+    "sysLogSaved": m125,
+    "sysLogSummary": m126,
+    "sysLogSummaryNone": MessageLookupByLibrary.simpleMessage(
+      "`sys/~act/get_log` · config",
+    ),
+    "sysMessages": MessageLookupByLibrary.simpleMessage("Messages"),
+    "sysMetaStarted": m127,
+    "sysNeedsLook": m128,
+    "sysNeedsLookNote": MessageLookupByLibrary.simpleMessage(
+      "From the broker\'s own values. Each opens the screen where it is fixed.",
+    ),
+    "sysNoLines": MessageLookupByLibrary.simpleMessage(
+      "No lines at this level.",
+    ),
+    "sysNoProfiles": MessageLookupByLibrary.simpleMessage("No profiles."),
+    "sysNoStale": MessageLookupByLibrary.simpleMessage(
+      "No disconnected links.",
+    ),
+    "sysNoStandbyBody": MessageLookupByLibrary.simpleMessage(
+      "`sys/standby_connected` is 0. Either no warm standby is configured, or the one configured cannot reach this broker. If this host fails, the site stops until it is back; links on other machines walk to their next endpoint only if they have one.",
+    ),
+    "sysNoStandbyStep1": MessageLookupByLibrary.simpleMessage(
+      "1. Copy the keys to the second host: `wyrmd keys export` here, `wyrmd keys import` there.",
+    ),
+    "sysNoStandbyStep2": m129,
+    "sysNoStandbyStep3": MessageLookupByLibrary.simpleMessage(
+      "3. Start the second host; this tab shows it within a second.",
+    ),
+    "sysNoStandbySteps": MessageLookupByLibrary.simpleMessage(
+      "To add one (on the hosts, not in Studio)",
+    ),
+    "sysNoStandbyTitle": MessageLookupByLibrary.simpleMessage(
+      "No standby is following this broker",
+    ),
+    "sysNotConnected": MessageLookupByLibrary.simpleMessage("not connected"),
+    "sysNothing": MessageLookupByLibrary.simpleMessage("Nothing needs a look."),
+    "sysNothingToClear": MessageLookupByLibrary.simpleMessage(
+      "No disconnected links to clear",
+    ),
+    "sysNow": m130,
+    "sysOfTotal": m131,
+    "sysOpenAuditRecord": MessageLookupByLibrary.simpleMessage(
+      "Open the audit record ›",
+    ),
+    "sysOut": MessageLookupByLibrary.simpleMessage("out"),
+    "sysPackages": MessageLookupByLibrary.simpleMessage("Packages"),
+    "sysProfileFile": m132,
+    "sysProfileName": MessageLookupByLibrary.simpleMessage("Name"),
+    "sysProfileNameHint": MessageLookupByLibrary.simpleMessage(
+      "<vendor>:<model>",
+    ),
+    "sysProfilePut": m133,
+    "sysProfileRemoved": m134,
+    "sysProfiles": MessageLookupByLibrary.simpleMessage("Device profiles"),
+    "sysProfilesFooter": MessageLookupByLibrary.simpleMessage(
+      "`sys/profiles` › Put Profile, Remove Profile · config",
+    ),
+    "sysProfilesNote": MessageLookupByLibrary.simpleMessage(
+      "Models served as `pub/<vendor>:<model>`: points, units and ranges that links and the assistant inherit.",
+    ),
+    "sysProfilesUnlisted": m135,
+    "sysPulled": MessageLookupByLibrary.simpleMessage("pulled every 1 s"),
+    "sysPut": MessageLookupByLibrary.simpleMessage("Put profile"),
+    "sysPutProfile": MessageLookupByLibrary.simpleMessage("Put profile…"),
+    "sysRecords": MessageLookupByLibrary.simpleMessage("records"),
+    "sysRemove": MessageLookupByLibrary.simpleMessage("Remove"),
+    "sysRemoveProfile": m136,
+    "sysRemoveProfileAsk": m137,
+    "sysRunningActive": MessageLookupByLibrary.simpleMessage(
+      "Running · active",
+    ),
+    "sysSaveLog": MessageLookupByLibrary.simpleMessage("Save as .log"),
+    "sysSecondsLeft": MessageLookupByLibrary.simpleMessage("s left"),
+    "sysSinceStart": MessageLookupByLibrary.simpleMessage("since start"),
+    "sysSource": MessageLookupByLibrary.simpleMessage("Source"),
+    "sysStale": MessageLookupByLibrary.simpleMessage("Disconnected links"),
+    "sysStaleNote": MessageLookupByLibrary.simpleMessage(
+      "Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.",
+    ),
+    "sysStaleRow": m138,
+    "sysStandbyBehind": MessageLookupByLibrary.simpleMessage(
+      "Standby · behind",
+    ),
+    "sysStandbyConnected": MessageLookupByLibrary.simpleMessage(
+      "Standby connected",
+    ),
+    "sysStandbyFollowing": MessageLookupByLibrary.simpleMessage(
+      "Standby · following",
+    ),
+    "sysStandbyNote": MessageLookupByLibrary.simpleMessage(
+      "Same keys, own `data_dir`. Takes over only if this broker stops answering and a witness still answers it.",
+    ),
+    "sysSubAcl": MessageLookupByLibrary.simpleMessage(
+      "since the router started · open Audit",
+    ),
+    "sysSubAudit": MessageLookupByLibrary.simpleMessage(
+      "who did what · open Audit",
+    ),
+    "sysSubCpu": MessageLookupByLibrary.simpleMessage("100 = one core"),
+    "sysSubData": m139,
+    "sysSubDisk": MessageLookupByLibrary.simpleMessage(
+      "on the data_dir file system",
+    ),
+    "sysSubFollows": MessageLookupByLibrary.simpleMessage(
+      "follows this broker over the peer link",
+    ),
+    "sysSubForks": MessageLookupByLibrary.simpleMessage(
+      "after a healed split · audit standby_forked",
+    ),
+    "sysSubForksNone": MessageLookupByLibrary.simpleMessage(
+      "no split since this broker started",
+    ),
+    "sysSubLag": MessageLookupByLibrary.simpleMessage(
+      "not on the standby yet: a takeover now loses them",
+    ),
+    "sysSubLagNone": MessageLookupByLibrary.simpleMessage(
+      "the standby has every registry record",
+    ),
+    "sysSubLease": MessageLookupByLibrary.simpleMessage(
+      "renewed by the lease arbiter",
+    ),
+    "sysSubLeaseLate": MessageLookupByLibrary.simpleMessage(
+      "renewing late: check the arbiter host",
+    ),
+    "sysSubLinkFailed": m140,
+    "sysSubMemory": MessageLookupByLibrary.simpleMessage("resident"),
+    "sysSubNoArbiter": MessageLookupByLibrary.simpleMessage(
+      "no arbiter configured",
+    ),
+    "sysSubOpenHistory": MessageLookupByLibrary.simpleMessage("open History"),
+    "sysSubOpenLinks": MessageLookupByLibrary.simpleMessage("open Links"),
+    "sysSubOpenQuarantine": MessageLookupByLibrary.simpleMessage(
+      "open Quarantine",
+    ),
+    "sysSubOpenSites": MessageLookupByLibrary.simpleMessage("open Sites"),
+    "sysSubPackages": MessageLookupByLibrary.simpleMessage(
+      "installed link packages",
+    ),
+    "sysSubPeer": m141,
+    "sysSubSessions": MessageLookupByLibrary.simpleMessage(
+      "network sessions; gateway users not counted",
+    ),
+    "sysSubWaits": m142,
+    "sysTabAvailability": MessageLookupByLibrary.simpleMessage("Availability"),
+    "sysTabLog": MessageLookupByLibrary.simpleMessage("Log"),
+    "sysTabMaintenance": MessageLookupByLibrary.simpleMessage("Maintenance"),
+    "sysTabOverview": MessageLookupByLibrary.simpleMessage("Overview"),
+    "sysTabsLabel": MessageLookupByLibrary.simpleMessage("System sections"),
+    "sysThisActive": MessageLookupByLibrary.simpleMessage(
+      "This broker · active",
+    ),
+    "sysThisBroker": MessageLookupByLibrary.simpleMessage("This broker"),
+    "sysTraffic": MessageLookupByLibrary.simpleMessage("Router traffic"),
+    "sysTrafficDescribe": m143,
+    "sysTrafficNote": MessageLookupByLibrary.simpleMessage(
+      "Sampled from the `sys` rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.",
+    ),
+    "sysUnitConnected": MessageLookupByLibrary.simpleMessage("connected"),
+    "sysUnreachable": MessageLookupByLibrary.simpleMessage("Unreachable"),
+    "sysUpstream": MessageLookupByLibrary.simpleMessage("Upstream"),
     "systemFooter": MessageLookupByLibrary.simpleMessage(
       "wyrmd.json5 states the intent at first start; everything changed here since lives in its write-ahead log.",
     ),
@@ -1397,17 +1824,17 @@ class MessageLookup extends MessageLookupByLibrary {
     "tabParameters": MessageLookupByLibrary.simpleMessage("Parameters"),
     "tabPoints": MessageLookupByLibrary.simpleMessage("Points"),
     "tabUsers": MessageLookupByLibrary.simpleMessage("Users"),
-    "tagNeeds": m103,
+    "tagNeeds": m144,
     "tagRunsNow": MessageLookupByLibrary.simpleMessage("runs now"),
     "tagStaged": MessageLookupByLibrary.simpleMessage("staged"),
     "taskAwaiting": MessageLookupByLibrary.simpleMessage("awaiting approval"),
     "taskDone": MessageLookupByLibrary.simpleMessage("done"),
     "taskFailed": MessageLookupByLibrary.simpleMessage("failed or stopped"),
-    "taskListNote": m104,
+    "taskListNote": m145,
     "taskPlanning": MessageLookupByLibrary.simpleMessage("planning"),
     "taskRunning": MessageLookupByLibrary.simpleMessage("running"),
     "thisBroker": MessageLookupByLibrary.simpleMessage("this broker"),
-    "tlsCertificateOf": m105,
+    "tlsCertificateOf": m146,
     "toAccept": MessageLookupByLibrary.simpleMessage("to accept"),
     "tokenForBelow": MessageLookupByLibrary.simpleMessage(
       "Token for a site below",
@@ -1425,7 +1852,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "The tree shows data only.",
     ),
     "treeNoteMiddle": MessageLookupByLibrary.simpleMessage("is edited in"),
-    "treeOf": m106,
+    "treeOf": m147,
     "treePoint": MessageLookupByLibrary.simpleMessage("Point"),
     "treePointNote": MessageLookupByLibrary.simpleMessage(
       "on a block: adds it as a field. On the canvas: a new block of that node.",
@@ -1435,7 +1862,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Please try again later.",
     ),
     "unbind": MessageLookupByLibrary.simpleMessage("Unbind"),
-    "unitNumber": m107,
+    "unitNumber": m148,
     "unpinField": MessageLookupByLibrary.simpleMessage("Unpin from block"),
     "unreachableAdvice": MessageLookupByLibrary.simpleMessage(
       "The broker may be restarting or this computer is on another network.",
@@ -1443,7 +1870,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "The point stops being recorded; its rows stay.",
     ),
-    "upFor": m108,
+    "upFor": m149,
     "updating": MessageLookupByLibrary.simpleMessage("Updating…"),
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
     "upstreamBroker": MessageLookupByLibrary.simpleMessage("Upstream broker"),
@@ -1462,8 +1889,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "a preview of the draft; nothing is written",
     ),
-    "versionDeployed": m109,
-    "viaSite": m110,
+    "versionDeployed": m150,
+    "viaSite": m151,
     "viewValue": MessageLookupByLibrary.simpleMessage("View value"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true or false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -1484,16 +1911,16 @@ class MessageLookup extends MessageLookupByLibrary {
       "Read only: the block computes this output.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Save"),
-    "viewerSaveHint": m111,
+    "viewerSaveHint": m152,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m112,
-    "wasValue": m113,
+    "waitingToBeLetIn": m153,
+    "wasValue": m154,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m114,
-    "welcomeUser": m115,
+    "watchGroups": m155,
+    "welcomeUser": m156,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
@@ -1529,9 +1956,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "wouldRun": m116,
-    "wouldWrite": m117,
-    "writableNeeds": m118,
+    "wouldRun": m157,
+    "wouldWrite": m158,
+    "writableNeeds": m159,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.",
     ),
@@ -1543,7 +1970,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m119,
+    "wyrmdOn": m160,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

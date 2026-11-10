@@ -22,6 +22,8 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
+    this.fontSize = 14,
+    this.fontWeight,
     super.key,
   }) : _variant = .primary;
 
@@ -33,6 +35,8 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
+    this.fontSize = 14,
+    this.fontWeight,
     super.key,
   }) : _variant = .secondary;
 
@@ -44,6 +48,8 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
+    this.fontSize = 14,
+    this.fontWeight,
     super.key,
   }) : _variant = .quiet;
 
@@ -55,6 +61,8 @@ class Button extends StatelessWidget {
     this.expand = false,
     this.disabledReason,
     this.size = ButtonSize.toolbar,
+    this.fontSize = 14,
+    this.fontWeight,
     super.key,
   }) : _variant = .danger;
 
@@ -74,6 +82,13 @@ class Button extends StatelessWidget {
   final String? disabledReason;
 
   final ButtonSize size;
+
+  /// The label's size; 14 everywhere but in a dense toolbar.
+  final double fontSize;
+
+  /// The label's weight; the variant's own when null (600 primary, 500
+  /// the others).
+  final FontWeight? fontWeight;
 
   final _Variant _variant;
 
@@ -101,8 +116,8 @@ class Button extends StatelessWidget {
             label,
             style: TextStyle(
               fontFamily: AppFonts.sans,
-              fontSize: 14,
-              fontWeight: _variant == .primary ? .w600 : .w500,
+              fontSize: fontSize,
+              fontWeight: fontWeight ?? (_variant == .primary ? .w600 : .w500),
               color: fg,
             ),
           ),
@@ -150,6 +165,10 @@ enum ButtonSize {
   small(32),
 
   /// A toolbar button, 40.
+  /// A toolbar inside a card (36 px): the Log toolbar, a card's own
+  /// button.
+  compact(36),
+
   toolbar(40),
 
   /// A commit button, 44.
