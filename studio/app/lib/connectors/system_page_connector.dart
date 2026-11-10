@@ -173,6 +173,10 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
 
   String _about(String k) => system.about['$_sys/$k'] ?? '';
 
+  /// The node's own unit (specs/system.md, Data), else [fallback].
+  String _unit(String k, String fallback) =>
+      system.units['$_sys/$k'] ?? fallback;
+
   /// `sys/log_level` as a name (the value is an enum code).
   String? get _brokerLevel => switch (live.values['$_sys/log_level']?.value) {
     final int i when i >= 0 && i < _logLevels.length => _logLevels[i],
@@ -457,7 +461,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
               label: 'CPU',
               keyName: 'cpu',
               value: _figure(_n('cpu')),
-              unit: '%',
+              unit: _unit('cpu', '%'),
               sub: S.current.sysSubCpu,
               about: _about('cpu'),
             ),
@@ -514,10 +518,14 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
   TrafficCardVm _traffic() {
     final measure = system.measure;
     final (key, unit, scale) = switch (measure) {
-      'frames' => ('frames', 'frame/s', 1.0),
+      'frames' => (
+        'frames',
+        _unit('frames_in_per_second', 'frame/s'),
+        1.0,
+      ),
       // The broker serves bytes per second; the board shows kB/s.
       'bytes' => ('data', 'kB/s', 0.001),
-      _ => ('messages', 'msg/s', 1.0),
+      _ => ('messages', _unit('messages_in_per_second', 'msg/s'), 1.0),
     };
     double of(TrafficSample s, {required bool inward}) =>
         scale *

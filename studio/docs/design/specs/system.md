@@ -115,5 +115,16 @@ The standby itself serves no gateway, so Studio never shows a standby's own view
 - `Clear Conns` confirms without saying which links: show the computed list.
 - No profiles section, no backup commands.
 
+## Built (2026-11-10)
+Every item above is closed in `studio/system-screen`. Where the broker serves less than this spec asks, the app shows what it has and says so (list: `docs/studio.md` §10, items 14–18):
+- **Profiles list**: `pub` has no list through the gateway, so the rows are empty with the broker's answer; `Put profile…` works, `Remove` needs a row.
+- **A failed link's `error`**: not served; the card says the state and points at the link's log.
+- **Liveliness**: the gateway connection stands in for the token `sys/broker`.
+- **Traffic axis**: first and last sample only; the reconnect mark from the log is not drawn.
+- **`Open the audit record ›`**: opens Access › Audit unfiltered (`tail` has no filter).
+- **The guide link**: copies the GitHub address to the clipboard (the app has no URL opener yet).
+- **Backup commands**: always the default paths (the broker serves neither path).
+- **(proposed)** `arbiter_lease_s` at or below 3 s reads "renewing late"; a JSON profile is `{extends, type, unit, enum, display, children, cfg, attr}`.
+
 ## Not served by the broker (left out on purpose)
 Shown on the old board, removed because `sys` has no such value or action: taking a snapshot, exporting the state as JSON5, WAL record counts, the HMAC chain check, restore time, the site CA fingerprint and expiry. Each would need a new `sys` value or action in `wyrm-admin` first (a broker change, its own ADR line), then a line here.

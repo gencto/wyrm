@@ -51,7 +51,8 @@ class GuideCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 820),
+      // The board's 820 is the content: the padding comes on top.
+      constraints: const BoxConstraints(maxWidth: 876),
       child: CustomPaint(
         painter: _Dashed(color: c.line3, fill: c.ground1),
         child: Padding(

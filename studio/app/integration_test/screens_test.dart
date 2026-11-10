@@ -24,7 +24,9 @@ import 'package:integration_test/integration_test.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_menu.dart';
+import 'package:ui/forms/log_toolbar.dart';
 import 'package:ui/indicators/app_icon.dart';
+import 'package:ui/tables/log_table.dart';
 import 'package:window_manager/window_manager.dart';
 
 // ignore: do_not_use_environment, a test parameter.
@@ -309,6 +311,56 @@ void main() {
         await tester.tap(find.text('What it may do').first);
         await settle(tester, 500);
         await shot(tester, '07c_assistant_rights');
+      }
+      if (name == 'System') {
+        // The four tabs of System (specs/system.md). Nothing is written:
+        // no level is applied, nothing is cleared, no profile is put.
+        expect(find.text('links_connected'), findsOneWidget);
+        expect(find.text('upstream_connected'), findsOneWidget);
+        expect(find.text('downstream_connected'), findsOneWidget);
+        expect(find.textContaining('NEEDS A LOOK'), findsOneWidget);
+        await tester.tap(find.text('Bytes'));
+        await settle(tester, 600);
+        expect(find.textContaining('data_in_per_second'), findsOneWidget);
+        await shot(tester, '08b_system_bytes');
+
+        await tester.tap(find.text('Availability').first);
+        await settle(tester, 800);
+        final standby = find.text('standby_connected').evaluate().isNotEmpty;
+        debugPrint('system availability: ${standby ? 'standby' : 'none'}');
+        expect(
+          standby ||
+              find
+                  .text('No standby is following this broker')
+                  .evaluate()
+                  .isNotEmpty,
+          isTrue,
+        );
+        expect(find.textContaining('NEEDS A LOOK'), findsOneWidget);
+        await shot(tester, '08c_system_availability');
+
+        await tester.tap(find.text('Log').first);
+        await settle(tester, 2500);
+        expect(find.byType(LogToolbar), findsOneWidget);
+        expect(
+          find.textContaining('Broker log level', findRichText: true),
+          findsOneWidget,
+        );
+        final rows = tester.widget<LogTable>(find.byType(LogTable)).rows;
+        debugPrint('system log rows: ${rows.length}');
+        expect(rows, isNotEmpty);
+        await shot(tester, '08d_system_log');
+
+        await tester.tap(find.text('Maintenance').first);
+        await settle(tester, 800);
+        expect(find.text('Disconnected links'), findsOneWidget);
+        expect(find.text('Device profiles'), findsOneWidget);
+        expect(find.text('Back up and restore'), findsOneWidget);
+        expect(find.textContaining('NEEDS A LOOK'), findsOneWidget);
+        await shot(tester, '08e_system_maintenance');
+
+        await tester.tap(find.text('Overview').first);
+        await settle(tester, 500);
       }
       if (name == 'Links' && find.text('modbus').evaluate().isNotEmpty) {
         await tester.tap(find.text('modbus').first);

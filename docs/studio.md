@@ -285,7 +285,7 @@ Where it is built: `refreshing(Workspace)` in `SelectComposites` (`business/lib/
 | Access | users and grants | users or grants | header line |
 | Sites | peers, sites, quarantine, links | peers or site choices | header line |
 | Assistant | agent, tasks | tasks or the agent | no status line: strip only |
-| System | log | log lines | no status line: strip only |
+| System | log (`Get log`, a toolbar change; not the 5 s poll), profiles | log lines or profiles | no status line: strip only |
 
 Golden: `ui/test/goldens/links_refreshing.png` (the Links board, refreshing, the strip half way).
 
@@ -407,7 +407,13 @@ Boards: *Studio · Flows*, *Flow editor · fields, bindings, properties*, *Flow 
 ### 7.7 History, Access, System
 - **History** (board *History · watch groups and trends*): `sys/history` groups and watches, `get_history {timerange, interval, rollup, limit}` per point; the trend is a custom painter (rows ≤ 5000 per answer).
 - **Access** (board *Studio · Access*): gateway users (`/api/users`), roles, `sys` ▸ `get_permissions`, `update_permissions {role, path, level}`, audit tail `sys/audit` ▸ `tail {n}`.
-- **System** (boards `System`, `SystemAvail*`, `SystemLog`, `SystemMaint`; spec `studio/docs/design/specs/system.md`): tabs Overview (`sys` values with their keys, router traffic), Availability (`standby_connected`, `standby_lag`, `arbiter_lease_s`, `standby_forks`; read only), Log (`sys/~act/get_log {lines, level, filter, link}`, `sys/log_level` through Review and apply), Maintenance (`clear_conns` with the list it would remove, profiles, backup commands); an attention panel beside every tab.
+- **System** (boards `System`, `SystemAvail*`, `SystemLog`, `SystemMaint`; spec `studio/docs/design/specs/system.md`): four tabs and an attention panel beside each (under the main column below 1100 px).
+  - **Overview**: every `sys` value as a tile (`SysTile`: label, key, value, unit, one line; the node's `description` as tooltip, read once per site by `RetrieveSysAboutAction`); a tile with a destination is a link (Links, Links › Quarantine, Sites, History, Access › Audit). Router traffic: `TrafficService` ticks every 2 s while Studio runs, `SampleTrafficAction` keeps the six rate keys of the site on screen watched and adds a sample per value the broker publishes (`system.samples`, one hour); the switch Messages / Frames / Bytes is `system.measure`.
+  - **Availability**: read only. `standby` in `SelectBrokerHealth` (unknown / none / following / behind) from `standby_connected`, `standby_lag`, `standby_forks`; `arbiter_lease_s` = 0 shows `—`, at or below 3 s "renewing late" (proposed).
+  - **Log**: `RetrieveSystemLogAction` = `sys/~act/get_log {lines, level, filter, link}` from the toolbar (`system.lines` 200, `logLevel`, `filter`, `source`); a refusal goes to `system.logError` and the log box, not a dialog; `PollSystemLogAction` repeats it every 5 s while the tab is shown (not in `Wait`, so no sweep bar); Copy and Save as .log write `<time> <LEVEL> <target> <message>` lines (`wyrm-<site>-<yyyymmdd-hhmm>.log`; macOS entitlement `files.user-selected.read-write`). Picking a broker log level stages `sys/log_level` (the enum index, level `config`) in Review and apply.
+  - **Maintenance**: `clearableLinks` is the broker's own `clear_conns` rule (external, `attr.origin` runtime, not connected); `ClearConnsAction` after a confirm that repeats the ids, its answer as a toast. Profiles: `RetrieveProfilesAction` (`children(pub)`, each `pub/<name>` meta), `PutProfileAction` (`.cbor` as it is, JSON encoded by `profile_mapper.dart`), `RemoveProfileAction`. Backup commands are text to copy.
+  - **Attention panel**: `attention` in `SelectBrokerHealth`, in the spec's order; `system.aclSeen` is the ACL counter when the screen was last left.
+  - `sys/allow_all_links` and `sys/enable_quarantine` are not here: their switches are in Links › Quarantine.
 
 ### 7.8 Assistant
 Boards: row *Assistant* (Ask, Plan, Running, Done, Stopped, What it may do, In Explorer). Tab: assistant; a drawer in Explorer (⌘J). State: `tasks`, `assistant`.
@@ -483,3 +489,8 @@ Each item is a change on the Rust side with its own ADR or spec line; Studio sho
 11. **Documents through the gateway.** A task's full record is the `~state` document of `tasks/<id>` (the public `~val` is `{state}` only); the gateway has no op that reads `~state`/`~def` documents (`ws.rs`: `meta`, `children`, `list`, `subscribe`, `history`, `set`, `invoke`), so the Assistant cannot show a plan until it has one (`doc {key, suffix}`, rights as `list` on the node, as the agent's `restricted` folder asks).
 12. **Which secrets a link has.** `sys/links/<id>` has `set_secret`/`delete_secret` but no read of the secret names, so Studio cannot say whether the agent's API key is set; it shows the `api_key_ref` name. A `secrets` value (names only, level `config`) would let it say "not set" and offer Set secret.
 13. **Gateway info before login.** The log-in page shows a gateway's site and wyrmd version beside its address; today the gateway tells them only after login. A public `GET /api/info {site, version, tls}` would close that.
+14. **The list of profiles.** `sys/profiles` has `put` and `remove` but no children, and `wy/<site>/pub` answers `not_found` to a list (`serve_profiles` answers `pub/<name>/~meta` only), so Studio cannot list the profiles it could remove: System › Maintenance shows the broker's answer instead of rows. A `view=list` answer on `pub` (names, user profiles apart from the built-ins) would fill the list.
+15. **Why a link failed.** `sys/links/<id>` serves `state` and `log_level` only; the attention card of a failed link has no `error` text to show (the board shows one) and points at the link's log.
+16. **The broker's liveliness through the gateway.** The token `wy/<site>/sys/broker` is not visible to a gateway user; System reads the gateway connection instead (pill `Unreachable`, the Liveliness fact).
+17. **The host's paths.** `sys` serves neither `data_dir` nor the config path, so the backup commands always carry `/var/lib/wyrm` and `/etc/wyrm/wyrmd.json5`.
+18. **The audit tail by operation.** `sys/audit ▸ tail {n}` has no filter, so `Open the audit record ›` opens Access › Audit unfiltered, not at `standby_forked`.

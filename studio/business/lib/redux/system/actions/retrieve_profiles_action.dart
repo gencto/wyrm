@@ -25,7 +25,9 @@ class RetrieveProfilesAction extends Action with WaitingAction {
     } on WyrmException catch (e) {
       return state.copyWith.system(
         profiles: const IListConst([]),
-        profilesNote: '${e.status.name}: ${e.message}'.trim(),
+        profilesNote: e.message.isEmpty
+            ? e.status.name
+            : '${e.status.name}: ${e.message}',
       );
     }
     final profiles = await Future.wait([
