@@ -628,54 +628,60 @@ class _FieldRow extends StatelessWidget {
                 },
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              spacing: 6,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 124),
-                  child: Text(
-                    vm.label,
-                    maxLines: 1,
-                    overflow: .ellipsis,
-                    style: TextStyle(fontSize: 12, color: c.text3),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    vm.value,
-                    maxLines: 1,
-                    overflow: .ellipsis,
-                    textAlign: .right,
-                    style: mono(
-                      size: 12,
-                      color: switch (vm.tone) {
-                        .plain => c.text1,
-                        .bound => c.emberNew,
-                        .bad => c.bad,
-                        .stale => c.muted,
-                        .ghost => c.emberSoft.withValues(alpha: 0.75),
-                      },
-                    ).copyWith(fontStyle: vm.tone == .ghost ? .italic : null),
-                  ),
-                ),
-                if (vm.action case final icon?)
-                  Tooltip(
-                    message: vm.actionTip,
-                    child: InkWell(
-                      key: ValueKey('row-action-$block-${vm.id}'),
-                      borderRadius: const BorderRadius.all(Radius.circular(4)),
-                      onTap: actions.onRowAction == null
-                          ? null
-                          : () => actions.onRowAction!(block, vm.id),
-                      child: Padding(
-                        padding: const EdgeInsets.all(3),
-                        child: AppIcon(icon, size: 12, color: c.text3),
-                      ),
+          // Fills the row, so the text sits on the row's centre line, where
+          // the ports are.
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                spacing: 6,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 124),
+                    child: Text(
+                      vm.label,
+                      maxLines: 1,
+                      overflow: .ellipsis,
+                      style: TextStyle(fontSize: 12, color: c.text3),
                     ),
                   ),
-              ],
+                  Expanded(
+                    child: Text(
+                      vm.value,
+                      maxLines: 1,
+                      overflow: .ellipsis,
+                      textAlign: .right,
+                      style: mono(
+                        size: 12,
+                        color: switch (vm.tone) {
+                          .plain => c.text1,
+                          .bound => c.emberNew,
+                          .bad => c.bad,
+                          .stale => c.muted,
+                          .ghost => c.emberSoft.withValues(alpha: 0.75),
+                        },
+                      ).copyWith(fontStyle: vm.tone == .ghost ? .italic : null),
+                    ),
+                  ),
+                  if (vm.action case final icon?)
+                    Tooltip(
+                      message: vm.actionTip,
+                      child: InkWell(
+                        key: ValueKey('row-action-$block-${vm.id}'),
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(4),
+                        ),
+                        onTap: actions.onRowAction == null
+                            ? null
+                            : () => actions.onRowAction!(block, vm.id),
+                        child: Padding(
+                          padding: const EdgeInsets.all(3),
+                          child: AppIcon(icon, size: 12, color: c.text3),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           if (vm.inMark != PortMark.none)
