@@ -142,7 +142,7 @@ class MessageLookup extends MessageLookupByLibrary {
   static String m53(n) =>
       "${Intl.plural(n, one: '1 instance uses it', other: '${n} instances use it')}";
 
-  static String m54(n) => "v${n} in the library";
+  static String m54(n) => "library v${n}";
 
   static String m55(n) => "${n} used";
 

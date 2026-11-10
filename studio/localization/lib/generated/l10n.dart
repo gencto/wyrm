@@ -6665,14 +6665,9 @@ class S {
     return Intl.message('v$n', name: 'mbVersion', desc: '', args: [n]);
   }
 
-  /// `v{n} in the library`
+  /// `library v{n}`
   String mbUpdateTo(int n) {
-    return Intl.message(
-      'v$n in the library',
-      name: 'mbUpdateTo',
-      desc: '',
-      args: [n],
-    );
+    return Intl.message('library v$n', name: 'mbUpdateTo', desc: '', args: [n]);
   }
 
   /// `Open inside`

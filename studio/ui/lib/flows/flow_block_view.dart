@@ -514,13 +514,10 @@ class FlowBlockView extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            RotatedBox(
-                              quarterTurns: 3,
-                              child: AppIcon(
-                                'ui_send',
-                                size: 12,
-                                color: c.emberSoft,
-                              ),
+                            AppIcon(
+                              'ui_chevron_right',
+                              size: 12,
+                              color: c.emberSoft,
                             ),
                           ],
                         ),

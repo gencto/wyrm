@@ -160,7 +160,8 @@ class _ScopePromptState extends State<ScopePrompt> {
                   key: const ValueKey('scope-field'),
                   controller: _text,
                   focusNode: _focus,
-                  onSubmitted: (_) => _save(),
+                  // Enter saves; a refused scope keeps the cursor here.
+                  onEditingComplete: _save,
                   style: mono(size: 12, color: c.text1),
                   decoration: const InputDecoration.collapsed(hintText: '')
                       .copyWith(

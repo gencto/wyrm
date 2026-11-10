@@ -850,7 +850,7 @@
     "@mbUsed": {"placeholders": {"n": {"type": "int"}}},
     "mbVersion": "v{n}",
     "@mbVersion": {"placeholders": {"n": {"type": "int"}}},
-    "mbUpdateTo": "у бібліотеці v{n}",
+    "mbUpdateTo": "бібліотека v{n}",
     "@mbUpdateTo": {"placeholders": {"n": {"type": "int"}}},
     "openInside": "Відкрити вміст",
     "kindMyBlock": "Власний блок",

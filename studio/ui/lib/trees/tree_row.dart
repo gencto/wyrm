@@ -128,37 +128,45 @@ class TreeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final sel = vm.selected;
+    // The compact row of a side panel (the flow editor's Tree tab): less
+    // indent, and a tagged leaf stands where its parent's icon does.
+    final compact = height < 40;
+    final leaf = compact && vm.tag != null && !vm.hasChildren;
     return InkWell(
       onTap: onTap == null ? null : () => onTap!(vm.id),
       borderRadius: Radii.segment,
       hoverColor: c.ground3,
       child: Container(
         height: height,
-        padding: EdgeInsets.only(left: 10.0 + vm.depth * 16, right: 10),
+        padding: EdgeInsets.only(
+          left: compact ? 6.0 + vm.depth * 12 : 10.0 + vm.depth * 16,
+          right: compact ? 8 : 10,
+        ),
         decoration: BoxDecoration(
           color: sel ? c.emberTint : (vm.marked ? c.ground3 : null),
           borderRadius: Radii.segment,
         ),
         child: Row(
-          spacing: 8,
+          spacing: compact ? 6 : 8,
           children: [
-            SizedBox(
-              width: 16,
-              child: vm.hasChildren
-                  ? GestureDetector(
-                      onTap: onToggle == null ? null : () => onToggle!(vm.id),
-                      child: AnimatedRotation(
-                        turns: vm.expanded ? 0.25 : 0,
-                        duration: const Duration(milliseconds: 120),
-                        child: AppIcon(
-                          'ui_chevron_right',
-                          size: 14,
-                          color: c.text4,
+            if (!leaf)
+              SizedBox(
+                width: 16,
+                child: vm.hasChildren
+                    ? GestureDetector(
+                        onTap: onToggle == null ? null : () => onToggle!(vm.id),
+                        child: AnimatedRotation(
+                          turns: vm.expanded ? 0.25 : 0,
+                          duration: const Duration(milliseconds: 120),
+                          child: AppIcon(
+                            'ui_chevron_right',
+                            size: 14,
+                            color: c.text4,
+                          ),
                         ),
-                      ),
-                    )
-                  : null,
-            ),
+                      )
+                    : null,
+              ),
             if (vm.tag case final tag?)
               SizedBox(
                 width: 24,
@@ -195,7 +203,7 @@ class TreeRow extends StatelessWidget {
               ),
             if (vm.value case final v?)
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 96),
+                constraints: const BoxConstraints(maxWidth: 72),
                 child: Text(
                   v,
                   maxLines: 1,

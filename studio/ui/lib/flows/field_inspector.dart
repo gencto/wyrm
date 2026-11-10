@@ -779,46 +779,61 @@ class _Row extends StatelessWidget {
           onChanged: (v) => onChanged(vm.id, v),
         );
       case FieldEditorVm.output:
-        return SizedBox(
-          height: 32,
+        // The value, and under it where it goes: each has the whole cell,
+        // so a time or an error's text is not cut by `not bound`.
+        return ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 32),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              spacing: 8,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Column(
+              mainAxisAlignment: .center,
+              crossAxisAlignment: .start,
               children: [
-                Flexible(
-                  child: Text(
+                if (vm.value.isNotEmpty)
+                  Text(
                     vm.value,
                     maxLines: 1,
                     overflow: .ellipsis,
                     style: mono(size: 12, color: c.text1),
                   ),
-                ),
-                Flexible(
-                  child: Text(
+                if (vm.targets.isNotEmpty)
+                  Text(
                     vm.targets,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    textAlign: .right,
-                    style: mono(size: 12, color: c.text4),
+                    style: mono(size: 10, color: c.text4),
                   ),
-                ),
               ],
             ),
           ),
         );
       case FieldEditorVm.run:
-        return Align(
-          alignment: .centerLeft,
-          child: Button.secondary(
-            key: ValueKey('run-${vm.id}'),
-            label: vm.value,
-            icon: 'action_play',
-            size: ButtonSize.small,
-            disabledReason: vm.disabledReason,
-            onPressed: vm.disabledReason != null || onRun == null
-                ? null
-                : () => onRun!(vm.id),
+        // Off, it says why under the button, not only in its tooltip.
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            vertical: vm.disabledReason == null ? 0 : 6,
+          ),
+          child: Column(
+            mainAxisSize: .min,
+            crossAxisAlignment: .start,
+            spacing: 4,
+            children: [
+              Button.secondary(
+                key: ValueKey('run-${vm.id}'),
+                label: vm.value,
+                icon: 'action_play',
+                size: ButtonSize.small,
+                disabledReason: vm.disabledReason,
+                onPressed: vm.disabledReason != null || onRun == null
+                    ? null
+                    : () => onRun!(vm.id),
+              ),
+              if (vm.disabledReason case final why?)
+                Text(
+                  why,
+                  style: TextStyle(fontSize: 11, height: 1.35, color: c.text4),
+                ),
+            ],
           ),
         );
       case FieldEditorVm.duration:

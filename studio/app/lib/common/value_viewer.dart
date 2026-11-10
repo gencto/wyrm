@@ -222,6 +222,5 @@ Object? _encodable(Object? v) => switch (v) {
   _ => '$v',
 };
 
-String _encode(num n) => n is double && (n.isNaN || n.isInfinite)
-    ? jsonEncode('$n')
-    : jsonEncode(n);
+String _encode(num n) =>
+    n is double && (n.isNaN || n.isInfinite) ? jsonEncode('$n') : jsonEncode(n);

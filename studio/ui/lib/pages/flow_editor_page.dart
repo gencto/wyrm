@@ -390,15 +390,6 @@ class FlowEditorPage extends StatelessWidget {
                               ),
                             ),
                           ],
-                          if (insideNote case final note?)
-                            Flexible(
-                              child: Text(
-                                note,
-                                maxLines: 1,
-                                overflow: .ellipsis,
-                                style: TextStyle(fontSize: 12, color: c.text4),
-                              ),
-                            ),
                           if (blockLabel case final b?) ...[
                             Text('›', style: TextStyle(color: c.muted)),
                             Flexible(
@@ -410,6 +401,22 @@ class FlowEditorPage extends StatelessWidget {
                               ),
                             ),
                           ],
+                          if (insideNote case final note?)
+                            Flexible(
+                              flex: 2,
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: Text(
+                                  note,
+                                  maxLines: 1,
+                                  overflow: .ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: c.text4,
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),

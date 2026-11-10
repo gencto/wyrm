@@ -536,7 +536,15 @@ class _BlockRow extends StatelessWidget {
               ),
             ),
             if (e.value case final v?)
-              Text(v, style: mono(size: 11, color: c.text4)),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 84),
+                child: Text(
+                  v,
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: mono(size: 11, color: c.text4),
+                ),
+              ),
           ],
         ),
       ),

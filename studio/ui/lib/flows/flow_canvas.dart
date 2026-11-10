@@ -1255,22 +1255,30 @@ class _FlowCanvasState extends State<FlowCanvas> {
               ),
             ),
             if (widget.prompt case final ask?)
-              ListenableBuilder(
-                listenable: _ctl,
-                builder: (context, _) {
-                  final at = _promptAt(ask, byId);
-                  return Positioned(
-                    left: at.dx,
-                    top: at.dy,
-                    child: ScopePrompt(
-                      key: ValueKey('scope-prompt-${ask.block}'),
-                      vm: ask,
-                      onSave: widget.onPromptSave ?? (_) {},
-                      onCancel: widget.onPromptCancel ?? () {},
-                      validate: widget.validatePrompt,
-                    ),
-                  );
-                },
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, box) => ListenableBuilder(
+                    listenable: _ctl,
+                    builder: (context, _) {
+                      final at = _promptAt(ask, byId, box.biggest);
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: at.dx,
+                            top: at.dy,
+                            child: ScopePrompt(
+                              key: ValueKey('scope-prompt-${ask.block}'),
+                              vm: ask,
+                              onSave: widget.onPromptSave ?? (_) {},
+                              onCancel: widget.onPromptCancel ?? () {},
+                              validate: widget.validatePrompt,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
               ),
             if (_help) ...[
               Positioned.fill(
@@ -1301,7 +1309,11 @@ class _FlowCanvasState extends State<FlowCanvas> {
 
   /// Where the scope prompt stands in the view: under the row it asks
   /// about, at the block's left edge, kept inside the view.
-  Offset _promptAt(ScopePromptVm ask, Map<String, FlowBlockVm> byId) {
+  Offset _promptAt(
+    ScopePromptVm ask,
+    Map<String, FlowBlockVm> byId,
+    Size size,
+  ) {
     final b = byId[ask.block];
     if (b == null) {
       return const Offset(24, 24);
@@ -1316,10 +1328,6 @@ class _FlowCanvasState extends State<FlowCanvas> {
           4,
     );
     final at = MatrixUtils.transformPoint(_ctl.value, under);
-    final size = _viewBox?.size;
-    if (size == null) {
-      return at;
-    }
     return Offset(
       at.dx.clamp(8, math.max(8, size.width - ScopePrompt.width - 8)),
       at.dy.clamp(8, math.max(8, size.height - 230)),

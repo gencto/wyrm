@@ -1844,7 +1844,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           : null,
       x: b.x,
       y: b.y,
-      width: blockWidthOf(role),
+      // The inputs and outputs blocks of an inside view are narrow: names.
+      width: isBoundary(b.id) ? 160 : blockWidthOf(role),
       selected: selected,
       tag: ghost == null ? null : S.current.previewTag,
       rows: [

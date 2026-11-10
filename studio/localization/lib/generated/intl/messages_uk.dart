@@ -142,7 +142,7 @@ class MessageLookup extends MessageLookupByLibrary {
   static String m53(n) =>
       "${Intl.plural(n, one: 'його вживає 1 екземпляр', few: 'його вживають ${n} екземпляри', other: 'його вживають ${n} екземплярів')}";
 
-  static String m54(n) => "у бібліотеці v${n}";
+  static String m54(n) => "бібліотека v${n}";
 
   static String m55(n) => "вжито: ${n}";
 
