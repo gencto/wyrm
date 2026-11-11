@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:models/flow_block.dart';
@@ -65,7 +66,13 @@ enum BlockRole {
 const _reads = {'subscribe', 'liveliness'};
 
 /// Types whose point is their `key`; the others name it `path`.
-const _keyed = {'subscribe', 'liveliness', 'load_value'};
+const _keyed = {
+  'subscribe',
+  'liveliness',
+  'load_value',
+  'load_history',
+  'get_node',
+};
 const _sinks = {'publish', 'set', 'invoke'};
 
 /// Inputs into these write to a device (ember wires, spec §4).
@@ -110,6 +117,7 @@ final class FlowField {
     this.outAliases = const [],
     this.variable = false,
     this.operand = false,
+    this.command = false,
   });
 
   /// Unique within the block: `p:<name>`, `in:<port>`, `out:<port>`,
@@ -159,6 +167,11 @@ final class FlowField {
   /// in the config while bound and returns on unbind.
   final bool operand;
 
+  /// An input that is a command ([commandInputs]: `date_range` `next`,
+  /// `table_page` `first`): a button that a sample on its wire presses,
+  /// not a value. It holds no typed value and shows none.
+  final bool command;
+
   /// Whether an edge out of [port] leaves this field.
   bool sends(String port) => port == outPort || outAliases.contains(port);
 
@@ -177,6 +190,7 @@ final class FlowField {
       other.onBlock == onBlock &&
       other.variable == variable &&
       other.operand == operand &&
+      other.command == command &&
       _same(other.outAliases, outAliases);
 
   static bool _same(List<String> a, List<String> b) =>
@@ -194,13 +208,15 @@ final class FlowField {
     onBlock,
     variable,
     operand,
+    command,
     Object.hashAll(outAliases),
   );
 
   @override
   String toString() =>
       'FlowField($name "$label" ${inPort ?? '-'} → ${outPort ?? '-'}'
-      '${onBlock ? '' : ' hidden'}${operand ? ' operand' : ''})';
+      '${onBlock ? '' : ' hidden'}${operand ? ' operand' : ''}'
+      '${command ? ' command' : ''})';
 }
 
 /// The variable inputs of a block (`inputs` of `add`, `if`, `expression`):
@@ -212,6 +228,7 @@ final class Variadic {
     required this.names,
     required this.min,
     this.step = 1,
+    this.outPrefix,
   });
 
   /// The list parameter (`inputs`).
@@ -219,6 +236,10 @@ final class Variadic {
 
   /// Each name's port prefix (`in.`).
   final String prefix;
+
+  /// Each name's output prefix when the list names outputs too (`router`:
+  /// `out.`, a case and its output are one field); null: inputs only.
+  final String? outPrefix;
   final List<String> names;
 
   /// Fewer is refused (the type's default count, at least 1).
@@ -240,6 +261,7 @@ final class Variadic {
         prefix: prefix,
         names: [...v.names, n],
         min: min,
+        outPrefix: outPrefix,
       );
     }
     return out;
@@ -274,10 +296,16 @@ final class Variadic {
   }
 }
 
-/// The variable inputs of [b], if its type has a list of them.
+/// The variable inputs of [b], if its type has a list of them. A list that
+/// names outputs too (`router`: `in.<case>` and `out.<case>`) changes both
+/// ([Variadic.outPrefix]); one that names other outputs (`wasm`) is no
+/// list of inputs.
 Variadic? variadicOf(NodeType? t, FlowBlock b) {
   final param = t?.dynInParam;
-  if (t == null || param == null || t.dynOutParam != null || t.dynInKeys) {
+  if (t == null ||
+      param == null ||
+      (t.dynOutParam != null && t.dynOutParam != param) ||
+      t.dynInKeys) {
     return null;
   }
   final names = switch (b.cfg[param]) {
@@ -294,8 +322,25 @@ Variadic? variadicOf(NodeType? t, FlowBlock b) {
     names: names,
     min: math.max(step, t.dynInDefaults.length),
     step: step,
+    outPrefix: t.dynOutParam == param ? t.dynOutPrefix : null,
   );
 }
+
+/// Whether blocks of [t] name an output for each variable input
+/// (`router`): the input `in.<case>` and the output `out.<case>` are one
+/// field, its case on the left and what it routes on the right.
+bool pairsOutputs(NodeType? t) =>
+    t != null &&
+    t.dynInParam != null &&
+    t.dynInParam == t.dynOutParam &&
+    !t.dynInKeys;
+
+/// What a case of a `router` reads: `Case 1` for the name `0`, else the
+/// name the user gave it (`high`).
+String caseLabel(String name) => switch (int.tryParse(name)) {
+  final n? => 'Case ${n + 1}',
+  null => name,
+};
 
 /// Block types whose variable inputs come in pairs: `case` (a case value,
 /// then what it gives; ADR 0038 §8).
@@ -350,7 +395,267 @@ const fieldLabelOverrides = <String, String>{
   'list_children.path': 'Node',
   'throttle.ms': 'Period (ms)',
   'debounce.ms': 'Quiet time (ms)',
+  // ADR 0044: the third set (docs/flow-blocks.md, the editor's table).
+  'get_node.key': 'Node',
+  'date_range.range_delimiter': 'Delimiter',
 };
+
+/// Inputs that are commands, not values: a sample on the wire presses them
+/// (docs/flow-blocks.md: `date_range` moves to the next or the previous
+/// range, `table_page` to a page). The editor draws them as buttons.
+const commandInputs = <String, Set<String>>{
+  'date_range': {'next', 'previous'},
+  'table_page': {'next', 'previous', 'first', 'last'},
+};
+
+/// The fields that hold a date: microseconds since the Unix epoch (ADR 0044
+/// §3). The editor shows such a value as a date and time; the viewer adds
+/// the instant in UTC and the number. `date_range.duration` is a length of
+/// time, not a date.
+const timeFields = <String, Set<String>>{
+  'now': {'out'},
+  'date_time': {'out'},
+  'date_parse': {'in', 'time'},
+  'date_format': {'in'},
+  'date_math': {'in', 'out'},
+  'date_range': {'start', 'end'},
+};
+
+/// Whether field [name] (a port) of a block of [type] holds a date
+/// ([timeFields]).
+bool isTimeField(String type, String name) =>
+    timeFields[type]?.contains(name) ?? false;
+
+/// The time zone parameters of the date blocks (ADR 0044 §3): an IANA name,
+/// `UTC` or `±HH:MM`; `date_format` also takes `auto`.
+bool isTimeZoneParam(String type, String name) =>
+    name == 'time_zone' &&
+    const {
+      'date_time',
+      'date_format',
+      'date_parse',
+      'date_math',
+      'date_range',
+      'load_history',
+      'table_rollup',
+    }.contains(type);
+
+/// The fields that hold a range text as `date_range` reads it (`today`,
+/// `lastWeek`, `current24hours`, `2026-10`, `<a>/<b>`): the operand `in`
+/// of `date_range` and the parameter `time_range` of `load_history`.
+bool isRangeText(String type, String name) =>
+    type == 'date_range' && name == 'in' ||
+    type == 'load_history' && name == 'time_range';
+
+/// The choices a range text offers (docs/flow-blocks.md, `date_range`); any
+/// other text the engine reads (`2026-10`, `<a>/<b>`) is typed.
+const rangeChoices = [
+  'today',
+  'yesterday',
+  'thisWeek',
+  'lastWeek',
+  'thisMonth',
+  'lastMonth',
+  'thisYear',
+  'lastYear',
+  'current1hours',
+  'current24hours',
+  'current7days',
+  'current30days',
+  'previous24hours',
+  'previous7days',
+  'previous30days',
+];
+
+/// The time zones a time zone field offers: `UTC`, then the IANA names of
+/// the main regions. Any other IANA name or an offset `±HH:MM` is typed;
+/// the engine checks it against its own zone data (jiff's bundled tzdb).
+const timeZoneChoices = [
+  'UTC',
+  'Europe/Kyiv',
+  'Europe/London',
+  'Europe/Lisbon',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Amsterdam',
+  'Europe/Brussels',
+  'Europe/Vienna',
+  'Europe/Zurich',
+  'Europe/Stockholm',
+  'Europe/Oslo',
+  'Europe/Copenhagen',
+  'Europe/Helsinki',
+  'Europe/Warsaw',
+  'Europe/Prague',
+  'Europe/Budapest',
+  'Europe/Bucharest',
+  'Europe/Sofia',
+  'Europe/Athens',
+  'Europe/Istanbul',
+  'Europe/Vilnius',
+  'Europe/Riga',
+  'Europe/Tallinn',
+  'Europe/Chisinau',
+  'Africa/Cairo',
+  'Africa/Johannesburg',
+  'Africa/Lagos',
+  'Asia/Dubai',
+  'Asia/Tbilisi',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+  'Australia/Sydney',
+  'Pacific/Auckland',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'America/Mexico_City',
+  'America/Sao_Paulo',
+  'America/Buenos_Aires',
+  '+02:00',
+  '-05:00',
+];
+
+/// The choices of a time zone field of a block of [type]: `auto`
+/// first for `date_format` (the offset written in the input text).
+List<String> timeZoneChoicesOf(String type) => [
+  if (type == 'date_format') 'auto',
+  ...timeZoneChoices,
+];
+
+/// Whether field [name] of a block of type [t] may hold a table given as a
+/// list of maps (ADR 0044 §2): the table inputs and outputs of the Tables
+/// blocks, the rows a reader gives (`list_children`, `load_history`) and
+/// the actions of `get_node`. A value `{columns, rows}` is a table
+/// anywhere.
+bool holdsTable(NodeType? t, String name) => switch ((t?.type, name)) {
+  ('list_children' || 'load_history', 'out') => true,
+  ('get_node', 'actions') => true,
+  ('table', 'value' || 'out' || 'in') => true,
+  (_, 'in' || 'right' || 'out') => t?.category == 'Tables',
+  _ => false,
+};
+
+/// The methods of an aggregate (`crates/wyrm-flow/src/blocks/tables.rs`
+/// `METHODS`), for a type whose catalog gives no `method` choices.
+const aggregateMethods = [
+  'first',
+  'last',
+  'count',
+  'sum',
+  'average',
+  'min',
+  'max',
+  'median',
+  'mode',
+  'std_deviation',
+  'variance',
+  'concat',
+  'concat_unique',
+];
+
+/// The keys of the items of a list parameter that the inspector edits as
+/// rows (docs/flow-blocks.md, Tables): `mapping` `[{name, from}]`,
+/// `aggregates` `[{column, method, as}]` with the method a choice (the
+/// type's own `method` choices when its catalog has them). Null for any
+/// other parameter.
+List<({String key, List<String> choices})>? listItemsOf(
+  NodeType? t,
+  String name,
+) {
+  switch ((t?.type, name)) {
+    case ('table_map_columns', 'mapping'):
+      return const [(key: 'name', choices: []), (key: 'from', choices: [])];
+    case ('table_group_by' || 'table_rollup', 'aggregates'):
+      final listed = t?.params
+          .where((p) => p.name == 'method')
+          .firstOrNull
+          ?.choices;
+      return [
+        (key: 'column', choices: const []),
+        (
+          key: 'method',
+          choices: listed == null || listed.isEmpty
+              ? aggregateMethods
+              : listed.unlock,
+        ),
+        (key: 'as', choices: const []),
+      ];
+    default:
+      return null;
+  }
+}
+
+/// The items of a list parameter as rows of texts by key ([listItemsOf]):
+/// a text as it is, another value as JSON. A value that is no list of maps
+/// gives no rows.
+List<Map<String, String>> listRowsOf(Object? v) => [
+  if (v case final List<Object?> l)
+    for (final item in l)
+      if (item case final Map<Object?, Object?> m)
+        {
+          for (final MapEntry(:key, :value) in m.entries)
+            '$key': switch (value) {
+              null => '',
+              final String s => s,
+              _ => jsonEncode(value),
+            },
+        },
+];
+
+/// Whether input [port] of a block of [type] is a command ([commandInputs]).
+bool isCommandInput(String type, String port) =>
+    commandInputs[type]?.contains(port) ?? false;
+
+/// The palette's sections in order (flow-editor.md §2): where a value
+/// comes from, the values, the calculations from the plainest, the logic,
+/// text and its codecs, data and tables, time, then what the flow does to
+/// the tree. A category the engine adds later comes after these, in the
+/// catalog's order.
+const paletteCategories = [
+  'Sources',
+  'Variables',
+  'Math',
+  'Trigonometry',
+  'Statistics',
+  'Logic',
+  'Text',
+  'Codecs',
+  'Data',
+  'Tables',
+  'Date and time',
+  'Alarms',
+  'Outputs',
+  'WASM',
+];
+
+/// [types] in the palette's order: by [paletteCategories], the catalog's
+/// order within a category.
+List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
+  final seen = <String>[];
+  for (final t in types) {
+    if (!seen.contains(t.category)) {
+      seen.add(t.category);
+    }
+  }
+  int rank(String c) {
+    final i = paletteCategories.indexOf(c);
+    return i >= 0 ? i : paletteCategories.length + seen.indexOf(c);
+  }
+
+  final all = types.toList();
+  final at = {for (final (i, t) in all.indexed) t.type: i};
+  return all..sort((a, b) {
+    final r = rank(a.category).compareTo(rank(b.category));
+    return r != 0 ? r : at[a.type]!.compareTo(at[b.type]!);
+  });
+}
 
 /// What a block type reads in the palette and in a block's header: the
 /// engine's name in sentence case (`rising_edge` → `Rising edge`,
@@ -413,6 +718,18 @@ const outputLabelOverrides = <String, String>{
   'stats.avg': 'Average',
   'alarm.out': 'Active',
   'timer.out': 'Count',
+  'constant.out': 'Value',
+};
+
+/// Parameters a block of a type lists in the inspector only, though they
+/// have a port or a default (docs/flow-blocks.md, the editor's table): the
+/// rows that crowd the block and that few flows set. A wire or the user's
+/// pin still puts them on the block.
+const inspectorOnly = <String, Set<String>>{
+  'load_history': {'limit', 'time_zone'},
+  'table_filter': {'expr'},
+  'table_remove_rows': {'expr'},
+  'table_edit_rows': {'expr'},
 };
 
 /// Parameters of which the engine needs one or the other: both are rows
@@ -584,7 +901,7 @@ List<FlowField> fieldsOf(
     ];
   }
   // A variable (`number`, `string`, `bool`, `const`): its input, its
-  // parameter and its output are one field, as in DGLux (spec §3).
+  // parameter and its output are one field (spec §3).
   if (isVariable(t)) {
     final p = t.params.first;
     return [
@@ -641,7 +958,9 @@ List<FlowField> fieldsOf(
   // parameters (ADR 0038 §1).
   final taken = <String>{...ports.outputs};
   final inEcho = <String, String>{};
-  for (final port in [...fixedIns, ...dynIns]) {
+  // A case of a `router` leaves by its own output, not by an echo.
+  final routed = pairsOutputs(t);
+  for (final port in [...fixedIns, if (!routed) ...dynIns]) {
     final allowed =
         echoInputs ||
         (b.type == 'set' && port == 'in' && (t.echoInputs ?? true));
@@ -686,6 +1005,7 @@ List<FlowField> fieldsOf(
               b.cfg[n] != null,
             // The action block names its action in its header.
             'action' || 'on' when behaves && role == BlockRole.action => false,
+            final n when inspectorOnly[b.type]?.contains(n) ?? false => false,
             _ =>
               !node &&
                   !(role == BlockRole.action &&
@@ -703,30 +1023,42 @@ List<FlowField> fieldsOf(
           },
         ),
   ];
-  FlowField input(String port, {required bool variable, int index = 0}) =>
-      FlowField(
-        id: 'in:$port',
-        name: port,
-        label: switch (b.type) {
-          'publish' when port == 'in' => 'Value',
-          'set' when port == 'in' => pointName ?? 'Input',
-          'invoke' when port == 'in' => 'Run when',
-          // A custom block's ports keep the names their author gave them.
-          _ when instance => port,
-          _ when variable && pairedInputs.contains(b.type) => pairLabel(index),
-          _ => fieldLabel(b.type, port, variable: variable),
-        },
-        kind: .input,
-        inPort: port,
-        // A writable point repeats what it writes (spec §3, tree point).
-        outPort: inEcho[port],
-        operand: operands.contains(port),
-        // The action block runs on its trigger: the older `in` stays in
-        // the inspector. A `set` is its point; its trigger is set there too.
-        onBlock:
-            !behaves ||
-            !(port == 'in' && b.type == 'invoke' || port == 'trigger' && node),
-      );
+  FlowField input(String port, {required bool variable, int index = 0}) {
+    final command = !variable && isCommandInput(b.type, port);
+    final name = port.startsWith(t.dynInPrefix)
+        ? port.substring(t.dynInPrefix.length)
+        : port;
+    return FlowField(
+      id: 'in:$port',
+      name: port,
+      label: switch (b.type) {
+        'publish' when port == 'in' => 'Value',
+        'set' when port == 'in' => pointName ?? 'Input',
+        'invoke' when port == 'in' => 'Run when',
+        // A custom block's ports keep the names their author gave them.
+        _ when instance => port,
+        _ when variable && pairedInputs.contains(b.type) => pairLabel(index),
+        _ when variable && routed => caseLabel(name),
+        _ => fieldLabel(b.type, port, variable: variable),
+      },
+      kind: .input,
+      inPort: port,
+      // A writable point repeats what it writes (spec §3, tree point); a
+      // case of a `router` sends on its own output; a command (a button)
+      // feeds nothing, though an older wire out of its echo still draws.
+      outPort: variable && routed
+          ? '${t.dynOutPrefix}$name'
+          : (command ? null : inEcho[port]),
+      outAliases: [if (command) ?inEcho[port]],
+      command: command,
+      operand: operands.contains(port),
+      // The action block runs on its trigger: the older `in` stays in
+      // the inspector. A `set` is its point; its trigger is set there too.
+      onBlock:
+          !behaves ||
+          !(port == 'in' && b.type == 'invoke' || port == 'trigger' && node),
+    );
+  }
 
   final fixed = [for (final p in fixedIns) input(p, variable: false)];
   final dyn = [
@@ -758,9 +1090,15 @@ List<FlowField> fieldsOf(
       for (final p in actionParams)
         if (!argKeys.contains(p.name)) arg(p.name, has: false),
   ];
+  // The outputs of the cases of a `router` are the cases' own fields.
+  final caseOuts = {
+    if (routed)
+      for (final p in dynIns)
+        '${t.dynOutPrefix}${p.substring(t.dynInPrefix.length)}',
+  };
   final outs = <FlowField>[
     for (final p in ports.outputs)
-      if (!_otherForm(b, p, edges))
+      if (!_otherForm(b, p, edges) && !caseOuts.contains(p))
         FlowField(
           id: 'out:$p',
           name: p,
@@ -790,8 +1128,9 @@ List<FlowField> fieldsOf(
         ),
   ];
   // A sink names what it writes before the value it writes (`publish`:
-  // node, value). Elsewhere the parameters DGLux draws after the variable
-  // inputs ([tailParams]: `if` then, else; `concat` strict) come after them.
+  // node, value). Elsewhere the order is: operands, parameters, variable
+  // inputs, then the trailing parameters ([tailParams]: `if` then, else;
+  // `concat` strict), results.
   final tail = tailParams[b.type] ?? const <String>{};
   final head = [
     for (final f in params)
@@ -826,15 +1165,18 @@ List<FlowField> fieldsOf(
   });
 }
 
-/// Parameters drawn after a block's variable inputs, as DGLux draws them
-/// (its schema's `tail`): `if` reads Operation · Input 1… · Then · Else ·
-/// Output, `concat` Input 1… · Strict · Output, `hub` Input 1… · Ignore
-/// null · Output · Index · On change.
+/// The trailing parameters: drawn after a block's variable inputs (order:
+/// operands, parameters, variable inputs, then these, results). `if` reads
+/// Operation · Input 1… · Then · Else · Output, `concat` Input 1… · Strict
+/// · Output, `hub` Input 1… · Ignore null · Output · Index · On change.
 const tailParams = <String, Set<String>>{
   'if': {'then', 'else'},
   'concat': {'strict'},
   'hub': {'ignore_null'},
   'case': {'else'},
+  // ADR 0044 (docs/flow-blocks.md, the editor's table).
+  'router': {'single_output'},
+  'table_recorder': {'enabled', 'buffer_size', 'time_window_s', 'ignore_null'},
 };
 
 /// Whether blocks of [t] are variables: one parameter `value`, at most the
@@ -984,6 +1326,8 @@ Refused? bindRefusal(
               'liveliness',
               'load_value',
               'list_children',
+              'load_history',
+              'get_node',
             }.contains(dstType);
     return Refused(
       to.kind == FieldKind.output
@@ -1148,6 +1492,9 @@ FieldValue fieldValue(
     switch (shown) {
       final Map<Object?, Object?> m when m.isNotEmpty => '{…}',
       final List<Object?> l when l.isNotEmpty => '[…]',
+      // A date of the engine (µs) reads as a date and time.
+      final num n when isTimeField(b.type, f.name) && dateText(n) != null =>
+        dateText(n)!,
       _ when point && sample != null => valueText(
         shown,
         unit: unit,

@@ -953,18 +953,18 @@ Rules:
 | `hash` | Input ⇄ · Algorithm ⇄ · Output → | `in`; `in.algorithm`; `out` | — | Algorithm dropdown |
 | `json_parse` | Input ⇄ · Output → · Parse error → | `in`; `out`, `parse_error` | — | — |
 | `json_stringify` | Input ⇄ · Pretty ⇄ · Output → | `in`; `in.pretty`; `out` | — | Pretty toggle |
-| `now` | Input ⇄ · Output → | `in`; `out` | — | — |
-| `date_time` | Year ⇄ · Month ⇄ · Day ⇄ · Hour ⇄ · Minute ⇄ · Second ⇄ · Millisecond ⇄ · Time zone ⇄ · Output → | `in.<p>` → `<p>`; `out` | — | — |
-| `date_format` | Input ⇄ · Format ⇄ · Time zone ⇄ · Output → | `in`; `in.format`, `in.time_zone`; `out` | — | — |
-| `date_parse` | Input ⇄ · Time zone ⇄ · Time → · Year → · … · Weekday → | `in`; `in.time_zone`; the parts | — | — |
-| `date_math` | Input ⇄ · Operation ⇄ · Year ⇄ · … · Millisecond ⇄ · Time zone ⇄ · Output → | `in`; `in.<p>`; `out` | — | Operation dropdown |
-| `date_range` | Input ⇄ · Next ⇄ · Previous ⇄ · Format ⇄ · Delimiter ⇄ · Keep special ⇄ · Week start ⇄ · Time zone ⇄ · Start → · End → · This range → · Next range → · Previous range → · Formatted → · Duration → | `in`, `next`, `previous`; `in.<p>`; outputs | — | Keep special, Week start dropdowns |
-| `router` | Input ⇄ · Condition ⇄ · Operation ⇄ · Case 1 ⇄ · … · Single output ⇄ · Output 1 → · … · Else → (− / + adds a case and its output) | `in`, `condition`; `in.op`, `in.single_output`; `in.<case>` with `out.<case>`; `else` | Inputs (list) | Operation dropdown; cases typed (`values`) |
+| `now` | Input ⇄ · Output → (a date and time) | `in`; `out` | — | the viewer: the local date, UTC and the µs |
+| `date_time` | Year ⇄ · Month ⇄ · Day ⇄ · Hour ⇄ · Minute ⇄ · Second ⇄ · Millisecond ⇄ · Time zone ⇄ · Output → (a date and time) | `in.<p>` → `<p>`; `out` | — | Time zone: a text with a menu of zones (`UTC`, IANA names, `±HH:MM`) |
+| `date_format` | Input ⇄ (a µs value as a date and time) · Format ⇄ · Time zone ⇄ · Output → | `in`; `in.format`, `in.time_zone`; `out` | — | Time zone: the zone menu with `auto` first |
+| `date_parse` | Input ⇄ · Time zone ⇄ · Time → (a date and time) · Year → · … · Weekday → | `in`; `in.time_zone`; the parts | — | Time zone: the zone menu |
+| `date_math` | Input ⇄ · Operation ⇄ · Year ⇄ · … · Millisecond ⇄ · Time zone ⇄ · Output → (Input and Output as a date and time) | `in`; `in.<p>`; `out` | — | Operation dropdown; Time zone: the zone menu |
+| `date_range` | Input ⇄ · ▸ Next ← · ▸ Previous ← (buttons: a sample on the wire presses them) · Format ⇄ · Delimiter ⇄ · Keep special ⇄ · Week start ⇄ · Time zone ⇄ · Start → · End → (dates and times) · This range → · Next range → · Previous range → · Formatted → · Duration → | `in`, `next`, `previous`; `in.<p>`; outputs | — | Input: a text with a menu of range texts (`today`, `lastWeek`, `current24hours`, …); Keep special, Week start dropdowns; Time zone: the zone menu; Next, Previous: an off button that says a wire presses it |
+| `router` | Input ⇄ · Condition ⇄ · Operation ⇄ · Case 1 ⇄ · Case 2 ⇄ · … · Single output ⇄ · Else → (− / + adds a case with its output, removes both with their wires) | `in`, `condition`; `in.op`, `in.single_output`; a case row is one field: `in.<case>` on the left, `out.<case>` on the right (a named case reads its name); `else` | Inputs (list) | Operation dropdown; cases typed (`values`) |
 | `event_gate` | Reset ⇄ · Log order ⇄ · Input 1 ⇄ · … · On finish → · Order → | `reset`; `in.log_order`; `in.<n>`; outputs | — | Log order dropdown |
 | `catch_error` | Input 1 ⇄ · … · Output → · Code → · Source → · On error → | `in.<n>`; outputs | — | — |
-| `load_history` | Point ⇄ · Scope · Time range ⇄ · Rollup ⇄ · Window ⇄ · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `in.<p>`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Limit, Time zone · Events: Ok · State: Running, Last run | as `load_value`; Rollup dropdown; Run button |
+| `load_history` | Point ⇄ · Scope · Time range ⇄ · Rollup ⇄ · Window ⇄ · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `in.<p>`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Limit, Time zone · Events: Ok · State: Running, Last run | as `load_value`; Time range: a text with the range menu; Rollup dropdown; Time zone: the zone menu; Run button (a refusal shows the broker's words); the viewer shows `out` as a table, `t` as dates |
 | `get_node` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → · Actions → | `in.key` → `key`; `trigger`; `error`, `out`, `actions` | as `load_value` | as `load_value` |
-| `table` | Value ⇄ | Value = `in` → `value` → `out` | — | a table editor (JSON today) |
+| `table` | Value ⇄ | Value = `in` → `value` → `out` | — | typed as JSON; the viewer shows it as a table (columns, the first 200 rows, the count) |
 | `table_recorder` | Reset ⇄ · Input 1 ⇄ · … · Enabled ⇄ · Buffer size ⇄ · Time window (s) ⇄ · Ignore null ⇄ · Output → | `reset`; `in.<n>`; `in.<p>`; `out` | Inputs (list) | — |
 | `table_from_csv`, `table_to_csv`, `table_from_json`, `table_to_json` | Input ⇄ · `<parameter>` ⇄ … · Output → (· Parse error →) | `in`; `in.<p>`; outputs | — | — |
 | `table_map_columns` | Input ⇄ · Retain columns ⇄ · Output → · Error → | `in`; `in.retain_columns`; outputs | Mapping (list of name/from) | Mapping: rows of name and from |
@@ -972,7 +972,7 @@ Rules:
 | `table_filter`, `table_remove_rows`, `table_edit_rows` | Input ⇄ · (Cells ⇄) · Output → · Error → | `in`; (`in.cells`); outputs | Expression | Expression: multi-line |
 | `table_group_by`, `table_rollup` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>`; `out` | Aggregates (list of column/method/as) | Aggregates: rows of column, method, as |
 | `table_join` | Input ⇄ · Right ⇄ · Column ⇄ · Right column ⇄ · Join ⇄ · Output → | `in`, `right`; `in.<p>`; `out` | — | Join dropdown |
-| `table_page` | Input ⇄ · Next ⇄ · Previous ⇄ · First ⇄ · Last ⇄ · Page size ⇄ · Page ⇄ · Output → · Current page → · Total pages → | `in`, triggers; `in.<p>`; outputs | — | — |
+| `table_page` | Input ⇄ · ▸ Next ← · ▸ Previous ← · ▸ First ← · ▸ Last ← (buttons, as `date_range`) · Page size ⇄ · Page ⇄ · Output → · Current page → · Total pages → | `in`, triggers; `in.<p>`; outputs | — | the four buttons: off, a wire presses them |
 
 Limits of single types that the table does not show:
 

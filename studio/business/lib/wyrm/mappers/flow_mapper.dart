@@ -183,6 +183,9 @@ NodeType nodeTypeOf(Value m) {
         for (final p in v)
           ParamSpec(
             name: str(p['name']) ?? '',
+            // The label the engine gives a field where the one derived
+            // from its name would be wrong (spec 06 0.2.29: `atan.x`).
+            display: str(p['display']),
             type: str(p['type']) ?? 'string',
             required: boolean(p['required']) ?? false,
             description: str(p['description']),

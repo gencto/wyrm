@@ -34,7 +34,15 @@ abstract class CatalogItem with _$CatalogItem {
 
     /// What the card says of its version: `wyrmd 0.1.0` for a driver built
     /// into the broker (its `sys/version`); null when the broker does not
-    /// say (a repository package: `install_repo` lists names only).
+    /// say (a repository package of an old broker: `install_repo` lists
+    /// names only). A broker with `attr.catalog` on `sys/links` (ADR 0043
+    /// §7) gives a package the version of its index entry.
     String? version,
+
+    /// The broker says it is an official link (`attr.catalog` row
+    /// `official`, ADR 0043 §5): a built-in driver its manifest names, or a
+    /// package of the official index at the listed version. Never guessed
+    /// from a name.
+    @Default(false) bool official,
   }) = _CatalogItem;
 }

@@ -12,9 +12,11 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/stage_invoke_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
+import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -211,6 +213,58 @@ void main() {
       expect(c.args.unlock, {'name': 't3', 'addr': 7});
     },
   );
+
+  group('a node is renamed by edit with display (ADR 0042 §4)', () {
+    const dev = 'wy/central/downstream/m/dev';
+
+    test('a new name alone is sent as the rename', () async {
+      s.dispatchSync(
+        StageInvokeAction(dev, 'edit', {'display': 'Boiler room'}),
+      );
+      final c = s.state.changes.table.values.single;
+      expect(c.op, 'Edit');
+      expect(c.args.unlock, {'display': 'Boiler room'});
+      expect(c.to, 'display: Boiler room');
+
+      await s.dispatchAndWait(ApplyChangesAction());
+      final sent = api.calls.lastWhere((x) => x.op == 'invoke');
+      expect(sent.key, dev);
+      expect(sent.action, 'edit');
+      expect(sent.args, Value.from({'display': 'Boiler room'}));
+    });
+
+    test('a cleared name is sent as "", other empty fields are not', () {
+      // `edit` prefilled the name: clearing it clears it.
+      final keep = clearedNames(const [
+        ParamSpec(name: 'display', defaultValue: 'Boiler room'),
+        ParamSpec(name: 'host', defaultValue: '10.0.0.5'),
+      ]);
+      expect(keep, {'display'});
+      s.dispatchSync(
+        StageInvokeAction(dev, 'edit', {
+          'display': '',
+          'host': '',
+          'port': 502,
+        }, keepEmpty: keep),
+      );
+      final c = s.state.changes.table.values.single;
+      expect(c.args.unlock, {'display': '', 'port': 502});
+      expect(c.to, 'display: "", port: 502');
+    });
+
+    test('an empty name that was never there stays out (an Add form, an '
+        'app that does not prefill it)', () {
+      expect(clearedNames(const [ParamSpec(name: 'display')]), isEmpty);
+      expect(
+        clearedNames(const [ParamSpec(name: 'display', defaultValue: ' ')]),
+        isEmpty,
+      );
+      s.dispatchSync(
+        StageInvokeAction(dev, 'add_class', {'id': 'c1', 'display': ''}),
+      );
+      expect(s.state.changes.table.values.single.args.unlock, {'id': 'c1'});
+    });
+  });
 
   test('a run-now action keeps its answer rows', () async {
     api.invokes['wy/central/downstream/m ▸ read_device_id'] = [

@@ -59,7 +59,12 @@ final class FieldRowVm extends Equatable {
     this.outAliases = const [],
     this.action,
     this.actionTip = '',
+    this.command = false,
   });
+
+  /// A command input (`date_range` `next`, `table_page` `first`): drawn
+  /// as a button that a sample on its wire presses, with no value.
+  final bool command;
 
   /// An icon button after the value (`action_edit` on a `Scope` row: it
   /// opens the scope's prompt); null: none.
@@ -112,6 +117,7 @@ final class FieldRowVm extends Equatable {
     outAliases,
     action,
     actionTip,
+    command,
   ];
 }
 
@@ -636,15 +642,47 @@ class _FieldRow extends StatelessWidget {
               child: Row(
                 spacing: 6,
                 children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 124),
-                    child: Text(
-                      vm.label,
-                      maxLines: 1,
-                      overflow: .ellipsis,
-                      style: TextStyle(fontSize: 12, color: c.text3),
+                  if (vm.command)
+                    Container(
+                      key: ValueKey('command-$block-${vm.id}'),
+                      constraints: const BoxConstraints(maxWidth: 140),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.ground3,
+                        border: .all(color: c.line2),
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(5),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: .min,
+                        spacing: 4,
+                        children: [
+                          AppIcon('action_play', size: 10, color: c.text3),
+                          Flexible(
+                            child: Text(
+                              vm.label,
+                              maxLines: 1,
+                              overflow: .ellipsis,
+                              style: TextStyle(fontSize: 11, color: c.text2),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 124),
+                      child: Text(
+                        vm.label,
+                        maxLines: 1,
+                        overflow: .ellipsis,
+                        style: TextStyle(fontSize: 12, color: c.text3),
+                      ),
                     ),
-                  ),
                   Expanded(
                     child: Text(
                       vm.value,

@@ -51,8 +51,8 @@ class FlowWatchService extends DisposableServiceInterface {
 
   final FlowWatchServiceListener _listener;
 
-  /// How often changed values are handed to the listener (values repaint
-  /// batched, as DGLux does).
+  /// How often changed values are handed to the listener: values repaint
+  /// in batches, never once per sample.
   final Duration flushEvery;
   final Duration retryFirst;
   final Duration retryMax;

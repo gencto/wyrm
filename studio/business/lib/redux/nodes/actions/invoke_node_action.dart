@@ -15,10 +15,15 @@ import 'retrieve_node_detail_action.dart';
 /// A refusal is a user error with the broker's own message; an answer
 /// `{success: false, message}` is one too.
 class InvokeNodeAction extends Action with WaitingAction {
-  InvokeNodeAction(this.key, this.action, [this.args = const {}]);
+  InvokeNodeAction(
+    this.key,
+    this.action, [
+    this.args = const {},
+    this.keepEmpty = const {},
+  ]);
 
   @override
-  Action again() => InvokeNodeAction(key, action, args);
+  Action again() => InvokeNodeAction(key, action, args, keepEmpty);
 
   @override
   Action reload() => RetrieveNodeDetailAction(key);
@@ -26,6 +31,9 @@ class InvokeNodeAction extends Action with WaitingAction {
   final String key;
   final String action;
   final Map<String, Object?> args;
+
+  /// Arguments sent even when empty ([argsToSend], [clearedNames]).
+  final Set<String> keepEmpty;
 
   /// Where the answer of [key] ▸ [action] is kept.
   static String resultId(String key, String action) => '$key ▸ $action';
@@ -36,7 +44,7 @@ class InvokeNodeAction extends Action with WaitingAction {
       deps.wyrm,
       key,
       action,
-      args.isEmpty ? null : Value.from(_plain(args)),
+      args.isEmpty ? null : Value.from(argsToSend(args, keepEmpty: keepEmpty)),
     );
     for (final r in rows) {
       requireSuccess(r, key, action);
@@ -48,10 +56,4 @@ class InvokeNodeAction extends Action with WaitingAction {
       ),
     );
   }
-
-  /// Empty strings and nulls are left out (an optional field not filled).
-  static Map<String, Object?> _plain(Map<String, Object?> args) => {
-    for (final MapEntry(:key, :value) in args.entries)
-      if (value != null && value != '') key: value,
-  };
 }

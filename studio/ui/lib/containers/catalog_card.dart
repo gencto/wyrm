@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
+import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -17,6 +18,7 @@ final class CatalogCardVm extends Equatable {
     required this.modes,
     this.note,
     this.version,
+    this.official,
     this.selected = false,
   });
 
@@ -37,6 +39,10 @@ final class CatalogCardVm extends Equatable {
 
   /// `wyrmd 0.1.0`, `1.2.0`; none when the broker does not say.
   final String? version;
+
+  /// The mark of an official link (`official`); null: none. Only the
+  /// broker says a link is official (ADR 0043 §5).
+  final String? official;
   final bool selected;
 
   @override
@@ -50,12 +56,13 @@ final class CatalogCardVm extends Equatable {
     modes,
     note,
     version,
+    official,
     selected,
   ];
 }
 
 /// Board *Add a link · O1*: tag, name, note, one line, the source chip,
-/// the run modes and the version.
+/// the official mark, the run modes and the version.
 ///
 /// Every card is as high as every other (owner 2026-11-11): the name is one
 /// line, the description always takes [descriptionLines] lines (more ends in
@@ -157,6 +164,28 @@ class CatalogCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (vm.official case final o?)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.emberFill,
+                        borderRadius: Radii.chip,
+                      ),
+                      child: Row(
+                        mainAxisSize: .min,
+                        spacing: 3,
+                        children: [
+                          AppIcon('ui_check', size: 12, color: c.ember),
+                          Text(
+                            o,
+                            style: TextStyle(fontSize: 11, color: c.ember),
+                          ),
+                        ],
+                      ),
+                    ),
                   Expanded(
                     child: Text(
                       vm.modes,

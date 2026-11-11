@@ -29,6 +29,7 @@ import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
+import 'package:business/wyrm/calls.dart' show clearedNames;
 import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/kinds.dart';
 import 'package:business/wyrm/labels.dart';
@@ -1860,13 +1861,18 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
             act.name,
             args,
             display: labelOf(act.name, display: act.display),
+            keepEmpty: clearedNames(act.params),
           ),
         );
         return null;
       }
       // Refused as wrong input: the form keeps its values and marks the
       // field (docs/design/specs/errors.md §3, *Back to the form*).
-      return sendForm(dispatchAndWait(InvokeNodeAction(sel, act.name, args)));
+      return sendForm(
+        dispatchAndWait(
+          InvokeNodeAction(sel, act.name, args, clearedNames(act.params)),
+        ),
+      );
     }
     final point = nodes.point;
     if (point != null && values.containsKey('value')) {

@@ -241,7 +241,7 @@ void main() {
     });
 
     test('if: op, the variable inputs by number, then, else, out', () {
-      // As DGLux draws it: then and else after the inputs (its `tail`).
+      // Then and else are trailing parameters: after the inputs.
       final b = block('if1', 'if', {'op': '>'});
       final rows = rowsOf(types['if'], b);
       expect(names(rows), ['op', 'in.0', 'in.1', 'then', 'else', 'out']);

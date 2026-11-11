@@ -6,7 +6,7 @@ import 'flow_block_view.dart';
 /// A field outside the canvas (a row of the inspector) that takes a wire
 /// dragged out of the canvas. The canvas follows the pointer with its own
 /// events, not as a `Draggable`, so it finds a zone by a hit test of the
-/// pointer's position (DGLux `field_drop.dart`).
+/// pointer's position.
 final class FieldDrop {
   const FieldDrop(this.id, {required this.onDrop});
 

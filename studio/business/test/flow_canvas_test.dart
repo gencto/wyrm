@@ -462,7 +462,11 @@ void main() {
       expect(rowIds(now(), 'avg'), contains('p:fn'), reason: 'bound');
 
       s.dispatchSync(DisconnectEdgeAction('out2', 'in'));
-      expect(rowIds(now(), 'avg'), contains('p:fn'), reason: 'as DGLux');
+      expect(
+        rowIds(now(), 'avg'),
+        contains('p:fn'),
+        reason: 'a wire pins its field for good',
+      );
 
       s.dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: false));
       expect(rowIds(now(), 'avg'), isNot(contains('p:fn')));

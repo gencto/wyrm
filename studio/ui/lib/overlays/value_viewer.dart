@@ -70,6 +70,24 @@ final class BytesContentVm extends ValueContentVm {
   List<Object?> get props => [rows];
 }
 
+/// A table (ADR 0044 §2: `{columns, rows}`, or a list of maps): a header
+/// of the [columns], then [rows] of cell texts; [note] under it says how
+/// many rows are shown of how many (`200 of 1 234 rows`), empty when all.
+final class TableContentVm extends ValueContentVm {
+  const TableContentVm({
+    required this.columns,
+    required this.rows,
+    this.note = '',
+  });
+
+  final List<String> columns;
+  final List<List<String>> rows;
+  final String note;
+
+  @override
+  List<Object?> get props => [columns, rows, note];
+}
+
 /// No value (yet), or `null`.
 final class EmptyContentVm extends ValueContentVm {
   const EmptyContentVm(this.text);
@@ -622,7 +640,69 @@ class _ValueViewerState extends State<ValueViewer> {
         text,
         style: mono(size: 14, color: c.text4),
       ),
+      TableContentVm(:final columns, :final rows, :final note) => _Grid(
+        columns: columns,
+        rows: rows,
+        note: note,
+      ),
     };
+  }
+}
+
+/// A table's cells: a header row, then one row per row of cells, mono 12,
+/// each column as wide as its widest cell (at most 280); it scrolls
+/// sideways when it is wider than the window.
+class _Grid extends StatelessWidget {
+  const _Grid({required this.columns, required this.rows, required this.note});
+
+  final List<String> columns;
+  final List<List<String>> rows;
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    Widget cell(String t, {bool head = false}) => Container(
+      constraints: const BoxConstraints(maxWidth: 280),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Text(
+        t,
+        maxLines: 1,
+        overflow: .ellipsis,
+        style: head
+            ? TextStyle(fontSize: 12, fontWeight: .w600, color: c.text3)
+            : mono(size: 12, color: c.text1),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: .start,
+      spacing: 8,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: .horizontal,
+          child: SelectionArea(
+            child: Table(
+              key: const ValueKey('viewer-table'),
+              defaultColumnWidth: const IntrinsicColumnWidth(),
+              border: TableBorder(
+                horizontalInside: BorderSide(color: c.line1),
+                bottom: BorderSide(color: c.line1),
+              ),
+              children: [
+                TableRow(
+                  decoration: BoxDecoration(color: c.ground3),
+                  children: [for (final h in columns) cell(h, head: true)],
+                ),
+                for (final r in rows)
+                  TableRow(children: [for (final x in r) cell(x)]),
+              ],
+            ),
+          ),
+        ),
+        if (note.isNotEmpty)
+          Text(note, style: TextStyle(fontSize: 12, color: c.text4)),
+      ],
+    );
   }
 }
 

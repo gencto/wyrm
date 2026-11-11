@@ -42,6 +42,49 @@ void main() {
     expect(v.copy, contains('\n  "tank": "tank 3"'));
   });
 
+  test('a table is its columns and rows, capped, copied as JSON', () {
+    final v = valueViewerOf(
+      title: 'sort.out',
+      value: {
+        'columns': ['name', 'kw'],
+        'rows': [
+          for (var i = 0; i < 250; i++) {'name': 'p$i', 'kw': i},
+        ],
+      },
+    );
+    expect(v.type, 'table');
+    expect(v.size, '250 rows · 2 columns');
+    final t = v.content as TableContentVm;
+    expect(t.columns, ['name', 'kw']);
+    expect(t.rows, hasLength(maxTableRows));
+    expect(t.rows.first, ['p0', '0']);
+    expect(t.note, 'The first 200 of 250 rows');
+    expect(v.copy, contains('"columns"'));
+  });
+
+  test('a list of maps is a table where a table is expected only', () {
+    final rows = [
+      {'name': 'pump', 'kw': 3},
+      {'name': 'fan', 'zone': 'A'},
+    ];
+    final t = valueViewerOf(title: 'h.out', value: rows, rowsOfMaps: true);
+    expect(t.type, 'table');
+    expect((t.content as TableContentVm).columns, ['name', 'kw', 'zone']);
+    expect((t.content as TableContentVm).note, '');
+    // Elsewhere (the Explorer) a list stays a tree.
+    expect(valueViewerOf(title: 'p', value: rows).type, 'list');
+  });
+
+  test('a date of the engine reads as a date, with UTC and the number', () {
+    final us = DateTime.utc(2026, 11, 11, 10, 29, 3).microsecondsSinceEpoch;
+    final v = valueViewerOf(title: 'now.out', value: us, date: true);
+    expect(v.type, 'date');
+    final n = v.content as NumberContentVm;
+    expect(n.unit, '2026-11-11T10:29:03Z · $us µs');
+    expect(v.copy, '$us');
+    expect(valueViewerOf(title: 'x', value: us).type, 'number');
+  });
+
   test('a list of ints stays a list, not bytes', () {
     final v = valueViewerOf(title: 'x', value: [1, 2, 3]);
     expect(v.type, 'list');

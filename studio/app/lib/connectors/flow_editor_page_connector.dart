@@ -77,6 +77,7 @@ import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
 import 'package:ui/flows/flow_menu.dart';
+import 'package:ui/flows/rows_editor.dart';
 import 'package:ui/flows/scope_prompt.dart';
 import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/forms/param_form.dart';
@@ -100,6 +101,8 @@ const _sources = {
   'liveliness',
   'load_value',
   'list_children',
+  'load_history',
+  'get_node',
   'timer',
   'history',
   'dql',
@@ -258,6 +261,7 @@ class FlowEditorPageConnector extends StatelessWidget {
       unbindLabel: S.current.unbind,
       goToSourceLabel: S.current.goToSource,
       boundLabel: S.current.boundMark,
+      suggestLabel: S.current.suggestPick,
       removeLabel: S.current.removeBlock,
       onRemove: vm.onRemove,
       onLogo: vm.onLogo,
@@ -1617,7 +1621,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 
   /// The Blocks tab: the engine's catalogue, one line per type.
   static List<PaletteEntryVm> _catalog(IList<NodeType> types) => [
-    for (final t in types)
+    for (final t in inPaletteOrder(types))
       PaletteEntryVm(
         id: 'type:${t.type}',
         // In words; the engine's name is searched too (spec §2).
@@ -1882,6 +1886,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               value:
                   wouldDo ??
                   switch (f.name) {
+                    // A command is a button: it shows no value.
+                    _ when f.command => '',
                     _ when group == FieldGroup.events =>
                       eventText(live(portKey('out', b.id, f.name))) ?? '',
                     'last_run' when behaves => lastRunText(value.raw) ?? '',
@@ -1890,6 +1896,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               // The scope is typed in its prompt: the pencil opens it.
               action: f.name == keyed?.scope ? 'action_edit' : null,
               actionTip: S.current.scopeEdit,
+              command: f.command,
               tone: switch (value) {
                 _ when wouldDo != null => ValueTone.ghost,
                 FieldValue(bad: true) => ValueTone.bad,
@@ -1922,9 +1929,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             )
           : v == null
           ? null
-          : (v.step == 2
+          // A pair of inputs (`case`) or a case with its output (`router`).
+          : (v.step == 2 || v.outPrefix != null
                 ? VariadicVm(
-                    label: S.current.pairsCount(v.names.length ~/ 2),
+                    label: S.current.pairsCount(v.names.length ~/ v.step),
                     canRemove: v.removes.isNotEmpty,
                     addLabel: S.current.addPair,
                     removeLabel: S.current.removePair,
@@ -1985,10 +1993,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final v = fieldValue(b, f, d, live);
     final how = fieldEditOf(b, f, d.edges);
     final text = fieldEditText(b, f);
+    final t = flowEditor.allTypes.where((x) => x.type == b.type).firstOrNull;
     return valueViewerOf(
       title: '${b.id}.${f.name}',
       value: v.raw,
       known: v.raw != null || v.live,
+      // A table's rows (ADR 0044 §2) and a date (µs, §3) by the field.
+      rowsOfMaps: holdsTable(t, f.name),
+      date: isTimeField(b.type, f.name),
       unit: at ? info?.unit : null,
       choices: at ? info?.choices.unlock ?? const [] : const [],
       quality: switch (v.quality) {
@@ -2075,6 +2087,19 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         inPort: f.inPort,
       );
     }
+    // A command (`date_range` Next, `table_page` First) is a button that a
+    // sample on its wire presses; Studio has no way to press it itself.
+    if (f.command) {
+      return InspectorRowVm(
+        id: f.id,
+        name: f.label,
+        engine: f.name == f.label ? '' : f.name,
+        editor: FieldEditorVm.run,
+        value: f.label,
+        disabledReason: S.current.commandNote,
+        inPort: f.inPort,
+      );
+    }
     if (b.id == blockInputsId) {
       // An input of a custom block: its default is typed here.
       final v = switch (b.cfg['defaults']) {
@@ -2096,10 +2121,29 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       final keyBound =
           keyed != null &&
           d.edges.any((e) => e.to == b.id && e.toPort == keyed.port);
+      // A list of maps (`mapping`, `aggregates`): a line per item.
+      final items = listItemsOf(t, p.name);
+      // A time zone or a range text: a text with the usual ones in a menu.
+      final suggested = isTimeZoneParam(b.type, p.name)
+          ? timeZoneChoicesOf(b.type)
+          : (isRangeText(b.type, p.name) ? rangeChoices : null);
       return InspectorRowVm(
         id: f.id,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
+        rows: items == null
+            ? null
+            : RowsEditorVm(
+                id: f.id,
+                columns: [
+                  for (final c in items)
+                    RowsColumnVm(c.key, humanize(c.key), choices: c.choices),
+                ],
+                rows: listRowsOf(v),
+                addLabel: S.current.rowsAdd,
+                removeLabel: S.current.rowsRemove,
+                emptyLabel: S.current.rowsEmpty,
+              ),
         // A scope that the engine would refuse says why, once it matters.
         error: scoped && (keyBound || !_blank(v))
             ? _scopeError(root, v is String ? v : '') ?? ''
@@ -2108,7 +2152,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         confirm: p.name == 'run_on_start' && hint.startsWith('WARNING:')
             ? (S.current.runOnStartTitle, hint)
             : null,
-        editor: p.choices.isNotEmpty
+        editor: items != null
+            ? FieldEditorVm.rows
+            : suggested != null
+            ? FieldEditorVm.suggest
+            : p.choices.isNotEmpty
             ? FieldEditorVm.choice
             : p.type == 'bool'
             ? FieldEditorVm.toggle
@@ -2121,7 +2169,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           final List<Object?> l => flowJson(l),
           _ => '$v',
         },
-        choices: p.choices.unlock,
+        choices: suggested ?? p.choices.unlock,
         inPort: f.inPort,
         hint: hint,
       );
@@ -2152,16 +2200,19 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       final v = isInstance(b.type)
           ? instanceValueOf(d, b, f.inPort!)
           : operandValueOf(b, f.inPort!);
+      // The range text of a `date_range`: a text with the usual ones.
+      final range = isRangeText(b.type, f.name);
       return InspectorRowVm(
         id: f.id,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
-        editor: FieldEditorVm.text,
+        editor: range ? FieldEditorVm.suggest : FieldEditorVm.text,
         value: switch (v) {
           null => '',
           final String s => s,
           _ => jsonEncode(v),
         },
+        choices: range ? rangeChoices : const [],
         inPort: f.inPort,
       );
     }
