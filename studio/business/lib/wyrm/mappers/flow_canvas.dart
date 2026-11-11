@@ -41,7 +41,8 @@ FlowBlock? withPin(
 
 /// [d] with every bound field pinned for good: a field that gets a wire
 /// (in or out) becomes a row of its block and stays one after the wire is
-/// gone, as in DGLux. Called by whatever adds a wire.
+/// gone (flow-editor.md §12: a wire pins its field). Called by whatever
+/// adds a wire.
 FlowDraft pinBound(Iterable<NodeType> types, FlowDraft d) {
   if (d.edges.isEmpty) {
     return d;

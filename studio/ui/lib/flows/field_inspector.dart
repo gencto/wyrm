@@ -726,8 +726,8 @@ class _Row extends StatelessWidget {
     );
     switch (vm.editor) {
       case FieldEditorVm.bound:
-        // As DGLux: the value that comes in, read only, in the accent
-        // colour in a frame; the wire on the canvas shows its source.
+        // A bound field: the value that comes in, read only, in the
+        // accent colour in a frame; the wire on the canvas shows its source.
         return Container(
           height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 10),

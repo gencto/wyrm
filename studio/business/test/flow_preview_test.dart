@@ -183,7 +183,7 @@ void main() {
       expect((v.label, v.inPort, v.outPort), ('Value', null, 'out'));
     });
 
-    test('concat: Input 1, Input 2, then Strict, then Output (as DGLux)', () {
+    test('concat: Input 1, Input 2, then Strict, then Output', () {
       final rows = rowsOf(types['concat'], block('c', 'concat'));
       expect(
         [for (final r in rows) r.label],

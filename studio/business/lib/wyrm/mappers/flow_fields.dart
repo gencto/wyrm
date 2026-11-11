@@ -901,7 +901,7 @@ List<FlowField> fieldsOf(
     ];
   }
   // A variable (`number`, `string`, `bool`, `const`): its input, its
-  // parameter and its output are one field, as in DGLux (spec §3).
+  // parameter and its output are one field (spec §3).
   if (isVariable(t)) {
     final p = t.params.first;
     return [
@@ -1128,8 +1128,9 @@ List<FlowField> fieldsOf(
         ),
   ];
   // A sink names what it writes before the value it writes (`publish`:
-  // node, value). Elsewhere the parameters DGLux draws after the variable
-  // inputs ([tailParams]: `if` then, else; `concat` strict) come after them.
+  // node, value). Elsewhere the order is: operands, parameters, variable
+  // inputs, then the trailing parameters ([tailParams]: `if` then, else;
+  // `concat` strict), results.
   final tail = tailParams[b.type] ?? const <String>{};
   final head = [
     for (final f in params)
@@ -1164,10 +1165,10 @@ List<FlowField> fieldsOf(
   });
 }
 
-/// Parameters drawn after a block's variable inputs, as DGLux draws them
-/// (its schema's `tail`): `if` reads Operation · Input 1… · Then · Else ·
-/// Output, `concat` Input 1… · Strict · Output, `hub` Input 1… · Ignore
-/// null · Output · Index · On change.
+/// The trailing parameters: drawn after a block's variable inputs (order:
+/// operands, parameters, variable inputs, then these, results). `if` reads
+/// Operation · Input 1… · Then · Else · Output, `concat` Input 1… · Strict
+/// · Output, `hub` Input 1… · Ignore null · Output · Index · On change.
 const tailParams = <String, Set<String>>{
   'if': {'then', 'else'},
   'concat': {'strict'},
