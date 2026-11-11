@@ -6,7 +6,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 
 | Guide | Read it when you want to |
 |---|---|
-| [links.md](links.md) | install a link while the broker runs, package one, give it network or grants |
+| [links.md](links.md) | install a link while the broker runs, package one, give it network or grants; §12a: the official links (`links/official.json`, `packages.repository: "official"`, the release workflow) |
 | [history.md](history.md) | record points, read their history, keep broker storage (`storage`) |
 | [scheduler.md](scheduler.md) | switch equipment on a weekly schedule, with special days and overrides |
 | [dql.md](dql.md) | collect values from many points into one table, or write them on to a target |

@@ -263,8 +263,12 @@ fn is_sha256(s: &str) -> bool {
 /// One package of a repository index (`packages.repository`, as DSA's
 /// `linkRepositoryUrl`). A process package has a file per host in
 /// `assets`; one that runs anywhere (WASM) has `url` and `sha256`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// Unknown fields are ignored: an index is read by brokers of many versions,
+/// and a newer one may say more (ADR 0043). The fields after `assets` come
+/// from the official links manifest (`links/official.json`); an index made
+/// by `wyr repo add` leaves them out.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RepoEntry {
     pub name: String,
     pub version: String,
@@ -276,11 +280,29 @@ pub struct RepoEntry {
     pub sha256: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub assets: BTreeMap<String, Asset>,
+    /// Name for people (`Alarms`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// `Equipment`, `Apps`, `History sync`, `File stores`, …
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub category: String,
+    /// The official link this package is a form of (`alarm` for
+    /// `alarm-process`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub link: String,
+    /// `wasm` or `process`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// The link protocol of the package ([`crate::LINK_PROTOCOL`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wyrm_link: Option<u32>,
+    /// The oldest broker that runs it, `major.minor.patch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_broker: Option<String>,
 }
 
 /// One file of a package: where it is and its SHA-256.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Asset {
     pub url: String,
     pub sha256: String,

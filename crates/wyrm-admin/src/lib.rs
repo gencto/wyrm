@@ -10,6 +10,7 @@ pub mod git;
 pub mod history;
 pub mod keys;
 pub mod logs;
+pub mod official;
 pub mod packages;
 pub mod peers;
 pub mod registry;

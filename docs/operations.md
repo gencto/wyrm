@@ -379,6 +379,28 @@ What a backup does not replace: a second host that holds the same keys and
 follows the WAL while the first one runs. That is option 3 of ADR 0036, the
 warm standby: see "Warm standby" in section 2.
 
+### Official links offline
+
+`packages: { repository: "official" }` (ADR 0043, docs/links.md §12a) makes
+the broker fetch the official index from github.com at each start and
+rebuild. It is off by default. A broker that cannot reach github.com logs
+`repository index: …` and starts as usual. For a site without internet
+access, mirror one release on a host that the broker reaches:
+
+1. On a computer with internet access, download all assets of one release
+   `links-v…` (the zips, `official.json`, `SHA256SUMS`):
+   `gh release download links-v… --repo gencto/wyrm --dir mirror`.
+2. Check the files: `(cd mirror && sha256sum -c SHA256SUMS)`.
+3. Write an index with relative URLs:
+   `wyr repo index --manifest mirror/official.json --zips mirror --out mirror/index.json`.
+4. Copy `mirror/` to a web server on the plant network. Serve it over HTTPS,
+   or over HTTP on the broker host itself (plain HTTP only to loopback).
+5. Set `packages: { repository: "https://<mirror>/index.json" }` and restart
+   the broker.
+
+The broker checks every zip against the SHA-256 of the mirror's index, as
+it does for the official one.
+
 ## 4. Checks
 
 - `wyrmd -c … check`: the configuration parses and validates; exit code 1
