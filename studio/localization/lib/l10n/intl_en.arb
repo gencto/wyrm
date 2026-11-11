@@ -1307,5 +1307,9 @@
     "@errChipStudio": {"placeholders": {"type": {"type": "String"}}},
     "errTitlePlain": "Studio could not finish this",
     "screenOf": "{name}",
-    "@screenOf": {"placeholders": {"name": {"type": "String"}}}
+    "@screenOf": {"placeholders": {"name": {"type": "String"}}},
+    "pickPointTrend": "Pick a point to see its trend",
+    "pickPointHint": "Click a point to see its trend; ⌘/Ctrl-click adds up to three.",
+    "stopRecording": "Stop recording",
+    "colReadRows": "Values on the trend"
 }

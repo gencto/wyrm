@@ -122,10 +122,13 @@ const _known = <String, (String, String, String, String)>{
 const _embeddedOnly = {'agent', 'wasm', 'app', 'portable-echo', 'storage'};
 
 /// The official list: the broker's drivers, then its repository's packages.
+/// A driver is as new as the broker it is built into ([brokerVersion], its
+/// `sys/version`); the repository's choices carry no version.
 IList<CatalogItem> catalogOf({
   required List<String> drivers,
   required List<String> packages,
   Map<String, int> existing = const {},
+  String? brokerVersion,
 }) {
   CatalogItem item(String code, {required bool builtIn}) {
     final base = code.replaceAll(RegExp(r'-process$'), '');
@@ -147,6 +150,9 @@ IList<CatalogItem> catalogOf({
                 ? const IListConst(['process'])
                 : const IListConst(['wasm'])),
       existing: existing[builtIn ? code : 'pkg:$code'] ?? 0,
+      version: builtIn && brokerVersion != null && brokerVersion.isNotEmpty
+          ? 'wyrmd $brokerVersion'
+          : null,
     );
   }
 

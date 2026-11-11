@@ -29,7 +29,9 @@ import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
+import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/kinds.dart';
+import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/flow_value_mapper.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
@@ -226,7 +228,9 @@ class ExplorerPageConnector extends StatelessWidget {
                   ? null
                   : () => _copy(context, [vm.keyName!]),
               copyKeyLabel: S.current.copyKey,
+              keyLinks: vm.keyLinks,
               title: vm.title,
+              titleName: vm.titleName,
               pill: vm.pill,
               subtitle: vm.subtitle,
               headerButtons: vm.headerButtons,
@@ -697,6 +701,9 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     final checked = nodes.checked;
     final order = [for (final p in shown) p.key];
     final canAudit = site.can('config', '$_root/sys/audit');
+    final shownDisplay = sel == null || kind == NodeKind.flow
+        ? null
+        : _display(sel, detail);
     return _Vm(
       treeLabel: S.current.treeOf(site.viewed ?? ''),
       tree: _rows(),
@@ -704,9 +711,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       treeFilter: nodes.treeFilter,
       watch: _watch(),
       keyName: sel,
-      // The name, never the display name: that is a sentence at times, and
-      // goes in the subtitle (docs/design/specs/explorer.md §3).
-      title: sel?.split('/').last,
+      keyLinks: parentLinksOf(sel, sections: _sections),
+      // The display name with the name under it (owner 2026-11-11,
+      // docs/design/specs/explorer.md §3); a flow's display name is its
+      // description and stays in the subtitle.
+      title: shownDisplay ?? sel?.split('/').last,
+      titleName: shownDisplay == null ? null : sel?.split('/').last,
       pill: switch (sel) {
         null => null,
         _ when flow != null => () {
@@ -1053,7 +1063,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         S.current.childCount(kids.length),
       if (last != null && kind == NodeKind.device)
         S.current.lastRead(_time(last)),
-      ?_display(key, d),
+      // Other nodes show their display name as the title.
+      if (kind == NodeKind.flow) ?_display(key, d),
     ].join(' · ');
   }
 
@@ -1348,7 +1359,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     'regs' => S.current.fieldRegisters,
     'writable' => S.current.fieldWritable,
     'writable_by_master' => S.current.fieldWritableByMaster,
-    _ => p.display ?? p.name,
+    _ => labelOf(p.name, display: p.display),
   };
 
   /// The fields of [key]'s `edit`, each staging its change; the staged
@@ -1360,9 +1371,11 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         ParamFieldVm(
           id: '$key/${p.name}',
           label: _label(p),
+          code: p.name,
           kind: paramField(p).kind,
           value: staged?[p.name] ?? p.defaultValue,
           choices: p.choices.unlock,
+          choiceLabels: choiceLabels(p.choices),
           description: p.description,
           onChanged: (v) => dispatchSync(StagePointEditAction(key, p.name, v)),
         ),
@@ -1502,6 +1515,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
               ParamFieldVm(
                 id: f.id,
                 label: f.label,
+                code: f.code,
                 kind: f.kind,
                 value: f.value,
                 description: S.current.writableNeeds(edit.level),
@@ -1542,7 +1556,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
               : [
                   for (final e
                       in d?.cfg.entries ?? const <MapEntry<String, String>>[])
-                    FactVm(label: e.key, value: e.value, mono: true),
+                    FactVm(
+                      label: humanize(e.key),
+                      code: e.key,
+                      value: e.value,
+                      mono: true,
+                    ),
                 ],
           text: edit == null && (d?.cfg.isEmpty ?? true)
               ? S.current.noActionReason('edit')
@@ -1562,7 +1581,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           facts: [
             for (final n in diag)
               FactVm(
-                label: n.name,
+                label: labelOf(n.name, display: n.display),
+                code: n.name,
                 value: _value(live.values[n.key], n.unit),
                 mono: true,
               ),
@@ -1577,9 +1597,11 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     final now = actions.where((a) => a.level != 'config').toList();
     ActionCardVm card(ActionInfo a) => ActionCardVm(
       id: a.name,
-      title: a.display ?? a.name,
+      title: labelOf(a.name, display: a.display),
       level: a.level,
       detail: [
+        // The action's own name stays in reach (owner 2026-11-11).
+        a.name,
         S.current.paramCount(a.params.length),
         if (a.result case final r?) S.current.returns(r),
       ].join(' · '),
@@ -1626,7 +1648,10 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       (groups[g] ??= []).add(
         NodeMenuItemVm(
           id: a.name,
-          label: '${a.display ?? a.name}${a.params.isEmpty ? '' : '…'}',
+          label:
+              '${labelOf(a.name, display: a.display)}'
+              '${a.params.isEmpty ? '' : '…'}',
+          code: a.name,
           level: a.level,
           danger: a.name.startsWith('remove') || a.name.startsWith('delete'),
           disabledReason: site.needs(a.level, key),
@@ -1676,9 +1701,11 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     }
     final cols = {for (final r in rows) ...r.keys}.take(6).toList();
     return ResultVm(
-      title: S.current.resultOf(a),
+      title: S.current.resultOf(
+        labelOf(a, display: _actionOf(sel, a)?.display),
+      ),
       status: S.current.rowsAnswered(rows.isEmpty ? lines.length : rows.length),
-      columns: [for (final c in cols) ColumnVm(c)],
+      columns: [for (final c in cols) ColumnVm(humanize(c))],
       rows: rows.length == lines.length || rows.length > 1
           ? [
               for (final (i, r) in rows.take(200).indexed)
@@ -1713,7 +1740,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         return ActionInspectorVm(
           id: '$sel ▸ ${act.name}',
           eyebrow: S.current.insAction,
-          title: act.display ?? act.name,
+          title: labelOf(act.name, display: act.display),
           keyName: '…/${sel.split('/').last}/~act/${act.name}',
           tags: [
             if (stage) S.current.tagStaged else S.current.tagRunsNow,
@@ -1787,11 +1814,14 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
                   _ => null,
                 },
                 choices: choices,
+                choiceLabels: choiceLabels(choices),
                 onChanged: (_) {},
               ),
         readOnlyReason: writable == null ? null : site.needs(writable, point),
       );
     }
+    // A flow's display name is its description, not a title.
+    final shown = kind == NodeKind.flow ? null : _display(sel, d);
     return NodeInspectorVm(
       eyebrow: switch (kind) {
         NodeKind.device => S.current.insDevice,
@@ -1802,7 +1832,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         NodeKind.broker => S.current.insBroker,
         NodeKind.folder => S.current.insFolder,
       },
-      title: sel.split('/').last,
+      title: shown ?? sel.split('/').last,
+      name: shown == null ? null : sel.split('/').last,
       fail: _readFail(sel),
       sections: [
         if (flow != null) _flowSection(flow, sel),
@@ -1824,7 +1855,12 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       final args = plainArgs(values);
       if (act.level == 'config') {
         dispatchSync(
-          StageInvokeAction(sel, act.name, args, display: act.display),
+          StageInvokeAction(
+            sel,
+            act.name,
+            args,
+            display: labelOf(act.name, display: act.display),
+          ),
         );
         return null;
       }
@@ -1859,6 +1895,8 @@ class _Vm extends Vm {
     required this.treeFilter,
     required this.watch,
     required this.keyName,
+    required this.keyLinks,
+    required this.titleName,
     required this.title,
     required this.pill,
     required this.subtitle,
@@ -1929,6 +1967,8 @@ class _Vm extends Vm {
            treeFilter,
            watch,
            keyName,
+           keyLinks,
+           titleName,
            title,
            pill,
            subtitle,
@@ -1973,6 +2013,8 @@ class _Vm extends Vm {
   final String treeFilter;
   final List<String> watch;
   final String? keyName;
+  final Set<String> keyLinks;
+  final String? titleName;
   final String? title;
   final StatusPillVm? pill;
   final String? subtitle;

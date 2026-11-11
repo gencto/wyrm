@@ -22,7 +22,10 @@ mixin _$CatalogItem {
 /// (`install_repo`).
  bool get builtIn;/// How it can run: `embedded`, `process`, `external`, or `wasm`.
  IList<String> get modes;/// Links of it the broker already has.
- int get existing;
+ int get existing;/// What the card says of its version: `wyrmd 0.1.0` for a driver built
+/// into the broker (its `sys/version`); null when the broker does not
+/// say (a repository package: `install_repo` lists names only).
+ String? get version;
 /// Create a copy of CatalogItem
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -33,16 +36,16 @@ $CatalogItemCopyWith<CatalogItem> get copyWith => _$CatalogItemCopyWithImpl<Cata
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing)&&(identical(other.version, version) || other.version == version));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing);
+int get hashCode => Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing,version);
 
 @override
 String toString() {
-  return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing)';
+  return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing, version: $version)';
 }
 
 
@@ -53,7 +56,7 @@ abstract mixin class $CatalogItemCopyWith<$Res>  {
   factory $CatalogItemCopyWith(CatalogItem value, $Res Function(CatalogItem) _then) = _$CatalogItemCopyWithImpl;
 @useResult
 $Res call({
- String id, String code, String name, String description, String tag, String category, bool builtIn, IList<String> modes, int existing
+ String id, String code, String name, String description, String tag, String category, bool builtIn, IList<String> modes, int existing, String? version
 });
 
 
@@ -70,7 +73,7 @@ class _$CatalogItemCopyWithImpl<$Res>
 
 /// Create a copy of CatalogItem
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? code = null,Object? name = null,Object? description = null,Object? tag = null,Object? category = null,Object? builtIn = null,Object? modes = null,Object? existing = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? code = null,Object? name = null,Object? description = null,Object? tag = null,Object? category = null,Object? builtIn = null,Object? modes = null,Object? existing = null,Object? version = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,code: null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
@@ -81,7 +84,8 @@ as String,category: null == category ? _self.category : category // ignore: cast
 as String,builtIn: null == builtIn ? _self.builtIn : builtIn // ignore: cast_nullable_to_non_nullable
 as bool,modes: null == modes ? _self.modes : modes // ignore: cast_nullable_to_non_nullable
 as IList<String>,existing: null == existing ? _self.existing : existing // ignore: cast_nullable_to_non_nullable
-as int,
+as int,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 
@@ -93,7 +97,7 @@ as int,
 
 
 class _CatalogItem implements CatalogItem {
-  const _CatalogItem({required this.id, required this.code, required this.name, this.description = '', this.tag = '', this.category = 'Equipment', this.builtIn = true, this.modes = const IListConst([]), this.existing = 0});
+  const _CatalogItem({required this.id, required this.code, required this.name, this.description = '', this.tag = '', this.category = 'Equipment', this.builtIn = true, this.modes = const IListConst([]), this.existing = 0, this.version});
   
 
 /// `driver:<name>` or `package:<name>`.
@@ -113,6 +117,10 @@ class _CatalogItem implements CatalogItem {
 @override@JsonKey() final  IList<String> modes;
 /// Links of it the broker already has.
 @override@JsonKey() final  int existing;
+/// What the card says of its version: `wyrmd 0.1.0` for a driver built
+/// into the broker (its `sys/version`); null when the broker does not
+/// say (a repository package: `install_repo` lists names only).
+@override final  String? version;
 
 /// Create a copy of CatalogItem
 /// with the given fields replaced by the non-null parameter values.
@@ -124,16 +132,16 @@ _$CatalogItemCopyWith<_CatalogItem> get copyWith => __$CatalogItemCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing)&&(identical(other.version, version) || other.version == version));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing);
+int get hashCode => Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing,version);
 
 @override
 String toString() {
-  return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing)';
+  return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing, version: $version)';
 }
 
 
@@ -144,7 +152,7 @@ abstract mixin class _$CatalogItemCopyWith<$Res> implements $CatalogItemCopyWith
   factory _$CatalogItemCopyWith(_CatalogItem value, $Res Function(_CatalogItem) _then) = __$CatalogItemCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String code, String name, String description, String tag, String category, bool builtIn, IList<String> modes, int existing
+ String id, String code, String name, String description, String tag, String category, bool builtIn, IList<String> modes, int existing, String? version
 });
 
 
@@ -161,7 +169,7 @@ class __$CatalogItemCopyWithImpl<$Res>
 
 /// Create a copy of CatalogItem
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? code = null,Object? name = null,Object? description = null,Object? tag = null,Object? category = null,Object? builtIn = null,Object? modes = null,Object? existing = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? code = null,Object? name = null,Object? description = null,Object? tag = null,Object? category = null,Object? builtIn = null,Object? modes = null,Object? existing = null,Object? version = freezed,}) {
   return _then(_CatalogItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,code: null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
@@ -172,7 +180,8 @@ as String,category: null == category ? _self.category : category // ignore: cast
 as String,builtIn: null == builtIn ? _self.builtIn : builtIn // ignore: cast_nullable_to_non_nullable
 as bool,modes: null == modes ? _self.modes : modes // ignore: cast_nullable_to_non_nullable
 as IList<String>,existing: null == existing ? _self.existing : existing // ignore: cast_nullable_to_non_nullable
-as int,
+as int,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

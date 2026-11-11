@@ -46,7 +46,7 @@ final class TreeNoteVm extends Equatable {
 /// A tap selects a row ([onTap]); ⌘/Ctrl-click ([onMark]) and Shift-click
 /// ([onMarkRange]) add rows to a selection for Copy keys. [loading] draws
 /// skeleton rows.
-class NodeTree extends StatelessWidget {
+class NodeTree extends StatefulWidget {
   const NodeTree({
     required this.label,
     required this.rows,
@@ -83,6 +83,79 @@ class NodeTree extends StatelessWidget {
   final ValueChanged<String>? onNoteLink;
   final bool loading;
   final double width;
+
+  /// The height one row takes in the list (a 40 px row and its 1 px gap).
+  static const rowExtent = 41.0;
+
+  @override
+  State<NodeTree> createState() => _NodeTreeState();
+}
+
+/// Keeps the list's scroll position and brings the selected row into view
+/// when the selection moves to a row outside it (a breadcrumb, a search).
+class _NodeTreeState extends State<NodeTree> {
+  final _scroll = ScrollController();
+
+  String get label => widget.label;
+  List<TreeRowVm> get rows => widget.rows;
+  ValueChanged<String> get onTap => widget.onTap;
+  ValueChanged<String> get onToggle => widget.onToggle;
+  void Function(String id, Offset at)? get onMenu => widget.onMenu;
+  ValueChanged<String>? get onMark => widget.onMark;
+  ValueChanged<String>? get onMarkRange => widget.onMarkRange;
+  String? get filter => widget.filter;
+  ValueChanged<String>? get onFilter => widget.onFilter;
+  String get filterHint => widget.filterHint;
+  TreeNoteVm? get note => widget.note;
+  ValueChanged<String>? get onNoteLink => widget.onNoteLink;
+  bool get loading => widget.loading;
+  double get width => widget.width;
+
+  static String? _selected(List<TreeRowVm> rows) {
+    for (final r in rows) {
+      if (r.selected) {
+        return r.id;
+      }
+    }
+    return null;
+  }
+
+  @override
+  void didUpdateWidget(NodeTree old) {
+    super.didUpdateWidget(old);
+    final now = _selected(widget.rows);
+    if (now != null && now != _selected(old.rows)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reveal(now));
+    }
+  }
+
+  /// Scrolls so the row [id] is inside the viewport; does nothing when it
+  /// already is.
+  void _reveal(String id) {
+    if (!mounted || !_scroll.hasClients) {
+      return;
+    }
+    final i = widget.rows.indexWhere((r) => r.id == id);
+    if (i < 0) {
+      return;
+    }
+    final pos = _scroll.position;
+    final top = i * NodeTree.rowExtent;
+    final bottom = top + NodeTree.rowExtent;
+    if (top < pos.pixels) {
+      _scroll.jumpTo(top.clamp(0, pos.maxScrollExtent));
+    } else if (bottom > pos.pixels + pos.viewportDimension) {
+      _scroll.jumpTo(
+        (bottom - pos.viewportDimension + 12).clamp(0, pos.maxScrollExtent),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   void _tap(String id) {
     final keys = HardwareKeyboard.instance;
@@ -128,6 +201,7 @@ class NodeTree extends StatelessWidget {
                     ],
                   )
                 : ListView.builder(
+                    controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
                     itemCount: rows.length,
                     itemBuilder: (_, i) => Padding(

@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$HistorianState {
 
- IList<WatchGroup> get groups; String? get selected; String get range; IMap<String, IList<HistPoint>> get series; IMap<String, String> get stats;
+ IList<WatchGroup> get groups; String? get selected; String get range; IMap<String, IList<HistPoint>> get series; IMap<String, String> get stats; IList<String> get points;
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $HistorianStateCopyWith<HistorianState> get copyWith => _$HistorianStateCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats);
+int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points));
 
 @override
 String toString() {
-  return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats)';
+  return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $HistorianStateCopyWith<$Res>  {
   factory $HistorianStateCopyWith(HistorianState value, $Res Function(HistorianState) _then) = _$HistorianStateCopyWithImpl;
 @useResult
 $Res call({
- IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats
+ IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points
 });
 
 
@@ -62,14 +62,15 @@ class _$HistorianStateCopyWithImpl<$Res>
 
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,}) {
   return _then(_self.copyWith(
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,range: null == range ? _self.range : range // ignore: cast_nullable_to_non_nullable
 as String,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
 as IMap<String, IList<HistPoint>>,stats: null == stats ? _self.stats : stats // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,
+as IMap<String, String>,points: null == points ? _self.points : points // ignore: cast_nullable_to_non_nullable
+as IList<String>,
   ));
 }
 
@@ -81,7 +82,7 @@ as IMap<String, String>,
 
 
 class _HistorianState implements HistorianState {
-  const _HistorianState({this.groups = const IListConst([]), this.selected, this.range = '24h', this.series = const IMapConst({}), this.stats = const IMapConst({})});
+  const _HistorianState({this.groups = const IListConst([]), this.selected, this.range = '24h', this.series = const IMapConst({}), this.stats = const IMapConst({}), this.points = const IListConst([])});
   
 
 @override@JsonKey() final  IList<WatchGroup> groups;
@@ -89,6 +90,7 @@ class _HistorianState implements HistorianState {
 @override@JsonKey() final  String range;
 @override@JsonKey() final  IMap<String, IList<HistPoint>> series;
 @override@JsonKey() final  IMap<String, String> stats;
+@override@JsonKey() final  IList<String> points;
 
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
@@ -100,16 +102,16 @@ _$HistorianStateCopyWith<_HistorianState> get copyWith => __$HistorianStateCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats);
+int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points));
 
 @override
 String toString() {
-  return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats)';
+  return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points)';
 }
 
 
@@ -120,7 +122,7 @@ abstract mixin class _$HistorianStateCopyWith<$Res> implements $HistorianStateCo
   factory _$HistorianStateCopyWith(_HistorianState value, $Res Function(_HistorianState) _then) = __$HistorianStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats
+ IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points
 });
 
 
@@ -137,14 +139,15 @@ class __$HistorianStateCopyWithImpl<$Res>
 
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,}) {
   return _then(_HistorianState(
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,range: null == range ? _self.range : range // ignore: cast_nullable_to_non_nullable
 as String,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
 as IMap<String, IList<HistPoint>>,stats: null == stats ? _self.stats : stats // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,
+as IMap<String, String>,points: null == points ? _self.points : points // ignore: cast_nullable_to_non_nullable
+as IList<String>,
   ));
 }
 

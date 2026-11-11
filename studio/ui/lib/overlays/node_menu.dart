@@ -12,6 +12,7 @@ final class NodeMenuItemVm extends Equatable {
     this.level = '',
     this.danger = false,
     this.disabledReason,
+    this.code,
   });
 
   /// The action's name, handed back when picked.
@@ -25,8 +26,12 @@ final class NodeMenuItemVm extends Equatable {
   final bool danger;
   final String? disabledReason;
 
+  /// The action's own name, in the item's tooltip when the label says it
+  /// in other words.
+  final String? code;
+
   @override
-  List<Object?> get props => [id, label, level, danger, disabledReason];
+  List<Object?> get props => [id, label, level, danger, disabledReason, code];
 }
 
 /// A group of items under its header (the action `group`).
@@ -141,7 +146,17 @@ class NodeMenu extends StatelessWidget {
           ),
         ),
       );
-      return enabled ? row : Tooltip(message: i.disabledReason, child: row);
+      if (!enabled) {
+        return Tooltip(message: i.disabledReason, child: row);
+      }
+      final code = i.code;
+      return code == null || i.label.startsWith(code)
+          ? row
+          : Tooltip(
+              message: code,
+              waitDuration: const Duration(milliseconds: 600),
+              child: row,
+            );
     }
 
     return Material(
