@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:app/common/value_viewer.dart';
+import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:ui/overlays/value_viewer.dart';
+import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/json_tree.dart';
 
 void main() {
@@ -42,24 +44,61 @@ void main() {
     expect(v.copy, contains('\n  "tank": "tank 3"'));
   });
 
-  test('a table is its columns and rows, capped, copied as JSON', () {
-    final v = valueViewerOf(
-      title: 'sort.out',
-      value: {
-        'columns': ['name', 'kw'],
-        'rows': [
-          for (var i = 0; i < 250; i++) {'name': 'p$i', 'kw': i},
-        ],
-      },
-    );
+  test('a table is all its rows, one grid per value, copied as JSON', () {
+    final value = {
+      'columns': ['name', 'kw'],
+      'rows': [
+        for (var i = 0; i < 10000; i++) {'name': 'p$i', 'kw': i},
+      ],
+    };
+    final v = valueViewerOf(title: 'sort.out', value: value);
     expect(v.type, 'table');
-    expect(v.size, '250 rows · 2 columns');
-    final t = v.content as TableContentVm;
+    expect(v.size, '10000 rows · 2 columns');
+    final t = (v.content as TableContentVm).table;
     expect(t.columns, ['name', 'kw']);
-    expect(t.rows, hasLength(maxTableRows));
-    expect(t.rows.first, ['p0', '0']);
-    expect(t.note, 'The first 200 of 250 rows');
+    expect(t.rows, hasLength(10000));
+    expect(t.rows.first, ['p0', 0]);
+    expect(t.rows.last, ['p9999', 9999]);
     expect(v.copy, contains('"columns"'));
+    // Built again for the same value (a dispatch), it is the same grid:
+    // the view-model compares equal at once.
+    final again = valueViewerOf(title: 'sort.out', value: value);
+    expect(identical((again.content as TableContentVm).table, t), isTrue);
+    expect(again, v);
+  });
+
+  test('a typed table with no columns is still a grid to edit', () {
+    final empty = {'columns': <String>[], 'rows': <Object?>[]};
+    expect(
+      valueViewerOf(title: 't.value', value: empty).content,
+      isA<EmptyContentVm>(),
+    );
+    final v = valueViewerOf(title: 't.value', value: empty, editable: true);
+    expect((v.content as TableContentVm).table.columns, isEmpty);
+  });
+
+  test('the viewers read a CSV by the block rules, dates by the column', () {
+    final t = viewerTables.readCsv!(
+      'name;kw\npump;3\n',
+      const ViewerCsvVm(delimiter: ';'),
+    )!;
+    expect(t.columns, ['name', 'kw']);
+    expect(t.rows, [
+      ['pump', '3'],
+    ]);
+    expect(
+      viewerTables.writeCsv!(t, const ViewerCsvVm(delimiter: ';')),
+      'name;kw\npump;3\n',
+    );
+    expect(
+      viewerTables.readCsv!('', const ViewerCsvVm()),
+      isNull,
+      reason: 'the block says parse_error',
+    );
+    expect(viewerTables.copyCsv!(t), 'name,kw\npump,3\n');
+    final us = DateTime.utc(2026, 11, 11).microsecondsSinceEpoch;
+    expect(viewerTables.cellText!('t', us), isNotNull);
+    expect(viewerTables.cellText!('kw', 3), isNull);
   });
 
   test('a list of maps is a table where a table is expected only', () {
@@ -69,8 +108,11 @@ void main() {
     ];
     final t = valueViewerOf(title: 'h.out', value: rows, rowsOfMaps: true);
     expect(t.type, 'table');
-    expect((t.content as TableContentVm).columns, ['name', 'kw', 'zone']);
-    expect((t.content as TableContentVm).note, '');
+    expect((t.content as TableContentVm).table.columns, [
+      'name',
+      'kw',
+      'zone',
+    ]);
     // Elsewhere (the Explorer) a list stays a tree.
     expect(valueViewerOf(title: 'p', value: rows).type, 'list');
   });
@@ -153,5 +195,32 @@ void main() {
   test('a map JSON cannot hold is copied as Dart writes it', () {
     final v = valueViewerOf(title: 'x', value: {1: 'a'});
     expect(v.copy, '{1: a}');
+  });
+
+  test('a table saved from its grid is the value the field takes', () {
+    // The grid's Save hands the viewer's onSave this text; the editor's
+    // `_setField` reads it as the inspector does (FieldEdit.json).
+    final grid = TableDataVm(
+      ['name', 'kw'],
+      [
+        ['pump', 4.5],
+        ['fan'],
+      ],
+    );
+    final value = typedText(grid.toJsonText(), FieldEdit.json);
+    expect(value, {
+      'columns': ['name', 'kw'],
+      'rows': [
+        {'name': 'pump', 'kw': 4.5},
+        {'name': 'fan', 'kw': null},
+      ],
+    });
+    // Read back, it is the same table.
+    final again = tableDataOf(value)!;
+    expect(again.columns, grid.columns);
+    expect(again.rows, [
+      ['pump', 4.5],
+      ['fan', null],
+    ]);
   });
 }

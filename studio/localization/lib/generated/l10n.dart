@@ -5869,16 +5869,6 @@ class S {
     );
   }
 
-  /// `The first {shown} of {total} rows`
-  String tableShown(int shown, int total) {
-    return Intl.message(
-      'The first $shown of $total rows',
-      name: 'tableShown',
-      desc: '',
-      args: [shown, total],
-    );
-  }
-
   /// `a table with no columns`
   String get tableNoColumns {
     return Intl.message(
@@ -10240,6 +10230,248 @@ class S {
       name: 'colReadRows',
       desc: '',
       args: [],
+    );
+  }
+
+  /// `Filter rows`
+  String get tableFilter {
+    return Intl.message('Filter rows', name: 'tableFilter', desc: '', args: []);
+  }
+
+  /// `{shown} of {total} rows`
+  String tableFiltered(int shown, int total) {
+    return Intl.message(
+      '$shown of $total rows',
+      name: 'tableFiltered',
+      desc: '',
+      args: [shown, total],
+    );
+  }
+
+  /// `Add row`
+  String get tableAddRow {
+    return Intl.message('Add row', name: 'tableAddRow', desc: '', args: []);
+  }
+
+  /// `Add column`
+  String get tableAddColumn {
+    return Intl.message(
+      'Add column',
+      name: 'tableAddColumn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `More`
+  String get tableMore {
+    return Intl.message('More', name: 'tableMore', desc: '', args: []);
+  }
+
+  /// `Rename column`
+  String get tableRenameColumn {
+    return Intl.message(
+      'Rename column',
+      name: 'tableRenameColumn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove row`
+  String get tableRemoveRow {
+    return Intl.message(
+      'Remove row',
+      name: 'tableRemoveRow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove column`
+  String get tableRemoveColumn {
+    return Intl.message(
+      'Remove column',
+      name: 'tableRemoveColumn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No rows`
+  String get tableNoRows {
+    return Intl.message('No rows', name: 'tableNoRows', desc: '', args: []);
+  }
+
+  /// `No columns yet. Add one with Add column.`
+  String get tableNoColumnsEdit {
+    return Intl.message(
+      'No columns yet. Add one with Add column.',
+      name: 'tableNoColumnsEdit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refused: a table holds at most 10 000 rows.`
+  String get tableRefusedRows {
+    return Intl.message(
+      'Refused: a table holds at most 10 000 rows.',
+      name: 'tableRefusedRows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refused: a table holds at most 128 columns.`
+  String get tableRefusedColumns {
+    return Intl.message(
+      'Refused: a table holds at most 128 columns.',
+      name: 'tableRefusedColumns',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refused: the cells of a table hold at most 512 KiB.`
+  String get tableRefusedBytes {
+    return Intl.message(
+      'Refused: the cells of a table hold at most 512 KiB.',
+      name: 'tableRefusedBytes',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refused: a column name has 1 to 256 bytes.`
+  String get tableRefusedName {
+    return Intl.message(
+      'Refused: a column name has 1 to 256 bytes.',
+      name: 'tableRefusedName',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Refused: the table already has a column with this name.`
+  String get tableRefusedNameTaken {
+    return Intl.message(
+      'Refused: the table already has a column with this name.',
+      name: 'tableRefusedNameTaken',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{count, plural, =1{1 more line} other{{count} more lines}}`
+  String moreLines(int count) {
+    return Intl.plural(
+      count,
+      one: '1 more line',
+      other: '$count more lines',
+      name: 'moreLines',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `Copy CSV`
+  String get viewerCopyCsv {
+    return Intl.message('Copy CSV', name: 'viewerCopyCsv', desc: '', args: []);
+  }
+
+  /// `Copy JSON`
+  String get viewerCopyJson {
+    return Intl.message(
+      'Copy JSON',
+      name: 'viewerCopyJson',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Edit as JSON`
+  String get viewerEditJson {
+    return Intl.message(
+      'Edit as JSON',
+      name: 'viewerEditJson',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Text`
+  String get viewerTabText {
+    return Intl.message('Text', name: 'viewerTabText', desc: '', args: []);
+  }
+
+  /// `As table`
+  String get viewerTabTable {
+    return Intl.message('As table', name: 'viewerTabTable', desc: '', args: []);
+  }
+
+  /// `Read as the block reads it: delimiter {delimiter}, {header}`
+  String viewerCsvRules(String delimiter, String header) {
+    return Intl.message(
+      'Read as the block reads it: delimiter $delimiter, $header',
+      name: 'viewerCsvRules',
+      desc: '',
+      args: [delimiter, header],
+    );
+  }
+
+  /// `the first row names the columns`
+  String get viewerCsvHeaderOn {
+    return Intl.message(
+      'the first row names the columns',
+      name: 'viewerCsvHeaderOn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no header row`
+  String get viewerCsvHeaderOff {
+    return Intl.message(
+      'no header row',
+      name: 'viewerCsvHeaderOff',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A wire feeds the delimiter or the header: the table uses the values they hold now.`
+  String get viewerCsvWired {
+    return Intl.message(
+      'A wire feeds the delimiter or the header: the table uses the values they hold now.',
+      name: 'viewerCsvWired',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The block refuses this text (parse_error): it has no row, or it passes a bound of a table.`
+  String get viewerCsvRefused {
+    return Intl.message(
+      'The block refuses this text (parse_error): it has no row, or it passes a bound of a table.',
+      name: 'viewerCsvRefused',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Discard`
+  String get viewerDiscard {
+    return Intl.message('Discard', name: 'viewerDiscard', desc: '', args: []);
+  }
+
+  /// `{keys} saves · Esc discards the changes`
+  String viewerTableHint(String keys) {
+    return Intl.message(
+      '$keys saves · Esc discards the changes',
+      name: 'viewerTableHint',
+      desc: '',
+      args: [keys],
     );
   }
 }

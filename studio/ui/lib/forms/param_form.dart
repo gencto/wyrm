@@ -293,7 +293,12 @@ class ParamField extends StatelessWidget {
           ),
         );
       case .text || .textarea || .number || .secret:
-        final multi = vm.kind == .textarea;
+        // A text of several lines keeps them (owner's finding 2026-11-11):
+        // a one-line field shows the first only and drops the rest at the
+        // next key.
+        final multi =
+            vm.kind == .textarea ||
+            vm.kind == .text && '${vm.value ?? ''}'.contains('\n');
         return TextFormField(
           key: ValueKey('${vm.id}/${vm.kind.name}'),
           initialValue: vm.kind == .secret ? null : vm.value?.toString(),

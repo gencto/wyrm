@@ -1,16 +1,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:business/wyrm/mappers/table_value.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:localization/localization.dart';
 import 'package:models/quality.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/overlays/value_viewer.dart';
+import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/json_tree.dart';
-
-/// The rows a table viewer shows; the rest is counted.
-const maxTableRows = 200;
 
 /// Bytes a viewer dumps as hex; the rest is counted (16 a row).
 const int _maxBytes = 16 * 1024;
@@ -19,8 +18,7 @@ const int _maxBytes = 16 * 1024;
 /// value holds it, drawn by its type (docs/studio.md §6.8).
 ///
 /// - a table (ADR 0044 §2: `{columns, rows}`, or with [rowsOfMaps] a list
-///   of maps): its columns and the first [maxTableRows] rows, how many of
-///   how many under it;
+///   of maps): a grid of all its rows ([tableDataOf]);
 /// - a date of the flow engine ([date]: µs since the epoch): the local date
 ///   and time, the instant in UTC and the number beside it;
 /// - a map or a list, or a text that is a JSON map or list: a tree;
@@ -30,7 +28,9 @@ const int _maxBytes = 16 * 1024;
 /// - `Uint8List` alone is binary (a JSON list of ints stays a list): hex;
 /// - nothing known ([known] false): `no value`.
 ///
-/// `copy` of the result is the raw value as JSON, a text as itself.
+/// `copy` of the result is the raw value as JSON, a text as itself. A table
+/// with no columns is `a table with no columns`, unless it is [editable]
+/// (its grid adds the first one).
 ValueViewerVm valueViewerOf({
   required String title,
   required Object? value,
@@ -40,11 +40,11 @@ ValueViewerVm valueViewerOf({
   QualityMarkVm? quality,
   bool rowsOfMaps = false,
   bool date = false,
+  bool editable = false,
 }) {
   final s = S.current;
-  final t = known ? tableOf(value, rowsOfMaps: rowsOfMaps) : null;
+  final t = known ? tableDataOf(value, rowsOfMaps: rowsOfMaps) : null;
   if (t != null) {
-    final shown = t.rows.length.clamp(0, maxTableRows);
     return ValueViewerVm(
       title: title,
       type: 'table',
@@ -52,16 +52,10 @@ ValueViewerVm valueViewerOf({
         s.sizeRows(t.rows.length),
         s.sizeColumns(t.columns.length),
       ].join(' · '),
-      content: t.columns.isEmpty
+      content: t.columns.isEmpty && !editable
           ? EmptyContentVm(s.tableNoColumns)
-          : TableContentVm(
-              columns: t.columns,
-              rows: t.texts(),
-              note: shown < t.rows.length
-                  ? s.tableShown(shown, t.rows.length)
-                  : '',
-            ),
-      copy: _pretty(value!),
+          : TableContentVm(t),
+      copy: _prettyOnce(value!),
       quality: quality,
     );
   }
@@ -173,6 +167,73 @@ ValueViewerVm valueViewerOf({
         quality: quality,
       );
   }
+}
+
+/// The grids of the tables already read: one [TableDataVm] (and one JSON
+/// text) per value, so a view-model built again for the same value holds
+/// the same instance and compares equal at once (a table may hold 10 000
+/// rows, and `fromStore` runs on every dispatch).
+final _tables = Expando<TableDataVm>('tables');
+final _tablesOfMaps = Expando<TableDataVm>('tables of maps');
+final _jsonTexts = Expando<String>('json texts');
+
+/// [v] as the grid of a table ([tableOf]), the same instance for the same
+/// value; null when it is none.
+TableDataVm? tableDataOf(Object? v, {bool rowsOfMaps = false}) {
+  if (v is! Map && v is! List) {
+    return null;
+  }
+  final cache = rowsOfMaps ? _tablesOfMaps : _tables;
+  if (cache[v!] case final t?) {
+    return t;
+  }
+  final t = tableOf(v, rowsOfMaps: rowsOfMaps);
+  if (t == null) {
+    return null;
+  }
+  return cache[v] = TableDataVm(t.columns, t.rows);
+}
+
+/// [_pretty] of [v], once per value.
+String _prettyOnce(Object v) => _jsonTexts[v] ??= _pretty(v);
+
+/// How the viewers read and write tables: a date of the time column `t`,
+/// Copy as CSV with a comma and a header, and `table_from_csv`'s own CSV
+/// rules for the "As table" tab (docs/studio.md §6.8).
+final viewerTables = ViewerTables(
+  cellText: tableCellText,
+  copyCsv: (t) => writeCsv(t.columns, t.rows),
+  readCsv: _readCsv,
+  writeCsv: (t, rules) => writeCsv(
+    t.columns,
+    t.rows,
+    delimiter: rules.delimiter,
+    header: rules.header,
+  ),
+);
+
+/// The last CSV text read, by its rules, and what it gave: the viewer reads
+/// it again on every build, and a text may hold 512 KiB.
+(String, ViewerCsvVm, TableDataVm?)? _lastCsv;
+
+TableDataVm? _readCsv(String text, ViewerCsvVm rules) {
+  if (_lastCsv case (
+    final t,
+    final r,
+    final got,
+  ) when t == text && r == rules) {
+    return got;
+  }
+  final got = switch (parseCsv(
+    text,
+    delimiter: rules.delimiter,
+    header: rules.header,
+  )) {
+    final t? => TableDataVm(t.columns, t.rows),
+    null => null,
+  };
+  _lastCsv = (text, rules, got);
+  return got;
 }
 
 /// The mark of a sample's [q]uality, as the Explorer writes it.

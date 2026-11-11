@@ -100,6 +100,7 @@ class FlowEditorPage extends StatelessWidget {
     this.pinLockedLabel = 'A bound field stays on the block',
     this.onSaveViewer,
     this.validateViewer,
+    this.viewerTables,
     this.editLabel = 'Edit',
     this.saveLabel = 'Save',
     this.cancelLabel = 'Cancel',
@@ -225,6 +226,9 @@ class FlowEditorPage extends StatelessWidget {
 
   /// What is wrong with a text typed in the viewer; null: it saves.
   final String? Function(String text)? validateViewer;
+
+  /// How the viewer reads and writes tables (a date cell, CSV).
+  final ViewerTables? viewerTables;
   final String editLabel;
   final String saveLabel;
   final String cancelLabel;
@@ -488,6 +492,7 @@ class FlowEditorPage extends StatelessWidget {
                         onClose: onCloseViewer ?? () {},
                         onSave: onSaveViewer,
                         validate: validateViewer,
+                        tables: viewerTables,
                         copyLabel: copyLabel,
                         copiedLabel: copiedLabel,
                         closeLabel: closeLabel,

@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
 import '../indicators/app_icon.dart';
+import '../indicators/lines_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 
@@ -299,7 +300,12 @@ final class FlowBlockActions {
     this.refusal = _takesAll,
     this.onOpen,
     this.onRowAction,
+    this.onView,
   });
+
+  /// The mark of a value of several lines (`↲ +1`) on a row: opens the
+  /// row's value in the viewer (block, row id).
+  final void Function(String block, String rowId)? onView;
 
   /// The link row of a block ([FlowBlockVm.link]).
   final ValueChanged<String>? onOpen;
@@ -684,11 +690,14 @@ class _FieldRow extends StatelessWidget {
                       ),
                     ),
                   Expanded(
-                    child: Text(
+                    // A text of several lines shows its first and a mark
+                    // with how many more (owner's finding 2026-11-11).
+                    child: LinesText(
                       vm.value,
-                      maxLines: 1,
-                      overflow: .ellipsis,
                       textAlign: .right,
+                      onOpen: actions.onView == null
+                          ? null
+                          : () => actions.onView!(block, vm.id),
                       style: mono(
                         size: 12,
                         color: switch (vm.tone) {

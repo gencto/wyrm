@@ -2,11 +2,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:ui/flows/field_inspector.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/rows_editor.dart';
 import 'package:ui/flows/suggest_field.dart';
 import 'package:ui/overlays/value_viewer.dart';
+import 'package:ui/tables/table_edits.dart';
 
 import 'frames/harness.dart';
 
@@ -14,6 +16,8 @@ import 'frames/harness.dart';
 /// list of maps as rows, a text with its usual values, a command drawn as
 /// a button, and a table in the value viewer.
 void main() {
+  setUpAll(() => S.load(const Locale('en')));
+
   Future<void> show(WidgetTester tester, Widget child) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
@@ -193,17 +197,18 @@ void main() {
         children: [
           Positioned.fill(
             child: ValueViewer(
-              vm: const ValueViewerVm(
+              vm: ValueViewerVm(
                 title: 'h.out',
                 type: 'table',
-                size: '3 rows · 2 columns',
+                size: '2 rows · 2 columns',
                 content: TableContentVm(
-                  columns: ['t', 'v'],
-                  rows: [
-                    ['2026-11-11 12:00:00', '20.5'],
-                    ['2026-11-11 12:00:01', '20.6'],
-                  ],
-                  note: 'The first 2 of 3 rows',
+                  TableDataVm(
+                    ['t', 'v'],
+                    [
+                      ['2026-11-11 12:00:00', 20.5],
+                      ['2026-11-11 12:00:01', 20.6],
+                    ],
+                  ),
                 ),
                 copy: '[]',
               ),
@@ -213,10 +218,9 @@ void main() {
         ],
       ),
     );
-    expect(find.byKey(const ValueKey('viewer-table')), findsOneWidget);
+    expect(find.byKey(const ValueKey('table-rows')), findsOneWidget);
     expect(find.text('t'), findsOneWidget);
     expect(find.text('20.6'), findsOneWidget);
-    expect(find.text('The first 2 of 3 rows'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

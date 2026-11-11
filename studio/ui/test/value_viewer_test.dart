@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:ui/overlays/value_viewer.dart';
 
 import 'frames/harness.dart';
@@ -11,6 +12,8 @@ import 'frames/harness.dart';
 void main() {
   late List<String> saved;
   var closed = 0;
+
+  setUpAll(() => S.load(const Locale('en')));
 
   setUp(() {
     saved = [];

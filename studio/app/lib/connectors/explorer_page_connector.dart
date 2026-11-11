@@ -318,6 +318,7 @@ class ExplorerPageConnector extends StatelessWidget {
               onPanelWidth: vm.onPanelWidth,
               onTapFlowEditor: vm.onTapFlowEditor,
               viewer: vm.viewer,
+              viewerTables: viewerTables,
               onViewPoint: vm.onViewPoint,
               onCloseViewer: vm.onCloseViewer,
               viewLabel: S.current.viewValue,

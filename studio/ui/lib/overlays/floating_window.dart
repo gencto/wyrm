@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -92,8 +94,14 @@ class _FloatingWindowState extends State<FloatingWindow> {
                 child: Focus(
                   focusNode: _focus,
                   child: Listener(
-                    // A click anywhere in the window gives it the keys (Esc).
-                    onPointerDown: (_) => _focus.requestFocus(),
+                    // A click anywhere in the window gives it the keys (Esc),
+                    // unless what was clicked inside took them (a grid, a
+                    // field): checked after the click's own focus moves.
+                    onPointerDown: (_) => scheduleMicrotask(() {
+                      if (mounted && !_focus.hasFocus) {
+                        _focus.requestFocus();
+                      }
+                    }),
                     child: Material(
                       color: c.ground2,
                       elevation: 12,

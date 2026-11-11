@@ -16,6 +16,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
+import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -302,6 +303,54 @@ void main() {
   });
 
   group('tables', () {
+    test('the fields whose table the viewer edits in its grid', () {
+      // The `table` variable's Value holds a table typed as JSON; a wire
+      // into it makes it read only.
+      final t = block('table', {
+        'value': {
+          'columns': ['a'],
+          'rows': [
+            {'a': 1},
+          ],
+        },
+      });
+      final value = fieldsOf(
+        types['table'],
+        t,
+      ).firstWhere((f) => f.spec?.name == 'value');
+      expect(holdsTable(types['table'], value.name), isTrue);
+      expect(fieldEditOf(t, value, const []).edit, FieldEdit.json);
+      expect(fieldEditValue(t, value), {
+        'columns': ['a'],
+        'rows': [
+          {'a': 1},
+        ],
+      });
+      final wire = FlowEdge(
+        from: 'x',
+        fromPort: 'out',
+        to: t.id,
+        toPort: value.inPort!,
+      );
+      expect(fieldEditOf(t, value, [wire]).locked, FieldLocked.bound);
+      // A typed operand of a table block holds a table too.
+      final sort = field('table_sort', 'in:in');
+      expect(holdsTable(types['table_sort'], sort.name), isTrue);
+      expect(
+        fieldEditOf(block('table_sort'), sort, const []).edit,
+        FieldEdit.any,
+      );
+      // The CSV text of `table_from_csv` stays a text (its "As table" tab).
+      final csv = field('table_from_csv', 'in:in');
+      expect(
+        fieldEditOf(block('table_from_csv'), csv, const []).edit,
+        FieldEdit.text,
+      );
+      // An output is never typed.
+      final out = field('table_sort', 'out:out');
+      expect(fieldEditOf(block('table_sort'), out, const []).edit, isNull);
+    });
+
     test('{columns, rows} is a table, rows by name or by position', () {
       final t = tableOf({
         'columns': ['name', 'kw'],
@@ -312,12 +361,11 @@ void main() {
         ],
       })!;
       expect(t.columns, ['name', 'kw']);
-      expect(t.texts(), [
-        ['pump', '3'],
-        ['fan', '7.5'],
-        ['gap', ''],
+      expect(t.rows, [
+        ['pump', 3],
+        ['fan', 7.5],
+        ['gap', null],
       ]);
-      expect(t.texts(max: 1), hasLength(1));
     });
 
     test('a list of maps is a table only where a table is expected', () {
@@ -328,7 +376,12 @@ void main() {
       expect(tableOf(rows), isNull, reason: 'the Explorer keeps a list');
       final t = tableOf(rows, rowsOfMaps: true)!;
       expect(t.columns, ['t', 'v', 'q', 'x']);
-      expect(t.texts()[0][0], dateText(rows[0]['t']), reason: 't is a date');
+      expect(
+        tableCellText('t', rows[0]['t']),
+        dateText(rows[0]['t']),
+        reason: 't is a date',
+      );
+      expect(tableCellText('v', 1), isNull);
       expect(holdsTable(types['load_history'], 'out'), isTrue);
       expect(holdsTable(types['get_node'], 'actions'), isTrue);
       expect(holdsTable(types['table_sort'], 'out'), isTrue);
