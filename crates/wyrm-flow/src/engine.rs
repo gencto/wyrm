@@ -836,6 +836,35 @@ fn reads_flow(def: &FlowDef, who: &Caller, site: &str) -> Result<(), LinkError> 
 /// that its deployer could.
 fn triggers(n: &def::NodeDef, maxperm: Perm, who: &Caller, site: &str) -> Result<(), LinkError> {
     let denied = |m: String| LinkError::new(Status::PermissionDenied, m);
+    // a reader (ADR 0044 §4): the caller reads what it reads, its key and its scope as a
+    // whole (and the children `list_children` lists), as a watcher of the flow must
+    if crate::nodes::is_reader(&n.ty) {
+        let Some(auth) = who.claims.as_ref().and_then(|c| c.auth.as_ref()) else {
+            return Err(denied(
+                "trigger needs the rights of the caller: a token with `auth` (spec 04)".into(),
+            ));
+        };
+        for (field, scope) in crate::nodes::read_fields(&n.ty) {
+            for param in [*field, *scope] {
+                let Some(Value::Str(k)) = n.cfg.get(param) else {
+                    continue;
+                };
+                let full = crate::scope::full_key(site, k);
+                if !reads_key(auth, &full) {
+                    return Err(denied(format!("{full}: the caller may not read it")));
+                }
+                if n.ty == "list_children" {
+                    let below = crate::scope::children_of(&full);
+                    if !below.as_deref().is_some_and(|b| reads_key(auth, b)) {
+                        return Err(denied(format!(
+                            "{full}/*: the caller may not read the children it lists"
+                        )));
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
     let Some(target) = crate::nodes::command_target(&n.ty, &n.cfg) else {
         return Ok(());
     };
@@ -1432,7 +1461,7 @@ impl Link for Engine {
                     .filter(|n| crate::nodes::triggerable(&n.ty))
                     .ok_or_else(|| {
                         LinkError::invalid_parameter(format!(
-                            "node: {node} is not a block that trigger runs (invoke, set)"
+                            "node: {node} is not a block that trigger runs (invoke, set, a reader)"
                         ))
                     })?;
                 triggers(n, f.def.maxperm, who, &self.site)?;
@@ -1725,6 +1754,59 @@ mod tests {
     /// ADR 0040 §2 (security review): `trigger` asks of the caller what the deploy asked of
     /// the deployer's proof, `max(maxperm, write)` on the block's target. A flow whose token
     /// carried `config` must not be run by a caller that holds only `write` there.
+    #[test]
+    fn a_reader_runs_on_trigger_for_a_caller_who_reads_it() {
+        let m = |kv: &[(&str, Value)]| {
+            Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            )
+        };
+        let s = |x: &str| Value::from(x);
+        let def = def::parse(&m(&[
+            ("id", s("f")),
+            (
+                "nodes",
+                m(&[
+                    (
+                        "h",
+                        m(&[
+                            ("type", s("load_history")),
+                            ("key", s("downstream/l/t1")),
+                            ("key_scope", s("downstream/l/*")),
+                        ]),
+                    ),
+                    (
+                        "c",
+                        m(&[("type", s("list_children")), ("path", s("downstream/l"))]),
+                    ),
+                ]),
+            ),
+        ]))
+        .unwrap();
+        let g = |k: &str, p: Perm| Grant { k: k.into(), p };
+        let (h, c) = (def.nodes["h"].clone(), def.nodes["c"].clone());
+        // read is enough for a reader: it runs no command
+        let reader = caller(Some(vec![g("wy/s/**", Perm::Read)]));
+        triggers(&h, def.maxperm, &reader, "s").unwrap();
+        triggers(&c, def.maxperm, &reader, "s").unwrap();
+        // the scope is read as a whole: one denied key inside refuses it
+        let holed = caller(Some(vec![
+            g("wy/s/downstream/l/secret", Perm::None),
+            g("wy/s/**", Perm::Read),
+        ]));
+        let e = triggers(&h, def.maxperm, &holed, "s").unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
+        assert!(e.message.contains("downstream/l/*"), "{e}");
+        // list_children: the children too
+        let e = triggers(&c, def.maxperm, &holed, "s").unwrap_err();
+        assert!(e.message.contains("children"), "{e}");
+        assert!(triggers(&h, def.maxperm, &caller(None), "s").is_err());
+        let other = caller(Some(vec![g("wy/s/storage/**", Perm::Config)]));
+        assert!(triggers(&h, def.maxperm, &other, "s").is_err());
+    }
+
     #[test]
     fn trigger_needs_the_level_of_the_flows_token() {
         let m = |kv: &[(&str, Value)]| {

@@ -500,3 +500,39 @@ async fn logic_blocks_through_the_engine() {
     assert_eq!(on(&sent, "out"), Some("refused".into()));
     assert!(feed(&mut *c, io, "in.write", good("x").at_start()).is_empty());
 }
+
+/// A reader with an inbox: what it injects comes back as inputs.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_node_reads_a_nodes_summary_and_actions() {
+    let e = env().await;
+    let got: Arc<std::sync::Mutex<Vec<(String, Msg)>>> = Arc::default();
+    let sink = got.clone();
+    let io = Io {
+        inject: Arc::new(move |p, m| sink.lock().unwrap().push((p.to_owned(), m))),
+        ..e.io.clone()
+    };
+    let mut n = build("get_node", &[("key", "downstream/m".into())]);
+    n.start(&io);
+    let mut sent = Vec::new();
+    for _ in 0..100 {
+        let msgs: Vec<_> = got.lock().unwrap().drain(..).collect();
+        for (p, m) in msgs {
+            sent.extend(feed(&mut *n, &io, &p, m));
+        }
+        if on(&sent, "ok").is_some() || on(&sent, "error").is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let Some(Value::Map(summary)) = on(&sent, "out") else {
+        panic!("no summary: {sent:?}")
+    };
+    assert_eq!(summary.get("name"), Some(&Value::from("m")));
+    let Some(Value::Map(actions)) = on(&sent, "actions") else {
+        panic!("no actions")
+    };
+    assert!(actions.contains_key("columns") && actions.contains_key("rows"));
+    // a trigger reads again
+    feed(&mut *n, &io, "__trigger", good(Value::Null));
+    assert!(on(&sent, "ok").is_some());
+}

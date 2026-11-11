@@ -22,8 +22,9 @@ use tracing::trace;
 use wyrm_core::{Quality, Value};
 use wyrm_link_sdk::now_us;
 
-mod date;
+pub(crate) mod date;
 mod math;
+pub(crate) mod table;
 mod text;
 
 /// The block types of this module.

@@ -1,7 +1,10 @@
 //! Catalog entries of the third set of blocks (ADR 0044, `docs/flow-blocks.md`), in the
 //! palette's order after the first sets.
 
-use crate::catalog::{db, di, dl, dp, ds, p, pick, DynPorts, NodeType, Param, INPUTS, ITEMS};
+use crate::catalog::{
+    db, di, dl, dp, ds, p, pick, req, sc, DynPorts, NodeType, Param, ENABLED, INPUTS, INTERVAL_MS,
+    ITEMS, KEY, KEY_SCOPE,
+};
 
 /// A block with the input `in`, its parameters and `out`.
 const fn unary(
@@ -356,6 +359,65 @@ pub const TYPES: &[NodeType] = &[
         dyn_inputs: Some(ITEMS),
         dyn_outputs: None,
         params: &[INPUTS],
+    },
+    // ---------- readers (ADR 0044 §4) ----------
+    NodeType {
+        ty: "load_history",
+        category: "Sources",
+        description: "The historian's rows of a point in time_range as a table {t, v, q} (at most limit): at the start and when a field changes (auto_run), on trigger, every interval_ms; in.key names another point inside key_scope.",
+        inputs: &[
+            "trigger",
+            "in.key",
+            "in.interval_ms",
+            "in.auto_run",
+            "in.enabled",
+            "in.time_range",
+            "in.rollup",
+            "in.window",
+            "in.limit",
+            "in.time_zone",
+        ],
+        outputs: &["out", "ok", "error", "running", "last_run"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[
+            KEY,
+            KEY_SCOPE,
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Read at the start and when the key or a query field changes (default true)."), true),
+            ENABLED,
+            ds(
+                p("time_range", "string", "A range text, as date_range reads it: today, lastWeek, current24hours, 2026-10, <a>/<b> (default today)."),
+                "today",
+            ),
+            pick(
+                p("rollup", "string", "With window: how the rows of one window become one (none: the raw rows)."),
+                crate::readers::ROLLUPS,
+                "none",
+            ),
+            ds(p("window", "string", "One row per window: 5m, 1h, 1d, 1w (empty: none)."), ""),
+            di(p("limit", "number", "Rows at most, 1…10 000 (default 10 000; ok says truncated when the answer reached it)."), 10_000),
+            TIME_ZONE,
+        ],
+    },
+    NodeType {
+        ty: "get_node",
+        category: "Sources",
+        description: "A node's summary {name, display, type, unit, enum, writable, is, has_children} and its actions as a table {name, display, group, level, params}: at the start and when the key changes (auto_run), on trigger, every interval_ms.",
+        inputs: &["trigger", "in.key", "in.interval_ms", "in.auto_run", "in.enabled"],
+        outputs: &["out", "actions", "ok", "error", "running", "last_run"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[
+            sc(
+                req(p("key", "string", "A node of this site: downstream/<link>/…, storage/… (may be absent when in.key brings it).")),
+                "key_scope",
+            ),
+            KEY_SCOPE,
+            INTERVAL_MS,
+            db(p("auto_run", "bool", "Read at the start and when the key changes (default true)."), true),
+            ENABLED,
+        ],
     },
 ];
 

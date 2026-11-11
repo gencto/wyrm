@@ -403,6 +403,47 @@ quote words (`'at'`). A pattern is at most 128 bytes. Names are English.
 catcher of the same group without a wire. A wire keeps the cycle check, `watch`
 and `preview` true to the graph (ADR 0044 §7).
 
+### Readers: history and node
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `load_history` | `trigger`, `in.key`, `in.interval_ms`, `in.auto_run`, `in.enabled`, `in.time_range`, `in.rollup`, `in.window`, `in.limit`, `in.time_zone` | `out`, `ok`, `error`, `running`, `last_run` | `key`, `key_scope`, `interval_ms`, `auto_run` (default true), `enabled`, `time_range` (default `today`), `rollup` (default `none`), `window`, `limit` (default 10 000), `time_zone` (default `UTC`) |
+| `get_node` | `trigger`, `in.key`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `out`, `actions`, `ok`, `error`, `running`, `last_run` | `key`, `key_scope`, `interval_ms`, `auto_run` (default true), `enabled` |
+
+`load_history` reads the historian (`~val?history=`, `docs/history.md`):
+
+- `time_range` is a range text as `date_range` reads it: `today`,
+  `lastWeek`, `current24hours`, `2026-10`, `<a>/<b>`. Wire
+  `date_range.this_range` into `in.time_range` for a range a user moves with
+  `next` and `previous`.
+- `window` (`5m`, `1h`, `1d`, `1w`; empty: none) and `rollup` (`avg`, `min`,
+  `max`, `sum`, `count`, `first`, `last`, `delta`, `and`, `or`) give one row
+  per window.
+- `out` is a table (ADR 0044 §2) with the columns `t` (microseconds), `v` and
+  `q` (the quality code; `null` for a rollup row).
+- `limit` is 1 … 10 000. An answer that reached the limit may have more rows:
+  the `ok` event then carries `truncated: true` and `rows`. A table larger than
+  512 KiB is an `error` with `resource_exhausted`.
+- A changed query field (`in.time_range`, …) reads again when `auto_run` is
+  true. A history read has 30 s to answer.
+
+`get_node` reads a node's `~meta`:
+
+- `out` is its summary: `{name, display, type, unit, enum, writable, is,
+  has_children}`.
+- `actions` is a table `{name, display, group, level, params}`; `params` is a
+  list of `{name, type, default, required, display, description, unit,
+  enum}`. It gives an action's default arguments (the reference's Get Default
+  Parameters).
+
+Both read inside a scope as `load_value` does: the deployer, every watcher and
+every previewer must read the key and all of `key_scope`.
+
+Every reader (`load_value`, `list_children`, `load_history`, `get_node`) also
+runs on `dataflows/<id>/~act/trigger {node}` (the editor's `Run` button). The
+caller then needs read on the reader's key and all of its scope (for
+`list_children` also on the children), not a command's level.
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port
@@ -787,7 +828,7 @@ Rules:
 | `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | `reset`; `in.<p>` → `p` | — | Enabled, Loop toggles | — |
 | `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
 | `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict ⇄ · Output → | `in.<n>`; `in.strict` → `strict`; `out` | — | Strict toggle; inputs typed (`values`) | no separator (none in DGLux either) |
-| `load_value` | Point ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `key_scope`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Events: Ok · State: Running, Last run | as `subscribe` for Point and Scope; no Run button (the engine's `trigger` action is for commands) | a reader has no button yet (ADR 0040, deferred) |
+| `load_value` | Point ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `key_scope`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Events: Ok · State: Running, Last run | as `subscribe` for Point and Scope; Run button (`~act/trigger`, the caller reads the key and the scope) | none (spec 06 0.2.28) |
 | `list_children` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.path` → `path`; `path_scope`; `trigger`; `error`, `out` | as `load_value` | as `load_value` | — |
 | `substring`, `replace`, `split`, `join`, `get` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>` → `<p>`; `out` | — | a parameter typed as the catalog says | — |
 | `make_object`, `make_array`, `select` | `<input>` ⇄ … (`select`: Index ⇄ first) · Output → (− / +) | `in.<name>` (named inputs keep their names); `in.index` → `index`; `out` | Inputs (list) | inputs typed (`values`) | — |
@@ -819,6 +860,8 @@ Rules:
 | `router` | Input ⇄ · Condition ⇄ · Operation ⇄ · Case 1 ⇄ · … · Single output ⇄ · Output 1 → · … · Else → (− / + adds a case and its output) | `in`, `condition`; `in.op`, `in.single_output`; `in.<case>` with `out.<case>`; `else` | Inputs (list) | Operation dropdown; cases typed (`values`) | none (the reference's `event` is `in`) |
 | `event_gate` | Reset ⇄ · Log order ⇄ · Input 1 ⇄ · … · On finish → · Order → | `reset`; `in.log_order`; `in.<n>`; outputs | — | Log order dropdown | `order` lists names, not numbers |
 | `catch_error` | Input 1 ⇄ · … · Output → · Code → · Source → · On error → | `in.<n>`; outputs | — | — | wired, no `errorGroup` (ADR 0044 §7) |
+| `load_history` | Point ⇄ · Scope · Time range ⇄ · Rollup ⇄ · Window ⇄ · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `in.<p>`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Limit, Time zone · Events: Ok · State: Running, Last run | as `load_value`; Rollup dropdown; Run button | the reference's `header`, `delta`, `unifyTimezone` are left out (`t` is µs; a `table_map_columns` renames) |
+| `get_node` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → · Actions → | `in.key` → `key`; `trigger`; `error`, `out`, `actions` | as `load_value` | as `load_value` | none |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine
