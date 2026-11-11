@@ -1,7 +1,7 @@
 //! Catalog entries of the third set of blocks (ADR 0044, `docs/flow-blocks.md`), in the
 //! palette's order after the first sets.
 
-use crate::catalog::{db, di, dp, ds, p, pick, NodeType, Param, INPUTS, ITEMS};
+use crate::catalog::{db, di, dl, dp, ds, p, pick, DynPorts, NodeType, Param, INPUTS, ITEMS};
 
 /// A block with the input `in`, its parameters and `out`.
 const fn unary(
@@ -303,6 +303,60 @@ pub const TYPES: &[NodeType] = &[
             TIME_ZONE,
         ],
     ),
+    // ---------- logic and events ----------
+    NodeType {
+        ty: "router",
+        category: "Logic",
+        description: "in goes out on out.<case> of the first case that condition matches by op, else on else.",
+        inputs: &["in", "condition", "in.op", "in.single_output"],
+        outputs: &["else"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: Some(DynPorts {
+            param: "inputs",
+            prefix: "out.",
+            default: &["0", "1"],
+            keys: false,
+        }),
+        params: &[
+            pick(
+                p("op", "string", "How condition is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with / regexp (as text)."),
+                crate::blocks::CASE_OPS,
+                "=",
+            ),
+            db(p("single_output", "bool", "When the route changes, the output routed before goes back to null (default false: each output keeps its value)."), false),
+            dl(
+                p("inputs", "array", "Names of the cases, [A-Za-z0-9_]+, at most 64 (default 0, 1): each is an input in.<name> (its case value, a constant in values) and an output out.<name>."),
+                &["0", "1"],
+            ),
+        ],
+    },
+    NodeType {
+        ty: "event_gate",
+        category: "Logic",
+        description: "An event once every input changed at least once since the last reset; order says in which order.",
+        inputs: &["reset", "in.log_order"],
+        outputs: &["on_finish", "order"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[
+            pick(
+                p("log_order", "string", "What order lists: none, each input at its first change, at its last change, or every change (the last 1000)."),
+                &["none", "first_occurrence", "last_occurrence", "all"],
+                "none",
+            ),
+            INPUTS,
+        ],
+    },
+    NodeType {
+        ty: "catch_error",
+        category: "Logic",
+        description: "The errors wired into it (the error events of readers and commands, or texts): the message, its code, which input, and an event.",
+        inputs: &[],
+        outputs: &["out", "code", "source", "on_error"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[INPUTS],
+    },
 ];
 
 const TIME_ZONE: Param = ds(

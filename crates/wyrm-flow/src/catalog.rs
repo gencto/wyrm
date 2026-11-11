@@ -1172,8 +1172,19 @@ mod tests {
         for t in types().filter(|t| t.ty != "wasm") {
             let cfg = sample(t);
             let got = ports(t.ty, &cfg).unwrap_or_else(|e| panic!("{}: {e}", t.ty));
-            let outs: Vec<&str> = got.outputs.iter().map(|(n, _)| n.as_str()).collect();
-            assert_eq!(outs, t.outputs, "{} outputs", t.ty);
+            let outs: Vec<String> = got.outputs.iter().map(|(n, _)| n.clone()).collect();
+            // the ports a parameter names (`router`: `out.<case>`), then the fixed ones
+            let mut want_outs: Vec<String> = Vec::new();
+            if let Some(d) = &t.dyn_outputs {
+                let names: &[&str] = if cfg.contains_key(d.param) {
+                    &["a", "b"]
+                } else {
+                    d.default
+                };
+                want_outs.extend(names.iter().map(|n| format!("{}{n}", d.prefix)));
+            }
+            want_outs.extend(t.outputs.iter().map(|s| (*s).to_owned()));
+            assert_eq!(outs, want_outs, "{} outputs", t.ty);
             let ins: Vec<String> = got.inputs.iter().map(|(n, _)| n.clone()).collect();
             // the fixed ports, then the ones a parameter names (as the editor draws them)
             let mut want: Vec<String> = t.inputs.iter().map(|s| (*s).to_owned()).collect();

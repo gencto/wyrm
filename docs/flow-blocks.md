@@ -370,6 +370,39 @@ quote words (`'at'`). A pattern is at most 128 bytes. Names are English.
   rolls over at midnight and `current1hours` moves with the clock. A change
   goes out only when an output changed.
 
+### Logic and events
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `router` | `in`, `condition`, `in.<inputs>` (the cases) | `out.<inputs>`, `else` | `op` (as `case`, default `=`), `single_output` (default false), `inputs`. `in` goes out on `out.<name>` of the first case that `condition` matches, else on `else`. |
+| `event_gate` | `reset`, `in.<inputs>` | `on_finish`, `order` | `log_order` (`none` default, `first_occurrence`, `last_occurrence`, `all`), `inputs`. An event once every input changed at least once since the last reset. |
+| `catch_error` | `in.<inputs>` | `out`, `code`, `source`, `on_error` | `inputs`. Wire the `error` outputs of readers and commands into it: `out` is the message, `code` the status code, `source` the input's name, `on_error` an event for each error. |
+
+`router`:
+
+```json5
+{ type: "router", inputs: ["high", "low"], op: ">=",
+  values: { "in.high": 90, "in.low": 0 } }
+// edges: ["level.out", "r.condition"], ["alarm.event", "r.in"],
+//        ["r.out.high", "notify.trigger"], ["r.out.low", "log.trigger"]
+```
+
+- A case value is the input `in.<name>`; give it a constant in `values`.
+- `single_output: true` sets the output routed before back to `null` when the
+  route changes. Without it each output keeps its last value.
+- `router` routes on any sample on `in`, `condition` or a case.
+
+`event_gate`:
+
+- A sample born at the start does not count, and the gate fires once. A
+  sample on `reset` (not one born at the start) opens it again.
+- `order` lists the input names joined with commas; with `all` it keeps the
+  last 1000 changes. The reference numbers the inputs; WYRM names them.
+
+`catch_error` has no error groups: the reference routes an error to every
+catcher of the same group without a wire. A wire keeps the cycle check, `watch`
+and `preview` true to the graph (ADR 0044 §7).
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port
@@ -783,6 +816,9 @@ Rules:
 | `date_parse` | Input ⇄ · Time zone ⇄ · Time → · Year → · … · Weekday → | `in`; `in.time_zone`; the parts | — | — | none |
 | `date_math` | Input ⇄ · Operation ⇄ · Year ⇄ · … · Millisecond ⇄ · Time zone ⇄ · Output → | `in`; `in.<p>`; `out` | — | Operation dropdown | days on the calendar (ADR 0044 §5) |
 | `date_range` | Input ⇄ · Next ⇄ · Previous ⇄ · Format ⇄ · Delimiter ⇄ · Keep special ⇄ · Week start ⇄ · Time zone ⇄ · Start → · End → · This range → · Next range → · Previous range → · Formatted → · Duration → | `in`, `next`, `previous`; `in.<p>`; outputs | — | Keep special, Week start dropdowns | none: `week_start`, `time_zone` and `previousN` work (the port's gaps) |
+| `router` | Input ⇄ · Condition ⇄ · Operation ⇄ · Case 1 ⇄ · … · Single output ⇄ · Output 1 → · … · Else → (− / + adds a case and its output) | `in`, `condition`; `in.op`, `in.single_output`; `in.<case>` with `out.<case>`; `else` | Inputs (list) | Operation dropdown; cases typed (`values`) | none (the reference's `event` is `in`) |
+| `event_gate` | Reset ⇄ · Log order ⇄ · Input 1 ⇄ · … · On finish → · Order → | `reset`; `in.log_order`; `in.<n>`; outputs | — | Log order dropdown | `order` lists names, not numbers |
+| `catch_error` | Input 1 ⇄ · … · Output → · Code → · Source → · On error → | `in.<n>`; outputs | — | — | wired, no `errorGroup` (ADR 0044 §7) |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine

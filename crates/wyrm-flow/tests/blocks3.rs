@@ -406,3 +406,97 @@ async fn date_blocks_through_the_engine() {
     let t = on(&feed(&mut *n, io, "in", good(Value::Null)), "out").unwrap();
     assert!(t.as_f64().unwrap() > 1.7e15);
 }
+
+fn names(n: &[&str]) -> Value {
+    Value::Array(n.iter().map(|s| Value::from(*s)).collect())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn logic_blocks_through_the_engine() {
+    let e = env().await;
+    let io = &e.io;
+    // router: the reference's case, with single_output
+    let mut r = build(
+        "router",
+        &[
+            ("inputs", names(&["a", "x"])),
+            ("single_output", Value::Bool(true)),
+            (
+                "values",
+                Value::Map(BTreeMap::from([
+                    ("in.a".to_owned(), Value::from("A")),
+                    ("in.x".to_owned(), Value::from("X")),
+                ])),
+            ),
+        ],
+    );
+    let ports = nodes::ports("router", &cfg(&[("inputs", names(&["a", "x"]))])).unwrap();
+    let outs: Vec<&str> = ports.outputs.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(outs, ["out.a", "out.x", "else"]);
+    feed(&mut *r, io, "in", good("go"));
+    let sent = feed(&mut *r, io, "condition", good("A"));
+    assert_eq!(on(&sent, "out.a"), Some("go".into()));
+    let sent = feed(&mut *r, io, "condition", good("X"));
+    assert_eq!(on(&sent, "out.x"), Some("go".into()));
+    assert_eq!(
+        on(&sent, "out.a"),
+        Some(Value::Null),
+        "single_output resets the route before"
+    );
+    let sent = feed(&mut *r, io, "condition", good("?"));
+    assert_eq!(on(&sent, "else"), Some("go".into()));
+    // a router's edge from out.<case> compiles
+    let def = Value::Map(BTreeMap::from([
+        ("id".to_owned(), Value::from("f")),
+        (
+            "nodes".to_owned(),
+            Value::Map(BTreeMap::from([
+                (
+                    "r".to_owned(),
+                    Value::Map(BTreeMap::from([
+                        ("type".to_owned(), Value::from("router")),
+                        ("inputs".to_owned(), names(&["a"])),
+                    ])),
+                ),
+                (
+                    "n".to_owned(),
+                    Value::Map(BTreeMap::from([("type".to_owned(), Value::from("not"))])),
+                ),
+            ])),
+        ),
+        (
+            "edges".to_owned(),
+            Value::Array(vec![Value::Array(vec!["r.out.a".into(), "n.in".into()])]),
+        ),
+    ]));
+    wyrm_flow::def::compile(&def).unwrap();
+    // event_gate: fires once every input changed; the start does not count; reset opens it
+    let mut g = build("event_gate", &[("log_order", "first_occurrence".into())]);
+    assert!(feed(&mut *g, io, "in.0", good(1u64).at_start()).is_empty());
+    assert!(on(&feed(&mut *g, io, "in.1", good(1u64)), "on_finish").is_none());
+    let sent = feed(&mut *g, io, "in.0", good(Value::Null));
+    assert!(on(&sent, "on_finish").is_some());
+    assert_eq!(on(&sent, "order"), Some("1,0".into()));
+    assert!(
+        feed(&mut *g, io, "in.1", good(2u64)).is_empty(),
+        "fired: closed until reset"
+    );
+    feed(&mut *g, io, "reset", good(Value::Bool(true)));
+    assert!(on(&feed(&mut *g, io, "in.0", good(3u64)), "on_finish").is_none());
+    // catch_error: an error event of a reader, and a text
+    let mut c = build("catch_error", &[("inputs", names(&["read", "write"]))]);
+    let err = Value::Map(BTreeMap::from([
+        ("event".to_owned(), Value::from("error")),
+        ("id".to_owned(), Value::UInt(1)),
+        ("code".to_owned(), Value::UInt(0x44)),
+        ("message".to_owned(), Value::from("the point has no value")),
+    ]));
+    let sent = feed(&mut *c, io, "in.read", good(err));
+    assert_eq!(on(&sent, "out"), Some("the point has no value".into()));
+    assert_eq!(on(&sent, "code"), Some(Value::Int(0x44)));
+    assert_eq!(on(&sent, "source"), Some("read".into()));
+    assert!(on(&sent, "on_error").is_some());
+    let sent = feed(&mut *c, io, "in.write", good("refused"));
+    assert_eq!(on(&sent, "out"), Some("refused".into()));
+    assert!(feed(&mut *c, io, "in.write", good("x").at_start()).is_empty());
+}

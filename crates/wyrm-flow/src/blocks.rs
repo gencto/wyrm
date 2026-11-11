@@ -111,6 +111,10 @@ pub const TYPES: &[&str] = &[
     "date_parse",
     "date_math",
     "date_range",
+    // logic and events
+    "router",
+    "event_gate",
+    "catch_error",
 ];
 
 /// Variable inputs of one block at most.
@@ -362,6 +366,9 @@ enum Kind {
     Stat(math::Stat),
     Str(text::Op),
     Date(date::Op),
+    Router,
+    EventGate,
+    CatchError,
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -428,6 +435,9 @@ fn kind(ty: &str) -> Option<Kind> {
         "debounce" => Kind::Debounce,
         "throttle" => Kind::Throttle,
         "constant" => Kind::Constant,
+        "router" => Kind::Router,
+        "event_gate" => Kind::EventGate,
+        "catch_error" => Kind::CatchError,
         t => {
             if let Some((_, op)) = math::OPS.iter().find(|(n, _)| *n == t) {
                 Kind::Math(*op)
@@ -669,6 +679,33 @@ fn shape(k: Kind) -> Shape {
         Kind::Stat(_) => math::stat_shape(),
         Kind::Str(op) => text::shape(op),
         Kind::Date(op) => date::shape(op),
+        // the case values are the variable inputs; each has the output `out.<name>`
+        Kind::Router => Shape {
+            inputs: &["in", "condition"],
+            params: vec![
+                param("op", s("="), true),
+                param("single_output", Value::Bool(false), true),
+            ],
+            items: true,
+            outputs: &[("else", Any)],
+        },
+        Kind::EventGate => Shape {
+            inputs: &["reset"],
+            params: vec![param("log_order", s("none"), true)],
+            items: true,
+            outputs: &[("on_finish", Map), ("order", Any)],
+        },
+        Kind::CatchError => Shape {
+            inputs: &[],
+            params: vec![],
+            items: true,
+            outputs: &[
+                ("out", Any),
+                ("code", Number),
+                ("source", Any),
+                ("on_error", Map),
+            ],
+        },
     }
 }
 
@@ -805,13 +842,18 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
                 .map(|n| (format!("in.{n}"), PortType::Any)),
         );
     }
+    let mut outputs: Vec<(String, PortType)> = Vec::new();
+    if k == Kind::Router {
+        outputs.extend(
+            items(cfg, &sh)?
+                .into_iter()
+                .map(|n| (format!("out.{n}"), PortType::Any)),
+        );
+    }
+    outputs.extend(sh.outputs.iter().map(|(n, t)| ((*n).to_owned(), *t)));
     Ok(Ports {
         inputs,
-        outputs: sh
-            .outputs
-            .iter()
-            .map(|(n, t)| ((*n).to_owned(), *t))
-            .collect(),
+        outputs,
         echoes: Vec::new(),
     })
 }
@@ -850,7 +892,7 @@ pub const CASE_OPS: &[&str] = &[
 fn ops_of(k: Kind) -> Option<&'static [&'static str]> {
     match k {
         Kind::If => Some(IF_OPS),
-        Kind::Case => Some(CASE_OPS),
+        Kind::Case | Kind::Router => Some(CASE_OPS),
         _ => None,
     }
 }
@@ -882,6 +924,27 @@ fn num_op(op: &str, x: &Value, p: &Value) -> bool {
             }
         }
         _ => false,
+    }
+}
+
+/// Whether `x` matches the case value `p` by `op` (`case`, `router`).
+fn case_match(
+    op: &str,
+    x: &Value,
+    p: &Value,
+    cache: &mut Option<(String, Option<regex::Regex>)>,
+) -> bool {
+    match op {
+        "regexp" => {
+            *x != Value::Null
+                && !text(p).is_empty()
+                && cached(cache, &text(p)).is_some_and(|re| re.is_match(&text(x)))
+        }
+        "=" => same(x, p),
+        "!=" => !same(x, p),
+        ">" | "<" | ">=" | "<=" => num_op(op, x, p),
+        // an empty case text matches nothing (as DGLux)
+        _ => !text(p).is_empty() && text_op(op, x, p),
     }
 }
 
@@ -962,6 +1025,10 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             passed: None,
             re: None,
             range: None,
+            gate: Vec::new(),
+            order: Vec::new(),
+            finished: false,
+            route: None,
         }) as Box<dyn Node>)
     }))
 }
@@ -1006,6 +1073,12 @@ struct Block {
     re: Option<(String, Option<regex::Regex>)>,
     /// `date_range`: the range text a `next` or `previous` moved to.
     range: Option<String>,
+    /// `event_gate`: the inputs that changed since the reset, the order it logs, and whether it
+    /// fired; `router`: the output it routed to last.
+    gate: Vec<String>,
+    order: Vec<String>,
+    finished: bool,
+    route: Option<String>,
 }
 
 impl Block {
@@ -1213,21 +1286,11 @@ impl Block {
                 };
                 let vs = self.item_values();
                 let mut cache = self.re.take();
-                let hit = vs.as_chunks::<2>().0.iter().find(|[p, _]| {
-                    match op.as_str() {
-                        "regexp" => {
-                            x != Value::Null
-                                && !text(p).is_empty()
-                                && cached(&mut cache, &text(p))
-                                    .is_some_and(|re| re.is_match(&text(&x)))
-                        }
-                        "=" => same(&x, p),
-                        "!=" => !same(&x, p),
-                        ">" | "<" | ">=" | "<=" => num_op(&op, &x, p),
-                        // an empty case text matches nothing (as DGLux)
-                        _ => !text(p).is_empty() && text_op(&op, &x, p),
-                    }
-                });
+                let hit = vs
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .find(|[p, _]| case_match(&op, &x, p, &mut cache));
                 let v = match hit {
                     Some(pair) => pair[1].clone(),
                     None => self.param("else").clone(),
@@ -1562,6 +1625,94 @@ impl Block {
                 self.send_all(outs, q, t, out);
             }
             Kind::Date(date::Op::Range) => self.date_range(changed, q, t, out),
+            Kind::Router => {
+                let x = self.values.get("condition").cloned().unwrap_or(Value::Null);
+                let op = match self.param("op") {
+                    Value::Str(o) => o.clone(),
+                    _ => "=".into(),
+                };
+                let mut cache = self.re.take();
+                let names = self.items.clone();
+                let hit = names.iter().find(|name| {
+                    let p = self.values.get(*name).cloned().unwrap_or(Value::Null);
+                    case_match(&op, &x, &p, &mut cache)
+                });
+                self.re = cache;
+                let port = hit.map_or_else(|| "else".to_owned(), |n| format!("out.{n}"));
+                let v = self.in_value().clone();
+                if truth(self.param("single_output"), false) {
+                    if let Some(last) = self.route.take().filter(|l| *l != port) {
+                        self.send(&last, Value::Null, q, t, out);
+                    }
+                }
+                self.route = Some(port.clone());
+                self.send(&port, v, q, t, out);
+            }
+            Kind::EventGate => {
+                if changed == "reset" {
+                    let v = self.values.get("reset").unwrap_or(&Value::Null);
+                    if !self.born && *v != Value::Null {
+                        self.gate.clear();
+                        self.order.clear();
+                        self.finished = false;
+                    }
+                    return;
+                }
+                if self.born || self.finished || !self.items.iter().any(|n| n == changed) {
+                    return;
+                }
+                let first = !self.gate.iter().any(|n| n == changed);
+                if first {
+                    self.gate.push(changed.to_owned());
+                }
+                match self.param("log_order") {
+                    Value::Str(m) if m == "first_occurrence" && first => {
+                        self.order.push(changed.to_owned())
+                    }
+                    Value::Str(m) if m == "last_occurrence" => {
+                        self.order.retain(|n| n != changed);
+                        self.order.push(changed.to_owned());
+                    }
+                    Value::Str(m) if m == "all" => {
+                        if self.order.len() >= MAX_LIST {
+                            self.order.remove(0);
+                        }
+                        self.order.push(changed.to_owned());
+                    }
+                    _ => {}
+                }
+                if self.gate.len() == self.items.len() {
+                    self.finished = true;
+                    let order = bounded_text(&Value::Str(self.order.join(",")))
+                        .map_or(Value::Null, Value::Str);
+                    self.send("order", order, q, t, out);
+                    self.fire("on_finish", t, out);
+                }
+            }
+            Kind::CatchError => {
+                if self.born || !self.items.iter().any(|n| n == changed) {
+                    return;
+                }
+                let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+                if v == Value::Null {
+                    return;
+                }
+                let (message, code) = match &v {
+                    Value::Map(m) => (
+                        m.get("message").map_or_else(|| text(&v), text),
+                        m.get("code").and_then(num).map_or(Value::Null, N::value),
+                    ),
+                    v => (text(v), Value::Null),
+                };
+                let message = Some(message)
+                    .filter(|m| m.len() <= MAX_TEXT)
+                    .map_or(Value::Null, Value::Str);
+                // the same text twice is two errors: `on_error` fires every time
+                self.send("out", message, q, t, out);
+                self.send("code", code, q, t, out);
+                self.send("source", Value::Str(changed.to_owned()), q, t, out);
+                self.fire("on_error", t, out);
+            }
             Kind::Date(op) => {
                 let outs = date::calc(op, &self.view());
                 self.send_all(outs, q, t, out);
@@ -1736,7 +1887,7 @@ impl Node for Block {
                 self.calculate("", out);
                 return;
             }
-            "in" | "reset" | "trigger" | "next" | "previous" => port,
+            "in" | "reset" | "trigger" | "next" | "previous" | "condition" => port,
             p => match p.strip_prefix("in.") {
                 Some(n) => n,
                 None => return,
