@@ -69,7 +69,7 @@ type Map = BTreeMap<String, Value>;
 pub enum State {
     Receiving,
     Committing,
-    /// The answer of the commit (as Upload File's).
+    /// The answer of the commit (as Upload file's).
     Done(Value),
     Failed(String),
 }
@@ -341,7 +341,7 @@ impl Uploads {
     pub async fn begin(&self, b: Begin, max_size: u64) -> Result<Value, LinkError> {
         self.sweep();
         if b.size == 0 {
-            return Err(bad("size: an empty file goes with Upload File"));
+            return Err(bad("size: an empty file goes with Upload file"));
         }
         if b.size > max_size {
             return Err(LinkError::new(

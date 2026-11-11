@@ -8,7 +8,7 @@
 //! `mongodb+srv` names are not resolved), `port` (27017), `database`, `collection`
 //! (`wyrm_history`), `user`, `auth_source` (`admin`), `tls` (true; false only to loopback
 //! unless `insecure_plaintext`), `ca_pem`, `timeout_ms` (10 000), `ttl_days` (0: no TTL index).
-//! The password goes in with ▸ Set Password (ASCII: it is not SASLprep-normalised).
+//! The password goes in with ▸ Set password (ASCII: it is not SASLprep-normalised).
 
 mod bson;
 
@@ -369,7 +369,7 @@ impl Target for Mongo {
         let cfg = parse(cfg).map_err(TargetError::Fatal)?;
         if cfg.user.is_some() && secret.is_none() {
             return Err(TargetError::Fatal(
-                "mongodb: a user and no password: Set Password".into(),
+                "mongodb: a user and no password: Set password".into(),
             ));
         }
         let conn = if cfg.tls {

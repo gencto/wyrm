@@ -5,7 +5,7 @@
 //!
 //! S3 has keys, not folders: the tree is read with ListObjectsV2 (no
 //! delimiter, pages of 1000) and every `/` in a key is a folder level.
-//! `Create Folder` stores the empty marker object `<folder>/`, as the S3
+//! `Create folder` stores the empty marker object `<folder>/`, as the S3
 //! consoles do; a folder with files and no marker shows too. An upload is
 //! one PutObject (with `If-None-Match: *` unless it overwrites, so a file
 //! created meanwhile is not replaced); deleting a folder deletes every key
@@ -83,16 +83,16 @@ pub struct S3Params {
     pub prefix: String,
     #[param(
         default = "",
-        display = "Access Key ID",
+        display = "Access key ID",
         desc = "empty: unsigned requests (a public bucket)"
     )]
     pub access_key_id: String,
-    #[param(default = "", secret, display = "Secret Access Key")]
+    #[param(default = "", secret, display = "Secret access key")]
     pub secret_access_key: String,
     #[param(
         default = "",
         secret,
-        display = "Session Token",
+        display = "Session token",
         desc = "temporary credentials (STS) only"
     )]
     pub session_token: String,
@@ -102,28 +102,28 @@ pub struct S3Params {
         default = 16,
         min = 5,
         max = 512,
-        display = "Multipart Part (MiB)",
+        display = "Multipart part (MiB)",
         desc = "a file received in parts goes to the bucket in parts of this size (S3: at least 5 MiB)"
     )]
     pub multipart_mib: u32,
     #[param(
         default = "",
         editor = "textarea",
-        display = "CA Certificates (PEM)",
+        display = "CA certificates (PEM)",
         desc = "https: trust these CAs only; empty = the CA certificates of the host",
         dest
     )]
     pub ca_pem: String,
     #[param(
         default = false,
-        display = "Skip Certificate Check",
+        display = "Skip certificate check",
         desc = "https: accept any server certificate (insecure)",
         dest
     )]
     pub insecure_skip_verify: bool,
     #[param(
         default = false,
-        display = "Allow Credentials over HTTP",
+        display = "Allow credentials over HTTP",
         desc = "sign requests over http:// to a host that is not loopback (insecure)",
         dest
     )]
@@ -441,7 +441,7 @@ impl S3Store {
 impl Backend for S3Store {
     const NAME: &'static str = "s3";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const DISPLAY: &'static str = "S3 Bucket";
+    const DISPLAY: &'static str = "S3 bucket";
     type Params = S3Params;
 
     fn new(p: &S3Params) -> Result<Self, LinkError> {

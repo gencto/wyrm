@@ -204,7 +204,7 @@ fn refuses_unsafe_servers() {
     let (port, _) = server(true, vec![]);
     let e = Pg::connect(&mut h, &cfg(port), None).err().unwrap();
     assert!(
-        matches!(e, TargetError::Fatal(_)) && e.message().contains("Set Password"),
+        matches!(e, TargetError::Fatal(_)) && e.message().contains("Set password"),
         "{e}"
     );
     // sslmode require and a server without TLS

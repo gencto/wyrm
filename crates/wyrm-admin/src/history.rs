@@ -174,7 +174,7 @@ fn str_param() -> ParamMeta {
 fn logging_param(current: Option<Logging>) -> ParamMeta {
     let mut p = str_param()
         .enum_values(Logging::ALL.iter().map(|l| l.display()))
-        .display("Logging Type")
+        .display("Logging type")
         .description(
             "None: record nothing. Interval: the last value every Interval. \
              All Data: every update. Point Change: updates whose value or quality changed.",
@@ -279,7 +279,7 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
         ROOT,
         "add_watch_group",
         ActionMeta::new()
-            .display("Add Watch Group")
+            .display("Add watch group")
             .group(GROUP_NEW)
             .param("name", str_param().required(true).display("Name"))
             .param("logging_type", logging_param(None))
@@ -289,7 +289,7 @@ pub(crate) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
             )
             .param(
                 "buffer_flush_time",
-                seconds_param("Buffer Flush Time", FLUSH_ABOUT, None).placeholder("5"),
+                seconds_param("Buffer flush time", FLUSH_ABOUT, None).placeholder("5"),
             )
             .level(Perm::Config),
     )
@@ -319,7 +319,7 @@ async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<(
         &p,
         "add_watch_path",
         ActionMeta::new()
-            .display("Add Watch Path")
+            .display("Add watch path")
             .group(GROUP_NEW)
             .param(
                 "path",
@@ -395,7 +395,7 @@ async fn group_values(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()
             )
             .param(
                 "buffer_flush_time",
-                seconds_param("Buffer Flush Time", FLUSH_ABOUT, Some(g.flush_ms)),
+                seconds_param("Buffer flush time", FLUSH_ABOUT, Some(g.flush_ms)),
             )
             .level(Perm::Config),
     )
@@ -433,7 +433,7 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
         &p,
         "get_history",
         ActionMeta::new()
-            .display("Get History")
+            .display("Get history")
             .param("timerange", timerange_param())
             .param(
                 "interval",
@@ -488,7 +488,7 @@ async fn declare_watch(ctx: &LinkCtx, group: &str, id: &str, w: &WatchDef) -> Re
         &p,
         "unsubscribe_purge",
         ActionMeta::new()
-            .display("Unsubscribe and Purge")
+            .display("Unsubscribe and purge")
             .group(GROUP_EDIT)
             .result(ActionResult::Type(TypeCode::Map))
             .level(Perm::Config),

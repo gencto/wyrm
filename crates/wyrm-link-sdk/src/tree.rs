@@ -142,6 +142,16 @@ fn join(base: &str, name: &str) -> String {
     }
 }
 
+/// Every action and parameter without a `display` gets one derived from its
+/// key (ADR 0042); a given `display` stays.
+fn fill_actions(m: &mut NodeMeta) {
+    if let Some(actions) = &mut m.actions {
+        for (name, a) in actions.iter_mut() {
+            wyrm_core::display::fill(name, a);
+        }
+    }
+}
+
 /// Drop tree-owned fields from a driver-supplied meta.
 fn sanitize(mut m: NodeMeta) -> NodeMeta {
     m.children = None;
@@ -159,7 +169,9 @@ fn sanitize(mut m: NodeMeta) -> NodeMeta {
 impl NodeTree {
     pub fn new(root: NodeMeta) -> Self {
         let mut nodes = HashMap::new();
-        nodes.insert(String::new(), Node::new(sanitize(root)));
+        let mut root = sanitize(root);
+        fill_actions(&mut root);
+        nodes.insert(String::new(), Node::new(root));
         Self {
             nodes,
             overlays: HashMap::new(),
@@ -234,6 +246,7 @@ impl NodeTree {
     /// [`declare_action`](Self::declare_action) survive a re-declare that has none.
     pub fn declare(&mut self, path: &str, meta: NodeMeta) -> Result<Changed> {
         let mut meta = sanitize(meta);
+        fill_actions(&mut meta);
         if let Some(node) = self.nodes.get_mut(path) {
             if meta.actions.is_none() {
                 meta.actions = node.meta.actions.clone();
@@ -277,6 +290,8 @@ impl NodeTree {
     }
 
     pub fn declare_action(&mut self, path: &str, name: &str, action: ActionMeta) -> Result<bool> {
+        let mut action = action;
+        wyrm_core::display::fill(name, &mut action);
         let node = self
             .nodes
             .get_mut(path)

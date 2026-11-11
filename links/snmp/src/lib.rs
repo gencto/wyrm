@@ -228,22 +228,22 @@ impl Params for V3Conn {
             ParamSpec::new("auth_protocol", TypeCode::Enum)
                 .one_of(AuthProtocol::NAMES)
                 .default("sha256")
-                .display("Auth Protocol")
+                .display("Auth protocol")
                 .dest(),
             ParamSpec::new("auth_passphrase", TypeCode::String)
                 .secret()
                 .desc("at least 8 characters")
-                .display("Auth Passphrase"),
+                .display("Auth passphrase"),
             ParamSpec::new("priv_protocol", TypeCode::Enum)
                 .one_of(PrivProtocol::NAMES)
                 .default("aes128")
-                .display("Privacy Protocol")
+                .display("Privacy protocol")
                 .dest(),
             ParamSpec::new("priv_passphrase", TypeCode::String)
                 .secret()
                 .default("")
                 .desc("at least 8 characters; required with aes128")
-                .display("Privacy Passphrase"),
+                .display("Privacy passphrase"),
             ParamSpec::new("engine_id", TypeCode::String)
                 .default("")
                 .desc(
@@ -339,15 +339,15 @@ pub struct Device {
     /// v2c: this device's community instead of the connection's (some
     /// agents select a VLAN or an instance by community); empty = the
     /// connection's. Ignored on v3.
-    #[param(secret, default = "", display = "Community Override")]
+    #[param(secret, default = "", display = "Community override")]
     pub community: String,
-    #[param(default = 20, min = 1, max = 100, display = "Max Varbinds per Request")]
+    #[param(default = 20, min = 1, max = 100, display = "Max varbinds per request")]
     pub max_varbinds: u16,
     #[param(
         default = 25,
         min = 1,
         max = 100,
-        display = "Max Repetitions (GETBULK)"
+        display = "Max repetitions (GETBULK)"
     )]
     pub max_repetitions: u16,
     /// GETBULK requests per table column and poll.
@@ -355,19 +355,19 @@ pub struct Device {
         default = 20,
         min = 1,
         max = 200,
-        display = "Max GETBULK Requests per Column"
+        display = "Max GETBULK requests per column"
     )]
     pub max_pages: u16,
     #[param(default = true, display = "Ping")]
     pub ping: bool,
-    #[param(default = 10.0, min = 0.1, max = 3600.0, display = "Ping Rate (s)")]
+    #[param(default = 10.0, min = 0.1, max = 3600.0, display = "Ping rate (s)")]
     pub ping_s: f64,
     /// Publish an unchanged value again after this long (0 = on a change only).
     #[param(
         default = 0.0,
         min = 0.0,
         max = 3600.0,
-        display = "Republish Unchanged Values (s)"
+        display = "Republish unchanged values (s)"
     )]
     pub republish_s: f64,
 }
@@ -484,7 +484,7 @@ impl Params for Point {
             ParamSpec::new("poll_s", TypeCode::Number)
                 .default(10.0)
                 .bounds(0.01, 86_400.0)
-                .display("Poll Rate (s)"),
+                .display("Poll rate (s)"),
             ParamSpec::new("writable", TypeCode::Bool)
                 .default(false)
                 .display("Writable"),
@@ -492,7 +492,7 @@ impl Params for Point {
                 .one_of(SetType::NAMES)
                 .default("integer")
                 .desc("SMI type of a SET: integer, octet_string or gauge32")
-                .display("Set Type"),
+                .display("Set type"),
         ]
     }
 
@@ -1346,7 +1346,7 @@ impl Driver for SnmpDriver {
                 "reset_engine_clock",
                 ActionMeta::new()
                     .level(Perm::Config)
-                    .display("Reset Engine Clock"),
+                    .display("Reset engine clock"),
             )];
         }
         if level != Level::Device {
@@ -1355,7 +1355,7 @@ impl Driver for SnmpDriver {
         let max = ParamMeta {
             default: Some(Value::UInt(WALK_DEFAULT as u64)),
             ..ParamMeta::of(TypeCode::Number)
-                .display("Max Entries")
+                .display("Max entries")
                 .description("1…10000")
         };
         vec![(

@@ -52,9 +52,9 @@ struct Serial {
 
 #[derive(Debug, Clone, PartialEq, Params)]
 enum Conn {
-    #[param(name = "ip", display = "IP Connection")]
+    #[param(name = "ip", display = "IP connection")]
     Ip(Ip),
-    #[param(name = "serial", display = "Serial Connection")]
+    #[param(name = "serial", display = "Serial connection")]
     Serial(Serial),
 }
 

@@ -315,7 +315,7 @@ fn a_wrong_password_or_none_stops() {
     // checked before any connection: port 1 is never tried
     let e = Mongo::connect(&mut h, &cfg(1, true), None).err().unwrap();
     assert!(
-        matches!(e, TargetError::Fatal(_)) && e.message().contains("Set Password"),
+        matches!(e, TargetError::Fatal(_)) && e.message().contains("Set password"),
         "{e}"
     );
     // no user: no login at all

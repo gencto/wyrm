@@ -144,7 +144,7 @@ void main() {
     final f = fixtures.firstWhere((f) => f['name'] == 'meta_action_ui');
     final m = NodeMeta.fromCbor(hexDecode(f['hex'] as String));
     final add = m.actions!['add_device']!;
-    expect(add.display, 'Add Device');
+    expect(add.display, 'Add device');
     expect(add.group, 'new');
     expect(add.params['unit']!.display, 'Slave ID');
     expect(add.params['unit']!.description, '1..247');

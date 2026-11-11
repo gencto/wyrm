@@ -10539,3 +10539,104 @@ async fn cut_off_active_steps_down() {
     let _ = broker.kill();
     let _ = broker.wait();
 }
+
+/// Names people read (ADR 0042): every action and parameter that a
+/// built-in link, the admin's `sys` tree, storage, the historian and the
+/// flow engine declare carries a `display` in the house style (sentence
+/// case, no `_`, acronyms as `wyrm_core::display::WORDS` writes them). The
+/// framework drivers start with one connection, device and point (invalid
+/// params: kept as failed nodes, no I/O), so their per-node forms are
+/// walked too. A new link or action that breaks the rule fails here.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_action_has_a_name_people_read() {
+    const TREE: &str = r#"{ connections: { c1: { devices: { d1: { points: { p1: {} } } } } } }"#;
+    let framework = [
+        "mockdev",
+        "modbus",
+        "mqtt",
+        "http",
+        "snmp",
+        "s7",
+        "bacnet",
+        "opcua",
+        "prometheus",
+    ];
+    let mut links: Vec<String> = framework
+        .iter()
+        .map(|d| format!(r#"l_{d}: {{ driver: "{d}", params: {TREE} }}"#))
+        .collect();
+    for d in ["s3", "gdrive", "webdav", "localfs"] {
+        links.push(format!(r#"l_{d}: {{ driver: "{d}", params: {{}} }}"#));
+    }
+    links.push(
+        r#"l_mock: { driver: "mock", params: { points: 2, rate_hz: 1, depth: 1, fanout: 1 } }"#
+            .into(),
+    );
+    let extra = format!("links: {{ {} }},", links.join(", "));
+    let env = Env::start("names", &extra).await;
+    let c = env.client().await;
+    let site = format!("wy/{SITE}");
+    let mut roots: Vec<String> = ["sys", "storage", "dataflows"]
+        .iter()
+        .map(|r| format!("{site}/{r}"))
+        .collect();
+    let mut want: Vec<String> = links
+        .iter()
+        .map(|l| l.split(':').next().unwrap().to_owned())
+        .collect();
+    want.extend(["alarm", "dql", "scheduler", "uplink"].map(String::from));
+    for l in &want {
+        roots.push(format!("{site}/downstream/{l}"));
+    }
+    // the links declare their trees as they start
+    for l in &want {
+        let root = format!("{site}/downstream/{l}");
+        eventually(&format!("{l} up"), 20, || async {
+            c.meta(&root).await.ok().map(|_| ())
+        })
+        .await;
+    }
+    eventually("framework nodes", 20, || async {
+        for d in framework {
+            let p = format!("{site}/downstream/l_{d}/c1/d1/p1");
+            c.meta(&p).await.ok()?;
+        }
+        Some(())
+    })
+    .await;
+    let mut found = Vec::new();
+    let (mut actions, mut params) = (0usize, 0usize);
+    for root in &roots {
+        let mut keys = vec![root.clone()];
+        keys.extend(
+            c.resolve(root, None, None)
+                .await
+                .unwrap_or_else(|e| panic!("resolve {root}: {e}"))
+                .into_iter()
+                .map(|k| format!("{root}/{k}")),
+        );
+        for k in keys {
+            let Ok(m) = c.meta(&k).await else { continue };
+            for (name, a) in m.actions.iter().flatten() {
+                actions += 1;
+                params += a.params.len();
+                for e in wyrm_core::display::lint(name, a) {
+                    found.push(format!("{k}: {e}"));
+                }
+                // the SDK filled what the link left out
+                assert!(a.display.is_some(), "{k}/~act/{name}: no display");
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    assert!(
+        found.is_empty(),
+        "{} names break the rule:\n{}",
+        found.len(),
+        found.join("\n")
+    );
+    eprintln!("{actions} actions, {params} parameters checked");
+    assert!(actions > 300, "only {actions} actions walked");
+    env.stop().await;
+}

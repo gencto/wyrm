@@ -61,7 +61,7 @@ impl Kind {
         Self::ALL.into_iter().find(|k| k.name() == s)
     }
 
-    /// What ▸ Set Password keeps for this kind.
+    /// What ▸ Set password keeps for this kind.
     pub fn secret_about(self) -> &'static str {
         match self {
             Kind::Mqtt | Kind::Sparkplug => {
@@ -116,7 +116,7 @@ const fn f(
 /// The fields every kind takes (`name` only on Add).
 pub const COMMON: &[Field] = &[
     f("name", TypeCode::String, true, "Name", "One key segment: the upstream's node under this link.", "central-uns"),
-    f("url", TypeCode::String, false, "Url", "mqtt://host:1883, mqtts://host:8883 (Azure: made from `hub` when empty; AWS: https://<endpoint>:8443).", "mqtts://broker.example:8883"),
+    f("url", TypeCode::String, false, "URL", "mqtt://host:1883, mqtts://host:8883 (Azure: made from `hub` when empty; AWS: https://<endpoint>:8443).", "mqtts://broker.example:8883"),
     f("select", TypeCode::String, false, "Keys", "Full node keys whose values go up, one per line or comma: everything under each. Default: this site's downstream.", "wy/site/downstream/plc1, wy/site/storage"),
     f("max_hz", TypeCode::Number, false, "Max rate per point (Hz)", "At most this many values per point per second, the latest kept while over; 0 = every change (default).", "1"),
     f("queue_max", TypeCode::Number, false, "Queue", "Values held while the platform is slower than the site; the oldest go when it is full (default 10000, up to 100000).", "10000"),
@@ -133,7 +133,7 @@ const MQTT_SESSION: &[Field] = &[
         "client_id",
         TypeCode::String,
         false,
-        "Client id",
+        "Client ID",
         "Default wyrm-<site>-<name>.",
         "",
     ),
@@ -142,7 +142,7 @@ const MQTT_SESSION: &[Field] = &[
         TypeCode::String,
         false,
         "Username",
-        "The MQTT user name; the password goes in with Set Password.",
+        "The MQTT user name; the password goes in with Set password.",
         "",
     ),
     f(
@@ -195,7 +195,7 @@ pub const SPARKPLUG: &[Field] = &[
         "group_id",
         TypeCode::String,
         false,
-        "Group id",
+        "Group ID",
         "spBv1.0/<group>/… (default wyrm).",
         "wyrm",
     ),
@@ -203,7 +203,7 @@ pub const SPARKPLUG: &[Field] = &[
         "edge_node_id",
         TypeCode::String,
         false,
-        "Edge node id",
+        "Edge node ID",
         "Default: the site's name.",
         "",
     ),
@@ -231,7 +231,7 @@ pub const AZURE: &[Field] = &[
         "device_id",
         TypeCode::String,
         true,
-        "Device id",
+        "Device ID",
         "",
         "edge-01",
     ),
@@ -258,8 +258,8 @@ pub const AWS: &[Field] = &[
         "access_key_id",
         TypeCode::String,
         true,
-        "Access key id",
-        "The secret access key goes in with Set Password.",
+        "Access key ID",
+        "The secret access key goes in with Set password.",
         "AKIA…",
     ),
     f(
@@ -448,7 +448,7 @@ pub fn parse_url(url: &str, schemes: &[(&str, bool, u16)]) -> Result<Endpoint, S
         })?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     if authority.contains('@') {
-        return Err("url: no credentials in the URL (use Set Password)".into());
+        return Err("url: no credentials in the URL (use Set password)".into());
     }
     let (host, port) = if let Some(h) = authority.strip_prefix('[') {
         let (h, p) = h.split_once(']').ok_or("url: bad IPv6 host")?;

@@ -12,7 +12,7 @@
 //! Params (besides `sink`, `batch`, `idle_s`, `retry_s` of [`wyrm_history_sync`]): `url`
 //! (`https://host[:port][/base]`, or `http://` to an IP), `org`, `bucket`, `measurement`,
 //! `ca_pem` (trust only this CA), `timeout_ms` (default 10 000), `insecure_plaintext` (send the
-//! token over `http://` to a host that is not loopback). The token goes in with ▸ Set Password.
+//! token over `http://` to a host that is not loopback). The token goes in with ▸ Set password.
 //! A row whose value is not a number, a bool or text (or a number that is not finite) is skipped.
 
 use wyrm_core::{Quality, Value};

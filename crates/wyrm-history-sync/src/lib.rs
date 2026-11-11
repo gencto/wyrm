@@ -12,7 +12,7 @@
 //! link's records, ADR 0034), `batch`
 //! (rows per batch, default 500, at most 5 000), `idle_s` (wait when nothing is new, default 5),
 //! `retry_s` (longest wait after an error, default 60); every other key is the target's. The
-//! target's secret (a password or a token) is never a param: ▸ Set Password keeps it in the
+//! target's secret (a password or a token) is never a param: ▸ Set password keeps it in the
 //! link's sealed store.
 
 pub mod http;
@@ -96,7 +96,7 @@ pub trait Target: Sized {
     /// is an error naming it.
     fn check(cfg: &Map) -> Result<(), String>;
     /// Open and authenticate (TCP or TLS through `net`), with the secret
-    /// from ▸ Set Password.
+    /// from ▸ Set password.
     fn connect(net: &mut dyn Host, cfg: &Map, secret: Option<&str>) -> Result<Self, TargetError>;
     /// Create the table, index or bucket when the params allow; safe to repeat.
     fn prepare(&mut self, _net: &mut dyn Host) -> Result<(), TargetError> {
@@ -510,7 +510,7 @@ impl<T: Target> App for SyncApp<T> {
             "",
             "set_password",
             ActionMeta::new()
-                .display("Set Password")
+                .display("Set password")
                 .level(Perm::Config)
                 .param(
                     "password",
@@ -527,7 +527,7 @@ impl<T: Target> App for SyncApp<T> {
             "",
             "test_connection",
             ActionMeta::new()
-                .display("Test Connection")
+                .display("Test connection")
                 .level(Perm::Config)
                 .result(wyrm_core::meta::ActionResult::Type(TypeCode::Map)),
         );

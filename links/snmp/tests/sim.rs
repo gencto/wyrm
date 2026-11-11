@@ -1226,7 +1226,7 @@ async fn reset_engine_clock_after_the_agent_lost_its_boots() {
     }
     wait("device refused", || {
         state(&h, "c1/d1").as_deref() == Some("failed")
-            && error(&h, "c1/d1").is_some_and(|e| e.contains("Reset Engine Clock"))
+            && error(&h, "c1/d1").is_some_and(|e| e.contains("Reset engine clock"))
     })
     .await;
     // a reconnect does not forget it: the connection opens, the device
@@ -1246,7 +1246,7 @@ async fn reset_engine_clock_after_the_agent_lost_its_boots() {
     let w = warning(&h, "c1").await;
     assert!(
         w.as_deref()
-            .is_some_and(|w| w.contains("Reset Engine Clock")),
+            .is_some_and(|w| w.contains("Reset engine clock")),
         "{w:?}"
     );
     let (s, _) = act(&h, "c1", "reset_engine_clock", map(&[]), Perm::Write).await;

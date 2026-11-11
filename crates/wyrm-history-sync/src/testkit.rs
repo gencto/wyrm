@@ -25,13 +25,26 @@ pub struct TcpHost {
     ids: u64,
 }
 
+/// Names people read (ADR 0042): every action this host is handed keeps
+/// to the style, so the tests of each app hold it to the rule.
+fn lint_names(name: &str, a: &ActionMeta) {
+    let found = wyrm_core::display::lint(name, a);
+    assert!(found.is_empty(), "{}", found.join("; "));
+}
+
 fn unsupported<T>() -> Result<T, AppError> {
     Err(AppError::new(Status::NotSupported, "not in this test"))
 }
 
 impl Host for TcpHost {
-    fn declare_node(&mut self, _p: &str, _m: NodeMeta) {}
-    fn declare_action(&mut self, _p: &str, _n: &str, _a: ActionMeta) {}
+    fn declare_node(&mut self, _p: &str, m: NodeMeta) {
+        for (name, a) in m.actions.iter().flatten() {
+            lint_names(name, a);
+        }
+    }
+    fn declare_action(&mut self, _p: &str, n: &str, a: ActionMeta) {
+        lint_names(n, &a);
+    }
     fn remove_node(&mut self, _p: &str) {}
     fn update(&mut self, p: &str, s: Sample) {
         self.values.insert(p.to_owned(), s.v);

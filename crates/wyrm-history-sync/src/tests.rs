@@ -19,8 +19,16 @@ struct Fake {
 }
 
 impl Host for Fake {
-    fn declare_node(&mut self, _path: &str, _meta: NodeMeta) {}
-    fn declare_action(&mut self, _path: &str, _name: &str, _action: ActionMeta) {}
+    fn declare_node(&mut self, _path: &str, meta: NodeMeta) {
+        for (name, a) in meta.actions.iter().flatten() {
+            let found = wyrm_core::display::lint(name, a);
+            assert!(found.is_empty(), "{}", found.join("; "));
+        }
+    }
+    fn declare_action(&mut self, _path: &str, name: &str, action: ActionMeta) {
+        let found = wyrm_core::display::lint(name, &action);
+        assert!(found.is_empty(), "{}", found.join("; "));
+    }
     fn remove_node(&mut self, _path: &str) {}
     fn update(&mut self, path: &str, sample: Sample) {
         self.values.insert(path.to_owned(), sample.v);

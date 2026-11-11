@@ -6,7 +6,7 @@
 //! Namespace, a Sparkplug B host, ThingsBoard, Azure IoT Hub or AWS IoT Core. It is added with
 //! one action per kind (`add_mqtt`, …), as an upstream broker is added on `sys/upstream`, and
 //! shows as a node with `status`, `error`, `url`, `enabled` and counters. Its one secret goes in
-//! with ▸ Set Password and stays in the link's sealed store.
+//! with ▸ Set password and stays in the link's sealed store.
 //!
 //! The link subscribes to the subtrees the upstreams select (`<key>/**`), keeps the latest value
 //! per point while a point is over its `max_hz`, queues values per upstream (the oldest go when
@@ -458,7 +458,7 @@ impl Up {
             Kind::ThingsBoard => {
                 username = Some(
                     secret
-                        .ok_or("no access token: use Set Password")?
+                        .ok_or("no access token: use Set password")?
                         .to_owned(),
                 );
                 password = None;
@@ -466,7 +466,7 @@ impl Up {
                 will = None;
             }
             Kind::Azure => {
-                let key = secret.ok_or("no device key: use Set Password")?;
+                let key = secret.ok_or("no device key: use Set password")?;
                 let ttl = d.uint("sas_ttl_s", platform::DEFAULT_SAS_TTL_S);
                 let expiry = now / 1_000_000 + ttl;
                 let token = azure_sas(d.str("hub"), d.str("device_id"), key, expiry)?;
@@ -502,7 +502,7 @@ impl Up {
         let secret = store::secret(host, &self.def.name);
         if self.def.kind.needs_secret() && secret.is_none() {
             self.state = State::Failed;
-            self.error = "no secret: use Set Password".into();
+            self.error = "no secret: use Set password".into();
             return;
         }
         self.state = State::Connecting;
@@ -1186,7 +1186,7 @@ impl Up {
         }
     }
 
-    /// Start again after a change (Edit, Set Password, Enable): the queue stays.
+    /// Start again after a change (Edit, Set password, Enable): the queue stays.
     fn restart(&mut self, host: &mut dyn Host) {
         self.close(host);
         self.retry_ms = FIRST_RETRY_MS;
@@ -1211,7 +1211,7 @@ impl Up {
     ) -> Result<String, String> {
         let secret = store::secret(host, &self.def.name);
         if self.def.kind.needs_secret() && secret.is_none() {
-            return Err("no secret: use Set Password".into());
+            return Err("no secret: use Set password".into());
         }
         let ep = self.def.endpoint();
         if self.def.kind != Kind::Aws && self.state == State::Connected {
@@ -1764,7 +1764,7 @@ impl App for Uplink {
                 let old = &self.ups[&name].def;
                 let old_select = old.select.clone();
                 // a secret goes only where it was set for: a new endpoint, TLS setting or CA
-                // drops it (Set Password again), so an edit cannot send it elsewhere
+                // drops it (Set password again), so an edit cannot send it elsewhere
                 let moved = old.endpoint() != def.endpoint()
                     || old.insecure_plaintext != def.insecure_plaintext
                     || old.ca_pem != def.ca_pem;

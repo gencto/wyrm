@@ -233,7 +233,7 @@ pub trait Backend: Sized + Send + Sync + 'static {
     /// The link's driver name (`s3`): a key segment.
     const NAME: &'static str;
     const VERSION: &'static str;
-    /// A connection for people (`"S3 Bucket"`): `Add <DISPLAY>`.
+    /// A connection for people (`"S3 bucket"`): `Add <DISPLAY>`.
     const DISPLAY: &'static str;
     /// The connection params (destination, credentials as `secret`).
     type Params: Params;

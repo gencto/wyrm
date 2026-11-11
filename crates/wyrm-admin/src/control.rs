@@ -2063,7 +2063,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "update",
         ActionMeta::new()
             .level(Perm::Config)
-            .display("Update Params")
+            .display("Update params")
             .group(GROUP_EDIT)
             .param("params", ParamMeta::of(TypeCode::Map).required(true))
             .result(ActionResult::Type(TypeCode::Number)),
@@ -2100,7 +2100,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "set_secret",
         ActionMeta::new()
             .level(Perm::Config)
-            .display("Set Secret")
+            .display("Set secret")
             .group("secrets")
             .param(
                 "name",
@@ -2123,7 +2123,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         "delete_secret",
         ActionMeta::new()
             .level(Perm::Config)
-            .display("Delete Secret")
+            .display("Delete secret")
             .group("secrets")
             .param(
                 "name",
@@ -2149,7 +2149,7 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         &p,
         "grant",
         ActionMeta::new()
-            .display("Grant Access")
+            .display("Grant access")
             .group("access")
             .param(
                 "path",
@@ -2211,7 +2211,7 @@ fn link_levels() -> Vec<String> {
 /// `get_log {lines, level, filter[, link]}` → a table of log lines.
 fn log_action(broker: bool) -> ActionMeta {
     let mut a = ActionMeta::new()
-        .display("Get Log")
+        .display("Get log")
         .param(
             "lines",
             ParamMeta::of(TypeCode::Number)
@@ -2542,14 +2542,16 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
     ctx.declare_action(
         "",
         "clear_conns",
-        ActionMeta::new().display("Clear Conns").level(Perm::Config),
+        ActionMeta::new()
+            .display("Clear connections")
+            .level(Perm::Config),
     )
     .await?;
     ctx.declare_action(
         "",
         "get_permissions",
         ActionMeta::new()
-            .display("Get Permissions")
+            .display("Get permissions")
             .result(ActionResult::Type(TypeCode::Array))
             .level(Perm::Config),
     )
@@ -2559,7 +2561,7 @@ async fn declare_sys_actions(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
             "",
             "update_permissions",
             ActionMeta::new()
-                .display("Update Permissions")
+                .display("Update permissions")
                 .param("role", str_param().required(true).display("Role"))
                 .param(
                     "path",
@@ -2602,7 +2604,7 @@ fn site_param() -> ParamMeta {
 fn ca_param() -> ParamMeta {
     str_param()
         .required(true)
-        .display("CA Certificate")
+        .display("CA certificate")
         .editor(EDITOR_TEXTAREA)
         .description("PEM of that site's CA (its data_dir/pki/ca.pem)")
 }
@@ -2617,14 +2619,14 @@ async fn declare_peers(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()
         "upstream",
         "add",
         ActionMeta::new()
-            .display("Add Upstream Connection")
+            .display("Add upstream connection")
             .group(GROUP_NEW)
             .param("name", site_param())
             .param(
                 "url",
                 str_param()
                     .required(true)
-                    .display("Url")
+                    .display("URL")
                     .placeholder("quic/central.example:7450")
                     .description("Its enrollment endpoint (peers.enroll there)"),
             )
@@ -2685,7 +2687,7 @@ struct Upstream<'a> {
 /// `allow_config` of an upstream site (ADR 0018).
 fn allow_config_param() -> ParamMeta {
     ParamMeta::of(TypeCode::Bool)
-        .display("Allow Config")
+        .display("Allow config")
         .description(
             "Its users may run config actions here (sys and links), as far as their own grants go",
         )
@@ -2891,7 +2893,7 @@ async fn declare_tokens(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<(
         "tokens",
         NodeMeta::folder().attr(
             "description",
-            "Tokens that admit a downstream broker at once (its Add Upstream Connection).",
+            "Tokens that admit a downstream broker at once (its Add upstream connection).",
         ),
     )
     .await?;
@@ -2899,7 +2901,7 @@ async fn declare_tokens(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<(
         "tokens",
         "add",
         ActionMeta::new()
-            .display("Add Token")
+            .display("Add token")
             .group(GROUP_NEW)
             .param(
                 "count",
@@ -3261,7 +3263,7 @@ fn install_meta(display: &str) -> ActionMeta {
         .param(
             "accept",
             ParamMeta::of(TypeCode::Bool)
-                .display("Accept Requested Rights")
+                .display("Accept requested rights")
                 .description(
                     "The package's network allowlist and grants: an install without this \
                      shows them and installs nothing",
@@ -3319,7 +3321,7 @@ async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
     ctx.declare_action(
         "links",
         "install_repo",
-        install_meta("from Repository")
+        install_meta("From repository")
             .param("name", link_name_param())
             .param("package", package),
     )
@@ -3450,7 +3452,7 @@ impl Link for Admin {
             "links",
             "install",
             ActionMeta::new()
-                .display("from Driver")
+                .display("From driver")
                 .group(INSTALL_GROUP)
                 .param("id", str_param().required(true).display("Link ID"))
                 // The drivers this broker hosts, so a UI can list them
@@ -3476,13 +3478,13 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install_zip",
-            install_meta("from Zip")
+            install_meta("From ZIP")
                 .param("name", link_name_param())
                 .param(
                     "zip",
                     ParamMeta::of(TypeCode::Binary)
                         .required(true)
-                        .display("Zip")
+                        .display("ZIP file")
                         .editor(EDITOR_FILE)
                         .description("Link package: a zip with wyrm-link.json"),
                 ),
@@ -3491,13 +3493,13 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install_url",
-            install_meta("from Url")
+            install_meta("From URL")
                 .param("name", link_name_param())
                 .param(
                     "url",
                     str_param()
                         .required(true)
-                        .display("Url")
+                        .display("URL")
                         .placeholder("https://example.com/link.zip"),
                 ),
         )
@@ -3505,13 +3507,13 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install_git",
-            install_meta("from Git")
+            install_meta("From Git")
                 .param("name", link_name_param())
                 .param(
                     "url",
                     str_param()
                         .required(true)
-                        .display("Url")
+                        .display("URL")
                         .placeholder("https://git.example.com/link.git"),
                 )
                 .param(
@@ -3523,7 +3525,7 @@ impl Link for Admin {
         ctx.declare_action(
             "links",
             "install_wasm",
-            install_meta("from WASM")
+            install_meta("From WASM")
                 .param("name", link_name_param())
                 .param(
                     "wasm",
@@ -3567,7 +3569,7 @@ impl Link for Admin {
             "profiles",
             "put",
             ActionMeta::new()
-                .display("Put Profile")
+                .display("Put profile")
                 .group(GROUP_NEW)
                 .param("name", str_param().required(true).display("Name"))
                 .param(
@@ -3583,7 +3585,7 @@ impl Link for Admin {
             "profiles",
             "remove",
             ActionMeta::new()
-                .display("Remove Profile")
+                .display("Remove profile")
                 .group(GROUP_EDIT)
                 .param("name", str_param().required(true).display("Name"))
                 .level(Perm::Config),

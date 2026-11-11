@@ -1042,7 +1042,7 @@ impl Link for Engine {
             "",
             "put_block",
             ActionMeta::new()
-                .display("Put Block")
+                .display("Put block")
                 .param("name", ParamMeta::of(TypeCode::String).required(true))
                 .param("def", def_param())
                 .result(ActionResult::Type(TypeCode::Map))
@@ -1053,7 +1053,7 @@ impl Link for Engine {
             "",
             "remove_block",
             ActionMeta::new()
-                .display("Remove Block")
+                .display("Remove block")
                 .param("name", ParamMeta::of(TypeCode::String).required(true))
                 .level(Perm::Config),
         )
@@ -1062,7 +1062,7 @@ impl Link for Engine {
             "",
             "get_block",
             ActionMeta::new()
-                .display("Get Block")
+                .display("Get block")
                 .param("name", ParamMeta::of(TypeCode::String).required(true))
                 .result(ActionResult::Type(TypeCode::Map))
                 .level(Perm::Read),
@@ -1072,7 +1072,7 @@ impl Link for Engine {
             "",
             "list_blocks",
             ActionMeta::new()
-                .display("List Blocks")
+                .display("List blocks")
                 .result(ActionResult::Type(TypeCode::Array))
                 .level(Perm::Read),
         )
@@ -1082,7 +1082,7 @@ impl Link for Engine {
             "",
             "node_types",
             ActionMeta::new()
-                .display("Node Types")
+                .display("Node types")
                 .result(ActionResult::Type(TypeCode::Array))
                 .level(Perm::Read),
         )
