@@ -15,6 +15,7 @@ import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
+import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/json_tree.dart';
 import 'package:ui/trees/tree_row.dart';
 
@@ -322,6 +323,7 @@ FlowEditorPage _bind({
   ValueViewerVm? viewer,
   Set<String> hidden = const {},
   bool pins = false,
+  ViewerTables? tables,
 }) => FlowEditorPage(
   flowsLabel: 'Flows',
   flowLabel: flow,
@@ -363,6 +365,7 @@ FlowEditorPage _bind({
   onRemove: selected == null ? null : () {},
   onView: _id,
   viewer: viewer,
+  viewerTables: tables,
   onCloseViewer: () {},
   onSelectMany: (_, {required add, required toggle}) {},
   onCommand: (_, {at}) {},
@@ -2661,6 +2664,122 @@ FlowEditorPage flowCustomInside() => _wave2(
       hint: 'default',
       pinned: true,
       pinLocked: true,
+    ),
+  ],
+);
+
+/// A table typed into the `table` variable (owner request 2026-11-11):
+/// the viewer as a grid of every row, cells by type, the filter, Add row
+/// and Add column; Copy CSV and Copy JSON in the title row.
+FlowEditorPage flowViewerTable() {
+  final t = TableDataVm(
+    ['t', 'name', 'kw', 'on', 'note', 'limits'],
+    [
+      [1762862400000000, 'pump 1', 3, true, 'duty', null],
+      [
+        1762862460000000,
+        'pump 2',
+        7.5,
+        false,
+        null,
+        {'low': 20, 'high': 90},
+      ],
+      [1762862520000000, 'fan', 0.75, true, 'two lines\nof text', null],
+      [1762862580000000, 'chiller', 12, false, 'standby', null],
+      for (var i = 5; i <= 40; i++)
+        [
+          1762862400000000 + i * 60000000,
+          'valve $i',
+          i * 0.5,
+          i.isEven,
+          null,
+          null,
+        ],
+    ],
+  );
+  return _bind(
+    flow: 'plant-table',
+    selected: 'text',
+    kind: 'Logic block',
+    title: 'text',
+    blocks: _textBlocks('text'),
+    wires: _textWires,
+    viewer: ValueViewerVm(
+      title: 'pumps.value',
+      type: 'table',
+      size: '40 rows · 6 columns',
+      content: TableContentVm(t),
+      copy: '',
+      edit: ViewerEditVm(kind: .table, text: '', table: t),
+    ),
+    tables: ViewerTables(
+      cellText: (column, v) => column == 't' && v is int
+          ? '2026-11-11 12:${((v - 1762862400000000) ~/ 60000000).toString().padLeft(2, '0')}:00'
+          : null,
+      copyCsv: (_) => '',
+    ),
+  );
+}
+
+/// `table_from_csv` with a CSV of three lines typed into its Input: the
+/// block's row shows the first line and `↲ +2`; the inspector's text row
+/// grows to its lines; a bound row of two lines shows its mark too.
+FlowEditorPage flowCsvLines() => _bind(
+  flow: 'csv-import',
+  selected: 'csv1',
+  kind: 'Logic block',
+  title: 'csv1',
+  note: 'A CSV text as a table.',
+  blocks: [
+    FlowBlockVm(
+      id: 'csv1',
+      title: 'csv1',
+      type: 'table_from_csv',
+      x: 340 + _m,
+      y: 80 + _m,
+      width: 240,
+      selected: true,
+      rows: [
+        _r('in', 'name,kw\npump,3\nfan,7', label: 'Input'),
+        _r('with_header', 'true', label: 'With header'),
+        _r('delimiter', ',', label: 'Delimiter'),
+        _r(
+          'note',
+          'checked by olena\non 2026-11-11',
+          ins: 'bound',
+          tone: ValueTone.bound,
+          label: 'Note',
+        ),
+        _r('out', '{…}', ins: '', label: 'Output'),
+      ],
+    ),
+  ],
+  wires: const [],
+  rows: const [
+    InspectorRowVm(
+      id: 'in:in',
+      name: 'Input',
+      engine: 'in',
+      editor: FieldEditorVm.text,
+      value: 'name,kw\npump,3\nfan,7',
+      inPort: 'in',
+    ),
+    InspectorRowVm(
+      id: 'note',
+      name: 'Note',
+      engine: 'note',
+      editor: FieldEditorVm.bound,
+      value: 'checked by olena\non 2026-11-11',
+      sourceBlock: 'who',
+      inPort: 'note',
+    ),
+    InspectorRowVm(
+      id: 'out',
+      name: 'Output',
+      engine: 'out',
+      editor: FieldEditorVm.output,
+      value: '{…}',
+      targets: 'not bound',
     ),
   ],
 );

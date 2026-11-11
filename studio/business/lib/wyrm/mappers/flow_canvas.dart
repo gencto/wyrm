@@ -460,16 +460,20 @@ enum FieldEditError { number, json, toggle }
   );
 }
 
+/// The typed value of [f] of [b] as the config holds it: the config's
+/// value, else the parameter's default; null when it has none.
+Object? fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
+  FlowField(:final spec?) => b.cfg[spec.name] ?? spec.defaultValue,
+  FlowField(kind: FieldKind.arg) => (b.cfg['args'] as Map?)?[f.name],
+  FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
+  _ => null,
+};
+
 /// The typed value of [f] of [b] as the text its editor starts with: the
 /// config's value, else the parameter's default; a map or a list as
 /// indented JSON; a text as itself.
 String fieldEditText(FlowBlock b, FlowField f) {
-  final v = switch (f) {
-    FlowField(:final spec?) => b.cfg[spec.name] ?? spec.defaultValue,
-    FlowField(kind: FieldKind.arg) => (b.cfg['args'] as Map?)?[f.name],
-    FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
-    _ => null,
-  };
+  final v = fieldEditValue(b, f);
   return switch (v) {
     null => '',
     final String s => s,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/lines_text.dart';
 import '../overlays/confirm_dialog.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
@@ -719,6 +720,11 @@ class _Row extends StatelessWidget {
 
   Widget _editor(BuildContext context) {
     final c = context.colors;
+    // The mark of a value of several lines opens it in the viewer.
+    final open = switch (onView) {
+      final view? => () => view(vm.id),
+      null => null,
+    };
     final box = BoxDecoration(
       color: c.ground3,
       border: .all(color: c.line2),
@@ -740,20 +746,22 @@ class _Row extends StatelessWidget {
             spacing: 8,
             children: [
               Expanded(
-                child: Text(
+                child: LinesText(
                   vm.value.isEmpty ? '—' : vm.value,
-                  maxLines: 1,
-                  overflow: .ellipsis,
+                  onOpen: open,
                   style: mono(size: 12, color: c.emberNew),
                 ),
               ),
-              Text(
-                boundLabel,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: vm.writes ? c.emberSoft : c.good,
+              // A value of several lines needs the room for its first
+              // line and its mark; the frame's colour says it is bound.
+              if (!vm.value.contains('\n'))
+                Text(
+                  boundLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: vm.writes ? c.emberSoft : c.good,
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -830,10 +838,9 @@ class _Row extends StatelessWidget {
               crossAxisAlignment: .start,
               children: [
                 if (vm.value.isNotEmpty)
-                  Text(
+                  LinesText(
                     vm.value,
-                    maxLines: 1,
-                    overflow: .ellipsis,
+                    onOpen: open,
                     style: mono(size: 12, color: c.text1),
                   ),
                 if (vm.targets.isNotEmpty)
@@ -916,10 +923,9 @@ class _Row extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Align(
               alignment: .centerLeft,
-              child: Text(
+              child: LinesText(
                 vm.value,
-                maxLines: 1,
-                overflow: .ellipsis,
+                onOpen: open,
                 style: mono(size: 12, color: c.text3),
               ),
             ),

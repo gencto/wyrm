@@ -9,24 +9,13 @@ final class TableValue {
 
   /// Every row, each with one cell per column.
   final List<List<Object?>> rows;
-
-  /// The first [max] rows as texts: a cell as [valueText] writes it, a date
-  /// of the time column `t` (µs, as `load_history` and `table_recorder`
-  /// give it) as [dateText].
-  List<List<String>> texts({int max = 200}) => [
-    for (final r in rows.take(max))
-      [
-        for (final (i, c) in r.indexed)
-          switch (c) {
-            null => '',
-            final num n when columns[i] == 't' && dateText(n) != null =>
-              dateText(n)!,
-            final String s => s,
-            _ => valueText(c),
-          },
-      ],
-  ];
 }
+
+/// A cell's own text in a table viewer: a date of the time column `t`
+/// (µs, as `load_history` and `table_recorder` give it) as [dateText];
+/// null for any other cell (the grid writes it by its type).
+String? tableCellText(String column, Object? cell) =>
+    column == 't' && cell is num ? dateText(cell) : null;
 
 /// [v] as a table, or null when it is none.
 ///

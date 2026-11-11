@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/theme/common.dart';
 
 import '../frames/flow.dart';
 import '../frames/harness.dart';
@@ -31,11 +32,12 @@ void main() {
     (String, String)? dragging,
     String? hover,
     Future<void> Function()? then,
+    ThemeData? theme,
   }) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(frame(page));
+    await tester.pumpWidget(frame(page, theme: theme));
     // SVG icons decode off the frame.
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
@@ -331,5 +333,40 @@ void main() {
         await t.pump(const Duration(milliseconds: 300));
       },
     ),
+  );
+  testWidgets(
+    'the table window: every row in a grid, cells by type, editable',
+    (t) => shoot(t, 'flow_viewer_table', flowViewerTable()),
+  );
+  testWidgets(
+    'the table window in the light theme',
+    (t) => shoot(
+      t,
+      'flow_viewer_table_light',
+      flowViewerTable(),
+      theme: lightTheme(),
+    ),
+  );
+  testWidgets(
+    'the table window with a cell in its editor and a change to save',
+    (t) => shoot(
+      t,
+      'flow_viewer_table_edit',
+      flowViewerTable(),
+      then: () async {
+        await t.tap(find.byKey(const ValueKey('table-cell-1-2')));
+        await t.pump(const Duration(milliseconds: 400));
+        await t.sendKeyEvent(LogicalKeyboardKey.delete);
+        await t.pump();
+        await t.tap(find.byKey(const ValueKey('table-cell-0-2')));
+        await t.pump(const Duration(milliseconds: 400));
+        await t.sendKeyEvent(LogicalKeyboardKey.enter);
+        await t.pump();
+      },
+    ),
+  );
+  testWidgets(
+    'a text of several lines: its first line and a mark with the count',
+    (t) => shoot(t, 'flow_lines_mark', flowCsvLines()),
   );
 }

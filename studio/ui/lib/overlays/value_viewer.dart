@@ -1,12 +1,17 @@
 import 'dart:async';
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:localization/localization.dart';
 
 import '../buttons/button.dart';
+import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
+import '../tables/table_edits.dart';
+import '../tables/table_grid.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -70,22 +75,16 @@ final class BytesContentVm extends ValueContentVm {
   List<Object?> get props => [rows];
 }
 
-/// A table (ADR 0044 §2: `{columns, rows}`, or a list of maps): a header
-/// of the [columns], then [rows] of cell texts; [note] under it says how
-/// many rows are shown of how many (`200 of 1 234 rows`), empty when all.
+/// A table (ADR 0044 §2: `{columns, rows}`, or a list of maps): a grid of
+/// all its rows ([TableGrid]). It compares by the table's identity: the app
+/// keeps one [TableDataVm] per value.
 final class TableContentVm extends ValueContentVm {
-  const TableContentVm({
-    required this.columns,
-    required this.rows,
-    this.note = '',
-  });
+  const TableContentVm(this.table);
 
-  final List<String> columns;
-  final List<List<String>> rows;
-  final String note;
+  final TableDataVm table;
 
   @override
-  List<Object?> get props => [columns, rows, note];
+  List<Object?> get props => [table];
 }
 
 /// No value (yet), or `null`.
@@ -114,6 +113,10 @@ enum ViewerEditKind {
 
   /// One of [ViewerEditVm.choices]: a dropdown.
   choice,
+
+  /// A table ([ViewerEditVm.table]): its grid edits in place; Edit opens
+  /// [ViewerEditVm.text] (its JSON) in the multi-line editor.
+  table,
 }
 
 /// What the viewer's Edit mode starts with: the value as its editor shows
@@ -123,14 +126,55 @@ final class ViewerEditVm extends Equatable {
     required this.kind,
     required this.text,
     this.choices = const [],
+    this.table,
   });
 
   final ViewerEditKind kind;
   final String text;
   final List<String> choices;
 
+  /// The typed table a [ViewerEditKind.table] grid starts with.
+  final TableDataVm? table;
+
   @override
-  List<Object?> get props => [kind, text, choices];
+  List<Object?> get props => [kind, text, choices, table];
+}
+
+/// How a CSV text is read as `table_from_csv` reads it: the block's
+/// [delimiter] and [header] (`with_header`), and a [note] when a wire feeds
+/// either (`The delimiter comes in on a wire: read with ","`).
+final class ViewerCsvVm extends Equatable {
+  const ViewerCsvVm({this.delimiter = ',', this.header = true, this.note = ''});
+
+  final String delimiter;
+  final bool header;
+  final String note;
+
+  @override
+  List<Object?> get props => [delimiter, header, note];
+}
+
+/// How the viewer reads and writes tables, given by the app: a cell's own
+/// text (a date), Copy as CSV, and the engine's own CSV rules for the "As
+/// table" tab of a CSV text.
+final class ViewerTables {
+  const ViewerTables({
+    this.cellText,
+    this.copyCsv,
+    this.readCsv,
+    this.writeCsv,
+  });
+
+  final CellTextOf? cellText;
+
+  /// The table as CSV with a comma and a header; null: no Copy CSV.
+  final String Function(TableDataVm table)? copyCsv;
+
+  /// A CSV text as the block reads it; null when it refuses it.
+  final TableDataVm? Function(String text, ViewerCsvVm rules)? readCsv;
+
+  /// A table as the CSV text the block reads back.
+  final String Function(TableDataVm table, ViewerCsvVm rules)? writeCsv;
 }
 
 /// The value one viewer shows: whose it is ([title]: `concat1.out`, a
@@ -147,7 +191,12 @@ final class ValueViewerVm extends Equatable {
     this.quality,
     this.edit,
     this.locked,
+    this.csv,
   });
+
+  /// A CSV text that the viewer also shows "As table" by these rules;
+  /// null: none (only a typed text of `table_from_csv` has them).
+  final ViewerCsvVm? csv;
 
   /// How the value is typed; null: the viewer only shows it.
   final ViewerEditVm? edit;
@@ -157,7 +206,11 @@ final class ValueViewerVm extends Equatable {
   final String? locked;
 
   /// The same value with how it is typed ([edit]) or why not ([locked]).
-  ValueViewerVm typed({ViewerEditVm? edit, String? locked}) => ValueViewerVm(
+  ValueViewerVm typed({
+    ViewerEditVm? edit,
+    String? locked,
+    ViewerCsvVm? csv,
+  }) => ValueViewerVm(
     title: title,
     type: type,
     content: content,
@@ -166,6 +219,7 @@ final class ValueViewerVm extends Equatable {
     quality: quality,
     edit: edit,
     locked: locked,
+    csv: csv,
   );
 
   final String title;
@@ -185,6 +239,7 @@ final class ValueViewerVm extends Equatable {
     copy,
     edit,
     locked,
+    csv,
   ];
 }
 
@@ -199,12 +254,22 @@ final class ValueViewerVm extends Equatable {
 /// leaves the editor first and closes the window next. What cannot be
 /// saved ([validate]) is said under the editor and Save is off. A value
 /// that cannot be typed says why ([ValueViewerVm.locked]).
+///
+/// A table (owner request 2026-11-11) is a [TableGrid] with Copy CSV and
+/// Copy JSON. A typed one ([ViewerEditKind.table]) edits in its grid: the
+/// first change brings Discard and Save under it (Esc discards first), and
+/// Save writes the table as `{columns, rows}` JSON through [onSave], as the
+/// JSON editor does; Edit opens that JSON. A CSV text with
+/// [ValueViewerVm.csv] has two tabs, Text and As table: the table is the
+/// text read by the block's rules ([ViewerTables.readCsv]) and, when the
+/// text is typed, its edits are saved as CSV ([ViewerTables.writeCsv]).
 class ValueViewer extends StatefulWidget {
   const ValueViewer({
     required this.vm,
     required this.onClose,
     this.onSave,
     this.validate,
+    this.tables,
     this.editing = false,
     this.copyLabel = 'Copy',
     this.copiedLabel = 'Copied',
@@ -220,11 +285,15 @@ class ValueViewer extends StatefulWidget {
   final VoidCallback onClose;
 
   /// Save of the Edit mode: the text of the editor (`true`/`false` of a
-  /// toggle, the choice picked).
+  /// toggle, the choice picked, a table's JSON or CSV).
   final ValueChanged<String>? onSave;
 
   /// What is wrong with a typed text (`Not a number`); null: it saves.
   final String? Function(String text)? validate;
+
+  /// How tables are read and written; null: by the grid alone (no Copy
+  /// CSV, no "As table" tab).
+  final ViewerTables? tables;
 
   /// Whether the viewer opens in its Edit mode.
   final bool editing;
@@ -243,13 +312,71 @@ class ValueViewer extends StatefulWidget {
 }
 
 class _ValueViewerState extends State<ValueViewer> {
-  var _copied = false;
+  /// Which Copy said `Copied` last (`copy`, `csv`, `json`).
+  String? _copied;
   Timer? _timer;
   var _editing = false;
   final _text = TextEditingController();
   final _field = FocusNode(debugLabel: 'ValueViewer editor');
+  final _grid = GlobalKey<TableGridState>();
+
+  /// The table as the grid's edits left it; null: unchanged.
+  TableDataVm? _draft;
+
+  /// A CSV text shown as a table (the "As table" tab).
+  var _asTable = false;
 
   bool get _canEdit => widget.vm.edit != null && widget.onSave != null;
+
+  /// The rules of the "As table" tab, when the viewer has one.
+  ViewerCsvVm? get _csv {
+    final csv = widget.vm.csv;
+    return csv != null &&
+            widget.tables?.readCsv != null &&
+            widget.vm.content is TextContentVm
+        ? csv
+        : null;
+  }
+
+  /// The CSV text the "As table" tab reads: the typed one, else the value.
+  String get _csvText => widget.vm.edit?.text ?? widget.vm.copy;
+
+  /// The table the grid shows: the draft, the CSV read, the typed table or
+  /// the value; null when it has none (a CSV the block refuses).
+  TableDataVm? get _table {
+    if (_draft case final d?) {
+      return d;
+    }
+    if (_csv case final rules? when _asTable) {
+      return widget.tables!.readCsv!(_csvText, rules);
+    }
+    if (widget.vm.edit case ViewerEditVm(
+      kind: .table,
+      :final table?,
+    ) when widget.onSave != null) {
+      return table;
+    }
+    return switch (widget.vm.content) {
+      TableContentVm(:final table) => table,
+      _ => null,
+    };
+  }
+
+  /// Whether the grid edits: a typed table, or a typed CSV text as a table.
+  bool get _gridEdits =>
+      widget.onSave != null &&
+      switch (widget.vm.edit?.kind) {
+        ViewerEditKind.table => !_asTable,
+        ViewerEditKind.text => _asTable && _csv != null,
+        _ => false,
+      };
+
+  /// Whether the body is a grid (not the editor, a text or a tree).
+  bool get _showsGrid =>
+      !_editing &&
+      (_asTable && _csv != null ||
+          widget.vm.content is TableContentVm ||
+          widget.vm.edit?.kind == .table && widget.onSave != null);
 
   @override
   void initState() {
@@ -262,9 +389,15 @@ class _ValueViewerState extends State<ValueViewer> {
   @override
   void didUpdateWidget(ValueViewer old) {
     super.didUpdateWidget(old);
-    // Another field, or one that got a wire: the editor closes.
-    if (_editing && (old.vm.title != widget.vm.title || !_canEdit)) {
+    // Another field, or one that got a wire: the editor closes, a draft
+    // is dropped. A new sample of the same field keeps both.
+    if (old.vm.title != widget.vm.title) {
       _editing = false;
+      _draft = null;
+      _asTable = false;
+    } else if (!_canEdit) {
+      _editing = false;
+      _draft = null;
     }
   }
 
@@ -283,6 +416,7 @@ class _ValueViewerState extends State<ValueViewer> {
     }
     _text.text = edit.text;
     _editing = true;
+    _draft = null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _editing) {
         _field.requestFocus();
@@ -302,27 +436,74 @@ class _ValueViewerState extends State<ValueViewer> {
 
   void _cancel() => setState(() => _editing = false);
 
-  void _copy() {
-    unawaited(Clipboard.setData(ClipboardData(text: widget.vm.copy)));
+  /// Save of the grid's draft: a table as JSON, the "As table" tab as CSV.
+  void _saveTable() {
+    if (_grid.currentState?.commit() == false) {
+      return;
+    }
+    final d = _draft;
+    if (d == null) {
+      return;
+    }
+    final csv = _csv;
+    final write = widget.tables?.writeCsv;
+    final text = _asTable && csv != null && write != null
+        ? write(d, csv)
+        : d.toJsonText();
+    widget.onSave?.call(text);
+    setState(() => _draft = null);
+  }
+
+  void _discard() => setState(() => _draft = null);
+
+  void _copy(String id, String text) {
+    unawaited(Clipboard.setData(ClipboardData(text: text)));
     _timer?.cancel();
-    setState(() => _copied = true);
+    setState(() => _copied = id);
     _timer = Timer(const Duration(milliseconds: 1500), () {
       if (mounted) {
-        setState(() => _copied = false);
+        setState(() => _copied = null);
       }
     });
   }
 
+  /// A Copy button; [dense] in the title row of a table, which holds
+  /// three of them.
+  Widget _copyButton(
+    String id,
+    String label,
+    String Function() text, {
+    bool dense = false,
+  }) => Button.quiet(
+    key: ValueKey('viewer-copy-$id'),
+    label: _copied == id ? widget.copiedLabel : label,
+    icon: _copied == id ? 'ui_check' : 'ui_copy',
+    size: ButtonSize.small,
+    fontSize: dense ? 12 : 14,
+    inset: dense ? 10 : 16,
+    onPressed: () => _copy(id, text()),
+  );
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final s = S.current;
     final vm = widget.vm;
     final error = _editing ? _error : null;
+    final grid = _showsGrid;
+    final table = grid ? _table : null;
+    final csv = _csv;
+    final copyCsv = widget.tables?.copyCsv;
     return FloatingWindow(
-      // Esc leaves the editor first, and closes the window next.
+      // Esc leaves the editor first (drops the grid's draft), and closes
+      // the window next.
       onClose: widget.onClose,
-      onEscape: _editing ? _cancel : null,
+      onEscape: _editing ? _cancel : (_draft != null ? _discard : null),
       closeLabel: widget.closeLabel,
+      initialSize:
+          vm.content is TableContentVm || csv != null || vm.edit?.kind == .table
+          ? const Size(640, 440)
+          : const Size(440, 380),
       header: Row(
         spacing: 10,
         children: [
@@ -358,7 +539,11 @@ class _ValueViewerState extends State<ValueViewer> {
                     borderRadius: Radii.chip,
                   ),
                   child: Text(
-                    [vm.type, if (vm.size.isNotEmpty) vm.size].join(' · '),
+                    // A grid says its counts above its rows.
+                    [
+                      vm.type,
+                      if (vm.size.isNotEmpty && table == null) vm.size,
+                    ].join(' · '),
                     maxLines: 1,
                     style: mono(size: 11, color: c.text3),
                   ),
@@ -366,115 +551,223 @@ class _ValueViewerState extends State<ValueViewer> {
               ],
             ),
           ),
-          if (_canEdit && !_editing)
+          if (_canEdit && !_editing && !(grid && _asTable))
             Button.quiet(
               key: const ValueKey('viewer-edit'),
-              label: widget.editLabel,
+              label: vm.edit?.kind == .table
+                  ? s.viewerEditJson
+                  : widget.editLabel,
               icon: 'action_edit',
               size: ButtonSize.small,
-              onPressed: () => setState(_begin),
+              fontSize: table != null ? 12 : 14,
+              inset: table != null ? 10 : 16,
+              onPressed: _draft != null ? null : () => setState(_begin),
             ),
-          Button.quiet(
-            label: _copied ? widget.copiedLabel : widget.copyLabel,
-            icon: _copied ? 'ui_check' : 'ui_copy',
-            size: ButtonSize.small,
-            onPressed: _copy,
-          ),
+          if (table != null) ...[
+            if (copyCsv != null)
+              _copyButton(
+                'csv',
+                s.viewerCopyCsv,
+                () => copyCsv(table),
+                dense: true,
+              ),
+            _copyButton(
+              'json',
+              s.viewerCopyJson,
+              () => _draft == null && !_asTable ? vm.copy : table.toJsonText(),
+              dense: true,
+            ),
+          ] else
+            _copyButton('copy', widget.copyLabel, () => vm.copy),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: .stretch,
-        children: [
-          Expanded(
-            child: _editing
-                ? CallbackShortcuts(
-                    bindings: {
-                      const SingleActivator(
-                        LogicalKeyboardKey.enter,
-                        meta: true,
-                      ): _save,
-                      const SingleActivator(
-                        LogicalKeyboardKey.enter,
-                        control: true,
-                      ): _save,
-                    },
-                    child: Padding(
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.enter, meta: true): _editing
+              ? _save
+              : _saveTable,
+          const SingleActivator(LogicalKeyboardKey.enter, control: true):
+              _editing ? _save : _saveTable,
+        },
+        child: Column(
+          crossAxisAlignment: .stretch,
+          children: [
+            if (csv != null && !_editing)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: SegmentedTabs(
+                  key: const ValueKey('viewer-tabs'),
+                  height: 34,
+                  // Changes in the grid are saved or dropped first.
+                  tabs: [
+                    TabItemVm(
+                      id: 'text',
+                      label: s.viewerTabText,
+                      disabledReason: _draft != null
+                          ? s.viewerTableHint(_keys)
+                          : null,
+                    ),
+                    TabItemVm(id: 'table', label: s.viewerTabTable),
+                  ],
+                  selected: _asTable ? 'table' : 'text',
+                  onSelect: (t) {
+                    if (_draft != null ||
+                        _grid.currentState?.commit() == false) {
+                      return;
+                    }
+                    setState(() {
+                      _asTable = t == 'table';
+                      _draft = null;
+                    });
+                  },
+                ),
+              ),
+            if (csv != null && _asTable && !_editing)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                child: Text(
+                  [
+                    s.viewerCsvRules(
+                      csv.delimiter,
+                      csv.header ? s.viewerCsvHeaderOn : s.viewerCsvHeaderOff,
+                    ),
+                    if (csv.note.isNotEmpty) csv.note,
+                  ].join(' · '),
+                  style: TextStyle(fontSize: 12, color: c.text4),
+                ),
+              ),
+            Expanded(
+              child: _editing
+                  ? Padding(
                       padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                       child: _editor(context, vm.edit!),
-                    ),
-                  )
-                : Scrollbar(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
-                      child: _body(context, vm.content),
-                    ),
-                  ),
-          ),
-          if (_editing)
-            Container(
-              padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: c.line1)),
-              ),
-              child: Row(
-                spacing: 8,
-                children: [
-                  Expanded(
-                    child: Text(
-                      error ?? widget.saveHint,
-                      maxLines: 2,
-                      overflow: .ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: error == null ? c.text4 : c.badText,
+                    )
+                  : grid
+                  ? (table == null
+                        ? Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Text(
+                              s.viewerCsvRefused,
+                              key: const ValueKey('viewer-csv-refused'),
+                              style: mono(color: c.badText),
+                            ),
+                          )
+                        : TableGrid(
+                            key: _grid,
+                            table: table,
+                            cellText: widget.tables?.cellText,
+                            textCells: _asTable,
+                            renamable: !_asTable || (csv?.header ?? true),
+                            onSubmit: _saveTable,
+                            onChanged: _gridEdits
+                                ? (t) => setState(() => _draft = t)
+                                : null,
+                          ))
+                  : Scrollbar(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                        child: _body(context, vm.content),
                       ),
                     ),
-                  ),
-                  Button.quiet(
-                    label: widget.cancelLabel,
-                    size: ButtonSize.small,
-                    onPressed: _cancel,
-                  ),
-                  Button.primary(
-                    key: const ValueKey('viewer-save'),
-                    label: widget.saveLabel,
-                    size: ButtonSize.small,
-                    onPressed: error == null ? _save : null,
-                  ),
-                ],
-              ),
-            )
-          else if (vm.locked case final why?)
-            Container(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: c.line1)),
-              ),
-              child: Row(
-                crossAxisAlignment: .start,
-                spacing: 8,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 1),
-                    child: AppIcon('action_lock', size: 14, color: c.text4),
-                  ),
-                  Expanded(
-                    child: Text(
-                      why,
-                      style: TextStyle(fontSize: 12, color: c.text4),
+            ),
+            if (_editing)
+              _foot(
+                context,
+                text: error ?? widget.saveHint,
+                bad: error != null,
+                onCancel: _cancel,
+                cancelLabel: widget.cancelLabel,
+                onSave: error == null ? _save : null,
+              )
+            else if (_draft != null)
+              _foot(
+                context,
+                text: s.viewerTableHint(_keys),
+                bad: false,
+                onCancel: _discard,
+                cancelLabel: s.viewerDiscard,
+                onSave: _saveTable,
+              )
+            else if (vm.locked case final why?)
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: c.line1)),
+                ),
+                child: Row(
+                  crossAxisAlignment: .start,
+                  spacing: 8,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: AppIcon('action_lock', size: 14, color: c.text4),
                     ),
-                  ),
-                ],
+                    Expanded(
+                      child: Text(
+                        why,
+                        style: TextStyle(fontSize: 12, color: c.text4),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          if (vm.quality case final q?)
-            Container(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: c.line1)),
+            if (vm.quality case final q?)
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: c.line1)),
+                ),
+                child: QualityMark(vm: q, size: 12),
               ),
-              child: QualityMark(vm: q, size: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// `Cmd+Enter` on macOS, `Ctrl+Enter` elsewhere.
+  static String get _keys => defaultTargetPlatform == TargetPlatform.macOS
+      ? 'Cmd+Enter'
+      : 'Ctrl+Enter';
+
+  /// The row under an editor: the hint or what is wrong, Cancel, Save.
+  Widget _foot(
+    BuildContext context, {
+    required String text,
+    required bool bad,
+    required VoidCallback onCancel,
+    required String cancelLabel,
+    required VoidCallback? onSave,
+  }) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: c.line1)),
+      ),
+      child: Row(
+        spacing: 8,
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: .ellipsis,
+              style: TextStyle(fontSize: 12, color: bad ? c.badText : c.text4),
             ),
+          ),
+          Button.quiet(
+            key: const ValueKey('viewer-cancel'),
+            label: cancelLabel,
+            size: ButtonSize.small,
+            onPressed: onCancel,
+          ),
+          Button.primary(
+            key: const ValueKey('viewer-save'),
+            label: widget.saveLabel,
+            size: ButtonSize.small,
+            onPressed: onSave,
+          ),
         ],
       ),
     );
@@ -495,7 +788,7 @@ class _ValueViewerState extends State<ValueViewer> {
           filled: false,
         );
     switch (edit.kind) {
-      case .text || .json:
+      case .text || .json || .table:
         return Container(
           decoration: box,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -640,69 +933,9 @@ class _ValueViewerState extends State<ValueViewer> {
         text,
         style: mono(size: 14, color: c.text4),
       ),
-      TableContentVm(:final columns, :final rows, :final note) => _Grid(
-        columns: columns,
-        rows: rows,
-        note: note,
-      ),
+      // Drawn by the grid, not in the scrolled body.
+      TableContentVm() => const SizedBox.shrink(),
     };
-  }
-}
-
-/// A table's cells: a header row, then one row per row of cells, mono 12,
-/// each column as wide as its widest cell (at most 280); it scrolls
-/// sideways when it is wider than the window.
-class _Grid extends StatelessWidget {
-  const _Grid({required this.columns, required this.rows, required this.note});
-
-  final List<String> columns;
-  final List<List<String>> rows;
-  final String note;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    Widget cell(String t, {bool head = false}) => Container(
-      constraints: const BoxConstraints(maxWidth: 280),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      child: Text(
-        t,
-        maxLines: 1,
-        overflow: .ellipsis,
-        style: head
-            ? TextStyle(fontSize: 12, fontWeight: .w600, color: c.text3)
-            : mono(size: 12, color: c.text1),
-      ),
-    );
-    return Column(
-      crossAxisAlignment: .start,
-      spacing: 8,
-      children: [
-        SingleChildScrollView(
-          scrollDirection: .horizontal,
-          child: SelectionArea(
-            child: Table(
-              key: const ValueKey('viewer-table'),
-              defaultColumnWidth: const IntrinsicColumnWidth(),
-              border: TableBorder(
-                horizontalInside: BorderSide(color: c.line1),
-                bottom: BorderSide(color: c.line1),
-              ),
-              children: [
-                TableRow(
-                  decoration: BoxDecoration(color: c.ground3),
-                  children: [for (final h in columns) cell(h, head: true)],
-                ),
-                for (final r in rows)
-                  TableRow(children: [for (final x in r) cell(x)]),
-              ],
-            ),
-          ),
-        ),
-        if (note.isNotEmpty)
-          Text(note, style: TextStyle(fontSize: 12, color: c.text4)),
-      ],
-    );
   }
 }
 

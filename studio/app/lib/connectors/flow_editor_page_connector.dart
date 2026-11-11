@@ -50,6 +50,7 @@ import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/labels.dart';
+import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
@@ -85,6 +86,7 @@ import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/flow_editor_page.dart';
 import 'package:ui/shell/window_bar.dart';
+import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/tree_row.dart';
 
 import '../common/side_panels.dart';
@@ -233,6 +235,7 @@ class FlowEditorPageConnector extends StatelessWidget {
         refusal: vm.refusal,
         onOpen: vm.onOpen,
         onRowAction: vm.onRowAction,
+        onView: vm.onViewField,
       ),
       onClear: vm.onClear,
       onMove: vm.onMove,
@@ -285,6 +288,7 @@ class FlowEditorPageConnector extends StatelessWidget {
       pinLockedLabel: S.current.pinLocked,
       onSaveViewer: vm.onSaveViewer,
       validateViewer: vm.validateViewer,
+      viewerTables: viewerTables,
       editLabel: S.current.viewerEdit,
       saveLabel: S.current.viewerSave,
       cancelLabel: S.current.cancel,
@@ -713,6 +717,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           _viewer(
             blocks[vb]!,
             fields[vb]!.where((f) => f.id == rest.join('/')).firstOrNull,
+            fields[vb]!,
             d,
             look(blocks[vb]!),
           ),
@@ -1979,6 +1984,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   ValueViewerVm? _viewer(
     FlowBlock b,
     FlowField? f,
+    List<FlowField> all,
     FlowDraft d,
     LiveValue? Function(String) live,
   ) {
@@ -1994,12 +2000,26 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final how = fieldEditOf(b, f, d.edges);
     final text = fieldEditText(b, f);
     final t = flowEditor.allTypes.where((x) => x.type == b.type).firstOrNull;
+    final tabled = holdsTable(t, f.name);
+    // A typed table (the `table` variable's Value, a table typed into a
+    // table input) edits in the viewer's grid, from what the config holds;
+    // an empty one starts with no columns (owner request 2026-11-11),
+    // except the input of `table_from_json`, which takes a JSON text.
+    final typedTable =
+        tabled && (how.edit == FieldEdit.json || how.edit == FieldEdit.any)
+        ? switch (fieldEditValue(b, f)) {
+            null || '' when b.type != 'table_from_json' => TableDataVm.empty(),
+            final x => tableDataOf(x, rowsOfMaps: true),
+          }
+        : null;
+    final shownTable = v.raw == null && typedTable != null;
     return valueViewerOf(
       title: '${b.id}.${f.name}',
-      value: v.raw,
-      known: v.raw != null || v.live,
+      value: shownTable ? typedTable.toJson() : v.raw,
+      known: shownTable || v.raw != null || v.live,
+      editable: typedTable != null,
       // A table's rows (ADR 0044 §2) and a date (µs, §3) by the field.
-      rowsOfMaps: holdsTable(t, f.name),
+      rowsOfMaps: tabled,
       date: isTimeField(b.type, f.name),
       unit: at ? info?.unit : null,
       choices: at ? info?.choices.unlock ?? const [] : const [],
@@ -2020,6 +2040,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           text: text == 'true' ? 'true' : 'false',
         ),
         FieldEdit.number => ViewerEditVm(kind: .number, text: text),
+        _ when typedTable != null => ViewerEditVm(
+          kind: .table,
+          text: text,
+          table: typedTable,
+        ),
         FieldEdit.json => ViewerEditVm(kind: .json, text: text),
         FieldEdit.text || FieldEdit.any => ViewerEditVm(
           kind: .text,
@@ -2032,6 +2057,38 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         FieldLocked.output => S.current.viewerLockedOutput,
         FieldLocked.input => S.current.viewerLockedInput,
       },
+      csv: b.type == 'table_from_csv' && f.name == 'in'
+          ? _csvRules(b, all, d, live)
+          : null,
+    );
+  }
+
+  /// How `table_from_csv` [b] reads its text: its `delimiter` and
+  /// `with_header` as typed (their defaults `,` and true), or as a wire
+  /// brings them now, with a note that says so.
+  ViewerCsvVm _csvRules(
+    FlowBlock b,
+    List<FlowField> all,
+    FlowDraft d,
+    LiveValue? Function(String) live,
+  ) {
+    var wired = false;
+    Object? read(String name) {
+      final f = all.where((x) => x.spec?.name == name).firstOrNull;
+      if (f == null) {
+        return b.cfg[name];
+      }
+      final shown = fieldValue(b, f, d, live);
+      wired = wired || shown.bound;
+      return shown.raw ?? (b.cfg[name] ?? f.spec?.defaultValue);
+    }
+
+    final delimiter = read('delimiter');
+    final header = read('with_header');
+    return ViewerCsvVm(
+      delimiter: csvDelimiter(delimiter),
+      header: header is! bool || header,
+      note: wired ? S.current.viewerCsvWired : '',
     );
   }
 

@@ -17,6 +17,7 @@ import '../indicators/app_icon.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/key_line.dart';
 import '../indicators/key_text.dart';
+import '../indicators/lines_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../overlays/log_view.dart';
@@ -335,6 +336,7 @@ class ExplorerPage extends StatelessWidget {
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
     this.viewer,
+    this.viewerTables,
     this.onViewPoint,
     this.onCloseViewer,
     this.viewLabel = 'View value',
@@ -365,6 +367,7 @@ class ExplorerPage extends StatelessWidget {
   /// The segments of the key line that open their node (KeyLine.links); a
   /// click is a tap on that node in the tree.
   final Set<String> keyLinks;
+
   /// The node's display name, else its name.
   final String? title;
 
@@ -476,6 +479,9 @@ class ExplorerPage extends StatelessWidget {
   /// The open value viewer of a point, live; null: none is open.
   final ValueViewerVm? viewer;
 
+  /// How the viewer reads tables (a date cell, Copy CSV).
+  final ViewerTables? viewerTables;
+
   /// The eye beside the point inspector's value: opens the viewer.
   final VoidCallback? onViewPoint;
   final VoidCallback? onCloseViewer;
@@ -516,6 +522,7 @@ class ExplorerPage extends StatelessWidget {
                 key: const ValueKey('value-viewer'),
                 vm: v,
                 onClose: onCloseViewer ?? () {},
+                tables: viewerTables,
                 copyLabel: copyLabel,
                 copiedLabel: copiedLabel,
                 closeLabel: closeLabel,
@@ -1035,10 +1042,9 @@ class ExplorerPage extends StatelessWidget {
               spacing: 10,
               children: [
                 Flexible(
-                  child: Text(
+                  child: LinesText(
                     ins.value,
-                    maxLines: 1,
-                    overflow: .ellipsis,
+                    onOpen: onViewPoint,
                     style: mono(size: 22, color: c.text1),
                   ),
                 ),
