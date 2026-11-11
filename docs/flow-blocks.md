@@ -444,6 +444,12 @@ runs on `dataflows/<id>/~act/trigger {node}` (the editor's `Run` button). The
 caller then needs read on the reader's key and all of its scope (for
 `list_children` also on the children), not a command's level.
 
+УВАГА: a run that a trigger starts flows on along the edges. When a `set` or an
+`invoke` is downstream of the triggered node (directly, through other blocks
+or inside a custom block), the caller also needs that block's level on its
+target: `max(maxperm, write)`. A reader with no command downstream needs read
+alone. The same holds for a command block whose answer runs another command.
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port

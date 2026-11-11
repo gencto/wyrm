@@ -84,6 +84,12 @@ A table is a value:
 - A reader runs on `dataflows/<id>/~act/trigger {node}` too (Studio §10 item 8):
   the caller must read the reader's key and its scope (level `read`), instead
   of a command target's `max(maxperm, write)`.
+- A trigger starts a run that flows on along the edges (security review
+  2026-11-11): the caller also needs `max(maxperm, write)` on the target of
+  every `set` and `invoke` downstream of the triggered node, found by a walk
+  over every edge, transitively, with the custom blocks inlined. A reader with
+  no command downstream needs read alone. The same rule holds for a command
+  block: a command whose answer runs another command needs the rights of both.
 
 ### 5. Differences kept against the reference rules R1–R15
 
