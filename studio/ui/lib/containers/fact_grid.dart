@@ -6,16 +6,25 @@ import '../theme/typography.dart';
 
 /// One fact of an inspector.
 final class FactVm extends Equatable {
-  const FactVm({required this.label, required this.value, this.mono = false});
+  const FactVm({
+    required this.label,
+    required this.value,
+    this.mono = false,
+    this.code,
+  });
 
   final String label;
   final String value;
+
+  /// The name behind [label] when the label says it in other words
+  /// (`poll_s` under `Poll (s)`): the label's tooltip.
+  final String? code;
 
   /// Keys, addresses, hashes: in mono.
   final bool mono;
 
   @override
-  List<Object?> get props => [label, value, mono];
+  List<Object?> get props => [label, value, mono, code];
 }
 
 /// Label/value pairs in two columns.
@@ -38,10 +47,20 @@ class FactGrid extends StatelessWidget {
             children: [
               SizedBox(
                 width: labelWidth,
-                child: Text(
-                  f.label,
-                  style: TextStyle(fontSize: 13, color: c.text4),
-                ),
+                child: switch (f.code) {
+                  final code? when code != f.label => Tooltip(
+                    message: code,
+                    waitDuration: const Duration(milliseconds: 600),
+                    child: Text(
+                      f.label,
+                      style: TextStyle(fontSize: 13, color: c.text4),
+                    ),
+                  ),
+                  _ => Text(
+                    f.label,
+                    style: TextStyle(fontSize: 13, color: c.text4),
+                  ),
+                },
               ),
               Expanded(
                 child: SelectableText(

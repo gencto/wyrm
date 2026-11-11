@@ -211,12 +211,19 @@ final class NodeInspectorVm extends ExplorerInspectorVm {
     required this.eyebrow,
     required this.title,
     required this.sections,
+    this.name,
     this.fail,
   });
 
   /// `Device`, `Connection`, `Link`.
   final String eyebrow;
+
+  /// The node's display name, else its name.
   final String title;
+
+  /// The node's name (its key segment) under a [title] that is its display
+  /// name; null when the title is the name.
+  final String? name;
   final List<InspectorSectionVm> sections;
 
   /// A read of the node failed (its list, its meta): the mark, what failed
@@ -224,7 +231,7 @@ final class NodeInspectorVm extends ExplorerInspectorVm {
   final ReadFailVm? fail;
 
   @override
-  List<Object?> get props => [eyebrow, title, sections, fail];
+  List<Object?> get props => [eyebrow, title, name, sections, fail];
 }
 
 /// The bar that replaces the points toolbar while 2 or more rows are
@@ -272,6 +279,7 @@ class ExplorerPage extends StatelessWidget {
     this.copyKeyLabel = 'Copy key',
     this.keyLinks = const {},
     this.title,
+    this.titleName,
     this.pill,
     this.subtitle,
     this.headerButtons = const [],
@@ -357,7 +365,12 @@ class ExplorerPage extends StatelessWidget {
   /// The segments of the key line that open their node (KeyLine.links); a
   /// click is a tap on that node in the tree.
   final Set<String> keyLinks;
+  /// The node's display name, else its name.
   final String? title;
+
+  /// The node's name (its key segment) under a [title] that is its display
+  /// name, in mono; null when the title is the name (owner 2026-11-11).
+  final String? titleName;
   final StatusPillVm? pill;
 
   /// `modbus device · unit 1 · 127.0.0.1:5020 · last read 12:00:03`.
@@ -673,7 +686,9 @@ class ExplorerPage extends StatelessWidget {
     );
   }
 
-  /// The node's name in mono 26 with its state pill, and one subtitle line
+  /// The node's name in mono 26 (its display name in sans 26 with the name
+  /// in mono under it, when it has one) with its state pill, and one
+  /// subtitle line
   /// under it: both one line with an ellipsis, the full text as a tooltip
   /// (a display name can be a sentence).
   Widget _heading(AppColors c, String name) => Column(
@@ -692,13 +707,27 @@ class ExplorerPage extends StatelessWidget {
                 name,
                 maxLines: 1,
                 overflow: .ellipsis,
-                style: mono(size: 26, weight: .w600, color: c.text1),
+                style: titleName == null
+                    ? mono(size: 26, weight: .w600, color: c.text1)
+                    : TextStyle(
+                        fontSize: 26,
+                        fontWeight: .w600,
+                        color: c.text1,
+                      ),
               ),
             ),
           ),
           if (pill case final p?) StatusPill(vm: p, dense: true),
         ],
       ),
+      if (titleName case final n?)
+        Text(
+          n,
+          key: const ValueKey('title-name'),
+          maxLines: 1,
+          overflow: .ellipsis,
+          style: mono(color: c.text3),
+        ),
       if (subtitle case final s?)
         Tooltip(
           message: s,
@@ -972,30 +1001,36 @@ class ExplorerPage extends StatelessWidget {
           crossAxisAlignment: .start,
           spacing: 10,
           children: [
-            Row(
-              crossAxisAlignment: .baseline,
-              textBaseline: .alphabetic,
-              spacing: 10,
-              children: [
-                Flexible(
-                  child: Text(
-                    ins.name,
-                    maxLines: 1,
-                    overflow: .ellipsis,
-                    style: mono(size: 18, weight: .w600),
+            // The display name when there is one, its name (the key
+            // segment) in mono under it (owner 2026-11-11).
+            if (ins.display case final d?) ...[
+              Tooltip(
+                message: d,
+                waitDuration: const Duration(milliseconds: 600),
+                child: Text(
+                  d,
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: .w600,
+                    color: c.text1,
                   ),
                 ),
-                if (ins.display case final d?)
-                  Flexible(
-                    child: Text(
-                      d,
-                      maxLines: 1,
-                      overflow: .ellipsis,
-                      style: TextStyle(fontSize: 14, color: c.text3),
-                    ),
-                  ),
-              ],
-            ),
+              ),
+              Text(
+                ins.name,
+                maxLines: 1,
+                overflow: .ellipsis,
+                style: mono(size: 12, color: c.text3),
+              ),
+            ] else
+              Text(
+                ins.name,
+                maxLines: 1,
+                overflow: .ellipsis,
+                style: mono(size: 18, weight: .w600),
+              ),
             Row(
               spacing: 10,
               children: [
@@ -1104,6 +1139,10 @@ class ExplorerPage extends StatelessWidget {
       NodeInspectorVm() => Inspector(
         eyebrow: ins.eyebrow,
         title: ins.title,
+        header: switch (ins.name) {
+          final n? => KeyText(n, size: 12, color: c.text3),
+          null => null,
+        },
         width: 320,
         child: switch (ins.fail) {
           final f? => Column(

@@ -8,9 +8,12 @@ import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
 
+import '../labels.dart';
 import 'flow_blocks.dart';
 import 'flow_mapper.dart';
 import 'value_text.dart';
+
+export '../labels.dart' show humanize;
 
 // The flow editor draws a block as fields, not as engine ports
 // (studio/docs/design/specs/flow-editor.md §3, ADR 0038; owner decision
@@ -418,27 +421,6 @@ const _oneOf = <String, Set<String>>{
   'deadband': {'abs', 'pct'},
   'alarm': {'high', 'low'},
 };
-
-/// Unit suffixes of engine names: `size_s` → `Size (s)`.
-const _units = {'s': 's', 'ms': 'ms', 'mb': 'MB', 'hz': 'Hz'};
-
-/// `input_min` → `Input min`: words split at `_` and `.`, the first with a
-/// capital, a unit suffix in brackets.
-String humanize(String name) {
-  final words = name.split(RegExp('[_.]')).where((w) => w.isNotEmpty).toList();
-  if (words.isEmpty) {
-    return name;
-  }
-  String? unit;
-  if (words.length > 1 && _units.containsKey(words.last.toLowerCase())) {
-    unit = _units[words.removeLast().toLowerCase()];
-  }
-  final text = [
-    for (final (i, w) in words.indexed)
-      if (i == 0) '${w[0].toUpperCase()}${w.substring(1)}' else w.toLowerCase(),
-  ].join(' ');
-  return unit == null ? text : '$text ($unit)';
-}
 
 /// What a field named [name] of a block of [type] reads in Studio: the
 /// catalog's own `display`, else an override ([fieldLabelOverrides]), else

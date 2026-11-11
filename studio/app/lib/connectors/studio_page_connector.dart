@@ -20,6 +20,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:models/node_info.dart';
 import 'package:models/workspace.dart';
 import 'package:ui/buttons/problems_pill.dart';
 import 'package:ui/containers/fault_boundary.dart';
@@ -351,7 +352,14 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         for (final k in nodes.view.take(400))
           SearchEntryVm(
             id: 'key:$k',
-            title: nodes.table[k]?.name ?? k,
+            // A node's display name when it has one; the key below it
+            // (`detail`) still finds it by name.
+            title: switch (nodes.table[k]) {
+              NodeInfo(:final display?, :final name)
+                  when display.trim().isNotEmpty && display != name =>
+                display,
+              final n => n?.name ?? k,
+            },
             icon: AppIcon.nodeName(
               key: k,
               root: site.root ?? '',

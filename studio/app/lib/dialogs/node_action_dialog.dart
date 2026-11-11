@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
+import 'package:business/wyrm/labels.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
 import 'package:ui/forms/action_form.dart';
@@ -31,9 +32,9 @@ Future<bool> runNodeAction(
     if (confirm != null &&
         !await ConfirmDialog.ask(
           context,
-          title: a.display ?? a.name,
+          title: labelOf(a.name, display: a.display),
           message: confirm,
-          confirm: a.display ?? a.name,
+          confirm: labelOf(a.name, display: a.display),
           cancel: S.current.cancel,
         )) {
       return false;
@@ -45,12 +46,12 @@ Future<bool> runNodeAction(
   await showDialog<void>(
     context: context,
     builder: (dialog) => PanelDialog(
-      title: a.display ?? a.name,
+      title: labelOf(a.name, display: a.display),
       width: 600,
       note: confirm,
       child: ActionForm(
         fields: paramFields(a.params),
-        submit: a.display ?? a.name,
+        submit: labelOf(a.name, display: a.display),
         onSubmit: (v) => sendForm(
           store.dispatchAndWait(InvokeNodeAction(key, action, plainArgs(v))),
           onOk: () {

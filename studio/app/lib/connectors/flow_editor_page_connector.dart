@@ -49,6 +49,7 @@ import 'package:business/redux/nodes/actions/retrieve_details_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
+import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
@@ -1593,7 +1594,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           out.add(
             TreeRowVm(
               id: '$key/~act/${a.name}',
-              name: a.display ?? a.name,
+              name: labelOf(a.name, display: a.display),
               depth: depth + 1,
               tag: 'ACT',
               ember: true,
