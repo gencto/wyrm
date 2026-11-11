@@ -1949,6 +1949,11 @@ class S {
     );
   }
 
+  /// `official`
+  String get officialMark {
+    return Intl.message('official', name: 'officialMark', desc: '', args: []);
+  }
+
   /// `On which broker`
   String get onWhichBroker {
     return Intl.message(

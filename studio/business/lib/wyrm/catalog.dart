@@ -1,10 +1,15 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/catalog_item.dart';
+import 'package:wyrm_client/wyrm_client.dart';
+
+import 'mappers/values.dart';
 
 /// What Studio knows about the drivers wyrmd is built with (names, one line,
-/// category), so the official list reads well. Which of them a broker has
-/// comes from that broker (`sys/links` ▸ `install` `driver` choices); a
-/// driver missing here is still listed, under its own name.
+/// category), so the official list reads well on a broker that does not
+/// describe its catalogue (no `attr.catalog`, before ADR 0043). Which of
+/// them a broker has comes from that broker (`sys/links` ▸ `install`
+/// `driver` choices); a driver missing here is still listed, under its own
+/// name.
 const _known = <String, (String, String, String, String)>{
   'modbus': (
     'MB',
@@ -121,38 +126,114 @@ const _known = <String, (String, String, String, String)>{
 /// Drivers that run only inside a broker (no process or external mode).
 const _embeddedOnly = {'agent', 'wasm', 'app', 'portable-echo', 'storage'};
 
+/// One row of `attr.catalog` on `sys/links` (ADR 0043 §7): what the broker
+/// says of one item of its `install` / `install_repo` choices. An empty
+/// text is a field the broker left out.
+typedef CatalogRow = ({
+  String title,
+  String summary,
+  String category,
+  String version,
+  String form,
+  bool official,
+});
+
+/// The rows of `attr.catalog` by `id` (`driver:<code>` / `package:<code>`);
+/// null when the broker sends none (built before ADR 0043).
+Map<String, CatalogRow>? catalogRowsOf(Map<String, Value>? attr) {
+  final rows = attr?['catalog'];
+  if (rows is! VArray) {
+    return null;
+  }
+  String t(Value r, String k) => (str(r[k]) ?? '').trim();
+  return {
+    for (final r in rows.v)
+      if (r is VMap && t(r, 'id').isNotEmpty)
+        t(r, 'id'): (
+          title: t(r, 'title'),
+          summary: t(r, 'summary'),
+          category: t(r, 'category'),
+          version: t(r, 'version'),
+          form: t(r, 'form'),
+          official: boolean(r['official']) ?? false,
+        ),
+  };
+}
+
 /// The official list: the broker's drivers, then its repository's packages.
-/// A driver is as new as the broker it is built into ([brokerVersion], its
-/// `sys/version`); the repository's choices carry no version.
+///
+/// Which items exist comes from the choices ([drivers], [packages]); the
+/// broker's [rows] (`attr.catalog`) only describe them. Without rows (a
+/// broker built before ADR 0043) Studio's own names stand, a driver is as
+/// new as the broker it is built into ([brokerVersion], its `sys/version`)
+/// and a package carries no version. With rows, a package reads only what
+/// its own index entry says (ADR 0043 §5: a repository cannot borrow an
+/// official description), and only a row marks an item official.
 IList<CatalogItem> catalogOf({
   required List<String> drivers,
   required List<String> packages,
   Map<String, int> existing = const {},
   String? brokerVersion,
+  Map<String, CatalogRow>? rows,
 }) {
   CatalogItem item(String code, {required bool builtIn}) {
+    final id = '${builtIn ? 'driver' : 'package'}:$code';
+    final row = rows?[id];
     final base = code.replaceAll(RegExp(r'-process$'), '');
-    final k = _known[base];
-    final process = code.endsWith('-process');
+    // A package of a broker with rows never takes Studio's text.
+    final k = builtIn || rows == null ? _known[base] : null;
+    final form = switch (row?.form) {
+      final f? when f.isNotEmpty => f,
+      _ when builtIn => 'builtin',
+      _ when code.endsWith('-process') => 'process',
+      _ => 'wasm',
+    };
+    final process = !builtIn && form == 'process';
+    final title = switch (row?.title) {
+      final t? when t.isNotEmpty => t,
+      _ => k?.$2 ?? code,
+    };
+    final version = switch (row?.version) {
+      final v? when v.isNotEmpty => v,
+      _ when builtIn && brokerVersion != null && brokerVersion.isNotEmpty =>
+        brokerVersion,
+      _ => null,
+    };
+    final official = row?.official ?? false;
     return CatalogItem(
-      id: '${builtIn ? 'driver' : 'package'}:$code',
+      id: id,
       code: code,
-      tag: k?.$1 ?? code.substring(0, code.length.clamp(0, 4)).toUpperCase(),
-      name: k == null ? code : (process ? '${k.$2} (process)' : k.$2),
-      description: k?.$3 ?? '',
-      category: k?.$4 ?? (builtIn ? 'Equipment' : 'Packages'),
+      // The short tag of a known link; an unofficial package of a broker
+      // with rows gets its own from its name.
+      tag:
+          (k ?? (official ? _known[base] : null))?.$1 ??
+          code.substring(0, code.length.clamp(0, 4)).toUpperCase(),
+      // Both forms of one link may carry one title: the process form says
+      // so.
+      name: process && !title.toLowerCase().contains('process')
+          ? '$title (process)'
+          : title,
+      description: switch (row?.summary) {
+        final s? when s.isNotEmpty => s,
+        _ => k?.$3 ?? '',
+      },
+      category: switch (row?.category) {
+        final c? when c.isNotEmpty => c,
+        _ => k?.$4 ?? (builtIn ? 'Equipment' : 'Packages'),
+      },
       builtIn: builtIn,
-      modes: builtIn
-          ? (_embeddedOnly.contains(code)
-                ? const IListConst(['embedded'])
-                : const IListConst(['embedded', 'process', 'external']))
-          : (process
-                ? const IListConst(['process'])
-                : const IListConst(['wasm'])),
+      modes: switch (form) {
+        _ when builtIn && _embeddedOnly.contains(code) => const IListConst([
+          'embedded',
+        ]),
+        _ when builtIn => const IListConst(['embedded', 'process', 'external']),
+        'process' => const IListConst(['process']),
+        _ => const IListConst(['wasm']),
+      },
       existing: existing[builtIn ? code : 'pkg:$code'] ?? 0,
-      version: builtIn && brokerVersion != null && brokerVersion.isNotEmpty
-          ? 'wyrmd $brokerVersion'
-          : null,
+      // A driver's row carries the broker's own version.
+      version: version == null ? null : (builtIn ? 'wyrmd $version' : version),
+      official: official,
     );
   }
 

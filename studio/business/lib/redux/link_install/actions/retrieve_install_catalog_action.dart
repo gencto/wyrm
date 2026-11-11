@@ -9,7 +9,8 @@ import '../../common/action.dart';
 
 /// Reads what Add a link offers on the site on screen: the drivers the
 /// broker hosts (`sys/links` ▸ `install` `driver` choices) and the packages
-/// its repository has for its host (`install_repo` `package` choices); the
+/// its repository has for its host (`install_repo` `package` choices),
+/// described by the rows of `attr.catalog` where the broker has them; the
 /// brokers a link can go to (this one and the sites below it, each refused
 /// with the reason when the user has no config on its `sys/links`).
 class RetrieveInstallCatalogAction extends Action with WaitingAction {
@@ -42,6 +43,9 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
         VStr(:final v) => v,
         _ => null,
       },
+      // ADR 0043 §7: titles, versions and the official mark from the
+      // broker; an older broker sends none.
+      rows: catalogRowsOf(meta.attr),
     );
     final sites = [
       viewed,

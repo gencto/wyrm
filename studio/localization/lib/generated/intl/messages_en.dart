@@ -1563,6 +1563,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "officialListNote": MessageLookupByLibrary.simpleMessage(
       "Drivers built into wyrmd and packages from your repository. Pick one, choose where it runs, install.",
     ),
+    "officialMark": MessageLookupByLibrary.simpleMessage("official"),
     "offline": MessageLookupByLibrary.simpleMessage(
       "The gateway connection is lost. Reconnecting; values on screen are the last ones received.",
     ),

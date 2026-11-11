@@ -9,7 +9,8 @@ import 'frames/harness.dart';
 
 /// Add a link, Choose step (owner 2026-11-11): every card as high as every
 /// other with its bottom row at the same place, a version on each card the
-/// broker gives one for, the search field and the chips on one centre line.
+/// broker gives one for, the official mark only where the broker says so
+/// (ADR 0043 §5), the search field and the chips on one centre line.
 void main() {
   const labels = InstallLabels(
     crumb: 'Links',
@@ -37,6 +38,7 @@ void main() {
     String description, {
     String? version,
     String? note,
+    String? official,
   }) => CatalogCardVm(
     id: id,
     tag: id.toUpperCase(),
@@ -47,6 +49,7 @@ void main() {
     modes: 'embedded · process · external',
     version: version,
     note: note,
+    official: official,
   );
 
   final cards = [
@@ -60,6 +63,12 @@ void main() {
     card('mqtt', '', version: 'wyrmd 0.1.0'),
     card('webdav', 'Nextcloud, ownCloud and other WebDAV servers'),
     card('ai', 'Plans changes for a person to approve'),
+    card(
+      'alarm',
+      'Alarm classes, records and acknowledgement',
+      official: 'official',
+      note: '1 link',
+    ),
   ];
 
   Future<void> pump(WidgetTester tester, double width) async {
@@ -123,6 +132,20 @@ void main() {
   testWidgets('a card shows its version when it has one', (tester) async {
     await pump(tester, 1440);
     expect(find.text('wyrmd 0.1.0'), findsNWidgets(3));
+  });
+
+  testWidgets('only a card the broker calls official has the mark', (
+    tester,
+  ) async {
+    await pump(tester, 1440);
+    expect(find.text('official'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('card:alarm')),
+        matching: find.text('official'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the field and the chips share one height and one centre', (

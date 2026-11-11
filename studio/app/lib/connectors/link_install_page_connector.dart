@@ -355,6 +355,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
               builtIn: c.builtIn,
               modes: c.modes.join(' · '),
               version: c.version,
+              official: c.official ? S.current.officialMark : null,
               note: c.existing == 0 ? null : S.current.linksAlready(c.existing),
               selected: c.id == li.item,
             ),

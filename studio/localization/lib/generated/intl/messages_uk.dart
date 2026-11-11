@@ -1582,6 +1582,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "officialListNote": MessageLookupByLibrary.simpleMessage(
       "Драйвери у wyrmd і пакети з вашого репозиторію. Оберіть, де працюватиме, і встановіть.",
     ),
+    "officialMark": MessageLookupByLibrary.simpleMessage("офіційний"),
     "offline": MessageLookupByLibrary.simpleMessage(
       "З’єднання з gateway втрачено. Перепідключення; на екрані останні отримані значення.",
     ),

@@ -240,6 +240,7 @@
     "now": "now",
     "officialList": "Official list",
     "officialListNote": "Drivers built into wyrmd and packages from your repository. Pick one, choose where it runs, install.",
+    "officialMark": "official",
     "onWhichBroker": "On which broker",
     "openInExplorer": "Open in Explorer",
     "package": "package",
