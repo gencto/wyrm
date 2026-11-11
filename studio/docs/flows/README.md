@@ -56,7 +56,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `ExplorerPage` | `/studio/explorer` | no | 29 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 3 | [flows](flows.md) |
-| `HistoryPage` | `/studio/history` | no | 5 | [history](history.md) |
+| `HistoryPage` | `/studio/history` | no | 6 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 4 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |

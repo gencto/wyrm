@@ -24,7 +24,10 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
       return null;
     }
     final api = deps.wyrm;
-    final meta = await metaOf(api, '$root/sys/links');
+    final (meta, version) = await (
+      metaOf(api, '$root/sys/links'),
+      readValue(api, '$root/sys/version'),
+    ).wait;
     List<String> choices(String action, String param) =>
         meta.actions?[action]?.params[param]?.enumValues ?? const [];
     final counts = <String, int>{};
@@ -35,6 +38,10 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
       drivers: choices('install', 'driver'),
       packages: choices('install_repo', 'package'),
       existing: counts,
+      brokerVersion: switch (version) {
+        VStr(:final v) => v,
+        _ => null,
+      },
     );
     final sites = [
       viewed,

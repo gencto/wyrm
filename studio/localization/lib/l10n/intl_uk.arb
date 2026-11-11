@@ -1307,5 +1307,9 @@
     "@errChipStudio": {"placeholders": {"type": {"type": "String"}}},
     "errTitlePlain": "Studio не вдалося це завершити",
     "screenOf": "{name}",
-    "@screenOf": {"placeholders": {"name": {"type": "String"}}}
+    "@screenOf": {"placeholders": {"name": {"type": "String"}}},
+    "pickPointTrend": "Виберіть точку, щоб побачити її тренд",
+    "pickPointHint": "Клацніть точку, щоб побачити її тренд; ⌘/Ctrl-клацання додає до трьох.",
+    "stopRecording": "Припинити запис",
+    "colReadRows": "Значень на тренді"
 }

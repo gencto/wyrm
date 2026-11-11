@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../buttons/segmented_tabs.dart';
 import '../charts/trend_chart.dart';
@@ -29,7 +30,8 @@ final class GroupItemVm extends Equatable {
 }
 
 /// Board *History · watch groups and trends*: the groups, the selected
-/// group's trend and points, its settings and actions.
+/// group's points, the trend of the points picked (none until the user
+/// picks one), the group's settings and actions.
 class HistoryPage extends StatelessWidget {
   const HistoryPage({
     required this.groupsLabel,
@@ -45,12 +47,14 @@ class HistoryPage extends StatelessWidget {
     required this.pointsLabel,
     required this.columns,
     required this.points,
+    required this.onPoint,
     required this.onAction,
     this.addReason,
     this.title,
     this.subtitle,
     this.empty = '',
     this.pointsEmpty,
+    this.pointsHint,
     this.footer,
     this.inspector,
     this.panels = const SidePanelWidths(),
@@ -76,6 +80,13 @@ class HistoryPage extends StatelessWidget {
   final List<ColumnVm> columns;
   final List<RowVm> points;
   final String? pointsEmpty;
+
+  /// How to pick points for the trend, under the points label.
+  final String? pointsHint;
+
+  /// A point row was clicked (its id); `add` when ⌘ or Ctrl was held: the
+  /// point joins the trend instead of replacing what it shows.
+  final void Function(String id, bool add) onPoint;
 
   /// The historian's size, under the groups.
   final String? footer;
@@ -219,11 +230,18 @@ class HistoryPage extends StatelessWidget {
               ),
               const SizedBox(height: 22),
               SectionLabel(pointsLabel),
+              if (pointsHint case final hint?) ...[
+                const SizedBox(height: 4),
+                Text(hint, style: TextStyle(fontSize: 12, color: c.text4)),
+              ],
               const SizedBox(height: 10),
               RowTable(
                 columns: columns,
                 rows: points,
-                onTap: onAction,
+                onTap: (id) {
+                  final keys = HardwareKeyboard.instance;
+                  onPoint(id, keys.isMetaPressed || keys.isControlPressed);
+                },
                 empty: pointsEmpty,
                 rowHeight: 40,
               ),

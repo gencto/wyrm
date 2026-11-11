@@ -163,6 +163,8 @@ class _ActionFormState extends State<ActionForm> {
           hint: f.hint,
           unit: f.unit,
           choices: f.choices,
+          choiceLabels: f.choiceLabels,
+          code: f.code,
           required: f.required,
           error: _refused?.field == f.id && !_edited
               ? _refused?.message

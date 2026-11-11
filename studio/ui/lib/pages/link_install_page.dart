@@ -438,49 +438,7 @@ class _Center extends StatelessWidget {
         const SizedBox(height: 18),
       ],
       if (p.catalog case final cat?) ...[
-        Row(
-          spacing: 10,
-          children: [
-            Expanded(
-              child: ParamField(
-                vm: ParamFieldVm(
-                  id: 'query',
-                  label: '',
-                  kind: .text,
-                  value: cat.query.value,
-                  hint: cat.searchHint,
-                  onChanged: (v) => cat.query.onChanged(v as String?),
-                ),
-              ),
-            ),
-            for (final k in cat.categories)
-              InkWell(
-                onTap: () => p.onCategory?.call(k),
-                borderRadius: Radii.pill,
-                child: Container(
-                  height: 34,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: k == cat.category ? c.ground4 : null,
-                    border: .all(
-                      color: k == cat.category ? c.line3 : c.line1,
-                    ),
-                    borderRadius: Radii.pill,
-                  ),
-                  child: Center(
-                    widthFactor: 1,
-                    child: Text(
-                      k,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: k == cat.category ? c.text1 : c.text3,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        _CatalogFilter(cat: cat, onCategory: p.onCategory),
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, box) {
@@ -493,7 +451,11 @@ class _Center extends StatelessWidget {
                 for (final card in cat.cards)
                   SizedBox(
                     width: w,
-                    child: CatalogCard(vm: card, onTap: p.onItem),
+                    child: CatalogCard(
+                      key: ValueKey('card:${card.id}'),
+                      vm: card,
+                      onTap: p.onItem,
+                    ),
                   ),
               ],
             );
@@ -672,4 +634,124 @@ class _Center extends StatelessWidget {
           );
         },
       );
+}
+
+/// The search field and the category chips of the official list: one
+/// height (36), one vertical centre, on one line while the field keeps at
+/// least [_minSearch] beside the chips; else the chips wrap under it.
+class _CatalogFilter extends StatelessWidget {
+  const _CatalogFilter({required this.cat, this.onCategory});
+
+  final CatalogPartVm cat;
+  final ValueChanged<String>? onCategory;
+
+  static const _height = 36.0;
+  static const _gap = 10.0;
+  static const _minSearch = 280.0;
+  static const _chipText = TextStyle(fontSize: 13);
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final scaler = MediaQuery.textScalerOf(context);
+    final font = DefaultTextStyle.of(context).style.merge(_chipText);
+    final chips = [
+      for (final k in cat.categories) _chip(c, k, selected: k == cat.category),
+    ];
+    final search = _search(c);
+    return LayoutBuilder(
+      builder: (context, box) {
+        final chipsWidth = [
+          for (final k in cat.categories) _chipWidth(k, font, scaler) + _gap,
+        ].fold<double>(0, (a, b) => a + b);
+        if (box.maxWidth - chipsWidth >= _minSearch) {
+          return Row(
+            spacing: _gap,
+            children: [
+              Expanded(child: search),
+              ...chips,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: .stretch,
+          spacing: _gap,
+          children: [
+            search,
+            Wrap(spacing: _gap, runSpacing: _gap, children: chips),
+          ],
+        );
+      },
+    );
+  }
+
+  /// A chip's width: its word at 13 and 14 on each side.
+  static double _chipWidth(String label, TextStyle font, TextScaler scaler) {
+    final tp = TextPainter(
+      text: TextSpan(text: label, style: font),
+      textDirection: .ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final w = tp.width + 28 + 2;
+    tp.dispose();
+    return w;
+  }
+
+  Widget _search(AppColors c) => Container(
+    key: const ValueKey('catalog-search'),
+    height: _height,
+    padding: const EdgeInsets.symmetric(horizontal: 10),
+    decoration: BoxDecoration(
+      color: c.ground3,
+      border: .all(color: c.line2),
+      borderRadius: Radii.segment,
+    ),
+    child: Row(
+      spacing: 8,
+      children: [
+        AppIcon('ui_search', size: 14, color: c.text4),
+        Expanded(
+          child: TextFormField(
+            initialValue: cat.query.value,
+            onChanged: (v) => cat.query.onChanged(v.isEmpty ? null : v),
+            style: TextStyle(fontSize: 13, color: c.text1),
+            decoration: InputDecoration(
+              isCollapsed: true,
+              contentPadding: EdgeInsets.zero,
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              hintText: cat.searchHint,
+              hintStyle: TextStyle(fontSize: 13, color: c.text4),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _chip(AppColors c, String k, {required bool selected}) => InkWell(
+    key: ValueKey('category:$k'),
+    onTap: () => onCategory?.call(k),
+    borderRadius: Radii.pill,
+    child: Container(
+      height: _height,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: selected ? c.ground4 : null,
+        border: .all(color: selected ? c.line3 : c.line1),
+        borderRadius: Radii.pill,
+      ),
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          k,
+          maxLines: 1,
+          style: TextStyle(fontSize: 13, color: selected ? c.text1 : c.text3),
+        ),
+      ),
+    ),
+  );
 }

@@ -13,6 +13,7 @@ import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
+import 'package:business/wyrm/labels.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
 import 'package:models/agent_task.dart';
@@ -249,7 +250,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     'allowed_prefixes' => S.current.cfgPrefixes,
     'budget_tokens_day' => S.current.cfgBudget,
     'api_key_ref' => S.current.cfgApiKey,
-    _ => k,
+    _ => humanize(k),
   };
 
   static String _title(AgentTask t) => t.ask.isEmpty ? t.id : t.ask;

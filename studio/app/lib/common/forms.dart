@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/wyrm/failures.dart';
+import 'package:business/wyrm/labels.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart' show VoidCallback;
 import 'package:models/error_kind.dart';
@@ -31,10 +32,11 @@ ParamFieldVm paramField(ParamSpec p) {
   ];
   return ParamFieldVm(
     id: p.name,
-    label: p.display ?? p.name,
+    label: labelOf(p.name, display: p.display),
     kind: kind,
     value: p.defaultValue,
     choices: p.choices.unlock,
+    choiceLabels: choiceLabels(p.choices),
     required: p.required,
     hint: bounds.length == 2 ? bounds.join('…') : p.description,
     description: bounds.length == 2 ? p.description : null,

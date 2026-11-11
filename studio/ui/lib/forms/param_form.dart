@@ -42,6 +42,8 @@ final class ParamFieldVm extends Equatable {
     this.hint,
     this.unit,
     this.choices = const [],
+    this.choiceLabels = const {},
+    this.code,
     this.required = false,
     this.error,
     this.enabled = true,
@@ -65,6 +67,14 @@ final class ParamFieldVm extends Equatable {
   /// A unit shown inside the field (`ms`).
   final String? unit;
   final List<String> choices;
+
+  /// What a choice reads where it differs from the value sent
+  /// (`read_back` → `Read back`).
+  final Map<String, String> choiceLabels;
+
+  /// The parameter's own name, in the label's tooltip when the label says
+  /// it in other words; [id] when null.
+  final String? code;
   final bool required;
   final String? error;
   final bool enabled;
@@ -92,6 +102,8 @@ final class ParamFieldVm extends Equatable {
     hint,
     unit,
     choices,
+    choiceLabels,
+    code,
     required,
     error,
     enabled,
@@ -176,7 +188,21 @@ class ParamField extends StatelessWidget {
     );
   }
 
-  Widget _label(AppColors c) => Text.rich(
+  /// The label; its tooltip holds the parameter's own name when the label
+  /// is a different word (owner 2026-11-11: the raw name stays reachable).
+  Widget _label(AppColors c) {
+    final text = _labelText(c);
+    final code = vm.code ?? vm.id;
+    return vm.label == code || vm.label.isEmpty
+        ? text
+        : Tooltip(
+            message: code,
+            waitDuration: const Duration(milliseconds: 600),
+            child: text,
+          );
+  }
+
+  Widget _labelText(AppColors c) => Text.rich(
     TextSpan(
       text: vm.label,
       children: [
@@ -229,7 +255,10 @@ class ParamField extends StatelessWidget {
           style: mono(color: c.text1),
           items: [
             for (final ch in vm.choices)
-              DropdownMenuItem(value: ch, child: Text(ch)),
+              DropdownMenuItem(
+                value: ch,
+                child: Text(vm.choiceLabels[ch] ?? ch),
+              ),
           ],
           onChanged: vm.enabled ? vm.onChanged : null,
         );

@@ -451,6 +451,8 @@ ExplorerPage _page({
   StatusPillVm pill = const StatusPillVm(label: 'Connected', tone: Tone.good),
   SidePanelWidths panels = const SidePanelWidths(),
   ValueViewerVm? viewer,
+  String title = 'plc1',
+  String? titleName,
 }) => ExplorerPage(
   treeLabel: 'Tree · plant',
   tree: _tree(),
@@ -473,7 +475,8 @@ ExplorerPage _page({
   ),
   keyName: _dev,
   onCopyKey: () {},
-  title: 'plc1',
+  title: title,
+  titleName: titleName,
   pill: pill,
   subtitle: 'modbus device · unit 1 · 10.0.4.20:502 · last read 12:00:03',
   headerButtons: const [
@@ -512,6 +515,11 @@ ExplorerPage _page({
 
 /// A device with a point selected (board *Main*).
 Widget explorerPoint() => _shell(_page());
+
+/// A device titled [title], with its name [titleName] under it when the
+/// title is its display name.
+Widget explorerTitled({required String title, String? titleName}) =>
+    _shell(_page(title: title, titleName: titleName));
 
 /// macOS without a title bar (docs/studio.md §7.1): the top bar keeps 92
 /// free at the left for the native close, minimize and zoom buttons (the

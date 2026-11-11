@@ -890,6 +890,9 @@ extension type SelectHistorian(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveHistorianAction>();
+
+  /// Returns points
+  IList<String> get points => _state.historian.points;
 }
 
 extension type SelectAccess(AppState _state) {

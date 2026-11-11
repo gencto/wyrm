@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/historian/actions/pick_point_action.dart';
 import 'package:business/redux/historian/actions/retrieve_historian_action.dart';
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
 import 'package:business/redux/historian/actions/set_range_action.dart';
@@ -54,14 +55,16 @@ class HistoryPageConnector extends StatelessWidget {
         onRange: vm.onRange,
         trend: vm.trend,
         trendLabels: vm.trendLabels,
-        trendEmpty: S.current.noHistory,
+        trendEmpty: vm.picked ? S.current.noHistory : S.current.pickPointTrend,
         pointsLabel: S.current.pointsCount(vm.points.length),
+        pointsHint: S.current.pickPointHint,
         columns: [
           ColumnVm(S.current.colPoint, flex: 4),
           ColumnVm(S.current.colWatch),
-          ColumnVm(S.current.colRows, flex: 2),
+          ColumnVm(S.current.colReadRows, flex: 2),
         ],
         points: vm.points,
+        onPoint: vm.onPoint,
         pointsEmpty: S.current.noWatchPaths,
         footer: vm.footer,
         inspector: vm.inspector,
@@ -85,6 +88,13 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
     final h = historian;
     final g = h.groups.where((g) => g.name == h.selected).firstOrNull;
     final stats = h.stats;
+    // The one point picked: Stop recording works on its watch.
+    final watch = g != null && h.points.length == 1
+        ? switch (g.keys.indexOf(h.points.first)) {
+            -1 => null,
+            final i => g.watchIds[i],
+          }
+        : null;
     String every(num? s) => s == null
         ? ''
         : S.current.everySeconds(s == s.truncate() ? s.toInt() : s);
@@ -116,9 +126,10 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
               every(g.interval),
             ].where((s) => s.isNotEmpty).join(' · '),
       range: h.range,
+      picked: h.points.isNotEmpty,
       trend: [
         if (g != null)
-          for (final k in g.keys)
+          for (final k in h.points)
             if (h.series[k] case final s?)
               TrendSeriesVm(
                 label: k.split('/').last,
@@ -141,11 +152,19 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
         if (g != null)
           for (final (i, k) in g.keys.indexed)
             RowVm(
-              id: 'watch:${g.watchIds[i]}',
+              id: k,
+              selected: h.points.contains(k),
               cells: [
                 CellVm(title: k.split('/').skip(2).join('/'), monospace: true),
                 CellVm(title: g.watchIds[i], monospace: true),
-                CellVm(title: '${h.series[k]?.length ?? 0}'),
+                // Read only for a picked point: a count of the others would
+                // cost a history read each.
+                CellVm(
+                  title: switch (h.series[k]) {
+                    final s? => '${s.length}',
+                    null => '—',
+                  },
+                ),
               ],
             ),
       ],
@@ -176,6 +195,21 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
                   FactVm(label: S.current.factOldest, value: d),
               ],
               groups: [
+                if (watch != null)
+                  ActionGroupVm(
+                    label: h.points.first.split('/').last,
+                    actions: [
+                      ActionRowVm(
+                        id: 'watch:$watch',
+                        icon: 'action_trash',
+                        title: S.current.stopRecording,
+                        description: S.current.unsubscribeNote,
+                        code: 'unsubscribe',
+                        tone: Tone.warn,
+                        disabledReason: site.needs('config', _base),
+                      ),
+                    ],
+                  ),
                 ActionGroupVm(
                   label: S.current.groupChange,
                   actions: [
@@ -224,8 +258,9 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
               footer: S.current.historyFooter,
             ),
       onShow: () => unawaited(_load()),
-      onGroup: (id) {
-        dispatchSync(SetSelectedAction(id));
+      onGroup: (id) => dispatchSync(SetSelectedAction(id)),
+      onPoint: (key, add) {
+        dispatchSync(PickPointAction(key, add: add));
         unawaited(dispatchAndWait(RetrieveSeriesAction()));
       },
       onRange: (r) {
@@ -268,9 +303,13 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
     return Future.value(false);
   }
 
+  /// The groups and their points; recorded values only for the points
+  /// picked (none on a first open).
   Future<void> _load() async {
     await dispatchAndWait(RetrieveHistorianAction());
-    await dispatchAndWait(RetrieveSeriesAction());
+    if (historian.points.isNotEmpty) {
+      await dispatchAndWait(RetrieveSeriesAction());
+    }
   }
 
   static String _hm(DateTime t) {
@@ -299,6 +338,7 @@ class _Vm extends Vm {
     required this.title,
     required this.subtitle,
     required this.range,
+    required this.picked,
     required this.trend,
     required this.trendLabels,
     required this.points,
@@ -306,6 +346,7 @@ class _Vm extends Vm {
     required this.inspector,
     required this.onShow,
     required this.onGroup,
+    required this.onPoint,
     required this.onRange,
     required this.onAction,
     required this.panelWidths,
@@ -317,6 +358,7 @@ class _Vm extends Vm {
            title,
            subtitle,
            range,
+           picked,
            trend,
            trendLabels,
            points,
@@ -331,6 +373,9 @@ class _Vm extends Vm {
   final String? title;
   final String? subtitle;
   final String range;
+
+  /// A point is picked for the trend.
+  final bool picked;
   final List<TrendSeriesVm> trend;
   final (String, String) trendLabels;
   final List<RowVm> points;
@@ -338,6 +383,9 @@ class _Vm extends Vm {
   final DetailInspectorVm? inspector;
   final VoidCallback onShow;
   final ValueChanged<String> onGroup;
+
+  /// A point row was clicked; `add` with ⌘/Ctrl held.
+  final void Function(String key, bool add) onPoint;
   final ValueChanged<String> onRange;
   final Future<void> Function(BuildContext context, String action) onAction;
   final SidePanelWidths panelWidths;

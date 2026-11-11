@@ -10113,6 +10113,46 @@ class S {
   String screenOf(String name) {
     return Intl.message('$name', name: 'screenOf', desc: '', args: [name]);
   }
+
+  /// `Pick a point to see its trend`
+  String get pickPointTrend {
+    return Intl.message(
+      'Pick a point to see its trend',
+      name: 'pickPointTrend',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Click a point to see its trend; ⌘/Ctrl-click adds up to three.`
+  String get pickPointHint {
+    return Intl.message(
+      'Click a point to see its trend; ⌘/Ctrl-click adds up to three.',
+      name: 'pickPointHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Stop recording`
+  String get stopRecording {
+    return Intl.message(
+      'Stop recording',
+      name: 'stopRecording',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Values on the trend`
+  String get colReadRows {
+    return Intl.message(
+      'Values on the trend',
+      name: 'colReadRows',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
