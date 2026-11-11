@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
@@ -8,6 +10,8 @@ import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
+import 'rows_editor.dart';
+import 'suggest_field.dart';
 
 /// How a field of the inspector is edited (spec §6).
 enum FieldEditorVm {
@@ -38,6 +42,15 @@ enum FieldEditorVm {
   /// A period: a number with its unit (ms, s, min, h); the value is in
   /// milliseconds.
   duration,
+
+  /// A text with a menu of the usual values ([InspectorRowVm.choices]): a
+  /// time zone, a range text. Any other text may be typed.
+  suggest,
+
+  /// A list of maps ([InspectorRowVm.rows]): a line per item, a field per
+  /// key (`mapping`, `aggregates`). The value handed on is the list as
+  /// JSON.
+  rows,
 }
 
 /// One field of the selected block.
@@ -60,7 +73,11 @@ final class InspectorRowVm extends Equatable {
     this.disabledReason,
     this.confirm,
     this.error = '',
+    this.rows,
   });
+
+  /// The list a [FieldEditorVm.rows] editor shows.
+  final RowsEditorVm? rows;
 
   /// The group this row is listed under (`Arguments`, `Behaviour`,
   /// `Events`, `State`): its heading stands above the group's first row.
@@ -141,6 +158,7 @@ final class InspectorRowVm extends Equatable {
         disabledReason: disabledReason,
         confirm: confirm,
         error: error,
+        rows: rows,
       );
 
   @override
@@ -162,6 +180,7 @@ final class InspectorRowVm extends Equatable {
     disabledReason,
     confirm,
     error,
+    rows,
   ];
 }
 
@@ -231,6 +250,7 @@ class FieldInspector extends StatelessWidget {
     this.bindLabel = 'Drag an output here to bind',
     this.goToSourceLabel = 'Go to source',
     this.boundLabel = 'bound',
+    this.suggestLabel = 'Choose a value',
     this.onRun,
     this.confirmLabel = 'Turn on',
     this.cancelLabel = 'Cancel',
@@ -285,6 +305,9 @@ class FieldInspector extends StatelessWidget {
   final String bindLabel;
   final String goToSourceLabel;
   final String boundLabel;
+
+  /// The tooltip of a [FieldEditorVm.suggest] field's menu.
+  final String suggestLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -381,6 +404,7 @@ class FieldInspector extends StatelessWidget {
                           bindLabel: bindLabel,
                           goToSourceLabel: goToSourceLabel,
                           boundLabel: boundLabel,
+                          suggestLabel: suggestLabel,
                         ),
                       ],
                       if (onRemove != null) ...[
@@ -516,6 +540,7 @@ class _Row extends StatelessWidget {
     required this.bindLabel,
     required this.goToSourceLabel,
     required this.boundLabel,
+    required this.suggestLabel,
     required this.onRun,
     required this.confirmLabel,
     required this.cancelLabel,
@@ -539,133 +564,148 @@ class _Row extends StatelessWidget {
   final String bindLabel;
   final String goToSourceLabel;
   final String boundLabel;
+  final String suggestLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final bound = vm.editor == FieldEditorVm.bound;
+    // A list editor takes the inspector's width, under the label.
+    final wide = vm.editor == FieldEditorVm.rows;
     final takes = vm.inPort != null;
     final pin = onPin;
     final pinned = vm.pinned;
     final hasPin = pin != null && pinned != null;
+    Widget head() => Row(
+      children: [
+        if (hasPin)
+          SizedBox(
+            width: 18,
+            height: 32,
+            child: Tooltip(
+              message: vm.pinLocked
+                  ? pinLockedLabel
+                  : (pinned ? unpinLabel : pinLabel),
+              waitDuration: const Duration(milliseconds: 400),
+              child: InkWell(
+                key: ValueKey('pin-${vm.id}'),
+                borderRadius: const BorderRadius.all(Radius.circular(4)),
+                onTap: vm.pinLocked ? null : () => pin(vm.id, pinned: !pinned),
+                child: Align(
+                  alignment: .centerLeft,
+                  child: AppIcon(
+                    'ui_pin',
+                    size: 14,
+                    color: !pinned
+                        ? c.muted
+                        : (vm.pinLocked ? c.good : c.emberSoft),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        SizedBox(
+          width: hasPin ? 86 : 104,
+          child: Tooltip(
+            message: vm.hint,
+            child: Column(
+              mainAxisSize: .min,
+              crossAxisAlignment: .start,
+              children: [
+                Text(
+                  vm.name,
+                  maxLines: 2,
+                  overflow: .ellipsis,
+                  style: TextStyle(fontSize: 13, color: c.text2),
+                ),
+                if (vm.engine.isNotEmpty)
+                  Text(
+                    vm.engine,
+                    maxLines: 1,
+                    overflow: .ellipsis,
+                    style: mono(size: 10, color: c.text4),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: wide
+              ? const SizedBox(height: 32)
+              : vm.error.isEmpty
+              ? _editor(context)
+              : Column(
+                  mainAxisSize: .min,
+                  crossAxisAlignment: .start,
+                  children: [
+                    const SizedBox(height: 6),
+                    _editor(context),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(
+                        vm.error,
+                        style: TextStyle(fontSize: 11, color: c.bad),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 28,
+          height: 32,
+          child: bound
+              ? _LinkMenu(
+                  icon: AppIcon('ui_bind', size: 16, color: c.emberSoft),
+                  items: [
+                    if (vm.sourceBlock case final from?
+                        when onGoToSource != null)
+                      (goToSourceLabel, () => onGoToSource!(from)),
+                    (unbindLabel, () => onUnbind(vm.id)),
+                  ],
+                )
+              : Tooltip(
+                  message: takes ? bindLabel : '',
+                  child: Opacity(
+                    opacity: takes ? 1 : 0.35,
+                    child: Center(
+                      child: AppIcon('ui_bind', size: 16, color: c.text4),
+                    ),
+                  ),
+                ),
+        ),
+        if (onView case final view?)
+          SizedBox(
+            width: 28,
+            height: 32,
+            child: IconButton(
+              tooltip: viewLabel,
+              padding: EdgeInsets.zero,
+              onPressed: () => view(vm.id),
+              icon: AppIcon('ui_view', size: 16, color: c.text3),
+            ),
+          ),
+      ],
+    );
     Widget row(bool lit) => Container(
       constraints: const BoxConstraints(minHeight: 44),
       decoration: BoxDecoration(
         color: lit ? c.ember.withValues(alpha: 0.12) : null,
         border: Border(bottom: BorderSide(color: c.ground3)),
       ),
-      child: Row(
-        children: [
-          if (hasPin)
-            SizedBox(
-              width: 18,
-              height: 32,
-              child: Tooltip(
-                message: vm.pinLocked
-                    ? pinLockedLabel
-                    : (pinned ? unpinLabel : pinLabel),
-                waitDuration: const Duration(milliseconds: 400),
-                child: InkWell(
-                  key: ValueKey('pin-${vm.id}'),
-                  borderRadius: const BorderRadius.all(Radius.circular(4)),
-                  onTap: vm.pinLocked
-                      ? null
-                      : () => pin(vm.id, pinned: !pinned),
-                  child: Align(
-                    alignment: .centerLeft,
-                    child: AppIcon(
-                      'ui_pin',
-                      size: 14,
-                      color: !pinned
-                          ? c.muted
-                          : (vm.pinLocked ? c.good : c.emberSoft),
-                    ),
-                  ),
+      child: wide
+          ? Column(
+              crossAxisAlignment: .stretch,
+              children: [
+                head(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 6, 8),
+                  child: _editor(context),
                 ),
-              ),
-            ),
-          SizedBox(
-            width: hasPin ? 86 : 104,
-            child: Tooltip(
-              message: vm.hint,
-              child: Column(
-                mainAxisSize: .min,
-                crossAxisAlignment: .start,
-                children: [
-                  Text(
-                    vm.name,
-                    maxLines: 2,
-                    overflow: .ellipsis,
-                    style: TextStyle(fontSize: 13, color: c.text2),
-                  ),
-                  if (vm.engine.isNotEmpty)
-                    Text(
-                      vm.engine,
-                      maxLines: 1,
-                      overflow: .ellipsis,
-                      style: mono(size: 10, color: c.text4),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: vm.error.isEmpty
-                ? _editor(context)
-                : Column(
-                    mainAxisSize: .min,
-                    crossAxisAlignment: .start,
-                    children: [
-                      const SizedBox(height: 6),
-                      _editor(context),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text(
-                          vm.error,
-                          style: TextStyle(fontSize: 11, color: c.bad),
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-          const SizedBox(width: 6),
-          SizedBox(
-            width: 28,
-            height: 32,
-            child: bound
-                ? _LinkMenu(
-                    icon: AppIcon('ui_bind', size: 16, color: c.emberSoft),
-                    items: [
-                      if (vm.sourceBlock case final from?
-                          when onGoToSource != null)
-                        (goToSourceLabel, () => onGoToSource!(from)),
-                      (unbindLabel, () => onUnbind(vm.id)),
-                    ],
-                  )
-                : Tooltip(
-                    message: takes ? bindLabel : '',
-                    child: Opacity(
-                      opacity: takes ? 1 : 0.35,
-                      child: Center(
-                        child: AppIcon('ui_bind', size: 16, color: c.text4),
-                      ),
-                    ),
-                  ),
-          ),
-          if (onView case final view?)
-            SizedBox(
-              width: 28,
-              height: 32,
-              child: IconButton(
-                tooltip: viewLabel,
-                padding: EdgeInsets.zero,
-                onPressed: () => view(vm.id),
-                icon: AppIcon('ui_view', size: 16, color: c.text3),
-              ),
-            ),
-        ],
-      ),
+              ],
+            )
+          : head(),
     );
     if (!takes) {
       return row(false);
@@ -842,6 +882,32 @@ class _Row extends StatelessWidget {
           millis: vm.value,
           decoration: box,
           onChanged: (v) => onChanged(vm.id, v),
+        );
+      case FieldEditorVm.suggest:
+        return SuggestField(
+          key: ValueKey('suggest-field-${vm.id}'),
+          vm: SuggestFieldVm(
+            id: vm.id,
+            value: vm.value,
+            choices: vm.choices,
+            menuLabel: suggestLabel,
+          ),
+          decoration: box,
+          onChanged: (v) => onChanged(vm.id, v),
+        );
+      case FieldEditorVm.rows:
+        final rows = vm.rows;
+        if (rows == null) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: RowsEditor(
+            key: ValueKey('rows-editor-${vm.id}'),
+            vm: rows,
+            decoration: box,
+            onChanged: (list) => onChanged(vm.id, jsonEncode(list)),
+          ),
         );
       case FieldEditorVm.sample:
         return SizedBox(

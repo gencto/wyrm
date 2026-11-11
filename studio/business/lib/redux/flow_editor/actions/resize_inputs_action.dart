@@ -12,7 +12,8 @@ import 'validate_flow_action.dart';
 /// The − and + of a block with variable inputs (`add`, `if`, `expression`):
 /// adds the next input, or removes the last one with every edge into it or
 /// out of its echo and its constant, never below the type's minimum. A
-/// block with paired inputs (`case`) adds or removes a pair.
+/// block with paired inputs (`case`) adds or removes a pair; a `router`
+/// adds or removes a case with its output.
 class ResizeInputsAction extends Action {
   ResizeInputsAction(this.id, {required this.add});
 
@@ -35,9 +36,13 @@ class ResizeInputsAction extends Action {
     final names = add
         ? [...v.names, ...v.adds]
         : v.names.sublist(0, v.names.length - removes.length);
+    // A `router` case goes with its output and the wires out of it.
     final gone = {
       if (!add)
-        for (final n in removes) '${v.prefix}$n',
+        for (final n in removes) ...{
+          '${v.prefix}$n',
+          if (v.outPrefix case final out?) '$out$n',
+        },
     };
     unawaited(dispatchAndWait(ValidateFlowAction()));
     // A removed input's constant goes with it: the engine refuses a

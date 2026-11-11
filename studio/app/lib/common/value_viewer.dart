@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:business/wyrm/mappers/table_value.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:localization/localization.dart';
 import 'package:models/quality.dart';
@@ -8,12 +9,20 @@ import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/trees/json_tree.dart';
 
+/// The rows a table viewer shows; the rest is counted.
+const maxTableRows = 200;
+
 /// Bytes a viewer dumps as hex; the rest is counted (16 a row).
 const int _maxBytes = 16 * 1024;
 
 /// The viewer of a value (a flow field's, a point's): [value] as a live
 /// value holds it, drawn by its type (docs/studio.md §6.8).
 ///
+/// - a table (ADR 0044 §2: `{columns, rows}`, or with [rowsOfMaps] a list
+///   of maps): its columns and the first [maxTableRows] rows, how many of
+///   how many under it;
+/// - a date of the flow engine ([date]: µs since the epoch): the local date
+///   and time, the instant in UTC and the number beside it;
 /// - a map or a list, or a text that is a JSON map or list: a tree;
 /// - a text: numbered lines;
 /// - a number with its [unit] (an enum by its name in [choices]);
@@ -29,8 +38,45 @@ ValueViewerVm valueViewerOf({
   String? unit,
   List<String> choices = const [],
   QualityMarkVm? quality,
+  bool rowsOfMaps = false,
+  bool date = false,
 }) {
   final s = S.current;
+  final t = known ? tableOf(value, rowsOfMaps: rowsOfMaps) : null;
+  if (t != null) {
+    final shown = t.rows.length.clamp(0, maxTableRows);
+    return ValueViewerVm(
+      title: title,
+      type: 'table',
+      size: [
+        s.sizeRows(t.rows.length),
+        s.sizeColumns(t.columns.length),
+      ].join(' · '),
+      content: t.columns.isEmpty
+          ? EmptyContentVm(s.tableNoColumns)
+          : TableContentVm(
+              columns: t.columns,
+              rows: t.texts(),
+              note: shown < t.rows.length
+                  ? s.tableShown(shown, t.rows.length)
+                  : '',
+            ),
+      copy: _pretty(value!),
+      quality: quality,
+    );
+  }
+  if (known && date && dateText(value) != null) {
+    return ValueViewerVm(
+      title: title,
+      type: 'date',
+      content: NumberContentVm(
+        dateText(value)!,
+        unit: '${dateTextUtc(value)} · ${valueText(value)} µs',
+      ),
+      copy: jsonEncode(value),
+      quality: quality,
+    );
+  }
   if (!known) {
     return ValueViewerVm(
       title: title,

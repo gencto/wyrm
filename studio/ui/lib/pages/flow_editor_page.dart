@@ -80,6 +80,7 @@ class FlowEditorPage extends StatelessWidget {
     this.unbindLabel = 'Unbind',
     this.goToSourceLabel = 'Go to source',
     this.boundLabel = 'bound',
+    this.suggestLabel = 'Choose a value',
     this.viewer,
     this.onView,
     this.onCloseViewer,
@@ -294,6 +295,9 @@ class FlowEditorPage extends StatelessWidget {
   final String unbindLabel;
   final String goToSourceLabel;
   final String boundLabel;
+
+  /// The tooltip of the menu of a field with usual values (a time zone).
+  final String suggestLabel;
 
   /// The open value viewer of a field, live; null: none is open.
   final ValueViewerVm? viewer;
@@ -613,6 +617,7 @@ class FlowEditorPage extends StatelessWidget {
         unbindLabel: unbindLabel,
         goToSourceLabel: goToSourceLabel,
         boundLabel: boundLabel,
+        suggestLabel: suggestLabel,
         removeLabel: removeLabel,
         onRemove: onRemove,
         onView: onView,

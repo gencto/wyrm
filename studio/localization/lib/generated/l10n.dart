@@ -5845,6 +5845,50 @@ class S {
     );
   }
 
+  /// `{count, plural, =1{1 row} other{{count} rows}}`
+  String sizeRows(int count) {
+    return Intl.plural(
+      count,
+      one: '1 row',
+      other: '$count rows',
+      name: 'sizeRows',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `{count, plural, =1{1 column} other{{count} columns}}`
+  String sizeColumns(int count) {
+    return Intl.plural(
+      count,
+      one: '1 column',
+      other: '$count columns',
+      name: 'sizeColumns',
+      desc: '',
+      args: [count],
+    );
+  }
+
+  /// `The first {shown} of {total} rows`
+  String tableShown(int shown, int total) {
+    return Intl.message(
+      'The first $shown of $total rows',
+      name: 'tableShown',
+      desc: '',
+      args: [shown, total],
+    );
+  }
+
+  /// `a table with no columns`
+  String get tableNoColumns {
+    return Intl.message(
+      'a table with no columns',
+      name: 'tableNoColumns',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `{count, plural, =1{1 char} other{{count} chars}}`
   String sizeChars(int count) {
     return Intl.plural(
@@ -8712,6 +8756,46 @@ class S {
     return Intl.message(
       'This broker has no trigger action (its flow engine is older than ADR 0040)',
       name: 'runNoBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A sample on its wire presses it. Wire an event into it (a timer, a change, a point); Studio cannot press it in a running flow.`
+  String get commandNote {
+    return Intl.message(
+      'A sample on its wire presses it. Wire an event into it (a timer, a change, a point); Studio cannot press it in a running flow.',
+      name: 'commandNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add a row`
+  String get rowsAdd {
+    return Intl.message('Add a row', name: 'rowsAdd', desc: '', args: []);
+  }
+
+  /// `Remove this row`
+  String get rowsRemove {
+    return Intl.message(
+      'Remove this row',
+      name: 'rowsRemove',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No rows yet`
+  String get rowsEmpty {
+    return Intl.message('No rows yet', name: 'rowsEmpty', desc: '', args: []);
+  }
+
+  /// `Choose a value`
+  String get suggestPick {
+    return Intl.message(
+      'Choose a value',
+      name: 'suggestPick',
       desc: '',
       args: [],
     );
