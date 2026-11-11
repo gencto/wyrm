@@ -1177,6 +1177,8 @@ async fn install_link_from_url_repository_git() {
     assert_eq!(hosted.get("title"), Some(&Value::from("Hosted mock")));
     assert_eq!(hosted.get("version"), Some(&Value::from("1.0.0")));
     assert_eq!(hosted.get("form"), Some(&Value::from("process")));
+    // a local repository is not the official index
+    assert_eq!(hosted.get("official"), Some(&Value::Bool(false)));
     let modbus = row("driver:modbus");
     assert_eq!(modbus.get("title"), Some(&Value::from("Modbus")));
     assert_eq!(modbus.get("form"), Some(&Value::from("builtin")));

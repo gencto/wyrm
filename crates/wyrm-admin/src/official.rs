@@ -30,6 +30,11 @@ pub fn repository_url(configured: Option<&str>) -> Option<String> {
     }
 }
 
+/// `url` (already resolved) is the official index of the embedded manifest.
+pub fn is_official_index(url: Option<&str>) -> bool {
+    url == Some(embedded().index_url().as_str())
+}
+
 fn row(fields: [(&str, Value); 9]) -> Value {
     Value::Map(
         fields
@@ -48,9 +53,22 @@ fn s(v: &str) -> Value {
 /// = the index's). Each row: `id` (`driver:<code>` or `package:<code>`),
 /// `code` (the name `install` / `install_repo` takes), `link` (official link
 /// id, empty when none), `title`, `summary`, `category`, `version`, `form`
-/// (`builtin`, `wasm`, `process`) and `official` (the manifest names it; a
-/// label, not a check: the SHA-256 of the index is the check).
-pub fn catalog(drivers: &[&str], repo: &[RepoEntry], broker_version: &str) -> Value {
+/// (`builtin`, `wasm`, `process`) and `official`.
+///
+/// A driver is official when the embedded manifest names it (it is compiled
+/// into this binary). A package is official only when `official_repo` (the
+/// configured repository is the official index URL) and the embedded
+/// manifest lists that package name with the same version and form. A
+/// package's `title`, `summary`, `category` and `link` always come from its
+/// own index entry, never from the manifest: a repository cannot borrow an
+/// official name's description. The manifest holds no hashes; the SHA-256
+/// of the index entry is checked at install (ADR 0021).
+pub fn catalog(
+    drivers: &[&str],
+    repo: &[RepoEntry],
+    official_repo: bool,
+    broker_version: &str,
+) -> Value {
     let o = embedded();
     let mut rows = Vec::new();
     for d in drivers {
@@ -69,37 +87,32 @@ pub fn catalog(drivers: &[&str], repo: &[RepoEntry], broker_version: &str) -> Va
     }
     let host = platform();
     for e in repo.iter().filter(|e| e.asset(&host).is_some()) {
-        let known = o.by_package(&e.name);
-        let pick = |own: &str, from: fn(&official::OfficialLink) -> &str| -> String {
-            if own.is_empty() {
-                known.map_or("", |(l, _)| from(l)).to_owned()
-            } else {
-                own.to_owned()
-            }
+        // what the zip is, from the index alone: a process package has a
+        // file per host, one for every host is wasm
+        let form = if e.assets.is_empty() {
+            "wasm"
+        } else {
+            "process"
         };
-        let title = pick(&e.title, |l| &l.title);
-        let form = e
-            .kind
-            .clone()
-            .or_else(|| known.map(|(_, f)| f.to_owned()))
-            .unwrap_or_else(|| {
-                if e.assets.is_empty() {
-                    "wasm"
-                } else {
-                    "process"
-                }
-                .to_owned()
-            });
+        let official = official_repo
+            && e.kind.as_deref().is_none_or(|k| k == form)
+            && o.by_package(&e.name)
+                .is_some_and(|(l, f)| f == form && l.version == e.version);
+        let title = if e.title.is_empty() {
+            &e.name
+        } else {
+            &e.title
+        };
         rows.push(row([
             ("id", s(&format!("package:{}", e.name))),
             ("code", s(&e.name)),
-            ("link", s(&pick(&e.link, |l| &l.id))),
-            ("title", s(if title.is_empty() { &e.name } else { &title })),
-            ("summary", s(&pick(&e.description, |l| &l.summary))),
-            ("category", s(&pick(&e.category, |l| &l.category))),
+            ("link", s(&e.link)),
+            ("title", s(title)),
+            ("summary", s(&e.description)),
+            ("category", s(&e.category)),
             ("version", s(&e.version)),
-            ("form", s(&form)),
-            ("official", Value::Bool(known.is_some())),
+            ("form", s(form)),
+            ("official", Value::Bool(official)),
         ]));
     }
     Value::Array(rows)
@@ -147,81 +160,129 @@ mod tests {
         }
     }
 
+    fn wasm(name: &str, version: &str, title: &str) -> RepoEntry {
+        RepoEntry {
+            name: name.into(),
+            version: version.into(),
+            url: Some(format!("{name}.zip")),
+            sha256: Some("a".repeat(64)),
+            title: title.into(),
+            ..RepoEntry::default()
+        }
+    }
+
+    fn process(name: &str, version: &str, host: &str, title: &str) -> RepoEntry {
+        RepoEntry {
+            name: name.into(),
+            version: version.into(),
+            assets: [(
+                host.to_owned(),
+                wyrm_link_sdk::package::Asset {
+                    url: format!("{name}.zip"),
+                    sha256: "a".repeat(64),
+                },
+            )]
+            .into(),
+            title: title.into(),
+            ..RepoEntry::default()
+        }
+    }
+
+    fn rows(drivers: &[&str], repo: &[RepoEntry], official_repo: bool) -> Vec<Value> {
+        match catalog(drivers, repo, official_repo, "0.1.0") {
+            Value::Array(rows) => rows,
+            v => panic!("an array: {v:?}"),
+        }
+    }
+
+    fn official(row: &Value) -> bool {
+        let Value::Map(m) = row else { panic!("a row") };
+        m.get("official") == Some(&Value::Bool(true))
+    }
+
+    fn version_of(id: &str) -> String {
+        embedded()
+            .links
+            .iter()
+            .find(|l| l.id == id)
+            .unwrap()
+            .version
+            .clone()
+    }
+
     #[test]
     fn catalog_rows_carry_title_and_version() {
         let host = platform();
-        let sha = "a".repeat(64);
+        let v = version_of("alarm");
         let repo = vec![
-            // an official index entry: its own fields
             RepoEntry {
-                name: "alarm".into(),
-                version: "0.2.0".into(),
-                url: Some("alarm.zip".into()),
-                sha256: Some(sha.clone()),
-                title: "Alarms".into(),
+                category: "Apps".into(),
                 kind: Some("wasm".into()),
                 link: "alarm".into(),
-                ..RepoEntry::default()
+                ..wasm("alarm", &v, "Alarms")
             },
-            // an ADR 0021 index (wyr repo add): the manifest fills in
-            RepoEntry {
-                name: "alarm-process".into(),
-                version: "0.1.9".into(),
-                assets: [(
-                    host.clone(),
-                    wyrm_link_sdk::package::Asset {
-                        url: "a.zip".into(),
-                        sha256: sha.clone(),
-                    },
-                )]
-                .into(),
-                ..RepoEntry::default()
-            },
+            // not the manifest's version: a package, not an official one
+            process("alarm-process", "9.0.0", &host, ""),
             // not built for this host: not offered
-            RepoEntry {
-                name: "elsewhere".into(),
-                version: "1.0.0".into(),
-                assets: [(
-                    "plan9-mips".to_owned(),
-                    wyrm_link_sdk::package::Asset {
-                        url: "e.zip".into(),
-                        sha256: sha.clone(),
-                    },
-                )]
-                .into(),
-                ..RepoEntry::default()
-            },
-            RepoEntry {
-                name: "third-party".into(),
-                version: "3.0.0".into(),
-                url: Some("t.zip".into()),
-                sha256: Some(sha),
-                ..RepoEntry::default()
-            },
+            process("elsewhere", "1.0.0", "plan9-mips", "Elsewhere"),
         ];
-        let Value::Array(rows) = catalog(&["modbus", "wasm"], &repo, "0.1.0") else {
-            panic!("an array")
-        };
-        assert_eq!(rows.len(), 5);
+        let rows = rows(&["modbus", "wasm"], &repo, true);
+        assert_eq!(rows.len(), 4);
         assert_eq!(field(&rows[0], "id"), "driver:modbus");
         assert_eq!(field(&rows[0], "title"), "Modbus");
         assert_eq!(field(&rows[0], "category"), "Equipment");
         assert_eq!(field(&rows[0], "version"), "0.1.0");
         assert_eq!(field(&rows[0], "form"), "builtin");
-        assert_eq!(
-            field(&rows[1], "title"),
-            "wasm",
-            "no manifest entry: its name"
-        );
+        assert!(official(&rows[0]));
+        assert_eq!(field(&rows[1], "title"), "wasm", "not in the manifest");
+        assert!(!official(&rows[1]));
         assert_eq!(field(&rows[2], "id"), "package:alarm");
-        assert_eq!(field(&rows[2], "version"), "0.2.0");
-        assert_eq!(field(&rows[3], "title"), "Alarms");
-        assert_eq!(field(&rows[3], "link"), "alarm");
+        assert_eq!(field(&rows[2], "title"), "Alarms");
+        assert_eq!(field(&rows[2], "version"), v);
+        assert_eq!(field(&rows[2], "form"), "wasm");
+        assert!(official(&rows[2]));
+        assert_eq!(field(&rows[3], "version"), "9.0.0");
         assert_eq!(field(&rows[3], "form"), "process");
-        assert_eq!(field(&rows[3], "version"), "0.1.9");
-        assert_eq!(field(&rows[4], "title"), "third-party");
-        assert_eq!(field(&rows[4], "form"), "wasm");
-        let Value::Map(m) = &rows[4] else { panic!() };
-        assert_eq!(m.get("official"), Some(&Value::Bool(false)));
+        assert_eq!(
+            field(&rows[3], "title"),
+            "alarm-process",
+            "never the manifest's"
+        );
+        assert_eq!(field(&rows[3], "category"), "");
+        assert!(!official(&rows[3]), "another version than the manifest's");
+    }
+
+    /// A repository that is not the official index cannot make a package
+    /// official by its name, nor borrow the manifest's description.
+    #[test]
+    fn a_third_party_index_is_never_official() {
+        let host = platform();
+        let repo = vec![
+            process("modbus", &version_of("modbus"), &host, "Better Modbus"),
+            wasm("alarm", &version_of("alarm"), ""),
+        ];
+        let third = rows(&[], &repo, false);
+        assert_eq!(field(&third[0], "title"), "Better Modbus");
+        assert_eq!(field(&third[0], "summary"), "");
+        assert_eq!(field(&third[0], "link"), "");
+        assert!(!official(&third[0]));
+        assert_eq!(field(&third[1], "title"), "alarm");
+        assert!(!official(&third[1]));
+        // the same entries from the official index: official, own title kept
+        let from_official = rows(&[], &repo, true);
+        assert!(official(&from_official[0]));
+        assert_eq!(field(&from_official[0], "title"), "Better Modbus");
+        // the wasm form's name with a process zip is not the official form
+        let wrong = rows(
+            &[],
+            &[process("alarm", &version_of("alarm"), &host, "")],
+            true,
+        );
+        assert!(!official(&wrong[0]));
+        assert!(is_official_index(
+            repository_url(Some("official")).as_deref()
+        ));
+        assert!(!is_official_index(Some("https://mirror.plant/index.json")));
+        assert!(!is_official_index(None));
     }
 }

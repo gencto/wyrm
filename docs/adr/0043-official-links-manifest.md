@@ -48,7 +48,9 @@ Package zips are reproducible from their inputs (`package::pack`: sorted files, 
 ### 5. Trust: what the manifest adds and what it does not
 It adds: one reviewed list of what the project releases; packages built by CI from a tagged commit, not by a person; an index whose hashes match those files; HTTPS to `github.com` with the `webpki-roots` store (`fetch.rs`, redirects to the release CDN followed, at most three).
 
-It does not add: a signature. Whoever can replace the `links-index` asset (a repository writer, a stolen token, GitHub itself) can point brokers at other zips with matching hashes. Packages stay unsigned (ADR 0011), and installs still show the requested network and grants before anything runs (security review WASM-1). `official: true` in the catalogue means "the manifest of this broker names it", a label, not a check. **Next step:** sign the index (Ed25519, a key that is not in CI secrets of the same repository, the public key embedded in `wyrmd`), and refuse an official index that does not verify. Not done here.
+It does not add: a signature. Whoever can replace the `links-index` asset (a repository writer, a stolen token, GitHub itself) can point brokers at other zips with matching hashes. Packages stay unsigned (ADR 0011), and installs still show the requested network and grants before anything runs (security review WASM-1).
+
+**`official` in the catalogue (security review of this ADR, 2026-11-11).** A package name alone proves nothing: any repository can publish a package called `modbus`. A package row is `official: true` only when (1) the configured repository is the official index (`packages.repository: "official"`, or the same URL written out), and (2) the broker's embedded manifest lists that package name, in that form (`wasm` or `process`, from the shape of the entry), at that version. A package row's `title`, `summary`, `category` and `link` come from its own index entry, never from the manifest, so a repository cannot borrow an official description. The manifest holds no hashes (§3), so the hash cannot be compared with it; the SHA-256 of the index entry is checked against the downloaded zip at install, as for every repository. A mirror (another URL) is shown as not official, even with the official files. A built-in driver row is official when the manifest names it: it is compiled into the binary that embeds the manifest. **Next step:** sign the index (Ed25519, a key that is not in CI secrets of the same repository, the public key embedded in `wyrmd`), and refuse an official index that does not verify. Not done here.
 
 ### 6. Default: off; one word to opt in
 `wyrmd` fetches no index unless `packages.repository` is set (as before). `packages: { repository: "official" }` means the official index URL of the manifest this broker was built with (`wyrm_admin::official::repository_url`). A broker on a plant network must not call the internet because it was installed; an air-gapped site cannot reach GitHub at all and would log an error every start. The demo and the Docker example carry the line as a comment. A site that cannot reach GitHub mirrors the release (docs/operations.md, *Official links offline*).
@@ -61,10 +63,10 @@ The broker embeds the manifest (`include_str!`, `wyrm_admin::official::EMBEDDED`
 | `id` | `driver:<code>` or `package:<code>` (Studio's `CatalogItem.id`) |
 | `code` | the name `install` (`driver`) or `install_repo` (`package`) takes |
 | `link` | the official link id, empty when none |
-| `title`, `summary`, `category` | from the index entry, else from the embedded manifest; a driver or package it does not know: its name, empty, empty |
+| `title`, `summary`, `category` | a driver: from the embedded manifest; a package: from its index entry only. Missing: the name, empty, empty |
 | `version` | a driver: the broker's version; a package: the index entry's |
 | `form` | `builtin`, `wasm` or `process` |
-| `official` | the embedded manifest names it |
+| `official` | a driver: the embedded manifest names it; a package: the rule of §5 |
 
 Built-in drivers get titles with no network. The `install`/`install_repo` enum choices stay as they are; the catalogue only describes them. `attr` is free-form (spec 02), so the spec does not change.
 

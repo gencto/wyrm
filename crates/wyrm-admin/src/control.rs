@@ -3336,7 +3336,12 @@ async fn declare_links_node(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         Some(Ok(list)) => list.clone(),
         _ => Vec::new(),
     };
-    let catalog = crate::official::catalog(&ctl.host.drivers(), &repo, env!("CARGO_PKG_VERSION"));
+    let catalog = crate::official::catalog(
+        &ctl.host.drivers(),
+        &repo,
+        crate::official::is_official_index(ctl.cfg.repository.as_deref()),
+        env!("CARGO_PKG_VERSION"),
+    );
     ctx.declare_node("links", NodeMeta::folder().attr("catalog", catalog))
         .await
 }

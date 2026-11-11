@@ -693,9 +693,13 @@ internet access uses a mirror (docs/operations.md, *Official links offline*).
 repository package for this host, with `id` (`driver:<code>` or
 `package:<code>`), `code`, `link`, `title`, `summary`, `category`,
 `version`, `form` (`builtin`, `wasm`, `process`) and `official`. A driver's
-version is the broker's, a package's is the index's. The broker fills in
-titles from its own copy of the manifest, so built-in drivers have them
-without the network. WYRM Studio's *Add a link* reads this list.
+version is the broker's, a package's is the index's. A driver's title comes
+from the broker's own copy of the manifest, so built-in drivers have one
+without the network. A package's title, summary and category come only from
+its index entry. A package is `official: true` only when the repository is
+the official index (`"official"`) and the broker's manifest lists that
+package, form and version; a package of another repository with an official
+name is `official: false`. WYRM Studio's *Add a link* reads this list.
 
 **Change it.** A new official link or a new version is one edit of
 `links/official.json` together with the crate's `Cargo.toml`.
