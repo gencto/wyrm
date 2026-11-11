@@ -136,5 +136,17 @@ void main() {
     expect(c[2].existing, 1);
     expect(c[3].modes, ['process']);
     expect(c[3].name, 'Scheduler (process)');
+    expect(c.map((i) => i.version), everyElement(isNull));
+  });
+
+  test('catalogOf: a driver carries the broker version, a package none', () {
+    final c = catalogOf(
+      drivers: ['modbus'],
+      packages: ['postgres'],
+      brokerVersion: '0.1.0',
+    );
+    expect(c[0].version, 'wyrmd 0.1.0');
+    // `install_repo` lists package names only: no version to show.
+    expect(c[1].version, isNull);
   });
 }

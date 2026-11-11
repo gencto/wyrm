@@ -16,6 +16,7 @@ final class CatalogCardVm extends Equatable {
     required this.builtIn,
     required this.modes,
     this.note,
+    this.version,
     this.selected = false,
   });
 
@@ -33,6 +34,9 @@ final class CatalogCardVm extends Equatable {
 
   /// `1 link already`.
   final String? note;
+
+  /// `wyrmd 0.1.0`, `1.2.0`; none when the broker does not say.
+  final String? version;
   final bool selected;
 
   @override
@@ -45,17 +49,26 @@ final class CatalogCardVm extends Equatable {
     builtIn,
     modes,
     note,
+    version,
     selected,
   ];
 }
 
-/// Board *Add a link · O1*: tag, name, note, one line, the source chip and
-/// the run modes.
+/// Board *Add a link · O1*: tag, name, note, one line, the source chip,
+/// the run modes and the version.
+///
+/// Every card is as high as every other (owner 2026-11-11): the name is one
+/// line, the description always takes [descriptionLines] lines (more ends in
+/// an ellipsis, fewer leave the space), so the bottom row sits at the same
+/// place on each card of the grid.
 class CatalogCard extends StatelessWidget {
   const CatalogCard({required this.vm, this.onTap, super.key});
 
   final CatalogCardVm vm;
   final ValueChanged<String>? onTap;
+
+  /// The lines the description takes on every card.
+  static const descriptionLines = 2;
 
   @override
   Widget build(BuildContext context) {
@@ -98,6 +111,7 @@ class CatalogCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       vm.name,
+                      maxLines: 1,
                       overflow: .ellipsis,
                       style: TextStyle(
                         fontSize: 14,
@@ -110,11 +124,18 @@ class CatalogCard extends StatelessWidget {
                     Text(n, style: TextStyle(fontSize: 11, color: c.good)),
                 ],
               ),
-              Text(
-                vm.description,
-                maxLines: 2,
-                overflow: .ellipsis,
-                style: TextStyle(fontSize: 12, height: 1.4, color: c.text3),
+              SizedBox(
+                // Two lines of 12 × 1.4 at the reader's text scale.
+                height:
+                    MediaQuery.textScalerOf(context).scale(12) *
+                    1.4 *
+                    descriptionLines,
+                child: Text(
+                  vm.description,
+                  maxLines: descriptionLines,
+                  overflow: .ellipsis,
+                  style: TextStyle(fontSize: 12, height: 1.4, color: c.text3),
+                ),
               ),
               Row(
                 spacing: 8,
@@ -136,13 +157,20 @@ class CatalogCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Flexible(
+                  Expanded(
                     child: Text(
                       vm.modes,
+                      maxLines: 1,
                       overflow: .ellipsis,
                       style: mono(size: 11, color: c.text4),
                     ),
                   ),
+                  if (vm.version case final v?)
+                    Text(
+                      v,
+                      maxLines: 1,
+                      style: mono(size: 11, color: c.text3),
+                    ),
                 ],
               ),
             ],

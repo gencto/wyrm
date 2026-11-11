@@ -31,5 +31,10 @@ abstract class CatalogItem with _$CatalogItem {
 
     /// Links of it the broker already has.
     @Default(0) int existing,
+
+    /// What the card says of its version: `wyrmd 0.1.0` for a driver built
+    /// into the broker (its `sys/version`); null when the broker does not
+    /// say (a repository package: `install_repo` lists names only).
+    String? version,
   }) = _CatalogItem;
 }
