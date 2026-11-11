@@ -111,7 +111,8 @@ pub struct ControlConfig {
     /// Create the anchors from the current heads (operator step).
     pub anchor_init: bool,
     /// Index of link packages for "Install Link ▸ from Repository" (ADR
-    /// 0011), as DSA's `linkRepositoryUrl`.
+    /// 0011), as DSA's `linkRepositoryUrl`; already resolved
+    /// ([`crate::official::repository_url`], ADR 0043).
     pub repository: Option<String>,
     /// The embedded scheduler runs ([`SCHEDULER_LINK`], ADR 0022): its keys
     /// are made at attach and every link trusts its requester key.
@@ -3328,6 +3329,25 @@ async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
     .await
 }
 
+/// `sys/links` with `attr.catalog` (ADR 0043): the built-in drivers and,
+/// once the index is fetched, the repository packages this host can install,
+/// each with its title, category, version and form. Declared again when the
+/// index arrives; the node's actions stay.
+async fn declare_links_node(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
+    let repo = match &*ctl.repo.lock().unwrap_or_else(|p| p.into_inner()) {
+        Some(Ok(list)) => list.clone(),
+        _ => Vec::new(),
+    };
+    let catalog = crate::official::catalog(
+        &ctl.host.drivers(),
+        &repo,
+        crate::official::is_official_index(ctl.cfg.repository.as_deref()),
+        env!("CARGO_PKG_VERSION"),
+    );
+    ctx.declare_node("links", NodeMeta::folder().attr("catalog", catalog))
+        .await
+}
+
 /// Fetch the repository index in the background, never on the start path;
 /// then list its packages in "from Repository".
 async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
@@ -3343,6 +3363,9 @@ async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
     *ctl.repo.lock().unwrap_or_else(|p| p.into_inner()) = Some(r);
     if let Err(e) = declare_repo_action(&ctx, &ctl).await {
         debug!("install_repo: {e}");
+    }
+    if let Err(e) = declare_links_node(&ctx, &ctl).await {
+        debug!("sys/links catalog: {e}");
     }
 }
 
@@ -3447,7 +3470,7 @@ impl Link for Admin {
         declare_peers(&ctx, &cfg.ctl).await?;
         publish_overlays(&ctx, &cfg.ctl).await?;
         signers::publish_signing_keys(&ctx, &cfg.ctl).await?;
-        ctx.declare_node("links", NodeMeta::folder()).await?;
+        declare_links_node(&ctx, &cfg.ctl).await?;
         ctx.declare_action(
             "links",
             "install",

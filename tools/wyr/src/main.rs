@@ -166,7 +166,8 @@ enum Cmd {
         #[command(subcommand)]
         cmd: pack::LinkCmd,
     },
-    /// Package repositories (ADR 0021): `wyr repo add`.
+    /// Package repositories (ADR 0021): `wyr repo add`; the official links
+    /// (ADR 0043): `wyr repo check`, `build`, `index`.
     Repo {
         #[command(subcommand)]
         cmd: pack::RepoCmd,

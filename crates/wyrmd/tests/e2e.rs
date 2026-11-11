@@ -1038,7 +1038,10 @@ async fn install_link_from_url_repository_git() {
     let index = serde_json::json!([
         { "name": "mockpkg", "version": "2.0.0", "url": url("/v2.zip"), "sha256": sha(&v2) },
         { "name": "tampered", "version": "1.0.0", "url": url("/v1.zip"), "sha256": sha(&v2) },
-        { "name": "hosted", "version": "1.0.0",
+        // ADR 0043: the fields of an official index, and one a newer index may add
+        { "name": "hosted", "version": "1.0.0", "title": "Hosted mock", "category": "Test",
+          "link": "hosted", "kind": "process", "wyrm_link": 1, "min_broker": "0.1.0",
+          "signed_by": "a future field",
           "assets": { host.clone(): { "url": "v1.zip", "sha256": sha(&v1) } } },
         { "name": "elsewhere", "version": "1.0.0",
           "assets": { other: { "url": "v1.zip", "sha256": sha(&v1) } } },
@@ -1140,6 +1143,54 @@ async fn install_link_from_url_repository_git() {
     )
     .await;
     assert!(!ok && msg.contains("no build for this host"), "{msg}");
+
+    // ADR 0043: `attr.catalog` of sys/links lists the drivers and this host's
+    // packages, each with title and version (what Studio's cards show)
+    let rows = eventually("sys/links catalog", 30, || {
+        let links = links.clone();
+        let env = &env;
+        async move {
+            let c = WyrmClient::new(env.try_session().await?);
+            let meta = c.meta(&links).await.ok()?;
+            let Some(Value::Array(rows)) = meta.attr.and_then(|a| a.get("catalog").cloned()) else {
+                return None;
+            };
+            let has = |id: &str| {
+                rows.iter().any(|r| {
+                    matches!(r, Value::Map(m)
+                    if m.get("id") == Some(&Value::from(id)))
+                })
+            };
+            has("package:hosted").then_some(rows)
+        }
+    })
+    .await;
+    let row = |id: &str| {
+        rows.iter()
+            .find_map(|r| match r {
+                Value::Map(m) if m.get("id") == Some(&Value::from(id)) => Some(m.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{id} in {rows:?}"))
+    };
+    let hosted = row("package:hosted");
+    assert_eq!(hosted.get("title"), Some(&Value::from("Hosted mock")));
+    assert_eq!(hosted.get("version"), Some(&Value::from("1.0.0")));
+    assert_eq!(hosted.get("form"), Some(&Value::from("process")));
+    // a local repository is not the official index
+    assert_eq!(hosted.get("official"), Some(&Value::Bool(false)));
+    let modbus = row("driver:modbus");
+    assert_eq!(modbus.get("title"), Some(&Value::from("Modbus")));
+    assert_eq!(modbus.get("form"), Some(&Value::from("builtin")));
+    assert_eq!(
+        modbus.get("version"),
+        Some(&Value::from(env!("CARGO_PKG_VERSION")))
+    );
+    assert!(
+        !rows.iter().any(|r| matches!(r, Value::Map(m)
+            if m.get("id") == Some(&Value::from("package:elsewhere")))),
+        "a package with no build for this host is not offered"
+    );
 
     // from Git (file:// in dev): a checkout of a built package
     let repo = temp_dir("pkg-git");

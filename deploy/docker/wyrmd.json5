@@ -13,6 +13,9 @@
   // The user gateway stays on loopback (TLS is required elsewhere); compose forwards it to
   // this host and runs the tools in the broker's network namespace.
   gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },
+  // "Install Link ▸ from Repository" from the project's official releases (ADR 0043); off
+  // unless set, since it reaches github.com (docs/operations.md, "Official links offline"):
+  // packages: { repository: "official" },
   links: {
     // Modbus TCP against the simulator container (172.28.0.20)
     modbus: {
