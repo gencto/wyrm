@@ -308,6 +308,14 @@ void main() {
 
     test('overrides, per type first; numbered inputs from 1', () {
       expect(fieldLabel('scale', 'k'), 'Factor');
+      expect(
+        fieldLabel('subscribe', 'key', spec: const ParamSpec(name: 'key')),
+        'Point',
+      );
+      expect(
+        fieldLabel('liveliness', 'key', spec: const ParamSpec(name: 'key')),
+        'Node',
+      );
       expect(fieldLabel('scale', 'b'), 'Offset');
       expect(fieldLabel('scale', 'in'), 'Input');
       expect(fieldLabel('scale', 'out'), 'Output');

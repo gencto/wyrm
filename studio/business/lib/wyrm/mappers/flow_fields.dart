@@ -330,6 +330,8 @@ const fieldLabelOverrides = <String, String>{
   'memory_mb': 'Memory (MB)',
   'input_out_of_range': 'Input out of range',
   'latch.reset': 'Reset mode',
+  // A liveliness token belongs to a node, not to a point.
+  'liveliness.key': 'Node',
   'set.path': 'Point',
   'set.on': 'Write on',
   'invoke.path': 'Node',
