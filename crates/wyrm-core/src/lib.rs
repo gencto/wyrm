@@ -7,6 +7,7 @@
 
 pub mod attachment;
 pub mod codec;
+pub mod display;
 pub mod keyspace;
 pub mod meta;
 pub mod profile;

@@ -151,11 +151,11 @@ fn name_param() -> ParamMeta {
 }
 
 fn add_node() -> ActionMeta {
-    act("Add Node").group(GROUP_NEW).param("name", name_param())
+    act("Add node").group(GROUP_NEW).param("name", name_param())
 }
 
 fn add_value() -> ActionMeta {
-    act("Add Value")
+    act("Add value")
         .group(GROUP_NEW)
         .param("name", name_param())
         // Choices travel as text, as every action's (the SDK checks the type).

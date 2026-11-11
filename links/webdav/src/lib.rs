@@ -70,21 +70,21 @@ pub struct DavParams {
     #[param(
         default = "",
         editor = "textarea",
-        display = "CA Certificates (PEM)",
+        display = "CA certificates (PEM)",
         desc = "https: trust these CAs only; empty = the CA certificates of the host",
         dest
     )]
     pub ca_pem: String,
     #[param(
         default = false,
-        display = "Skip Certificate Check",
+        display = "Skip certificate check",
         desc = "https: accept any server certificate (insecure)",
         dest
     )]
     pub insecure_skip_verify: bool,
     #[param(
         default = false,
-        display = "Allow Credentials over HTTP",
+        display = "Allow credentials over HTTP",
         desc = "send credentials over http:// to a host that is not loopback (insecure)",
         dest
     )]
@@ -264,7 +264,7 @@ impl WebDavStore {
 impl Backend for WebDavStore {
     const NAME: &'static str = "webdav";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const DISPLAY: &'static str = "WebDAV Folder";
+    const DISPLAY: &'static str = "WebDAV folder";
     type Params = DavParams;
 
     fn new(p: &DavParams) -> Result<Self, LinkError> {

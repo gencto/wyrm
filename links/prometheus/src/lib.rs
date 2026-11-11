@@ -126,7 +126,7 @@ impl Params for Conn {
             ParamSpec::new("scrape_s", TypeCode::Number)
                 .default(15.0)
                 .bounds(1.0, 3600.0)
-                .display("Scrape Interval (s)"),
+                .display("Scrape interval (s)"),
             ParamSpec::new("username", TypeCode::String)
                 .default("")
                 .display("Username")
@@ -139,46 +139,46 @@ impl Params for Conn {
             ParamSpec::new("bearer_token", TypeCode::String)
                 .default("")
                 .secret()
-                .display("Bearer Token")
+                .display("Bearer token")
                 .desc("instead of basic auth (kept sealed by the link)"),
             ParamSpec::new("ca_pem", TypeCode::String)
                 .default("")
                 .dest()
                 .editor(EDITOR_TEXTAREA)
-                .display("CA Certificates (PEM)")
+                .display("CA certificates (PEM)")
                 .desc("for https; empty = the system roots"),
             ParamSpec::new("cert_pem", TypeCode::String)
                 .default("")
                 .editor(EDITOR_TEXTAREA)
-                .display("Client Certificate (PEM)")
+                .display("Client certificate (PEM)")
                 .desc("for mutual TLS"),
             ParamSpec::new("key_pem", TypeCode::String)
                 .default("")
                 .secret()
-                .display("Client Key (PEM)")
+                .display("Client key (PEM)")
                 .desc("private key of cert_pem"),
             ParamSpec::new("insecure_skip_verify", TypeCode::Bool)
                 .default(false)
                 .dest()
-                .display("Skip Certificate Check")
+                .display("Skip certificate check")
                 .desc("accept any server certificate (testing only)"),
             ParamSpec::new("headers", TypeCode::String)
                 .default("")
                 .editor(EDITOR_TEXTAREA)
-                .display("Extra Headers")
+                .display("Extra headers")
                 .placeholder("X-Scope-OrgID: plant")
                 .desc("one `Name: value` per line; not for credentials"),
             ParamSpec::new("gzip", TypeCode::Bool)
                 .default(true)
-                .display("Accept Gzip"),
+                .display("Accept gzip"),
             ParamSpec::new("max_body_mib", TypeCode::Number)
                 .default(8u64)
                 .bounds(1.0, 64.0)
-                .display("Max Body (MiB)"),
+                .display("Max body (MiB)"),
             ParamSpec::new("max_series", TypeCode::Number)
                 .default(100_000u64)
                 .bounds(1.0, 1_000_000.0)
-                .display("Max Series"),
+                .display("Max series"),
         ]
     }
 
@@ -291,7 +291,7 @@ impl Params for Dev {
     fn schema() -> Vec<ParamSpec> {
         vec![ParamSpec::new("labels", TypeCode::String)
             .default("")
-            .display("Label Filter")
+            .display("Label filter")
             .placeholder("instance=\"a\", job=~\"node.*\"")
             .desc("matchers (=, !=, =~, !~) applied to every point; empty = all series")]
     }
@@ -368,7 +368,7 @@ impl Params for Point {
                 .display("Scaling"),
             ParamSpec::new("offset", TypeCode::Number)
                 .default(0.0)
-                .display("Scaling Offset"),
+                .display("Scaling offset"),
             ParamSpec::new("unit", TypeCode::String)
                 .default("")
                 .display("Unit"),
@@ -978,7 +978,7 @@ impl Driver for PrometheusDriver {
                 // Commissioning: it may scrape and holds the connection.
                 ActionMeta::new()
                     .level(Perm::Config)
-                    .display("List Series")
+                    .display("List series")
                     .timeout_ms(LIST_ACTION_MS)
                     .result(ActionResult::Type(TypeCode::Map))
                     .param(

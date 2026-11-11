@@ -114,14 +114,14 @@ pub struct Conn {
         desc = "1 for S7-1200/1500, 2 for S7-300"
     )]
     pub slot: u8,
-    #[param(enum, default = "pg", display = "Connection Type")]
+    #[param(enum, default = "pg", display = "Connection type")]
     pub conn_type: ConnType,
     /// Bound on each request (and on each step of connecting).
     #[param(default = 2000, min = 100, max = 10000, display = "Timeout (ms)")]
     pub timeout_ms: u32,
     /// The PDU size asked for; the PLC may agree on less
     /// (`connection_info` shows it).
-    #[param(default = 480, min = 240, max = 960, display = "PDU Size")]
+    #[param(default = 480, min = 240, max = 960, display = "PDU size")]
     pub pdu_size: u16,
 }
 
@@ -158,11 +158,11 @@ pub struct DevParams {
     pub ping: Ping,
     #[param(
         default = "MB0",
-        display = "Ping Address",
+        display = "Ping address",
         desc = "read 1 byte here when Ping is read"
     )]
     pub ping_address: String,
-    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping Rate (s)")]
+    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping rate (s)")]
     pub ping_s: f64,
     /// Points of one area and DB at most this many bytes apart are read
     /// as one item (0 = only touching ones).
@@ -170,18 +170,18 @@ pub struct DevParams {
         default = 4,
         min = 0,
         max = 256,
-        display = "Max Gap (bytes)",
+        display = "Max gap (bytes)",
         desc = "read points this close as one item"
     )]
     pub max_gap: u32,
-    #[param(default = 20, min = 1, max = 20, display = "Max Items per Read")]
+    #[param(default = 20, min = 1, max = 20, display = "Max items per read")]
     pub max_items: u8,
     /// The PLC clock's offset from UTC (DATE_AND_TIME values).
     #[param(
         default = 0,
         min = -720,
         max = 840,
-        display = "PLC Clock Offset (min)",
+        display = "PLC clock offset (min)",
         desc = "DATE_AND_TIME: the PLC clock's offset from UTC"
     )]
     pub tz_offset_min: i32,
@@ -191,7 +191,7 @@ pub struct DevParams {
         default = 0.0,
         min = 0.0,
         max = 3600.0,
-        display = "Republish Unchanged Values (s)"
+        display = "Republish unchanged values (s)"
     )]
     pub republish_s: f64,
 }
@@ -272,17 +272,17 @@ impl Params for Point {
                 .one_of(DTYPE_NAMES)
                 .default("auto")
                 .desc("auto: the address's :TYPE, else X bool, B byte, W word, D dword, T s5time, C word")
-                .display("Data Type"),
+                .display("Data type"),
             ParamSpec::new("poll_s", TypeCode::Number)
                 .default(1.0)
                 .bounds(0.01, 86_400.0)
-                .display("Poll Rate (s)"),
+                .display("Poll rate (s)"),
             ParamSpec::new("scale", TypeCode::Number)
                 .default(1.0)
                 .display("Scaling"),
             ParamSpec::new("offset", TypeCode::Number)
                 .default(0.0)
-                .display("Scaling Offset"),
+                .display("Scaling offset"),
             ParamSpec::new("writable", TypeCode::Bool)
                 .default(false)
                 .display("Writable"),
@@ -913,7 +913,7 @@ impl Driver for S7Driver {
         };
         let commissioning = |display: &str| at(Perm::Config, display);
         match level {
-            Level::Connection => vec![("connection_info", at(Perm::Read, "Connection Info"))],
+            Level::Connection => vec![("connection_info", at(Perm::Read, "Connection info"))],
             Level::Device => vec![
                 (
                     "read_szl",
@@ -933,7 +933,7 @@ impl Driver for S7Driver {
                 ),
                 (
                     "read_address",
-                    commissioning("Read Address")
+                    commissioning("Read address")
                         .param(
                             "address",
                             param("Address", "DB1.DBW0, MW20, T5, …", TypeCode::String)
@@ -943,7 +943,7 @@ impl Driver for S7Driver {
                             "dtype",
                             ParamMeta::of(TypeCode::String)
                                 .enum_values(DTYPE_NAMES.iter().copied())
-                                .display("Data Type"),
+                                .display("Data type"),
                         ),
                 ),
             ],

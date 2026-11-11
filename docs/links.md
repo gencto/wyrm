@@ -44,6 +44,35 @@ warning in the log. The built-in drivers use these codes:
 | The device does not answer | `timeout` |
 | The connection is broken | `disconnected` |
 
+### Names people read
+
+Keys are wire names: a node key is a path segment, an action key or a
+parameter key is what plans and `args` use. They never change for style.
+People read `display` (spec 02 0.2.28, ADR 0042):
+
+- **Actions and parameters.** Leave `display` out when the key says it: the
+  SDK derives one with `wyrm_core::display::humanize` (`add_device` →
+  `Add device`, `unit_id` → `Unit ID`, `timeout_ms` → `Timeout (ms)`).
+  Write one only where the derived text is wrong or thin.
+- **Style of a `display` you write.** Sentence case, short, no dot at the
+  end. An action starts with a verb (`Add connection`, `Read registers`,
+  `Set password`, `Test connection`), a parameter is a noun (`Poll rate (s)`,
+  `Unit ID`). Units in brackets (`Timeout (ms)`). Acronyms upper case as
+  `wyrm_core::display::WORDS` writes them (`URL`, `ID`, `TLS`, `CA`, `MQTT`).
+  A product name that is not in `WORDS`, `NAMES` or `PHRASES` goes there.
+- **Nodes.** `NodeMeta::display(..)` sets `attr.display`, shown instead of
+  the key (key 12 in `view=list`). On the driver framework the user sets it:
+  `add_*` and `edit` of a connection, device or point take an optional
+  `display` ("Display name"), so point `t1` reads "Supply temperature". Edit
+  without it keeps the name, `""` clears it; Edit with `display` alone
+  renames and keeps every param. A new name restarts nothing. `display` is reserved: no driver param may use that name.
+- **Enum values and `group`** are wire values, not names: they stay as they
+  are.
+
+The `wyrmd` test `every_action_has_a_name_people_read` walks every built-in
+link and fails on a text that breaks the style; the test hosts of the
+messenger and history sync apps check the same.
+
 ## 2. What WYRM ships
 
 - **Built-in drivers** (in `wyrmd`): `mock`, `mockdev` (the mock on the driver

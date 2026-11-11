@@ -79,21 +79,21 @@ pub type Bacnet = Framework<BacnetDriver>;
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct Conn {
     /// Local IPv4 address the UDP socket binds to.
-    #[param(default = "0.0.0.0", display = "Bind Address", dest)]
+    #[param(default = "0.0.0.0", display = "Bind address", dest)]
     pub bind_host: String,
-    #[param(default = 47808, display = "Bind Port", dest)]
+    #[param(default = 47808, display = "Bind port", dest)]
     pub bind_port: u16,
     /// Where Who-Is goes (IP:port), unless a BBMD is set.
     #[param(
         default = "255.255.255.255:47808",
-        display = "Broadcast Address",
+        display = "Broadcast address",
         desc = "IP:port for Who-Is (the subnet's broadcast address)"
     )]
     pub broadcast: String,
     /// Register as a foreign device at this BBMD (IP:port); empty = none.
     #[param(
         default = "",
-        display = "BBMD Address",
+        display = "BBMD address",
         placeholder = "10.0.0.1:47808",
         desc = "foreign-device registration (empty = none)"
     )]
@@ -101,17 +101,17 @@ pub struct Conn {
     #[param(default = 300, min = 30, max = 65535, display = "BBMD TTL (s)")]
     pub bbmd_ttl_s: u16,
     /// Bound on each confirmed request.
-    #[param(default = 3000, min = 100, max = 60000, display = "APDU Timeout (ms)")]
+    #[param(default = 3000, min = 100, max = 60000, display = "APDU timeout (ms)")]
     pub apdu_timeout_ms: u32,
     /// Repeats of a request after a timeout (not after an error reply).
-    #[param(default = 1, min = 0, max = 5, display = "APDU Retries")]
+    #[param(default = 1, min = 0, max = 5, display = "APDU retries")]
     pub apdu_retries: u8,
     /// The largest reply this link accepts.
     #[param(
         default = 1476,
         min = 50,
         max = 1476,
-        display = "Max APDU Length Accepted"
+        display = "Max APDU length accepted"
     )]
     pub max_apdu: u16,
 }
@@ -213,7 +213,7 @@ impl Params for Dev {
         vec![
             ParamSpec::new("instance", TypeCode::Number)
                 .bounds(0.0, f64::from(codec::MAX_INSTANCE))
-                .display("Device Instance"),
+                .display("Device instance"),
             ParamSpec::new("address", TypeCode::String)
                 .default("")
                 .placeholder("192.168.1.20:47808")
@@ -223,12 +223,12 @@ impl Params for Dev {
                 .default(0u64)
                 .bounds(0.0, 65534.0)
                 .desc("network number of a device behind a BACnet router (0 = local)")
-                .display("Network Number"),
+                .display("Network number"),
             ParamSpec::new("mac", TypeCode::String)
                 .default("")
                 .placeholder("0A")
                 .desc("hex MAC behind the router (MS/TP: one octet)")
-                .display("MAC Address"),
+                .display("MAC address"),
             ParamSpec::new("use_rpm", TypeCode::Bool)
                 .default(true)
                 .display("Use ReadPropertyMultiple"),
@@ -241,12 +241,12 @@ impl Params for Dev {
                 .default(10.0)
                 .bounds(0.0, 3600.0)
                 .desc("0 = no ping")
-                .display("Ping Rate (s)"),
+                .display("Ping rate (s)"),
             ParamSpec::new("republish_s", TypeCode::Number)
                 .default(0.0)
                 .bounds(0.0, 3600.0)
                 .desc("publish unchanged values again after this long (0 = on change only)")
-                .display("Republish Unchanged Values (s)"),
+                .display("Republish unchanged values (s)"),
         ]
     }
 
@@ -618,10 +618,10 @@ impl Params for Point {
         vec![
             ParamSpec::new("object_type", TypeCode::Enum)
                 .one_of(ObjectType::NAMES)
-                .display("Object Type"),
+                .display("Object type"),
             ParamSpec::new("instance", TypeCode::Number)
                 .bounds(0.0, f64::from(codec::WILDCARD_INSTANCE))
-                .display("Object Instance"),
+                .display("Object instance"),
             ParamSpec::new("property", TypeCode::Enum)
                 .one_of(Property::NAMES)
                 .default("present_value")
@@ -635,26 +635,26 @@ impl Params for Point {
                 .default(-1i64)
                 .bounds(-1.0, 4_294_967_294.0)
                 .desc("-1 = the whole property")
-                .display("Array Index"),
+                .display("Array index"),
             ParamSpec::new("dtype", TypeCode::Enum)
                 .one_of(DType::NAMES)
                 .default("auto")
                 .desc("auto follows the object type and property")
-                .display("Data Type"),
+                .display("Data type"),
             ParamSpec::new("check_status", TypeCode::Bool)
                 .default(true)
                 .desc("read status-flags with present-value; fault makes the value bad")
-                .display("Check Status Flags"),
+                .display("Check status flags"),
             ParamSpec::new("poll_s", TypeCode::Number)
                 .default(5.0)
                 .bounds(0.05, 86_400.0)
-                .display("Poll Rate (s)"),
+                .display("Poll rate (s)"),
             ParamSpec::new("scale", TypeCode::Number)
                 .default(1.0)
                 .display("Scaling"),
             ParamSpec::new("offset", TypeCode::Number)
                 .default(0.0)
-                .display("Scaling Offset"),
+                .display("Scaling offset"),
             ParamSpec::new("writable", TypeCode::Bool)
                 .default(false)
                 .display("Writable"),
@@ -662,7 +662,7 @@ impl Params for Point {
                 .default(16u64)
                 .bounds(1.0, 16.0)
                 .desc("write priority (1 highest … 16 lowest)")
-                .display("Write Priority"),
+                .display("Write priority"),
             ParamSpec::new("unit", TypeCode::String)
                 .default("")
                 .desc("shown as the point's unit (list_objects suggests one)")
@@ -2580,9 +2580,9 @@ impl Driver for BacnetDriver {
                     .result(ActionResult::Type(TypeCode::Array))
                     .param(
                         "low",
-                        uint_param("Low Instance", "with high; empty = all", None),
+                        uint_param("Low instance", "with high; empty = all", None),
                     )
-                    .param("high", uint_param("High Instance", "with low", None))
+                    .param("high", uint_param("High instance", "with low", None))
                     .param(
                         "wait_ms",
                         uint_param(
@@ -2601,7 +2601,7 @@ impl Driver for BacnetDriver {
                     // scan_units); read_property is one request (read)
                     ActionMeta::new()
                         .level(Perm::Config)
-                        .display("List Objects")
+                        .display("List objects")
                         .timeout_ms(LIST_ACTION_MS)
                         .result(ActionResult::Type(TypeCode::Map))
                         .param(
@@ -2613,21 +2613,21 @@ impl Driver for BacnetDriver {
                     "read_property",
                     ActionMeta::new()
                         .level(Perm::Read)
-                        .display("Read Property")
+                        .display("Read property")
                         .timeout_ms(READ_ACTION_MS)
                         .result(ActionResult::Type(TypeCode::Map))
                         .param(
                             "object_type",
-                            enum_param("Object Type", &types).required(true),
+                            enum_param("Object type", &types).required(true),
                         )
                         .param(
                             "instance",
-                            uint_param("Object Instance", "", None).required(true),
+                            uint_param("Object instance", "", None).required(true),
                         )
                         .param("property", enum_param("Property", &props))
                         .param(
                             "array_index",
-                            uint_param("Array Index", "empty = the whole property", None),
+                            uint_param("Array index", "empty = the whole property", None),
                         ),
                 ),
                 (
@@ -2641,11 +2641,11 @@ impl Driver for BacnetDriver {
                         .result(ActionResult::Type(TypeCode::Map))
                         .param(
                             "object_type",
-                            enum_param("Object Type", &types).required(true),
+                            enum_param("Object type", &types).required(true),
                         )
                         .param(
                             "instance",
-                            uint_param("Object Instance", "", None).required(true),
+                            uint_param("Object instance", "", None).required(true),
                         )
                         .param(
                             "priority",

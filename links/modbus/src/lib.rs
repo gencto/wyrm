@@ -145,13 +145,13 @@ pub enum Parity {
 /// Serial Connection`).
 #[derive(Debug, Clone, PartialEq, Params)]
 pub enum Conn {
-    #[param(name = "ip_connection", display = "IP Connection")]
+    #[param(name = "ip_connection", display = "IP connection")]
     Ip(IpConn),
-    #[param(name = "serial_connection", display = "Serial Connection")]
+    #[param(name = "serial_connection", display = "Serial connection")]
     Serial(SerialConn),
-    #[param(name = "ip_slave", display = "IP Slave")]
+    #[param(name = "ip_slave", display = "IP slave")]
     IpSlave(IpSlaveConn),
-    #[param(name = "serial_slave", display = "Serial Slave")]
+    #[param(name = "serial_slave", display = "Serial slave")]
     SerialSlave(SerialSlaveConn),
 }
 
@@ -195,12 +195,12 @@ pub struct IpConn {
     pub host: String,
     #[param(default = 502, display = "Port", dest)]
     pub port: u16,
-    #[param(enum, default = "tcp", display = "Transport Type", dest)]
+    #[param(enum, default = "tcp", display = "Transport type", dest)]
     pub transport: IpTransport,
     /// Bound on each request.
     #[param(default = 1000, min = 100, max = 10000, display = "Timeout (ms)")]
     pub timeout_ms: u32,
-    #[param(enum, default = "auto", display = "Write Mode")]
+    #[param(enum, default = "auto", display = "Write mode")]
     pub write_mode: WriteMode,
     /// Repeats of a request after a timeout (not after an exception).
     #[param(default = 0, min = 0, max = 5, display = "Retries")]
@@ -209,19 +209,19 @@ pub struct IpConn {
 
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct SerialConn {
-    #[param(display = "Serial Port", placeholder = "/dev/ttyUSB0", dest)]
+    #[param(display = "Serial port", placeholder = "/dev/ttyUSB0", dest)]
     pub serial_port: String,
-    #[param(default = 9600, min = 300, max = 4000000, display = "Baud Rate")]
+    #[param(default = 9600, min = 300, max = 4000000, display = "Baud rate")]
     pub baud_rate: u32,
-    #[param(default = 8, min = 5, max = 8, display = "Data Bits")]
+    #[param(default = 8, min = 5, max = 8, display = "Data bits")]
     pub data_bits: u8,
-    #[param(default = 1, min = 1, max = 2, display = "Stop Bits")]
+    #[param(default = 1, min = 1, max = 2, display = "Stop bits")]
     pub stop_bits: u8,
     #[param(enum, default = "none", display = "Parity")]
     pub parity: Parity,
     #[param(default = 1000, min = 100, max = 10000, display = "Timeout (ms)")]
     pub timeout_ms: u32,
-    #[param(enum, default = "auto", display = "Write Mode")]
+    #[param(enum, default = "auto", display = "Write mode")]
     pub write_mode: WriteMode,
     /// Repeats of a request after a timeout (not after an exception); 1 is
     /// a good value on RS485.
@@ -238,16 +238,16 @@ pub struct SerialConn {
 /// closed, so idle sockets do not lock the others out.
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct IpSlaveConn {
-    #[param(default = "127.0.0.1", display = "Listen Host", dest)]
+    #[param(default = "127.0.0.1", display = "Listen host", dest)]
     pub listen_host: String,
     /// Not 0: a port the system picks is one no master can know.
-    #[param(default = 502, min = 1, display = "Listen Port", dest)]
+    #[param(default = 502, min = 1, display = "Listen port", dest)]
     pub listen_port: u16,
     #[param(
         default = 60,
         min = 1,
         max = 86400,
-        display = "Master Idle Timeout (s)"
+        display = "Master idle timeout (s)"
     )]
     pub master_idle_s: u32,
 }
@@ -255,13 +255,13 @@ pub struct IpSlaveConn {
 /// A Modbus RTU slave on a serial port.
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct SerialSlaveConn {
-    #[param(display = "Serial Port", placeholder = "/dev/ttyUSB0", dest)]
+    #[param(display = "Serial port", placeholder = "/dev/ttyUSB0", dest)]
     pub serial_port: String,
-    #[param(default = 9600, min = 300, max = 4000000, display = "Baud Rate")]
+    #[param(default = 9600, min = 300, max = 4000000, display = "Baud rate")]
     pub baud_rate: u32,
-    #[param(default = 8, min = 5, max = 8, display = "Data Bits")]
+    #[param(default = 8, min = 5, max = 8, display = "Data bits")]
     pub data_bits: u8,
-    #[param(default = 1, min = 1, max = 2, display = "Stop Bits")]
+    #[param(default = 1, min = 1, max = 2, display = "Stop bits")]
     pub stop_bits: u8,
     #[param(enum, default = "none", display = "Parity")]
     pub parity: Parity,
@@ -275,18 +275,18 @@ pub struct Device {
     pub unit: u8,
     #[param(enum, default = "probe", display = "Ping")]
     pub ping: Ping,
-    #[param(enum, default = "holding", display = "Probe Table")]
+    #[param(enum, default = "holding", display = "Probe table")]
     pub probe_table: Table,
-    #[param(default = 0, display = "Probe Address")]
+    #[param(default = 0, display = "Probe address")]
     pub probe_addr: u16,
-    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping Rate (s)")]
+    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping rate (s)")]
     pub ping_s: f64,
     /// Read gaps between points (`false`) or only adjacent registers.
-    #[param(default = false, display = "Contiguous Batch Reads Only")]
+    #[param(default = false, display = "Contiguous batch reads only")]
     pub contiguous_only: bool,
-    #[param(default = 125, min = 1, max = 125, display = "Max Registers per Read")]
+    #[param(default = 125, min = 1, max = 125, display = "Max registers per read")]
     pub max_regs: u16,
-    #[param(default = 2000, min = 1, max = 2000, display = "Max Bits per Read")]
+    #[param(default = 2000, min = 1, max = 2000, display = "Max bits per read")]
     pub max_bits: u16,
     /// Publish an unchanged value again after this long (0 = only on a
     /// change; DSA republishes every 60 s).
@@ -294,7 +294,7 @@ pub struct Device {
         default = 0.0,
         min = 0.0,
         max = 3600.0,
-        display = "Republish Unchanged Values (s)"
+        display = "Republish unchanged values (s)"
     )]
     pub republish_s: f64,
 }
@@ -353,7 +353,7 @@ impl Params for Point {
         vec![
             ParamSpec::new("table", TypeCode::Enum)
                 .one_of(Table::NAMES)
-                .display("Object Type"),
+                .display("Object type"),
             ParamSpec::new("addr", TypeCode::Number)
                 .bounds(0.0, 65535.0)
                 .display("Offset"),
@@ -361,7 +361,7 @@ impl Params for Point {
                 .one_of(*DTYPE_NAMES)
                 .default("u16")
                 .desc("u16 for registers, binary for coil and discrete")
-                .display("Data Type"),
+                .display("Data type"),
             ParamSpec::new("bit", TypeCode::Number)
                 .default(0u64)
                 .bounds(0.0, 15.0)
@@ -371,17 +371,17 @@ impl Params for Point {
                 .default(1u64)
                 .bounds(1.0, 125.0)
                 .desc("registers of a char/varchar value")
-                .display("Number of Registers"),
+                .display("Number of registers"),
             ParamSpec::new("poll_s", TypeCode::Number)
                 .default(1.0)
                 .bounds(0.01, 86_400.0)
-                .display("Poll Rate (s)"),
+                .display("Poll rate (s)"),
             ParamSpec::new("scale", TypeCode::Number)
                 .default(1.0)
                 .display("Scaling"),
             ParamSpec::new("offset", TypeCode::Number)
                 .default(0.0)
-                .display("Scaling Offset"),
+                .display("Scaling offset"),
             ParamSpec::new("writable", TypeCode::Bool)
                 .default(false)
                 .display("Writable"),
@@ -391,7 +391,7 @@ impl Params for Point {
             ParamSpec::new("writable_by_master", TypeCode::Bool)
                 .default(false)
                 .desc("slave connections: a master may write it (coil and holding)")
-                .display("Writable by Master"),
+                .display("Writable by master"),
         ]
     }
 
@@ -1574,7 +1574,7 @@ impl Driver for ModbusDriver {
             .unwrap_or_default()
     }
 
-    const RESCAN: Option<&'static str> = Some("Rescan For Serial Ports");
+    const RESCAN: Option<&'static str> = Some("Rescan for serial ports");
 
     /// Commissioning actions (ruling 13): `read_registers` and
     /// `read_device_id` on a device (level read), `scan_units` on a
@@ -1591,10 +1591,10 @@ impl Driver for ModbusDriver {
             Level::Device => vec![
                 (
                     "read_registers",
-                    read("Read Registers")
+                    read("Read registers")
                         .param(
                             "table",
-                            enum_param("Object Type", Table::NAMES).required(true),
+                            enum_param("Object type", Table::NAMES).required(true),
                         )
                         .param(
                             "addr",
@@ -1606,17 +1606,17 @@ impl Driver for ModbusDriver {
                         )
                         .param(
                             "dtype",
-                            enum_param("Data Type", &DTYPE_NAMES)
+                            enum_param("Data type", &DTYPE_NAMES)
                                 .description("decode the first registers (unscaled)"),
                         ),
                 ),
-                ("read_device_id", read("Read Device Identification")),
+                ("read_device_id", read("Read device identification")),
             ],
             Level::Connection => vec![(
                 "scan_units",
                 ActionMeta::new()
                     .level(Perm::Config)
-                    .display("Scan Unit IDs")
+                    .display("Scan unit IDs")
                     .timeout_ms(SCAN_ACTION_MS)
                     .result(ActionResult::Type(TypeCode::Array))
                     .param("from", uint_param("From", "first unit id", Some(1)))
@@ -1624,7 +1624,7 @@ impl Driver for ModbusDriver {
                     .param(
                         "timeout_ms",
                         uint_param(
-                            "Timeout per Unit (ms)",
+                            "Timeout per unit (ms)",
                             "20…1000; polling of this connection waits during a scan",
                             Some(SCAN_UNIT_MS.0.into()),
                         ),

@@ -151,9 +151,9 @@ fn unknown_key_rejected_and_round_trip() {
 
 #[derive(Debug, Clone, PartialEq, Params)]
 struct Serial {
-    #[param(display = "Serial Port", placeholder = "/dev/ttyUSB0")]
+    #[param(display = "Serial port", placeholder = "/dev/ttyUSB0")]
     port: String,
-    #[param(default = 9600, display = "Baud Rate")]
+    #[param(default = 9600, display = "Baud rate")]
     baud: u32,
     #[param(default = "", secret)]
     pin: String,
@@ -162,9 +162,9 @@ struct Serial {
 /// Several node kinds on one level (DSA: Add IP / Add Serial Connection).
 #[derive(Debug, Clone, PartialEq, Params)]
 enum AnyConn {
-    #[param(name = "ip_connection", display = "IP Connection")]
+    #[param(name = "ip_connection", display = "IP connection")]
     Ip(Conn),
-    #[param(display = "Serial Connection")]
+    #[param(display = "Serial connection")]
     Serial(Serial),
 }
 
@@ -173,7 +173,7 @@ fn node_kinds_from_an_enum() {
     let kinds = AnyConn::kinds();
     let ids: Vec<&str> = kinds.iter().map(|k| k.id).collect();
     assert_eq!(ids, ["ip_connection", "serial"]);
-    assert_eq!(kinds[0].display, "IP Connection");
+    assert_eq!(kinds[0].display, "IP connection");
     assert_eq!(kinds[1].schema[0].name, "port");
 
     let s = AnyConn::from_kind_value(
@@ -200,7 +200,7 @@ fn node_kinds_from_an_enum() {
 fn ui_fields_in_the_form() {
     let s = Serial::schema();
     let port = s[0].param_meta(None);
-    assert_eq!(port.display.as_deref(), Some("Serial Port"));
+    assert_eq!(port.display.as_deref(), Some("Serial port"));
     assert_eq!(port.placeholder.as_deref(), Some("/dev/ttyUSB0"));
     let pin = s[2].param_meta(Some(&"x".into()));
     assert_eq!(

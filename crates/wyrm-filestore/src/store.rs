@@ -11,7 +11,7 @@
 //!   entries           files and folders in the tree
 //!   total_bytes       sum of the file sizes
 //!   last_refresh      when the whole tree was read
-//!   files/            the root folder: Refresh, Create Folder, Upload File
+//!   files/            the root folder: Refresh, Create folder, Upload file
 //!     <folder>/       … the same, and Delete
 //!     <file>          value = size (B), attr modified/etag/content_type;
 //!                     Download, Delete
@@ -86,7 +86,7 @@ pub struct Common {
         default = 2000,
         min = 1,
         max = 9000,
-        display = "Max Entries",
+        display = "Max entries",
         desc = "files and folders shown; more are left out (truncated)"
     )]
     pub max_entries: u32,
@@ -94,7 +94,7 @@ pub struct Common {
         default = 8,
         min = 1,
         max = 12,
-        display = "Max Depth",
+        display = "Max depth",
         desc = "folder levels shown"
     )]
     pub max_depth: u32,
@@ -102,19 +102,19 @@ pub struct Common {
         default = 32,
         min = 1,
         max = 64,
-        display = "Max Upload (MiB)",
-        desc = "Upload File in one request"
+        display = "Max upload (MiB)",
+        desc = "Upload file in one request"
     )]
     pub max_upload_mib: u32,
     #[param(
         default = 4096,
         min = 1,
         max = 65536,
-        display = "Max File in Parts (MiB)",
+        display = "Max file in parts (MiB)",
         desc = "a file uploaded in parts (upload_begin … upload_commit), spooled on the link's disk"
     )]
     pub max_file_mib: u32,
-    #[param(default = 1024, min = 1, max = 16384, display = "Max Download (KiB)")]
+    #[param(default = 1024, min = 1, max = 16384, display = "Max download (KiB)")]
     pub max_download_kib: u32,
 }
 
@@ -308,14 +308,14 @@ fn folder_actions(root: bool) -> BTreeMap<String, ActionMeta> {
     m.insert("upload_begin".into(), upload_begin_action());
     m.insert(
         "create_folder".into(),
-        act("Create Folder", Perm::Write)
+        act("Create folder", Perm::Write)
             .group(GROUP_NEW)
             .param("name", text(true).display("Name"))
             .result(ActionResult::Type(TypeCode::Map)),
     );
     m.insert(
         "upload".into(),
-        act("Upload File", Perm::Write)
+        act("Upload file", Perm::Write)
             .group(GROUP_NEW)
             .timeout_ms(TRANSFER_MS)
             .param("name", text(true).display("Name").placeholder("report.csv"))
@@ -335,7 +335,7 @@ fn folder_actions(root: bool) -> BTreeMap<String, ActionMeta> {
             .param(
                 "content_type",
                 text(false)
-                    .display("Content Type")
+                    .display("Content type")
                     .description("empty: by the name's extension"),
             )
             .param(
@@ -373,17 +373,17 @@ fn num(display: &str) -> ParamMeta {
 }
 
 fn upload_begin_action() -> ActionMeta {
-    act("Upload in Parts", Perm::Write)
+    act("Upload in parts", Perm::Write)
         .param("name", text(true).display("Name"))
         .param("size", num("Size (bytes)").required(true))
         .param(
             "part_size",
-            num("Part Size (bytes)").description("64 KiB to 16 MiB; default 4 MiB"),
+            num("Part size (bytes)").description("64 KiB to 16 MiB; default 4 MiB"),
         )
         .param(
             "content_type",
             text(false)
-                .display("Content Type")
+                .display("Content type")
                 .description("empty: by the name's extension"),
         )
         .param(
@@ -404,7 +404,7 @@ fn upload_actions(m: &mut BTreeMap<String, ActionMeta>) {
     let id = || text(true).display("Upload");
     m.insert(
         "upload_part".into(),
-        act("Upload Part", Perm::Write)
+        act("Upload part", Perm::Write)
             .timeout_ms(TRANSFER_MS)
             .param("upload", id())
             .param("index", num("Index").required(true).description("from 0"))
@@ -418,19 +418,19 @@ fn upload_actions(m: &mut BTreeMap<String, ActionMeta>) {
     );
     m.insert(
         "upload_status".into(),
-        act("Upload Status", Perm::Write)
+        act("Upload status", Perm::Write)
             .param("upload", id())
             .result(ActionResult::Type(TypeCode::Map)),
     );
     m.insert(
         "upload_commit".into(),
-        act("Commit Upload", Perm::Write)
+        act("Commit upload", Perm::Write)
             .param("upload", id())
             .result(ActionResult::Type(TypeCode::Map)),
     );
     m.insert(
         "upload_abort".into(),
-        act("Abort Upload", Perm::Write).param("upload", id()),
+        act("Abort upload", Perm::Write).param("upload", id()),
     );
 }
 
@@ -438,7 +438,7 @@ fn file_actions() -> BTreeMap<String, ActionMeta> {
     let mut m = BTreeMap::new();
     m.insert(
         "download_part".into(),
-        act("Download Part", Perm::Read)
+        act("Download part", Perm::Read)
             .timeout_ms(TRANSFER_MS)
             .param("offset", num("Offset (bytes)").required(true))
             .param(
@@ -454,7 +454,7 @@ fn file_actions() -> BTreeMap<String, ActionMeta> {
             .param(
                 "text",
                 ParamMeta::of(TypeCode::Bool)
-                    .display("As Text")
+                    .display("As text")
                     .description("the content as UTF-8 text instead of bytes"),
             )
             .result(ActionResult::Type(TypeCode::Dynamic)),
@@ -1383,9 +1383,12 @@ impl<B: Backend> FileStore<B> {
     }
 
     fn add_form(&self) -> ActionMeta {
-        let mut a = act(&format!("Add {}", B::DISPLAY), Perm::Config)
-            .group(GROUP_NEW)
-            .param("name", text(true).display("Name"));
+        let mut a = act(
+            &wyrm_core::display::sentence(&format!("Add {}", B::DISPLAY)),
+            Perm::Config,
+        )
+        .group(GROUP_NEW)
+        .param("name", text(true).display("Name"));
         for s in schema::<B>() {
             a = a.param(s.name, s.param_meta(None));
         }

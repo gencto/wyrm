@@ -71,7 +71,7 @@ impl Probe {
         let sc = Scenario::parse(text).map_err(LinkError::invalid_parameter)?;
         let password = self.password.clone().ok_or_else(|| {
             LinkError::invalid_parameter(format!(
-                "no gateway password: set the link secret {PASSWORD:?} (sys/links/<id> ▸ Set Secret) and restart the link"
+                "no gateway password: set the link secret {PASSWORD:?} (sys/links/<id> ▸ Set secret) and restart the link"
             ))
         })?;
         let gw = wyrm_gateway_client::Gateway::login(&self.cfg.gateway, &self.cfg.user, &password)
@@ -132,7 +132,7 @@ impl Link for Probe {
             "",
             "run_builtin",
             ActionMeta::new()
-                .display("Run Scenario")
+                .display("Run scenario")
                 .param(
                     "name",
                     ParamMeta::of(TypeCode::String)
@@ -150,7 +150,7 @@ impl Link for Probe {
             "",
             "run",
             ActionMeta::new()
-                .display("Run Steps")
+                .display("Run steps")
                 .param(
                     "scenario",
                     ParamMeta::of(TypeCode::String)

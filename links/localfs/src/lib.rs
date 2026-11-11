@@ -73,31 +73,31 @@ pub struct LocalParams {
     pub root: String,
     #[param(
         default = false,
-        display = "Create Directory",
+        display = "Create directory",
         desc = "create the directory (and its parents) when it is missing"
     )]
     pub create_root: bool,
     #[param(
         default = false,
-        display = "Read Only",
-        desc = "refuse Create Folder, Upload File and Delete"
+        display = "Read only",
+        desc = "refuse Create folder, Upload file and Delete"
     )]
     pub read_only: bool,
     #[param(
         default = false,
-        display = "Show Hidden",
+        display = "Show hidden",
         desc = "show names starting with '.'"
     )]
     pub show_hidden: bool,
     #[param(
         default = false,
-        display = "Follow Symlinks",
+        display = "Follow symlinks",
         desc = "show symbolic links that resolve inside the directory; off = links are left out"
     )]
     pub follow_symlinks: bool,
     #[param(
         default = true,
-        display = "Sync Writes",
+        display = "Sync writes",
         desc = "fsync each upload and its folder (safe on power loss; slower on SD cards)"
     )]
     pub fsync: bool,
@@ -611,7 +611,7 @@ fn write_new(target: &Path, src: &Src, fsync: bool) -> std::io::Result<()> {
 impl Backend for LocalStore {
     const NAME: &'static str = "localfs";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const DISPLAY: &'static str = "Local Directory";
+    const DISPLAY: &'static str = "Local directory";
     type Params = LocalParams;
 
     fn new(p: &LocalParams) -> Result<Self, LinkError> {
@@ -651,7 +651,7 @@ impl Backend for LocalStore {
         vec![ParamSpec::new(ALLOWED_ROOTS, TypeCode::String)
             .default("")
             .editor("textarea")
-            .display("Allowed Directories")
+            .display("Allowed directories")
             .desc("one absolute path per line; a connection's directory must be one of them or below one; empty = none")]
     }
 

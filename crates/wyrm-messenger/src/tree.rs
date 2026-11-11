@@ -27,7 +27,7 @@ pub const STATS: &str = "stats";
 pub const STAT_NAMES: [&str; 4] = ["bots", "sent", "failed", "rejected"];
 
 pub const BOT_LEAVES: [(&str, TypeCode, &str); 9] = [
-    ("status", TypeCode::Enum, "no_token (Set Token), checking, ready, waiting (after an error), failed (see error), disabled"),
+    ("status", TypeCode::Enum, "no_token (Set token), checking, ready, waiting (after an error), failed (see error), disabled"),
     ("error", TypeCode::String, "The last error."),
     ("username", TypeCode::String, "The bot's own name on the platform."),
     ("sent", TypeCode::Number, "Messages delivered since the link started."),
@@ -140,7 +140,7 @@ fn bot_form(kind: Kind, add: bool) -> ActionMeta {
         .param("timeout_ms", number("Timeout (ms)", "Per request, 500…8000 (3000)."))
         .param(
             "format",
-            choice("Default Format", &formats(kind), "Markup of messages that name none."),
+            choice("Default format", &formats(kind), "Markup of messages that name none."),
         )
         .param("queue_max", number("Queue", "Messages kept while the platform is slow (500)."));
     if kind.inbound {
@@ -159,13 +159,13 @@ fn bot_form(kind: Kind, add: bool) -> ActionMeta {
             .param(
                 "leave_unknown",
                 flag(
-                    "Leave Unknown Chats",
+                    "Leave unknown chats",
                     "Leave groups the bot was added to that are no recipient.",
                 ),
             )
             .param(
                 "rate_per_min",
-                number("Commands per Minute", "Per user (20)."),
+                number("Commands per minute", "Per user (20)."),
             );
     }
     a
@@ -175,7 +175,10 @@ pub fn add_bot(kind: Kind) -> (String, ActionMeta) {
     (
         "add_bot".to_owned(),
         bot_form(kind, true)
-            .display(format!("Add {} Bot", kind.display()))
+            .display(wyrm_core::display::sentence(&format!(
+                "Add {} bot",
+                kind.display()
+            )))
             .group(GROUP_NEW),
     )
 }
@@ -198,7 +201,7 @@ fn recipient_form(kind: Kind, add: bool) -> ActionMeta {
         a = a.param(
             "commands",
             flag(
-                "Commands Here",
+                "Commands here",
                 "Paired users may give commands in this group.",
             ),
         );
@@ -245,7 +248,7 @@ fn template_form(kind: Kind, add: bool) -> ActionMeta {
         .param("to", text("To", "Recipients when a send names none, comma separated."))
         .param("silent", flag("Silent", "Deliver without a sound."))
         .param("protect", flag("Protect", "No forwarding or saving, where the platform offers it."))
-        .param("preview", flag("Link Preview", "Show link previews."));
+        .param("preview", flag("Link preview", "Show link previews."));
     if kind.blocks {
         a = a.param(
             "blocks",
@@ -288,7 +291,7 @@ fn user_form(add: bool) -> ActionMeta {
 fn ad_hoc_send(kind: Kind) -> ActionMeta {
     let kinds: Vec<&str> = MsgKind::ALL.iter().map(|k| k.name()).collect();
     ActionMeta::new()
-        .display("Send Message")
+        .display("Send message")
         .level(Perm::Write)
         .param(
             "to",
@@ -323,7 +326,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
         (
             "send_raw",
             ActionMeta::new()
-                .display("Send Raw Request")
+                .display("Send raw request")
                 .level(Perm::Config)
                 .param("method", text("Method", kind.raw_about).required(true))
                 .param(
@@ -336,19 +339,19 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
         (
             "add_recipient",
             recipient_form(kind, true)
-                .display("Add Recipient")
+                .display("Add recipient")
                 .group(GROUP_NEW),
         ),
         (
             "add_template",
             template_form(kind, true)
-                .display("Add Template")
+                .display("Add template")
                 .group(GROUP_NEW),
         ),
         (
             "set_token",
             ActionMeta::new()
-                .display("Set Token")
+                .display("Set token")
                 .group(GROUP_EDIT)
                 .level(Perm::Config)
                 .param(
@@ -362,7 +365,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
         (
             "test_connection",
             ActionMeta::new()
-                .display("Test Connection")
+                .display("Test connection")
                 .level(Perm::Config)
                 .result(ActionResult::Type(TypeCode::Map)),
         ),
@@ -382,7 +385,7 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
         out.push((
             "invite_user",
             user_form(true)
-                .display("Invite User")
+                .display("Invite user")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map)),
         ));
@@ -424,7 +427,7 @@ pub fn recipient_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
         (
             "send",
             ActionMeta::new()
-                .display("Send Message")
+                .display("Send message")
                 .level(Perm::Write)
                 .param(
                     "text",
@@ -477,7 +480,9 @@ pub fn template_actions(kind: Kind, vars: &[String]) -> Vec<(&'static str, Actio
         for v in vars {
             a = a.param(
                 v.as_str(),
-                ParamMeta::of(TypeCode::Dynamic).display(v.as_str()),
+                ParamMeta::of(TypeCode::Dynamic)
+                    .display(wyrm_core::display::humanize(v))
+                    .description(format!("Template variable {{{{{v}}}}}")),
             );
         }
         a
@@ -525,7 +530,7 @@ pub fn user_actions() -> Vec<(&'static str, ActionMeta)> {
     vec![
         (
             "new_code",
-            plain("New Pairing Code")
+            plain("New pairing code")
                 .group(GROUP_EDIT)
                 .result(ActionResult::Type(TypeCode::Map)),
         ),

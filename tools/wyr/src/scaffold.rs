@@ -324,7 +324,7 @@ pub fn run(cmd: NewCmd) -> Result<(), Error> {
             out!("  3. cargo test -p {}", n.krate);
             if app {
                 out!(
-                    "  4. wyr link pack -p {} → a wasm package (Install Link ▸ from Zip); --kind process for a binary",
+                    "  4. wyr link pack -p {} → a wasm package (Install Link ▸ From ZIP); --kind process for a binary",
                     n.krate
                 );
             } else {

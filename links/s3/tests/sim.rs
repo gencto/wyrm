@@ -60,7 +60,7 @@ async fn bucket_tree_folders_uploads() {
         }
     };
     scenario(&h, &ext).await;
-    // the folder marker of Create Folder, and the deletes
+    // the folder marker of Create folder, and the deletes
     {
         let s = st.lock().unwrap();
         assert!(!s.objects.keys().any(|k| k.starts_with("reports/new dir")));

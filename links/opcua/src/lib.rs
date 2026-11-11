@@ -93,46 +93,46 @@ pub struct ConnParams {
         desc = "opc.tcp://host:port/path"
     )]
     pub endpoint: String,
-    #[param(enum, dest, default = "None", display = "Security Policy")]
+    #[param(enum, dest, default = "None", display = "Security policy")]
     pub security_policy: Policy,
-    #[param(enum, dest, default = "none", display = "Security Mode")]
+    #[param(enum, dest, default = "none", display = "Security mode")]
     pub security_mode: Mode,
-    #[param(enum, default = "anonymous", display = "User Identity")]
+    #[param(enum, default = "anonymous", display = "User identity")]
     pub identity: Identity,
-    #[param(default = "", display = "User Name")]
+    #[param(default = "", display = "User name")]
     pub username: String,
     #[param(default = "", secret, display = "Password")]
     pub password: String,
     #[param(
         default = "",
         editor = "textarea",
-        display = "User Certificate (PEM)",
+        display = "User certificate (PEM)",
         desc = "identity certificate: X.509 user token"
     )]
     pub user_cert_pem: String,
-    #[param(default = "", secret, display = "User Key (PEM)")]
+    #[param(default = "", secret, display = "User key (PEM)")]
     pub user_key_pem: String,
     #[param(
         default = "",
         editor = "textarea",
-        display = "Application Certificate (PEM)",
+        display = "Application certificate (PEM)",
         desc = "empty: a self-signed one is made in the link's data_dir"
     )]
     pub cert_pem: String,
-    #[param(default = "", secret, display = "Application Key (PEM)")]
+    #[param(default = "", secret, display = "Application key (PEM)")]
     pub key_pem: String,
     #[param(
         default = "",
         dest,
         editor = "textarea",
-        display = "Server Certificate (PEM)",
+        display = "Server certificate (PEM)",
         desc = "pin: only this server certificate is trusted"
     )]
     pub server_cert_pem: String,
     #[param(
         default = false,
         dest,
-        display = "Trust on First Use",
+        display = "Trust on first use",
         desc = "trust the first server certificate seen, then only that one"
     )]
     pub trust_on_first_use: bool,
@@ -142,21 +142,21 @@ pub struct ConnParams {
         default = 60000,
         min = 10000,
         max = 3600000,
-        display = "Session Timeout (ms)"
+        display = "Session timeout (ms)"
     )]
     pub session_timeout_ms: u32,
     #[param(
         default = 5000,
         min = 100,
         max = 60000,
-        display = "Request Timeout (ms)"
+        display = "Request timeout (ms)"
     )]
     pub request_timeout_ms: u32,
     #[param(
         default = 15000,
         min = 1000,
         max = 120000,
-        display = "Connect Timeout (ms)",
+        display = "Connect timeout (ms)",
         desc = "bound on GetEndpoints + CreateSession + ActivateSession, and on a ping"
     )]
     pub connect_timeout_ms: u32,
@@ -265,11 +265,11 @@ pub struct Dev {
         default = 500,
         min = 1,
         max = 10000,
-        display = "Max Nodes per Read",
+        display = "Max nodes per read",
         desc = "lowered to the server's MaxNodesPerRead"
     )]
     pub max_nodes_per_read: u32,
-    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping Rate (s)")]
+    #[param(default = 5.0, min = 0.1, max = 3600.0, display = "Ping rate (s)")]
     pub ping_s: f64,
 }
 
@@ -282,13 +282,13 @@ pub struct PointParams {
         desc = "ns=<n>;s=…, nsu=<uri>;i=…, or s=… in the device's namespace"
     )]
     pub node_id: String,
-    #[param(default = 1.0, min = 0.01, max = 86400.0, display = "Poll Rate (s)")]
+    #[param(default = 1.0, min = 0.01, max = 86400.0, display = "Poll rate (s)")]
     pub poll_s: f64,
     #[param(default = false, display = "Writable")]
     pub writable: bool,
     #[param(default = 1.0, display = "Scaling")]
     pub scale: f64,
-    #[param(default = 0.0, display = "Scaling Offset")]
+    #[param(default = 0.0, display = "Scaling offset")]
     pub offset: f64,
     #[param(default = "", display = "Unit")]
     pub unit: String,
@@ -478,7 +478,7 @@ impl Driver for OpcuaDriver {
                 // Commissioning: opens a second TCP connection.
                 ActionMeta::new()
                     .level(Perm::Config)
-                    .display("Get Endpoints")
+                    .display("Get endpoints")
                     .timeout_ms(ACTION_MS)
                     .result(ActionResult::Type(TypeCode::Array)),
             )],

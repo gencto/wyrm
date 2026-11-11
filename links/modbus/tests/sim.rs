@@ -282,17 +282,17 @@ async fn connection_kinds_ip_rtu_over_tcp_and_serial() {
     let actions = root.unwrap().actions.unwrap();
     assert_eq!(
         actions["add_ip_connection"].display.as_deref(),
-        Some("Add IP Connection")
+        Some("Add IP connection")
     );
     assert_eq!(
         actions["add_serial_connection"].display.as_deref(),
-        Some("Add Serial Connection")
+        Some("Add serial connection")
     );
     assert_eq!(
         actions["add_serial_connection"].params["serial_port"]
             .display
             .as_deref(),
-        Some("Serial Port")
+        Some("Serial port")
     );
     assert!(
         !actions.contains_key("add_connection"),
@@ -300,7 +300,7 @@ async fn connection_kinds_ip_rtu_over_tcp_and_serial() {
     );
     assert_eq!(
         actions["rescan"].display.as_deref(),
-        Some("Rescan For Serial Ports")
+        Some("Rescan for serial ports")
     );
 
     // RTU framing over TCP (a serial gateway), then a device and a point

@@ -558,3 +558,161 @@ async fn a_child_named_like_a_diagnostics_leaf_keeps_its_node() {
     }
     h.stop().await;
 }
+
+fn display_of(h: &H, path: &str) -> Option<String> {
+    match h.ctx().meta(path)?.attr_value("display") {
+        Some(Value::Str(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// ADR 0042: `add_*` and `edit` take an optional `display` for the node;
+/// it is `attr.display` (key 12 in `view=list`), never a param in `cfg`,
+/// kept by an edit that leaves it out, and a name-only edit does not
+/// reconnect. Every action and parameter has a name in the house style.
+#[tokio::test(flavor = "multi_thread")]
+async fn nodes_take_a_name_people_read() {
+    let s = seen(7);
+    let h = H::start(tree(7, two_points())).await;
+    let cfg = || Some(h.ptok(Perm::Config));
+    wait("polling", Duration::from_secs(5), || {
+        s.opens.load(Ordering::Relaxed) > 0
+    })
+    .await;
+
+    // the forms: a display field, and names derived or written in style
+    let root = actions(&h, "");
+    assert!(root["add_connection"].params.contains_key("display"));
+    assert_eq!(
+        root["add_connection"].display.as_deref(),
+        Some("Add connection")
+    );
+    for path in ["", "c1", "c1/d1", "c1/d1/p"] {
+        for (name, a) in actions(&h, path) {
+            let found = wyrm_core::display::lint(&name, &a);
+            assert!(found.is_empty(), "{path}: {found:?}");
+            assert!(a.display.is_some(), "{path}/{name}");
+            assert!(
+                a.params.values().all(|p| p.display.is_some()),
+                "{path}/{name}"
+            );
+        }
+    }
+    let dev = actions(&h, "c1/d1");
+    assert!(dev["edit"].params.contains_key("display"));
+
+    // add a point with a name
+    let r = h
+        .invoke(
+            "c1/d1",
+            "add_point",
+            map(&[
+                ("name", "t1".into()),
+                ("display", "Supply temperature".into()),
+            ]),
+            cfg(),
+        )
+        .await;
+    assert_eq!(status(&r), Some(Status::Ok), "{r:?}");
+    assert_eq!(
+        display_of(&h, "c1/d1/t1").as_deref(),
+        Some("Supply temperature")
+    );
+    let (_, rows) = h.list("c1/d1").await;
+    assert!(
+        rows.iter()
+            .any(|m| m.display.as_deref() == Some("Supply temperature")),
+        "view=list carries key 12"
+    );
+    let m = h.ctx().meta("c1/d1/t1").unwrap();
+    assert!(
+        !m.cfg.unwrap_or_default().contains_key("display"),
+        "not a param"
+    );
+    let edit = &actions(&h, "c1/d1/t1")["edit"];
+    assert_eq!(
+        edit.params["display"].default,
+        Some(Value::Str("Supply temperature".into())),
+        "edit shows the name"
+    );
+
+    // an edit of `display` alone renames: `tag` (7, default 0) stays and
+    // the connection does not reconnect
+    let opens = s.opens.load(Ordering::Relaxed);
+    let r = h
+        .invoke(
+            "c1",
+            "edit",
+            map(&[("display", "Line 1 PLC".into())]),
+            cfg(),
+        )
+        .await;
+    assert_eq!(status(&r), Some(Status::Ok), "{r:?}");
+    assert_eq!(display_of(&h, "c1").as_deref(), Some("Line 1 PLC"));
+    let cfg_of = |p: &str, k: &str| h.ctx().meta(p).and_then(|m| m.cfg_value(k).cloned());
+    assert_eq!(cfg_of("c1", "tag"), Some(Value::UInt(7)), "params kept");
+    tokio::time::sleep(MS(200)).await;
+    assert_eq!(s.opens.load(Ordering::Relaxed), opens, "no reconnect");
+    // the full form with the same params and a new name: no reconnect either
+    let r = h
+        .invoke(
+            "c1",
+            "edit",
+            map(&[("tag", Value::UInt(7)), ("display", "Line 1".into())]),
+            cfg(),
+        )
+        .await;
+    assert_eq!(status(&r), Some(Status::Ok), "{r:?}");
+    assert_eq!(display_of(&h, "c1").as_deref(), Some("Line 1"));
+    tokio::time::sleep(MS(200)).await;
+    assert_eq!(s.opens.load(Ordering::Relaxed), opens, "no reconnect");
+
+    // an edit that leaves `display` out keeps it; "" clears it
+    let r = h
+        .invoke(
+            "c1/d1/t1",
+            "edit",
+            map(&[("poll_s", Value::Float(0.05))]),
+            cfg(),
+        )
+        .await;
+    assert_eq!(status(&r), Some(Status::Ok), "{r:?}");
+    assert_eq!(
+        display_of(&h, "c1/d1/t1").as_deref(),
+        Some("Supply temperature")
+    );
+    let r = h
+        .invoke("c1/d1/t1", "edit", map(&[("display", "".into())]), cfg())
+        .await;
+    assert_eq!(status(&r), Some(Status::Ok), "{r:?}");
+    assert_eq!(display_of(&h, "c1/d1/t1"), None);
+    assert_eq!(
+        cfg_of("c1/d1/t1", "poll_s"),
+        Some(Value::Float(0.05)),
+        "clearing the name keeps the params"
+    );
+
+    // export carries the names
+    let r = h.invoke("", "export", map(&[]), cfg()).await;
+    let Some(Value::Map(tree)) = r.first().and_then(|r| r.value()) else {
+        panic!("{r:?}")
+    };
+    let Some(Value::Map(conns)) = tree.get("connections") else {
+        panic!("{tree:?}")
+    };
+    let Some(Value::Map(c1)) = conns.get("c1") else {
+        panic!("{conns:?}")
+    };
+    assert_eq!(c1.get("display"), Some(&Value::Str("Line 1".into())));
+    // too long a name is refused
+    let r = h
+        .invoke(
+            "c1",
+            "edit",
+            map(&[("display", "x".repeat(200).into())]),
+            cfg(),
+        )
+        .await;
+    assert_eq!(status(&r), Some(Status::InvalidParameter), "{r:?}");
+    h.stop().await;
+}

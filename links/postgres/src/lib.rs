@@ -11,7 +11,7 @@
 //! Params (besides `sink`, `batch`, `idle_s`, `retry_s`): `host`, `port` (5432), `database`,
 //! `user`, `table` (`wyrm_history`, or `schema.table`), `sslmode` (`require`, the default, or
 //! `disable`: only to loopback unless `insecure_plaintext`), `ca_pem`, `timeout_ms` (10 000),
-//! `create_table` (true). The password goes in with ▸ Set Password.
+//! `create_table` (true). The password goes in with ▸ Set password.
 
 use std::collections::HashMap;
 use wyrm_core::Value;
@@ -329,7 +329,7 @@ impl Pg {
         start.extend_from_slice(&body);
         self.send(net, &start)?;
         let need =
-            || TargetError::Fatal("postgres: the server asks for a password: Set Password".into());
+            || TargetError::Fatal("postgres: the server asks for a password: Set password".into());
         let mut scram: Option<(String, String, Option<String>)> = None;
         let mut conforming = false;
         loop {

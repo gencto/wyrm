@@ -6,6 +6,14 @@
 - Architecture decisions go to `docs/adr/` (one file per decision).
 - Tests: a Zenoh subscriber that the test does not read at once (it waits for something else first) uses `zenoh::handlers::RingChannel` or a callback, not the default FIFO. A full FIFO (256 samples) blocks the session's receive path, so every other query and subscriber on that session stops too (the `broker_restart_rto` flake, 2026-11-09). Product code follows the same rule; see "Zenoh handlers" below.
 
+## Names people read (ADR 0042)
+
+Keys of nodes, actions and parameters are wire names and never change for style. A person reads `display`:
+1. Leave an action's or parameter's `display` out when the key says it: the SDK fills it with `wyrm_core::display::humanize` (`timeout_ms` → `Timeout (ms)`).
+2. A `display` you write is in sentence case, short, without a dot at the end; an action starts with a verb, a parameter is a noun; units in brackets; acronyms as `wyrm_core::display::WORDS` writes them (`URL`, `ID`). A new product name goes to `WORDS`, `NAMES` or `PHRASES` there.
+3. A node's name for people is `attr.display` (`NodeMeta::display`); on the driver framework users set it with the `display` field of Add and Edit.
+4. `cargo test -p wyrmd --test e2e every_action_has_a_name_people_read` must pass; it walks every built-in link. A new link that `wyrmd` does not embed lints its actions in its test host (`wyrm_core::display::lint`).
+
 ## Wire enums (code tables)
 
 Every code table in `spec/tables.json` (type, perm, writable, quality, status, …) has exactly one Rust declaration, made with `wyrm_core::wire_enum!`:
