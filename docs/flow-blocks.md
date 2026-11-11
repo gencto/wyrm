@@ -17,18 +17,72 @@ ADR 0032 records the rules below.
 4. Any sample on an input calculates the block.
 5. An operand input (`in`, `in.<name>`) can hold a constant: the config key
    `values: {"in.0": 5}` (spec 06 0.2.19). The constant is the input's value
-   until a sample on that input replaces it. A constant calculates nothing: the
-   block calculates on its first real sample. A parameter's port, `reset` and
+   until a sample on that input replaces it. A parameter's port, `reset` and
    the variables take no constant (a parameter's config is its constant).
+   `now` takes none either: its `in` is only a trigger (spec 06 0.2.30).
+   When a block calculates from its constants alone, see "What calculates at
+   start".
 6. An output is sent only when its value or its quality changed. Events
    (`on_change`, `on_loop`) are always sent: `{event: <port>, id: <n>}`.
 7. Quality is the worst quality among the inputs that have a sample. The time
    is the latest of their times.
 
-УВАГА: an operator does not calculate at start. It waits for its first input,
-so a deploy, a hot swap or a restart never fires an `invoke` or a `set` by
-itself, and neither does an operand constant. Only the variables (`number`, `string`, `bool`) send their value at
-start, as `const` does.
+## What calculates at start (spec 06 0.2.30)
+
+A block that has only typed values must show a result: `add` with 2 and 3
+shows 5, a CSV typed into `table_from_csv` shows its table. The rule
+(2026-11-11, it narrows ADR 0032 §5):
+
+1. The variables (`number`, `string`, `bool`, `table`) and `constant` send
+   their value at start, as `const` does.
+2. A **pure** block with **no wired input** calculates once at start from its
+   constants and its parameters. "No wired input" means no edge into any of
+   its ports: an operand, a parameter's port and `reset` count.
+3. A block with at least one wired input waits for its first sample, as
+   before. Its constants are used when that sample comes. A sample from a
+   block of rule 2 is such a sample: the blocks after it calculate from it.
+4. `now` gives the time at start when its `interval_ms` is above 0 (see
+   "Date and time").
+5. Every other block waits for its first sample, wired or not.
+
+A pure block is a function of its inputs and parameters only: no state, no
+events, no clock of its own. These 83 types are pure:
+
+| Section | Types |
+|---|---|
+| Math | `add`, `subtract`, `multiply`, `divide`, `max`, `min`, `abs`, `round`, `modulo`, `stats`, `factorial`, `log`, `power`, `root`, `bound`, `round_up`, `round_down` |
+| Trigonometry | `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `atan`, `to_degrees`, `to_radians` |
+| Statistics | `average`, `median`, `mode`, `std_deviation`, `variance` |
+| Logic | `not`, `if`, `case`, `select` |
+| Text | `concat`, `length`, `substring`, `replace`, `split`, `join`, `format_number`, `parse_number`, `left`, `right`, `trim` |
+| Codecs | `base64_encode`, `base64_decode`, `url_encode`, `url_decode`, `to_camel_case`, `from_camel_case`, `hash`, `json_parse`, `json_stringify` |
+| Data | `make_object`, `make_array`, `get` |
+| Date and time | `date_time`, `date_format`, `date_parse`, `date_math`, `date_range` |
+| Tables | `table_from_csv`, `table_to_csv`, `table_from_json`, `table_to_json`, `table_map_columns`, `table_sort`, `table_filter`, `table_remove_rows`, `table_edit_rows`, `table_group_by`, `table_join`, `table_rollup`, `table_aggregate`, `table_select_rows`, `table_select_columns`, `table_columns`, `table_row_cells`, `table_add_row`, `table_transpose`, `table_from_map` |
+
+These never calculate at start by rule 2, because they keep state, fire
+events, keep time or route: `counter`, `toggle`, `changed`, `rising_edge`,
+`falling_edge`, `event_gate`, `sample_and_hold`, `debounce`, `throttle`,
+`stopwatch`, `hub`, `trace`, `catch_error`, `router`, `table_recorder`,
+`table_page`, and `now` (rule 4). Node types that are not logic blocks
+(sources, readers, `expression`, `filter`, `scale`, `deadband`, `latch`,
+`delay`, `window`, `alarm`, `publish`, `set`, `invoke`, `wasm`) take no
+operand constants and keep their own rules.
+
+`date_range` with a relative range (`today`) reads the clock, as it does on
+its own tick: when the day changes, its new range is an ordinary sample.
+
+A sample of rules 2 and 4 is **made of constants** (`Msg::constant` in the
+engine). It is also born at the start (ADR 0040 §2), and so is everything a
+node sends while it handles it: the runtime carries both marks on. Such a
+sample runs no command. It only gives the field its value: `trigger`,
+`auto_run`, `arg.<name>`, and also `in` of `set` and `invoke`.
+
+УВАГА: a variable's start value is born at the start, but it is not made of
+constants. Wired to `in` of a `set` or an `invoke`, it still writes at
+deploy, at a hot swap and at a restart (ADR 0038 §6), and so does the first
+value of a `subscribe`. A pure block with no wired input never does: put the
+value in the block, not in a variable, when the flow must not act at deploy.
 
 ## Numbers and conversions
 
@@ -210,7 +264,8 @@ Readers:
 These blocks add math, text, time, events, tables and two readers (70 types,
 125 in all). Every parameter has the port `in.<parameter>`, except `inputs`, a scope and a rhai
 script. The rules of "How a block works" apply: change-only outputs, the worst
-quality, nothing at start but a variable or a `constant`.
+quality, and "What calculates at start": a pure block of this set with no
+wired input calculates at start, the others wait for a sample.
 
 ### Math, rounding and number formatting
 
@@ -319,7 +374,7 @@ on every date block that shows or counts wall time.
 
 | Type | Inputs | Outputs | Parameters and what it gives |
 |---|---|---|---|
-| `now` | `in` | `out` | The current time on each sample of `in` (wire a `timer` for a clock). |
+| `now` | `in`, `in.interval_ms` | `out` | The current time: at start, every `interval_ms` (default 1000; 0: only on samples of `in`; else 100 … 86 400 000), and on each sample of `in`. `in` is only a trigger: it takes no constant, and its value means nothing. |
 | `date_time` | the parameter ports | `out` | `year` (default 1970), `month`, `day` (default 1), `hour`, `minute`, `second`, `millisecond` (default 0), `time_zone`. Parts overflow as a calendar counts: month 13 is January of the next year, day 0 the last day of the month before. A part that is not whole is cut. |
 | `date_format` | `in` | `out` | `format` (default `yyyy-MM-dd'T'HH:mm:ss`), `time_zone` (also `auto`: the offset written in the input text). |
 | `date_parse` | `in` | `time`, `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `weekday` | `time_zone`. `weekday` 1 is Monday, 7 Sunday. A text that is no date gives `null` on every output. |
@@ -600,6 +655,13 @@ block builds a path, and the path drives the source.
 - The output `key` (the parameter's echo) is the key in use.
 - `liveliness` sends nothing for a node that has no token, as before.
 
+`subscribe` and `liveliness` look alike in the editor, but they read two
+different things. `subscribe` reads a point's value (`~val`) as it changes:
+a number, a text, any value. `liveliness` reads whether a node is there: `true`
+while its liveliness token is present (a link, a device or a broker that is up),
+`false` when the token goes. The editor names the field `Node` and the output
+`Alive`.
+
 УВАГА: the targets of `set` and `invoke` have no port. A flow changes what it
 writes and the arguments of an action, never where it writes (ADR 0040 §1a).
 
@@ -848,6 +910,12 @@ Rules:
    binding replaces it; the typed value stays in the config and returns on
    unbind. Never on a parameter's port, `stopwatch.reset` or a variable's
    `in`. `case` reads its variable inputs as pairs: `Case 1`, `Then 1`, …
+   A typed value is read as JSON (`5` is a number), except the text
+   operands `in` of `table_from_csv`, `split`, `replace` and `json_parse`
+   and a range text: they stay the text typed. A text of several lines (a
+   CSV needs a header and a row) is typed in the value viewer: the eye of
+   the row, then Edit; Enter starts a new line, ⌘/Ctrl+Enter saves. The
+   inspector's row then grows to show the lines and keeps them.
 8. Values are live. A draft that runs otherwise than the deployed version
    (its layout aside) runs as a preview (`dataflows/~act/preview`): the
    blocks show its values and each sink what it would write (`would write
@@ -905,7 +973,7 @@ Rules:
 | `number`, `string`, `bool` | Value ⇄ | Value = `in` → `value` → `out` | — | number box; text; toggle |
 | `const` | Value → | Value = `value` → `out` | — | JSON or text |
 | `subscribe` | Point ⇄ · Scope (once a wire feeds Point, or a scope is written; a pencil opens its prompt) · `<point>` → · Error → (once a wire feeds Point) | `in.key` → `key`; `key_scope`; the point's value on `out`; `error` | — | Point: a text, or a wire; Scope: the prompt on the field, or a text field that says why a scope is refused |
-| `liveliness` | Node ⇄ · Scope · `<node>` → · Error → (as `subscribe`) | `in.key` → `key`; `key_scope`; `out`; `error` | — | as `subscribe` |
+| `liveliness` | Node ⇄ · Scope · Alive → · Error → (as `subscribe`) | `in.key` → `key`; `key_scope`; `out` (true while the node is there); `error` | — | as `subscribe` |
 | `timer` | Period (ms) ⇄ · Count → | `in.period_ms` → `period_ms`; `out` | — | — |
 | `expression` | Expression → · Trigger → · Quality → · `<name>` ⇄ … · Output → | `in.<name>` ⇄ | Inputs (list) | Trigger, Quality dropdowns |
 | `filter` | Input ⇄ · Expression → · Output → | `in`; `expr` | — | — |
@@ -953,7 +1021,7 @@ Rules:
 | `hash` | Input ⇄ · Algorithm ⇄ · Output → | `in`; `in.algorithm`; `out` | — | Algorithm dropdown |
 | `json_parse` | Input ⇄ · Output → · Parse error → | `in`; `out`, `parse_error` | — | — |
 | `json_stringify` | Input ⇄ · Pretty ⇄ · Output → | `in`; `in.pretty`; `out` | — | Pretty toggle |
-| `now` | Input ⇄ · Output → (a date and time) | `in`; `out` | — | the viewer: the local date, UTC and the µs |
+| `now` | Input ⇄ (a trigger: a wire, no typed value) · Every ⇄ · Output → (a date and time) | `in`; `in.interval_ms` → `interval_ms`; `out` | — | Every: a period in a unit; the viewer: the local date, UTC and the µs |
 | `date_time` | Year ⇄ · Month ⇄ · Day ⇄ · Hour ⇄ · Minute ⇄ · Second ⇄ · Millisecond ⇄ · Time zone ⇄ · Output → (a date and time) | `in.<p>` → `<p>`; `out` | — | Time zone: a text with a menu of zones (`UTC`, IANA names, `±HH:MM`) |
 | `date_format` | Input ⇄ (a µs value as a date and time) · Format ⇄ · Time zone ⇄ · Output → | `in`; `in.format`, `in.time_zone`; `out` | — | Time zone: the zone menu with `auto` first |
 | `date_parse` | Input ⇄ · Time zone ⇄ · Time → (a date and time) · Year → · … · Weekday → | `in`; `in.time_zone`; the parts | — | Time zone: the zone menu |

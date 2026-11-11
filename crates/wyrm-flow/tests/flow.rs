@@ -1226,9 +1226,10 @@ async fn ports_show_what_was_sent_before_any_watch() {
     env.stop().await;
 }
 
-/// Spec 06 0.2.19 and ADR 0032's rule: operand constants are the inputs' values from the start
-/// (`ports` shows them), but they calculate nothing, so a deploy never fires the `set` they
-/// feed; the first real sample does.
+/// Spec 06 0.2.19 and 0.2.30: operand constants are the inputs' values from the start (`ports`
+/// shows them); a pure block with no wired input calculates from them at start (1 + 2 = 3), but
+/// what it sends is made of constants, so a deploy never fires the `set` it feeds. A variable
+/// wired in is not: its start value writes, as ADR 0038 §6 says.
 #[tokio::test(flavor = "multi_thread")]
 async fn operand_constants_never_fire_a_command_at_deploy() {
     let env = Env::start("consts").await;
@@ -1281,7 +1282,11 @@ async fn operand_constants_never_fire_a_command_at_deploy() {
         at(&snap, &["nodes", "sum", "in", "in.0"]),
         Some(&pair(Value::UInt(1)))
     );
-    assert_eq!(at(&snap, &["nodes", "sum", "out"]), Some(&map(&[])));
+    assert_eq!(
+        at(&snap, &["nodes", "sum", "out", "out"]),
+        Some(&pair(Value::UInt(3)))
+    );
+    assert_eq!(spy.commands(), 0, "a constant fired a command");
     // a binding wins: the variable's 5 replaces the constant 2 and calculates 1 + 5
     env.deploy(def(2, true)).await.unwrap();
     wait("the bound sum is written", || {
@@ -1289,6 +1294,299 @@ async fn operand_constants_never_fire_a_command_at_deploy() {
     })
     .await;
     env.stop().await;
+}
+
+/// The owner's three screenshots (2026-11-11), as one flow of blocks with no wired input:
+/// `add` 2 + 3, a two-line CSV into `table_row_cells`, and a constant `true` (`not false`) into
+/// `rising_edge`, whose edge would run a `set` through `trigger`; `now` beside them. Spec 06
+/// 0.2.30.
+fn at_start(version: u64) -> Value {
+    map(&[
+        ("id", s("start")),
+        ("version", Value::UInt(version)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "sum",
+                    map(&[
+                        ("type", s("add")),
+                        (
+                            "values",
+                            map(&[("in.0", Value::UInt(2)), ("in.1", Value::UInt(3))]),
+                        ),
+                    ]),
+                ),
+                (
+                    "w",
+                    map(&[("type", s("set")), ("path", s("downstream/spy/x"))]),
+                ),
+                (
+                    "csv",
+                    map(&[
+                        ("type", s("table_from_csv")),
+                        ("values", map(&[("in", s("a,b\n1,2"))])),
+                    ]),
+                ),
+                ("cells", map(&[("type", s("table_row_cells"))])),
+                (
+                    "yes",
+                    map(&[
+                        ("type", s("not")),
+                        ("values", map(&[("in", Value::Bool(false))])),
+                    ]),
+                ),
+                ("edge", map(&[("type", s("rising_edge"))])),
+                (
+                    "w2",
+                    map(&[
+                        ("type", s("set")),
+                        ("path", s("downstream/spy/y")),
+                        ("auto_run", Value::Bool(false)),
+                        ("values", Value::Null),
+                    ]),
+                ),
+                // a `now` saved before 0.2.30 with a constant on `in`: read, ignored
+                (
+                    "clock",
+                    map(&[("type", s("now")), ("values", map(&[("in", s("today"))]))]),
+                ),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[
+                edge("sum.out", "w.in"),
+                edge("csv.out", "cells.in"),
+                edge("yes.out", "edge.in"),
+                edge("edge.on_edge", "w2.trigger"),
+                edge("cells.out", "w2.in"),
+            ]),
+        ),
+        ("permissions", map(&[("maxperm", s("write"))])),
+    ])
+}
+
+/// [`at_start`] without the `values: null` that only checks the compiler's message.
+fn at_start_def(version: u64) -> Value {
+    let mut d = at_start(version);
+    if let Value::Map(m) = &mut d {
+        if let Some(Value::Map(nodes)) = m.get_mut("nodes") {
+            if let Some(Value::Map(w2)) = nodes.get_mut("w2") {
+                w2.remove("values");
+            }
+        }
+    }
+    d
+}
+
+async fn ports_of(env: &Env, flow: &str) -> Value {
+    env.client
+        .invoke_one(&format!("wy/{SITE}/dataflows/{flow}"), "ports", map(&[]))
+        .await
+        .unwrap()
+        .unwrap()
+}
+
+/// What the screenshots' blocks show at deploy, after a hot swap and after a restart: their
+/// values, and no command at all.
+fn check_start_values(snap: &Value) {
+    let pair = |v: Value| arr(&[v, Value::UInt(0)]);
+    assert_eq!(
+        at(snap, &["nodes", "sum", "out", "out"]),
+        Some(&pair(Value::UInt(5))),
+        "{snap:?}"
+    );
+    // `a,b` is the header, `1,2` row 0 (cells are text)
+    assert_eq!(
+        at(snap, &["nodes", "cells", "out", "out"]),
+        Some(&arr(&[
+            map(&[("a", s("1")), ("b", s("2"))]),
+            Value::UInt(0)
+        ]))
+    );
+    assert_eq!(
+        at(snap, &["nodes", "cells", "out", "count"]),
+        Some(&pair(Value::UInt(1)))
+    );
+    assert_eq!(
+        at(snap, &["nodes", "yes", "out", "out"]),
+        Some(&pair(Value::Bool(true)))
+    );
+    // a constant true is where the edge starts from, not an edge
+    assert_eq!(at(snap, &["nodes", "edge", "out", "on_edge"]), None);
+    // `now` gives the time at once, as a number of µs
+    let t = at(snap, &["nodes", "clock", "out", "out"]).and_then(|p| match p {
+        Value::Array(a) => a.first().and_then(Value::as_f64),
+        _ => None,
+    });
+    assert!(t.is_some_and(|t| t > 1.7e15), "now: {t:?}");
+}
+
+/// Spec 06 0.2.30: pure blocks with no wired input calculate at deploy, at a hot swap and at a
+/// restart, and none of that runs a command; a `rising_edge` fed a constant `true` fires
+/// nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn pure_blocks_calculate_at_start_and_run_no_command() {
+    let mut env = Env::start("at-start").await;
+    let spy = Spy::on(&env.session).await;
+    // `values` is for operands only: `set` takes none
+    let e = env.deploy(at_start(1)).await.unwrap_err();
+    assert!(e.to_string().contains("values"), "{e}");
+    env.deploy(at_start_def(1)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    check_start_values(&ports_of(&env, "start").await);
+    assert_eq!(spy.commands(), 0, "a deploy ran a command");
+    // a hot swap: the same nodes under a new version
+    env.deploy(at_start_def(2)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    check_start_values(&ports_of(&env, "start").await);
+    assert_eq!(spy.commands(), 0, "a hot swap ran a command");
+    // a restart of the engine starts the stored flow again
+    env.restart_engine().await;
+    let mut snap = Value::Null;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Ok(Some(Ok(v))) = env
+            .client
+            .invoke_one(&format!("wy/{SITE}/dataflows/start"), "ports", map(&[]))
+            .await
+            .map(|r| r.map(Ok::<_, ()>))
+        {
+            if at(&v, &["nodes", "sum", "out", "out"]).is_some() {
+                snap = v;
+                break;
+            }
+        }
+    }
+    check_start_values(&snap);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(spy.commands(), 0, "a restart ran a command");
+    env.stop().await;
+}
+
+/// Spec 06 0.2.30: the chain starts from its constants and writes nothing at deploy; the first
+/// real sample through a wired input of the chain (a timer's second tick, through `changed`)
+/// writes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_real_sample_through_a_constant_chain_writes() {
+    let env = Env::start("chain").await;
+    let spy = Spy::on(&env.session).await;
+    let def = map(&[
+        ("id", s("chain")),
+        ("version", Value::UInt(1)),
+        (
+            "nodes",
+            map(&[
+                (
+                    "sum",
+                    map(&[
+                        ("type", s("add")),
+                        (
+                            "values",
+                            map(&[("in.0", Value::UInt(2)), ("in.1", Value::UInt(3))]),
+                        ),
+                    ]),
+                ),
+                (
+                    "twice",
+                    map(&[
+                        ("type", s("multiply")),
+                        ("values", map(&[("in.1", Value::UInt(2))])),
+                    ]),
+                ),
+                (
+                    "tick",
+                    map(&[("type", s("timer")), ("period_ms", Value::UInt(1500))]),
+                ),
+                ("ch", map(&[("type", s("changed"))])),
+                ("both", map(&[("type", s("make_array"))])),
+                (
+                    "w",
+                    map(&[("type", s("set")), ("path", s("downstream/spy/x"))]),
+                ),
+            ]),
+        ),
+        (
+            "edges",
+            arr(&[
+                edge("sum.out", "twice.in.0"),
+                edge("twice.out", "both.in.0"),
+                edge("tick.out", "ch.in"),
+                edge("ch.on_change", "both.in.1"),
+                edge("both.out", "w.in"),
+            ]),
+        ),
+        ("permissions", map(&[("maxperm", s("write"))])),
+    ]);
+    env.deploy(def).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let snap = ports_of(&env, "chain").await;
+    let pair = |v: Value| arr(&[v, Value::UInt(0)]);
+    // downstream blocks calculate from the start-born sample too
+    assert_eq!(
+        at(&snap, &["nodes", "twice", "out", "out"]),
+        Some(&pair(Value::UInt(10)))
+    );
+    assert_eq!(spy.commands(), 0, "the constants wrote at deploy");
+    wait("the real sample writes", || {
+        (spy.commands() >= 1).then_some(())
+    })
+    .await;
+    env.stop().await;
+}
+
+/// Spec 06 0.2.30: a preview of a draft shows the start values of its pure blocks and reports
+/// no command for them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_preview_shows_start_values() {
+    let env = Env::start("at-start-preview").await;
+    let mut st = env
+        .client
+        .invoke(
+            &format!("wy/{SITE}/dataflows"),
+            "preview",
+            map(&[("def", at_start_def(1)), ("max_hz", Value::UInt(10))]),
+        )
+        .await
+        .unwrap();
+    let first = st.next().await.unwrap().unwrap().unwrap();
+    let mut row = first.clone();
+    let t0 = tokio::time::Instant::now();
+    // the snapshot may come before every node task started: the rows after it complete it
+    let mut merged = first;
+    while at(&merged, &["nodes", "cells", "out", "count"]).is_none()
+        && t0.elapsed() < Duration::from_secs(3)
+    {
+        row = st.next().await.unwrap().unwrap().unwrap();
+        merge(&mut merged, &row);
+    }
+    check_start_values(&merged);
+    let t1 = tokio::time::Instant::now();
+    while t1.elapsed() < Duration::from_millis(800) {
+        assert!(sinks_of(&row).is_empty(), "{:?}", sinks_of(&row));
+        row = st.next().await.unwrap().unwrap().unwrap();
+    }
+    assert!(sinks_of(&row).is_empty(), "{:?}", sinks_of(&row));
+    drop(st);
+    env.stop().await;
+}
+
+/// `b` laid over `a`, map by map.
+fn merge(a: &mut Value, b: &Value) {
+    match (a, b) {
+        (Value::Map(x), Value::Map(y)) => {
+            for (k, v) in y {
+                match x.get_mut(k) {
+                    Some(old) => merge(old, v),
+                    None => {
+                        x.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (a, b) => *a = b.clone(),
+    }
 }
 
 /// Spec 06 0.2.17: a parameter on its port changes the node's clock: a timer of one minute

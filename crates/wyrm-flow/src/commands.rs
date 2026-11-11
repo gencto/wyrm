@@ -10,7 +10,10 @@
 //!
 //! A deploy, a hot swap or a restart never runs a command through `trigger`, `auto_run` or
 //! `interval_ms`: a sample that was born at the start ([`Msg::start`]) only gives the field
-//! its value. `enabled: false` runs nothing.
+//! its value. On `in` a sample born at the start still runs the command (a variable wired to
+//! `in` writes at deploy, ADR 0038 §6), unless it is made of typed constants
+//! ([`Msg::constant`], spec 06 0.2.30): what a pure block with no wired input calculates at
+//! the start gives `in` its value and runs nothing. `enabled: false` runs nothing.
 //!
 //! One block, its behaviour set by its fields (owner decision 2026-11-09): there is no block
 //! type per behaviour. `run_on_start: true` is the one sanctioned exception to the rule above,
@@ -551,7 +554,8 @@ impl Node for Command {
                         }
                     }
                 };
-                if fire {
+                // a value made of typed constants (spec 06 0.2.30) only gives `in` its value
+                if fire && !m.constant {
                     self.run(m.start, io, out);
                 }
             }

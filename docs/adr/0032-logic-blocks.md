@@ -20,6 +20,19 @@ The prototype binds an input to an output by a path stored on the input. The flo
 10. **The editor draws fixed ports and named ports together** (`if`: `in.then`, `in.else`, then `in.0`, …); `dyn_inputs` adds to `inputs` instead of replacing it.
 11. **Texts a block makes are at most 4 KiB** (`concat`, `string`), as the expression engine's strings; a longer one is `null` (`concat`: quality `bad`). A `concat` in a loop through a `delay` would otherwise grow without end (automated review of `e89b1d4`).
 
+**Amended 2026-11-11 (spec 06 0.2.30, owner's screenshots of the flow editor).** A block whose
+inputs are all typed constants showed nothing: `add` of 2 and 3, a CSV typed into
+`table_from_csv`, a `now` with no wire. Since ADR 0040 the runtime marks a sample born at the
+start, so the rule is narrowed, not dropped: a **pure** block (no state, no events, no clock of
+its own; 83 types, listed in `docs/flow-blocks.md` "What calculates at start") with **no edge
+into any of its ports** calculates once at start from its constants and parameters. What it
+sends is **made of constants** (`Msg::constant`): born at the start, carried on by the runtime
+like that mark, and it runs no command anywhere, not even through `in` of `set` or `invoke`. A
+block with a wired input waits for its first sample, as before; the blocks after a pure one
+calculate from its start sample. A deploy, a hot swap or a restart still never fires a command
+through a constant. A variable wired to `in` of a command still writes at deploy (ADR 0038 §6):
+changing that would change deployed flows.
+
 *If wrong:* a flow that expects an operator's value right after deploy must start from a variable or a `const`; a block that should send every sample (not only changes) needs a `filter` or an `expression` in front of its sink.
 
 ## Found on the way

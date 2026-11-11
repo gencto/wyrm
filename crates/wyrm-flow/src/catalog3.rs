@@ -225,10 +225,17 @@ pub const TYPES: &[NodeType] = &[
     unary(
         "now",
         "Date and time",
-        "The current time in microseconds since the epoch, on each sample of in.",
-        &["in"],
+        "The current time in microseconds since the epoch: at the start, every interval_ms, and on each sample of in (in is only a trigger: its value means nothing).",
+        &["in", "in.interval_ms"],
         &["out"],
-        &[],
+        &[di(
+            p(
+                "interval_ms",
+                "number",
+                "Gives the time at the start and every this many milliseconds (default 1000); 0: only on samples of in; else 100 … 86 400 000.",
+            ),
+            1000,
+        )],
     ),
     unary(
         "date_time",

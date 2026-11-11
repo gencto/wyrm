@@ -4,9 +4,11 @@
 //! config and, where the block has the port `in.<param>`, from the last sample on that port.
 //! Variable inputs are named by the config list `inputs` (default `["0", "1"]`, ports
 //! `in.0`, `in.1`, …). Any sample on an input calculates the block; an output is sent only when
-//! its value or quality changed (events always). Only the variables (`number`, `string`,
-//! `bool`) send at start: an operator waits for its first input, so a deploy or a restart
-//! never fires a command by itself.
+//! its value or quality changed (events always). The variables (`number`, `string`, `bool`,
+//! `table`) and `constant` send at start. A pure block ([`pure`]) with no wired input
+//! calculates once at start from its constants and parameters (spec 06 0.2.30); what it sends
+//! is made of typed constants ([`Msg::constant`]), so it runs no command, not even through
+//! `in` of a `set` or an `invoke`. Any other block waits for its first input.
 //!
 //! Quality: the worst of the inputs that have a sample. Time: the latest of them.
 //!
@@ -14,6 +16,7 @@
 //! `round` to 0 places, `modulo`'s quotient); `divide` gives a float; a result that is not
 //! finite is `null`. Text converts to a number when it parses, a bool to 1 or 0.
 
+use crate::commands::{MAX_INTERVAL_MS, MIN_INTERVAL_MS};
 use crate::def::Map;
 use crate::nodes::{names, Io, Msg, Node, Out, PortType, Ports};
 use std::collections::BTreeMap;
@@ -160,6 +163,8 @@ const STOPWATCH_TICK: Duration = Duration::from_millis(50);
 const MIN_INTERVAL_S: f64 = 0.05;
 /// How often a relative `date_range` (`today`, `current3days`) is calculated again.
 const RANGE_TICK: Duration = Duration::from_secs(1);
+/// `now`'s default `interval_ms`.
+pub const NOW_INTERVAL_MS: i64 = 1000;
 
 // ---------- values ----------
 
@@ -822,8 +827,84 @@ pub fn takes_values(ty: &str) -> bool {
 }
 
 fn has_operands(k: Kind, sh: &Shape) -> bool {
-    !matches!(k, Kind::Number | Kind::Text | Kind::Bool | Kind::TableVar)
-        && (sh.items || sh.inputs.contains(&"in"))
+    // `now`'s `in` is a trigger: its value means nothing (spec 06 0.2.30)
+    !matches!(
+        k,
+        Kind::Number | Kind::Text | Kind::Bool | Kind::TableVar | Kind::Date(date::Op::Now)
+    ) && (sh.items || sh.inputs.contains(&"in"))
+}
+
+/// Whether a block of kind `k` is a pure function of its inputs and parameters: no state, no
+/// events, no clock of its own. Such a block with no wired input calculates once at the start
+/// from its constants (spec 06 0.2.30, `docs/flow-blocks.md`). `date_range` reads the clock
+/// for a relative range, as it does on its own tick.
+fn pure(k: Kind) -> bool {
+    match k {
+        Kind::Add
+        | Kind::Subtract
+        | Kind::Multiply
+        | Kind::Divide
+        | Kind::Max
+        | Kind::Min
+        | Kind::Abs
+        | Kind::Round
+        | Kind::Modulo
+        | Kind::Not
+        | Kind::If
+        | Kind::Concat
+        | Kind::Length
+        | Kind::Case
+        | Kind::Substring
+        | Kind::Replace
+        | Kind::Split
+        | Kind::Join
+        | Kind::MakeObject
+        | Kind::MakeArray
+        | Kind::Get
+        | Kind::Stats
+        | Kind::Select
+        | Kind::Math(_)
+        | Kind::Stat(_)
+        | Kind::Str(_) => true,
+        Kind::Date(op) => op != date::Op::Now,
+        Kind::Table(op) => op != tables::Op::Page,
+        // variables and `constant` send at start anyway; the others keep state, fire events,
+        // keep time or route: they wait for a real sample
+        Kind::Number
+        | Kind::Text
+        | Kind::Bool
+        | Kind::Constant
+        | Kind::TableVar
+        | Kind::Hub
+        | Kind::Stopwatch
+        | Kind::Trace
+        | Kind::Changed
+        | Kind::RisingEdge
+        | Kind::FallingEdge
+        | Kind::Counter
+        | Kind::Toggle
+        | Kind::SampleAndHold
+        | Kind::Debounce
+        | Kind::Throttle
+        | Kind::Router
+        | Kind::EventGate
+        | Kind::CatchError
+        | Kind::Recorder => false,
+    }
+}
+
+/// Whether block type `ty` calculates at start when no edge leads into it (spec 06 0.2.30).
+pub fn computes_at_start(ty: &str) -> bool {
+    kind(ty).is_some_and(pure)
+}
+
+/// `now`'s `interval_ms`: 0 (no clock) or [`MIN_INTERVAL_MS`]…[`MAX_INTERVAL_MS`], as a
+/// command's.
+fn now_interval_ok(v: &Value) -> bool {
+    num(v).is_some_and(|n| {
+        let x = n.f();
+        x == 0.0 || (MIN_INTERVAL_MS..=MAX_INTERVAL_MS).contains(&x)
+    })
 }
 
 /// The operand constants of config `values`: `{<port>: <value>}`, each port an operand input
@@ -874,12 +955,23 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
         .iter()
         .map(|p| p.name)
         .chain(sh.items.then_some("inputs"))
-        .chain(has_operands(k, &sh).then_some("values"))
+        // `now` takes no constant; one saved before spec 06 0.2.30 is read and ignored
+        .chain((has_operands(k, &sh) || k == Kind::Date(date::Op::Now)).then_some("values"))
         .collect();
     if let Some(x) = cfg.keys().find(|x| !known.contains(&x.as_str())) {
         return Err(format!("{x}: unknown field"));
     }
-    constants(k, &sh, cfg)?;
+    if k == Kind::Date(date::Op::Now) {
+        if let Some(v) = cfg.get("interval_ms") {
+            if !now_interval_ok(v) {
+                return Err(format!(
+                    "interval_ms: 0 (only on in) or {MIN_INTERVAL_MS}..={MAX_INTERVAL_MS}"
+                ));
+            }
+        }
+    } else {
+        constants(k, &sh, cfg)?;
+    }
     if let Some(ops) = ops_of(k) {
         let op = match cfg.get("op") {
             None => "=",
@@ -1062,9 +1154,13 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
                 )
             })
             .collect();
-        // an operand's constant is its value until a sample replaces it; it calculates
-        // nothing by itself (spec 06 0.2.19)
-        let consts = constants(k, &sh, cfg)?;
+        // an operand's constant is its value until a sample replaces it (spec 06 0.2.19); a
+        // pure block with no wired input calculates from it at start (0.2.30). `now` has none.
+        let consts = if k == Kind::Date(date::Op::Now) {
+            BTreeMap::new()
+        } else {
+            constants(k, &sh, cfg)?
+        };
         Ok(Box::new(Block {
             consts: consts.clone(),
             values: consts,
@@ -1085,6 +1181,7 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             count: None,
             elapsed_us: 0,
             born: false,
+            unwired: false,
             prev: None,
             held: None,
             due: None,
@@ -1133,6 +1230,8 @@ struct Block {
     /// The sample in hand was born at the start (ADR 0040 §2): the event blocks, `counter`,
     /// `toggle` and `sample_and_hold` take its value and do not act on it.
     born: bool,
+    /// No edge leads into the block: a pure one calculates at start (spec 06 0.2.30).
+    unwired: bool,
     /// `changed` and the edge blocks: the sample before.
     prev: Option<Value>,
     /// `debounce` and `throttle`: the value that waits, and when it goes out.
@@ -1717,6 +1816,14 @@ impl Block {
                 self.send_all(outs, q, t, out);
             }
             Kind::Date(date::Op::Range) => self.date_range(changed, q, t, out),
+            // the time at start, on its clock and on each sample of `in`; never on a change of
+            // `interval_ms`
+            Kind::Date(date::Op::Now) => {
+                if matches!(changed, "" | "in" | "__tick") {
+                    let now = now_us();
+                    self.send("out", Value::Int(now as i64), q, now, out);
+                }
+            }
             Kind::Router => {
                 let x = self.values.get("condition").cloned().unwrap_or(Value::Null);
                 let op = match self.param("op") {
@@ -2043,6 +2150,12 @@ impl Block {
         }
     }
 
+    /// `now`'s clock: `interval_ms`, none when it is 0 (only on samples of `in`).
+    fn now_every(&self) -> Option<Duration> {
+        let ms = num(self.param("interval_ms")).map_or(NOW_INTERVAL_MS as f64, N::f);
+        (ms >= MIN_INTERVAL_MS).then(|| Duration::from_millis(ms.min(MAX_INTERVAL_MS) as u64))
+    }
+
     /// `ms` of `debounce` and `throttle`.
     fn hold(&self) -> Duration {
         // not a finite number: the default; `num` gives no NaN, so the clamp is total
@@ -2097,8 +2210,12 @@ impl Block {
 }
 
 impl Node for Block {
+    fn unwired(&mut self) {
+        self.unwired = true;
+    }
+
     fn start(&mut self, io: &Io) {
-        // only a variable (and a constant) sends at start
+        // a variable (and a constant) sends at start
         if matches!(
             self.kind,
             Kind::Number | Kind::Text | Kind::Bool | Kind::Constant | Kind::TableVar
@@ -2107,12 +2224,23 @@ impl Node for Block {
                 "__start",
                 Msg::new(Value::Null, Quality::Good, now_us()).at_start(),
             );
+        // a pure block with no wired input calculates once from its constants, and `now`
+        // with a clock gives the time at once: made of constants, so they run no command
+        // (spec 06 0.2.30)
+        } else if (pure(self.kind) && self.unwired)
+            || (self.kind == Kind::Date(date::Op::Now) && self.now_every().is_some())
+        {
+            (io.inject)(
+                "__start",
+                Msg::new(Value::Null, Quality::Good, now_us()).of_constants(),
+            );
         }
     }
 
     fn input(&mut self, port: &str, m: Msg, _io: &Io, out: &mut Out) {
         let name = match port {
             "__start" => {
+                self.born = true;
                 self.calculate("", out);
                 return;
             }
@@ -2135,6 +2263,10 @@ impl Node for Block {
         if is_param && matches!(&m.v, Value::Float(x) if !x.is_finite()) {
             return;
         }
+        // `now` takes only an `interval_ms` it can keep: another value is ignored
+        if is_param && self.kind == Kind::Date(date::Op::Now) && !now_interval_ok(&m.v) {
+            return;
+        }
         self.seen.insert(name.clone(), (m.q, m.t));
         self.born = m.start;
         if port.starts_with("in.") && self.param_ports.contains(&name.as_str()) {
@@ -2155,11 +2287,23 @@ impl Node for Block {
             }
             // a relative range rolls over with the clock (ADR 0044 §3)
             Kind::Date(date::Op::Range) if self.range_is_relative() => Some(RANGE_TICK),
+            Kind::Date(date::Op::Now) => self.now_every(),
             _ => None,
         }
     }
 
+    /// `now` gave its time at start already (made of constants): its clock ticks first one
+    /// period later, and those ticks are ordinary samples, as a `timer`'s.
+    fn first_tick_now(&self) -> bool {
+        self.kind != Kind::Date(date::Op::Now)
+    }
+
     fn tick(&mut self, now: u64, out: &mut Out) {
+        if self.kind == Kind::Date(date::Op::Now) {
+            self.born = false;
+            self.calculate("__tick", out);
+            return;
+        }
         if self.kind == Kind::Date(date::Op::Range) {
             let (q, _) = self.quality();
             self.date_range("__tick", q, now, out);

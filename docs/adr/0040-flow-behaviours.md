@@ -86,6 +86,8 @@ A sample with the mark on `trigger` only gives the port its value. A sample with
 
 `in` is not part of the rule: a variable wired to `set.in` or `invoke.in` still writes at deploy, as ADR 0038 §6 warns. Changing that would change deployed flows. A flow that must not act at deploy uses `trigger`.
 
+*Amended 2026-11-11 (spec 06 0.2.30):* a second mark, **made of constants** (`Msg::constant`, always with `start`), is set where a pure block with no wired input calculates at start and on `now`'s start value, and the runtime carries it on in the same way. A sample with it runs no command on any port, `in` included: it only gives the field its value. Deployed flows do not change: before 0.2.30 such blocks sent nothing at start. Tests: `pure_blocks_calculate_at_start_and_run_no_command`, `a_real_sample_through_a_constant_chain_writes`, `operand_constants_never_fire_a_command_at_deploy` (also the control: a variable on `in` still writes).
+
 This is the alternative ADR 0038 §7 refused ("a start mark carried through every block"), in a narrower form: one bool on a sample, set at five places and carried by the runtime, and it changes no existing port's behaviour. *Cost:* a point that has no value when the flow starts gives its first value with the mark, so a `trigger` bound to it misses that one sample.
 
 **`dataflows/<id>/~act/trigger {node}`** runs one block once.
