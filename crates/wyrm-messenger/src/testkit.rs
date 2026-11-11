@@ -229,10 +229,14 @@ impl<A: App> SimHost<A> {
         let now = self.now();
         for c in cmds {
             match c {
-                Command::DeclareNode(p, _) => {
+                Command::DeclareNode(p, m) => {
+                    for (name, a) in m.actions.iter().flatten() {
+                        lint_names(name, a);
+                    }
                     self.nodes.entry(p).or_insert(None);
                 }
                 Command::DeclareAction(p, name, meta) => {
+                    lint_names(&name, &meta);
                     let list = self.actions.entry(p).or_default();
                     list.retain(|(n, _)| *n != name);
                     list.push((name, meta));
@@ -675,4 +679,11 @@ fn serve(mut stream: TcpStream, state: Arc<Mutex<ApiState>>) {
             return;
         }
     }
+}
+
+/// Names people read (ADR 0042): every action this host is handed keeps
+/// to the style, so the tests of each app hold it to the rule.
+fn lint_names(name: &str, a: &wyrm_core::ActionMeta) {
+    let found = wyrm_core::display::lint(name, a);
+    assert!(found.is_empty(), "{}", found.join("; "));
 }

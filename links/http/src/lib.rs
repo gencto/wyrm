@@ -113,14 +113,14 @@ pub struct ConnParams {
         desc = "auth bearer: the token; auth api_key: the key"
     )]
     pub token: String,
-    #[param(enum, default = "header", display = "API Key In", dest)]
+    #[param(enum, default = "header", display = "API key in", dest)]
     pub api_key_in: KeyIn,
-    #[param(default = "X-API-Key", display = "API Key Name", dest)]
+    #[param(default = "X-API-Key", display = "API key name", dest)]
     pub api_key_name: String,
     #[param(
         default = "",
         editor = "textarea",
-        display = "CA Certificates (PEM)",
+        display = "CA certificates (PEM)",
         desc = "https: trust these CAs only; empty = the CA certificates of the host",
         dest
     )]
@@ -128,27 +128,27 @@ pub struct ConnParams {
     #[param(
         default = "",
         editor = "textarea",
-        display = "Client Certificate (PEM)",
+        display = "Client certificate (PEM)",
         desc = "https: client certificate chain for mTLS"
     )]
     pub cert_pem: String,
     #[param(
         default = "",
         secret,
-        display = "Client Key (PEM)",
+        display = "Client key (PEM)",
         desc = "private key of the client certificate"
     )]
     pub key_pem: String,
     #[param(
         default = false,
-        display = "Skip Certificate Check",
+        display = "Skip certificate check",
         desc = "https: accept any server certificate (insecure)",
         dest
     )]
     pub insecure_skip_verify: bool,
     #[param(
         default = false,
-        display = "Allow Credentials over HTTP",
+        display = "Allow credentials over HTTP",
         desc = "send credentials over http:// to a host that is not loopback (insecure)",
         dest
     )]
@@ -164,7 +164,7 @@ pub struct ConnParams {
     pub headers: String,
     #[param(
         default = "",
-        display = "Secret Header Name",
+        display = "Secret header name",
         placeholder = "X-Api-Secret",
         desc = "one more credential header, sent with every request",
         dest
@@ -173,7 +173,7 @@ pub struct ConnParams {
     #[param(
         default = "",
         secret,
-        display = "Secret Header Value",
+        display = "Secret header value",
         desc = "the value of secret_header_name"
     )]
     pub secret_header_value: String,
@@ -181,14 +181,14 @@ pub struct ConnParams {
         default = 5.0,
         min = 0.1,
         max = 1000.0,
-        display = "Rate Limit (requests/s)"
+        display = "Rate limit (requests/s)"
     )]
     pub rate_limit: f64,
     #[param(
         default = 4096,
         min = 1,
         max = 65536,
-        display = "Max Body (KiB)",
+        display = "Max body (KiB)",
         desc = "a longer reply is a device error"
     )]
     pub max_body_kib: u32,
@@ -648,7 +648,7 @@ pub struct DevParams {
     pub body: String,
     #[param(
         default = "200-299",
-        display = "Expected Status",
+        display = "Expected status",
         desc = "codes and ranges, as 200-299,304"
     )]
     pub expect_status: String,
@@ -771,12 +771,12 @@ pub enum WriteMethod {
 #[derive(Debug, Clone, PartialEq, Params)]
 pub struct PointParams {
     #[param(
-        display = "JSON Path",
+        display = "JSON path",
         placeholder = "$.meter.power",
         desc = "$.a.b, $.items[0].v, $.items[?(@.id==\"x\")].v, $.items[*].v"
     )]
     pub path: String,
-    #[param(name = "type", enum, default = "number", display = "Value Type")]
+    #[param(name = "type", enum, default = "number", display = "Value type")]
     pub vtype: ValueType,
     #[param(
         enum,
@@ -787,19 +787,19 @@ pub struct PointParams {
     pub aggregate: Aggregate,
     #[param(default = 1.0, display = "Scaling")]
     pub scale: f64,
-    #[param(default = 0.0, display = "Scaling Offset")]
+    #[param(default = 0.0, display = "Scaling offset")]
     pub offset: f64,
     #[param(default = "", display = "Unit")]
     pub unit: String,
     #[param(
         default = "",
-        display = "True Text",
+        display = "True text",
         desc = "type bool: a string equal to this (any case) is true"
     )]
     pub bool_true: String,
     #[param(
         default = "",
-        display = "False Text",
+        display = "False text",
         desc = "type bool: a string equal to this is false; empty = every other string"
     )]
     pub bool_false: String,
@@ -807,17 +807,17 @@ pub struct PointParams {
         default = 10.0,
         min = 0.1,
         max = 86400.0,
-        display = "Poll Rate (s)",
+        display = "Poll rate (s)",
         desc = "points of a device with the same rate share one request"
     )]
     pub poll_s: f64,
     #[param(default = false, display = "Writable")]
     pub writable: bool,
-    #[param(enum, default = "put", display = "Write Method")]
+    #[param(enum, default = "put", display = "Write method")]
     pub write_method: WriteMethod,
     #[param(
         default = "",
-        display = "Write Path",
+        display = "Write path",
         placeholder = "/v1/setpoint?unit=1",
         desc = "path and query below the base URL; empty = the device's"
     )]
@@ -825,7 +825,7 @@ pub struct PointParams {
     #[param(
         default = "{{value}}",
         editor = "textarea",
-        display = "Write Body (JSON)",
+        display = "Write body (JSON)",
         placeholder = "{\"setpoint\": {{value}}}",
         desc = "{{value}} becomes the JSON value written"
     )]
@@ -1938,7 +1938,7 @@ impl Driver for HttpDriver {
                 "try_request",
                 ActionMeta::new()
                     .level(Perm::Config)
-                    .display("Try Request")
+                    .display("Try request")
                     .timeout_ms(TRY_MS)
                     .result(ActionResult::Type(TypeCode::Map)),
             ),
@@ -1946,19 +1946,19 @@ impl Driver for HttpDriver {
                 "test_selector",
                 ActionMeta::new()
                     .level(Perm::Config)
-                    .display("Test Selector")
+                    .display("Test selector")
                     .timeout_ms(5_000)
                     .result(ActionResult::Type(TypeCode::Map))
                     .param(
                         "path",
                         ParamMeta::of(TypeCode::String)
-                            .display("JSON Path")
+                            .display("JSON path")
                             .description("against the last JSON reply of this device")
                             .required(true),
                     )
                     .param(
                         "type",
-                        enum_param("Value Type", ValueType::NAMES)
+                        enum_param("Value type", ValueType::NAMES)
                             .description("also convert the matches to one value"),
                     )
                     .param("aggregate", enum_param("Aggregate", Aggregate::NAMES)),

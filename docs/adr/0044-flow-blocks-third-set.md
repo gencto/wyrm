@@ -144,7 +144,7 @@ compile matches nothing.
 ## Consequences
 
 - `node_types` lists the new types; the catalog gains `display` per parameter
-  (spec 06 0.2.28). Studio draws them from the catalog; its follow-up is in the
+  (spec 06 0.2.29). Studio draws them from the catalog; its follow-up is in the
   pull request.
 - The guide (`docs/flow-blocks.md`) has a section per group with fields,
   behaviour and bounds.

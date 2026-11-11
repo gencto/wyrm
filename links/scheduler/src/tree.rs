@@ -141,11 +141,11 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 2] {
             "add_schedule",
             ActionMeta::new()
                 .level(Perm::Write)
-                .display("Add Schedule")
+                .display("Add schedule")
                 .group(GROUP_NEW)
-                .param("id", text_param("Id").required(true).placeholder("lobby"))
+                .param("id", text_param("ID").required(true).placeholder("lobby"))
                 .param("display", text_param("Display"))
-                .param("tz", text_param("Time Zone").description(ZONE_ABOUT))
+                .param("tz", text_param("Time zone").description(ZONE_ABOUT))
                 .param(
                     "default",
                     param(TypeCode::Dynamic, "Default")
@@ -159,7 +159,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 2] {
             // it carries targets: configuration (ruling 6)
             ActionMeta::new()
                 .level(Perm::Config)
-                .display("Import Schedule")
+                .display("Import schedule")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
@@ -171,7 +171,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 2] {
                 )
                 .param(
                     "id",
-                    text_param("Id").description(
+                    text_param("ID").description(
                         "The schedule's id; default: the id in the export (DSA: its name).",
                     ),
                 )
@@ -191,7 +191,7 @@ fn schedule_actions() -> BTreeMap<String, ActionMeta> {
         event_params(
             ActionMeta::new()
                 .level(Perm::Write)
-                .display("Add Event")
+                .display("Add event")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map)),
             true,
@@ -201,7 +201,7 @@ fn schedule_actions() -> BTreeMap<String, ActionMeta> {
         "get_events".into(),
         ActionMeta::new()
             .level(Perm::Read)
-            .display("Get Events")
+            .display("Get events")
             .result(ActionResult::Type(TypeCode::Array))
             .param(
                 "timerange",
@@ -230,7 +230,7 @@ fn schedule_actions() -> BTreeMap<String, ActionMeta> {
             .display("Edit")
             .group(GROUP_EDIT)
             .param("display", text_param("Display"))
-            .param("tz", text_param("Time Zone").description(ZONE_ABOUT))
+            .param("tz", text_param("Time zone").description(ZONE_ABOUT))
             .param("default", param(TypeCode::Dynamic, "Default")),
     );
     a.insert(
@@ -246,7 +246,7 @@ fn schedule_actions() -> BTreeMap<String, ActionMeta> {
         target_params(
             ActionMeta::new()
                 .level(Perm::Config)
-                .display("Add Target")
+                .display("Add target")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map)),
             true,
@@ -282,12 +282,12 @@ fn target_params(a: ActionMeta, required: bool) -> ActionMeta {
     )
     .param(
         "feedback",
-        text_param("Feedback Point").description("With confirm feedback: the point to read."),
+        text_param("Feedback point").description("With confirm feedback: the point to read."),
     )
     .param("map", text_param("Map").description(MAP_ABOUT))
     .param(
         "feedback_map",
-        text_param("Feedback Map").description(FEEDBACK_MAP_ABOUT),
+        text_param("Feedback map").description(FEEDBACK_MAP_ABOUT),
     )
     .param(
         "tolerance",

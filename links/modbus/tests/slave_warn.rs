@@ -130,7 +130,7 @@ async fn non_loopback_listen_is_flagged() {
     assert_eq!(open, 1, "{logged:?}");
     assert_eq!(logged.len(), 1 + usize::from(has_v6), "{logged:?}");
 
-    // Final review M4: "Rescan For Serial Ports" declares every connection
+    // Final review M4: "Rescan for serial ports" declares every connection
     // again; the warning stays on the running slave's `status`.
     let r = h
         .invoke("", "rescan", map(&[]), Some(h.ptok(Perm::Config)))

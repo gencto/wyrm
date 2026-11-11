@@ -21,7 +21,7 @@ pub const STATS: &str = "stats";
 pub const STAT_NAMES: [&str; 4] = ["upstreams", "connected", "published", "dropped"];
 /// The leaves of one upstream, in order.
 pub const LEAVES: [(&str, TypeCode, &str); 8] = [
-    ("status", TypeCode::String, "connecting, connected, waiting (after an error), failed (see error; Edit, Set Password or Enable start it again), disabled"),
+    ("status", TypeCode::String, "connecting, connected, waiting (after an error), failed (see error; Edit, Set password or Enable start it again), disabled"),
     ("error", TypeCode::String, "The last error."),
     ("url", TypeCode::String, "Where it connects."),
     ("connected_since", TypeCode::String, "UTC time of the current connection; empty while there is none."),
@@ -75,7 +75,10 @@ pub fn add_action(kind: Kind) -> (String, ActionMeta) {
     (
         format!("add_{}", kind.name()),
         form(kind, true)
-            .display(format!("Add {} Upstream", kind.display()))
+            .display(wyrm_core::display::sentence(&format!(
+                "Add {} upstream",
+                kind.display()
+            )))
             .group(GROUP_NEW),
     )
 }
@@ -86,7 +89,7 @@ pub fn upstream_actions(kind: Kind, from_config: bool) -> Vec<(&'static str, Act
         (
             "set_password",
             ActionMeta::new()
-                .display("Set Password")
+                .display("Set password")
                 .group(GROUP_EDIT)
                 .level(Perm::Config)
                 .param(
@@ -100,7 +103,7 @@ pub fn upstream_actions(kind: Kind, from_config: bool) -> Vec<(&'static str, Act
         (
             "test_connection",
             ActionMeta::new()
-                .display("Test Connection")
+                .display("Test connection")
                 .level(Perm::Config)
                 .result(ActionResult::Type(TypeCode::Map)),
         ),

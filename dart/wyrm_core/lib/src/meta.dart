@@ -185,7 +185,7 @@ class ActionMeta {
   Perm? level;
   int? timeoutMs;
 
-  /// Name for people (`Add Device`); the key stays a key segment.
+  /// Name for people (`Add device`); the key stays a key segment.
   String? display;
 
   /// Menu: `new` (adds children), `edit` (changes or removes the node),

@@ -60,13 +60,13 @@ pub struct DriveParams {
     #[param(
         default = "",
         secret,
-        display = "Service Account Key (JSON)",
+        display = "Service account key (JSON)",
         desc = "auth service_account: the whole JSON key file"
     )]
     pub service_account_json: String,
     #[param(
         default = "",
-        display = "Act As User",
+        display = "Act as user",
         placeholder = "operator@example.com",
         desc = "auth service_account: a Workspace user (domain-wide delegation); empty = the account itself",
         dest
@@ -77,14 +77,14 @@ pub struct DriveParams {
     #[param(
         default = "",
         secret,
-        display = "Client Secret",
+        display = "Client secret",
         desc = "auth refresh_token"
     )]
     pub client_secret: String,
     #[param(
         default = "",
         secret,
-        display = "Refresh Token",
+        display = "Refresh token",
         desc = "auth refresh_token"
     )]
     pub refresh_token: String,
@@ -97,14 +97,14 @@ pub struct DriveParams {
     pub folder_id: String,
     #[param(
         default = "",
-        display = "Shared Drive ID",
+        display = "Shared drive ID",
         desc = "a shared drive (its id); the folder must be in it ('root' = the drive's top)",
         dest
     )]
     pub shared_drive_id: String,
     #[param(
         default = true,
-        display = "Delete to Trash",
+        display = "Delete to trash",
         desc = "Delete moves to the trash; off = delete for good"
     )]
     pub trash: bool,
@@ -114,7 +114,7 @@ pub struct DriveParams {
         default = 8192,
         min = 256,
         max = 65536,
-        display = "Upload Chunk (KiB)",
+        display = "Upload chunk (KiB)",
         desc = "a file received in parts goes to Drive in chunks of this size (a multiple of 256)"
     )]
     pub upload_chunk_kib: u32,
@@ -134,7 +134,7 @@ pub struct DriveParams {
     #[param(
         default = "",
         editor = "textarea",
-        display = "CA Certificates (PEM)",
+        display = "CA certificates (PEM)",
         desc = "trust these CAs only (a TLS-inspecting proxy); empty = the CA certificates of the host",
         dest
     )]

@@ -137,7 +137,46 @@ struct Slot<P: Params> {
     raw: Value,
     /// The node kind (`""` on a single-kind level).
     kind: String,
+    /// The name people read instead of the key (`attr.display`, ADR
+    /// 0042); never part of the path.
+    display: Option<String>,
     error: Option<String>,
+}
+
+/// Field of a connection, device or point that names it for people
+/// (ADR 0042): structural like `kind`, so no driver param may use it.
+pub const DISPLAY: &str = "display";
+
+/// The longest name for people, in bytes.
+pub const MAX_DISPLAY: usize = 128;
+
+/// `display` taken out of `m`: absent → `None`, `null` or empty text →
+/// `Some(None)` (clear it), text → `Some(Some(..))` (trimmed).
+fn take_display(m: &mut Map) -> Result<Option<Option<String>>> {
+    match m.remove(DISPLAY) {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(None)),
+        Some(Value::Str(t)) => {
+            let t = t.trim();
+            if t.len() > MAX_DISPLAY {
+                return Err(LinkError::invalid_parameter(format!(
+                    "{DISPLAY}: at most {MAX_DISPLAY} bytes"
+                )));
+            }
+            Ok(Some((!t.is_empty()).then(|| t.to_owned())))
+        }
+        Some(_) => Err(LinkError::invalid_parameter(format!(
+            "{DISPLAY}: expected text"
+        ))),
+    }
+}
+
+/// `m` with the name for people beside the params (tree, export).
+fn with_display(mut m: Map, display: &Option<String>) -> Map {
+    if let Some(d) = display {
+        m.insert(DISPLAY.into(), Value::Str(d.clone()));
+    }
+    m
 }
 
 /// A level with several node kinds stores and shows `kind`.
@@ -150,6 +189,8 @@ impl<P: Params> Slot<P> {
         // `kind` is structural only on levels with several kinds (their
         // params may not use that name); elsewhere it is a driver param.
         let mut m = map_of(&raw);
+        // A stored or imported name that is not text is dropped, not fatal.
+        let display = take_display(&mut m).ok().flatten().flatten();
         let given = match multi_kind::<P>().then(|| m.remove("kind")).flatten() {
             Some(Value::Str(k)) => k,
             _ => String::new(),
@@ -160,6 +201,7 @@ impl<P: Params> Slot<P> {
                 kind: cfg.kind().to_owned(),
                 cfg: Some(cfg),
                 raw,
+                display,
                 error: None,
             },
             Err(e) => Self {
@@ -170,6 +212,7 @@ impl<P: Params> Slot<P> {
                 },
                 cfg: None,
                 raw,
+                display,
                 error: Some(e.message),
             },
         }
@@ -180,7 +223,22 @@ impl<P: Params> Slot<P> {
             raw: cfg.to_value(),
             kind: cfg.kind().to_owned(),
             cfg: Some(cfg),
+            display: None,
             error: None,
+        }
+    }
+
+    /// This slot with the name for people `display`.
+    fn named(mut self, display: Option<String>) -> Self {
+        self.display = display;
+        self
+    }
+
+    /// The node's meta with its name for people as `attr.display`.
+    fn label(&self, meta: NodeMeta) -> NodeMeta {
+        match &self.display {
+            Some(d) => meta.display(d.clone()),
+            None => meta,
         }
     }
 
@@ -214,13 +272,13 @@ impl<P: Params> Slot<P> {
         if multi_kind::<P>() {
             m.insert("kind".into(), Value::Str(self.kind.clone()));
         }
-        m
+        with_display(m, &self.display)
     }
 
     /// The params of a branch export: as shown, and each secret that has a
     /// value as [`branch::NOT_EXPORTED`].
     fn exported(&self) -> Map {
-        let mut m = self.shown();
+        let mut m = with_display(self.shown(), &self.display);
         let raw = map_of(&self.raw);
         let secret = match &self.cfg {
             Some(_) => self
@@ -822,18 +880,9 @@ fn valid_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// `ip_connection` → `Ip Connection`.
+/// `ip_connection` → `IP connection` (ADR 0042).
 fn title(id: &str) -> String {
-    id.split('_')
-        .filter(|w| !w.is_empty())
-        .map(|w| {
-            let mut c = w.chars();
-            c.next()
-                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    wyrm_core::display::humanize(id)
 }
 
 /// The add actions of a level: `(action, kind, name for people)`. One kind:
@@ -855,9 +904,12 @@ fn adds<P: Params>(noun: &str) -> Vec<(String, Kind)> {
 /// The name for people of an add action.
 fn add_display(noun: &str, k: &Kind) -> String {
     if k.display.is_empty() {
-        format!("Add {}", title(if k.id.is_empty() { noun } else { k.id }))
+        title(&format!(
+            "add_{}",
+            if k.id.is_empty() { noun } else { k.id }
+        ))
     } else {
-        format!("Add {}", k.display)
+        wyrm_core::display::sentence(&format!("Add {}", k.display))
     }
 }
 
@@ -938,10 +990,23 @@ fn add_form<D: Driver>(schema: &[ParamSpec], display: String) -> ActionMeta {
             "name",
             wyrm_core::meta::ParamMeta::of(TypeCode::String)
                 .required(true)
-                .display("Name"),
+                .display("Name")
+                .description("The node's key: letters, digits, `_`, `-`, `.`"),
         )
+        .param(DISPLAY, display_param(None))
         .display(display)
         .group(GROUP_NEW)
+}
+
+/// The optional name for people of a new or edited node (ADR 0042).
+fn display_param(current: Option<&str>) -> ParamMeta {
+    let mut p = ParamMeta::of(TypeCode::String)
+        .required(false)
+        .display("Display name")
+        .description("Shown instead of the key; the key stays the path")
+        .placeholder("Supply temperature");
+    p.default = current.map(|d| Value::Str(d.to_owned()));
+    p
 }
 
 /// `copy {name}`: the node with everything below it, beside it.
@@ -1031,7 +1096,7 @@ impl<D: Driver> Framework<D> {
     async fn declare_conn(&self, name: &str) -> Result<()> {
         let c = &self.conns[name];
         let shown = c.slot.shown();
-        let mut meta = NodeMeta::folder().is("wy:df-connection");
+        let mut meta = c.slot.label(NodeMeta::folder().is("wy:df-connection"));
         meta.cfg = Some(shown.clone());
         self.ctx.declare_node(name, meta).await?;
         match &c.run {
@@ -1055,7 +1120,8 @@ impl<D: Driver> Framework<D> {
                 .declare_action(name, &id, add_form::<D>(&k.schema, display))
                 .await?;
         }
-        self.declare_common(name, &c.slot.schema(), &shown).await?;
+        self.declare_common(name, &c.slot.schema(), &shown, c.slot.display.as_deref())
+            .await?;
         self.ctx
             .declare_action(name, "restart", plain("Restart"))
             .await?;
@@ -1096,14 +1162,15 @@ impl<D: Driver> Framework<D> {
         let d = &self.conns[conn].devices[dev];
         let base = format!("{conn}/{dev}");
         let shown = d.slot.shown();
-        let mut meta = NodeMeta::folder().is("wy:df-device");
+        let mut meta = d.slot.label(NodeMeta::folder().is("wy:df-device"));
         meta.cfg = Some(shown.clone());
         self.ctx.declare_node(&base, meta).await?;
         self.ctx
             .declare_node(&status_path(&base), status_meta())
             .await?;
         self.declare_adds_below(&base, &[]).await?;
-        self.declare_common(&base, &d.slot.schema(), &shown).await?;
+        self.declare_common(&base, &d.slot.schema(), &shown, d.slot.display.as_deref())
+            .await?;
         self.ctx
             .declare_action(&base, "restart", plain("Restart"))
             .await?;
@@ -1140,7 +1207,7 @@ impl<D: Driver> Framework<D> {
                         .required(true)
                         .display("Name"),
                 )
-                .display("Add Folder")
+                .display("Add folder")
                 .group(GROUP_NEW);
             self.ctx.declare_action(base, ADD_FOLDER, form).await?;
         }
@@ -1194,10 +1261,10 @@ impl<D: Driver> Framework<D> {
         let d = &self.conns[conn].devices[dev];
         let p = &d.points[pt].slot;
         let path = format!("{conn}/{dev}/{}", d.rel(pt));
-        let mut meta = match &p.cfg {
+        let mut meta = p.label(match &p.cfg {
             Some(cfg) => D::point_meta(cfg),
             None => NodeMeta::leaf(TypeCode::Dynamic),
-        };
+        });
         if server && p.cfg.is_some() {
             // A server's points take their values from the tree.
             meta.writable = Some(Writable::Write);
@@ -1206,7 +1273,8 @@ impl<D: Driver> Framework<D> {
         let cfg = meta.cfg.get_or_insert_with(Map::new);
         cfg.extend(shown.clone());
         self.ctx.declare_node(&path, meta).await?;
-        self.declare_common(&path, &p.schema(), &shown).await?;
+        self.declare_common(&path, &p.schema(), &shown, p.display.as_deref())
+            .await?;
         if let Some(e) = &p.error {
             // Keep the node; show why it does not run.
             let _ = self
@@ -1227,8 +1295,15 @@ impl<D: Driver> Framework<D> {
 
     /// `edit` (the node's own form, pre-filled), `remove` and `copy`,
     /// group `edit`.
-    async fn declare_common(&self, path: &str, schema: &[ParamSpec], shown: &Map) -> Result<()> {
+    async fn declare_common(
+        &self,
+        path: &str,
+        schema: &[ParamSpec],
+        shown: &Map,
+        display: Option<&str>,
+    ) -> Result<()> {
         let edit = form::<D>(schema, Some(shown))
+            .param(DISPLAY, display_param(display))
             .display("Edit")
             .group(GROUP_EDIT);
         self.ctx.declare_action(path, "edit", edit).await?;
@@ -1277,7 +1352,7 @@ impl<D: Driver> Framework<D> {
                     "rescan",
                     ActionMeta::new()
                         .level(Perm::Config)
-                        .display(name)
+                        .display(wyrm_core::display::sentence(name))
                         .result(ActionResult::Type(TypeCode::Map)),
                 )
                 .await?;
@@ -1714,13 +1789,13 @@ impl<D: Driver> Framework<D> {
     fn export(&self) -> Value {
         let mut conns = Map::new();
         for (cn, c) in &self.conns {
-            let mut cm = c.slot.shown();
+            let mut cm = with_display(c.slot.shown(), &c.slot.display);
             cm.insert("enabled".into(), Value::Bool(c.enabled));
             let mut devs = Map::new();
             for (dn, d) in &c.devices {
-                let mut dm = d.slot.shown();
+                let mut dm = with_display(d.slot.shown(), &d.slot.display);
                 dm.insert("enabled".into(), Value::Bool(d.enabled));
-                dm.extend(d.branch(&[], &Slot::shown));
+                dm.extend(d.branch(&[], &|p| with_display(p.shown(), &p.display)));
                 devs.insert(dn.clone(), Value::Map(dm));
             }
             cm.insert("devices".into(), Value::Map(devs));
@@ -3007,6 +3082,9 @@ impl<D: Driver> Framework<D> {
     /// or point (below a device or folder) of `kind`.
     async fn add_child(&mut self, at: &At<'_>, kind: &str, args: &Value) -> Result<()> {
         let (name, params) = split_name(args)?;
+        let mut params = map_of(&params);
+        let display = take_display(&mut params)?.flatten();
+        let params = Value::Map(params);
         match at {
             At::Root => {
                 if self.conns.contains_key(&name) {
@@ -3016,7 +3094,7 @@ impl<D: Driver> Framework<D> {
                 self.conns.insert(
                     name.clone(),
                     ConnEntry {
-                        slot: Slot::valid(cfg),
+                        slot: Slot::valid(cfg).named(display),
                         enabled: true,
                         devices: BTreeMap::new(),
                         run: None,
@@ -3035,7 +3113,7 @@ impl<D: Driver> Framework<D> {
                 c.devices.insert(
                     name.clone(),
                     DevEntry {
-                        slot: Slot::valid(cfg),
+                        slot: Slot::valid(cfg).named(display),
                         enabled: true,
                         token: run_token(),
                         points: BTreeMap::new(),
@@ -3073,7 +3151,7 @@ impl<D: Driver> Framework<D> {
                     )));
                 }
                 let entry = PointEntry {
-                    slot: Slot::valid(cfg),
+                    slot: Slot::valid(cfg).named(display),
                     folder,
                 };
                 d.points.insert(name.clone(), entry);
@@ -3154,23 +3232,33 @@ impl<D: Driver> Framework<D> {
                 // Validate first; a rejected edit changes nothing.
                 let slot = &self.conn_mut(conn)?.slot;
                 let (old, kind, schema) = (slot.raw.clone(), slot.kind.clone(), slot.schema());
+                let (args, display) = edit_display(&args, &old, &slot.display)?;
                 let cfg = D::Conn::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let c = self.conn_mut(conn)?;
                 if c.slot.cfg.as_ref() == Some(&cfg) {
+                    // A new name alone restarts nothing.
+                    if c.slot.display != display {
+                        c.slot.display = display;
+                        self.declare_conn(conn).await?;
+                    }
                     return Ok(());
                 }
                 self.tear_down(conn).await;
-                self.conn_mut(conn)?.slot = Slot::valid(cfg);
+                self.conn_mut(conn)?.slot = Slot::valid(cfg).named(display);
                 self.declare_conn(conn).await?;
                 self.bring_up(conn).await;
             }
             (At::Dev(conn, dev), "edit") => {
-                let (old, kind, schema) = self
+                let (old, kind, schema, name) = self
                     .conn_mut(conn)?
                     .devices
                     .get(dev.as_str())
-                    .map(|d| (d.slot.raw.clone(), d.slot.kind.clone(), d.slot.schema()))
+                    .map(|d| {
+                        let s = &d.slot;
+                        (s.raw.clone(), s.kind.clone(), s.schema(), s.display.clone())
+                    })
                     .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
+                let (args, display) = edit_display(&args, &old, &name)?;
                 let cfg = D::Dev::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let d = self
                     .conn_mut(conn)?
@@ -3178,21 +3266,29 @@ impl<D: Driver> Framework<D> {
                     .get_mut(dev.as_str())
                     .ok_or_else(|| LinkError::not_found((*dev).clone()))?;
                 if d.slot.cfg.as_ref() == Some(&cfg) {
+                    if d.slot.display != display {
+                        d.slot.display = display;
+                        self.declare_dev(conn, dev).await?;
+                    }
                     return Ok(());
                 }
-                d.slot = Slot::valid(cfg);
+                d.slot = Slot::valid(cfg).named(display);
                 d.token = run_token();
                 self.declare_dev(conn, dev).await?;
                 self.replan(conn).await;
             }
             (At::Point(conn, dev, pt), "edit") => {
-                let (old, kind, schema) = self
+                let (old, kind, schema, name) = self
                     .conn_mut(conn)?
                     .devices
                     .get(dev.as_str())
                     .and_then(|d| d.points.get(pt.as_str()))
-                    .map(|p| (p.slot.raw.clone(), p.slot.kind.clone(), p.slot.schema()))
+                    .map(|p| {
+                        let s = &p.slot;
+                        (s.raw.clone(), s.kind.clone(), s.schema(), s.display.clone())
+                    })
                     .ok_or_else(|| LinkError::not_found((*pt).clone()))?;
+                let (args, display) = edit_display(&args, &old, &name)?;
                 let cfg = D::Point::from_kind_value(&kind, &keep_secrets(&schema, &old, &args))?;
                 let p = self
                     .conn_mut(conn)?
@@ -3201,9 +3297,13 @@ impl<D: Driver> Framework<D> {
                     .and_then(|d| d.points.get_mut(pt.as_str()))
                     .ok_or_else(|| LinkError::not_found((*pt).clone()))?;
                 if p.slot.cfg.as_ref() == Some(&cfg) {
+                    if p.slot.display != display {
+                        p.slot.display = display;
+                        self.declare_point(conn, dev, pt).await?;
+                    }
                     return Ok(());
                 }
-                p.slot = Slot::valid(cfg);
+                p.slot = Slot::valid(cfg).named(display);
                 self.declare_point(conn, dev, pt).await?;
                 self.replan(conn).await;
             }
@@ -3312,6 +3412,25 @@ impl<D: Driver> Framework<D> {
     }
 }
 
+/// `edit` args without `display`, and the node's name after the edit: an
+/// edit that leaves `display` out keeps the current one, `null` or empty
+/// text clears it. An edit of `display` alone is a rename: the params stay
+/// `old` (the stored ones), so nothing goes back to a default.
+fn edit_display(
+    args: &Value,
+    old: &Value,
+    current: &Option<String>,
+) -> Result<(Value, Option<String>)> {
+    let mut m = map_of(args);
+    let Some(given) = take_display(&mut m)? else {
+        return Ok((Value::Map(m), current.clone()));
+    };
+    if m.is_empty() {
+        return Ok((old.clone(), given));
+    }
+    Ok((Value::Map(m), given))
+}
+
 /// `{name}` and nothing else (a `copy`).
 fn copy_name(args: &Value) -> Result<String> {
     let (name, rest) = split_name(args)?;
@@ -3375,6 +3494,7 @@ fn import_params<P: Params>(at: &str, params: &Map, reenter: &mut Vec<String>) -
     };
     let schema = P::kind_schema(&resolved).map_err(bad)?;
     let mut check = m.clone();
+    take_display(&mut check).map_err(bad)?;
     for s in schema.iter().filter(|s| s.secret) {
         let given = m.remove(s.name).is_some();
         check.remove(s.name);
@@ -3470,7 +3590,8 @@ fn keep_conn_secrets<P: Params>(
     if multi_kind::<P>() {
         m.insert("kind".into(), Value::Str(new.kind.clone()));
     }
-    *new = Slot::parse(Value::Map(m));
+    let display = new.display.take();
+    *new = Slot::parse(Value::Map(m)).named(display);
 }
 
 /// An imported connection `node` named `name` as it will load, checked like

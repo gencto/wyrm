@@ -415,11 +415,11 @@ async fn slave_kinds_are_served_not_polled() {
     let root = root.unwrap().actions.unwrap();
     assert_eq!(
         root["add_ip_slave"].display.as_deref(),
-        Some("Add IP Slave")
+        Some("Add IP slave")
     );
     assert_eq!(
         root["add_serial_slave"].display.as_deref(),
-        Some("Add Serial Slave")
+        Some("Add serial slave")
     );
     let (_, conn) = h.meta("s1").await;
     let conn = conn.unwrap();

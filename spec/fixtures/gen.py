@@ -53,7 +53,7 @@ def fixtures():
                  "unit": {1: 1, "default": 1, "display": "Slave ID", "description": "1..247"},
                  "host": {1: 2, "placeholder": "10.0.1.199"},
                  "password": {1: 2, "editor": "password"}},
-                 "level": 4, "display": "Add Device", "group": "new"},
+                 "level": 4, "display": "Add device", "group": "new"},
              "restart": {"params": {}, "level": 4, "display": "Restart"},
              "remove": {"params": {}, "level": 4, "display": "Remove", "group": "edit"}}})
     add("meta_profile_only", "~meta дитини, що повністю відповідає профілю", {0: 2, 10: 3})

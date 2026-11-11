@@ -61,13 +61,13 @@ fn query_params(a: ActionMeta, required: bool) -> ActionMeta {
         .param(
             "publish_ms",
             ParamMeta::of(TypeCode::Number)
-                .display("Publish Interval")
+                .display("Publish interval")
                 .description(PUBLISH_ABOUT),
         )
         .param(
             "publish",
             ParamMeta::of(TypeCode::Bool)
-                .display("Publish Table")
+                .display("Publish table")
                 .description(PUBLISH_TABLE_ABOUT),
         )
 }
@@ -80,10 +80,10 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
             query_params(
                 ActionMeta::new()
                     .level(Perm::Write)
-                    .display("Add Query")
+                    .display("Add query")
                     .group(GROUP_NEW)
                     .result(ActionResult::Type(TypeCode::Map))
-                    .param("id", text("Id").required(true).placeholder("temps")),
+                    .param("id", text("ID").required(true).placeholder("temps")),
                 true,
             )
             .param("enabled", ParamMeta::of(TypeCode::Bool).display("Enabled")),
@@ -92,7 +92,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
             "run",
             ActionMeta::new()
                 .level(Perm::Write)
-                .display("Run Query")
+                .display("Run query")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
                     "text",
@@ -103,13 +103,13 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
                 )
                 .param(
                     "id",
-                    text("Id")
+                    text("ID")
                         .description("Name the ad-hoc query (a dataflow subscribes <id>/table)."),
                 )
                 .param(
                     "ttl_s",
                     ParamMeta::of(TypeCode::Number)
-                        .display("Time To Live")
+                        .display("Time to live")
                         .description(
                             "Seconds the ad-hoc query lives unless read again (300; at most 3600).",
                         ),
@@ -119,7 +119,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
             "explain",
             ActionMeta::new()
                 .level(Perm::Read)
-                .display("Explain Query")
+                .display("Explain query")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param("text", text("Query").required(true).editor(EDITOR_TEXTAREA)),
         ),
@@ -128,7 +128,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
             // a definition may carry sinks
             ActionMeta::new()
                 .level(Perm::Config)
-                .display("Import Query")
+                .display("Import query")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
@@ -140,7 +140,7 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
                 )
                 .param(
                     "id",
-                    text("Id").description("Default: the id in the export."),
+                    text("ID").description("Default: the id in the export."),
                 )
                 .param(
                     "overwrite",
@@ -153,11 +153,11 @@ pub fn root_actions() -> [(&'static str, ActionMeta); 5] {
             "convert_dsa",
             ActionMeta::new()
                 .level(Perm::Read)
-                .display("Convert DSA Query")
+                .display("Convert DSA query")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
                     "text",
-                    text("DSA Query").required(true).editor(EDITOR_TEXTAREA),
+                    text("DSA query").required(true).editor(EDITOR_TEXTAREA),
                 )
                 .param(
                     "site",
@@ -175,7 +175,7 @@ fn query_actions() -> BTreeMap<String, ActionMeta> {
         "get_table".into(),
         ActionMeta::new()
             .level(Perm::Read)
-            .display("Get Table")
+            .display("Get table")
             .result(ActionResult::Type(TypeCode::Map))
             .param("from", ParamMeta::of(TypeCode::Number).display("From"))
             .param(
@@ -247,7 +247,7 @@ pub fn stat_meta(n: &str) -> NodeMeta {
         "rows" => "Rows",
         "lists" => "Lists",
         "subscriptions" => "Subscriptions",
-        _ => "Sink Calls",
+        _ => "Sink calls",
     };
     NodeMeta::leaf(TypeCode::Number).display(d)
 }

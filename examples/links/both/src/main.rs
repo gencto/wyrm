@@ -131,7 +131,7 @@ impl Link for Average {
             "",
             "write_all",
             ActionMeta::new()
-                .display("Write All")
+                .display("Write all")
                 .param(
                     "value",
                     ParamMeta::of(TypeCode::Number)

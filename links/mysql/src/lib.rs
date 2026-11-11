@@ -13,7 +13,7 @@
 //! Params (besides `sink`, `batch`, `idle_s`, `retry_s`): `host`, `port` (3306), `database`,
 //! `user`, `table` (`wyrm_history`), `ssl` (`require`, default, or `disable`: only to loopback
 //! unless `insecure_plaintext`), `ca_pem`, `timeout_ms` (10 000), `create_table` (true). The
-//! password goes in with ▸ Set Password.
+//! password goes in with ▸ Set password.
 
 use sha1::Sha1;
 use sha2::{Digest, Sha256};

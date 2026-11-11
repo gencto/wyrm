@@ -106,7 +106,7 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> Result<()> {
         &p,
         "add_sink",
         ActionMeta::new()
-            .display("Add Sink")
+            .display("Add sink")
             .group(GROUP_NEW)
             .param("name", str_param().required(true).display("Name"))
             .param("link", link_param().required(true))
@@ -155,7 +155,7 @@ async fn declare_sink(ctx: &LinkCtx, ctl: &Control, name: &str, def: &SinkDef) -
         &p,
         "reset_cursor",
         ActionMeta::new()
-            .display("Reset Cursor")
+            .display("Reset cursor")
             .group(GROUP_EDIT)
             .param(
                 "to",
@@ -183,7 +183,7 @@ async fn declare_sink(ctx: &LinkCtx, ctl: &Control, name: &str, def: &SinkDef) -
         &p,
         "next",
         ActionMeta::new()
-            .display("Next Batch")
+            .display("Next batch")
             .param(
                 "after",
                 ParamMeta::of(TypeCode::Number)

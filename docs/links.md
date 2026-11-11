@@ -9,7 +9,8 @@ Decisions behind this page: ADR 0004 (driver framework), ADR 0006 (ACL and
 quarantine), ADR 0010 (WASM host), ADR 0011 (installing links at runtime),
 ADR 0012 (network for WASM links), ADR 0013 (links as requesters), ADR 0021
 (packaging with `wyr`), ADR 0023 (portable links), ADR 0030 (TLS and random
-bytes for WASM apps, world `wyrm:app@0.3.0`).
+bytes for WASM apps, world `wyrm:app@0.3.0`), ADR 0043 (the official links
+manifest and its index).
 
 ## 1. How a link runs
 
@@ -42,6 +43,35 @@ warning in the log. The built-in drivers use these codes:
 | The link cannot do it as configured (the agent without an LLM API key) | `not_supported` |
 | The device does not answer | `timeout` |
 | The connection is broken | `disconnected` |
+
+### Names people read
+
+Keys are wire names: a node key is a path segment, an action key or a
+parameter key is what plans and `args` use. They never change for style.
+People read `display` (spec 02 0.2.28, ADR 0042):
+
+- **Actions and parameters.** Leave `display` out when the key says it: the
+  SDK derives one with `wyrm_core::display::humanize` (`add_device` →
+  `Add device`, `unit_id` → `Unit ID`, `timeout_ms` → `Timeout (ms)`).
+  Write one only where the derived text is wrong or thin.
+- **Style of a `display` you write.** Sentence case, short, no dot at the
+  end. An action starts with a verb (`Add connection`, `Read registers`,
+  `Set password`, `Test connection`), a parameter is a noun (`Poll rate (s)`,
+  `Unit ID`). Units in brackets (`Timeout (ms)`). Acronyms upper case as
+  `wyrm_core::display::WORDS` writes them (`URL`, `ID`, `TLS`, `CA`, `MQTT`).
+  A product name that is not in `WORDS`, `NAMES` or `PHRASES` goes there.
+- **Nodes.** `NodeMeta::display(..)` sets `attr.display`, shown instead of
+  the key (key 12 in `view=list`). On the driver framework the user sets it:
+  `add_*` and `edit` of a connection, device or point take an optional
+  `display` ("Display name"), so point `t1` reads "Supply temperature". Edit
+  without it keeps the name, `""` clears it; Edit with `display` alone
+  renames and keeps every param. A new name restarts nothing. `display` is reserved: no driver param may use that name.
+- **Enum values and `group`** are wire values, not names: they stay as they
+  are.
+
+The `wyrmd` test `every_action_has_a_name_people_read` walks every built-in
+link and fails on a text that breaks the style; the test hosts of the
+messenger and history sync apps check the same.
 
 ## 2. What WYRM ships
 
@@ -660,6 +690,77 @@ The broker fetches the index in the background on every start and rebuild;
 *from Repository* lists its packages when it arrives. A broker without the
 network starts as usual: the field then says why the list is empty. Without
 `packages.repository` the item is still in the menu and says how to set it.
+
+An index may carry more fields than these (the official index does, §12a);
+the broker ignores fields it does not know.
+
+## 12a. Official links
+
+`links/official.json` is the one list of the links this project releases
+(ADR 0043): per link its `id`, `crate`, `title`, `summary`, `category`,
+`version` (the crate's), `wyrm_link` (link protocol), `min_broker` and
+`forms`: `builtin` (a driver of `wyrmd`), `wasm` (one package for every
+host), `process` (one package per host of `hosts`: `linux-aarch64`,
+`linux-x86_64`, `macos-aarch64`). It holds no URLs and no hashes: CI adds
+them when it publishes.
+
+**Use it on a broker.** It is off by default: a broker fetches nothing
+until you set the repository.
+
+```json5
+packages: { repository: "official" },
+```
+
+`"official"` is the index of the manifest this broker was built with,
+`https://github.com/gencto/wyrm/releases/download/links-index/links-index.json`.
+*Install Link ▸ from Repository* then lists the official packages built for
+this host, and installs one after it checks its SHA-256. A site without
+internet access uses a mirror (docs/operations.md, *Official links offline*).
+
+**What a client reads.** The `~meta` of `wy/<site>/sys/links` has
+`attr.catalog`: one map per built-in driver of this broker and per
+repository package for this host, with `id` (`driver:<code>` or
+`package:<code>`), `code`, `link`, `title`, `summary`, `category`,
+`version`, `form` (`builtin`, `wasm`, `process`) and `official`. A driver's
+version is the broker's, a package's is the index's. A driver's title comes
+from the broker's own copy of the manifest, so built-in drivers have one
+without the network. A package's title, summary and category come only from
+its index entry. A package is `official: true` only when the repository is
+the official index (`"official"`) and the broker's manifest lists that
+package, form and version; a package of another repository with an official
+name is `official: false`. WYRM Studio's *Add a link* reads this list.
+
+**Change it.** A new official link or a new version is one edit of
+`links/official.json` together with the crate's `Cargo.toml`.
+`cargo test` fails when they disagree (`wyr` test
+`official_manifest_matches_the_workspace`, `wyrmd` test
+`official_builtin_forms_are_drivers_of_wyrmd`). Check it by hand:
+
+```sh
+wyr repo check                                   # the manifest against the workspace
+wyr repo build --form wasm --out dist            # every wasm form
+wyr repo build --form process --target x86_64-unknown-linux-musl --out dist
+wyr repo index --zips dist --tag links-v2026.11.11 --out dist/links-index.json
+```
+
+`wyr repo index` refuses a zip that is not a listed form, of another
+version, kind, protocol or host, and a form or host with no zip
+(`--partial` allows the last one, for a local run). Without `--tag` or
+`--base` the URLs are relative: the zips beside the index (a mirror).
+
+**Release.** Push a tag `links-v<anything>`. The workflow
+`packaging/links/release-workflow.yml` (copied to
+`.github/workflows/links-release.yml`) builds every form on GitHub runners,
+publishes the zips, `links-index.json`, `official.json` and `SHA256SUMS` as
+release `<tag>`, and replaces the one asset of release `links-index`. The
+index of a release names the files of that release, so a broker that read
+the index just before the next release still installs matching files.
+
+**Trust.** The index is fetched over HTTPS from github.com and every zip is
+checked against its SHA-256. Neither the index nor the packages are signed
+yet: whoever can write release assets of the repository can change what
+brokers install. The install still shows the network and grants a package
+asks for before it runs anything (§13).
 
 ## 13. Trust and security
 

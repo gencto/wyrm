@@ -28,6 +28,8 @@
   // "Install Link ▸ from Repository": the index of examples/packages/out,
   // served by run.sh (build it with examples/packages/build.sh).
   packages: { repository: "http://127.0.0.1:8090/index.json" },
+  // The project's official link releases instead (ADR 0043; fetched from github.com):
+  // packages: { repository: "official" },
   links: {
     // Plain mock: 16 points at 2 Hz on a two-level folder tree.
     mock: { driver: "mock", params: { points: 16, rate_hz: 2, depth: 2, fanout: 2 } },

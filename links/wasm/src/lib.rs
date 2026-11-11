@@ -71,7 +71,7 @@ pub struct Conn {
     #[param(default = "{}", display = "Config", editor = "textarea")]
     pub config: String,
     /// Time of one component call, network included.
-    #[param(default = 2000, min = 10, max = 10000, display = "Call ms")]
+    #[param(default = 2000, min = 10, max = 10000, display = "Call budget (ms)")]
     pub call_ms: u32,
 }
 
@@ -99,7 +99,7 @@ pub struct Point {
     /// JSON given to the component's `read` and `write`.
     #[param(default = "{}", display = "Point config", editor = "textarea")]
     pub cfg: String,
-    #[param(default = 1.0, min = 0.05, max = 3600.0, display = "Poll s")]
+    #[param(default = 1.0, min = 0.05, max = 3600.0, display = "Poll rate (s)")]
     pub poll_s: f64,
     #[param(default = false, display = "Writable")]
     pub writable: bool,

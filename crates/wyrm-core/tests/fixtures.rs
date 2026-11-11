@@ -184,7 +184,7 @@ fn action_ui_fields() {
         .unwrap();
     let m: NodeMeta = wyrm_core::codec::from_slice(&hex::decode(&f.hex).unwrap()).unwrap();
     let a = &m.actions.as_ref().unwrap()["add_device"];
-    assert_eq!(a.display.as_deref(), Some("Add Device"));
+    assert_eq!(a.display.as_deref(), Some("Add device"));
     assert_eq!(a.group.as_deref(), Some(wyrm_core::meta::GROUP_NEW));
     assert_eq!(a.params["unit"].display.as_deref(), Some("Slave ID"));
     assert_eq!(a.params["unit"].description.as_deref(), Some("1..247"));

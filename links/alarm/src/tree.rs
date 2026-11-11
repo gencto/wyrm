@@ -114,7 +114,7 @@ fn watch_params(a: ActionMeta, required: bool) -> ActionMeta {
     )
     .param(
         "alarm_value",
-        param(TypeCode::Bool, "Alarm Value").description("boolean: the value in alarm (true)."),
+        param(TypeCode::Bool, "Alarm value").description("boolean: the value in alarm (true)."),
     )
     .param(
         "min",
@@ -131,11 +131,11 @@ fn watch_params(a: ActionMeta, required: bool) -> ActionMeta {
     )
     .param(
         "stale_s",
-        param(TypeCode::Number, "Stale After").description("staleness: seconds without a sample."),
+        param(TypeCode::Number, "Stale after").description("staleness: seconds without a sample."),
     )
     .param(
         "include_uncertain",
-        param(TypeCode::Bool, "Include Uncertain")
+        param(TypeCode::Bool, "Include uncertain")
             .description("quality: an uncertain sample is an alarm too (false)."),
     )
     .param(
@@ -147,12 +147,12 @@ fn watch_params(a: ActionMeta, required: bool) -> ActionMeta {
     .param("message", text_param("Message").description(MESSAGE_ABOUT))
     .param(
         "to_alarm_s",
-        param(TypeCode::Number, "To Alarm")
+        param(TypeCode::Number, "To alarm")
             .description("Seconds the condition must hold before a record is made (0)."),
     )
     .param(
         "to_normal_s",
-        param(TypeCode::Number, "To Normal")
+        param(TypeCode::Number, "To normal")
             .description("Seconds the condition must be gone before the record is normal (0)."),
     )
     .param("enabled", param(TypeCode::Bool, "Enabled"))
@@ -179,15 +179,15 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
         (
             "add_class",
             class_params(
-                write("Add Class")
+                write("Add class")
                     .group(GROUP_NEW)
                     .result(ActionResult::Type(TypeCode::Map))
-                    .param("id", text_param("Id").required(true).placeholder("line1")),
+                    .param("id", text_param("ID").required(true).placeholder("line1")),
             ),
         ),
         (
             "raise",
-            write("Raise Alarm")
+            write("Raise alarm")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param("class", text_param("Class").required(true))
                 .param(
@@ -212,40 +212,40 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
         ),
         (
             "normal",
-            write("Return To Normal").param(
+            write("Return to normal").param(
                 "id",
                 id_param().description("A record made with Raise Alarm."),
             ),
         ),
         (
             "add_note",
-            write("Add Note").param("id", id_param()).param(
+            write("Add note").param("id", id_param()).param(
                 "note",
                 text_param("Note").required(true).editor(EDITOR_TEXTAREA),
             ),
         ),
         (
             "ack_all",
-            write("Acknowledge All").param(
+            write("Acknowledge all").param(
                 "class",
                 text_param("Class").description("Only this class; empty: every class."),
             ),
         ),
         (
             "get_alarm",
-            read("Get Alarm")
+            read("Get alarm")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param("id", id_param()),
         ),
         (
             "get_notes",
-            read("Get Notes")
+            read("Get notes")
                 .result(ActionResult::Type(TypeCode::Array))
                 .param("id", id_param()),
         ),
         (
             "get_alarms",
-            read("Get Alarms")
+            read("Get alarms")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
                     "timerange",
@@ -281,7 +281,7 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
         ),
         (
             "import",
-            config("Import Class")
+            config("Import class")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
@@ -308,7 +308,7 @@ pub fn root_actions() -> Vec<(&'static str, ActionMeta)> {
         ),
         (
             "add_sink",
-            config("Add Sink")
+            config("Add sink")
                 .group(GROUP_NEW)
                 .param(
                     "name",
@@ -379,7 +379,7 @@ fn sink_actions() -> BTreeMap<String, ActionMeta> {
             "next".to_owned(),
             ActionMeta::new()
                 .level(Perm::Read)
-                .display("Next Batch")
+                .display("Next batch")
                 .result(ActionResult::Type(TypeCode::Map))
                 .param(
                     "after",
@@ -400,7 +400,7 @@ fn sink_actions() -> BTreeMap<String, ActionMeta> {
         ),
         (
             "reset".to_owned(),
-            config("Reset Cursor").param(
+            config("Reset cursor").param(
                 "from",
                 param(TypeCode::Enum, "From")
                     .required(true)
@@ -431,7 +431,7 @@ fn class_actions() -> BTreeMap<String, ActionMeta> {
         watch_params(
             ActionMeta::new()
                 .level(Perm::Config)
-                .display("Add Watch")
+                .display("Add watch")
                 .group(GROUP_NEW)
                 .result(ActionResult::Type(TypeCode::Map)),
             true,
@@ -457,7 +457,7 @@ fn class_actions() -> BTreeMap<String, ActionMeta> {
         "ack_all".into(),
         ActionMeta::new()
             .level(Perm::Write)
-            .display("Acknowledge All"),
+            .display("Acknowledge all"),
     );
     a.insert(
         "export".into(),

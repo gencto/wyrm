@@ -217,7 +217,7 @@ fn needs_the_secret() {
         .err()
         .unwrap();
     assert!(
-        matches!(e, TargetError::Fatal(_)) && e.message().contains("Set Password"),
+        matches!(e, TargetError::Fatal(_)) && e.message().contains("Set password"),
         "{e}"
     );
 }

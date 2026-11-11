@@ -64,7 +64,7 @@ pub enum Security {
 /// The device error when every answer was outside the time window.
 pub const STALE: &str = "the agent's answers are outside the time window (RFC 3414: its \
      engine boots or time went back, or they are replayed); if the agent lost its boots \
-     counter, run Reset Engine Clock on the connection";
+     counter, run Reset engine clock on the connection";
 
 /// RFC 3414 §3.2 7b: an authenticated message more than this many seconds
 /// behind the agent's clock as we know it is outside the time window.

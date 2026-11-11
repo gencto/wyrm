@@ -315,7 +315,7 @@ impl Bot {
     /// One API call, the token from the store.
     fn call(&mut self, host: &mut dyn Host, method: &str, body: &Json) -> Result<Json, Fail> {
         let token = store::secret(host, self.name())
-            .ok_or_else(|| Fail::Auth("no token: Set Token".into()))?;
+            .ok_or_else(|| Fail::Auth("no token: Set token".into()))?;
         let ep = self.def.endpoint.clone();
         let http = self.http.get_or_insert_with(|| {
             HttpClient::new(
@@ -2030,7 +2030,7 @@ impl<C: Chat> Messenger<C> {
                         let r = caller_rights(who, "a chat user")?;
                         Self::check_user_rights(&r, u.level, &u.select)?;
                         if u.chat_id.is_none() {
-                            return Err(invalid("not paired: New Pairing Code"));
+                            return Err(invalid("not paired: New pairing code"));
                         }
                         u.status = UserStatus::Active;
                     }

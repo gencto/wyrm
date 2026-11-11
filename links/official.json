@@ -1,0 +1,360 @@
+{
+  "format": "wyrm-official-links/1",
+  "releases": "https://github.com/gencto/wyrm/releases",
+  "hosts": [
+    "linux-aarch64",
+    "linux-x86_64",
+    "macos-aarch64"
+  ],
+  "links": [
+    {
+      "id": "modbus",
+      "crate": "wyrm-link-modbus",
+      "title": "Modbus",
+      "summary": "Modbus TCP, RTU over TCP and serial RTU devices, as a master or as a slave",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "modbus",
+        "process": "modbus"
+      }
+    },
+    {
+      "id": "opcua",
+      "crate": "wyrm-link-opcua",
+      "title": "OPC UA client",
+      "summary": "Nodes of OPC UA servers as points: batched reads, typed writes, browse",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "opcua",
+        "process": "opcua"
+      }
+    },
+    {
+      "id": "bacnet",
+      "crate": "wyrm-link-bacnet",
+      "title": "BACnet/IP",
+      "summary": "BACnet/IP devices: Who-Is discovery, batched reads, writes with priorities, BBMD",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "bacnet",
+        "process": "bacnet"
+      }
+    },
+    {
+      "id": "s7",
+      "crate": "wyrm-link-s7",
+      "title": "Siemens S7",
+      "summary": "S7-300/400/1200/1500 PLCs over S7comm (ISO-on-TCP)",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "s7",
+        "process": "s7"
+      }
+    },
+    {
+      "id": "snmp",
+      "crate": "wyrm-link-snmp",
+      "title": "SNMP",
+      "summary": "SNMP v2c and v3 agents: batched GET, table columns, SET, walk",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "snmp",
+        "process": "snmp"
+      }
+    },
+    {
+      "id": "mqtt",
+      "crate": "wyrm-link-mqtt",
+      "title": "MQTT",
+      "summary": "MQTT topics as points (JSON, raw, Sparkplug B)",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "mqtt",
+        "process": "mqtt"
+      }
+    },
+    {
+      "id": "http",
+      "crate": "wyrm-link-http",
+      "title": "HTTP / REST",
+      "summary": "JSON APIs polled on a schedule, JSONPath selectors as points, JSON writes",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "http",
+        "process": "http"
+      }
+    },
+    {
+      "id": "prometheus",
+      "crate": "wyrm-link-prometheus",
+      "title": "Prometheus",
+      "summary": "Prometheus and OpenMetrics endpoints scraped into points",
+      "category": "Equipment",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "prometheus",
+        "process": "prometheus"
+      }
+    },
+    {
+      "id": "s3",
+      "crate": "wyrm-link-s3",
+      "title": "S3 and compatibles",
+      "summary": "A bucket of AWS S3, MinIO, R2, Wasabi, B2 or GCS as a tree of folders and files",
+      "category": "File stores",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "s3",
+        "process": "s3"
+      }
+    },
+    {
+      "id": "gdrive",
+      "crate": "wyrm-link-gdrive",
+      "title": "Google Drive",
+      "summary": "A Google Drive folder or shared drive as a tree of folders and files",
+      "category": "File stores",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "gdrive",
+        "process": "gdrive"
+      }
+    },
+    {
+      "id": "webdav",
+      "crate": "wyrm-link-webdav",
+      "title": "WebDAV",
+      "summary": "A folder of Nextcloud, ownCloud or another WebDAV server as a tree",
+      "category": "File stores",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "webdav",
+        "process": "webdav"
+      }
+    },
+    {
+      "id": "localfs",
+      "crate": "wyrm-link-localfs",
+      "title": "Local folder",
+      "summary": "A directory of the host (disk, USB/SD card, network mount) as a tree",
+      "category": "File stores",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "localfs",
+        "process": "localfs"
+      }
+    },
+    {
+      "id": "postgres",
+      "crate": "wyrm-link-postgres",
+      "title": "PostgreSQL / TimescaleDB",
+      "summary": "Sends the historian's journal to PostgreSQL or TimescaleDB",
+      "category": "History sync",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "postgres",
+        "process": "postgres-process"
+      }
+    },
+    {
+      "id": "mysql",
+      "crate": "wyrm-link-mysql",
+      "title": "MySQL / MariaDB",
+      "summary": "Sends the historian's journal to MySQL or MariaDB",
+      "category": "History sync",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "mysql",
+        "process": "mysql-process"
+      }
+    },
+    {
+      "id": "mongodb",
+      "crate": "wyrm-link-mongodb",
+      "title": "MongoDB",
+      "summary": "Sends the historian's journal to MongoDB",
+      "category": "History sync",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "mongodb",
+        "process": "mongodb-process"
+      }
+    },
+    {
+      "id": "influxdb",
+      "crate": "wyrm-link-influxdb",
+      "title": "InfluxDB 2.x / 3.x",
+      "summary": "Sends the historian's journal to InfluxDB",
+      "category": "History sync",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "influxdb",
+        "process": "influxdb-process"
+      }
+    },
+    {
+      "id": "dynamodb",
+      "crate": "wyrm-link-dynamodb",
+      "title": "DynamoDB",
+      "summary": "Sends the historian's journal to Amazon DynamoDB",
+      "category": "History sync",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "dynamodb",
+        "process": "dynamodb-process"
+      }
+    },
+    {
+      "id": "scheduler",
+      "crate": "wyrm-link-scheduler",
+      "title": "Scheduler",
+      "summary": "Weekly schedules and special days that write values to points",
+      "category": "Apps",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "scheduler",
+        "process": "scheduler-process"
+      }
+    },
+    {
+      "id": "alarm",
+      "crate": "wyrm-link-alarm",
+      "title": "Alarms",
+      "summary": "Alarm classes on points, records, acknowledgement and export",
+      "category": "Apps",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "alarm",
+        "process": "alarm-process"
+      }
+    },
+    {
+      "id": "dql",
+      "crate": "wyrm-link-dql",
+      "title": "DQL queries",
+      "summary": "Standing and ad-hoc queries over the tree, as tables",
+      "category": "Apps",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "dql",
+        "process": "dql-process"
+      }
+    },
+    {
+      "id": "uplink",
+      "crate": "wyrm-link-uplink",
+      "title": "Platform upstreams",
+      "summary": "Live values to MQTT/UNS, Sparkplug B, ThingsBoard, Azure IoT Hub, AWS IoT Core",
+      "category": "Apps",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "uplink",
+        "process": "uplink-process"
+      }
+    },
+    {
+      "id": "telegram",
+      "crate": "wyrm-link-telegram",
+      "title": "Telegram",
+      "summary": "Telegram bots: templates, recipients, paired chat users",
+      "category": "Messaging",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "telegram",
+        "process": "telegram-process"
+      }
+    },
+    {
+      "id": "slack",
+      "crate": "wyrm-link-slack",
+      "title": "Slack",
+      "summary": "Slack bots: templates and recipients, send only",
+      "category": "Messaging",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "wasm": "slack",
+        "process": "slack-process"
+      }
+    },
+    {
+      "id": "agent",
+      "crate": "wyrm-link-agent",
+      "title": "Assistant agent",
+      "summary": "An AI agent that plans changes for a person to approve",
+      "category": "Apps",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "agent"
+      }
+    },
+    {
+      "id": "mockdev",
+      "crate": "wyrm-link-mock",
+      "title": "Mock device",
+      "summary": "Simulated devices on the driver framework, for trials and tests",
+      "category": "Test",
+      "version": "0.1.0",
+      "wyrm_link": 1,
+      "min_broker": "0.1.0",
+      "forms": {
+        "builtin": "mockdev",
+        "process": "mockdev"
+      }
+    }
+  ]
+}

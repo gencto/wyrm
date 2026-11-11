@@ -9,7 +9,7 @@
 //! `endpoint` (default `https://dynamodb.<region>.amazonaws.com`; `http://` only to loopback,
 //! for DynamoDB Local, unless `insecure_plaintext`), `ttl_days` (0: no `expiration`),
 //! `create_table` (false: CreateTable with on-demand billing; the TTL itself is switched on in
-//! AWS), `ca_pem`, `timeout_ms` (10 000). The secret access key goes in with ▸ Set Password.
+//! AWS), `ca_pem`, `timeout_ms` (10 000). The secret access key goes in with ▸ Set password.
 
 use std::collections::HashMap;
 use wyrm_core::Value;
@@ -299,7 +299,7 @@ impl Target for Dynamo {
         let cfg = parse(cfg).map_err(TargetError::Fatal)?;
         let secret = secret
             .ok_or_else(|| {
-                TargetError::Fatal("dynamodb: no secret access key: Set Password".into())
+                TargetError::Fatal("dynamodb: no secret access key: Set password".into())
             })?
             .to_owned();
         let mut http = Client::new(

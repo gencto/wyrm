@@ -534,7 +534,7 @@ async fn dsa_node_shape() {
     let actions = |m: &wyrm_core::NodeMeta| m.actions.clone().unwrap_or_default();
     let (_, m) = h.meta("c1").await;
     let a = actions(&m.unwrap());
-    assert_eq!(a["add_device"].display.as_deref(), Some("Add Device"));
+    assert_eq!(a["add_device"].display.as_deref(), Some("Add device"));
     assert_eq!(a["add_device"].group.as_deref(), Some(GROUP_NEW));
     assert_eq!(
         a["add_device"].params["name"].display.as_deref(),
@@ -548,7 +548,7 @@ async fn dsa_node_shape() {
     let r = actions(&root.unwrap());
     assert_eq!(
         r["add_connection"].display.as_deref(),
-        Some("Add Connection")
+        Some("Add connection")
     );
     assert_eq!(r["export"].display.as_deref(), Some("Export"));
 
