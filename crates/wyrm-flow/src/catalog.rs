@@ -50,6 +50,9 @@ pub struct Param {
     /// The parameter that holds this field's scope (ADR 0040 §1): the field names what the
     /// node reads, and a value from its port is read only inside that scope.
     pub scope: Option<&'static str>,
+    /// The label an editor shows, where the one derived from the name would be wrong (ADR
+    /// 0044: `x` of `atan`, `in` of a table block).
+    pub display: Option<&'static str>,
 }
 
 /// Ports named by a parameter (`expression` inputs `in.<name>`, `wasm`
@@ -74,7 +77,7 @@ pub struct NodeType {
     pub params: &'static [Param],
 }
 
-const fn p(name: &'static str, ty: &'static str, description: &'static str) -> Param {
+pub(crate) const fn p(name: &'static str, ty: &'static str, description: &'static str) -> Param {
     Param {
         name,
         ty,
@@ -84,56 +87,67 @@ const fn p(name: &'static str, ty: &'static str, description: &'static str) -> P
         description,
         editor: None,
         scope: None,
+        display: None,
     }
 }
 
-const fn sc(mut x: Param, scope: &'static str) -> Param {
+/// A parameter with the label an editor shows.
+pub(crate) const fn dp(mut x: Param, display: &'static str) -> Param {
+    x.display = Some(display);
+    x
+}
+
+pub(crate) const fn sc(mut x: Param, scope: &'static str) -> Param {
     x.scope = Some(scope);
     x
 }
 
-const fn req(mut x: Param) -> Param {
+pub(crate) const fn req(mut x: Param) -> Param {
     x.required = true;
     x
 }
 
-const fn pick(mut x: Param, choices: &'static [&'static str], default: &'static str) -> Param {
+pub(crate) const fn pick(
+    mut x: Param,
+    choices: &'static [&'static str],
+    default: &'static str,
+) -> Param {
     x.choices = choices;
     x.default = Def::Str(default);
     x
 }
 
-const fn ed(mut x: Param, editor: &'static str) -> Param {
+pub(crate) const fn ed(mut x: Param, editor: &'static str) -> Param {
     x.editor = Some(editor);
     x
 }
 
-const fn di(mut x: Param, d: i64) -> Param {
+pub(crate) const fn di(mut x: Param, d: i64) -> Param {
     x.default = Def::Int(d);
     x
 }
 
-const fn df(mut x: Param, d: f64) -> Param {
+pub(crate) const fn df(mut x: Param, d: f64) -> Param {
     x.default = Def::Float(d);
     x
 }
 
-const fn db(mut x: Param, d: bool) -> Param {
+pub(crate) const fn db(mut x: Param, d: bool) -> Param {
     x.default = Def::Bool(d);
     x
 }
 
-const fn ds(mut x: Param, d: &'static str) -> Param {
+pub(crate) const fn ds(mut x: Param, d: &'static str) -> Param {
     x.default = Def::Str(d);
     x
 }
 
-const fn dl(mut x: Param, d: &'static [&'static str]) -> Param {
+pub(crate) const fn dl(mut x: Param, d: &'static [&'static str]) -> Param {
     x.default = Def::Names(d);
     x
 }
 
-const KEY: Param = sc(
+pub(crate) const KEY: Param = sc(
     req(p(
         "key",
         "string",
@@ -142,13 +156,18 @@ const KEY: Param = sc(
     "key_scope",
 );
 
-const KEY_SCOPE: Param = p(
+pub(crate) const KEY_SCOPE: Param = p(
     "key_scope",
     "string",
     "The keys in.key may name, a key expression: downstream/<link>/** (required when in.key is wired; the deployer must read all of it).",
 );
 
-/// Every node type, in the palette's order.
+/// Every node type, in the palette's order: the first sets, then the third set (ADR 0044).
+pub fn types() -> impl Iterator<Item = &'static NodeType> {
+    TYPES.iter().chain(crate::catalog3::TYPES.iter())
+}
+
+/// The node types of the first two sets.
 pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "subscribe",
@@ -560,7 +579,7 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             pick(
-                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing)."),
+                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing); regexp: in as text has a match of the case as a pattern."),
                 crate::blocks::CASE_OPS,
                 "=",
             ),
@@ -579,22 +598,30 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "substring",
         category: "Text",
-        description: "A part of in as text: length characters from start.",
-        inputs: &["in", "in.start", "in.length"],
+        description: "A part of in as text: length characters from start, or up to end.",
+        inputs: &["in", "in.start", "in.length", "in.end"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("start", "number", "The first character, from 0 (default 0)."), 0), p("length", "number", "How many characters (default: to the end).")],
+        params: &[
+            di(p("start", "number", "The first character, from 0 (default 0)."), 0),
+            p("length", "number", "How many characters (default: to the end)."),
+            p("end", "number", "Without length: the character after the last one; below 0 counts from the end (−1: all but the last)."),
+        ],
     },
     NodeType {
         ty: "replace",
         category: "Text",
-        description: "in as text with every from replaced by to (plain text, no pattern).",
-        inputs: &["in", "in.from", "in.to"],
+        description: "in as text with every from replaced by to (plain text, or a pattern with regexp).",
+        inputs: &["in", "in.from", "in.to", "in.regexp"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(p("from", "string", "The text to find (empty: nothing is replaced)."), ""), ds(p("to", "string", "What it becomes (default empty)."), "")],
+        params: &[
+            ds(p("from", "string", "The text to find (empty: nothing is replaced)."), ""),
+            ds(p("to", "string", "What it becomes (default empty; taken as it is, $1 is no group)."), ""),
+            db(p("regexp", "bool", "from is a pattern of at most 256 bytes (linear time, no backreferences); one that does not compile replaces nothing (default false)."), false),
+        ],
     },
     NodeType {
         ty: "split",
@@ -783,7 +810,7 @@ pub const TYPES: &[NodeType] = &[
     },
 ];
 
-const INTERVAL_MS: Param = di(
+pub(crate) const INTERVAL_MS: Param = di(
     p(
         "interval_ms",
         "number",
@@ -801,20 +828,20 @@ const RUN_ON_START: Param = db(
     false,
 );
 
-const ENABLED: Param = db(
+pub(crate) const ENABLED: Param = db(
     p("enabled", "bool", "false: nothing runs it (default true)."),
     true,
 );
 
 /// Variable inputs `in.<name>` of a block (default `in.0`, `in.1`).
-const ITEMS: DynPorts = DynPorts {
+pub(crate) const ITEMS: DynPorts = DynPorts {
     param: "inputs",
     prefix: "in.",
     default: &["0", "1"],
     keys: false,
 };
 
-const INPUTS: Param = dl(
+pub(crate) const INPUTS: Param = dl(
     p(
         "inputs",
         "array",
@@ -856,8 +883,7 @@ fn dyn_ports(d: &DynPorts) -> Value {
 /// The catalog as the action answers it: one map per type.
 pub fn value() -> Value {
     Value::Array(
-        TYPES
-            .iter()
+        types()
             .map(|t| {
                 let params = t
                     .params
@@ -887,6 +913,9 @@ pub fn value() -> Value {
                         }
                         if let Some(scope) = x.scope {
                             m.insert("scope".into(), Value::from(scope));
+                        }
+                        if let Some(d) = x.display {
+                            m.insert("display".into(), Value::from(d));
                         }
                         m.insert("echo".into(), Value::Bool(param_echo(t, x)));
                         Value::Map(m)
@@ -927,7 +956,7 @@ pub fn value() -> Value {
 
 /// The catalog entry of `ty`.
 pub fn find(ty: &str) -> Option<&'static NodeType> {
-    TYPES.iter().find(|t| t.ty == ty)
+    types().find(|t| t.ty == ty)
 }
 
 /// The port type of a parameter's echo: `number`, `bool` and `map` as they are, any other
@@ -1140,11 +1169,22 @@ mod tests {
 
     #[test]
     fn every_type_checks_with_its_params() {
-        for t in TYPES.iter().filter(|t| t.ty != "wasm") {
+        for t in types().filter(|t| t.ty != "wasm") {
             let cfg = sample(t);
             let got = ports(t.ty, &cfg).unwrap_or_else(|e| panic!("{}: {e}", t.ty));
-            let outs: Vec<&str> = got.outputs.iter().map(|(n, _)| n.as_str()).collect();
-            assert_eq!(outs, t.outputs, "{} outputs", t.ty);
+            let outs: Vec<String> = got.outputs.iter().map(|(n, _)| n.clone()).collect();
+            // the ports a parameter names (`router`: `out.<case>`), then the fixed ones
+            let mut want_outs: Vec<String> = Vec::new();
+            if let Some(d) = &t.dyn_outputs {
+                let names: &[&str] = if cfg.contains_key(d.param) {
+                    &["a", "b"]
+                } else {
+                    d.default
+                };
+                want_outs.extend(names.iter().map(|n| format!("{}{n}", d.prefix)));
+            }
+            want_outs.extend(t.outputs.iter().map(|s| (*s).to_owned()));
+            assert_eq!(outs, want_outs, "{} outputs", t.ty);
             let ins: Vec<String> = got.inputs.iter().map(|(n, _)| n.clone()).collect();
             // the fixed ports, then the ones a parameter names (as the editor draws them)
             let mut want: Vec<String> = t.inputs.iter().map(|s| (*s).to_owned()).collect();
@@ -1176,10 +1216,19 @@ mod tests {
         }
         assert!(ports("nope", &BTreeMap::new()).is_err());
         assert_eq!(TYPES.len(), 55);
-        // every logic block is in the palette
+        assert_eq!(types().count(), 55 + crate::catalog3::TYPES.len());
+        // every logic block is in the palette, once
         for b in crate::blocks::TYPES {
-            assert!(TYPES.iter().any(|t| t.ty == *b), "{b} in the catalog");
+            assert_eq!(
+                types().filter(|t| t.ty == *b).count(),
+                1,
+                "{b} in the catalog"
+            );
         }
+        let mut names: Vec<&str> = types().map(|t| t.ty).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), types().count(), "a type is listed once");
     }
 
     fn same_number(a: &Value, b: &Value) -> bool {
@@ -1318,7 +1367,7 @@ mod tests {
             pt("timer").get("in.period_ms"),
             Some(&Value::from("number"))
         );
-        for t in TYPES {
+        for t in types() {
             let ports = ports(t.ty, &sample_cfg(t)).unwrap_or_else(|e| panic!("{}: {e}", t.ty));
             // a name is one port type, whether input, output or echo
             for e in &ports.echoes {

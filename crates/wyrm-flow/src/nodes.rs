@@ -244,7 +244,9 @@ pub fn command_target(ty: &str, cfg: &Map) -> Option<String> {
 /// the port is read only inside the scope (ADR 0040 §1, [`crate::scope`]).
 pub fn read_fields(ty: &str) -> &'static [(&'static str, &'static str)] {
     match ty {
-        "subscribe" | "liveliness" | "load_value" => &[("key", "key_scope")],
+        "subscribe" | "liveliness" | "load_value" | "load_history" | "get_node" => {
+            &[("key", "key_scope")]
+        }
         "list_children" => &[("path", "path_scope")],
         _ => &[],
     }
@@ -451,7 +453,9 @@ fn declared_ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             Ports::new(&[("in", Any)], &[])
         }
         "invoke" | "set" => crate::commands::ports(ty, cfg)?,
-        "load_value" | "list_children" => crate::readers::ports(ty, cfg)?,
+        "load_value" | "list_children" | "load_history" | "get_node" => {
+            crate::readers::ports(ty, cfg)?
+        }
         "wasm" => {
             let w = WasmCfg::parse(cfg)?;
             Ports {
@@ -469,7 +473,8 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
     // an engine only for the types that have a script: one per node of a 1000-node
     // definition was most of its compile time (ADR 0040 §3)
     if !matches!(ty, "expression" | "filter") {
-        return Ok(());
+        // the per-row scripts of the table blocks (ADR 0044 §2) compile with the block
+        return crate::blocks::check_scripts(ty, cfg);
     }
     let e = script::engine();
     match ty {
@@ -489,7 +494,19 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
 
 /// Whether a node of type `ty` runs on `dataflows/<id>/~act/trigger {node}` (ADR 0040 §2).
 pub fn triggerable(ty: &str) -> bool {
-    matches!(ty, "invoke" | "set")
+    matches!(
+        ty,
+        "invoke" | "set" | "load_value" | "list_children" | "load_history" | "get_node"
+    )
+}
+
+/// Whether a node of type `ty` is a reader: `~act/trigger` asks the caller to read what it
+/// reads, not to hold a command's level (ADR 0044 §4).
+pub fn is_reader(ty: &str) -> bool {
+    matches!(
+        ty,
+        "load_value" | "list_children" | "load_history" | "get_node"
+    )
 }
 
 /// Minimum flow permission a node needs (compiler step 7).
@@ -1418,7 +1435,9 @@ pub fn build_with(
             tx: None,
         }),
         "invoke" | "set" => crate::commands::build(ty, id, cfg, mode)?,
-        "load_value" | "list_children" => crate::readers::build(ty, cfg)?,
+        "load_value" | "list_children" | "load_history" | "get_node" => {
+            crate::readers::build(ty, cfg)?
+        }
         "wasm" => {
             let store = artifacts.ok_or("wasm: no artifact store")?;
             Box::new(Wasm::new(WasmCfg::parse(cfg)?, store)?)

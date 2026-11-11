@@ -22,6 +22,12 @@ use tracing::trace;
 use wyrm_core::{Quality, Value};
 use wyrm_link_sdk::now_us;
 
+pub(crate) mod date;
+mod math;
+pub(crate) mod table;
+pub(crate) mod tables;
+mod text;
+
 /// The block types of this module.
 pub const TYPES: &[&str] = &[
     "number",
@@ -62,6 +68,79 @@ pub const TYPES: &[&str] = &[
     "select",
     "debounce",
     "throttle",
+    // the third set (ADR 0044): math, rounding, formatting, trigonometry
+    "constant",
+    "factorial",
+    "log",
+    "power",
+    "root",
+    "bound",
+    "round_up",
+    "round_down",
+    "format_number",
+    "parse_number",
+    "sin",
+    "cos",
+    "tan",
+    "cot",
+    "asin",
+    "acos",
+    "atan",
+    "to_degrees",
+    "to_radians",
+    "average",
+    "median",
+    "mode",
+    "std_deviation",
+    "variance",
+    // text and codecs
+    "left",
+    "right",
+    "trim",
+    "base64_encode",
+    "base64_decode",
+    "url_encode",
+    "url_decode",
+    "to_camel_case",
+    "from_camel_case",
+    "hash",
+    "json_parse",
+    "json_stringify",
+    // date and time
+    "now",
+    "date_time",
+    "date_format",
+    "date_parse",
+    "date_math",
+    "date_range",
+    // logic and events
+    "router",
+    "event_gate",
+    "catch_error",
+    // tables (ADR 0044 §2)
+    "table",
+    "table_recorder",
+    "table_from_csv",
+    "table_to_csv",
+    "table_from_json",
+    "table_to_json",
+    "table_map_columns",
+    "table_sort",
+    "table_filter",
+    "table_group_by",
+    "table_join",
+    "table_page",
+    "table_rollup",
+    "table_aggregate",
+    "table_select_rows",
+    "table_select_columns",
+    "table_columns",
+    "table_row_cells",
+    "table_add_row",
+    "table_remove_rows",
+    "table_edit_rows",
+    "table_transpose",
+    "table_from_map",
 ];
 
 /// Variable inputs of one block at most.
@@ -79,6 +158,8 @@ const DEFAULT_HOLD_MS: f64 = 500.0;
 /// The stopwatch's clock, and the shortest interval it counts.
 const STOPWATCH_TICK: Duration = Duration::from_millis(50);
 const MIN_INTERVAL_S: f64 = 0.05;
+/// How often a relative `date_range` (`today`, `current3days`) is calculated again.
+const RANGE_TICK: Duration = Duration::from_secs(1);
 
 // ---------- values ----------
 
@@ -244,6 +325,32 @@ fn same(a: &Value, b: &Value) -> bool {
     a == b || matches!((num(a), num(b)), (Some(x), Some(y)) if x.f() == y.f())
 }
 
+/// What a pure calculation of the third set sees: `in`, the parameters, the variable inputs
+/// and the time of the calculation (from the runtime's clock, so tests give it).
+pub(crate) struct View<'a> {
+    inv: &'a Value,
+    params: &'a BTreeMap<String, Value>,
+    #[allow(dead_code)] // the statistics read the inputs themselves
+    items: Vec<Value>,
+    now_us: u64,
+    /// Every input's last sample (`table_join`'s `right`).
+    ins: &'a BTreeMap<String, Value>,
+}
+
+/// No inputs, for a view in a test.
+#[cfg(test)]
+pub(crate) static NO_INPUTS: BTreeMap<String, Value> = BTreeMap::new();
+
+impl View<'_> {
+    fn p(&self, name: &str) -> &Value {
+        self.params.get(name).unwrap_or(&Value::Null)
+    }
+}
+
+/// What a pure calculation gives: each output's value, and whether it is `bad` (an input
+/// that was valid but gave a result past a bound).
+type Outs = Vec<(&'static str, Value, bool)>;
+
 // ---------- the block types ----------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -285,6 +392,17 @@ enum Kind {
     Select,
     Debounce,
     Throttle,
+    Constant,
+    Math(math::Op),
+    Stat(math::Stat),
+    Str(text::Op),
+    Date(date::Op),
+    Router,
+    EventGate,
+    CatchError,
+    TableVar,
+    Recorder,
+    Table(tables::Op),
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -350,7 +468,27 @@ fn kind(ty: &str) -> Option<Kind> {
         "select" => Kind::Select,
         "debounce" => Kind::Debounce,
         "throttle" => Kind::Throttle,
-        _ => return None,
+        "constant" => Kind::Constant,
+        "router" => Kind::Router,
+        "event_gate" => Kind::EventGate,
+        "catch_error" => Kind::CatchError,
+        "table" => Kind::TableVar,
+        "table_recorder" => Kind::Recorder,
+        t => {
+            if let Some((_, op)) = math::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Math(*op)
+            } else if let Some((_, st)) = math::STATS.iter().find(|(n, _)| *n == t) {
+                Kind::Stat(*st)
+            } else if let Some((_, op)) = text::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Str(*op)
+            } else if let Some((_, op)) = date::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Date(*op)
+            } else if let Some((_, op)) = tables::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Table(*op)
+            } else {
+                return None;
+            }
+        }
     })
 }
 
@@ -476,13 +614,20 @@ fn shape(k: Kind) -> Shape {
             params: vec![
                 param("start", Value::Int(0), true),
                 param("length", Value::Null, true),
+                // ADR 0044: where it ends (exclusive); below 0 counts from the end
+                param("end", Value::Null, true),
             ],
             items: false,
             outputs: &[("out", Any)],
         },
         Kind::Replace => Shape {
             inputs: &["in"],
-            params: vec![param("from", s(""), true), param("to", s(""), true)],
+            params: vec![
+                param("from", s(""), true),
+                param("to", s(""), true),
+                // ADR 0044 §6: `from` is a bounded pattern
+                param("regexp", Value::Bool(false), true),
+            ],
             items: false,
             outputs: &[("out", Any)],
         },
@@ -567,6 +712,56 @@ fn shape(k: Kind) -> Shape {
             items: false,
             outputs: &[("out", Any)],
         },
+        Kind::Constant => math::constant_shape(),
+        Kind::Math(op) => math::shape(op),
+        Kind::Stat(_) => math::stat_shape(),
+        Kind::Str(op) => text::shape(op),
+        Kind::Date(op) => date::shape(op),
+        // the case values are the variable inputs; each has the output `out.<name>`
+        Kind::Router => Shape {
+            inputs: &["in", "condition"],
+            params: vec![
+                param("op", s("="), true),
+                param("single_output", Value::Bool(false), true),
+            ],
+            items: true,
+            outputs: &[("else", Any)],
+        },
+        Kind::EventGate => Shape {
+            inputs: &["reset"],
+            params: vec![param("log_order", s("none"), true)],
+            items: true,
+            outputs: &[("on_finish", Map), ("order", Any)],
+        },
+        Kind::TableVar => Shape {
+            inputs: &["in"],
+            params: vec![param("value", Value::Null, false)],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::Recorder => Shape {
+            inputs: &["reset"],
+            params: vec![
+                param("enabled", Value::Bool(true), true),
+                param("buffer_size", Value::Int(1024), true),
+                param("time_window_s", Value::Int(0), true),
+                param("ignore_null", Value::Bool(false), true),
+            ],
+            items: true,
+            outputs: &[("out", Any)],
+        },
+        Kind::Table(op) => tables::shape(op),
+        Kind::CatchError => Shape {
+            inputs: &[],
+            params: vec![],
+            items: true,
+            outputs: &[
+                ("out", Any),
+                ("code", Number),
+                ("source", Any),
+                ("on_error", Map),
+            ],
+        },
     }
 }
 
@@ -610,6 +805,15 @@ pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, String>> {
     Some(check(k, cfg))
 }
 
+/// The compile check of a table block's per-row scripts (`expr`, `mapping`) and its
+/// `aggregates`; other types have none.
+pub fn check_scripts(ty: &str, cfg: &Map) -> Result<(), String> {
+    match kind(ty) {
+        Some(Kind::Table(op)) => tables::scripts(op, cfg).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
 /// Whether block type `ty` has operand inputs that take a constant in config `values`
 /// (spec 06 0.2.19): `in` and the variable inputs, never a parameter's port, never `reset`,
 /// and not the variables (their `value` is the constant).
@@ -618,7 +822,8 @@ pub fn takes_values(ty: &str) -> bool {
 }
 
 fn has_operands(k: Kind, sh: &Shape) -> bool {
-    !matches!(k, Kind::Number | Kind::Text | Kind::Bool) && (sh.items || sh.inputs.contains(&"in"))
+    !matches!(k, Kind::Number | Kind::Text | Kind::Bool | Kind::TableVar)
+        && (sh.items || sh.inputs.contains(&"in"))
 }
 
 /// The operand constants of config `values`: `{<port>: <value>}`, each port an operand input
@@ -703,13 +908,18 @@ fn check(k: Kind, cfg: &Map) -> Result<Ports, String> {
                 .map(|n| (format!("in.{n}"), PortType::Any)),
         );
     }
+    let mut outputs: Vec<(String, PortType)> = Vec::new();
+    if k == Kind::Router {
+        outputs.extend(
+            items(cfg, &sh)?
+                .into_iter()
+                .map(|n| (format!("out.{n}"), PortType::Any)),
+        );
+    }
+    outputs.extend(sh.outputs.iter().map(|(n, t)| ((*n).to_owned(), *t)));
     Ok(Ports {
         inputs,
-        outputs: sh
-            .outputs
-            .iter()
-            .map(|(n, t)| ((*n).to_owned(), *t))
-            .collect(),
+        outputs,
         echoes: Vec::new(),
     })
 }
@@ -740,13 +950,15 @@ pub const CASE_OPS: &[&str] = &[
     "contains",
     "starts_with",
     "ends_with",
+    // ADR 0044 §6: `in` as text contains a match of the case as a bounded pattern
+    "regexp",
 ];
 
 /// The operators of a block with `op`.
 fn ops_of(k: Kind) -> Option<&'static [&'static str]> {
     match k {
         Kind::If => Some(IF_OPS),
-        Kind::Case => Some(CASE_OPS),
+        Kind::Case | Kind::Router => Some(CASE_OPS),
         _ => None,
     }
 }
@@ -779,6 +991,53 @@ fn num_op(op: &str, x: &Value, p: &Value) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether `x` matches the case value `p` by `op` (`case`, `router`).
+fn case_match(
+    op: &str,
+    x: &Value,
+    p: &Value,
+    cache: &mut Option<(String, Option<regex::Regex>)>,
+) -> bool {
+    match op {
+        "regexp" => {
+            *x != Value::Null
+                && !text(p).is_empty()
+                && cached(cache, &text(p)).is_some_and(|re| re.is_match(&text(x)))
+        }
+        "=" => same(x, p),
+        "!=" => !same(x, p),
+        ">" | "<" | ">=" | "<=" => num_op(op, x, p),
+        // an empty case text matches nothing (as DGLux)
+        _ => !text(p).is_empty() && text_op(op, x, p),
+    }
+}
+
+/// The longest pattern of `replace` and `case`, bytes, and the most its compiled form may take.
+pub const MAX_PATTERN: usize = 256;
+const MAX_PATTERN_SIZE: usize = 64 * 1024;
+
+/// A pattern (ADR 0044 §6): linear time, no backreferences, at most [`MAX_PATTERN`] bytes and
+/// 64 KiB compiled; `None` when it does not compile. The last one is kept in `cache`.
+fn cached<'a>(
+    cache: &'a mut Option<(String, Option<regex::Regex>)>,
+    pattern: &str,
+) -> Option<&'a regex::Regex> {
+    if cache.as_ref().is_none_or(|(p, _)| p != pattern) {
+        let re = (pattern.len() <= MAX_PATTERN)
+            .then(|| {
+                regex::RegexBuilder::new(pattern)
+                    .size_limit(MAX_PATTERN_SIZE)
+                    .dfa_size_limit(MAX_PATTERN_SIZE)
+                    .nest_limit(32)
+                    .build()
+                    .ok()
+            })
+            .flatten();
+        *cache = Some((pattern.to_owned(), re));
+    }
+    cache.as_ref().and_then(|(_, re)| re.as_ref())
 }
 
 /// A block of `ty` from `cfg`; `None` for a type this module does not have.
@@ -830,6 +1089,17 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             held: None,
             due: None,
             passed: None,
+            re: None,
+            range: None,
+            gate: Vec::new(),
+            order: Vec::new(),
+            finished: false,
+            route: None,
+            scripts: match k {
+                Kind::Table(op) => tables::scripts(op, cfg)?,
+                _ => None,
+            },
+            rows: std::collections::VecDeque::new(),
         }) as Box<dyn Node>)
     }))
 }
@@ -870,6 +1140,20 @@ struct Block {
     due: Option<tokio::time::Instant>,
     /// `throttle`: when a value last went out.
     passed: Option<tokio::time::Instant>,
+    /// The last pattern `replace` or `case` compiled (ADR 0044 §6).
+    re: Option<(String, Option<regex::Regex>)>,
+    /// `date_range`: the range text a `next` or `previous` moved to.
+    range: Option<String>,
+    /// `event_gate`: the inputs that changed since the reset, the order it logs, and whether it
+    /// fired; `router`: the output it routed to last.
+    gate: Vec<String>,
+    order: Vec<String>,
+    finished: bool,
+    route: Option<String>,
+    /// The per-row scripts of a table block, compiled at build.
+    scripts: Option<tables::Scripts>,
+    /// `table_recorder`: the rows it holds.
+    rows: std::collections::VecDeque<BTreeMap<String, Value>>,
 }
 
 impl Block {
@@ -932,6 +1216,23 @@ impl Block {
             Kind::Number | Kind::Text | Kind::Bool => {
                 let v = self.var_value(self.values.get("in").unwrap_or(self.param("value")));
                 self.send("out", v, q, t, out);
+            }
+            Kind::TableVar => {
+                let v = self.values.get("in").unwrap_or(self.param("value"));
+                let (v, q) = match v {
+                    Value::Null => (table::Table::default().to_value().unwrap_or(Value::Null), q),
+                    v => match table::Table::from_value(v).and_then(|t| t.to_value()) {
+                        Some(t) => (t, q),
+                        None => (Value::Null, Quality::Bad),
+                    },
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::Recorder => self.record(changed, q, t, out),
+            Kind::Table(tables::Op::Page) => self.page(changed, q, t, out),
+            Kind::Table(op) => {
+                let outs = tables::calc(op, &self.view(), self.scripts.as_ref());
+                self.send_all(outs, q, t, out);
             }
             Kind::Add => {
                 let v = nums()
@@ -1076,19 +1377,17 @@ impl Block {
                     _ => "=".into(),
                 };
                 let vs = self.item_values();
-                let hit = vs.as_chunks::<2>().0.iter().find(|[p, _]| {
-                    match op.as_str() {
-                        "=" => same(&x, p),
-                        "!=" => !same(&x, p),
-                        ">" | "<" | ">=" | "<=" => num_op(&op, &x, p),
-                        // an empty case text matches nothing (as DGLux)
-                        _ => !text(p).is_empty() && text_op(&op, &x, p),
-                    }
-                });
+                let mut cache = self.re.take();
+                let hit = vs
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .find(|[p, _]| case_match(&op, &x, p, &mut cache));
                 let v = match hit {
                     Some(pair) => pair[1].clone(),
                     None => self.param("else").clone(),
                 };
+                self.re = cache;
                 self.send("out", v, q, t, out);
             }
             Kind::Hub => {
@@ -1146,8 +1445,22 @@ impl Block {
                     v => {
                         // a start below 0 or not a number is 0; a length never passes 4 KiB
                         let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
-                        let len = whole(self.param("length"), MAX_TEXT).unwrap_or(MAX_TEXT);
-                        let part: String = text(v).chars().skip(start).take(len).collect();
+                        let src = text(v);
+                        // `length` wins over `end`, as in the reference
+                        let len = match (
+                            whole(self.param("length"), MAX_TEXT),
+                            num(self.param("end")),
+                        ) {
+                            (Some(l), _) => l,
+                            (None, Some(e)) => {
+                                let n = src.chars().count() as f64;
+                                let e = e.f();
+                                let end = if e < 0.0 { (n + e).max(0.0) } else { e.min(n) };
+                                (end as usize).saturating_sub(start)
+                            }
+                            (None, None) => MAX_TEXT,
+                        };
+                        let part: String = src.chars().skip(start).take(len).collect();
                         if part.len() > MAX_TEXT {
                             Value::Null
                         } else {
@@ -1168,6 +1481,26 @@ impl Block {
                     v => {
                         let (from, to) = (text(self.param("from")), text(self.param("to")));
                         let src = text(v);
+                        if truth(self.param("regexp"), false) {
+                            let r = self.pattern(&from).map(|re| {
+                                let hits = re.find_iter(&src).count();
+                                if src.len().saturating_add(hits.saturating_mul(to.len()))
+                                    > MAX_TEXT
+                                {
+                                    None
+                                } else {
+                                    Some(re.replace_all(&src, regex::NoExpand(&to)).into_owned())
+                                }
+                            });
+                            let (v, q) = match r {
+                                Some(Some(s)) => (Value::Str(s), q),
+                                Some(None) => (Value::Null, Quality::Bad),
+                                // a pattern that does not compile replaces nothing
+                                None => (Value::Str(src), q),
+                            };
+                            self.send("out", v, q, t, out);
+                            return;
+                        }
                         // the result is bounded before it is built
                         let grows = to.len().saturating_sub(from.len());
                         let hits = if from.is_empty() {
@@ -1367,6 +1700,115 @@ impl Block {
                     self.due = self.passed.map(|p| p + ms);
                 }
             }
+            Kind::Constant => {
+                let v = math::constant(self.param("name"));
+                self.send("out", v, q, t, out);
+            }
+            Kind::Math(op) => {
+                let outs = math::calc(op, &self.view());
+                self.send_all(outs, q, t, out);
+            }
+            Kind::Stat(st) => {
+                let v = math::stat(st, &self.item_values());
+                self.send("out", v, q, t, out);
+            }
+            Kind::Str(op) => {
+                let outs = text::calc(op, &self.view());
+                self.send_all(outs, q, t, out);
+            }
+            Kind::Date(date::Op::Range) => self.date_range(changed, q, t, out),
+            Kind::Router => {
+                let x = self.values.get("condition").cloned().unwrap_or(Value::Null);
+                let op = match self.param("op") {
+                    Value::Str(o) => o.clone(),
+                    _ => "=".into(),
+                };
+                let mut cache = self.re.take();
+                let names = self.items.clone();
+                let hit = names.iter().find(|name| {
+                    let p = self.values.get(*name).cloned().unwrap_or(Value::Null);
+                    case_match(&op, &x, &p, &mut cache)
+                });
+                self.re = cache;
+                let port = hit.map_or_else(|| "else".to_owned(), |n| format!("out.{n}"));
+                let v = self.in_value().clone();
+                if truth(self.param("single_output"), false) {
+                    if let Some(last) = self.route.take().filter(|l| *l != port) {
+                        self.send(&last, Value::Null, q, t, out);
+                    }
+                }
+                self.route = Some(port.clone());
+                self.send(&port, v, q, t, out);
+            }
+            Kind::EventGate => {
+                if changed == "reset" {
+                    let v = self.values.get("reset").unwrap_or(&Value::Null);
+                    if !self.born && *v != Value::Null {
+                        self.gate.clear();
+                        self.order.clear();
+                        self.finished = false;
+                    }
+                    return;
+                }
+                if self.born || self.finished || !self.items.iter().any(|n| n == changed) {
+                    return;
+                }
+                let first = !self.gate.iter().any(|n| n == changed);
+                if first {
+                    self.gate.push(changed.to_owned());
+                }
+                match self.param("log_order") {
+                    Value::Str(m) if m == "first_occurrence" && first => {
+                        self.order.push(changed.to_owned())
+                    }
+                    Value::Str(m) if m == "last_occurrence" => {
+                        self.order.retain(|n| n != changed);
+                        self.order.push(changed.to_owned());
+                    }
+                    Value::Str(m) if m == "all" => {
+                        if self.order.len() >= MAX_LIST {
+                            self.order.remove(0);
+                        }
+                        self.order.push(changed.to_owned());
+                    }
+                    _ => {}
+                }
+                if self.gate.len() == self.items.len() {
+                    self.finished = true;
+                    let order = bounded_text(&Value::Str(self.order.join(",")))
+                        .map_or(Value::Null, Value::Str);
+                    self.send("order", order, q, t, out);
+                    self.fire("on_finish", t, out);
+                }
+            }
+            Kind::CatchError => {
+                if self.born || !self.items.iter().any(|n| n == changed) {
+                    return;
+                }
+                let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+                if v == Value::Null {
+                    return;
+                }
+                let (message, code) = match &v {
+                    Value::Map(m) => (
+                        m.get("message").map_or_else(|| text(&v), text),
+                        m.get("code").and_then(num).map_or(Value::Null, N::value),
+                    ),
+                    v => (text(v), Value::Null),
+                };
+                let message = Some(message)
+                    .filter(|m| m.len() <= MAX_TEXT)
+                    .map_or(Value::Null, Value::Str);
+                // the same text twice is two errors: `on_error` fires every time
+                self.send("out", message, q, t, out);
+                self.send("code", code, q, t, out);
+                self.send("source", Value::Str(changed.to_owned()), q, t, out);
+                self.fire("on_error", t, out);
+            }
+            Kind::Date(op) => {
+                let outs = date::calc(op, &self.view());
+                self.send_all(outs, q, t, out);
+            }
             Kind::Length => {
                 let v = match self.in_value() {
                     Value::Str(s) => Value::UInt(s.chars().count() as u64),
@@ -1377,6 +1819,227 @@ impl Block {
                 };
                 self.send("out", v, q, t, out);
             }
+        }
+    }
+
+    /// `pattern` compiled, from the cache when it was the last one.
+    fn pattern(&mut self, pattern: &str) -> Option<regex::Regex> {
+        let mut c = self.re.take();
+        let r = cached(&mut c, pattern).cloned();
+        self.re = c;
+        r
+    }
+
+    /// `date_range`: the text in use is `in`, or the neighbour a `next` or `previous` moved to.
+    fn date_range(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let now = now_us();
+        let tz = date::zone(self.param("time_zone")).unwrap_or(jiff::tz::TimeZone::UTC);
+        let ws = match self.param("week_start") {
+            Value::Str(w) => date::WEEK_STARTS.iter().position(|x| x == w).unwrap_or(0),
+            _ => 0,
+        };
+        if changed == "in" {
+            self.range = None;
+        }
+        let fired = |s: &Self, port: &str| {
+            changed == port && !s.born && s.values.get(port).is_some_and(|v| *v != Value::Null)
+        };
+        if fired(self, "next") || fired(self, "previous") {
+            if let Some(r) = date::range(&self.range_text(), now as i64, &tz, ws) {
+                self.range = Some(if changed == "next" {
+                    r.next
+                } else {
+                    r.previous
+                });
+            }
+        } else if changed == "next" || changed == "previous" {
+            return;
+        }
+        let text = Value::Str(self.range_text());
+        let outs = date::calc(
+            date::Op::Range,
+            &View {
+                inv: &text,
+                params: &self.params,
+                items: Vec::new(),
+                now_us: now,
+                ins: &self.values,
+            },
+        );
+        self.send_all(outs, q, t, out);
+    }
+
+    /// `table_recorder`: a row `{t, <input>…}` for each sample on an input (one born at the
+    /// start too: it records, it runs nothing); `buffer_size` rows at most (1 … 10 000), and with
+    /// `time_window_s` only the rows that recent.
+    fn record(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        if changed == "reset" {
+            let v = self.values.get("reset").cloned().unwrap_or(Value::Null);
+            if self.born || v == Value::Null {
+                return;
+            }
+            // a table of the recorder's columns replaces the rows
+            self.rows = table::Table::from_value(&v)
+                .map(|tb| tb.rows.into_iter().collect())
+                .unwrap_or_default();
+        } else if self.items.iter().any(|n| n == changed) {
+            let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+            if !truth(self.param("enabled"), true)
+                || (v == Value::Null && truth(self.param("ignore_null"), false))
+            {
+                return;
+            }
+            let mut row: BTreeMap<String, Value> = self
+                .items
+                .iter()
+                .map(|n| {
+                    (
+                        n.clone(),
+                        self.values.get(n).cloned().unwrap_or(Value::Null),
+                    )
+                })
+                .collect();
+            row.insert("t".into(), Value::UInt(t));
+            self.rows.push_back(row);
+        } else if !matches!(
+            changed,
+            "enabled" | "buffer_size" | "time_window_s" | "ignore_null"
+        ) {
+            return;
+        }
+        let cap = whole(self.param("buffer_size"), table::MAX_ROWS)
+            .filter(|n| *n > 0)
+            .unwrap_or(1024);
+        while self.rows.len() > cap {
+            self.rows.pop_front();
+        }
+        if let Some(w) = num(self.param("time_window_s"))
+            .map(N::f)
+            .filter(|w| *w > 0.0)
+        {
+            let newest = self
+                .rows
+                .back()
+                .and_then(|r| r.get("t"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let cut = newest - w * 1e6;
+            while self
+                .rows
+                .front()
+                .and_then(|r| r.get("t"))
+                .and_then(Value::as_f64)
+                .is_some_and(|x| x < cut)
+            {
+                self.rows.pop_front();
+            }
+        }
+        let mut cols = vec!["t".to_owned()];
+        cols.extend(self.items.iter().cloned());
+        let tb = table::Table {
+            columns: cols,
+            rows: self.rows.iter().cloned().collect(),
+        };
+        // a buffer past 512 KiB drops its oldest rows until it fits
+        let mut tb = tb;
+        while !tb.fits() && !tb.rows.is_empty() {
+            tb.rows.remove(0);
+            self.rows.pop_front();
+        }
+        let v = tb.to_value().unwrap_or(Value::Null);
+        self.send("out", v, q, t, out);
+    }
+
+    /// `table_page`: the page in `count`; `next`, `previous`, `first`, `last` move it (not a
+    /// sample born at the start), `page` sets it.
+    fn page(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let tb = table::Table::from_value(self.in_value());
+        let n = tb.as_ref().map_or(0, |tb| tb.rows.len());
+        let size = num(self.param("page_size")).map(N::f);
+        // no size or below 0: one page of all; 0: an empty page
+        let size = match size {
+            Some(s) if s >= 0.0 => s.min(table::MAX_ROWS as f64) as usize,
+            _ => n.max(1),
+        };
+        let pages = if size == 0 {
+            1
+        } else {
+            n.div_ceil(size).max(1)
+        };
+        let mut page = match self.count {
+            Some(p) if changed != "page" => p.f() as i64,
+            _ => num(self.param("page")).map_or(0, |p| p.f().clamp(0.0, 1e9) as i64),
+        };
+        let fired = |s: &Self, p: &str| {
+            changed == p && !s.born && s.values.get(p).is_some_and(|v| *v != Value::Null)
+        };
+        if fired(self, "next") {
+            page += 1;
+        } else if fired(self, "previous") {
+            page -= 1;
+        } else if fired(self, "first") {
+            page = 0;
+        } else if fired(self, "last") {
+            page = pages as i64 - 1;
+        } else if matches!(changed, "next" | "previous" | "first" | "last") {
+            return;
+        }
+        let page = page.clamp(0, pages as i64 - 1);
+        self.count = Some(N::I(page));
+        let v = match tb {
+            None => Value::Null,
+            Some(tb) => {
+                let from = (page as usize).saturating_mul(size).min(n);
+                let rows = tb.rows[from..(from + size).min(n)].to_vec();
+                table::Table {
+                    columns: tb.columns,
+                    rows,
+                }
+                .to_value()
+                .unwrap_or(Value::Null)
+            }
+        };
+        self.send("out", v, q, t, out);
+        self.send("current_page", Value::Int(page), q, t, out);
+        self.send("total_pages", Value::UInt(pages as u64), q, t, out);
+    }
+
+    /// `date_range`'s text in use.
+    fn range_text(&self) -> String {
+        match &self.range {
+            Some(r) => r.clone(),
+            None => match self.in_value() {
+                Value::Str(s) => s.trim().to_owned(),
+                _ => String::new(),
+            },
+        }
+    }
+
+    /// Whether `date_range` reads the clock: its text is a name or a relative range.
+    fn range_is_relative(&self) -> bool {
+        let t = match (&self.range, self.in_value()) {
+            (Some(r), _) => r.as_str(),
+            (None, Value::Str(s)) => s.as_str(),
+            _ => return false,
+        };
+        date::is_relative(t.trim())
+    }
+
+    /// The view a pure calculation of the third set reads.
+    fn view(&self) -> View<'_> {
+        View {
+            inv: self.in_value(),
+            params: &self.params,
+            items: self.item_values(),
+            now_us: now_us(),
+            ins: &self.values,
+        }
+    }
+
+    /// Send what a pure calculation gave, in its order; a `bad` result has quality `bad`.
+    fn send_all(&mut self, outs: Outs, q: Quality, t: u64, out: &mut Out) {
+        for (port, v, bad) in outs {
+            self.send(port, v, if bad { Quality::Bad } else { q }, t, out);
         }
     }
 
@@ -1435,8 +2098,11 @@ impl Block {
 
 impl Node for Block {
     fn start(&mut self, io: &Io) {
-        // only a variable sends at start
-        if matches!(self.kind, Kind::Number | Kind::Text | Kind::Bool) {
+        // only a variable (and a constant) sends at start
+        if matches!(
+            self.kind,
+            Kind::Number | Kind::Text | Kind::Bool | Kind::Constant | Kind::TableVar
+        ) {
             (io.inject)(
                 "__start",
                 Msg::new(Value::Null, Quality::Good, now_us()).at_start(),
@@ -1450,7 +2116,8 @@ impl Node for Block {
                 self.calculate("", out);
                 return;
             }
-            "in" | "reset" | "trigger" => port,
+            "in" | "reset" | "trigger" | "next" | "previous" | "condition" | "right" | "first"
+            | "last" => port,
             p => match p.strip_prefix("in.") {
                 Some(n) => n,
                 None => return,
@@ -1486,11 +2153,18 @@ impl Node for Block {
             Kind::Debounce | Kind::Throttle if self.held.is_some() => {
                 Some((self.hold() / 4).clamp(Duration::from_millis(5), Duration::from_millis(50)))
             }
+            // a relative range rolls over with the clock (ADR 0044 §3)
+            Kind::Date(date::Op::Range) if self.range_is_relative() => Some(RANGE_TICK),
             _ => None,
         }
     }
 
     fn tick(&mut self, now: u64, out: &mut Out) {
+        if self.kind == Kind::Date(date::Op::Range) {
+            let (q, _) = self.quality();
+            self.date_range("__tick", q, now, out);
+            return;
+        }
         if matches!(self.kind, Kind::Debounce | Kind::Throttle) {
             if self.due.is_some_and(|d| tokio::time::Instant::now() >= d) {
                 self.due = None;

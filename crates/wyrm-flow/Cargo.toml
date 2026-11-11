@@ -24,6 +24,13 @@ getrandom.workspace = true
 thiserror.workspace = true
 wyrm-wasm-host.workspace = true
 tracing.workspace = true
+base64.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+jiff = { workspace = true, features = ["std", "tzdb-bundle-always"] }
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

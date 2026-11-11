@@ -116,8 +116,8 @@ case, the second what it gives. Give them constants in `values`:
 
 `op` is `=`, `!=`, `>`, `<`, `>=`, `<=` (as numbers; `=` and `!=` as `if`'s
 `=`), or `contains`, `starts_with`, `ends_with` (as text; an empty case text
-matches nothing). An input left without a pair is not used. DGLux's `regexp`
-is not here: a pattern from a port could take any time to match.
+matches nothing), or `regexp` (spec 06 0.2.29: a bounded pattern, see "Text
+and codecs"). An input left without a pair is not used.
 
 `hub` sends the input that changed last: its value on `out` (also when it is
 the same value as before), its place in `inputs` on `index`, and an event on
@@ -204,6 +204,353 @@ Readers:
 - `key` and `path` take another key on their port inside `key_scope` or
   `path_scope`, as `subscribe` does (see "A key from a port"). A refused key is
   an `error` event with `invalid_parameter`.
+
+## The third set (spec 06 0.2.29, ADR 0044)
+
+These blocks mirror the computation blocks of the reference dashboard product
+(`docs/flow-blocks-coverage.md` maps all of its 152 palette items). Every
+parameter has the port `in.<parameter>`, except `inputs`, a scope and a rhai
+script. The rules of "How a block works" apply: change-only outputs, the worst
+quality, nothing at start but a variable or a `constant`.
+
+### Math, rounding and number formatting
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `constant` | — | `out` | `name` (default `pi`; `e`, `sqrt2`, `ln2`, `ln10`, `log2e`, `log10e`). Sent at start, as a variable. |
+| `factorial` | `in` | `out` | `n!` of the whole part of `in`. Below 1: 1. An integer up to 20!, a float up to 170!, above that `null`. |
+| `log` | `in` | `out` | `base` (default 10). `in` at most 0: `null`. |
+| `power` | `in` | `out` | `exponent` (default 2). An integer stays an integer while it fits. |
+| `root` | `in` | `out` | `degree` (default 2). A negative `in` has a root for an odd whole degree (−8, 3: −2); else `null`. An exact root is a whole number (27, 3: 3). |
+| `bound` | `in` | `input_out_of_range`, `out` | `min`, `max` (none: that side is open). `max` applies first, then `min`, so `min` wins when it is above `max`. |
+| `round_up`, `round_down` | `in` | `out`, `text` | `precision` (0…20, default 0). `text` has exactly `precision` places. |
+| `format_number` | `in` | `out` | `format` (default `#,##0.###`), `decimal_separator` (default `.`), `group_separator` (default `,`). |
+| `parse_number` | `in` | `out` | The first number in a text: `abc12.5kg` → 12.5, `1,234.5` → 1234.5 (commas dropped), `#ff` and `0xff` → 255. A number passes as it is. |
+
+`format_number` patterns:
+
+- `0` is a digit that is always shown; `#` a digit shown only when it is not a
+  leading or a trailing zero. `0.5` with `#.##` is `.5`, with `0.00` `0.50`.
+- A comma in the whole part sets the group size: the digits after the last
+  comma (`#,##0` groups by 3).
+- `%` in the text around the number multiplies by 100: `0.0%` gives `25.6%`
+  for 0.256.
+- Text before and after the number part stays as it is: `€ #,##0.00`.
+- A pattern is at most 64 bytes, a separator at most 8. An empty
+  `group_separator` gives no groups. A pattern without `#` or `0` gives
+  `null`.
+
+### Trigonometry (degrees)
+
+| Type | What it gives |
+|---|---|
+| `sin`, `cos`, `tan`, `cot` | The function of `in` degrees. `cot 0` is `null`. |
+| `asin`, `acos` | The angle in degrees; outside −1…1 `null`. |
+| `atan` | The angle in degrees of the point (`x`, `in`); `x` defaults to 1, so it is the arc tangent of `in`. |
+| `to_degrees`, `to_radians` | The conversion. |
+
+The degree factors are the reference's own: `57.29577951308232 × asin(x)` and
+`cos(0.017453292519943295 × x)`, so the last digit agrees with it.
+
+### Statistics
+
+`average`, `median`, `mode`, `std_deviation` and `variance` take the variable
+inputs (`inputs`, default `in.0`, `in.1`). An input that holds a list gives its
+numbers, so one wire from a `split` or a history column is enough. At most 1000
+numbers count.
+
+- `median` of an even count is the mean of the two middle numbers (the
+  reference takes the upper one).
+- `variance` and `std_deviation` are of the population (÷ n).
+- `mode` is the value that occurs most often, compared as text; `null`, empty
+  text, lists and maps do not count. A tie goes to the value that got there
+  first.
+- No number at all gives `null`.
+
+### Text and codecs
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `left`, `right` | `in` | `out` | `length` (default 0): the first or the last characters of `in` as text. |
+| `trim` | `in` | `out` | The text without spaces at its start and end. `null` gives empty text, as the reference. |
+| `base64_encode` | `in` | `out` | A text (as UTF-8) or bytes as Base64. Another value gives `null`. |
+| `base64_decode` | `in` | `out`, `bytes` | Base64 (standard or URL alphabet, padding optional): `out` as text (UTF-8; a bad sequence is U+FFFD), `bytes` as bytes. No Base64: `null`. |
+| `url_encode` | `in` | `out` | A URL component: every byte but `A–Z a–z 0–9 - _ . ! ~ * ' ( )` as `%XX`. |
+| `url_decode` | `in` | `out` | `+` is a space, `%XX` a byte, a bad or cut `%` stays as it is (`100%` → `100%`). |
+| `to_camel_case` | `in` | `out` | `Hello World-foo` → `helloWorldFoo`; `abc 2nd` → `abc2Nd`. |
+| `from_camel_case` | `in` | `out` | `HelloWorld` → ` hello world` (each capital becomes a space and the small letter). |
+| `hash` | `in` | `out` | `algorithm` (`sha256` default, `sha1`, `md5`): the digest of a text (as UTF-8) or of bytes in lower-case hex. |
+| `json_parse` | `in` | `out`, `parse_error` | A JSON text as a value. A value that is no text passes as it is. No JSON: `out` `null`, `parse_error` true. |
+| `json_stringify` | `in` | `out` | `pretty` (default false): a value as JSON text. Bytes become Base64 text. |
+
+- Text results are at most 4 KiB, as every text block: a longer one is `null`
+  with quality `bad`. JSON texts (`json_parse` in, `json_stringify` out) are
+  at most 256 KiB, a parsed value at most 32 levels deep.
+- `md5` and `sha1` are check sums a device or a service may ask for. Do not
+  use them for a secret.
+
+Older text blocks, changed by this set (a config without the new field gives
+what it gave before):
+
+- `substring` takes `end`: without `length`, the part ends before the
+  character `end`; below 0 counts from the end (`start 1`, `end -1` on
+  `[abc]` gives `abc`). `length` wins over `end`. An overrun still clamps (the
+  reference gives `null`).
+- `replace` takes `regexp` (default false): `from` is then a pattern. `to` is
+  taken as it is: `$1` is no group.
+- `case` takes the operator `regexp`: `in` as text has a match of the case.
+
+ОБЕРЕЖНО: a pattern is at most 256 bytes and 64 KiB compiled. The engine
+(the `regex` crate) has linear time and no backreferences, so a pattern from a
+port cannot hang the flow. A pattern that does not compile matches nothing
+and replaces nothing.
+
+### Date and time
+
+A date value is a number of **microseconds** since the Unix epoch, as the time
+`t` of every sample, a history row and `last_run`. A date input also takes
+text: RFC 3339 (`2026-10-29T13:00:00Z`, `…+02:00`), a date and time without an
+offset (`2026-10-29T13:00:00`, read in `time_zone`), `yyyy-M-d`, `yyyy/M/d` and
+`M/d/yyyy`, each with an optional `H:mm[:ss[.fff]]` and `am`/`pm`.
+
+`time_zone` (default `UTC`) is an IANA name (`Europe/Kyiv`), `UTC` or an offset
+`±HH:MM`. A wall time in a DST gap moves forward; a time that occurs twice
+takes the earlier instant.
+
+УВАГА: the default zone is `UTC`, not the broker host's zone. Set `time_zone`
+on every date block that shows or counts wall time.
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `now` | `in` | `out` | The current time on each sample of `in` (wire a `timer` for a clock). |
+| `date_time` | the parameter ports | `out` | `year` (default 1970), `month`, `day` (default 1), `hour`, `minute`, `second`, `millisecond` (default 0), `time_zone`. Parts overflow as a calendar counts: month 13 is January of the next year, day 0 the last day of the month before. A part that is not whole is cut. |
+| `date_format` | `in` | `out` | `format` (default `yyyy-MM-dd'T'HH:mm:ss`), `time_zone` (also `auto`: the offset written in the input text). |
+| `date_parse` | `in` | `time`, `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `weekday` | `time_zone`. `weekday` 1 is Monday, 7 Sunday. A text that is no date gives `null` on every output. |
+| `date_math` | `in` | `out` | `op` (`after` default, `before`), `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `time_zone`. |
+| `date_range` | `in`, `next`, `previous` | `start`, `end`, `this_range`, `next_range`, `previous_range`, `formatted`, `duration` | `format`, `range_delimiter` (default `/`), `keep_special` (`none`, `raw`, `formatted`), `week_start` (default `monday`), `time_zone`. |
+
+Pattern letters of `date_format` and `date_range.format`: `yyyy` (`yy` two
+digits), `M`/`MM`, `MMM` (`Oct`), `MMMM` (`October`), `d`/`dd`, `D` (day of the
+year), `E` (`Thu`), `EEEE` (`Thursday`), `H`/`HH`, `h`/`hh` with `a`
+(`AM`/`PM`), `k`, `K`, `m`/`mm`, `s`/`ss`, `S`… (fraction digits), `Z`
+(`+0200`), `xxx` (`+02:00`), `XXX` (as `xxx`, `Z` for UTC). Text in single
+quotes stays as it is; `''` is a quote. A letter is always a pattern letter:
+quote words (`'at'`). A pattern is at most 128 bytes. Names are English.
+
+`date_math`:
+
+- Years, months and days count on the calendar of `time_zone`. Jan 31 + 1
+  month is the last day of February. A day over a DST change keeps the wall
+  time (it lasts 23 or 25 hours). The reference adds days as 24 hours each.
+- Hours, minutes, seconds and milliseconds are elapsed time.
+
+`date_range` reads a range text:
+
+| Text | Range |
+|---|---|
+| `today`, `yesterday` | the day, from 00:00 to 23:59:59.999999 |
+| `thisWeek`, `lastWeek` | seven days from `week_start` |
+| `thisMonth`, `lastMonth`, `thisYear`, `lastYear` | the calendar month or year |
+| `current<N><unit>` | the last N units up to now (`current3days`) |
+| `previous<N><unit>` | the N units before `current<N><unit>` |
+| `2026`, `2026-10`, `2026-10-29` | the year, the month, the day |
+| `<a>/<b>` | from `a` to `b`; an end written to the second takes the whole second |
+
+- Units: `seconds`, `minutes`, `hours`, `days`, `weeks`, `months`, `years`;
+  N is 1 … 100 000. A name may also be written in snake case (`this_week`).
+- `start` and `end` are microseconds, `end` inclusive. `duration` is
+  `end − start + 1`. `this_range` is `start/end` as
+  `yyyy-MM-ddTHH:mm:ss` in `time_zone`.
+- `next_range` and `previous_range` are the texts of the neighbours: `today`
+  ↔ `yesterday`, `thisX` ↔ `lastX`, `currentN` ↔ `previousN`, the next and
+  the previous year, month or day, an `a/b` range shifted by its length.
+- A sample on `next` or `previous` (not one born at the start) moves the block
+  to that neighbour. A new value on `in` drops the move.
+- A named or a relative range is calculated again every second, so `today`
+  rolls over at midnight and `current1hours` moves with the clock. A change
+  goes out only when an output changed.
+
+### Logic and events
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `router` | `in`, `condition`, `in.<inputs>` (the cases) | `out.<inputs>`, `else` | `op` (as `case`, default `=`), `single_output` (default false), `inputs`. `in` goes out on `out.<name>` of the first case that `condition` matches, else on `else`. |
+| `event_gate` | `reset`, `in.<inputs>` | `on_finish`, `order` | `log_order` (`none` default, `first_occurrence`, `last_occurrence`, `all`), `inputs`. An event once every input changed at least once since the last reset. |
+| `catch_error` | `in.<inputs>` | `out`, `code`, `source`, `on_error` | `inputs`. Wire the `error` outputs of readers and commands into it: `out` is the message, `code` the status code, `source` the input's name, `on_error` an event for each error. |
+
+`router`:
+
+```json5
+{ type: "router", inputs: ["high", "low"], op: ">=",
+  values: { "in.high": 90, "in.low": 0 } }
+// edges: ["level.out", "r.condition"], ["alarm.event", "r.in"],
+//        ["r.out.high", "notify.trigger"], ["r.out.low", "log.trigger"]
+```
+
+- A case value is the input `in.<name>`; give it a constant in `values`.
+- `single_output: true` sets the output routed before back to `null` when the
+  route changes. Without it each output keeps its last value.
+- `router` routes on any sample on `in`, `condition` or a case.
+
+`event_gate`:
+
+- A sample born at the start does not count, and the gate fires once. A
+  sample on `reset` (not one born at the start) opens it again.
+- `order` lists the input names joined with commas; with `all` it keeps the
+  last 1000 changes. The reference numbers the inputs; WYRM names them.
+
+`catch_error` has no error groups: the reference routes an error to every
+catcher of the same group without a wire. A wire keeps the cycle check, `watch`
+and `preview` true to the graph (ADR 0044 §7).
+
+### Readers: history and node
+
+| Type | Inputs | Outputs | Parameters |
+|---|---|---|---|
+| `load_history` | `trigger`, `in.key`, `in.interval_ms`, `in.auto_run`, `in.enabled`, `in.time_range`, `in.rollup`, `in.window`, `in.limit`, `in.time_zone` | `out`, `ok`, `error`, `running`, `last_run` | `key`, `key_scope`, `interval_ms`, `auto_run` (default true), `enabled`, `time_range` (default `today`), `rollup` (default `none`), `window`, `limit` (default 10 000), `time_zone` (default `UTC`) |
+| `get_node` | `trigger`, `in.key`, `in.interval_ms`, `in.auto_run`, `in.enabled` | `out`, `actions`, `ok`, `error`, `running`, `last_run` | `key`, `key_scope`, `interval_ms`, `auto_run` (default true), `enabled` |
+
+`load_history` reads the historian (`~val?history=`, `docs/history.md`):
+
+- `time_range` is a range text as `date_range` reads it: `today`,
+  `lastWeek`, `current24hours`, `2026-10`, `<a>/<b>`. Wire
+  `date_range.this_range` into `in.time_range` for a fixed or a named range a
+  user moves with `next` and `previous`.
+- For a sliding range (`current24hours`), write the text itself into
+  `time_range` and set `interval_ms`. `this_range` of a sliding range changes
+  every second: wired into `in.time_range`, it asks the historian once a
+  second. A change while a read runs reads again after it.
+- `window` (`5m`, `1h`, `1d`, `1w`; empty: none) and `rollup` (`avg`, `min`,
+  `max`, `sum`, `count`, `first`, `last`, `delta`, `and`, `or`) give one row
+  per window.
+- `out` is a table (ADR 0044 §2) with the columns `t` (microseconds), `v` and
+  `q` (the quality code; `null` for a rollup row).
+- `limit` is 1 … 10 000. An answer that reached the limit may have more rows:
+  the `ok` event then carries `truncated: true` and `rows`. A table larger than
+  512 KiB is an `error` with `resource_exhausted`.
+- A changed query field (`in.time_range`, …) reads again when `auto_run` is
+  true. A history read has 30 s to answer.
+
+`get_node` reads a node's `~meta`:
+
+- `out` is its summary: `{name, display, type, unit, enum, writable, is,
+  has_children}`.
+- `actions` is a table `{name, display, group, level, params}`; `params` is a
+  list of `{name, type, default, required, display, description, unit,
+  enum}`. It gives an action's default arguments (the reference's Get Default
+  Parameters).
+
+Both read inside a scope as `load_value` does: the deployer, every watcher and
+every previewer must read the key and all of `key_scope`.
+
+Every reader (`load_value`, `list_children`, `load_history`, `get_node`) also
+runs on `dataflows/<id>/~act/trigger {node}` (the editor's `Run` button). The
+caller then needs read on the reader's key and all of its scope (for
+`list_children` also on the children), not a command's level.
+
+УВАГА: a run that a trigger starts flows on along the edges. When a `set` or an
+`invoke` is downstream of the triggered node (directly, through other blocks
+or inside a custom block), the caller also needs that block's level on its
+target: `max(maxperm, write)`. A reader with no command downstream needs read
+alone. The same holds for a command block whose answer runs another command.
+
+### Tables
+
+A table is a value (ADR 0044 §2):
+
+```json
+{"columns": ["name", "kw"], "rows": [{"name": "pump", "kw": 3}, {"name": "fan", "kw": 7}]}
+```
+
+- `columns` gives the order; each row is a map. A cell a row lacks is `null`.
+- Every table input also takes a list of maps, as `list_children` and
+  `load_history` give them; its columns are the keys in the order they first
+  appear. Rows given as lists (`{"columns": [...], "rows": [[...]]}`) are taken
+  by position.
+- There is no index column (the reference has `row` in column 0): a row's
+  index is its place, from 0.
+- Bounds: 10 000 rows, 128 columns, a column name of 256 bytes, 512 KiB of
+  cells, a cell 29 levels deep. A larger result is `null` with quality `bad`.
+- The parsers check their bounds while they read, not after:
+  `table_from_csv` refuses (`parse_error` true) a text past 512 KiB, a row of
+  more than 128 fields (a header too: it is not cut) and a field past 64 KiB;
+  a row map of more than 128 keys is no table; `table_from_json` and
+  `json_parse` read at most 256 KiB and 32 levels; a list of names
+  (`columns`, `ignore_columns`) counts its first 512 items. Equal or empty
+  header names get `_2`, `_3`, … in one pass.
+- A table block takes a table on `in` and gives a new one: the mutators
+  (`table_add_row`, `table_edit_rows`, `table_remove_rows`) are transforms, not
+  writes into a stored table. Keep a table across samples in a
+  `table_recorder`, or write it to broker storage with `set`.
+
+Per-row scripts (`table_filter`, `table_remove_rows`, `table_edit_rows`,
+`table_map_columns`) are rhai, with two variables: `row` (the row as a map:
+`row.kw`, `row["kw rate"]`) and `index` (from 0). A column name is not a
+variable: names come from the data, and the compiler checks a script when the
+flow is deployed. `state` is a map that lives for one table. A missing cell is
+`()`: write `row.kw != () && row.kw > 5`. All the scripts of one table have
+100 ms; past that the block gives `null` and the reason on `error`.
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `table` | `in` | `out` | `value`: a table, sent at start as a variable. |
+| `table_recorder` | `reset`, `in.<inputs>` | `out` | `enabled`, `buffer_size` (default 1024, at most 10 000), `time_window_s`, `ignore_null`, `inputs`. A row `{t, <input>…}` for each sample on an input (`t`: the sample's time, µs); a sample on `reset` clears it (a table on `reset` replaces the rows). |
+| `table_from_csv` | `in` | `out`, `parse_error` | `with_header` (default true), `delimiter` (default `,`). Cells are texts. |
+| `table_to_csv` | `in` | `out` | `with_header`, `delimiter`. |
+| `table_from_json` | `in` | `out`, `parse_error` | `selector` (`data.items`, `a[0].b`). A list of objects (nested keys as `a/b`), one object, or `{columns, rows}`. |
+| `table_to_json` | `in` | `out` | `pretty`. The rows as JSON objects. |
+| `table_map_columns` | `in` | `out`, `error` | `retain_columns`, `mapping`: `[{name, from}]`; `from` is a column, `= expr` (a value), `+ expr` (a number), `& expr` (a bool). |
+| `table_sort` | `in` | `out` | `column`, `method` (`number`, `string`, `natural`), `order`. No value sorts last either way; equal keys keep their order. |
+| `table_filter` | `in` | `out`, `error` | `expr`: the rows for which it is true. |
+| `table_remove_rows` | `in` | `out`, `error` | `expr`: the rows for which it is false. |
+| `table_edit_rows` | `in` | `out`, `error` | `expr`, `cells` (`{<column>: <value>}`): each matching row gets the cells. |
+| `table_group_by` | `in` | `out` | `column`, `include_blank`, `nested` (a column `rows` with each group's table), `aggregates`. |
+| `table_join` | `in`, `right` | `out` | `column`, `right_column` (default: `column`), `join` (`left`, `inner`, `right`, `full`, `exclude`, `union`). |
+| `table_page` | `in`, `next`, `previous`, `first`, `last` | `out`, `current_page`, `total_pages` | `page_size` (default 10; below 0: all), `page` (from 0). |
+| `table_rollup` | `in` | `out` | `time_column` (default `t`), `interval` (default `1h`), `round_time` (default true), `method`, `aggregates`, `week_start`, `time_zone`. |
+| `table_aggregate` | `in` | `out` | `column`, `method`. One value. |
+| `table_select_rows` | `in` | `out` | `indexes`: `0,2,5`, a list or a number. |
+| `table_select_columns` | `in` | `out` | `columns`: `name,zone` or a list. |
+| `table_columns` | `in` | `out` | A table `{name, type}`; `type` is `number`, `string`, `bool`, `map`, `list`, `bytes`, `mixed` or `null`. |
+| `table_row_cells` | `in` | `out`, `count` | `row`: that row as a map; `count`: the rows. Wire `get` for one cell. |
+| `table_add_row` | `in` | `out` | `row`: a map appended (a `make_object` gives one; a new key adds its column). |
+| `table_transpose` | `in` | `out` | `header_column`, `include_headers`, `header_prefix` (default `c`), `ignore_columns`. |
+| `table_from_map` | `in` | `out` | A map as a one-row table; a table passes. |
+
+`aggregates` (of `table_group_by` and `table_rollup`) is a list
+`[{column, method, as}]`; `as` names the result (default: the column). The
+methods: `first`, `last`, `count` (cells with a value), `sum`, `average`,
+`min`, `max`, `median` (sorted; the reference takes the middle row as it
+stands), `mode`, `std_deviation`, `variance`, `concat`, `concat_unique` (texts
+joined with commas, at most 4 KiB).
+
+`table_join`, as the reference: one to one, the first row of the other table
+with the key counts; keys compare as text (`1` matches `"1"`). `left` keeps
+every row of `in` and adds the new columns of `right`; `inner` only the rows
+with a match; `right` every row of `right` (its cells win); `full` the rows of
+`in` with a key, once each, then the rows of `right` none of them has;
+`exclude` the rows of `in` that `right` lacks; `union` all rows of both. A
+table with no key column passes `in` (for `right`: `right`).
+
+`table_rollup`:
+
+- `interval` is a number and a unit: `s`, `m` (minutes), `h`, `d`, `w`, `M`
+  (months), `y`. The reference's names (`fiveMinutes`, `oneHour`, `day`, …)
+  are taken too.
+- `round_time: true` starts the buckets on round times in `time_zone`
+  (`15m`: :00, :15, …; `1d`: midnight; `1w`: `week_start`); `false` starts
+  them at the first row's time, as the reference's default.
+- A bucket without rows gives no row. The time cell is the bucket's start in
+  microseconds.
+- Without `aggregates`, every other column is reduced by `method`.
+
+```json5
+// the hourly maximum of a day of history
+{ h: { type: "load_history", key: "downstream/plc/t1", time_range: "yesterday" },
+  r: { type: "table_rollup", interval: "1h",
+       aggregates: [{ column: "v", method: "max", as: "t_max" }] } }
+// edges: ["h.out", "r.in"]
+```
 
 ## Parameter ports of the other node types
 
@@ -584,12 +931,12 @@ Rules:
 | `round` | Input ⇄ · Precision ⇄ · Min precision ⇄ · Output → · Text → | `in`; `in.precision` → `precision`, `in.min_precision` → `min_precision`; `out`, `text` | — | `in` typed (`values`) | none (spec 06 0.2.21: `text` is DGLux's text result) |
 | `modulo` | Input ⇄ · Modulo ⇄ · Quotient → · Remainder → | `in`; `in.modulo` → `modulo` | — | — | — |
 | `if` | Operation ⇄ · Input 1 ⇄ · Input 2 ⇄ · … · Then ⇄ · Else ⇄ · Output → | `in.op` → `op`; `in.<n>`; `in.then` → `then`, `in.else` → `else` | — | Operation dropdown (`=`, `!=`, `and`, `or`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`); operands typed | none (spec 06 0.2.20, 0.2.21) |
-| `case` | Input ⇄ · Operation ⇄ · Case 1 ⇄ · Then 1 ⇄ · … · Else ⇄ · Output → (− / + by a pair, at least one) | `in`; `in.op` → `op`; pairs `in.<n>` by position; `in.else` → `else`; `out` | — | Operation dropdown; cases and thens typed (`values`) | `regexp` left out (spec 06 0.2.21) |
+| `case` | Input ⇄ · Operation ⇄ · Case 1 ⇄ · Then 1 ⇄ · … · Else ⇄ · Output → (− / + by a pair, at least one) | `in`; `in.op` → `op`; pairs `in.<n>` by position; `in.else` → `else`; `out` | — | Operation dropdown; cases and thens typed (`values`) | none: `regexp` is bounded (spec 06 0.2.29) |
 | `hub` | Input 1 ⇄ · Input 2 ⇄ · … · Ignore null ⇄ · Output → · Index → · On change → | `in.<n>`; `in.ignore_null` → `ignore_null`; outputs | — | Ignore null toggle; operands typed | none |
 | `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | `reset`; `in.<p>` → `p` | — | Enabled, Loop toggles | — |
 | `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
 | `concat` | Input 1 ⇄ · Input 2 ⇄ · … · Strict ⇄ · Output → | `in.<n>`; `in.strict` → `strict`; `out` | — | Strict toggle; inputs typed (`values`) | no separator (none in DGLux either) |
-| `load_value` | Point ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `key_scope`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Events: Ok · State: Running, Last run | as `subscribe` for Point and Scope; no Run button (the engine's `trigger` action is for commands) | a reader has no button yet (ADR 0040, deferred) |
+| `load_value` | Point ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `key_scope`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Events: Ok · State: Running, Last run | as `subscribe` for Point and Scope; Run button (`~act/trigger`, the caller reads the key and the scope) | none (spec 06 0.2.29) |
 | `list_children` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → | `in.path` → `path`; `path_scope`; `trigger`; `error`, `out` | as `load_value` | as `load_value` | — |
 | `substring`, `replace`, `split`, `join`, `get` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>` → `<p>`; `out` | — | a parameter typed as the catalog says | — |
 | `make_object`, `make_array`, `select` | `<input>` ⇄ … (`select`: Index ⇄ first) · Output → (− / +) | `in.<name>` (named inputs keep their names); `in.index` → `index`; `out` | Inputs (list) | inputs typed (`values`) | — |
@@ -599,6 +946,39 @@ Rules:
 | `sample_and_hold` | Input ⇄ · Trigger ⇄ · Output → | `in`, `trigger`; `out` | — | — | — |
 | `debounce`, `throttle` | Input ⇄ · Quiet time (ms) ⇄ / Period (ms) ⇄ · Output → | `in`; `in.ms` → `ms`; `out` | — | — | — |
 | `block:<name>` (an instance of a custom block) | header `MY` · `<input>` ⇄ … · `<output>` → … · `Open inside` | an input: the inner input its `to[0]` names (its constant in `values`, else the block's `default`); an output: the inner output `from`; live values from the rows `<instance>/<inner>` | — | an input typed as any value (`2` is a number, `AHU-` a text) | an instance has no row of its own in `watch` (ADR 0040, deferred) |
+| `constant` | Name ⇄ · Value → | `in.name` → `name`; `out` | — | Name dropdown | none |
+| `factorial`, `parse_number`, `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `to_degrees`, `to_radians` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
+| `log`, `power`, `root`, `atan` | Input ⇄ · Base / Exponent / Degree / X ⇄ · Output → | `in`; `in.<p>` → `<p>`; `out` | — | — | none |
+| `bound` | Input ⇄ · Min ⇄ · Max ⇄ · Input out of range → · Output → | `in`; `in.min`, `in.max`; outputs | — | — | none |
+| `round_up`, `round_down` | Input ⇄ · Precision ⇄ · Output → · Text → | `in`; `in.precision`; `out`, `text` | — | — | none (`text` is the reference's text result) |
+| `format_number` | Input ⇄ · Format ⇄ · Decimal separator ⇄ · Group separator ⇄ · Output → | `in`; `in.<p>`; `out` | — | — | none |
+| `average`, `median`, `mode`, `std_deviation`, `variance` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +) | `in.<n>`; `out` | — | operands typed (`values`) | `median` of an even count averages (ADR 0044 §5) |
+| `left`, `right` | Input ⇄ · Length ⇄ · Output → | `in`; `in.length`; `out` | — | — | none |
+| `trim`, `base64_encode`, `url_encode`, `url_decode`, `to_camel_case`, `from_camel_case` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
+| `base64_decode` | Input ⇄ · Output → · Bytes → | `in`; `out`, `bytes` | — | — | none |
+| `hash` | Input ⇄ · Algorithm ⇄ · Output → | `in`; `in.algorithm`; `out` | — | Algorithm dropdown | none |
+| `json_parse` | Input ⇄ · Output → · Parse error → | `in`; `out`, `parse_error` | — | — | none |
+| `json_stringify` | Input ⇄ · Pretty ⇄ · Output → | `in`; `in.pretty`; `out` | — | Pretty toggle | none |
+| `now` | Input ⇄ · Output → | `in`; `out` | — | — | new (the reference has no clock block) |
+| `date_time` | Year ⇄ · Month ⇄ · Day ⇄ · Hour ⇄ · Minute ⇄ · Second ⇄ · Millisecond ⇄ · Time zone ⇄ · Output → | `in.<p>` → `<p>`; `out` | — | — | `millisecond` is used (the reference reads it under a wrong name) |
+| `date_format` | Input ⇄ · Format ⇄ · Time zone ⇄ · Output → | `in`; `in.format`, `in.time_zone`; `out` | — | — | microseconds, not milliseconds (ADR 0044 §3) |
+| `date_parse` | Input ⇄ · Time zone ⇄ · Time → · Year → · … · Weekday → | `in`; `in.time_zone`; the parts | — | — | none |
+| `date_math` | Input ⇄ · Operation ⇄ · Year ⇄ · … · Millisecond ⇄ · Time zone ⇄ · Output → | `in`; `in.<p>`; `out` | — | Operation dropdown | days on the calendar (ADR 0044 §5) |
+| `date_range` | Input ⇄ · Next ⇄ · Previous ⇄ · Format ⇄ · Delimiter ⇄ · Keep special ⇄ · Week start ⇄ · Time zone ⇄ · Start → · End → · This range → · Next range → · Previous range → · Formatted → · Duration → | `in`, `next`, `previous`; `in.<p>`; outputs | — | Keep special, Week start dropdowns | none: `week_start`, `time_zone` and `previousN` work (the port's gaps) |
+| `router` | Input ⇄ · Condition ⇄ · Operation ⇄ · Case 1 ⇄ · … · Single output ⇄ · Output 1 → · … · Else → (− / + adds a case and its output) | `in`, `condition`; `in.op`, `in.single_output`; `in.<case>` with `out.<case>`; `else` | Inputs (list) | Operation dropdown; cases typed (`values`) | none (the reference's `event` is `in`) |
+| `event_gate` | Reset ⇄ · Log order ⇄ · Input 1 ⇄ · … · On finish → · Order → | `reset`; `in.log_order`; `in.<n>`; outputs | — | Log order dropdown | `order` lists names, not numbers |
+| `catch_error` | Input 1 ⇄ · … · Output → · Code → · Source → · On error → | `in.<n>`; outputs | — | — | wired, no `errorGroup` (ADR 0044 §7) |
+| `load_history` | Point ⇄ · Scope · Time range ⇄ · Rollup ⇄ · Window ⇄ · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `in.<p>`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Limit, Time zone · Events: Ok · State: Running, Last run | as `load_value`; Rollup dropdown; Run button | the reference's `header`, `delta`, `unifyTimezone` are left out (`t` is µs; a `table_map_columns` renames) |
+| `get_node` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → · Actions → | `in.key` → `key`; `trigger`; `error`, `out`, `actions` | as `load_value` | as `load_value` | none |
+| `table` | Value ⇄ | Value = `in` → `value` → `out` | — | a table editor (JSON today) | none |
+| `table_recorder` | Reset ⇄ · Input 1 ⇄ · … · Enabled ⇄ · Buffer size ⇄ · Time window (s) ⇄ · Ignore null ⇄ · Output → | `reset`; `in.<n>`; `in.<p>`; `out` | Inputs (list) | — | rows `{t, <name>}`; no index column |
+| `table_from_csv`, `table_to_csv`, `table_from_json`, `table_to_json` | Input ⇄ · `<parameter>` ⇄ … · Output → (· Parse error →) | `in`; `in.<p>`; outputs | — | — | `table_from_json` keeps a nested list as one cell (the reference drops it without filters) |
+| `table_map_columns` | Input ⇄ · Retain columns ⇄ · Output → · Error → | `in`; `in.retain_columns`; outputs | Mapping (list of name/from) | Mapping: rows of name and from | expressions are rhai over `row`, `index` |
+| `table_sort`, `table_aggregate`, `table_select_rows`, `table_select_columns`, `table_row_cells`, `table_add_row`, `table_transpose`, `table_columns`, `table_from_map` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>`; outputs | — | Method / Order dropdowns | none |
+| `table_filter`, `table_remove_rows`, `table_edit_rows` | Input ⇄ · (Cells ⇄) · Output → · Error → | `in`; (`in.cells`); outputs | Expression | Expression: multi-line | rhai over `row`, `index` |
+| `table_group_by`, `table_rollup` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>`; `out` | Aggregates (list of column/method/as) | Aggregates: rows of column, method, as | one type for the reference's Rollup and Advanced Rollup |
+| `table_join` | Input ⇄ · Right ⇄ · Column ⇄ · Right column ⇄ · Join ⇄ · Output → | `in`, `right`; `in.<p>`; `out` | — | Join dropdown | `renameColumns` left out (`table_map_columns` renames) |
+| `table_page` | Input ⇄ · Next ⇄ · Previous ⇄ · First ⇄ · Last ⇄ · Page size ⇄ · Page ⇄ · Output → · Current page → · Total pages → | `in`, triggers; `in.<p>`; outputs | — | — | none |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine
