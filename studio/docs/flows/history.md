@@ -14,7 +14,8 @@ sequenceDiagram
     participant A2 as RetrieveHistorianAction
     participant A3 as RetrieveSeriesAction
     participant A4 as SetSelectedAction
-    participant A5 as SetRangeAction
+    participant A5 as PickPointAction
+    participant A6 as SetRangeAction
     participant ST as AppState
 
     User->>UI: onPanelWidth
@@ -26,17 +27,24 @@ sequenceDiagram
     UI->>VM: onShow()
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected)
+    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected, historian.points)
     A2-->>-VM: ActionStatus
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: copyWith(historian.series)
-    A3-->>-VM: ActionStatus
+    alt historian.points.isNotEmpty
+        VM->>+A3: dispatchAndWait
+        Note over A3: WaitingAction · async
+        A3->>ST: copyWith(historian.series)
+        A3-->>-VM: ActionStatus
+    end
 
     User->>UI: onGroup
     UI->>VM: onGroup()
     VM->>A4: dispatchSync
-    A4->>ST: copyWith(historian.selected)
+    A4->>ST: copyWith(historian.selected, historian.points, historian.series)
+
+    User->>UI: onPoint
+    UI->>VM: onPoint()
+    VM->>A5: dispatchSync
+    A5->>ST: copyWith(historian.points, historian.series)
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
     A3->>ST: copyWith(historian.series)
@@ -44,8 +52,8 @@ sequenceDiagram
 
     User->>UI: onRange
     UI->>VM: onRange()
-    VM->>A5: dispatchSync
-    A5->>ST: copyWith(historian.range)
+    VM->>A6: dispatchSync
+    A6->>ST: copyWith(historian.range)
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
     A3->>ST: copyWith(historian.series)
@@ -55,21 +63,24 @@ sequenceDiagram
     UI->>VM: onAction()
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected)
+    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected, historian.points)
     A2-->>-VM: ActionStatus
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: copyWith(historian.series)
-    A3-->>-VM: ActionStatus
+    alt historian.points.isNotEmpty
+        VM->>+A3: dispatchAndWait
+        Note over A3: WaitingAction · async
+        A3->>ST: copyWith(historian.series)
+        A3-->>-VM: ActionStatus
+    end
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
-| `onShow` | `RetrieveHistorianAction`, `RetrieveSeriesAction` | `historian.groups, historian.stats, historian.selected`, `historian.series` |
-| `onGroup` | `SetSelectedAction`, `RetrieveSeriesAction` | `historian.selected`, `historian.series` |
+| `onShow` | `RetrieveHistorianAction`, `RetrieveSeriesAction` ? | `historian.groups, historian.stats, historian.selected, historian.points`, `historian.series` |
+| `onGroup` | `SetSelectedAction` | `historian.selected, historian.points, historian.series` |
+| `onPoint` | `PickPointAction`, `RetrieveSeriesAction` | `historian.points, historian.series`, `historian.series` |
 | `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range`, `historian.series` |
-| `onAction` | `RetrieveHistorianAction`, `RetrieveSeriesAction` | `historian.groups, historian.stats, historian.selected`, `historian.series` |
+| `onAction` | `RetrieveHistorianAction`, `RetrieveSeriesAction` ? | `historian.groups, historian.stats, historian.selected, historian.points`, `historian.series` |
 
 `?` marks a dispatch that only runs under a condition.
 

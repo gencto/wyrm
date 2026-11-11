@@ -13,5 +13,6 @@ abstract class HistorianState with _$HistorianState {
     @Default('24h') String range,
     @Default(IMapConst({})) IMap<String, IList<HistPoint>> series,
     @Default(IMapConst({})) IMap<String, String> stats,
+    @Default(IListConst([])) IList<String> points,
   }) = _HistorianState;
 }

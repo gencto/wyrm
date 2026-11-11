@@ -797,6 +797,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "colPoint": MessageLookupByLibrary.simpleMessage("Point"),
     "colPoll": MessageLookupByLibrary.simpleMessage("Poll"),
     "colQuality": MessageLookupByLibrary.simpleMessage("Quality"),
+    "colReadRows": MessageLookupByLibrary.simpleMessage("Values on the trend"),
     "colReadsWrites": MessageLookupByLibrary.simpleMessage("Reads → writes"),
     "colRegister": MessageLookupByLibrary.simpleMessage("Register"),
     "colResult": MessageLookupByLibrary.simpleMessage("Result"),
@@ -1619,6 +1620,12 @@ class MessageLookup extends MessageLookupByLibrary {
     "pickOne": MessageLookupByLibrary.simpleMessage(
       "Pick a link from the list.",
     ),
+    "pickPointHint": MessageLookupByLibrary.simpleMessage(
+      "Click a point to see its trend; ⌘-click adds up to three.",
+    ),
+    "pickPointTrend": MessageLookupByLibrary.simpleMessage(
+      "Pick a point to see its trend",
+    ),
     "pinField": MessageLookupByLibrary.simpleMessage("Pin to block"),
     "pinLocked": MessageLookupByLibrary.simpleMessage(
       "A bound field stays on the block",
@@ -1969,6 +1976,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Reading your role and sites",
     ),
     "stepWhere": MessageLookupByLibrary.simpleMessage("Where it runs"),
+    "stopRecording": MessageLookupByLibrary.simpleMessage("Stop recording"),
     "studioAbout": m169,
     "studioSignedInHere": MessageLookupByLibrary.simpleMessage(
       "Studio is signed in here",

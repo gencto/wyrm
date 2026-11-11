@@ -35,8 +35,9 @@ int levelRank(String? level) => level == null ? -1 : levels.indexOf(level);
 
 /// The parents of [key] a path line links to: its section
 /// (`wy/<site>/<section>`, only when [sections], the sections the tree
-/// lists, has it) and every node under it down to the parent. `wy` and the site are not
-/// nodes of the tree, and the key itself is the node on screen.
+/// lists, has it) and every node under it down to the parent. `wy` and
+/// the site are not nodes of the tree, and the key itself is the node on
+/// screen.
 Set<String> parentLinksOf(String? key, {required Iterable<String> sections}) {
   final parts = key?.split('/') ?? const <String>[];
   if (parts.length < 4 || !sections.contains(parts[2])) {

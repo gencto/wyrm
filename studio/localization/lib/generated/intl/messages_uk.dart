@@ -804,6 +804,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "colPoint": MessageLookupByLibrary.simpleMessage("Точка"),
     "colPoll": MessageLookupByLibrary.simpleMessage("Опитування"),
     "colQuality": MessageLookupByLibrary.simpleMessage("Якість"),
+    "colReadRows": MessageLookupByLibrary.simpleMessage("Значень на тренді"),
     "colReadsWrites": MessageLookupByLibrary.simpleMessage("Читає → пише"),
     "colRegister": MessageLookupByLibrary.simpleMessage("Регістр"),
     "colResult": MessageLookupByLibrary.simpleMessage("Результат"),
@@ -1638,6 +1639,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "Виберіть точку в таблиці, щоб побачити її історію.",
     ),
     "pickOne": MessageLookupByLibrary.simpleMessage("Оберіть лінк зі списку."),
+    "pickPointHint": MessageLookupByLibrary.simpleMessage(
+      "Клацніть точку, щоб побачити її тренд; ⌘-клацання додає до трьох.",
+    ),
+    "pickPointTrend": MessageLookupByLibrary.simpleMessage(
+      "Виберіть точку, щоб побачити її тренд",
+    ),
     "pinField": MessageLookupByLibrary.simpleMessage("Закріпити на блоці"),
     "pinLocked": MessageLookupByLibrary.simpleMessage(
       "Зв’язане поле лишається на блоці",
@@ -2000,6 +2007,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Читання вашої ролі та сайтів",
     ),
     "stepWhere": MessageLookupByLibrary.simpleMessage("Де працює"),
+    "stopRecording": MessageLookupByLibrary.simpleMessage("Припинити запис"),
     "studioAbout": m169,
     "studioSignedInHere": MessageLookupByLibrary.simpleMessage(
       "Studio увійшла сюди",

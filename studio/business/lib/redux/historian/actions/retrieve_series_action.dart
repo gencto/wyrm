@@ -7,22 +7,21 @@ import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../nodes/actions/retrieve_history_action.dart';
 
-/// Reads the recorded values of every key of the selected watch group over
-/// `historian.range`, aggregated to about 300 points per key.
+/// Reads the recorded values of the points the user picked
+/// (`historian.points`, at most three) over `historian.range`, aggregated to
+/// about 300 points per key, all at once. Nothing is read while no point
+/// is picked: opening History lists the groups only.
 class RetrieveSeriesAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
-    final g = historian.groups
-        .where((g) => g.name == historian.selected)
-        .firstOrNull;
-    if (g == null) {
-      return null;
+    final keys = historian.points;
+    if (keys.isEmpty) {
+      return state.copyWith.historian(series: const IMapConst({}));
     }
     final span = RetrieveHistoryAction.span(historian.range);
     final from = DateTime.now().toUtc().subtract(span);
     final window = '${(span.inSeconds / 300).ceil().clamp(1, 1 << 30)}s';
-    final series = <String, IList<HistPoint>>{};
-    for (final key in g.keys) {
+    Future<IList<HistPoint>> read(String key) async {
       List<HistRow> rows;
       try {
         rows = await deps.wyrm.history(
@@ -35,7 +34,7 @@ class RetrieveSeriesAction extends Action with WaitingAction {
       } on WyrmException {
         rows = const [];
       }
-      series[key] = [
+      return [
         for (final r in rows)
           HistPoint(
             time: DateTime.fromMicrosecondsSinceEpoch(r.t, isUtc: true),
@@ -50,6 +49,17 @@ class RetrieveSeriesAction extends Action with WaitingAction {
           ),
       ].lock;
     }
-    return state.copyWith.historian(series: series.lock);
+
+    final got = await Future.wait([for (final k in keys) read(k)]);
+    // The user may have picked other points while these were read.
+    final now = historian.points;
+    return state.copyWith.historian(
+      series: {
+        for (final (i, k) in keys.indexed)
+          if (now.contains(k)) k: got[i],
+        for (final e in historian.series.entries)
+          if (now.contains(e.key) && !keys.contains(e.key)) e.key: e.value,
+      }.lock,
+    );
   }
 }
