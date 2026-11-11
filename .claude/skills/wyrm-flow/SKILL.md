@@ -20,7 +20,8 @@ description: Write, check, test and deploy a WYRM data flow — a `dataflows/<id
    - expressions and filters are rhai: inputs are maps `{v, q, t, age_ms}`, `state` keeps values;
    - cycles only through a `delay` node; `window.max_samples` in total ≤ 100000;
    - `set`/`invoke` need `permissions: { maxperm: "write" }` (never `config`) and exact keys under `wy/<site>/downstream/`;
-   - results go out through `publish` nodes → `wy/<site>/dataflows/<id>/nodes/<node>`.
+   - results go out through `publish` nodes → `wy/<site>/dataflows/<id>/nodes/<node>`;
+   - start (spec 06 0.2.30, `docs/flow-blocks.md` "What calculates at start"): variables and `const` send at start; a pure logic block with no edge into it calculates once at start from its `values` and parameters, and that sample never runs a command (not even through `set.in`); a variable or a `subscribe` wired to `set.in`/`invoke.in` does write at deploy; `now` ticks every `interval_ms` (default 1000, 0 = only on `in`).
 3. Check offline: `wyrm_flow::def::compile` runs in `wyr replay` too. With a broker: `wyr flow validate <site> flows/<id>.json5`.
 4. Test on data: `wyr record 'wy/<site>/downstream/<link>/**' --out rec.cbor --secs 60`, then `wyr replay rec.cbor --flow flows/<id>.json5 [--speed 10]`. It prints every published value and every `set`/`invoke` command (never sent). A sample recording can also be written in code (format in `tools/wyr/README.md`).
 5. Deploy: `wyr --key admin.key flow deploy <site> flows/<id>.json5` (signs the proofs), or keep `wyr --key admin.key dev --flows flows --site <site>` running: it validates and deploys every saved change and raises `version` when needed.

@@ -19,7 +19,8 @@ types: `node_types` lists 125.
 The new types are logic blocks of `crates/wyrm-flow/src/blocks.rs` (ADR 0032:
 a value per parameter, a port `in.<p>` for every parameter that a wire may set,
 change-only outputs, the worst quality of the inputs, nothing at start but the
-variables). Their calculations are pure functions in `blocks/*.rs` with unit
+variables; amended 2026-11-11: a pure block with no wired input calculates once
+at start, spec 06 0.2.30). Their calculations are pure functions in `blocks/*.rs` with unit
 tests. The readers (`load_history`, `get_node`) are kinds of
 the reader of ADR 0040 §4 (`readers.rs`): `load_history` and `get_node`.
 
@@ -155,6 +156,12 @@ value on `in` meant nothing. Now:
 - `in` is only a trigger: it takes no constant (`values: true` is dropped
   from its catalog entry). A `values` saved before is read and ignored, so a
   stored flow still compiles.
+- ОБЕРЕЖНО: a `now` stored before 0.2.30 has no `interval_ms`, so after the
+  upgrade it also sends every second (the default). Its ticks are ordinary
+  samples: a `now` wired to `in` of a `set` or an `invoke`, or to a `trigger`,
+  then runs that command every second. Set `interval_ms: 0` to keep the old
+  behaviour (only on samples of `in`). No deployed flow of the demo has a
+  `now` (checked 2026-11-11).
 
 ## Consequences
 

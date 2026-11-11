@@ -246,7 +246,8 @@ async fn math_blocks_through_the_engine() {
     );
     assert_eq!(sent[0].1.q, Quality::Uncertain);
     assert_eq!(sent[0].1.t, 7);
-    // a constant on an operand calculates nothing by itself
+    // a constant on an operand calculates nothing by itself (the start of an unwired pure
+    // block is the runtime's, spec 06 0.2.30)
     let mut f = build(
         "format_number",
         &[(

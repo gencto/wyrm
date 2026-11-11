@@ -531,7 +531,8 @@ async fn text_is_bounded() {
 }
 
 /// Spec 06 0.2.19: an operand's constant (config `values`) is its value until a sample
-/// replaces it; it calculates nothing by itself; only operands take one.
+/// replaces it; it calculates nothing by itself (only the start of an unwired pure block does,
+/// 0.2.30); only operands take one.
 #[tokio::test(flavor = "multi_thread")]
 async fn operand_constants() {
     let e = env().await;

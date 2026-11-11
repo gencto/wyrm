@@ -589,7 +589,9 @@ pub trait Node: Send {
         None
     }
     /// The inputs' constants (config `values`, spec 06 0.2.19) as `(port, value)`: each is the
-    /// input's value until a sample replaces it. They calculate nothing; `watch` shows them as
+    /// input's value until a sample replaces it. They calculate nothing by themselves (a pure
+    /// block with no wired input calculates from them once at start, [`Node::unwired`], spec 06
+    /// 0.2.30); `watch` shows them as
     /// the inputs' values from the start.
     fn seeds(&self) -> Vec<(String, Value)> {
         Vec::new()

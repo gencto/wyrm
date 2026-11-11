@@ -78,6 +78,11 @@ node sends while it handles it: the runtime carries both marks on. Such a
 sample runs no command. It only gives the field its value: `trigger`,
 `auto_run`, `arg.<name>`, and also `in` of `set` and `invoke`.
 
+A block fed at start by a pure block and by a read or a variable calculates
+twice, in the order the two samples come. Only the read's or the variable's
+result can write through `in` of a command, so the value written at deploy may
+lack the constant. The next real sample writes the right value.
+
 УВАГА: a variable's start value is born at the start, but it is not made of
 constants. Wired to `in` of a `set` or an `invoke`, it still writes at
 deploy, at a hot swap and at a restart (ADR 0038 §6), and so does the first
@@ -374,7 +379,7 @@ on every date block that shows or counts wall time.
 
 | Type | Inputs | Outputs | Parameters and what it gives |
 |---|---|---|---|
-| `now` | `in`, `in.interval_ms` | `out` | The current time: at start, every `interval_ms` (default 1000; 0: only on samples of `in`; else 100 … 86 400 000), and on each sample of `in`. `in` is only a trigger: it takes no constant, and its value means nothing. |
+| `now` | `in`, `in.interval_ms` | `out` | The current time: at start, every `interval_ms` (default 1000; 0: only on samples of `in`; else 100 … 86 400 000), and on each sample of `in`. `in` is only a trigger: it takes no constant, and its value means nothing. A `now` stored before spec 06 0.2.30 also ticks every second: set `interval_ms: 0` for the old behaviour. |
 | `date_time` | the parameter ports | `out` | `year` (default 1970), `month`, `day` (default 1), `hour`, `minute`, `second`, `millisecond` (default 0), `time_zone`. Parts overflow as a calendar counts: month 13 is January of the next year, day 0 the last day of the month before. A part that is not whole is cut. |
 | `date_format` | `in` | `out` | `format` (default `yyyy-MM-dd'T'HH:mm:ss`), `time_zone` (also `auto`: the offset written in the input text). |
 | `date_parse` | `in` | `time`, `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `weekday` | `time_zone`. `weekday` 1 is Monday, 7 Sunday. A text that is no date gives `null` on every output. |
