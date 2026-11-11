@@ -473,7 +473,8 @@ pub fn check_script(ty: &str, cfg: &Map) -> Result<(), String> {
     // an engine only for the types that have a script: one per node of a 1000-node
     // definition was most of its compile time (ADR 0040 §3)
     if !matches!(ty, "expression" | "filter") {
-        return Ok(());
+        // the per-row scripts of the table blocks (ADR 0044 §2) compile with the block
+        return crate::blocks::check_scripts(ty, cfg);
     }
     let e = script::engine();
     match ty {

@@ -2,8 +2,8 @@
 //! palette's order after the first sets.
 
 use crate::catalog::{
-    db, di, dl, dp, ds, p, pick, req, sc, DynPorts, NodeType, Param, ENABLED, INPUTS, INTERVAL_MS,
-    ITEMS, KEY, KEY_SCOPE,
+    db, di, dl, dp, ds, ed, p, pick, req, sc, DynPorts, NodeType, Param, ENABLED, INPUTS,
+    INTERVAL_MS, ITEMS, KEY, KEY_SCOPE,
 };
 
 /// A block with the input `in`, its parameters and `out`.
@@ -419,7 +419,135 @@ pub const TYPES: &[NodeType] = &[
             ENABLED,
         ],
     },
+    // ---------- tables (ADR 0044 §2: {columns, rows}; a list of maps is a table too) ----------
+    NodeType {
+        ty: "table",
+        category: "Variables",
+        description: "A table: sent at start, and again when in brings another.",
+        inputs: &["in"],
+        outputs: &["out"],
+        dyn_inputs: None,
+        dyn_outputs: None,
+        params: &[ed(p("value", "map", "The table at start, {columns, rows} (default an empty table)."), "textarea")],
+    },
+    NodeType {
+        ty: "table_recorder",
+        category: "Tables",
+        description: "A row {t, <input>…} for each sample on an input, the last buffer_size rows; reset clears it.",
+        inputs: &["reset", "in.enabled", "in.buffer_size", "in.time_window_s", "in.ignore_null"],
+        outputs: &["out"],
+        dyn_inputs: Some(ITEMS),
+        dyn_outputs: None,
+        params: &[
+            db(p("enabled", "bool", "Recording (default true)."), true),
+            di(p("buffer_size", "number", "Rows at most, 1…10 000 (default 1024)."), 1024),
+            di(ed(p("time_window_s", "number", "Above 0: only the rows of the last this many seconds (default 0)."), "duration"), 0),
+            db(p("ignore_null", "bool", "A null records no row (default false)."), false),
+            INPUTS,
+        ],
+    },
+    table1("table_from_csv", "A CSV text as a table of texts; parse_error says it was none.", &["in", "in.with_header", "in.delimiter"], &["out", "parse_error"], &[
+        db(p("with_header", "bool", "The first line names the columns (default true; else v1, v2, …)."), true),
+        ds(p("delimiter", "string", "Between two fields: its first character (default a comma)."), ","),
+    ]),
+    table1("table_to_csv", "A table as CSV text, one line per row, every line ending in a line break.", &["in", "in.with_header", "in.delimiter"], &["out"], &[
+        db(p("with_header", "bool", "A first line of column names (default true)."), true),
+        ds(p("delimiter", "string", "Between two fields (default a comma)."), ","),
+    ]),
+    table1("table_from_json", "JSON (a text or a value) as a table: a list of objects (nested keys as a/b), one object, or {columns, rows}.", &["in", "in.selector"], &["out", "parse_error"], &[
+        ds(p("selector", "string", "Where the data is: data.items or a.b[0] (default: the whole value)."), ""),
+    ]),
+    table1("table_to_json", "The rows of a table as a JSON text of objects.", &["in", "in.pretty"], &["out"], &[
+        db(p("pretty", "bool", "Lines and indents (default false)."), false),
+    ]),
+    table1("table_map_columns", "A table of new columns: each mapping copies a column or computes one per row.", &["in", "in.retain_columns"], &["out", "error"], &[
+        db(p("retain_columns", "bool", "Keep the input's columns first (default false)."), false),
+        ed(p("mapping", "dynamic", "[{name, from}]: from is a column, or = expr (a value), + expr (a number), & expr (a bool), rhai over row and index: = row.name + \"/\" + row.zone."), "textarea"),
+    ]),
+    table1("table_sort", "The rows sorted by one column; a cell with no value sorts last either way.", &["in", "in.column", "in.method", "in.order"], &["out"], &[
+        ds(p("column", "string", "The column to sort by (none: the table as it is)."), ""),
+        pick(p("method", "string", "number, string (by code), natural (a2 before a10, no case)."), &["number", "string", "natural"], "number"),
+        pick(p("order", "string", "ascending or descending."), &["ascending", "descending"], "ascending"),
+    ]),
+    table1("table_filter", "The rows for which expr is true; error says why a script failed.", &["in"], &["out", "error"], &[ROW_EXPR]),
+    table1("table_remove_rows", "The rows for which expr is false: the others removed.", &["in"], &["out", "error"], &[ROW_EXPR]),
+    table1("table_edit_rows", "The table with cells set in the rows for which expr is true.", &["in", "in.cells"], &["out", "error"], &[
+        ROW_EXPR,
+        p("cells", "map", "{<column>: <value>}: what each matching row gets (a new column is added)."),
+    ]),
+    table1("table_group_by", "One row per value of column, with aggregates of each group.", &["in", "in.column", "in.include_blank", "in.nested"], &["out"], &[
+        ds(p("column", "string", "The column to group by."), ""),
+        db(p("include_blank", "bool", "Rows with no value form a group with an empty key (default false: left out)."), false),
+        db(p("nested", "bool", "A column rows with the group's rows as a table (default false)."), false),
+        AGGREGATES,
+    ]),
+    table1("table_join", "in joined with right on column = right_column, one to one (the first match counts), or appended (union).", &["in", "right", "in.column", "in.right_column", "in.join"], &["out"], &[
+        ds(p("column", "string", "The key column of in."), ""),
+        p("right_column", "string", "The key column of right (default: column)."),
+        pick(p("join", "string", "left, inner, right, full, exclude (in rows right lacks), union (all rows)."), crate::blocks::tables::JOINS, "left"),
+    ]),
+    table1("table_page", "One page of rows; next, previous, first, last move it.", &["in", "next", "previous", "first", "last", "in.page_size", "in.page"], &["out", "current_page", "total_pages"], &[
+        di(p("page_size", "number", "Rows per page (default 10; below 0: one page of all; 0: empty)."), 10),
+        di(p("page", "number", "The page, from 0 (default 0)."), 0),
+    ]),
+    table1("table_rollup", "Rows in time buckets of interval, each value column reduced; the bucket's start in time_column.", &["in", "in.time_column", "in.interval", "in.round_time", "in.method", "in.week_start", "in.time_zone"], &["out"], &[
+        ds(p("time_column", "string", "The column of times: microseconds or date text (default t)."), "t"),
+        ds(p("interval", "string", "<n> and s, m, h, d, w, M (months) or y: 15m, 1h, 1d (default 1h)."), "1h"),
+        db(p("round_time", "bool", "Buckets on round times (default true; false: from the first row)."), true),
+        pick(p("method", "string", "Without aggregates: how each other column is reduced."), crate::blocks::tables::METHODS, "average"),
+        AGGREGATES,
+        pick(p("week_start", "string", "The first day of a w bucket (default monday)."), &["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"], "monday"),
+        TIME_ZONE,
+    ]),
+    table1("table_aggregate", "One value of a column by method.", &["in", "in.column", "in.method"], &["out"], &[
+        ds(p("column", "string", "The column."), ""),
+        pick(p("method", "string", "first, last, count, sum, average, min, max, median, mode, std_deviation, variance, concat, concat_unique."), crate::blocks::tables::METHODS, "first"),
+    ]),
+    table1("table_select_rows", "The rows at indexes, in that order.", &["in", "in.indexes"], &["out"], &[
+        ds(p("indexes", "string", "0,2,5 or a list or one number (default 0)."), "0"),
+    ]),
+    table1("table_select_columns", "Only the named columns, in that order.", &["in", "in.columns"], &["out"], &[
+        ds(p("columns", "string", "name,zone or a list."), ""),
+    ]),
+    table1("table_columns", "The columns of a table: a table {name, type}.", &["in"], &["out"], &[]),
+    table1("table_row_cells", "One row as a map {<column>: <cell>}; count: the rows of the table.", &["in", "in.row"], &["out", "count"], &[
+        di(p("row", "number", "The row, from 0 (default 0)."), 0),
+    ]),
+    table1("table_add_row", "The table with one more row (a new key adds its column).", &["in", "in.row"], &["out"], &[
+        p("row", "map", "The row: {<column>: <cell>} (a make_object gives one)."),
+    ]),
+    table1("table_transpose", "Columns as rows: one row per column, one column per row.", &["in", "in.header_column", "in.include_headers", "in.header_prefix", "in.ignore_columns"], &["out"], &[
+        ds(p("header_column", "string", "A column whose cells name the new columns (default: none)."), ""),
+        db(p("include_headers", "bool", "A first column headers with the old column names (default false)."), false),
+        ds(p("header_prefix", "string", "Without header_column: the new names are <prefix><n> (default c)."), "c"),
+        ds(p("ignore_columns", "string", "Columns to leave out: a,b."), ""),
+    ]),
+    table1("table_from_map", "A map as a one-row table; a table or a list of maps passes as a table.", &["in"], &["out"], &[]),
 ];
+
+/// A table block.
+const fn table1(
+    ty: &'static str,
+    description: &'static str,
+    inputs: &'static [&'static str],
+    outputs: &'static [&'static str],
+    params: &'static [Param],
+) -> NodeType {
+    unary(ty, "Tables", description, inputs, outputs, params)
+}
+
+const ROW_EXPR: Param = ds(
+    ed(
+        p("expr", "string", "rhai over row (the row as a map: row.kw) and index (from 0): row.kw > 5 && row.zone == \"A\" (default true)."),
+        "textarea",
+    ),
+    "true",
+);
+
+const AGGREGATES: Param = ed(
+    p("aggregates", "dynamic", "[{column, method, as}]: method one of first, last, count, sum, average, min, max, median, mode, std_deviation, variance, concat, concat_unique; as names the result (default: column)."),
+    "textarea",
+);
 
 const TIME_ZONE: Param = ds(
     p(

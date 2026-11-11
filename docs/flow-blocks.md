@@ -450,6 +450,97 @@ or inside a custom block), the caller also needs that block's level on its
 target: `max(maxperm, write)`. A reader with no command downstream needs read
 alone. The same holds for a command block whose answer runs another command.
 
+### Tables
+
+A table is a value (ADR 0044 §2):
+
+```json
+{"columns": ["name", "kw"], "rows": [{"name": "pump", "kw": 3}, {"name": "fan", "kw": 7}]}
+```
+
+- `columns` gives the order; each row is a map. A cell a row lacks is `null`.
+- Every table input also takes a list of maps, as `list_children` and
+  `load_history` give them; its columns are the keys in the order they first
+  appear. Rows given as lists (`{"columns": [...], "rows": [[...]]}`) are taken
+  by position.
+- There is no index column (the reference has `row` in column 0): a row's
+  index is its place, from 0.
+- Bounds: 10 000 rows, 128 columns, a column name of 256 bytes, 512 KiB of
+  cells, a cell 29 levels deep. A larger result is `null` with quality `bad`.
+- A table block takes a table on `in` and gives a new one: the mutators
+  (`table_add_row`, `table_edit_rows`, `table_remove_rows`) are transforms, not
+  writes into a stored table. Keep a table across samples in a
+  `table_recorder`, or write it to broker storage with `set`.
+
+Per-row scripts (`table_filter`, `table_remove_rows`, `table_edit_rows`,
+`table_map_columns`) are rhai, with two variables: `row` (the row as a map:
+`row.kw`, `row["kw rate"]`) and `index` (from 0). A column name is not a
+variable: names come from the data, and the compiler checks a script when the
+flow is deployed. `state` is a map that lives for one table. A missing cell is
+`()`: write `row.kw != () && row.kw > 5`. All the scripts of one table have
+100 ms; past that the block gives `null` and the reason on `error`.
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `table` | `in` | `out` | `value`: a table, sent at start as a variable. |
+| `table_recorder` | `reset`, `in.<inputs>` | `out` | `enabled`, `buffer_size` (default 1024, at most 10 000), `time_window_s`, `ignore_null`, `inputs`. A row `{t, <input>…}` for each sample on an input (`t`: the sample's time, µs); a sample on `reset` clears it (a table on `reset` replaces the rows). |
+| `table_from_csv` | `in` | `out`, `parse_error` | `with_header` (default true), `delimiter` (default `,`). Cells are texts. |
+| `table_to_csv` | `in` | `out` | `with_header`, `delimiter`. |
+| `table_from_json` | `in` | `out`, `parse_error` | `selector` (`data.items`, `a[0].b`). A list of objects (nested keys as `a/b`), one object, or `{columns, rows}`. |
+| `table_to_json` | `in` | `out` | `pretty`. The rows as JSON objects. |
+| `table_map_columns` | `in` | `out`, `error` | `retain_columns`, `mapping`: `[{name, from}]`; `from` is a column, `= expr` (a value), `+ expr` (a number), `& expr` (a bool). |
+| `table_sort` | `in` | `out` | `column`, `method` (`number`, `string`, `natural`), `order`. No value sorts last either way; equal keys keep their order. |
+| `table_filter` | `in` | `out`, `error` | `expr`: the rows for which it is true. |
+| `table_remove_rows` | `in` | `out`, `error` | `expr`: the rows for which it is false. |
+| `table_edit_rows` | `in` | `out`, `error` | `expr`, `cells` (`{<column>: <value>}`): each matching row gets the cells. |
+| `table_group_by` | `in` | `out` | `column`, `include_blank`, `nested` (a column `rows` with each group's table), `aggregates`. |
+| `table_join` | `in`, `right` | `out` | `column`, `right_column` (default: `column`), `join` (`left`, `inner`, `right`, `full`, `exclude`, `union`). |
+| `table_page` | `in`, `next`, `previous`, `first`, `last` | `out`, `current_page`, `total_pages` | `page_size` (default 10; below 0: all), `page` (from 0). |
+| `table_rollup` | `in` | `out` | `time_column` (default `t`), `interval` (default `1h`), `round_time` (default true), `method`, `aggregates`, `week_start`, `time_zone`. |
+| `table_aggregate` | `in` | `out` | `column`, `method`. One value. |
+| `table_select_rows` | `in` | `out` | `indexes`: `0,2,5`, a list or a number. |
+| `table_select_columns` | `in` | `out` | `columns`: `name,zone` or a list. |
+| `table_columns` | `in` | `out` | A table `{name, type}`; `type` is `number`, `string`, `bool`, `map`, `list`, `bytes`, `mixed` or `null`. |
+| `table_row_cells` | `in` | `out`, `count` | `row`: that row as a map; `count`: the rows. Wire `get` for one cell. |
+| `table_add_row` | `in` | `out` | `row`: a map appended (a `make_object` gives one; a new key adds its column). |
+| `table_transpose` | `in` | `out` | `header_column`, `include_headers`, `header_prefix` (default `c`), `ignore_columns`. |
+| `table_from_map` | `in` | `out` | A map as a one-row table; a table passes. |
+
+`aggregates` (of `table_group_by` and `table_rollup`) is a list
+`[{column, method, as}]`; `as` names the result (default: the column). The
+methods: `first`, `last`, `count` (cells with a value), `sum`, `average`,
+`min`, `max`, `median` (sorted; the reference takes the middle row as it
+stands), `mode`, `std_deviation`, `variance`, `concat`, `concat_unique` (texts
+joined with commas, at most 4 KiB).
+
+`table_join`, as the reference: one to one, the first row of the other table
+with the key counts; keys compare as text (`1` matches `"1"`). `left` keeps
+every row of `in` and adds the new columns of `right`; `inner` only the rows
+with a match; `right` every row of `right` (its cells win); `full` the rows of
+`in` with a key, once each, then the rows of `right` none of them has;
+`exclude` the rows of `in` that `right` lacks; `union` all rows of both. A
+table with no key column passes `in` (for `right`: `right`).
+
+`table_rollup`:
+
+- `interval` is a number and a unit: `s`, `m` (minutes), `h`, `d`, `w`, `M`
+  (months), `y`. The reference's names (`fiveMinutes`, `oneHour`, `day`, …)
+  are taken too.
+- `round_time: true` starts the buckets on round times in `time_zone`
+  (`15m`: :00, :15, …; `1d`: midnight; `1w`: `week_start`); `false` starts
+  them at the first row's time, as the reference's default.
+- A bucket without rows gives no row. The time cell is the bucket's start in
+  microseconds.
+- Without `aggregates`, every other column is reduced by `method`.
+
+```json5
+// the hourly maximum of a day of history
+{ h: { type: "load_history", key: "downstream/plc/t1", time_range: "yesterday" },
+  r: { type: "table_rollup", interval: "1h",
+       aggregates: [{ column: "v", method: "max", as: "t_max" }] } }
+// edges: ["h.out", "r.in"]
+```
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port
@@ -868,6 +959,15 @@ Rules:
 | `catch_error` | Input 1 ⇄ · … · Output → · Code → · Source → · On error → | `in.<n>`; outputs | — | — | wired, no `errorGroup` (ADR 0044 §7) |
 | `load_history` | Point ⇄ · Scope · Time range ⇄ · Rollup ⇄ · Window ⇄ · Trigger ⇄ · Error → · Output → | `in.key` → `key`; `in.<p>`; `trigger`; `error`, `out` | Behaviour: Auto run, Every, Enabled · Limit, Time zone · Events: Ok · State: Running, Last run | as `load_value`; Rollup dropdown; Run button | the reference's `header`, `delta`, `unifyTimezone` are left out (`t` is µs; a `table_map_columns` renames) |
 | `get_node` | Node ⇄ · Scope · Trigger ⇄ · Error → · Output → · Actions → | `in.key` → `key`; `trigger`; `error`, `out`, `actions` | as `load_value` | as `load_value` | none |
+| `table` | Value ⇄ | Value = `in` → `value` → `out` | — | a table editor (JSON today) | none |
+| `table_recorder` | Reset ⇄ · Input 1 ⇄ · … · Enabled ⇄ · Buffer size ⇄ · Time window (s) ⇄ · Ignore null ⇄ · Output → | `reset`; `in.<n>`; `in.<p>`; `out` | Inputs (list) | — | rows `{t, <name>}`; no index column |
+| `table_from_csv`, `table_to_csv`, `table_from_json`, `table_to_json` | Input ⇄ · `<parameter>` ⇄ … · Output → (· Parse error →) | `in`; `in.<p>`; outputs | — | — | `table_from_json` keeps a nested list as one cell (the reference drops it without filters) |
+| `table_map_columns` | Input ⇄ · Retain columns ⇄ · Output → · Error → | `in`; `in.retain_columns`; outputs | Mapping (list of name/from) | Mapping: rows of name and from | expressions are rhai over `row`, `index` |
+| `table_sort`, `table_aggregate`, `table_select_rows`, `table_select_columns`, `table_row_cells`, `table_add_row`, `table_transpose`, `table_columns`, `table_from_map` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>`; outputs | — | Method / Order dropdowns | none |
+| `table_filter`, `table_remove_rows`, `table_edit_rows` | Input ⇄ · (Cells ⇄) · Output → · Error → | `in`; (`in.cells`); outputs | Expression | Expression: multi-line | rhai over `row`, `index` |
+| `table_group_by`, `table_rollup` | Input ⇄ · `<parameter>` ⇄ … · Output → | `in`; `in.<p>`; `out` | Aggregates (list of column/method/as) | Aggregates: rows of column, method, as | one type for the reference's Rollup and Advanced Rollup |
+| `table_join` | Input ⇄ · Right ⇄ · Column ⇄ · Right column ⇄ · Join ⇄ · Output → | `in`, `right`; `in.<p>`; `out` | — | Join dropdown | `renameColumns` left out (`table_map_columns` renames) |
+| `table_page` | Input ⇄ · Next ⇄ · Previous ⇄ · First ⇄ · Last ⇄ · Page size ⇄ · Page ⇄ · Output → · Current page → · Total pages → | `in`, triggers; `in.<p>`; outputs | — | — | none |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine

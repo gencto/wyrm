@@ -58,7 +58,7 @@ show in its palette: the codecs (`base64_encode`, `base64_decode`,
 | Get Node `getNode` | add | `get_node`: a node's summary and its actions with their parameters |
 | Project-Info `projectInfo` | not for a broker | the dashboard project and the viewer's session |
 | Relativize `relativize` | covered by | `concat` builds the key, `in.key` with `key_scope` reads it (ADR 0040 §1) |
-| Multi-Histories `loadHistories` | add | `load_histories`: several keys merged into one table by time |
+| Multi-Histories `loadHistories` | covered by | one `load_history` per key with the same `window`, merged by `table_join` on `t` |
 | Zip Upload `zipUpload` | not for a broker | the dashboard server's file API |
 | Zip Download `zipDownload` | not for a broker | a browser download |
 | Zip Parser `zipParser` | deferred | needs an archive codec with bounds on expansion; files reach a flow through the file store links |

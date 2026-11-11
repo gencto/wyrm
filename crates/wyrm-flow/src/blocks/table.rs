@@ -24,6 +24,21 @@ pub struct Table {
     pub rows: Vec<BTreeMap<String, Value>>,
 }
 
+/// How deep a cell may nest: the table, its rows and a row are three levels of 32.
+pub const MAX_CELL_DEPTH: usize = wyrm_core::value::MAX_DEPTH - 3;
+
+/// How deep `v` nests (a scalar is 0); stops past `cap`.
+fn depth(v: &Value, cap: usize) -> usize {
+    if cap == 0 {
+        return usize::from(matches!(v, Value::Array(_) | Value::Map(_)));
+    }
+    match v {
+        Value::Array(a) => 1 + a.iter().map(|x| depth(x, cap - 1)).max().unwrap_or(0),
+        Value::Map(m) => 1 + m.values().map(|x| depth(x, cap - 1)).max().unwrap_or(0),
+        _ => 0,
+    }
+}
+
 /// About how many bytes `v` takes encoded; stops counting past `cap`.
 pub fn size(v: &Value, cap: usize) -> usize {
     fn go(v: &Value, acc: &mut usize, cap: usize) {
@@ -55,7 +70,6 @@ pub fn size(v: &Value, cap: usize) -> usize {
     acc
 }
 
-#[allow(dead_code)] // the table blocks use the rest (ADR 0044 §2)
 impl Table {
     pub fn new(columns: Vec<String>) -> Self {
         Self {
@@ -138,6 +152,10 @@ impl Table {
         let mut n = 0;
         for r in &self.rows {
             for v in r.values() {
+                // a cell is three levels inside the table (spec README rule 6: 32 in all)
+                if depth(v, MAX_CELL_DEPTH) > MAX_CELL_DEPTH {
+                    return usize::MAX;
+                }
                 n += size(v, MAX_BYTES);
                 if n > MAX_BYTES {
                     return n;
@@ -187,7 +205,6 @@ impl Table {
 }
 
 /// Column names once each, in their first place.
-#[allow(dead_code)]
 fn dedup(c: &mut Vec<String>) {
     let mut seen = std::collections::BTreeSet::new();
     c.retain(|n| seen.insert(n.clone()));

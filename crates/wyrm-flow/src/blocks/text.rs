@@ -448,6 +448,7 @@ mod tests {
                 params: &params,
                 items: Vec::new(),
                 now_us: 0,
+                ins: &super::super::NO_INPUTS,
             },
         )
     }

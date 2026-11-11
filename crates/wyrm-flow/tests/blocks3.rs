@@ -536,3 +536,114 @@ async fn get_node_reads_a_nodes_summary_and_actions() {
     feed(&mut *n, &io, "__trigger", good(Value::Null));
     assert!(on(&sent, "ok").is_some());
 }
+
+fn row(kv: &[(&str, Value)]) -> Value {
+    Value::Map(
+        kv.iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+    )
+}
+
+fn rows_of(v: &Value) -> Vec<Value> {
+    match v {
+        Value::Map(m) => match m.get("rows") {
+            Some(Value::Array(a)) => a.clone(),
+            _ => panic!("no rows: {v:?}"),
+        },
+        _ => panic!("no table: {v:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn table_blocks_through_the_engine() {
+    let e = env().await;
+    let io = &e.io;
+    // the rows of list_children are a table as they are
+    let children = Value::Array(vec![
+        row(&[
+            ("name", "t1".into()),
+            ("type", "number".into()),
+            ("writable", Value::Bool(false)),
+        ]),
+        row(&[
+            ("name", "sp".into()),
+            ("type", "number".into()),
+            ("writable", Value::Bool(true)),
+        ]),
+    ]);
+    let mut f = build("table_filter", &[("expr", "row.writable".into())]);
+    let out = value_on(&mut *f, io, "in", children.clone(), "out").unwrap();
+    assert_eq!(rows_of(&out).len(), 1);
+    // a bad script is refused when the flow compiles
+    let c = cfg(&[("expr", "row.kw >".into())]);
+    assert!(nodes::check_script("table_filter", &c).is_err());
+    // a table variable sends at start
+    let mut t = build("table", &[("value", children.clone())]);
+    let sent = feed(&mut *t, io, "__start", good(Value::Null).at_start());
+    assert_eq!(rows_of(&on(&sent, "out").unwrap()).len(), 2);
+    // the recorder: one row per sample, the last buffer_size
+    let mut r = build(
+        "table_recorder",
+        &[
+            ("inputs", names(&["temp"])),
+            ("buffer_size", Value::UInt(2)),
+        ],
+    );
+    for (i, x) in [1u64, 2, 3, 4].iter().enumerate() {
+        let mut m = good(*x);
+        m.t = 1_000_000 * (i as u64 + 1);
+        feed(&mut *r, io, "in.temp", m);
+    }
+    let sent = feed(
+        &mut *r,
+        io,
+        "in.temp",
+        Msg::new(Value::UInt(5), Quality::Good, 9_000_000),
+    );
+    let rows = rows_of(&on(&sent, "out").unwrap());
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[1],
+        row(&[("t", Value::UInt(9_000_000)), ("temp", Value::UInt(5))])
+    );
+    feed(&mut *r, io, "reset", good(Value::Bool(true)));
+    // a page moves on next; a sample born at the start does not move it
+    let seven = Value::Array((0..7).map(|i| row(&[("v", Value::Int(i * 10))])).collect());
+    let mut p = build("table_page", &[("page_size", Value::UInt(3))]);
+    let sent = feed(&mut *p, io, "in", good(seven));
+    assert_eq!(on(&sent, "total_pages"), Some(Value::UInt(3)));
+    assert!(feed(&mut *p, io, "next", good(Value::Bool(true)).at_start()).is_empty());
+    let sent = feed(&mut *p, io, "next", good(Value::Bool(true)));
+    assert_eq!(on(&sent, "current_page"), Some(Value::Int(1)));
+    assert_eq!(
+        rows_of(&on(&sent, "out").unwrap())[0],
+        row(&[("v", Value::Int(30))])
+    );
+    let sent = feed(&mut *p, io, "last", good(Value::Bool(true)));
+    assert_eq!(
+        rows_of(&on(&sent, "out").unwrap()),
+        vec![row(&[("v", Value::Int(60))])]
+    );
+    // join with right
+    let mut j = build("table_join", &[("column", "name".into())]);
+    feed(
+        &mut *j,
+        io,
+        "right",
+        good(Value::Array(vec![row(&[
+            ("name", "sp".into()),
+            ("unit", "°C".into()),
+        ])])),
+    );
+    let out = value_on(&mut *j, io, "in", children, "out").unwrap();
+    assert_eq!(
+        rows_of(&out)[1],
+        row(&[
+            ("name", "sp".into()),
+            ("type", "number".into()),
+            ("unit", "°C".into()),
+            ("writable", Value::Bool(true))
+        ])
+    );
+}

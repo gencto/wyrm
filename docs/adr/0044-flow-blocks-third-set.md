@@ -21,8 +21,8 @@ The new types are logic blocks of `crates/wyrm-flow/src/blocks.rs` (ADR 0032:
 a value per parameter, a port `in.<p>` for every parameter that a wire may set,
 change-only outputs, the worst quality of the inputs, nothing at start but the
 variables). Their calculations are pure functions in `blocks/*.rs` with unit
-tests. The readers (`load_history`, `load_histories`, `get_node`) are kinds of
-the reader of ADR 0040 §4 (`readers.rs`).
+tests. The readers (`load_history`, `get_node`) are kinds of
+the reader of ADR 0040 §4 (`readers.rs`): `load_history` and `get_node`.
 
 ### 2. Tables
 
@@ -77,7 +77,8 @@ A table is a value:
 - `load_history` reads the historian (`~val?history=`, ADR 0014) through
   `WyrmClient::history`: its rows `{t, v, q}` as a table, at most 10 000 rows
   (more is an `error` event with `resource_exhausted`, never a silent cut).
-- `load_histories` reads several keys and merges them by time.
+- Several keys merge by time with one `load_history` each (the same `window`)
+  and `table_join` on `t`: one key per reader keeps the scope rules as they are.
 - `get_node` reads one node's summary and its actions with their parameters.
 - Each is a read field in `nodes::read_fields`, so the deployer, every watcher
   and every previewer must read its key or scope, as `load_value` (ADR 0040 §1).

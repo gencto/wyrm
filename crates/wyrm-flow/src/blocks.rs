@@ -25,6 +25,7 @@ use wyrm_link_sdk::now_us;
 pub(crate) mod date;
 mod math;
 pub(crate) mod table;
+pub(crate) mod tables;
 mod text;
 
 /// The block types of this module.
@@ -116,6 +117,30 @@ pub const TYPES: &[&str] = &[
     "router",
     "event_gate",
     "catch_error",
+    // tables (ADR 0044 §2)
+    "table",
+    "table_recorder",
+    "table_from_csv",
+    "table_to_csv",
+    "table_from_json",
+    "table_to_json",
+    "table_map_columns",
+    "table_sort",
+    "table_filter",
+    "table_group_by",
+    "table_join",
+    "table_page",
+    "table_rollup",
+    "table_aggregate",
+    "table_select_rows",
+    "table_select_columns",
+    "table_columns",
+    "table_row_cells",
+    "table_add_row",
+    "table_remove_rows",
+    "table_edit_rows",
+    "table_transpose",
+    "table_from_map",
 ];
 
 /// Variable inputs of one block at most.
@@ -305,11 +330,16 @@ fn same(a: &Value, b: &Value) -> bool {
 pub(crate) struct View<'a> {
     inv: &'a Value,
     params: &'a BTreeMap<String, Value>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // the statistics read the inputs themselves
     items: Vec<Value>,
-    #[allow(dead_code)]
     now_us: u64,
+    /// Every input's last sample (`table_join`'s `right`).
+    ins: &'a BTreeMap<String, Value>,
 }
+
+/// No inputs, for a view in a test.
+#[cfg(test)]
+pub(crate) static NO_INPUTS: BTreeMap<String, Value> = BTreeMap::new();
 
 impl View<'_> {
     fn p(&self, name: &str) -> &Value {
@@ -370,6 +400,9 @@ enum Kind {
     Router,
     EventGate,
     CatchError,
+    TableVar,
+    Recorder,
+    Table(tables::Op),
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -439,6 +472,8 @@ fn kind(ty: &str) -> Option<Kind> {
         "router" => Kind::Router,
         "event_gate" => Kind::EventGate,
         "catch_error" => Kind::CatchError,
+        "table" => Kind::TableVar,
+        "table_recorder" => Kind::Recorder,
         t => {
             if let Some((_, op)) = math::OPS.iter().find(|(n, _)| *n == t) {
                 Kind::Math(*op)
@@ -448,6 +483,8 @@ fn kind(ty: &str) -> Option<Kind> {
                 Kind::Str(*op)
             } else if let Some((_, op)) = date::OPS.iter().find(|(n, _)| *n == t) {
                 Kind::Date(*op)
+            } else if let Some((_, op)) = tables::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Table(*op)
             } else {
                 return None;
             }
@@ -696,6 +733,24 @@ fn shape(k: Kind) -> Shape {
             items: true,
             outputs: &[("on_finish", Map), ("order", Any)],
         },
+        Kind::TableVar => Shape {
+            inputs: &["in"],
+            params: vec![param("value", Value::Null, false)],
+            items: false,
+            outputs: &[("out", Any)],
+        },
+        Kind::Recorder => Shape {
+            inputs: &["reset"],
+            params: vec![
+                param("enabled", Value::Bool(true), true),
+                param("buffer_size", Value::Int(1024), true),
+                param("time_window_s", Value::Int(0), true),
+                param("ignore_null", Value::Bool(false), true),
+            ],
+            items: true,
+            outputs: &[("out", Any)],
+        },
+        Kind::Table(op) => tables::shape(op),
         Kind::CatchError => Shape {
             inputs: &[],
             params: vec![],
@@ -750,6 +805,15 @@ pub fn ports(ty: &str, cfg: &Map) -> Option<Result<Ports, String>> {
     Some(check(k, cfg))
 }
 
+/// The compile check of a table block's per-row scripts (`expr`, `mapping`) and its
+/// `aggregates`; other types have none.
+pub fn check_scripts(ty: &str, cfg: &Map) -> Result<(), String> {
+    match kind(ty) {
+        Some(Kind::Table(op)) => tables::scripts(op, cfg).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
 /// Whether block type `ty` has operand inputs that take a constant in config `values`
 /// (spec 06 0.2.19): `in` and the variable inputs, never a parameter's port, never `reset`,
 /// and not the variables (their `value` is the constant).
@@ -758,7 +822,8 @@ pub fn takes_values(ty: &str) -> bool {
 }
 
 fn has_operands(k: Kind, sh: &Shape) -> bool {
-    !matches!(k, Kind::Number | Kind::Text | Kind::Bool) && (sh.items || sh.inputs.contains(&"in"))
+    !matches!(k, Kind::Number | Kind::Text | Kind::Bool | Kind::TableVar)
+        && (sh.items || sh.inputs.contains(&"in"))
 }
 
 /// The operand constants of config `values`: `{<port>: <value>}`, each port an operand input
@@ -1030,6 +1095,11 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             order: Vec::new(),
             finished: false,
             route: None,
+            scripts: match k {
+                Kind::Table(op) => tables::scripts(op, cfg)?,
+                _ => None,
+            },
+            rows: std::collections::VecDeque::new(),
         }) as Box<dyn Node>)
     }))
 }
@@ -1080,6 +1150,10 @@ struct Block {
     order: Vec<String>,
     finished: bool,
     route: Option<String>,
+    /// The per-row scripts of a table block, compiled at build.
+    scripts: Option<tables::Scripts>,
+    /// `table_recorder`: the rows it holds.
+    rows: std::collections::VecDeque<BTreeMap<String, Value>>,
 }
 
 impl Block {
@@ -1142,6 +1216,23 @@ impl Block {
             Kind::Number | Kind::Text | Kind::Bool => {
                 let v = self.var_value(self.values.get("in").unwrap_or(self.param("value")));
                 self.send("out", v, q, t, out);
+            }
+            Kind::TableVar => {
+                let v = self.values.get("in").unwrap_or(self.param("value"));
+                let (v, q) = match v {
+                    Value::Null => (table::Table::default().to_value().unwrap_or(Value::Null), q),
+                    v => match table::Table::from_value(v).and_then(|t| t.to_value()) {
+                        Some(t) => (t, q),
+                        None => (Value::Null, Quality::Bad),
+                    },
+                };
+                self.send("out", v, q, t, out);
+            }
+            Kind::Recorder => self.record(changed, q, t, out),
+            Kind::Table(tables::Op::Page) => self.page(changed, q, t, out),
+            Kind::Table(op) => {
+                let outs = tables::calc(op, &self.view(), self.scripts.as_ref());
+                self.send_all(outs, q, t, out);
             }
             Kind::Add => {
                 let v = nums()
@@ -1772,9 +1863,145 @@ impl Block {
                 params: &self.params,
                 items: Vec::new(),
                 now_us: now,
+                ins: &self.values,
             },
         );
         self.send_all(outs, q, t, out);
+    }
+
+    /// `table_recorder`: a row `{t, <input>…}` for each sample on an input (one born at the
+    /// start too: it records, it runs nothing); `buffer_size` rows at most (1 … 10 000), and with
+    /// `time_window_s` only the rows that recent.
+    fn record(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        if changed == "reset" {
+            let v = self.values.get("reset").cloned().unwrap_or(Value::Null);
+            if self.born || v == Value::Null {
+                return;
+            }
+            // a table of the recorder's columns replaces the rows
+            self.rows = table::Table::from_value(&v)
+                .map(|tb| tb.rows.into_iter().collect())
+                .unwrap_or_default();
+        } else if self.items.iter().any(|n| n == changed) {
+            let v = self.values.get(changed).cloned().unwrap_or(Value::Null);
+            if !truth(self.param("enabled"), true)
+                || (v == Value::Null && truth(self.param("ignore_null"), false))
+            {
+                return;
+            }
+            let mut row: BTreeMap<String, Value> = self
+                .items
+                .iter()
+                .map(|n| {
+                    (
+                        n.clone(),
+                        self.values.get(n).cloned().unwrap_or(Value::Null),
+                    )
+                })
+                .collect();
+            row.insert("t".into(), Value::UInt(t));
+            self.rows.push_back(row);
+        } else if !matches!(
+            changed,
+            "enabled" | "buffer_size" | "time_window_s" | "ignore_null"
+        ) {
+            return;
+        }
+        let cap = whole(self.param("buffer_size"), table::MAX_ROWS)
+            .filter(|n| *n > 0)
+            .unwrap_or(1024);
+        while self.rows.len() > cap {
+            self.rows.pop_front();
+        }
+        if let Some(w) = num(self.param("time_window_s"))
+            .map(N::f)
+            .filter(|w| *w > 0.0)
+        {
+            let newest = self
+                .rows
+                .back()
+                .and_then(|r| r.get("t"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let cut = newest - w * 1e6;
+            while self
+                .rows
+                .front()
+                .and_then(|r| r.get("t"))
+                .and_then(Value::as_f64)
+                .is_some_and(|x| x < cut)
+            {
+                self.rows.pop_front();
+            }
+        }
+        let mut cols = vec!["t".to_owned()];
+        cols.extend(self.items.iter().cloned());
+        let tb = table::Table {
+            columns: cols,
+            rows: self.rows.iter().cloned().collect(),
+        };
+        // a buffer past 512 KiB drops its oldest rows until it fits
+        let mut tb = tb;
+        while !tb.fits() && !tb.rows.is_empty() {
+            tb.rows.remove(0);
+            self.rows.pop_front();
+        }
+        let v = tb.to_value().unwrap_or(Value::Null);
+        self.send("out", v, q, t, out);
+    }
+
+    /// `table_page`: the page in `count`; `next`, `previous`, `first`, `last` move it (not a
+    /// sample born at the start), `page` sets it.
+    fn page(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let tb = table::Table::from_value(self.in_value());
+        let n = tb.as_ref().map_or(0, |tb| tb.rows.len());
+        let size = num(self.param("page_size")).map(N::f);
+        // no size or below 0: one page of all; 0: an empty page
+        let size = match size {
+            Some(s) if s >= 0.0 => s.min(table::MAX_ROWS as f64) as usize,
+            _ => n.max(1),
+        };
+        let pages = if size == 0 {
+            1
+        } else {
+            n.div_ceil(size).max(1)
+        };
+        let mut page = match self.count {
+            Some(p) if changed != "page" => p.f() as i64,
+            _ => num(self.param("page")).map_or(0, |p| p.f().clamp(0.0, 1e9) as i64),
+        };
+        let fired = |s: &Self, p: &str| {
+            changed == p && !s.born && s.values.get(p).is_some_and(|v| *v != Value::Null)
+        };
+        if fired(self, "next") {
+            page += 1;
+        } else if fired(self, "previous") {
+            page -= 1;
+        } else if fired(self, "first") {
+            page = 0;
+        } else if fired(self, "last") {
+            page = pages as i64 - 1;
+        } else if matches!(changed, "next" | "previous" | "first" | "last") {
+            return;
+        }
+        let page = page.clamp(0, pages as i64 - 1);
+        self.count = Some(N::I(page));
+        let v = match tb {
+            None => Value::Null,
+            Some(tb) => {
+                let from = (page as usize).saturating_mul(size).min(n);
+                let rows = tb.rows[from..(from + size).min(n)].to_vec();
+                table::Table {
+                    columns: tb.columns,
+                    rows,
+                }
+                .to_value()
+                .unwrap_or(Value::Null)
+            }
+        };
+        self.send("out", v, q, t, out);
+        self.send("current_page", Value::Int(page), q, t, out);
+        self.send("total_pages", Value::UInt(pages as u64), q, t, out);
     }
 
     /// `date_range`'s text in use.
@@ -1805,6 +2032,7 @@ impl Block {
             params: &self.params,
             items: self.item_values(),
             now_us: now_us(),
+            ins: &self.values,
         }
     }
 
@@ -1873,7 +2101,7 @@ impl Node for Block {
         // only a variable (and a constant) sends at start
         if matches!(
             self.kind,
-            Kind::Number | Kind::Text | Kind::Bool | Kind::Constant
+            Kind::Number | Kind::Text | Kind::Bool | Kind::Constant | Kind::TableVar
         ) {
             (io.inject)(
                 "__start",
@@ -1888,7 +2116,8 @@ impl Node for Block {
                 self.calculate("", out);
                 return;
             }
-            "in" | "reset" | "trigger" | "next" | "previous" | "condition" => port,
+            "in" | "reset" | "trigger" | "next" | "previous" | "condition" | "right" | "first"
+            | "last" => port,
             p => match p.strip_prefix("in.") {
                 Some(n) => n,
                 None => return,
