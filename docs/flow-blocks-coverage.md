@@ -23,18 +23,19 @@ Status words:
 
 | Status | Items |
 |---|---|
-| have | 19 |
-| have, differs | 12 (closed 5, kept 7) |
-| add | 66 items as 60 new types |
-| covered by | 22 |
-| not for a broker | 30 |
-| deferred | 3 |
+| have | 20 |
+| have, differs | 10 (closed 3, kept 7) |
+| add | 67 items as 60 new types |
+| covered by | 16 |
+| not for a broker | 37 |
+| deferred | 2 |
 | **total** | **152** |
 
 The set also adds types for nodes that the reference registers but does not
 show in its palette: the codecs (`base64_encode`, `base64_decode`,
 `url_encode`, `url_decode`, `to_camel_case`, `from_camel_case`, `hash`) and
-`json_parse` / `json_stringify` for values. `node_types` now lists 115 types.
+`json_parse` / `json_stringify` for values, and `now`. In all the set adds 70
+types: `node_types` lists 125.
 
 ## Variables
 
