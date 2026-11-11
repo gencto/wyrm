@@ -6,6 +6,12 @@
 //! `wasm32-unknown-unknown` with feature `wasm`, made a component of world
 //! `wyrm:app` in-process (`wit-component`), packed with its `capabilities` and its world with
 //! the version the component was built for (`wyrm:app@0.3.0`, ADR 0030).
+//!
+//! `wyr repo check|build|index` ([`official`], ADR 0043): the official links
+//! manifest `links/official.json` against the workspace, its packages, its
+//! index.
+
+pub(crate) mod official;
 
 use crate::Error;
 use clap::Subcommand;
@@ -76,6 +82,49 @@ pub enum RepoCmd {
         #[arg(long)]
         url: Option<String>,
     },
+    /// Check the official links manifest (ADR 0043) against the workspace:
+    /// every link's crate exists, its version is the crate's, every form is
+    /// buildable from its `[package.metadata.wyrm-link]`.
+    Check {
+        #[command(flatten)]
+        src: official::Source,
+    },
+    /// Build and pack every official link in one form (`wasm`, or `process`
+    /// for each `--target`), into `--out`, after `check`.
+    Build {
+        #[command(flatten)]
+        src: official::Source,
+        #[arg(long, value_parser = ["wasm", "process"])]
+        form: String,
+        /// Rust target triples of a process build (the host when none).
+        #[arg(long = "target")]
+        targets: Vec<String>,
+        /// Only these link ids.
+        #[arg(long)]
+        only: Vec<String>,
+        #[arg(long)]
+        no_build: bool,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Write the repository index of the official links from the zips in
+    /// `--zips`: one entry per form, files at `<releases>/download/<tag>/`
+    /// with `--tag`, at `--base` with it, else beside the index (a mirror).
+    Index {
+        #[command(flatten)]
+        src: official::Source,
+        #[arg(long)]
+        zips: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, conflicts_with = "base")]
+        tag: Option<String>,
+        #[arg(long)]
+        base: Option<String>,
+        /// Allow forms and hosts with no zip (a local run).
+        #[arg(long)]
+        partial: bool,
+    },
 }
 
 /// `[package.metadata.wyrm-link]`: what Cargo does not say.
@@ -108,7 +157,7 @@ fn process() -> String {
 
 /// The crate as `cargo metadata` describes it.
 #[derive(Debug, Deserialize)]
-struct CargoPackage {
+pub(crate) struct CargoPackage {
     name: String,
     version: String,
     description: Option<String>,
@@ -119,20 +168,20 @@ struct CargoPackage {
 }
 
 #[derive(Debug, Deserialize)]
-struct CargoTarget {
+pub(crate) struct CargoTarget {
     name: String,
     kind: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CargoMetadata {
-    packages: Vec<CargoPackage>,
+    pub(crate) packages: Vec<CargoPackage>,
     target_directory: PathBuf,
 }
 
 /// What a crate build makes.
 #[derive(Debug, PartialEq)]
-enum Artifact {
+pub(crate) enum Artifact {
     /// A process binary.
     Bin(String),
     /// A WASM component from this cdylib (its Rust name).
@@ -141,7 +190,7 @@ enum Artifact {
 
 /// What to build and how to name it, from the crate.
 #[derive(Debug, PartialEq)]
-struct Plan {
+pub(crate) struct Plan {
     krate: String,
     artifact: Artifact,
     features: Vec<String>,
@@ -162,7 +211,7 @@ impl Plan {
 }
 
 /// The plan of crate `p`; `kind` overrides the metadata's.
-fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
+pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
     let mut meta: Meta = match p.metadata.as_ref().and_then(|m| m.get("wyrm-link")) {
         Some(v) => serde_json::from_value(v.clone())
             .map_err(|e| format!("[package.metadata.wyrm-link]: {e}"))?,
@@ -336,7 +385,7 @@ fn pack_component(
     write_zip(out, &format!("{}-{}.zip", m.name, m.version), &zip)
 }
 
-fn cargo_metadata(manifest_path: &Path) -> Result<CargoMetadata, Error> {
+pub(crate) fn cargo_metadata(manifest_path: &Path) -> Result<CargoMetadata, Error> {
     let out = Command::new("cargo")
         .args([
             "metadata",
@@ -522,6 +571,7 @@ fn add_to_index(index: &mut Vec<RepoEntry>, m: &Manifest, url: String, sha256: S
         url: None,
         sha256: None,
         assets: BTreeMap::new(),
+        ..RepoEntry::default()
     };
     let i = match index.iter().position(|e| e.name == m.name) {
         Some(i) if index[i].version == m.version => i,
@@ -554,7 +604,28 @@ fn add_to_index(index: &mut Vec<RepoEntry>, m: &Manifest, url: String, sha256: S
 }
 
 pub fn run_repo(cmd: RepoCmd) -> Result<(), Error> {
-    let RepoCmd::Add { zips, repo, url } = cmd;
+    let (zips, repo, url) = match cmd {
+        RepoCmd::Add { zips, repo, url } => (zips, repo, url),
+        RepoCmd::Check { src } => return official::check_cmd(&src),
+        RepoCmd::Build {
+            src,
+            form,
+            targets,
+            only,
+            no_build,
+            out,
+        } => return official::build_cmd(&src, &form, &targets, &only, no_build, &out),
+        RepoCmd::Index {
+            src,
+            zips,
+            out,
+            tag,
+            base,
+            partial,
+        } => {
+            return official::index_cmd(&src, &zips, &out, tag.as_deref(), base.as_deref(), partial)
+        }
+    };
     if zips.is_empty() {
         return Err("no zip to add".into());
     }

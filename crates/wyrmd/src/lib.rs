@@ -338,7 +338,9 @@ pub struct PeersSection {
 pub struct PackagesSection {
     /// Index for "Install Link ▸ from Repository", JSON
     /// `[{name, version, description, url, sha256}]` (as DSA's
-    /// `linkRepositoryUrl`); https, or http to loopback.
+    /// `linkRepositoryUrl`); https, or http to loopback. `"official"`: the
+    /// index of this project's link releases (ADR 0043). Unset: none, the
+    /// broker never fetches one.
     #[serde(default)]
     pub repository: Option<String>,
 }
@@ -1787,7 +1789,7 @@ impl Daemon {
             },
             anchor_dir: cfg.state_anchor_dir.clone(),
             anchor_init: cfg.init_anchors,
-            repository: cfg.packages.repository.clone(),
+            repository: wyrm_admin::official::repository_url(cfg.packages.repository.as_deref()),
             scheduler: cfg.scheduler.enabled,
             dql: cfg.dql.enabled,
             alarm: cfg.alarm.enabled,
@@ -1994,6 +1996,28 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0043: a `builtin` form of the official manifest is a driver this
+    /// binary hosts (`wyr repo check` cannot see this list).
+    #[test]
+    fn official_builtin_forms_are_drivers_of_wyrmd() {
+        let drivers = Drivers.drivers();
+        for l in &wyrm_admin::official::embedded().links {
+            if let Some(d) = &l.forms.builtin {
+                assert!(
+                    drivers.contains(&d.as_str()),
+                    "links/official.json: {} says builtin {d}, wyrmd hosts {drivers:?}",
+                    l.id
+                );
+            }
+        }
+        let cfg =
+            Config::from_json5(r#"{ site: "s", packages: { repository: "official" } }"#).unwrap();
+        assert_eq!(
+            wyrm_admin::official::repository_url(cfg.packages.repository.as_deref()),
+            Some(wyrm_admin::official::embedded().index_url())
+        );
+    }
 
     #[test]
     fn scheduler_section_and_reserved_ids() {
