@@ -1,6 +1,6 @@
 # ADR 0040 — Flow behaviours: keys from a port, the action block, custom blocks
 
-**Status:** proposed · 2026-11-09 (owner requirements of 2026-11-09 for the next round of the Studio dataflow editor: bind a block's output into the path of another block; the action block with behaviour fields; custom blocks; the blocks still missing; decided under ADR 0029). Reference: DGLux5 (`docs/dataflow/engine.md`, `dglux_flutter/lib/runtime/dsa_blocks.dart`): its service blocks take `path` as a field that a binding can drive, and have `invoke`, `interval`, `autoRun`, `onSent`, `onComplete`, `onError`. WYRM ports the function, not the names (ADR 0032 §3).
+**Status:** proposed · 2026-11-09 (owner requirements of 2026-11-09 for the next round of the Studio dataflow editor: bind a block's output into the path of another block; the action block with behaviour fields; custom blocks; the blocks still missing; decided under ADR 0029). Goal: a service block takes `path` as a field that a binding can drive, and has a trigger, an interval, auto run and the events sent, ok and error. Names are WYRM's (ADR 0032 §3).
 
 ## Context
 ADR 0038 made every parameter and input a field with a value, a port and an output. Three things stayed fixed in the config:
@@ -43,9 +43,9 @@ What a flow can change at run time on a command is its **arguments** (§2) and t
 *If wrong:* a scope that is too wide lets a flow read more points than its author meant, but never more than the deployer reads. A dynamic command target can be added later as a scope with pattern proofs without a change to this section.
 
 ### 2. The action block: `invoke` with fields, behaviours and events (spec 06 0.2.23)
-A node action dropped from the tree becomes an `invoke` block. The type keeps its name and its old behaviour; it gains what the DGLux `invokeAction` block has.
+A node action dropped from the tree becomes an `invoke` block. The type keeps its name and its old behaviour; it gains argument fields, behaviour fields and events.
 
-**Arguments are fields.** `args` stays one map. Each key is an argument: its value is the argument's constant, and the port `arg.<name>` replaces it with the last sample (the field rule of ADR 0038 §7: a typed value that a binding can replace). An argument without a constant is `null`. An argument is also an output `arg.<name>` (ADR 0038 §1). At most 64 arguments; a name is 1 to 128 bytes and does not start with `__`. The prefix `arg.` keeps arguments apart from the block's own ports: DGLux hides a clashing name behind a zero-width space, and WYRM does not do that. `"$in"` as a constant still stands for the last value on `in`. The catalog says `dyn_inputs: {param: "args", prefix: "arg.", default: [], keys: true}`: `keys` means the parameter is a map and its keys name the ports.
+**Arguments are fields.** `args` stays one map. Each key is an argument: its value is the argument's constant, and the port `arg.<name>` replaces it with the last sample (the field rule of ADR 0038 §7: a typed value that a binding can replace). An argument without a constant is `null`. An argument is also an output `arg.<name>` (ADR 0038 §1). At most 64 arguments; a name is 1 to 128 bytes and does not start with `__`. The prefix `arg.` keeps arguments apart from the block's own ports, so an argument name never clashes with a port and is never changed to fit. `"$in"` as a constant still stands for the last value on `in`. The catalog says `dyn_inputs: {param: "args", prefix: "arg.", default: [], keys: true}`: `keys` means the parameter is a map and its keys name the ports.
 
 **Behaviour fields** (config, and a port each):
 | Field | Port | Default | Meaning |
@@ -147,9 +147,9 @@ The owner selects blocks in the editor and says "create custom block", later "ed
 *If wrong:* a team that wants one change to reach every flow needs "update all" in the editor (copy and deploy each flow); the engine side stays as it is.
 
 ### 4. The second set of blocks (spec 06 0.2.25)
-The DGLux palette (`tool/orig_block_palette.json`, `docs/block_audit.md`) was compared with the WYRM catalog. Taken: what a flow on a broker needs and the engine could not do with its blocks. Each block has a port for every parameter, typed defaults and `port_types` in the catalog, and rows in `docs/flow-blocks.md`. The catalog has 55 types (36 before).
+Added: what a flow on a broker needs and the engine could not do with its blocks. Each block has a port for every parameter, typed defaults and `port_types` in the catalog, and rows in `docs/flow-blocks.md`. The catalog has 55 types (36 before).
 
-**Readers** (`src/readers.rs`; DGLux `loadValue`, `getChildren`/`listNode`):
+**Readers** (`src/readers.rs`):
 - `load_value`: one read of a point's stored value. Fields `key` (port `in.key`, scope `key_scope`), `interval_ms`, `auto_run` (default true), `enabled`; input `trigger`; outputs `out` (the value with its quality and time), `ok`, `error` (`{event, id, code, message}`), `running`, `last_run`.
 - `list_children`: the children of a node as a list of rows `{name, path, type?, display?, is?, unit?, writable, has_children}`, at most 1000 (more: `error` `resource_exhausted`). Fields `path` (port `in.path`, scope `path_scope`) and the same behaviour fields and outputs.
 - Both are sources for §1: their static key is checked as a source, their scope as a scope, at deploy and for `watch`/`ports`/`preview`. A refused key from the port is an `error` event with `invalid_parameter`.
@@ -168,16 +168,16 @@ The DGLux palette (`tool/orig_block_palette.json`, `docs/block_audit.md`) was co
 **Numbers from a port are bounded (security review 2026-11-10).** `debounce.ms` as NaN reached `Duration::from_secs_f64` and panicked the node task. Rules now: (1) a block never takes a float that is not finite as a number (`num`: NaN, ±inf, and the texts `NaN`/`inf`), from a port or from the config; (2) a sample on a parameter's port that is such a float is not stored, the last good value stays; (3) `debounce`/`throttle` `ms` falls back to 500 when it is no number and is clamped to 0 … 3 600 000; `substring` `start` below 0 is 0 and `length` is at most 4 KiB; `select.index` is a whole number within the inputs or gives `null`; `counter` keeps its count when a step would leave the finite numbers; `get.path` longer than 4 KiB names nothing (a value nests at most 32 deep, README rule 6); `split` gives at most 1000 parts, `join` and `replace` at most 4 KiB; (4) `interval_ms` of the command blocks and readers, and the older `period_ms`, `size_s`, `ms` (ADR 0038 §5a), already took only a finite number in range. The runtime now calls `tick_every`, `first_tick_now` and `state` under its panic guard too, as it did `start`, `input` and `tick`: a panic there ends the run and the supervisor restarts it. Tests: `numbers_from_ports_are_bounded`, `interval_from_a_port_is_bounded` (NaN, ±inf, negative, huge, text).
 
 **Left out, and why.**
-| DGLux / candidate | Why not now |
+| Candidate | Why not now |
 |---|---|
 | `json_parse`, CSV parser and writer, table to JSON | Principle 5 keeps `serde_json` to user files, and the flow crate has no JSON parser. A parser for values from a port needs a size and depth bound and an owner decision on the dependency. |
-| `to_number`, `to_string`, `parseNumber` | The variables do it: a `number` or `string` block converts what comes on `in`. |
-| `string_format`, `formatNumber`, `trim`, `left`, `right`, `localize` | `concat`, `round.text` and `substring` cover the common cases; a format language is a design of its own. |
+| `to_number`, `to_string`, `parse_number` | The variables do it: a `number` or `string` block converts what comes on `in`. |
+| `string_format`, `format_number`, `trim`, `left`, `right` | `concat`, `round.text` and `substring` cover the common cases; a format language is a design of its own. |
 | `now`, `format_time`, `time_range`, the date blocks | They need IANA time zones. `wyrm-schedule` has the bundled tzdb; whether the flow crate may depend on it is an owner decision. |
 | Table blocks (`table_filter`, sort, group by, join, rollup, aggregation, …) | WYRM has no table value. A list of maps (`list_children.out`) with `get`, `stats`, `length` and `expression` covers reading a column; a table type comes with DQL results in flows, if at all. |
 | `timer`/`interval` trigger source | `timer` exists; `interval_ms` on the block is the direct way. |
 | `min_max_avg` | It is `stats`. `row_count` is `length`. |
-| `regexp` in `case`, `router`, `eventGate`, `script`, `catchError`, `repeater`, statistics (median, mode, deviation), trigonometry, `power`, `root`, `log`, `factorial`, `bound` | `expression` (rhai) computes all of the math; no bounded regex engine in the crate (ADR 0038 §8); the others are DGLux page mechanics. |
+| `regexp` in `case`, `router`, `event_gate`, `catch_error`, a block per table row, statistics (median, mode, deviation), trigonometry, `power`, `root`, `log`, `factorial`, `bound` | `expression` (rhai) computes all of the math; no bounded regex engine in the crate (ADR 0038 §8); routing, event and error blocks wait for a design of their own. |
 | Browser, file, zip, history and project blocks | They belong to a page, not to a broker. History in a flow is its own design (DQL, ADR 0025). |
 
 ## Deferred

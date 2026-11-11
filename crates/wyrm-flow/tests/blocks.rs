@@ -585,7 +585,7 @@ async fn operand_constants() {
     assert!(!wyrm_flow::blocks::takes_values("stopwatch"));
 }
 
-/// Spec 06 0.2.21 (DGLux parity): `if` `!=` and the text operators, `round.min_precision`
+/// Spec 06 0.2.21: `if` `!=` and the text operators, `round.min_precision`
 /// with its `text` output, the `case` block over pairs of variable inputs.
 #[tokio::test(flavor = "multi_thread")]
 async fn if_text_ops_round_text_and_case() {

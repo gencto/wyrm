@@ -1,17 +1,16 @@
-# ADR 0044 — Flow blocks, third set: the reference palette on the server
+# ADR 0044 — Flow blocks, third set: computation on the server
 
 Status: accepted (2026-11-11, owner request "implement everything that can work
 in Rust and on the platform"; decisions delegated under ADR 0029).
 
 ## Context
 
-The owner handed over the field reference and the behaviour of every dataflow
-block of the reference dashboard product (DGLux5, 152 palette items; the
-handoff is kept outside the repository). WYRM had 55 node types (ADR 0032,
-0038, 0040). `docs/flow-blocks-coverage.md` maps every palette item to WYRM.
-Everything that is computation, data shaping, time, text, events, state or a
-read of the tree belongs on the broker. Items that need a screen, a browser,
-the editor, a style, a device sensor or the dashboard server's file API do not.
+WYRM had 55 node types (ADR 0032, 0038, 0040). Flows on a broker also need
+math, text and codecs, time, events, tables and reads of history and of a
+node. Everything that is computation, data shaping, time, text, events, state
+or a read of the tree belongs on the broker. What needs a screen, a browser,
+the editor, a style, a device sensor or a file API does not. This set adds 70
+types: `node_types` lists 125.
 
 ## Decision
 
@@ -37,14 +36,14 @@ A table is a value:
   a `split`, of `make_array`): its columns are the keys in the order they first
   appear, sorted within one row (a WYRM map has sorted keys). Rows given as
   lists (`{"columns": […], "rows": [[…]]}`) are taken by position.
-- There is no `row` column: a row's index is its position from 0. The
-  reference inserts an index column 0 into every table; WYRM does not.
+- There is no `row` column: a row's index is its position from 0. No table
+  gets an index column of its own.
 - Bounds: 10 000 rows, 128 columns, a column name of 256 bytes, 512 KiB of
   encoded cells, nesting 32 (spec README rule 6). A table block whose result is
   larger sends `null` with quality `bad`.
 - Mutators (`table_add_row`, `table_edit_rows`, `table_remove_rows`) are pure
-  transforms of their input: the reference writes back into a table owned by a
-  table variable; in a stream engine the output is the next table. A flow that
+  transforms of their input: they write into no stored table; in a stream
+  engine the output is the next table. A flow that
   keeps a table across samples wires it through `table_recorder` or keeps it in
   broker storage.
 - Per-row scripts (`table_filter`, `table_map_columns`, `table_edit_rows`,
@@ -58,8 +57,8 @@ A table is a value:
 
 - A date value is a number of **microseconds** since the Unix epoch, as `t` of
   every sample, `HistRow.t` and `last_run`. A date input also takes RFC 3339
-  text, `yyyy-M-d[ HH:mm[:ss]]`, `yyyy/M/d`, `M/d/yyyy`. The reference uses
-  milliseconds; WYRM keeps one unit for all its times.
+  text, `yyyy-M-d[ HH:mm[:ss]]`, `yyyy/M/d`, `M/d/yyyy`. Not milliseconds: WYRM
+  keeps one unit for all its times.
 - Wall time is computed in the zone of the parameter `time_zone`: an IANA name
   (`Europe/Kyiv`), `UTC`, or `±HH:MM`. The default is `UTC`, not the host's
   zone: a broker in a container often has no zone file, and a flow must give
@@ -96,25 +95,25 @@ A table is a value:
   no command downstream needs read alone. The same rule holds for a command
   block: a command whose answer runs another command needs the rights of both.
 
-### 5. Differences kept against the reference rules R1–R15
+### 5. Stream rules the blocks keep
 
-WYRM is a stream engine; the reference is a dirty queue drained on a timer.
+WYRM is a stream engine: a block calculates on each sample, not on a timer.
 
-- R1 (JS doubles): WYRM numbers are integers while they fit, then floats; a
-  result that is not finite is `null` (no NaN or Infinity in a WYRM value).
-  The reference's NaN constant is `null`.
-- R3, R7, R15 (deferred queue, write order, cycle cut in the drain): a block
-  calculates on each sample and sends its outputs in its declared order; the
-  compiler refuses a cycle that has no `delay`.
-- R4 (NaN and new objects always propagate): an output goes out when its value
-  or quality changed; events always.
-- R8 (registration defaults are placeholders): the catalog's `default` is the
-  effective value.
-- R10, R10a (trigger windows): a trigger is an event or a value that differs
-  from the last one; a sample born at the start never acts (ADR 0040 §2).
-- R12 (load drain): the same `born` rule replaces it.
-- R14 (an exception aborts the drain): no block panics; a bad input gives
-  `null` (quality `bad` where the input was valid but too large).
+- Numbers are integers while they fit, then floats; a result that is not
+  finite is `null` (no NaN or Infinity in a WYRM value). There is no NaN
+  constant: `const` with `null` stands for it.
+- A block calculates on each sample and sends its outputs in its declared
+  order; the compiler refuses a cycle that has no `delay`.
+- An output goes out when its value or quality changed; events always.
+- The catalog's `default` is the effective value.
+- A trigger is an event or a value that differs from the last one; a sample
+  born at the start never acts (ADR 0040 §2). The same `born` rule covers the
+  start of a flow.
+- No block panics; a bad input gives `null` (quality `bad` where the input was
+  valid but too large).
+- `median` of an even count is the mean of the two middle numbers; `date_math`
+  counts years, months and days on the calendar of `time_zone`, so a day over
+  a DST change keeps the wall time.
 - `modulo`'s remainder is never negative, `max`/`min` of no number are `null`,
   `scale` does not clamp, `split` gives a list, `substring` clamps an overrun:
   existing WYRM behaviour that deployed flows rely on.
@@ -128,18 +127,17 @@ compile matches nothing.
 
 ### 7. Left out
 
-- `repeater` (one block instance per table row): the instance count is known
+- `repeat` (one block instance per table row): the instance count is known
   only at run time, but the 1000-node budget and the deploy proofs are
   computed when the definition is compiled. A later set may bound it by a
   `max_rows` in the config.
-- `zipParser`: needs an archive codec with bounds on expansion.
-- The schema-only `pidloop` (not in the palette): the reference's PID formulas
-  are not decoded (two operators of its integral term are unknown); a PID
-  block of its own needs a decision on its form and its bounds.
-- Error groups of `catchError` without wires: an implicit route between blocks
-  would bypass the cycle check, `watch` and `preview`; `catch_error` takes
-  wires.
-- Everything marked "not for a broker" in the coverage table.
+- Archive parsing (zip): needs an archive codec with bounds on expansion;
+  files reach a flow through the file store links.
+- A PID block: it needs a decision on its form and its bounds.
+- Error groups without wires: an implicit route between blocks would bypass
+  the cycle check, `watch` and `preview`; `catch_error` takes wires.
+- Blocks that need a screen, a browser, the editor, a style, a device sensor
+  or a file API.
 
 ## Consequences
 

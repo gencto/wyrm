@@ -850,7 +850,7 @@ pub(super) fn calc(op: Op, v: &View, sc: Option<&Scripts>) -> Outs {
     }
 }
 
-/// The reference's CSV reader: a quoted field is the text between its first and last quote
+/// The CSV reader: a quoted field is the text between its first and last quote
 /// (`""` a quote when it had more than two); every line ended by a newline is a row, an empty
 /// one too; the last line without a newline only when it has a field. `None`: no rows.
 pub(super) fn parse_csv(s: &str, delim: char, header: bool) -> Option<Table> {
@@ -1193,7 +1193,7 @@ pub(super) fn aggregate(method: &str, cells: &[&Value]) -> Value {
     }
 }
 
-/// The reference's joins, one to one: the first matching row of the other table counts.
+/// The joins, one to one: the first matching row of the other table counts.
 fn join(l: Option<Table>, r: Option<Table>, col: &str, rcol: &str, kind: &str) -> Option<Table> {
     let key = |v: &Value| match v {
         Value::Null => None,
@@ -1395,7 +1395,7 @@ fn transpose(t: &Table, v: &View) -> Table {
     out
 }
 
-/// `<n><unit>`: `s`, `m` (minutes), `h`, `d`, `w`, `M` (months), `y`; and the reference's names.
+/// `<n><unit>`: `s`, `m` (minutes), `h`, `d`, `w`, `M` (months), `y`; and the names below (`fiveMinutes`, `oneHour`, …).
 fn interval(t: &str) -> Option<(i64, char)> {
     let named = [
         ("oneMinute", "1m"),
@@ -1574,7 +1574,7 @@ mod tests {
             .collect()
     }
 
-    /// The reference's fixture `t1`: name, kw, zone.
+    /// The fixture `t1`: name, kw, zone.
     fn t1() -> Table {
         let r = |n: &str, kw: Value, z: &str| {
             map(&[("name", n.into()), ("kw", kw), ("zone", z.into())])
@@ -1651,7 +1651,7 @@ mod tests {
         );
         let t = parse_csv("a,b\n1,\"x,y\"\n", ',', true).unwrap();
         assert_eq!(col(&t, "b"), [Value::from("x,y")]);
-        // the reference keeps an empty line inside, not a last one
+        // an empty line inside is a row, an empty last one is not
         let t = parse_csv("a\n\nb\n", ',', false).unwrap();
         assert_eq!(
             col(&t, "v1"),
@@ -1962,7 +1962,7 @@ mod tests {
             .map(|(t, x)| map(&[("t", (*t).into()), ("v", Value::Int(*x))]))
             .collect(),
         };
-        // from the first row's time, as the reference
+        // without round_time the buckets start at the first row's time
         let r = run(
             Op::Rollup,
             v(&t3),
