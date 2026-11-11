@@ -270,6 +270,7 @@ class ExplorerPage extends StatelessWidget {
     this.keyName,
     this.onCopyKey,
     this.copyKeyLabel = 'Copy key',
+    this.keyLinks = const {},
     this.title,
     this.pill,
     this.subtitle,
@@ -352,6 +353,10 @@ class ExplorerPage extends StatelessWidget {
   final String? keyName;
   final VoidCallback? onCopyKey;
   final String copyKeyLabel;
+
+  /// The segments of the key line that open their node (KeyLine.links); a
+  /// click is a tap on that node in the tree.
+  final Set<String> keyLinks;
   final String? title;
   final StatusPillVm? pill;
 
@@ -577,7 +582,13 @@ class ExplorerPage extends StatelessWidget {
         spacing: 14,
         children: [
           if (keyName case final k?)
-            KeyLine(keyName: k, onCopy: onCopyKey, copyLabel: copyKeyLabel),
+            KeyLine(
+              keyName: k,
+              onCopy: onCopyKey,
+              copyLabel: copyKeyLabel,
+              links: keyLinks,
+              onOpen: onTap,
+            ),
           LayoutBuilder(
             // The name and the subtitle take what the buttons leave and
             // end in an ellipsis; under 560 the buttons go below them.

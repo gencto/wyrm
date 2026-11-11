@@ -26,7 +26,7 @@ Top bar, left to right: logo (mark + `WYRM` Unbounded 700 16, letter-spacing 0.0
 - Footer (12, `#8E979C`, top border): `The tree shows data only.` `sys/**` `is edited in` Links, Access, Sites `and` System, the four as links to those workspaces.
 
 ## 3. Workspace for a device (other kinds: §3a)
-1. **Key line**: the full key in mono 13 `#8E979C`, last segment `#ECE9E1`, then a **Copy key** icon button 28 × 28 (copies the full key, §6).
+1. **Key line**: the full key in mono 13 `#8E979C`, last segment `#ECE9E1`, then a **Copy key** icon button 28 × 28 (copies the full key, §6). Each segment from the section down to the parent is a link (owner 2026-11-11): pointer cursor, text/1 and an underline on hover and keyboard focus, Enter/Space or a click selects that node exactly as a click on its tree row (the tree opens and scrolls to it). `wy`, the site and the last segment (the node on screen) stay plain text; the section is a link only when the tree lists it.
 2. **Title row**: the node's **name** (last key segment) in mono 26/600, never its display name, a status pill (24 high, radius 12, `Connected` teal on `#15302A`; `Connecting` amber, `Failed` coral, `Stopped` grey), and under it one subtitle line 14 `#A3ABAF`: `<kind> · unit <n> · <host>:<port> · last read <hh:mm:ss>` (from the node's `~meta` and its connection), then the display name. Name and subtitle are one line each with an ellipsis and the full text as a tooltip: a display name can be a sentence, a segment 50 characters. Right side: **Ping** (outline 40) and **Actions ▾** (outline 40, opens the action menu, §5).
 3. **Tabs** (44 high, current one with a 2 px ember underline): `Points 9` · `Parameters` · `Actions 7` · `History` · `Audit`. A count is plain 12 `#A3ABAF` text after the label, not a pill.
 4. **Toolbar** (padding 16 × 24, gap 8): `Add point` (outline, fill `#161A1D`), `Import CSV or DSA tree`, `Apply profile` (quiet outline), and on the right `Filter points` (240 wide, height 40). Buttons are the device's own actions; a button whose action the user's level does not allow is disabled with the reason as a tooltip.
@@ -92,6 +92,7 @@ Loading (tree rows as skeletons, table header with 6 skeleton rows) · empty dev
 - [x] Filter field in the tree
 - [x] Tree names in mono 13; chips, counts, dots as §2
 - [x] Key line with Copy key; last segment highlighted
+- [x] Key line segments are links to their node (widget test `key_line_test.dart`)
 - [x] Status pill and subtitle line; Ping and Actions ▾
 - [x] Tabs: Points, Parameters, Actions, History, Audit; counts as plain text
 - [x] Toolbar: Add point, Import CSV or DSA tree, Apply profile, Filter points

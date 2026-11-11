@@ -29,6 +29,7 @@ import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
+import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/kinds.dart';
 import 'package:business/wyrm/mappers/flow_value_mapper.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
@@ -226,6 +227,7 @@ class ExplorerPageConnector extends StatelessWidget {
                   ? null
                   : () => _copy(context, [vm.keyName!]),
               copyKeyLabel: S.current.copyKey,
+              keyLinks: vm.keyLinks,
               title: vm.title,
               pill: vm.pill,
               subtitle: vm.subtitle,
@@ -704,6 +706,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       treeFilter: nodes.treeFilter,
       watch: _watch(),
       keyName: sel,
+      keyLinks: parentLinksOf(sel, sections: _sections),
       // The name, never the display name: that is a sentence at times, and
       // goes in the subtitle (docs/design/specs/explorer.md §3).
       title: sel?.split('/').last,
@@ -1859,6 +1862,7 @@ class _Vm extends Vm {
     required this.treeFilter,
     required this.watch,
     required this.keyName,
+    required this.keyLinks,
     required this.title,
     required this.pill,
     required this.subtitle,
@@ -1929,6 +1933,7 @@ class _Vm extends Vm {
            treeFilter,
            watch,
            keyName,
+           keyLinks,
            title,
            pill,
            subtitle,
@@ -1973,6 +1978,7 @@ class _Vm extends Vm {
   final String treeFilter;
   final List<String> watch;
   final String? keyName;
+  final Set<String> keyLinks;
   final String? title;
   final StatusPillVm? pill;
   final String? subtitle;
