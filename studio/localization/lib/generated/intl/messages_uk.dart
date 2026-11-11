@@ -1640,7 +1640,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "pickOne": MessageLookupByLibrary.simpleMessage("Оберіть лінк зі списку."),
     "pickPointHint": MessageLookupByLibrary.simpleMessage(
-      "Клацніть точку, щоб побачити її тренд; ⌘-клацання додає до трьох.",
+      "Клацніть точку, щоб побачити її тренд; ⌘/Ctrl-клацання додає до трьох.",
     ),
     "pickPointTrend": MessageLookupByLibrary.simpleMessage(
       "Виберіть точку, щоб побачити її тренд",

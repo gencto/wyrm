@@ -1309,7 +1309,7 @@
     "screenOf": "{name}",
     "@screenOf": {"placeholders": {"name": {"type": "String"}}},
     "pickPointTrend": "Виберіть точку, щоб побачити її тренд",
-    "pickPointHint": "Клацніть точку, щоб побачити її тренд; ⌘-клацання додає до трьох.",
+    "pickPointHint": "Клацніть точку, щоб побачити її тренд; ⌘/Ctrl-клацання додає до трьох.",
     "stopRecording": "Припинити запис",
     "colReadRows": "Значень на тренді"
 }

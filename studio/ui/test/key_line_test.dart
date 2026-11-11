@@ -108,6 +108,41 @@ void main() {
     expect(opened, isEmpty);
   });
 
+  testWidgets('a long key with links ends in an ellipsis, Copy stays', (
+    tester,
+  ) async {
+    const seg = 'supply_air_temperature_controller_north_wing_f2';
+    const long = 'wy/plant/downstream/modbus/$seg/$seg/temp';
+    await tester.pumpWidget(
+      frame(
+        Center(
+          child: SizedBox(
+            width: 300,
+            child: KeyLine(
+              keyName: long,
+              links: const {
+                'wy/plant/downstream',
+                'wy/plant/downstream/modbus',
+                'wy/plant/downstream/modbus/$seg',
+                'wy/plant/downstream/modbus/$seg/$seg',
+              },
+              onOpen: (_) {},
+              onCopy: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    final copy = find.byTooltip('Copy key');
+    expect(copy, findsOneWidget);
+    final right = tester.getTopRight(copy).dx;
+    expect(
+      right,
+      lessThanOrEqualTo(tester.getTopRight(find.byType(KeyLine)).dx),
+    );
+  });
+
   testWidgets('without links the line is the plain key', (tester) async {
     await tester.pumpWidget(frame(const Center(child: KeyLine(keyName: key))));
     expect(find.text(key, findRichText: true), findsOneWidget);

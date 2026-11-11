@@ -1621,7 +1621,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Pick a link from the list.",
     ),
     "pickPointHint": MessageLookupByLibrary.simpleMessage(
-      "Click a point to see its trend; ⌘-click adds up to three.",
+      "Click a point to see its trend; ⌘/Ctrl-click adds up to three.",
     ),
     "pickPointTrend": MessageLookupByLibrary.simpleMessage(
       "Pick a point to see its trend",

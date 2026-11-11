@@ -10124,10 +10124,10 @@ class S {
     );
   }
 
-  /// `Click a point to see its trend; ⌘-click adds up to three.`
+  /// `Click a point to see its trend; ⌘/Ctrl-click adds up to three.`
   String get pickPointHint {
     return Intl.message(
-      'Click a point to see its trend; ⌘-click adds up to three.',
+      'Click a point to see its trend; ⌘/Ctrl-click adds up to three.',
       name: 'pickPointHint',
       desc: '',
       args: [],
