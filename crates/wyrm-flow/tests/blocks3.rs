@@ -415,7 +415,7 @@ fn names(n: &[&str]) -> Value {
 async fn logic_blocks_through_the_engine() {
     let e = env().await;
     let io = &e.io;
-    // router: the reference's case, with single_output
+    // router: two cases, with single_output
     let mut r = build(
         "router",
         &[
