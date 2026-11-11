@@ -305,6 +305,71 @@ what it gave before):
 port cannot hang the flow. A pattern that does not compile matches nothing
 and replaces nothing.
 
+### Date and time
+
+A date value is a number of **microseconds** since the Unix epoch, as the time
+`t` of every sample, a history row and `last_run`. A date input also takes
+text: RFC 3339 (`2026-10-29T13:00:00Z`, `…+02:00`), a date and time without an
+offset (`2026-10-29T13:00:00`, read in `time_zone`), `yyyy-M-d`, `yyyy/M/d` and
+`M/d/yyyy`, each with an optional `H:mm[:ss[.fff]]` and `am`/`pm`.
+
+`time_zone` (default `UTC`) is an IANA name (`Europe/Kyiv`), `UTC` or an offset
+`±HH:MM`. A wall time in a DST gap moves forward; a time that occurs twice
+takes the earlier instant.
+
+УВАГА: the default zone is `UTC`, not the broker host's zone. Set `time_zone`
+on every date block that shows or counts wall time.
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `now` | `in` | `out` | The current time on each sample of `in` (wire a `timer` for a clock). |
+| `date_time` | the parameter ports | `out` | `year` (default 1970), `month`, `day` (default 1), `hour`, `minute`, `second`, `millisecond` (default 0), `time_zone`. Parts overflow as a calendar counts: month 13 is January of the next year, day 0 the last day of the month before. A part that is not whole is cut. |
+| `date_format` | `in` | `out` | `format` (default `yyyy-MM-dd'T'HH:mm:ss`), `time_zone` (also `auto`: the offset written in the input text). |
+| `date_parse` | `in` | `time`, `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `weekday` | `time_zone`. `weekday` 1 is Monday, 7 Sunday. A text that is no date gives `null` on every output. |
+| `date_math` | `in` | `out` | `op` (`after` default, `before`), `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `time_zone`. |
+| `date_range` | `in`, `next`, `previous` | `start`, `end`, `this_range`, `next_range`, `previous_range`, `formatted`, `duration` | `format`, `range_delimiter` (default `/`), `keep_special` (`none`, `raw`, `formatted`), `week_start` (default `monday`), `time_zone`. |
+
+Pattern letters of `date_format` and `date_range.format`: `yyyy` (`yy` two
+digits), `M`/`MM`, `MMM` (`Oct`), `MMMM` (`October`), `d`/`dd`, `D` (day of the
+year), `E` (`Thu`), `EEEE` (`Thursday`), `H`/`HH`, `h`/`hh` with `a`
+(`AM`/`PM`), `k`, `K`, `m`/`mm`, `s`/`ss`, `S`… (fraction digits), `Z`
+(`+0200`), `xxx` (`+02:00`), `XXX` (as `xxx`, `Z` for UTC). Text in single
+quotes stays as it is; `''` is a quote. A letter is always a pattern letter:
+quote words (`'at'`). A pattern is at most 128 bytes. Names are English.
+
+`date_math`:
+
+- Years, months and days count on the calendar of `time_zone`. Jan 31 + 1
+  month is the last day of February. A day over a DST change keeps the wall
+  time (it lasts 23 or 25 hours). The reference adds days as 24 hours each.
+- Hours, minutes, seconds and milliseconds are elapsed time.
+
+`date_range` reads a range text:
+
+| Text | Range |
+|---|---|
+| `today`, `yesterday` | the day, from 00:00 to 23:59:59.999999 |
+| `thisWeek`, `lastWeek` | seven days from `week_start` |
+| `thisMonth`, `lastMonth`, `thisYear`, `lastYear` | the calendar month or year |
+| `current<N><unit>` | the last N units up to now (`current3days`) |
+| `previous<N><unit>` | the N units before `current<N><unit>` |
+| `2026`, `2026-10`, `2026-10-29` | the year, the month, the day |
+| `<a>/<b>` | from `a` to `b`; an end written to the second takes the whole second |
+
+- Units: `seconds`, `minutes`, `hours`, `days`, `weeks`, `months`, `years`;
+  N is 1 … 100 000. A name may also be written in snake case (`this_week`).
+- `start` and `end` are microseconds, `end` inclusive. `duration` is
+  `end − start + 1`. `this_range` is `start/end` as
+  `yyyy-MM-ddTHH:mm:ss` in `time_zone`.
+- `next_range` and `previous_range` are the texts of the neighbours: `today`
+  ↔ `yesterday`, `thisX` ↔ `lastX`, `currentN` ↔ `previousN`, the next and
+  the previous year, month or day, an `a/b` range shifted by its length.
+- A sample on `next` or `previous` (not one born at the start) moves the block
+  to that neighbour. A new value on `in` drops the move.
+- A named or a relative range is calculated again every second, so `today`
+  rolls over at midnight and `current1hours` moves with the clock. A change
+  goes out only when an output changed.
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port
@@ -712,6 +777,12 @@ Rules:
 | `hash` | Input ⇄ · Algorithm ⇄ · Output → | `in`; `in.algorithm`; `out` | — | Algorithm dropdown | none |
 | `json_parse` | Input ⇄ · Output → · Parse error → | `in`; `out`, `parse_error` | — | — | none |
 | `json_stringify` | Input ⇄ · Pretty ⇄ · Output → | `in`; `in.pretty`; `out` | — | Pretty toggle | none |
+| `now` | Input ⇄ · Output → | `in`; `out` | — | — | new (the reference has no clock block) |
+| `date_time` | Year ⇄ · Month ⇄ · Day ⇄ · Hour ⇄ · Minute ⇄ · Second ⇄ · Millisecond ⇄ · Time zone ⇄ · Output → | `in.<p>` → `<p>`; `out` | — | — | `millisecond` is used (the reference reads it under a wrong name) |
+| `date_format` | Input ⇄ · Format ⇄ · Time zone ⇄ · Output → | `in`; `in.format`, `in.time_zone`; `out` | — | — | microseconds, not milliseconds (ADR 0044 §3) |
+| `date_parse` | Input ⇄ · Time zone ⇄ · Time → · Year → · … · Weekday → | `in`; `in.time_zone`; the parts | — | — | none |
+| `date_math` | Input ⇄ · Operation ⇄ · Year ⇄ · … · Millisecond ⇄ · Time zone ⇄ · Output → | `in`; `in.<p>`; `out` | — | Operation dropdown | days on the calendar (ADR 0044 §5) |
+| `date_range` | Input ⇄ · Next ⇄ · Previous ⇄ · Format ⇄ · Delimiter ⇄ · Keep special ⇄ · Week start ⇄ · Time zone ⇄ · Start → · End → · This range → · Next range → · Previous range → · Formatted → · Duration → | `in`, `next`, `previous`; `in.<p>`; outputs | — | Keep special, Week start dropdowns | none: `week_start`, `time_zone` and `previousN` work (the port's gaps) |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine

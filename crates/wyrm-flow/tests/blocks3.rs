@@ -362,3 +362,47 @@ async fn text_blocks_through_the_engine() {
         Some("a b!".into())
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn date_blocks_through_the_engine() {
+    let e = env().await;
+    let io = &e.io;
+    // a history row's time (µs) formats with no conversion
+    let mut f = build(
+        "date_format",
+        &[
+            ("format", "yyyy-MM-dd HH:mm".into()),
+            ("time_zone", "Europe/Kyiv".into()),
+        ],
+    );
+    assert_eq!(
+        value_on(&mut *f, io, "in", 1_793_278_800_000_000u64, "out"),
+        Some("2026-10-29 15:00".into())
+    );
+    // next and previous move the range; a sample born at the start does not
+    let mut r = build("date_range", &[("format", "yyyy-MM-dd".into())]);
+    assert_eq!(
+        value_on(&mut *r, io, "in", "2026-10", "next_range"),
+        Some("2026-11".into())
+    );
+    assert!(feed(&mut *r, io, "next", good(Value::Null).at_start()).is_empty());
+    let sent = feed(&mut *r, io, "next", good(Value::Bool(true)));
+    assert_eq!(on(&sent, "formatted"), Some("2026-11-01/2026-11-30".into()));
+    let sent = feed(&mut *r, io, "previous", good(Value::Bool(false)));
+    assert_eq!(on(&sent, "formatted"), Some("2026-10-01/2026-10-31".into()));
+    // a new `in` drops the move
+    let sent = feed(&mut *r, io, "in", good("2026"));
+    assert_eq!(on(&sent, "formatted"), Some("2026-01-01/2026-12-31".into()));
+    // a relative range has a clock; a fixed one has none
+    assert_eq!(r.tick_every(), None);
+    feed(&mut *r, io, "in", good("today"));
+    assert!(r.tick_every().is_some());
+    // date_parse in parts
+    let mut p = build("date_parse", &[]);
+    let sent = feed(&mut *p, io, "in", good("2026-02-03T04:05:06Z"));
+    assert_eq!(on(&sent, "weekday"), Some(Value::Int(2)));
+    // now: the clock on each sample
+    let mut n = build("now", &[]);
+    let t = on(&feed(&mut *n, io, "in", good(Value::Null)), "out").unwrap();
+    assert!(t.as_f64().unwrap() > 1.7e15);
+}

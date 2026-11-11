@@ -218,4 +218,98 @@ pub const TYPES: &[NodeType] = &[
         &["out"],
         &[db(p("pretty", "bool", "Lines and indents (default false)."), false)],
     ),
+    // ---------- date and time (ADR 0044 §3: microseconds since the epoch) ----------
+    unary(
+        "now",
+        "Date and time",
+        "The current time in microseconds since the epoch, on each sample of in.",
+        &["in"],
+        &["out"],
+        &[],
+    ),
+    unary(
+        "date_time",
+        "Date and time",
+        "A time from its parts in time_zone, as a calendar counts (month 13 is January of the next year).",
+        &["in.year", "in.month", "in.day", "in.hour", "in.minute", "in.second", "in.millisecond", "in.time_zone"],
+        &["out"],
+        &[
+            di(p("year", "number", "The year (default 1970)."), 1970),
+            di(p("month", "number", "1…12 (default 1)."), 1),
+            di(p("day", "number", "1…31 (default 1)."), 1),
+            di(p("hour", "number", "0…23 (default 0)."), 0),
+            di(p("minute", "number", "Default 0."), 0),
+            di(p("second", "number", "Default 0."), 0),
+            di(p("millisecond", "number", "Default 0."), 0),
+            TIME_ZONE,
+        ],
+    ),
+    unary(
+        "date_format",
+        "Date and time",
+        "A time as text by a pattern: yyyy-MM-dd HH:mm:ss.SSS, MMM/MMMM and E/EEEE names, h and a, xxx the offset, 'text' quoted.",
+        &["in", "in.format", "in.time_zone"],
+        &["out"],
+        &[
+            ds(p("format", "string", "The pattern, at most 128 bytes (default yyyy-MM-dd'T'HH:mm:ss)."), "yyyy-MM-dd'T'HH:mm:ss"),
+            ds(p("time_zone", "string", "Europe/Kyiv, UTC, +02:00, or auto: the offset the input text has (default UTC)."), "UTC"),
+        ],
+    ),
+    unary(
+        "date_parse",
+        "Date and time",
+        "A time (microseconds or text) in its parts in time_zone; weekday 1 is Monday.",
+        &["in", "in.time_zone"],
+        &["time", "year", "month", "day", "hour", "minute", "second", "millisecond", "weekday"],
+        &[TIME_ZONE],
+    ),
+    unary(
+        "date_math",
+        "Date and time",
+        "A time after or before in by the parts: years, months and days on the calendar of time_zone, the rest as elapsed time.",
+        &["in", "in.op", "in.year", "in.month", "in.day", "in.hour", "in.minute", "in.second", "in.millisecond", "in.time_zone"],
+        &["out"],
+        &[
+            pick(p("op", "string", "after adds, before subtracts."), &["after", "before"], "after"),
+            di(p("year", "number", "Years (default 0)."), 0),
+            di(p("month", "number", "Months; Jan 31 + 1 is the last day of February (default 0)."), 0),
+            di(p("day", "number", "Calendar days (default 0)."), 0),
+            di(p("hour", "number", "Hours (default 0)."), 0),
+            di(p("minute", "number", "Minutes (default 0)."), 0),
+            di(p("second", "number", "Seconds (default 0)."), 0),
+            di(p("millisecond", "number", "Milliseconds (default 0)."), 0),
+            TIME_ZONE,
+        ],
+    ),
+    unary(
+        "date_range",
+        "Date and time",
+        "The bounds of a range text (today, thisWeek, lastMonth, current3days, previous2hours, 2026, 2026-10, 2026-10-29, <a>/<b>) and its neighbours; next and previous move to them.",
+        &["in", "next", "previous", "in.format", "in.range_delimiter", "in.keep_special", "in.week_start", "in.time_zone"],
+        &["start", "end", "this_range", "next_range", "previous_range", "formatted", "duration"],
+        &[
+            ds(p("format", "string", "The pattern of formatted (default yyyy-MM-dd'T'HH:mm:ss; empty: the input text)."), "yyyy-MM-dd'T'HH:mm:ss"),
+            ds(p("range_delimiter", "string", "Between the two ends of formatted (default /)."), "/"),
+            pick(
+                p("keep_special", "string", "raw: formatted is the name of a named or relative range; formatted: one end when both read the same."),
+                &["none", "raw", "formatted"],
+                "none",
+            ),
+            pick(
+                p("week_start", "string", "The first day of a week (default monday)."),
+                &["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+                "monday",
+            ),
+            TIME_ZONE,
+        ],
+    ),
 ];
+
+const TIME_ZONE: Param = ds(
+    p(
+        "time_zone",
+        "string",
+        "The zone of the wall time: Europe/Kyiv, UTC, +02:00 (default UTC).",
+    ),
+    "UTC",
+);

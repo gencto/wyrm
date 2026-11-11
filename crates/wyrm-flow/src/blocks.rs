@@ -22,6 +22,7 @@ use tracing::trace;
 use wyrm_core::{Quality, Value};
 use wyrm_link_sdk::now_us;
 
+mod date;
 mod math;
 mod text;
 
@@ -103,6 +104,13 @@ pub const TYPES: &[&str] = &[
     "hash",
     "json_parse",
     "json_stringify",
+    // date and time
+    "now",
+    "date_time",
+    "date_format",
+    "date_parse",
+    "date_math",
+    "date_range",
 ];
 
 /// Variable inputs of one block at most.
@@ -120,6 +128,8 @@ const DEFAULT_HOLD_MS: f64 = 500.0;
 /// The stopwatch's clock, and the shortest interval it counts.
 const STOPWATCH_TICK: Duration = Duration::from_millis(50);
 const MIN_INTERVAL_S: f64 = 0.05;
+/// How often a relative `date_range` (`today`, `current3days`) is calculated again.
+const RANGE_TICK: Duration = Duration::from_secs(1);
 
 // ---------- values ----------
 
@@ -351,6 +361,7 @@ enum Kind {
     Math(math::Op),
     Stat(math::Stat),
     Str(text::Op),
+    Date(date::Op),
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -424,6 +435,8 @@ fn kind(ty: &str) -> Option<Kind> {
                 Kind::Stat(*st)
             } else if let Some((_, op)) = text::OPS.iter().find(|(n, _)| *n == t) {
                 Kind::Str(*op)
+            } else if let Some((_, op)) = date::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Date(*op)
             } else {
                 return None;
             }
@@ -655,6 +668,7 @@ fn shape(k: Kind) -> Shape {
         Kind::Math(op) => math::shape(op),
         Kind::Stat(_) => math::stat_shape(),
         Kind::Str(op) => text::shape(op),
+        Kind::Date(op) => date::shape(op),
     }
 }
 
@@ -947,6 +961,7 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             due: None,
             passed: None,
             re: None,
+            range: None,
         }) as Box<dyn Node>)
     }))
 }
@@ -989,6 +1004,8 @@ struct Block {
     passed: Option<tokio::time::Instant>,
     /// The last pattern `replace` or `case` compiled (ADR 0044 §6).
     re: Option<(String, Option<regex::Regex>)>,
+    /// `date_range`: the range text a `next` or `previous` moved to.
+    range: Option<String>,
 }
 
 impl Block {
@@ -1544,6 +1561,11 @@ impl Block {
                 let outs = text::calc(op, &self.view());
                 self.send_all(outs, q, t, out);
             }
+            Kind::Date(date::Op::Range) => self.date_range(changed, q, t, out),
+            Kind::Date(op) => {
+                let outs = date::calc(op, &self.view());
+                self.send_all(outs, q, t, out);
+            }
             Kind::Length => {
                 let v = match self.in_value() {
                     Value::Str(s) => Value::UInt(s.chars().count() as u64),
@@ -1563,6 +1585,65 @@ impl Block {
         let r = cached(&mut c, pattern).cloned();
         self.re = c;
         r
+    }
+
+    /// `date_range`: the text in use is `in`, or the neighbour a `next` or `previous` moved to.
+    fn date_range(&mut self, changed: &str, q: Quality, t: u64, out: &mut Out) {
+        let now = now_us();
+        let tz = date::zone(self.param("time_zone")).unwrap_or(jiff::tz::TimeZone::UTC);
+        let ws = match self.param("week_start") {
+            Value::Str(w) => date::WEEK_STARTS.iter().position(|x| x == w).unwrap_or(0),
+            _ => 0,
+        };
+        if changed == "in" {
+            self.range = None;
+        }
+        let fired = |s: &Self, port: &str| {
+            changed == port && !s.born && s.values.get(port).is_some_and(|v| *v != Value::Null)
+        };
+        if fired(self, "next") || fired(self, "previous") {
+            if let Some(r) = date::range(&self.range_text(), now as i64, &tz, ws) {
+                self.range = Some(if changed == "next" {
+                    r.next
+                } else {
+                    r.previous
+                });
+            }
+        } else if changed == "next" || changed == "previous" {
+            return;
+        }
+        let text = Value::Str(self.range_text());
+        let outs = date::calc(
+            date::Op::Range,
+            &View {
+                inv: &text,
+                params: &self.params,
+                items: Vec::new(),
+                now_us: now,
+            },
+        );
+        self.send_all(outs, q, t, out);
+    }
+
+    /// `date_range`'s text in use.
+    fn range_text(&self) -> String {
+        match &self.range {
+            Some(r) => r.clone(),
+            None => match self.in_value() {
+                Value::Str(s) => s.trim().to_owned(),
+                _ => String::new(),
+            },
+        }
+    }
+
+    /// Whether `date_range` reads the clock: its text is a name or a relative range.
+    fn range_is_relative(&self) -> bool {
+        let t = match (&self.range, self.in_value()) {
+            (Some(r), _) => r.as_str(),
+            (None, Value::Str(s)) => s.as_str(),
+            _ => return false,
+        };
+        date::is_relative(t.trim())
     }
 
     /// The view a pure calculation of the third set reads.
@@ -1655,7 +1736,7 @@ impl Node for Block {
                 self.calculate("", out);
                 return;
             }
-            "in" | "reset" | "trigger" => port,
+            "in" | "reset" | "trigger" | "next" | "previous" => port,
             p => match p.strip_prefix("in.") {
                 Some(n) => n,
                 None => return,
@@ -1691,11 +1772,18 @@ impl Node for Block {
             Kind::Debounce | Kind::Throttle if self.held.is_some() => {
                 Some((self.hold() / 4).clamp(Duration::from_millis(5), Duration::from_millis(50)))
             }
+            // a relative range rolls over with the clock (ADR 0044 §3)
+            Kind::Date(date::Op::Range) if self.range_is_relative() => Some(RANGE_TICK),
             _ => None,
         }
     }
 
     fn tick(&mut self, now: u64, out: &mut Out) {
+        if self.kind == Kind::Date(date::Op::Range) {
+            let (q, _) = self.quality();
+            self.date_range("__tick", q, now, out);
+            return;
+        }
         if matches!(self.kind, Kind::Debounce | Kind::Throttle) {
             if self.due.is_some_and(|d| tokio::time::Instant::now() >= d) {
                 self.due = None;
