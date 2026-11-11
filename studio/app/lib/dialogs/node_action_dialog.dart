@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
+import 'package:business/wyrm/calls.dart' show clearedNames;
 import 'package:business/wyrm/labels.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
@@ -53,7 +54,9 @@ Future<bool> runNodeAction(
         fields: paramFields(a.params),
         submit: labelOf(a.name, display: a.display),
         onSubmit: (v) => sendForm(
-          store.dispatchAndWait(InvokeNodeAction(key, action, plainArgs(v))),
+          store.dispatchAndWait(
+            InvokeNodeAction(key, action, plainArgs(v), clearedNames(a.params)),
+          ),
           onOk: () {
             ran = true;
             if (dialog.mounted) {

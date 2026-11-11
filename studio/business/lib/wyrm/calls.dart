@@ -1,4 +1,5 @@
 import 'package:models/error_kind.dart';
+import 'package:models/param_spec.dart';
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -169,3 +170,28 @@ Future<Map<String, Value>> readValues(
 
 /// Dart values as an argument map.
 Value valueOf(Map<String, Object?> args) => Value.from(args);
+
+/// The arguments of a form that go to the broker: an optional field left
+/// empty is left out, so the action keeps or defaults it. The fields of
+/// [keepEmpty] are the exception: an empty one is sent as `""`
+/// ([clearedNames]: a node's name the user cleared).
+Map<String, Object?> argsToSend(
+  Map<String, Object?> args, {
+  Iterable<String> keepEmpty = const [],
+}) => {
+  for (final MapEntry(:key, :value) in args.entries)
+    if (value != null && (value != '' || keepEmpty.contains(key))) key: value,
+};
+
+/// The fields of a form whose empty value means "clear it", not "keep it"
+/// (ADR 0042 §4): a `display` that the action prefilled with the node's
+/// name. `edit` without `display` keeps the name and `""` clears it; an
+/// Add form, or one that did not prefill a name, still leaves an empty
+/// field out (the action's own default stands).
+Set<String> clearedNames(Iterable<ParamSpec> params) => {
+  for (final p in params)
+    if (p.name == 'display' &&
+        p.defaultValue is String &&
+        (p.defaultValue! as String).trim().isNotEmpty)
+      p.name,
+};
