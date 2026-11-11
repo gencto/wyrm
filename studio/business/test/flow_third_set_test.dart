@@ -457,4 +457,33 @@ void main() {
       'Point',
     );
   });
+
+  // The owner's screenshots of 2026-11-11 (spec 06 0.2.30).
+  test('liveliness reads Node and Alive; subscribe its point', () {
+    expect(rows('liveliness'), ['Node', 'Alive']);
+    expect(
+      rows('liveliness', {'key': 'downstream/modbus'}),
+      ['Node', 'Alive'],
+      reason: 'a presence, not a value named after the node',
+    );
+    expect(rows('subscribe'), ['Point', 'Output']);
+    expect(rows('subscribe', {'key': 'downstream/modbus/t1'}), [
+      'Point',
+      't1',
+    ]);
+  });
+
+  test('a CSV typed as a text keeps its lines and stays a text', () {
+    final b = block('table_from_csv');
+    final f = field('table_from_csv', 'in:in');
+    final edit = fieldEditOf(b, f, const []).edit;
+    expect(edit, FieldEdit.text);
+    expect(typedText('a,b\n1,2', edit!), 'a,b\n1,2');
+    // a one-line `5` is the text `5`, not the number JSON makes of it
+    expect(typedText('5', edit), '5');
+    expect(isTextOperand('split', 'in'), isTrue);
+    // an operand of another block still reads JSON
+    final add = fieldEditOf(block('add'), field('add', 'in:in.0'), const []);
+    expect(add.edit, FieldEdit.any);
+  });
 }

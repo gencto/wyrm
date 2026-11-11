@@ -364,6 +364,34 @@ void main() {
       expect(ran, isEmpty);
     });
 
+    // A CSV typed in the value viewer (spec 06 0.2.30): the row keeps its
+    // lines, and a key typed there keeps them too.
+    testWidgets('a text of several lines keeps its lines', (tester) async {
+      final changed = await inspector(tester, const [
+        InspectorRowVm(
+          id: 'in:in',
+          name: 'Input',
+          editor: FieldEditorVm.text,
+          value: 'a,b\n1,2',
+        ),
+      ]);
+      expect(find.byKey(const ValueKey('text-editor-lines')), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'a,b\n1,2\n3,4');
+      expect(changed, ['in:in=a,b\n1,2\n3,4']);
+    });
+
+    testWidgets('a one-line text stays a one-line field', (tester) async {
+      await inspector(tester, const [
+        InspectorRowVm(
+          id: 'in:in',
+          name: 'Input',
+          editor: FieldEditorVm.text,
+          value: '1,1,1,1',
+        ),
+      ]);
+      expect(find.byKey(const ValueKey('text-editor-lines')), findsNothing);
+    });
+
     testWidgets('a period reads in its largest whole unit and writes '
         'milliseconds', (tester) async {
       final changed = await inspector(tester, const [

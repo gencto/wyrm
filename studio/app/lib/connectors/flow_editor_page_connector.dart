@@ -2160,7 +2160,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             ? FieldEditorVm.choice
             : p.type == 'bool'
             ? FieldEditorVm.toggle
-            : (p.name == 'interval_ms' && behaves
+            // `now`'s clock is a period as a command's (spec 06 0.2.30)
+            : (p.name == 'interval_ms' && (behaves || b.type == 'now')
                   ? FieldEditorVm.duration
                   : FieldEditorVm.text),
         value: switch (v) {

@@ -1064,15 +1064,28 @@ class _TextEditorState extends State<_TextEditor> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    // A text of several lines (a CSV typed in the value viewer) keeps its
+    // lines here: a one-line field would drop them at the next key.
+    final lines = _controller.text.contains('\n');
     return Container(
-      height: 32,
+      height: lines ? null : 32,
+      constraints: lines ? const BoxConstraints(minHeight: 32) : null,
       decoration: widget.decoration,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: lines ? 6 : 0),
       alignment: .centerLeft,
       child: TextField(
+        key: lines ? const ValueKey('text-editor-lines') : null,
         controller: _controller,
         focusNode: _focus,
-        onChanged: widget.onChanged,
+        maxLines: lines ? 6 : 1,
+        minLines: 1,
+        keyboardType: lines ? .multiline : null,
+        onChanged: (v) {
+          widget.onChanged(v);
+          if (v.contains('\n') != lines) {
+            setState(() {});
+          }
+        },
         style: mono(size: 12, color: c.text1),
         decoration:
             const InputDecoration.collapsed(

@@ -447,7 +447,8 @@ enum FieldEditError { number, json, toggle }
   }
   // A range text (`date_range` `in`) stays a text: `2026` is a year to
   // the engine, not the number JSON would make of it.
-  if (f.operand && isRangeText(b.type, f.name)) {
+  if (f.operand &&
+      (isRangeText(b.type, f.name) || isTextOperand(b.type, f.name))) {
     return (edit: FieldEdit.text, locked: null);
   }
   if (f.kind == FieldKind.arg || f.operand) {
