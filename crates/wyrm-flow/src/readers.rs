@@ -196,6 +196,9 @@ pub(crate) struct Reader {
     /// The number of the read in flight: an answer with another number is dropped.
     seq: u64,
     running: bool,
+    /// A query field changed while a read was in flight: read again when it ends (a change
+    /// never gives up a read that runs, so a slow history read still answers).
+    again: bool,
     last: Option<Instant>,
     events: u64,
     params: BTreeMap<String, Value>,
@@ -221,6 +224,7 @@ pub(crate) fn build(ty: &str, cfg: &Map) -> Result<Box<dyn Node>, String> {
         trigger: None,
         seq: 0,
         running: false,
+        again: false,
         last: None,
         events: 0,
         params: crate::catalog::effective_params(ty, cfg),
@@ -640,6 +644,9 @@ impl Node for Reader {
                 }
             }
             self.set_running(false, out);
+            if std::mem::take(&mut self.again) {
+                self.read(io, out);
+            }
             return;
         }
         match port {
@@ -682,8 +689,13 @@ impl Node for Reader {
                 };
                 if ok && self.params.get(name) != Some(&m.v) {
                     self.set_param(name, m.v);
-                    if self.auto_run && !m.start {
-                        self.read(io, out);
+                    // a read is no command: a field born at the start reads too
+                    if self.auto_run {
+                        if self.running {
+                            self.again = true;
+                        } else {
+                            self.read(io, out);
+                        }
                     }
                 }
             }

@@ -50,8 +50,9 @@ A table is a value:
 - Per-row scripts (`table_filter`, `table_map_columns`, `table_edit_rows`,
   `table_remove_rows`) are rhai over the variables `row` (the row as a map) and
   `index`. A column name is not a variable: names come from the data and the
-  compiler checks a script against fixed names. At most 1 000 000 rhai
-  operations per table, and the engine's 10 000 per row.
+  compiler checks a script against fixed names. The scripts of one table have
+  100 ms in all (past that: `null` and the reason on `error`), each row the
+  engine's 10 000 operations.
 
 ### 3. Time
 
@@ -75,8 +76,11 @@ A table is a value:
 ### 4. Readers
 
 - `load_history` reads the historian (`~val?history=`, ADR 0014) through
-  `WyrmClient::history`: its rows `{t, v, q}` as a table, at most 10 000 rows
-  (more is an `error` event with `resource_exhausted`, never a silent cut).
+  `WyrmClient::history`: its rows `{t, v, q}` as a table, at most `limit`
+  (1 … 10 000) rows. An answer that reached `limit` may have more: the `ok`
+  event says `truncated: true` and `rows`, so the cut is never silent. A table
+  past 512 KiB is an `error` event with `resource_exhausted`. A query field
+  that changes while a read runs reads again after it, never cancels it.
 - Several keys merge by time with one `load_history` each (the same `window`)
   and `table_join` on `t`: one key per reader keeps the scope rules as they are.
 - `get_node` reads one node's summary and its actions with their parameters.
@@ -117,7 +121,7 @@ WYRM is a stream engine; the reference is a dirty queue drained on a timer.
 
 ### 6. Patterns
 
-`case` and `replace` take `regexp`. A pattern is compiled by the `regex` crate
+`case`, `router` and `replace` take `regexp`. A pattern is compiled by the `regex` crate
 (linear time, no backreferences) with a compiled-size limit of 64 KiB and at
 most 256 bytes of pattern; the input is at most 4 KiB. A pattern that does not
 compile matches nothing.
@@ -129,6 +133,9 @@ compile matches nothing.
   computed when the definition is compiled. A later set may bound it by a
   `max_rows` in the config.
 - `zipParser`: needs an archive codec with bounds on expansion.
+- The schema-only `pidloop` (not in the palette): the reference's PID formulas
+  are not decoded (two operators of its integral term are unknown); a PID
+  block of its own needs a decision on its form and its bounds.
 - Error groups of `catchError` without wires: an implicit route between blocks
   would bypass the cycle check, `watch` and `preview`; `catch_error` takes
   wires.

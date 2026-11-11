@@ -414,8 +414,12 @@ and `preview` true to the graph (ADR 0044 §7).
 
 - `time_range` is a range text as `date_range` reads it: `today`,
   `lastWeek`, `current24hours`, `2026-10`, `<a>/<b>`. Wire
-  `date_range.this_range` into `in.time_range` for a range a user moves with
-  `next` and `previous`.
+  `date_range.this_range` into `in.time_range` for a fixed or a named range a
+  user moves with `next` and `previous`.
+- For a sliding range (`current24hours`), write the text itself into
+  `time_range` and set `interval_ms`. `this_range` of a sliding range changes
+  every second: wired into `in.time_range`, it asks the historian once a
+  second. A change while a read runs reads again after it.
 - `window` (`5m`, `1h`, `1d`, `1w`; empty: none) and `rollup` (`avg`, `min`,
   `max`, `sum`, `count`, `first`, `last`, `delta`, `and`, `or`) give one row
   per window.
