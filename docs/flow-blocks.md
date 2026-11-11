@@ -467,6 +467,13 @@ A table is a value (ADR 0044 §2):
   index is its place, from 0.
 - Bounds: 10 000 rows, 128 columns, a column name of 256 bytes, 512 KiB of
   cells, a cell 29 levels deep. A larger result is `null` with quality `bad`.
+- The parsers check their bounds while they read, not after:
+  `table_from_csv` refuses (`parse_error` true) a text past 512 KiB, a row of
+  more than 128 fields (a header too: it is not cut) and a field past 64 KiB;
+  a row map of more than 128 keys is no table; `table_from_json` and
+  `json_parse` read at most 256 KiB and 32 levels; a list of names
+  (`columns`, `ignore_columns`) counts its first 512 items. Equal or empty
+  header names get `_2`, `_3`, … in one pass.
 - A table block takes a table on `in` and gives a new one: the mutators
   (`table_add_row`, `table_edit_rows`, `table_remove_rows`) are transforms, not
   writes into a stored table. Keep a table across samples in a

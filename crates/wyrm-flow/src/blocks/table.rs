@@ -109,16 +109,24 @@ impl Table {
     }
 
     fn of_rows(mut columns: Vec<String>, rows: &[Value]) -> Option<Table> {
-        if rows.len() > MAX_ROWS {
+        // bounded before the work: rows, columns, and each row's keys as they are added
+        if rows.len() > MAX_ROWS || columns.len() > MAX_COLUMNS {
             return None;
         }
+        let mut seen: std::collections::HashSet<String> = columns.iter().cloned().collect();
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             let row = match r {
                 Value::Map(m) => {
+                    if m.len() > MAX_COLUMNS {
+                        return None;
+                    }
                     for k in m.keys() {
-                        if !columns.contains(k) {
+                        if seen.insert(k.clone()) {
                             columns.push(k.clone());
+                            if columns.len() > MAX_COLUMNS {
+                                return None;
+                            }
                         }
                     }
                     m.clone()

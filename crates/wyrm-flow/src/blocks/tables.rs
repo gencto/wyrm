@@ -14,6 +14,9 @@ use wyrm_core::Value;
 
 /// The longest CSV or JSON text a table block reads or writes, bytes.
 pub const MAX_TEXT_TABLE: usize = 512 * 1024;
+/// The longest field of a CSV text, bytes: a longer one refuses the text.
+pub const MAX_FIELD: usize = 64 * 1024;
+
 /// The longest time the per-row scripts of one table may take together.
 const SCRIPT_BUDGET: Duration = Duration::from_millis(100);
 
@@ -381,11 +384,15 @@ fn ptext(v: &View, n: &str) -> String {
 
 /// A list parameter as names: a list of texts, or one text with commas.
 fn name_list(v: &Value) -> Vec<String> {
+    // at most a few times the columns a table may have
+    const MAX_NAMES: usize = 4 * MAX_COLUMNS;
     match v {
-        Value::Array(a) => a.iter().map(text).collect(),
-        Value::Str(s) if !s.trim().is_empty() => {
-            s.split(',').map(|x| x.trim().to_owned()).collect()
-        }
+        Value::Array(a) => a.iter().take(MAX_NAMES).map(text).collect(),
+        Value::Str(s) if !s.trim().is_empty() => s
+            .split(',')
+            .take(MAX_NAMES)
+            .map(|x| x.trim().to_owned())
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -877,6 +884,11 @@ pub(super) fn parse_csv(s: &str, delim: char, header: bool) -> Option<Table> {
     };
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
+        // bounded while it reads: a row of more fields than a table has columns, or a field
+        // past 64 KiB, refuses the text (security review 2026-11-11)
+        if row.len() > MAX_COLUMNS || raw.len() > MAX_FIELD {
+            return None;
+        }
         if c == '"' {
             if first_q.is_none() {
                 first_q = Some(raw.len());
@@ -901,6 +913,9 @@ pub(super) fn parse_csv(s: &str, delim: char, header: bool) -> Option<Table> {
         }
         raw.push(c);
     }
+    if row.len() > MAX_COLUMNS || raw.len() > MAX_FIELD {
+        return None;
+    }
     if !raw.is_empty() || quotes > 0 || !row.is_empty() {
         end_field(&mut raw, &mut quotes, &mut first_q, &mut last_q, &mut row);
         if row.len() > 1 || row.first().is_some_and(|f| !f.is_empty()) {
@@ -910,33 +925,25 @@ pub(super) fn parse_csv(s: &str, delim: char, header: bool) -> Option<Table> {
     if rows.is_empty() {
         return None;
     }
-    let width = rows
-        .iter()
-        .map(Vec::len)
-        .max()
-        .unwrap_or(0)
-        .min(MAX_COLUMNS + 1);
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if width > MAX_COLUMNS {
+        return None;
+    }
     let (names, body) = if header {
-        let mut names: Vec<String> = Vec::new();
+        let mut names = Names::default();
         for (i, n) in rows[0].iter().enumerate() {
-            let mut n = if n.is_empty() {
+            // a name twice keeps both columns: `a`, `a_2`, …
+            names.add(if n.is_empty() {
                 format!("v{}", i + 1)
             } else {
                 n.clone()
-            };
-            // a name twice keeps both columns
-            let base = n.clone();
-            let mut k = 2;
-            while names.contains(&n) {
-                n = format!("{base}_{k}");
-                k += 1;
-            }
-            names.push(n);
+            });
         }
-        while names.len() < width {
-            names.push(format!("v{}", names.len() + 1));
+        while names.list.len() < width {
+            let n = format!("v{}", names.list.len() + 1);
+            names.add(n);
         }
-        (names, &rows[1..])
+        (names.list, &rows[1..])
     } else {
         ((1..=width).map(|i| format!("v{i}")).collect(), &rows[..])
     };
@@ -951,6 +958,34 @@ pub(super) fn parse_csv(s: &str, delim: char, header: bool) -> Option<Table> {
         );
     }
     Some(t)
+}
+
+/// Column names made unique in one pass: a name seen before gets `_2`, `_3`, … from a counter
+/// per name, so each name costs one look-up.
+#[derive(Default)]
+struct Names {
+    list: Vec<String>,
+    seen: std::collections::HashSet<String>,
+    next: std::collections::HashMap<String, usize>,
+}
+
+impl Names {
+    fn add(&mut self, base: String) -> String {
+        let mut n = base.clone();
+        if self.seen.contains(&n) {
+            let k = self.next.entry(base.clone()).or_insert(2);
+            loop {
+                n = format!("{base}_{k}");
+                *k += 1;
+                if !self.seen.contains(&n) {
+                    break;
+                }
+            }
+        }
+        self.seen.insert(n.clone());
+        self.list.push(n.clone());
+        n
+    }
 }
 
 /// CSV with `delim`; a field with a quote, the delimiter or a line break is quoted.
@@ -1331,26 +1366,20 @@ fn transpose(t: &Table, v: &View) -> Table {
     if has_h {
         ignore.push(hc.clone());
     }
-    let mut cols: Vec<String> = Vec::new();
+    let mut cols = Names::default();
     if truth(v.p("include_headers"), false) {
-        cols.push("headers".into());
+        cols.add("headers".into());
     }
     let mut names = Vec::new();
     for (n, r) in t.rows.iter().enumerate().take(MAX_COLUMNS) {
-        let mut name = if has_h {
+        let name = if has_h {
             text(r.get(&hc).unwrap_or(&Value::Null))
         } else {
             format!("{prefix}{n}")
         };
-        let base = name.clone();
-        let mut k = 2;
-        while cols.contains(&name) {
-            name = format!("{base}_{k}");
-            k += 1;
-        }
-        cols.push(name.clone());
-        names.push(name);
+        names.push(cols.add(name));
     }
+    let cols = cols.list;
     let mut out = Table::new(cols);
     for c in t.columns.iter().filter(|c| !ignore.contains(c)) {
         let mut row = BTreeMap::new();
@@ -1648,6 +1677,39 @@ mod tests {
         assert_eq!(write_csv(&q, ',', false), "\"x,\"\"y\"\"\"\n");
         let r = run(Op::FromCsv, Value::Int(1), &[], &[]);
         assert_eq!(r[1].1, Value::Bool(true));
+    }
+
+    #[test]
+    fn a_huge_header_is_refused_fast() {
+        let started = std::time::Instant::now();
+        let empty = format!("{}\n1", ",".repeat(99_999));
+        let equal = format!("{}\n1", vec!["a"; 100_000].join(","));
+        for text in [empty, equal] {
+            let r = run(Op::FromCsv, Value::Str(text), &[], &[]);
+            assert_eq!(
+                (r[0].1.clone(), r[1].1.clone()),
+                (Value::Null, Value::Bool(true))
+            );
+        }
+        let long = "x".repeat(MAX_FIELD + 1);
+        assert!(parse_csv(&long, ',', false).is_none());
+        // a row map of 100 000 keys is no table either
+        let wide = Value::Map(
+            (0..100_000)
+                .map(|i| (format!("k{i}"), Value::Null))
+                .collect(),
+        );
+        assert!(Table::from_value(&Value::Array(vec![wide])).is_none());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        // equal names keep their columns in one pass
+        assert_eq!(
+            parse_csv("a,a,a,a_2\n1,2,3,4", ',', true).unwrap().columns,
+            ["a", "a_2", "a_3", "a_2_2"]
+        );
     }
 
     #[test]
