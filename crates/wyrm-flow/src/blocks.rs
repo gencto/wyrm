@@ -23,6 +23,7 @@ use wyrm_core::{Quality, Value};
 use wyrm_link_sdk::now_us;
 
 mod math;
+mod text;
 
 /// The block types of this module.
 pub const TYPES: &[&str] = &[
@@ -89,6 +90,19 @@ pub const TYPES: &[&str] = &[
     "mode",
     "std_deviation",
     "variance",
+    // text and codecs
+    "left",
+    "right",
+    "trim",
+    "base64_encode",
+    "base64_decode",
+    "url_encode",
+    "url_decode",
+    "to_camel_case",
+    "from_camel_case",
+    "hash",
+    "json_parse",
+    "json_stringify",
 ];
 
 /// Variable inputs of one block at most.
@@ -336,6 +350,7 @@ enum Kind {
     Constant,
     Math(math::Op),
     Stat(math::Stat),
+    Str(text::Op),
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -407,6 +422,8 @@ fn kind(ty: &str) -> Option<Kind> {
                 Kind::Math(*op)
             } else if let Some((_, st)) = math::STATS.iter().find(|(n, _)| *n == t) {
                 Kind::Stat(*st)
+            } else if let Some((_, op)) = text::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Str(*op)
             } else {
                 return None;
             }
@@ -536,13 +553,20 @@ fn shape(k: Kind) -> Shape {
             params: vec![
                 param("start", Value::Int(0), true),
                 param("length", Value::Null, true),
+                // ADR 0044: where it ends (exclusive); below 0 counts from the end
+                param("end", Value::Null, true),
             ],
             items: false,
             outputs: &[("out", Any)],
         },
         Kind::Replace => Shape {
             inputs: &["in"],
-            params: vec![param("from", s(""), true), param("to", s(""), true)],
+            params: vec![
+                param("from", s(""), true),
+                param("to", s(""), true),
+                // ADR 0044 §6: `from` is a bounded pattern
+                param("regexp", Value::Bool(false), true),
+            ],
             items: false,
             outputs: &[("out", Any)],
         },
@@ -630,6 +654,7 @@ fn shape(k: Kind) -> Shape {
         Kind::Constant => math::constant_shape(),
         Kind::Math(op) => math::shape(op),
         Kind::Stat(_) => math::stat_shape(),
+        Kind::Str(op) => text::shape(op),
     }
 }
 
@@ -803,6 +828,8 @@ pub const CASE_OPS: &[&str] = &[
     "contains",
     "starts_with",
     "ends_with",
+    // ADR 0044 §6: `in` as text contains a match of the case as a bounded pattern
+    "regexp",
 ];
 
 /// The operators of a block with `op`.
@@ -842,6 +869,32 @@ fn num_op(op: &str, x: &Value, p: &Value) -> bool {
         }
         _ => false,
     }
+}
+
+/// The longest pattern of `replace` and `case`, bytes, and the most its compiled form may take.
+pub const MAX_PATTERN: usize = 256;
+const MAX_PATTERN_SIZE: usize = 64 * 1024;
+
+/// A pattern (ADR 0044 §6): linear time, no backreferences, at most [`MAX_PATTERN`] bytes and
+/// 64 KiB compiled; `None` when it does not compile. The last one is kept in `cache`.
+fn cached<'a>(
+    cache: &'a mut Option<(String, Option<regex::Regex>)>,
+    pattern: &str,
+) -> Option<&'a regex::Regex> {
+    if cache.as_ref().is_none_or(|(p, _)| p != pattern) {
+        let re = (pattern.len() <= MAX_PATTERN)
+            .then(|| {
+                regex::RegexBuilder::new(pattern)
+                    .size_limit(MAX_PATTERN_SIZE)
+                    .dfa_size_limit(MAX_PATTERN_SIZE)
+                    .nest_limit(32)
+                    .build()
+                    .ok()
+            })
+            .flatten();
+        *cache = Some((pattern.to_owned(), re));
+    }
+    cache.as_ref().and_then(|(_, re)| re.as_ref())
 }
 
 /// A block of `ty` from `cfg`; `None` for a type this module does not have.
@@ -893,6 +946,7 @@ pub fn build(ty: &str, flow: &str, id: &str, cfg: &Map) -> Option<Result<Box<dyn
             held: None,
             due: None,
             passed: None,
+            re: None,
         }) as Box<dyn Node>)
     }))
 }
@@ -933,6 +987,8 @@ struct Block {
     due: Option<tokio::time::Instant>,
     /// `throttle`: when a value last went out.
     passed: Option<tokio::time::Instant>,
+    /// The last pattern `replace` or `case` compiled (ADR 0044 §6).
+    re: Option<(String, Option<regex::Regex>)>,
 }
 
 impl Block {
@@ -1139,8 +1195,15 @@ impl Block {
                     _ => "=".into(),
                 };
                 let vs = self.item_values();
+                let mut cache = self.re.take();
                 let hit = vs.as_chunks::<2>().0.iter().find(|[p, _]| {
                     match op.as_str() {
+                        "regexp" => {
+                            x != Value::Null
+                                && !text(p).is_empty()
+                                && cached(&mut cache, &text(p))
+                                    .is_some_and(|re| re.is_match(&text(&x)))
+                        }
                         "=" => same(&x, p),
                         "!=" => !same(&x, p),
                         ">" | "<" | ">=" | "<=" => num_op(&op, &x, p),
@@ -1152,6 +1215,7 @@ impl Block {
                     Some(pair) => pair[1].clone(),
                     None => self.param("else").clone(),
                 };
+                self.re = cache;
                 self.send("out", v, q, t, out);
             }
             Kind::Hub => {
@@ -1209,8 +1273,22 @@ impl Block {
                     v => {
                         // a start below 0 or not a number is 0; a length never passes 4 KiB
                         let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
-                        let len = whole(self.param("length"), MAX_TEXT).unwrap_or(MAX_TEXT);
-                        let part: String = text(v).chars().skip(start).take(len).collect();
+                        let src = text(v);
+                        // `length` wins over `end`, as in the reference
+                        let len = match (
+                            whole(self.param("length"), MAX_TEXT),
+                            num(self.param("end")),
+                        ) {
+                            (Some(l), _) => l,
+                            (None, Some(e)) => {
+                                let n = src.chars().count() as f64;
+                                let e = e.f();
+                                let end = if e < 0.0 { (n + e).max(0.0) } else { e.min(n) };
+                                (end as usize).saturating_sub(start)
+                            }
+                            (None, None) => MAX_TEXT,
+                        };
+                        let part: String = src.chars().skip(start).take(len).collect();
                         if part.len() > MAX_TEXT {
                             Value::Null
                         } else {
@@ -1231,6 +1309,26 @@ impl Block {
                     v => {
                         let (from, to) = (text(self.param("from")), text(self.param("to")));
                         let src = text(v);
+                        if truth(self.param("regexp"), false) {
+                            let r = self.pattern(&from).map(|re| {
+                                let hits = re.find_iter(&src).count();
+                                if src.len().saturating_add(hits.saturating_mul(to.len()))
+                                    > MAX_TEXT
+                                {
+                                    None
+                                } else {
+                                    Some(re.replace_all(&src, regex::NoExpand(&to)).into_owned())
+                                }
+                            });
+                            let (v, q) = match r {
+                                Some(Some(s)) => (Value::Str(s), q),
+                                Some(None) => (Value::Null, Quality::Bad),
+                                // a pattern that does not compile replaces nothing
+                                None => (Value::Str(src), q),
+                            };
+                            self.send("out", v, q, t, out);
+                            return;
+                        }
                         // the result is bounded before it is built
                         let grows = to.len().saturating_sub(from.len());
                         let hits = if from.is_empty() {
@@ -1442,6 +1540,10 @@ impl Block {
                 let v = math::stat(st, &self.item_values());
                 self.send("out", v, q, t, out);
             }
+            Kind::Str(op) => {
+                let outs = text::calc(op, &self.view());
+                self.send_all(outs, q, t, out);
+            }
             Kind::Length => {
                 let v = match self.in_value() {
                     Value::Str(s) => Value::UInt(s.chars().count() as u64),
@@ -1453,6 +1555,14 @@ impl Block {
                 self.send("out", v, q, t, out);
             }
         }
+    }
+
+    /// `pattern` compiled, from the cache when it was the last one.
+    fn pattern(&mut self, pattern: &str) -> Option<regex::Regex> {
+        let mut c = self.re.take();
+        let r = cached(&mut c, pattern).cloned();
+        self.re = c;
+        r
     }
 
     /// The view a pure calculation of the third set reads.

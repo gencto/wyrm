@@ -579,7 +579,7 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             pick(
-                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing)."),
+                p("op", "string", "How in is compared with each case: = != > < >= <= (as numbers), contains / starts_with / ends_with (as text; an empty case matches nothing); regexp: in as text has a match of the case as a pattern."),
                 crate::blocks::CASE_OPS,
                 "=",
             ),
@@ -598,22 +598,30 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "substring",
         category: "Text",
-        description: "A part of in as text: length characters from start.",
-        inputs: &["in", "in.start", "in.length"],
+        description: "A part of in as text: length characters from start, or up to end.",
+        inputs: &["in", "in.start", "in.length", "in.end"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[di(p("start", "number", "The first character, from 0 (default 0)."), 0), p("length", "number", "How many characters (default: to the end).")],
+        params: &[
+            di(p("start", "number", "The first character, from 0 (default 0)."), 0),
+            p("length", "number", "How many characters (default: to the end)."),
+            p("end", "number", "Without length: the character after the last one; below 0 counts from the end (−1: all but the last)."),
+        ],
     },
     NodeType {
         ty: "replace",
         category: "Text",
-        description: "in as text with every from replaced by to (plain text, no pattern).",
-        inputs: &["in", "in.from", "in.to"],
+        description: "in as text with every from replaced by to (plain text, or a pattern with regexp).",
+        inputs: &["in", "in.from", "in.to", "in.regexp"],
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[ds(p("from", "string", "The text to find (empty: nothing is replaced)."), ""), ds(p("to", "string", "What it becomes (default empty)."), "")],
+        params: &[
+            ds(p("from", "string", "The text to find (empty: nothing is replaced)."), ""),
+            ds(p("to", "string", "What it becomes (default empty; taken as it is, $1 is no group)."), ""),
+            db(p("regexp", "bool", "from is a pattern of at most 256 bytes (linear time, no backreferences); one that does not compile replaces nothing (default false)."), false),
+        ],
     },
     NodeType {
         ty: "split",

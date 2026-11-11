@@ -90,6 +90,8 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 - Математика: `constant` (`name`: `pi`, `e`, `sqrt2`, `ln2`, `ln10`, `log2e`, `log10e`; надсилає на старті, як змінна), `factorial`, `log` (`base`), `power` (`exponent`), `root` (`degree`), `bound` (`min`, `max`; виходи `input_out_of_range`, `out`), `round_up`, `round_down` (`precision`; виходи `out`, `text`), `format_number` (`format`, `decimal_separator`, `group_separator`), `parse_number`.
 - Тригонометрія в градусах: `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `atan` (`x`, default 1), `to_degrees`, `to_radians`.
 - Статистика за змінними входами: `average`, `median`, `mode`, `std_deviation`, `variance`; вхід зі списком дає його числа (не більше 1000).
+- Текст і кодеки: `left`, `right` (`length`), `trim`, `base64_encode`, `base64_decode` (виходи `out`, `bytes`), `url_encode`, `url_decode`, `to_camel_case`, `from_camel_case`, `hash` (`algorithm`: `sha256`, `sha1`, `md5`), `json_parse` (виходи `out`, `parse_error`; не більше 256 КіБ і 32 рівнів), `json_stringify` (`pretty`).
+- Старі блоки (конфіг без нового поля дає те саме, що раніше): `substring` бере `end` (без `length`; від'ємний рахує з кінця), `replace` бере `regexp` (`from` — шаблон), `case` має оператор `regexp`. Шаблон — не більше 256 байтів і 64 КіБ після компіляції, лінійний час (`regex`), без backreferences; шаблон, що не компілюється, нічого не знаходить.
 - Результат, що не є скінченним числом, — `null`.
 - Каталог: `params[].display` — підпис поля для редактора, коли підпис з назви був би хибним (лише додано).
 

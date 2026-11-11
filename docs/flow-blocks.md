@@ -116,8 +116,8 @@ case, the second what it gives. Give them constants in `values`:
 
 `op` is `=`, `!=`, `>`, `<`, `>=`, `<=` (as numbers; `=` and `!=` as `if`'s
 `=`), or `contains`, `starts_with`, `ends_with` (as text; an empty case text
-matches nothing). An input left without a pair is not used. DGLux's `regexp`
-is not here: a pattern from a port could take any time to match.
+matches nothing), or `regexp` (spec 06 0.2.28: a bounded pattern, see "Text
+and codecs"). An input left without a pair is not used.
 
 `hub` sends the input that changed last: its value on `out` (also when it is
 the same value as before), its place in `inputs` on `index`, and an event on
@@ -266,6 +266,44 @@ numbers count.
   text, lists and maps do not count. A tie goes to the value that got there
   first.
 - No number at all gives `null`.
+
+### Text and codecs
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `left`, `right` | `in` | `out` | `length` (default 0): the first or the last characters of `in` as text. |
+| `trim` | `in` | `out` | The text without spaces at its start and end. `null` gives empty text, as the reference. |
+| `base64_encode` | `in` | `out` | A text (as UTF-8) or bytes as Base64. Another value gives `null`. |
+| `base64_decode` | `in` | `out`, `bytes` | Base64 (standard or URL alphabet, padding optional): `out` as text (UTF-8; a bad sequence is U+FFFD), `bytes` as bytes. No Base64: `null`. |
+| `url_encode` | `in` | `out` | A URL component: every byte but `A–Z a–z 0–9 - _ . ! ~ * ' ( )` as `%XX`. |
+| `url_decode` | `in` | `out` | `+` is a space, `%XX` a byte, a bad or cut `%` stays as it is (`100%` → `100%`). |
+| `to_camel_case` | `in` | `out` | `Hello World-foo` → `helloWorldFoo`; `abc 2nd` → `abc2Nd`. |
+| `from_camel_case` | `in` | `out` | `HelloWorld` → ` hello world` (each capital becomes a space and the small letter). |
+| `hash` | `in` | `out` | `algorithm` (`sha256` default, `sha1`, `md5`): the digest of a text (as UTF-8) or of bytes in lower-case hex. |
+| `json_parse` | `in` | `out`, `parse_error` | A JSON text as a value. A value that is no text passes as it is. No JSON: `out` `null`, `parse_error` true. |
+| `json_stringify` | `in` | `out` | `pretty` (default false): a value as JSON text. Bytes become Base64 text. |
+
+- Text results are at most 4 KiB, as every text block: a longer one is `null`
+  with quality `bad`. JSON texts (`json_parse` in, `json_stringify` out) are
+  at most 256 KiB, a parsed value at most 32 levels deep.
+- `md5` and `sha1` are check sums a device or a service may ask for. Do not
+  use them for a secret.
+
+Older text blocks, changed by this set (a config without the new field gives
+what it gave before):
+
+- `substring` takes `end`: without `length`, the part ends before the
+  character `end`; below 0 counts from the end (`start 1`, `end -1` on
+  `[abc]` gives `abc`). `length` wins over `end`. An overrun still clamps (the
+  reference gives `null`).
+- `replace` takes `regexp` (default false): `from` is then a pattern. `to` is
+  taken as it is: `$1` is no group.
+- `case` takes the operator `regexp`: `in` as text has a match of the case.
+
+ОБЕРЕЖНО: a pattern is at most 256 bytes and 64 KiB compiled. The engine
+(the `regex` crate) has linear time and no backreferences, so a pattern from a
+port cannot hang the flow. A pattern that does not compile matches nothing
+and replaces nothing.
 
 ## Parameter ports of the other node types
 
@@ -646,7 +684,7 @@ Rules:
 | `round` | Input ⇄ · Precision ⇄ · Min precision ⇄ · Output → · Text → | `in`; `in.precision` → `precision`, `in.min_precision` → `min_precision`; `out`, `text` | — | `in` typed (`values`) | none (spec 06 0.2.21: `text` is DGLux's text result) |
 | `modulo` | Input ⇄ · Modulo ⇄ · Quotient → · Remainder → | `in`; `in.modulo` → `modulo` | — | — | — |
 | `if` | Operation ⇄ · Input 1 ⇄ · Input 2 ⇄ · … · Then ⇄ · Else ⇄ · Output → | `in.op` → `op`; `in.<n>`; `in.then` → `then`, `in.else` → `else` | — | Operation dropdown (`=`, `!=`, `and`, `or`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`); operands typed | none (spec 06 0.2.20, 0.2.21) |
-| `case` | Input ⇄ · Operation ⇄ · Case 1 ⇄ · Then 1 ⇄ · … · Else ⇄ · Output → (− / + by a pair, at least one) | `in`; `in.op` → `op`; pairs `in.<n>` by position; `in.else` → `else`; `out` | — | Operation dropdown; cases and thens typed (`values`) | `regexp` left out (spec 06 0.2.21) |
+| `case` | Input ⇄ · Operation ⇄ · Case 1 ⇄ · Then 1 ⇄ · … · Else ⇄ · Output → (− / + by a pair, at least one) | `in`; `in.op` → `op`; pairs `in.<n>` by position; `in.else` → `else`; `out` | — | Operation dropdown; cases and thens typed (`values`) | none: `regexp` is bounded (spec 06 0.2.28) |
 | `hub` | Input 1 ⇄ · Input 2 ⇄ · … · Ignore null ⇄ · Output → · Index → · On change → | `in.<n>`; `in.ignore_null` → `ignore_null`; outputs | — | Ignore null toggle; operands typed | none |
 | `stopwatch` | Reset ⇄ · Enabled ⇄ · Interval (s) ⇄ · Step ⇄ · Modulo ⇄ · Loop ⇄ · Reset value ⇄ · Output → · On loop → | `reset`; `in.<p>` → `p` | — | Enabled, Loop toggles | — |
 | `trace` | Tracing ⇄ · Message ⇄ · Input 1 ⇄ · Input 2 ⇄ · … | `in.tracing` → `tracing`, `in.msg` → `msg`; `in.<n>` | — | Tracing toggle; operands typed | none |
@@ -668,6 +706,12 @@ Rules:
 | `round_up`, `round_down` | Input ⇄ · Precision ⇄ · Output → · Text → | `in`; `in.precision`; `out`, `text` | — | — | none (`text` is the reference's text result) |
 | `format_number` | Input ⇄ · Format ⇄ · Decimal separator ⇄ · Group separator ⇄ · Output → | `in`; `in.<p>`; `out` | — | — | none |
 | `average`, `median`, `mode`, `std_deviation`, `variance` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +) | `in.<n>`; `out` | — | operands typed (`values`) | `median` of an even count averages (ADR 0044 §5) |
+| `left`, `right` | Input ⇄ · Length ⇄ · Output → | `in`; `in.length`; `out` | — | — | none |
+| `trim`, `base64_encode`, `url_encode`, `url_decode`, `to_camel_case`, `from_camel_case` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
+| `base64_decode` | Input ⇄ · Output → · Bytes → | `in`; `out`, `bytes` | — | — | none |
+| `hash` | Input ⇄ · Algorithm ⇄ · Output → | `in`; `in.algorithm`; `out` | — | Algorithm dropdown | none |
+| `json_parse` | Input ⇄ · Output → · Parse error → | `in`; `out`, `parse_error` | — | — | none |
+| `json_stringify` | Input ⇄ · Pretty ⇄ · Output → | `in`; `in.pretty`; `out` | — | Pretty toggle | none |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine

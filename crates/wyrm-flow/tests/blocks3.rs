@@ -111,7 +111,8 @@ fn hostile() -> Vec<Value> {
                 .map(|i| (format!("k{i}"), Value::Int(i)))
                 .collect(),
         ),
-        deep(40),
+        // as deep as a decoded value may be (spec README rule 6)
+        deep(31),
         Value::Map(BTreeMap::from([
             ("columns".to_owned(), Value::Array(vec!["a".into(); 300])),
             (
@@ -146,6 +147,8 @@ async fn no_input_makes_a_block_panic() {
         .iter()
         .map(|t| t.ty)
         .filter(|t| wyrm_flow::blocks::TYPES.contains(t))
+        // the older blocks this set changed
+        .chain(["substring", "replace", "case"])
         .collect();
     assert!(!pure.is_empty());
     for ty in pure {
@@ -154,13 +157,15 @@ async fn no_input_makes_a_block_panic() {
         let mut n = nodes::build(ty, "f", "n", &c).unwrap();
         for (port, _) in &ports.inputs {
             for v in hostile() {
+                // a value passed through may be as large as the input; a block makes no larger one
+                let cap = (600 * 1024).max(wyrm_core::codec::to_vec(&v).map_or(0, |b| b.len()));
                 let mut m = good(v);
                 m.q = Quality::Uncertain;
                 for (out, m) in feed(&mut *n, io, port, m) {
                     let bytes = wyrm_core::codec::to_vec(&m.v)
                         .unwrap_or_else(|e| panic!("{ty}.{out} from {port}: {e}"));
                     assert!(
-                        bytes.len() <= 600 * 1024,
+                        bytes.len() <= cap,
                         "{ty}.{out} from {port}: {} bytes",
                         bytes.len()
                     );
@@ -252,5 +257,108 @@ async fn math_blocks_through_the_engine() {
     assert_eq!(
         value_on(&mut *f, io, "in.format", "#,##0.00", "out"),
         Some("1,234.50".into())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn text_blocks_through_the_engine() {
+    let e = env().await;
+    let io = &e.io;
+    // substring: `end`, below 0 from the end; `length` wins over it
+    let mut s = build(
+        "substring",
+        &[("start", Value::UInt(1)), ("end", Value::Int(-1))],
+    );
+    assert_eq!(
+        value_on(&mut *s, io, "in", "[abc]", "out"),
+        Some("abc".into())
+    );
+    assert_eq!(
+        value_on(&mut *s, io, "in.end", 3u64, "out"),
+        Some("ab".into())
+    );
+    assert_eq!(
+        value_on(&mut *s, io, "in.length", 1u64, "out"),
+        Some("a".into())
+    );
+    // a config without `end` gives what it gave before
+    let mut old = build("substring", &[("start", Value::UInt(2))]);
+    assert_eq!(
+        value_on(&mut *old, io, "in", "hello", "out"),
+        Some("llo".into())
+    );
+    // replace with a pattern; the replacement is taken as it is
+    let mut r = build(
+        "replace",
+        &[
+            ("from", "[0-9]+".into()),
+            ("to", "#$1".into()),
+            ("regexp", Value::Bool(true)),
+        ],
+    );
+    assert_eq!(
+        value_on(&mut *r, io, "in", "a1b22c", "out"),
+        Some("a#$1b#$1c".into())
+    );
+    // a pattern that does not compile replaces nothing; plain mode is unchanged
+    assert_eq!(
+        value_on(&mut *r, io, "in.from", "(", "out"),
+        Some("a1b22c".into())
+    );
+    let mut plain = build("replace", &[("from", "[0-9]+".into()), ("to", "-".into())]);
+    assert_eq!(
+        value_on(&mut *plain, io, "in", "a[0-9]+b", "out"),
+        Some("a-b".into())
+    );
+    // a long pattern is refused
+    assert_eq!(
+        value_on(&mut *r, io, "in.from", "a".repeat(300), "out"),
+        None,
+        "nothing compiled: the text stays and is unchanged"
+    );
+    // case: regexp
+    let mut c = build(
+        "case",
+        &[
+            ("op", "regexp".into()),
+            ("inputs", Value::Array(vec!["c1".into(), "v1".into()])),
+            (
+                "values",
+                Value::Map(BTreeMap::from([
+                    ("in.c1".to_owned(), Value::from("^AHU-[0-9]+$")),
+                    ("in.v1".to_owned(), Value::from("air")),
+                ])),
+            ),
+            ("else", "other".into()),
+        ],
+    );
+    assert_eq!(
+        value_on(&mut *c, io, "in", "AHU-12", "out"),
+        Some("air".into())
+    );
+    assert_eq!(
+        value_on(&mut *c, io, "in", "AHU-x", "out"),
+        Some("other".into())
+    );
+    // codecs and JSON
+    let mut j = build("json_parse", &[]);
+    let sent = feed(&mut *j, io, "in", good(r#"{"t": 21.5}"#));
+    assert_eq!(
+        on(&sent, "out"),
+        Some(Value::Map(BTreeMap::from([(
+            "t".to_owned(),
+            Value::Float(21.5)
+        )])))
+    );
+    assert_eq!(on(&sent, "parse_error"), Some(Value::Bool(false)));
+    let mut h = build("hash", &[("algorithm", "md5".into())]);
+    assert_eq!(
+        value_on(&mut *h, io, "in", "abc", "out"),
+        Some("900150983cd24fb0d6963f7d28e17f72".into())
+    );
+    let mut d = build("url_decode", &[]);
+    assert_eq!(
+        value_on(&mut *d, io, "in", "a+b%21", "out"),
+        Some("a b!".into())
     );
 }
