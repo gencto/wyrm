@@ -964,7 +964,7 @@ fn ops_of(k: Kind) -> Option<&'static [&'static str]> {
 }
 
 /// `x op p` for the text operators, both as text; a `null` never matches. (`case` skips an
-/// empty case text first, as DGLux; in `if` an empty text is contained in every text.)
+/// empty case text first: it matches nothing; in `if` an empty text is contained in every text.)
 fn text_op(op: &str, x: &Value, p: &Value) -> bool {
     if *x == Value::Null || *p == Value::Null {
         return false;
@@ -1009,7 +1009,7 @@ fn case_match(
         "=" => same(x, p),
         "!=" => !same(x, p),
         ">" | "<" | ">=" | "<=" => num_op(op, x, p),
-        // an empty case text matches nothing (as DGLux)
+        // an empty case text matches nothing
         _ => !text(p).is_empty() && text_op(op, x, p),
     }
 }
@@ -1446,7 +1446,7 @@ impl Block {
                         // a start below 0 or not a number is 0; a length never passes 4 KiB
                         let start = whole(self.param("start"), usize::MAX).unwrap_or(0);
                         let src = text(v);
-                        // `length` wins over `end`, as in the reference
+                        // `length` wins over `end`
                         let len = match (
                             whole(self.param("length"), MAX_TEXT),
                             num(self.param("end")),

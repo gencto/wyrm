@@ -6,7 +6,7 @@ use crate::nodes::PortType::{self, *};
 use std::collections::BTreeMap;
 use wyrm_core::Value;
 
-/// π/180 and 180/π as the reference writes them (its formula: `57.29577951308232 * asin(x)`).
+/// π/180 and 180/π written out, so degrees are `57.29577951308232 * asin(x)` to the last digit.
 const DEG: f64 = 0.017_453_292_519_943_295;
 const RAD: f64 = 57.295_779_513_082_32;
 
@@ -72,7 +72,7 @@ pub(super) const STATS: &[(&str, Stat)] = &[
     ("variance", Stat::Variance),
 ];
 
-/// The constants of `constant` (the reference's palette presets of a number).
+/// The named numbers of `constant`.
 pub const CONSTANTS: &[(&str, f64)] = &[
     ("pi", std::f64::consts::PI),
     ("e", std::f64::consts::E),
@@ -222,7 +222,7 @@ pub(super) fn calc(op: Op, v: &View) -> Outs {
                 Some(n) => {
                     let f = n.f();
                     let oor = lo.is_some_and(|l| f < l.f()) || hi.is_some_and(|h| f > h.f());
-                    // the reference applies max first, then min: min above max gives min
+                    // max applies first, then min: min above max gives min
                     let mut y = n;
                     if let Some(h) = hi.filter(|h| y.f() > h.f()) {
                         y = h;
@@ -760,7 +760,7 @@ mod tests {
             out(Op::ToDegrees, Value::Float(std::f64::consts::PI), &[]),
             180.0,
         );
-        // the reference's own form, to the last digit
+        // degrees are `57.29577951308232 * asin(x)`, to the last digit
         assert_eq!(
             out(Op::Asin, Value::Float(0.5), &[]),
             Value::Float(57.29577951308232 * 0.5f64.asin())

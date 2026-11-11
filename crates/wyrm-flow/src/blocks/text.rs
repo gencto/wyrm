@@ -231,7 +231,7 @@ pub(super) fn url_encode(s: &str) -> String {
     out
 }
 
-/// The reference's decoder: `+` is a space, `%XX` a byte, a bad or cut `%` stays as it is;
+/// The URL decoder: `+` is a space, `%XX` a byte, a bad or cut `%` stays as it is;
 /// the bytes as UTF-8 (a malformed sequence becomes U+FFFD).
 pub(super) fn url_decode(s: &str) -> String {
     let b = s.as_bytes();
@@ -259,7 +259,7 @@ pub(super) fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// The reference's camel case: only `A-Za-z0-9_- ` kept, leading `_` and digits dropped,
+/// Camel case: only `A-Za-z0-9_- ` kept, leading `_` and digits dropped,
 /// lower case, a letter after spaces or dashes upper case, a letter after a digit upper case.
 pub(super) fn to_camel_case(s: &str) -> String {
     let kept: String = s
@@ -289,7 +289,7 @@ pub(super) fn to_camel_case(s: &str) -> String {
     out
 }
 
-/// Each capital `X` becomes ` x` (`HelloWorld` → ` hello world`, as the reference).
+/// Each capital `X` becomes ` x` (`HelloWorld` → ` hello world`, with the leading space).
 pub(super) fn from_camel_case(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
@@ -488,7 +488,7 @@ mod tests {
         assert_eq!(
             out(Op::Trim, Value::Null, &[]),
             "".into(),
-            "the reference: null is empty"
+            "null trims to empty text"
         );
         let r = run(Op::Trim, "x".repeat(MAX_TEXT + 1).into(), &[]);
         assert_eq!((r[0].1.clone(), r[0].2), (Value::Null, true));

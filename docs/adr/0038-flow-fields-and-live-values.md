@@ -1,9 +1,9 @@
 # ADR 0038 — Flow fields and live values
 
-**Status:** proposed · 2026-11-08 (owner: the flow editor must show live values and treat every input as "a value or a binding", as DGLux does; screen spec `studio/docs/design/specs/flow-editor.md`; decided under ADR 0029).
+**Status:** proposed · 2026-11-08 (owner: the flow editor must show live values and treat every input as "a value or a binding"; screen spec `studio/docs/design/specs/flow-editor.md`; decided under ADR 0029).
 
 ## Context
-The flow editor spec (`flow-editor.md` §3) draws a block as **fields**: every parameter and every input is one row with a value, a left port (input) and a right port (output); outputs have only a right port. Values are live. DGLux (`dglux_flutter`) works the same way: one slot per field holds a typed value, an optional binding, and feeds other blocks.
+The flow editor spec (`flow-editor.md` §3) draws a block as **fields**: every parameter and every input is one row with a value, a left port (input) and a right port (output); outputs have only a right port. Values are live. One field holds a typed value and an optional binding, and feeds other blocks.
 
 The engine today (research 2026-11-08):
 - publishes only the flow's `~val` and the `publish` nodes' values; nothing per port (`runtime.rs` `run_node` only routes outputs);
@@ -81,7 +81,7 @@ The owner added a `concat` block to a draft in the Studio editor and saw no valu
 ### 5b. Ports for the remaining block parameters (2026-11-08, spec 06 0.2.20)
 So every field can be bound: `concat` `in.strict`, `if` `in.op`, `hub` `in.ignore_null`, `trace` `in.tracing`, `in.msg`, with the blocks' rule (config first, the last sample wins). `if.op` takes only an operator it knows; another text is ignored and the last good one stays. Every logic-block parameter now has a port, apart from a variable's `value` (its input `in` does that) and `inputs` (it names the ports).
 
-### 7. Operands hold a typed value (2026-11-08, spec 06 0.2.19; owner review of the Studio editor, DGLux semantics)
+### 7. Operands hold a typed value (2026-11-08, spec 06 0.2.19; owner review of the Studio editor)
 A block field is one entity: a typed value that a binding can replace. A parameter already is (config, then its port). An operand input (`in`, `in.0`, `in.1`, … of `add`, `concat`, `if`, …) had no constant.
 - **Config shape:** one node key `values: {<port>: <value>}`, e.g. `{type: "concat", values: {"in.0": "AHU-", "in.1": 2}}`. Chosen over flat `"in.0": 5` keys: a node's config keys stay its parameters (spec 06 schema, `only()` checks), port names with a dot never become config keys, and one key is easy to check and to drop. A key must be an **operand input** of the block: `in` (where the block has it) or `in.<name>` of its `inputs`; never a parameter's port (that parameter's config is its constant), never `stopwatch.reset` (an event), and not the variables (`number`, `string`, `bool`: their `value` is the constant). Anything else is a compile error `nodes.<id>: values.<port>: not an operand input …`; the value can be any value.
 - **Meaning:** the constant is the input's value until a sample on that input replaces it (a binding wins). Removing the edge and deploying again falls back to the constant. Quality and time come only from inputs that had a sample. `watch`/`ports`/`preview` show each constant as the input's value from the start (`Node::seeds`).
@@ -89,10 +89,10 @@ A block field is one entity: a typed value that a binding can replace. A paramet
 - **Scope:** the logic blocks (`crate::blocks`). Not `expression` and the older types (their single `in` is the sample they act on).
 - **Catalog:** per type `values: true` when its operand inputs (fixed `inputs` and the `dyn_inputs` ports that are not a parameter's `port`) take a constant.
 
-### 8. Block gaps against DGLux (2026-11-08, spec 06 0.2.21; semantics from `dglux_flutter/lib/runtime/blocks_core.dart`)
-- `if.op` gains `!=` (the first input equals none of the others, compared as `=`), `contains`, `starts_with`, `ends_with` (the first input as text with any of the others; a `null` other never matches; a `null` first is empty text). Names are snake_case (ADR 0032 §3): DGLux's `startsWith`/`endsWith` are refused at compile.
-- `round.min_precision` (port `in.min_precision`, no default = `precision`) and a new output **`text`**: DGLux's round gives text when it has places; WYRM keeps `out` a number (its port type, its edges) and adds `text` with `precision` places, trailing zeros trimmed down to `min_precision` places.
-- A **`case` block**: input `in`; `op` (`=`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`, default `=`) and `else` (default `null`), both with ports; the variable inputs `inputs` are pairs (case value, then value), usually given as constants in `values` (§7). It sends the then of the first pair whose case matches `in`, else `else`; it calculates on any sample, as every block. An empty case text matches nothing in the text operators (as DGLux). DGLux's `regexp` is left out: a pattern from a port can take any time to match, and the flow crate has no bounded regex engine.
+### 8. Text operators, `round.text` and `case` (2026-11-08, spec 06 0.2.21)
+- `if.op` gains `!=` (the first input equals none of the others, compared as `=`), `contains`, `starts_with`, `ends_with` (the first input as text with any of the others; a `null` other never matches; a `null` first is empty text). Names are snake_case (ADR 0032 §3): camelCase spellings are refused at compile.
+- `round.min_precision` (port `in.min_precision`, no default = `precision`) and a new output **`text`**: a rounded number is often shown as text with its places; WYRM keeps `out` a number (its port type, its edges) and adds `text` with `precision` places, trailing zeros trimmed down to `min_precision` places.
+- A **`case` block**: input `in`; `op` (`=`, `!=`, `>`, `<`, `>=`, `<=`, `contains`, `starts_with`, `ends_with`, default `=`) and `else` (default `null`), both with ports; the variable inputs `inputs` are pairs (case value, then value), usually given as constants in `values` (§7). It sends the then of the first pair whose case matches `in`, else `else`; it calculates on any sample, as every block. An empty case text matches nothing in the text operators. `regexp` is left out: a pattern from a port can take any time to match, and the flow crate has no bounded regex engine.
 
 *If wrong:* a field that should not feed other blocks gets an output anyway (harmless while unwired); a watch that misses a sample between two periods shows the latest value only, which is what an editor needs.
 

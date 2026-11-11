@@ -18,7 +18,7 @@ What the alternatives do (2026-11-05 survey):
 
 | System | Model | What it tells us |
 |---|---|---|
-| IOT-DSA / DGLux | No cluster; upstream/downstream hierarchy, dslinks reconnect, HA at the VM level | Where WYRM is today |
+| IOT-DSA | No cluster; upstream/downstream hierarchy, dslinks reconnect, HA at the VM level | Where WYRM is today |
 | Sparkplug B | An edge node holds a list of MQTT servers; the Primary Host publishes `STATE` ONLINE/OFFLINE; the node walks the list until it finds a server where the host is online; store-and-forward meanwhile | Option 2, one to one, with `sys/broker` as `STATE` |
 | Ignition | Master/backup pair, full state sync over its own channel, warm or cold backup, clients and drivers follow the active | Option 3; "warm" = configuration ready, devices not polled |
 | OPC UA Part 4 | Non-transparent redundancy: cold/warm/hot, the client knows the `ServerUriArray` and fails over itself; transparent redundancy at the network level | The cold/warm/hot vocabulary |
