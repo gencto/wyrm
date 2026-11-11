@@ -19,6 +19,7 @@ minicbor = { version = "0.26", features = ["derive", "std", "half"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_urlencoded = "0.7"
 hex = "0.4"
 wyrm-core = { path = "crates/wyrm-core" }
 wyrm-link-sdk = { path = "crates/wyrm-link-sdk" }

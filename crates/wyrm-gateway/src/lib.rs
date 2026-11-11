@@ -22,12 +22,16 @@
 
 mod http;
 mod limit;
+#[cfg(feature = "mcp")]
+mod mcp;
+pub mod oauth;
 mod overlay;
 pub mod roles;
 pub mod session;
 pub mod users;
 pub mod ws;
 
+pub use oauth::McpConfig;
 pub use roles::{with_grant, Grants, RoleTable};
 pub use session::SessionClaims;
 
@@ -88,6 +92,9 @@ pub struct GatewayConfig {
     /// as `wy/<site>/x`). Writes carry a token for that site, which it
     /// trusts through its upstream as far as it allows (ADR 0018).
     pub downstream_sites: Vec<String>,
+    /// The remote MCP endpoint `/mcp` with its OAuth 2.1 server (ADR 0041
+    /// stage B); `None` = off.
+    pub mcp: Option<McpConfig>,
 }
 
 impl GatewayConfig {
@@ -103,6 +110,7 @@ impl GatewayConfig {
             anchor: None,
             anchor_init: false,
             downstream_sites: Vec::new(),
+            mcp: None,
         }
     }
 }
@@ -177,6 +185,14 @@ pub enum AuditEvent {
         op: String,
         key: String,
     },
+    /// The user signed an MCP client in (ADR 0041): its name as it registered
+    /// and what the person allowed.
+    McpGranted {
+        user: String,
+        client: String,
+        write: bool,
+        config: bool,
+    },
 }
 
 type AuditHook = Arc<dyn Fn(AuditEvent) + Send + Sync>;
@@ -194,10 +210,11 @@ pub struct Gateway {
     cfg: GatewayConfig,
     users: Mutex<Store<UserDb>>,
     session_key: SessionKey,
+    pub(crate) oauth: Option<oauth::OAuth>,
     signing: SigningKey,
     limiter: limit::LoginLimiter,
     /// Bounds concurrent argon2 runs (CPU and ~19 MiB each).
-    hashing: Semaphore,
+    pub(crate) hashing: Semaphore,
     /// Bounds concurrent `POST /api/invoke` bodies (up to 64 MiB each).
     bulk: Semaphore,
     /// Users with a `POST /api/invoke` in progress: one each (see
@@ -300,9 +317,18 @@ impl Gateway {
                 users.with_anchor(a)?
             };
         }
+        if cfg.mcp.is_some() && !cfg!(feature = "mcp") {
+            return Err(Error::Config(
+                "gateway.mcp: this build has no MCP endpoint (feature `mcp`)".into(),
+            ));
+        }
         let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
         Ok(Arc::new(Self {
             session_key: SessionKey::derive(hmac_key),
+            oauth: match &cfg.mcp {
+                Some(m) => Some(oauth::OAuth::new(m.clone(), hmac_key).map_err(Error::Config)?),
+                None => None,
+            },
             signing,
             users: Mutex::new(users),
             limiter: limit::LoginLimiter::new(LOGIN_FAILURES, LOGIN_WINDOW),
@@ -459,7 +485,7 @@ impl Gateway {
         *self.audit.write().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(hook));
     }
 
-    fn audit(&self, ev: AuditEvent) {
+    pub(crate) fn audit(&self, ev: AuditEvent) {
         let hook = self.audit.read().unwrap_or_else(|p| p.into_inner()).clone();
         if let Some(h) = hook {
             h(ev);
@@ -669,7 +695,7 @@ impl Gateway {
         self.resolve(claims)
     }
 
-    fn resolve(&self, claims: SessionClaims) -> Option<Principal> {
+    pub(crate) fn resolve(&self, claims: SessionClaims) -> Option<Principal> {
         let u = self.user(&claims.sub)?;
         if u.disabled || u.gen != claims.gen || session::now_s() >= claims.exp {
             return None;
@@ -685,7 +711,7 @@ impl Gateway {
     /// Refuse a locked `(user, ip)` before any hashing: callers check it
     /// before they wait for a hashing permit (review GW-7). The refusal is
     /// audited once per window, not per attempt (GW-1).
-    fn check_limit(&self, user: &str, ip: IpAddr) -> Result<(), LoginError> {
+    pub(crate) fn check_limit(&self, user: &str, ip: IpAddr) -> Result<(), LoginError> {
         if self.limiter.allowed(user, ip) {
             return Ok(());
         }
@@ -707,6 +733,28 @@ impl Gateway {
         password: Zeroizing<String>,
         ip: IpAddr,
     ) -> Result<(String, u64), LoginError> {
+        let (roles, gen) = self.verify_login(user, password, ip)?;
+        let iat = session::now_s();
+        let exp = iat + self.cfg.session_ttl.as_secs().max(1);
+        let claims = SessionClaims {
+            sub: user.into(),
+            roles,
+            exp,
+            iat,
+            jti: session::new_jti(),
+            gen,
+        };
+        Ok((self.session_key.mint(&claims), exp))
+    }
+
+    /// Check `user`/`password` (rate limited per user and address, audited);
+    /// the user's roles and generation. On a blocking thread.
+    pub(crate) fn verify_login(
+        &self,
+        user: &str,
+        password: Zeroizing<String>,
+        ip: IpAddr,
+    ) -> Result<(Vec<String>, u64), LoginError> {
         self.check_limit(user, ip)?;
         let rec = self.user(user);
         let ok = users::verify_password(&password, rec.as_ref().map(|u| u.hash.as_str()));
@@ -727,21 +775,11 @@ impl Gateway {
             }
         };
         self.limiter.succeeded(user, ip);
-        let iat = session::now_s();
-        let exp = iat + self.cfg.session_ttl.as_secs().max(1);
-        let claims = SessionClaims {
-            sub: user.into(),
-            roles: rec.roles.clone(),
-            exp,
-            iat,
-            jti: session::new_jti(),
-            gen: rec.gen,
-        };
         self.audit(AuditEvent::LoginOk {
             user: user.into(),
             ip,
         });
-        Ok((self.session_key.mint(&claims), exp))
+        Ok((rec.roles.clone(), rec.gen))
     }
 
     /// A ptok source for `p`: subject `user:<name>`, the user's grants and

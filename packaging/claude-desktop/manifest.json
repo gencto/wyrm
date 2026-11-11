@@ -1,0 +1,90 @@
+{
+  "manifest_version": "0.3",
+  "name": "wyrm",
+  "display_name": "WYRM",
+  "version": "@VERSION@",
+  "description": "Read and operate a WYRM broker network (devices, values, history, actions, dataflows) as one of its gateway users.",
+  "long_description": "Connects Claude to a WYRM user gateway. Claude logs in as the gateway user you enter here and can do only what that user's role allows: browse the node tree, read live values and history, and, after a dry run that you approve, write values, run actions, deploy dataflows and run checked plans. Two local switches narrow it further: read-only, and config-level changes (off by default). The password is kept in the system keychain by Claude Desktop and sent only to the gateway.",
+  "author": { "name": "WYRM", "url": "https://github.com/gencto/wyrm" },
+  "repository": { "type": "git", "url": "https://github.com/gencto/wyrm" },
+  "server": {
+    "type": "binary",
+    "entry_point": "server/wyrm-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/wyrm-mcp",
+      "args": [],
+      "env": {
+        "WYR_GATEWAY": "${user_config.gateway_url}",
+        "WYR_GATEWAY_USER": "${user_config.user}",
+        "WYR_GATEWAY_PASSWORD": "${user_config.password}",
+        "WYR_GATEWAY_CA": "${user_config.gateway_ca}",
+        "WYRM_MCP_READ_ONLY": "${user_config.read_only}",
+        "WYRM_MCP_ALLOW_CONFIG": "${user_config.allow_config}",
+        "RUST_LOG": "warn"
+      },
+      "platform_overrides": {
+        "win32": { "command": "${__dirname}/server/wyrm-mcp.exe" }
+      }
+    }
+  },
+  "user_config": {
+    "gateway_url": {
+      "type": "string",
+      "title": "Gateway URL",
+      "description": "https://<broker host>:<port> of the WYRM gateway, or http://127.0.0.1:<port> for a gateway on this computer (plain HTTP is refused anywhere else).",
+      "default": "http://127.0.0.1:8445",
+      "required": true
+    },
+    "user": {
+      "type": "string",
+      "title": "Gateway user",
+      "description": "The gateway user Claude works as. A user of its own (for example `claude` with the operator role) keeps Claude's changes apart in the audit.",
+      "required": true
+    },
+    "password": {
+      "type": "string",
+      "title": "Password",
+      "description": "That user's password. Kept in the system keychain.",
+      "sensitive": true,
+      "required": true
+    },
+    "gateway_ca": {
+      "type": "file",
+      "title": "Gateway CA certificate (optional)",
+      "description": "PEM file that signs the gateway's TLS certificate (the broker CA, or the certificate itself when it is self-signed). Leave empty for a certificate from a public CA.",
+      "required": false
+    },
+    "read_only": {
+      "type": "boolean",
+      "title": "Read-only",
+      "description": "Refuse every change, whatever the user's role allows.",
+      "default": false,
+      "required": false
+    },
+    "allow_config": {
+      "type": "boolean",
+      "title": "Allow config-level changes",
+      "description": "Let Claude make config-level changes (config points and actions, anything under sys, dataflow deploys) when the user's role allows them. Off: Claude can only show them.",
+      "default": false,
+      "required": false
+    }
+  },
+  "tools": [
+    { "name": "whoami", "description": "The gateway user, roles, grants, site and the connector's settings" },
+    { "name": "tree_list", "description": "The nodes below a key" },
+    { "name": "node_meta", "description": "Full ~meta of a node: type, unit, writable level, actions" },
+    { "name": "value_get", "description": "Current values of points" },
+    { "name": "value_watch", "description": "Samples of a key or pattern over a few seconds" },
+    { "name": "history", "description": "Recorded values and rollups of a point" },
+    { "name": "node_set", "description": "Write a value (dry run first)" },
+    { "name": "action_invoke", "description": "Run an action (dry run first)" },
+    { "name": "flow_deploy", "description": "Validate or deploy a dataflow" },
+    { "name": "plan_run", "description": "Check or apply a plan of steps" },
+    { "name": "spec", "description": "The normative WYRM spec" }
+  ],
+  "compatibility": {
+    "platforms": ["@PLATFORMS@"]
+  },
+  "keywords": ["iot", "scada", "dsa", "zenoh", "industrial"],
+  "license": "Apache-2.0"
+}

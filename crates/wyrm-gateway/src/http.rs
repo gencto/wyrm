@@ -129,7 +129,7 @@ fn tls_config(
 }
 
 fn router(st: AppState) -> Router {
-    Router::new()
+    let r: Router<AppState> = Router::new()
         .route("/api/login", post(login))
         .route("/api/me", get(me))
         .route("/api/users", get(list_users).post(add_user))
@@ -141,8 +141,32 @@ fn router(st: AppState) -> Router {
         .route("/api/ws", get(crate::ws::upgrade))
         // The body is read in the handler after the checks, with its own limit.
         .route("/api/invoke", post(invoke))
-        .layer(DefaultBodyLimit::max(MAX_BODY))
-        .with_state(st)
+        // OAuth 2.1 of the remote MCP endpoint (ADR 0041); 404 while it is off
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(crate::oauth::protected_resource),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(crate::oauth::protected_resource),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(crate::oauth::authorization_server),
+        )
+        .route("/oauth/register", post(crate::oauth::register))
+        .route(
+            "/oauth/authorize",
+            get(crate::oauth::authorize_page).post(crate::oauth::authorize_submit),
+        )
+        .route("/oauth/token", post(crate::oauth::token))
+        .layer(DefaultBodyLimit::max(MAX_BODY));
+    #[cfg(feature = "mcp")]
+    let r = match crate::mcp::router(st.clone()) {
+        Some(m) => r.merge(m),
+        None => r,
+    };
+    r.with_state(st)
 }
 
 /// Error body: `{status: <spec-04 code>, message}`.

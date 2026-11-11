@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = ["mcp"]
+# The remote MCP endpoint `/mcp` (ADR 0041 stage B); the OAuth server is always built.
+mcp = ["dep:rmcp", "dep:wyrm-mcp", "dep:wyrm-gateway-client", "dep:tokio-tungstenite"]
+
 [dependencies]
 wyrm-core.workspace = true
 wyrm-client.workspace = true
@@ -15,7 +20,7 @@ wyrm-state.workspace = true
 wyrm-flow.workspace = true
 zenoh.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "net"] }
-axum = { workspace = true, features = ["http1", "tokio", "ws", "query"] }
+axum = { workspace = true, features = ["http1", "tokio", "ws", "query", "form"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }
@@ -31,6 +36,12 @@ argon2.workspace = true
 base64.workspace = true
 getrandom.workspace = true
 zeroize.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+rmcp = { workspace = true, optional = true, features = ["server", "transport-streamable-http-server"] }
+wyrm-mcp = { workspace = true, optional = true, features = ["gateway"] }
+wyrm-gateway-client = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
 
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }

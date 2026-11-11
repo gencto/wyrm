@@ -15,6 +15,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [messenger.md](messenger.md) | send alarms and reports to chat platforms from templates and recipients; [telegram.md](telegram.md): paired users read and set points; [slack.md](slack.md): mrkdwn and Block Kit |
 | [../deploy/docker](../deploy/docker/README.md) | run the broker and links in minimal `scratch` containers; image sizes and memory |
 | [filestores.md](filestores.md) | connect S3, Google Drive, WebDAV or a local directory and move files |
+| [claude.md](claude.md) | connect Claude Desktop to the broker network as a gateway user (one-file extension, no API key) |
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
 | [agent.md](agent.md) | work on the broker network from the command line (`wyrm-agent`), or run the AI agent link |
 | [flow-blocks.md](flow-blocks.md) | calculate in a dataflow with blocks: variables, math, if, hub, stopwatch, text |

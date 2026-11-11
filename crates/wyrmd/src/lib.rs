@@ -275,6 +275,27 @@ pub struct GatewaySection {
     /// Name of the first admin user.
     #[serde(default = "default_gateway_admin")]
     pub admin_user: String,
+    /// The remote MCP endpoint `/mcp` for Claude's connectors, with its
+    /// OAuth 2.1 server (ADR 0041 stage B). Absent = off.
+    #[serde(default)]
+    pub mcp: Option<GatewayMcpSection>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GatewayMcpSection {
+    /// The gateway as Claude reaches it: `https://broker.example[:port]`.
+    pub public_url: String,
+    /// Redirect URIs a client may register; default Claude's callbacks and
+    /// `"loopback"` (MCP clients on the person's computer).
+    #[serde(default)]
+    pub redirect_uris: Option<Vec<String>>,
+    /// Access token lifetime, 60 … 3600 s (default 3600).
+    #[serde(default)]
+    pub access_ttl_s: Option<u64>,
+    /// Refresh token lifetime in days, 1 … 365 (default 30).
+    #[serde(default)]
+    pub refresh_days: Option<u64>,
 }
 
 fn default_gateway_admin() -> String {
@@ -1577,6 +1598,19 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
     if let Some(s) = g.session_ttl_s {
         gc.session_ttl = Duration::from_secs(s.clamp(60, 7 * 86_400));
     }
+    if let Some(m) = &g.mcp {
+        let mut mc = wyrm_gateway::McpConfig::new(m.public_url.clone());
+        if let Some(r) = &m.redirect_uris {
+            mc.redirect_uris = r.clone();
+        }
+        if let Some(s) = m.access_ttl_s {
+            mc.access_ttl = Duration::from_secs(s.clamp(60, 3600));
+        }
+        if let Some(d) = m.refresh_days {
+            mc.refresh_ttl = Duration::from_secs(d.clamp(1, 365) * 86_400);
+        }
+        gc.mcp = Some(mc);
+    }
     let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
     if !bootstrap {
         return Ok(gw);
@@ -1655,6 +1689,18 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             &key,
             Status::PermissionDenied,
             "gateway",
+        ),
+        AuditEvent::McpGranted {
+            user,
+            client,
+            write,
+            config,
+        } => ctl.record(
+            &format!("user:{user}"),
+            "mcp_sign_in",
+            &client,
+            Status::Ok,
+            &format!("write={write} config={config}"),
         ),
         e => ctl.record("gateway", "event", "", Status::Ok, &format!("{e:?}")),
     }

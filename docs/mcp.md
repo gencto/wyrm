@@ -1,5 +1,7 @@
 # wyrm-mcp — the WYRM tree as MCP tools (ADR 0005)
 
+For Claude Desktop, use the gateway mode instead: one extension file, a gateway user, no key file ([claude.md](claude.md), ADR 0041).
+
 `tools/wyrm-mcp` is an MCP server over `wyrm-client` (stdio; streamable HTTP on loopback with `--http`). It signs requests as `ai:<agent-name>` with at most `write`; without `--key` it is read-only.
 
 ## Tools

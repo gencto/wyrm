@@ -143,24 +143,62 @@ struct Req {
     sub: Option<u64>,
 }
 
+/// One frame from a client, whatever carries it.
+pub(crate) enum WsIn {
+    Binary(Vec<u8>),
+    Text,
+    Close,
+    /// Ping, pong: answered by the transport.
+    Other,
+}
+
+/// One frame to a client.
+pub(crate) enum WsOut {
+    Binary(Vec<u8>),
+    Close(u16, &'static str),
+}
+
 async fn run(st: AppState, p: Principal, socket: WebSocket) {
-    let (mut sink, mut stream) = socket.split();
+    let (sink, stream) = socket.split();
+    let sink = sink.with(|o: WsOut| {
+        futures_util::future::ready(Ok::<_, axum::Error>(match o {
+            WsOut::Binary(b) => Message::Binary(Bytes::from(b)),
+            WsOut::Close(code, reason) => Message::Close(Some(CloseFrame {
+                code,
+                reason: reason.into(),
+            })),
+        }))
+    });
+    let stream = stream.map(|m| match m {
+        Ok(Message::Binary(b)) => WsIn::Binary(b.to_vec()),
+        Ok(Message::Text(_)) => WsIn::Text,
+        Ok(Message::Close(_)) | Err(_) => WsIn::Close,
+        Ok(_) => WsIn::Other,
+    });
+    serve_frames(st, p, stream, sink).await;
+}
+
+/// The protocol over any frame transport: an axum socket, or the in-process
+/// pipe of the MCP endpoint (ADR 0041).
+pub(crate) async fn serve_frames<St, Si>(st: AppState, p: Principal, stream: St, sink: Si)
+where
+    St: futures_util::Stream<Item = WsIn> + Send + Unpin,
+    Si: futures_util::Sink<WsOut> + Send + Unpin + 'static,
+{
+    let mut stream = stream;
+    let mut sink = sink;
     let (out_tx, mut out_rx) = mpsc::channel::<Out>(OUT_QUEUE);
     let writer = tokio::spawn(async move {
         while let Some(o) = out_rx.recv().await {
             match o {
                 Out::Frame(v) => {
                     let Ok(b) = to_vec(&v) else { continue };
-                    if sink.send(Message::Binary(Bytes::from(b))).await.is_err() {
+                    if sink.send(WsOut::Binary(b)).await.is_err() {
                         break;
                     }
                 }
                 Out::Close(code, reason) => {
-                    let frame = CloseFrame {
-                        code,
-                        reason: reason.into(),
-                    };
-                    let _ = sink.send(Message::Close(Some(frame))).await;
+                    let _ = sink.send(WsOut::Close(code, reason)).await;
                     break;
                 }
             }
@@ -185,16 +223,16 @@ async fn run(st: AppState, p: Principal, socket: WebSocket) {
     let close = loop {
         tokio::select! {
             msg = stream.next() => match msg {
-                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break None,
-                Some(Ok(Message::Binary(b))) => {
+                None | Some(WsIn::Close) => break None,
+                Some(WsIn::Binary(b)) => {
                     if !conn.handle(&p, &b, &mut streams).await {
                         break Some((4001, "session revoked"));
                     }
                 }
-                Some(Ok(Message::Text(_))) => {
+                Some(WsIn::Text) => {
                     conn.send(err_frame(0, Status::InvalidMessage.code(), "binary CBOR frames only")).await;
                 }
-                Some(Ok(_)) => {} // ping/pong: answered by the socket
+                Some(WsIn::Other) => {}
             },
             _ = &mut expiry => break Some((4001, "session expired")),
             _ = recheck.tick() => match conn.gw.resolve(claims.clone()) {

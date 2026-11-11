@@ -15,3 +15,6 @@ tokio-tungstenite.workspace = true
 futures-util = { workspace = true, features = ["sink", "std"] }
 thiserror.workspace = true
 tracing.workspace = true
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+webpki-roots.workspace = true
