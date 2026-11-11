@@ -68,7 +68,7 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 
 `layout` належить редактору (ADR 0019). Ключ — це `node_id` або ключ редактора `<node>~<name>~<rest>` (0.2.26; `~` не може бути в `node_id`, тому такий ключ не сплутати з нодою). Редактор Studio зберігає так вибір пінів блоку: `"<node>~pin~<field>": [1|0, 0]`. Значення кожного ключа — два скінченні числа. Engine ключі редактора не читає і не вимагає, щоб нода ключа існувала; він зберігає `layout` як надіслано. Ліміти: не більше 16 384 записів, ключ не довший за 256 байтів (інакше помилка компіляції `layout: …`). Те саме правило діє для `layout` власного блоку. Він не входить до конфігу ноди, тож переміщення ноди не скидає її стан при гарячій заміні.
 
-Каталог типів нод для редактора: `dataflows/~act/node_types` (рівень `read`) повертає масив `{type, category, description, inputs, outputs, dyn_inputs?, dyn_outputs?, port_types, echo_inputs?, values? (0.2.19), params: [{name, type, required, description, choices?, default?, editor?, port?, scope? (0.2.22), echo}]}`; `dyn_inputs`/`dyn_outputs` = `{param, prefix, default}` — порти, які дає параметр (`expression`: `in.<name>` з `inputs`; `wasm`: `inputs`/`outputs`).
+Каталог типів нод для редактора: `dataflows/~act/node_types` (рівень `read`) повертає масив `{type, category, description, inputs, outputs, dyn_inputs?, dyn_outputs?, port_types, echo_inputs?, values? (0.2.19), params: [{name, type, required, description, choices?, default?, editor?, port?, scope? (0.2.22), echo, display? (0.2.28)}]}`; `dyn_inputs`/`dyn_outputs` = `{param, prefix, default}` — порти, які дає параметр (`expression`: `in.<name>` з `inputs`; `wasm`: `inputs`/`outputs`).
 
 Поля 0.2.15 (ADR 0038, лише додані):
 - `params[].default` — типізоване значення для кожного параметра, що його має: число лишається числом, `choices` — рядком, список імен — масивом (`inputs` блоків: `["0", "1"]`). Без default поля немає.
@@ -85,6 +85,13 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
 - Час: `debounce` і `throttle` (`ms`, не більше 3 600 000).
 - Кожен параметр цих блоків має порт `in.<p>`, крім `inputs` і scope.
 - Число з порту або з конфігу, що не є скінченним (NaN, ±inf), блок числом не вважає; такий семпл на порту параметра ігнорується, і діє останнє добре значення. `ms` без числа — 500; `substring.length` — не більше 4 КіБ; `select.index` поза входами дає `null`.
+
+## Третій набір блоків (0.2.28, ADR 0044; повний опис — `docs/flow-blocks.md`, покриття еталонної палітри — `docs/flow-blocks-coverage.md`)
+- Математика: `constant` (`name`: `pi`, `e`, `sqrt2`, `ln2`, `ln10`, `log2e`, `log10e`; надсилає на старті, як змінна), `factorial`, `log` (`base`), `power` (`exponent`), `root` (`degree`), `bound` (`min`, `max`; виходи `input_out_of_range`, `out`), `round_up`, `round_down` (`precision`; виходи `out`, `text`), `format_number` (`format`, `decimal_separator`, `group_separator`), `parse_number`.
+- Тригонометрія в градусах: `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `atan` (`x`, default 1), `to_degrees`, `to_radians`.
+- Статистика за змінними входами: `average`, `median`, `mode`, `std_deviation`, `variance`; вхід зі списком дає його числа (не більше 1000).
+- Результат, що не є скінченним числом, — `null`.
+- Каталог: `params[].display` — підпис поля для редактора, коли підпис з назви був би хибним (лише додано).
 
 ## Власні блоки (0.2.24, ADR 0040 §3)
 Визначення може мати `blocks`. Нода типу `block:<name>` — екземпляр блоку `<name>`.

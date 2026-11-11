@@ -22,6 +22,8 @@ use tracing::trace;
 use wyrm_core::{Quality, Value};
 use wyrm_link_sdk::now_us;
 
+mod math;
+
 /// The block types of this module.
 pub const TYPES: &[&str] = &[
     "number",
@@ -62,6 +64,31 @@ pub const TYPES: &[&str] = &[
     "select",
     "debounce",
     "throttle",
+    // the third set (ADR 0044): math, rounding, formatting, trigonometry
+    "constant",
+    "factorial",
+    "log",
+    "power",
+    "root",
+    "bound",
+    "round_up",
+    "round_down",
+    "format_number",
+    "parse_number",
+    "sin",
+    "cos",
+    "tan",
+    "cot",
+    "asin",
+    "acos",
+    "atan",
+    "to_degrees",
+    "to_radians",
+    "average",
+    "median",
+    "mode",
+    "std_deviation",
+    "variance",
 ];
 
 /// Variable inputs of one block at most.
@@ -244,6 +271,27 @@ fn same(a: &Value, b: &Value) -> bool {
     a == b || matches!((num(a), num(b)), (Some(x), Some(y)) if x.f() == y.f())
 }
 
+/// What a pure calculation of the third set sees: `in`, the parameters, the variable inputs
+/// and the time of the calculation (from the runtime's clock, so tests give it).
+pub(crate) struct View<'a> {
+    inv: &'a Value,
+    params: &'a BTreeMap<String, Value>,
+    #[allow(dead_code)]
+    items: Vec<Value>,
+    #[allow(dead_code)]
+    now_us: u64,
+}
+
+impl View<'_> {
+    fn p(&self, name: &str) -> &Value {
+        self.params.get(name).unwrap_or(&Value::Null)
+    }
+}
+
+/// What a pure calculation gives: each output's value, and whether it is `bad` (an input
+/// that was valid but gave a result past a bound).
+type Outs = Vec<(&'static str, Value, bool)>;
+
 // ---------- the block types ----------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -285,6 +333,9 @@ enum Kind {
     Select,
     Debounce,
     Throttle,
+    Constant,
+    Math(math::Op),
+    Stat(math::Stat),
 }
 
 /// One parameter: its name, its default, and whether it has the port `in.<name>`.
@@ -350,7 +401,16 @@ fn kind(ty: &str) -> Option<Kind> {
         "select" => Kind::Select,
         "debounce" => Kind::Debounce,
         "throttle" => Kind::Throttle,
-        _ => return None,
+        "constant" => Kind::Constant,
+        t => {
+            if let Some((_, op)) = math::OPS.iter().find(|(n, _)| *n == t) {
+                Kind::Math(*op)
+            } else if let Some((_, st)) = math::STATS.iter().find(|(n, _)| *n == t) {
+                Kind::Stat(*st)
+            } else {
+                return None;
+            }
+        }
     })
 }
 
@@ -567,6 +627,9 @@ fn shape(k: Kind) -> Shape {
             items: false,
             outputs: &[("out", Any)],
         },
+        Kind::Constant => math::constant_shape(),
+        Kind::Math(op) => math::shape(op),
+        Kind::Stat(_) => math::stat_shape(),
     }
 }
 
@@ -1367,6 +1430,18 @@ impl Block {
                     self.due = self.passed.map(|p| p + ms);
                 }
             }
+            Kind::Constant => {
+                let v = math::constant(self.param("name"));
+                self.send("out", v, q, t, out);
+            }
+            Kind::Math(op) => {
+                let outs = math::calc(op, &self.view());
+                self.send_all(outs, q, t, out);
+            }
+            Kind::Stat(st) => {
+                let v = math::stat(st, &self.item_values());
+                self.send("out", v, q, t, out);
+            }
             Kind::Length => {
                 let v = match self.in_value() {
                     Value::Str(s) => Value::UInt(s.chars().count() as u64),
@@ -1377,6 +1452,23 @@ impl Block {
                 };
                 self.send("out", v, q, t, out);
             }
+        }
+    }
+
+    /// The view a pure calculation of the third set reads.
+    fn view(&self) -> View<'_> {
+        View {
+            inv: self.in_value(),
+            params: &self.params,
+            items: self.item_values(),
+            now_us: now_us(),
+        }
+    }
+
+    /// Send what a pure calculation gave, in its order; a `bad` result has quality `bad`.
+    fn send_all(&mut self, outs: Outs, q: Quality, t: u64, out: &mut Out) {
+        for (port, v, bad) in outs {
+            self.send(port, v, if bad { Quality::Bad } else { q }, t, out);
         }
     }
 
@@ -1435,8 +1527,11 @@ impl Block {
 
 impl Node for Block {
     fn start(&mut self, io: &Io) {
-        // only a variable sends at start
-        if matches!(self.kind, Kind::Number | Kind::Text | Kind::Bool) {
+        // only a variable (and a constant) sends at start
+        if matches!(
+            self.kind,
+            Kind::Number | Kind::Text | Kind::Bool | Kind::Constant
+        ) {
             (io.inject)(
                 "__start",
                 Msg::new(Value::Null, Quality::Good, now_us()).at_start(),

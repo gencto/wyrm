@@ -205,6 +205,68 @@ Readers:
   `path_scope`, as `subscribe` does (see "A key from a port"). A refused key is
   an `error` event with `invalid_parameter`.
 
+## The third set (spec 06 0.2.28, ADR 0044)
+
+These blocks mirror the computation blocks of the reference dashboard product
+(`docs/flow-blocks-coverage.md` maps all of its 152 palette items). Every
+parameter has the port `in.<parameter>`, except `inputs`, a scope and a rhai
+script. The rules of "How a block works" apply: change-only outputs, the worst
+quality, nothing at start but a variable or a `constant`.
+
+### Math, rounding and number formatting
+
+| Type | Inputs | Outputs | Parameters and what it gives |
+|---|---|---|---|
+| `constant` | — | `out` | `name` (default `pi`; `e`, `sqrt2`, `ln2`, `ln10`, `log2e`, `log10e`). Sent at start, as a variable. |
+| `factorial` | `in` | `out` | `n!` of the whole part of `in`. Below 1: 1. An integer up to 20!, a float up to 170!, above that `null`. |
+| `log` | `in` | `out` | `base` (default 10). `in` at most 0: `null`. |
+| `power` | `in` | `out` | `exponent` (default 2). An integer stays an integer while it fits. |
+| `root` | `in` | `out` | `degree` (default 2). A negative `in` has a root for an odd whole degree (−8, 3: −2); else `null`. An exact root is a whole number (27, 3: 3). |
+| `bound` | `in` | `input_out_of_range`, `out` | `min`, `max` (none: that side is open). `max` applies first, then `min`, so `min` wins when it is above `max`. |
+| `round_up`, `round_down` | `in` | `out`, `text` | `precision` (0…20, default 0). `text` has exactly `precision` places. |
+| `format_number` | `in` | `out` | `format` (default `#,##0.###`), `decimal_separator` (default `.`), `group_separator` (default `,`). |
+| `parse_number` | `in` | `out` | The first number in a text: `abc12.5kg` → 12.5, `1,234.5` → 1234.5 (commas dropped), `#ff` and `0xff` → 255. A number passes as it is. |
+
+`format_number` patterns:
+
+- `0` is a digit that is always shown; `#` a digit shown only when it is not a
+  leading or a trailing zero. `0.5` with `#.##` is `.5`, with `0.00` `0.50`.
+- A comma in the whole part sets the group size: the digits after the last
+  comma (`#,##0` groups by 3).
+- `%` in the text around the number multiplies by 100: `0.0%` gives `25.6%`
+  for 0.256.
+- Text before and after the number part stays as it is: `€ #,##0.00`.
+- A pattern is at most 64 bytes, a separator at most 8. An empty
+  `group_separator` gives no groups. A pattern without `#` or `0` gives
+  `null`.
+
+### Trigonometry (degrees)
+
+| Type | What it gives |
+|---|---|
+| `sin`, `cos`, `tan`, `cot` | The function of `in` degrees. `cot 0` is `null`. |
+| `asin`, `acos` | The angle in degrees; outside −1…1 `null`. |
+| `atan` | The angle in degrees of the point (`x`, `in`); `x` defaults to 1, so it is the arc tangent of `in`. |
+| `to_degrees`, `to_radians` | The conversion. |
+
+The degree factors are the reference's own: `57.29577951308232 × asin(x)` and
+`cos(0.017453292519943295 × x)`, so the last digit agrees with it.
+
+### Statistics
+
+`average`, `median`, `mode`, `std_deviation` and `variance` take the variable
+inputs (`inputs`, default `in.0`, `in.1`). An input that holds a list gives its
+numbers, so one wire from a `split` or a history column is enough. At most 1000
+numbers count.
+
+- `median` of an even count is the mean of the two middle numbers (the
+  reference takes the upper one).
+- `variance` and `std_deviation` are of the population (÷ n).
+- `mode` is the value that occurs most often, compared as text; `null`, empty
+  text, lists and maps do not count. A tie goes to the value that got there
+  first.
+- No number at all gives `null`.
+
 ## Parameter ports of the other node types
 
 The older node types take the parameters an editor binds on a port
@@ -599,6 +661,13 @@ Rules:
 | `sample_and_hold` | Input ⇄ · Trigger ⇄ · Output → | `in`, `trigger`; `out` | — | — | — |
 | `debounce`, `throttle` | Input ⇄ · Quiet time (ms) ⇄ / Period (ms) ⇄ · Output → | `in`; `in.ms` → `ms`; `out` | — | — | — |
 | `block:<name>` (an instance of a custom block) | header `MY` · `<input>` ⇄ … · `<output>` → … · `Open inside` | an input: the inner input its `to[0]` names (its constant in `values`, else the block's `default`); an output: the inner output `from`; live values from the rows `<instance>/<inner>` | — | an input typed as any value (`2` is a number, `AHU-` a text) | an instance has no row of its own in `watch` (ADR 0040, deferred) |
+| `constant` | Name ⇄ · Value → | `in.name` → `name`; `out` | — | Name dropdown | none |
+| `factorial`, `parse_number`, `sin`, `cos`, `tan`, `cot`, `asin`, `acos`, `to_degrees`, `to_radians` | Input ⇄ · Output → | `in`; `out` | — | `in` typed (`values`) | none |
+| `log`, `power`, `root`, `atan` | Input ⇄ · Base / Exponent / Degree / X ⇄ · Output → | `in`; `in.<p>` → `<p>`; `out` | — | — | none |
+| `bound` | Input ⇄ · Min ⇄ · Max ⇄ · Input out of range → · Output → | `in`; `in.min`, `in.max`; outputs | — | — | none |
+| `round_up`, `round_down` | Input ⇄ · Precision ⇄ · Output → · Text → | `in`; `in.precision`; `out`, `text` | — | — | none (`text` is the reference's text result) |
+| `format_number` | Input ⇄ · Format ⇄ · Decimal separator ⇄ · Group separator ⇄ · Output → | `in`; `in.<p>`; `out` | — | — | none |
+| `average`, `median`, `mode`, `std_deviation`, `variance` | Input 1 ⇄ · Input 2 ⇄ · … · Output → (− / +) | `in.<n>`; `out` | — | operands typed (`values`) | `median` of an even count averages (ADR 0044 §5) |
 
 The editor takes the ports from the catalog (a parameter's `port`), so a
 port the engine adds shows without an editor change. Parameters the engine
