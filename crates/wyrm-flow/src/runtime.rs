@@ -204,9 +204,15 @@ pub fn start(
     let states: States = Arc::new(Mutex::new(BTreeMap::new()));
     let (stop, stop_rx) = watch::channel(false);
     let (flush, flush_rx) = watch::channel(0u64);
+    let wired: std::collections::HashSet<&str> =
+        def.edges.iter().map(|e| e.to.node.as_str()).collect();
     let mut built: Vec<(String, u32, Box<dyn Node>)> = Vec::new();
     for (id, n) in &def.nodes {
         let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts, mode)?;
+        // no edge into it: a pure block calculates once at the start (spec 06 0.2.30)
+        if !wired.contains(id.as_str()) {
+            node.unwired();
+        }
         if let Some((hash, st)) = restored.get(id) {
             if *hash == n.hash {
                 node.restore(st);
@@ -327,14 +333,17 @@ async fn run_node(
         clock(p, if at_once { first } else { first + p })
     });
     // A tick at the start is born at the start, and so is what a node sends while it handles
-    // a sample that was (ADR 0040 §2): the mark goes on with everything such a call sends.
+    // a sample that was (ADR 0040 §2): the mark goes on with everything such a call sends. The
+    // same holds for a sample made of typed constants (spec 06 0.2.30).
     let mut start_tick = at_once;
     loop {
         let mut out = Out::default();
         let mut born_at_start = false;
+        let mut of_constants = false;
         let ok = tokio::select! {
             (port, m) = inbox.pop() => {
                 born_at_start = m.start;
+                of_constants = m.constant;
                 if !port.starts_with("__") {
                     // an input's echo goes out before the node handles the sample
                     if !echoes.inputs.is_empty() && echoes.inputs.contains(&port) {
@@ -364,6 +373,7 @@ async fn run_node(
         if born_at_start {
             for (_, m) in &mut out.0 {
                 m.start = true;
+                m.constant |= of_constants;
             }
         }
         if !echoes.params.is_empty() {

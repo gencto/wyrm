@@ -35,6 +35,12 @@ pub struct Msg {
     /// (the runtime carries the mark on). `trigger`, `auto_run` and the event blocks never
     /// act on one, so a deploy, a hot swap or a restart runs no command through them.
     pub start: bool,
+    /// Made of typed constants (2026-11-11, spec 06 0.2.30): what a pure block with no wired
+    /// input calculates at the start from its constants and parameters, `now`'s start value,
+    /// and everything a node sends while it handles such a sample (the runtime carries the
+    /// mark on). Always also `start`. Unlike `start`, it holds on `in` of `set` and `invoke`
+    /// too: such a sample gives the command its value and runs nothing.
+    pub constant: bool,
 }
 
 impl Msg {
@@ -45,12 +51,20 @@ impl Msg {
             t,
             key: None,
             start: false,
+            constant: false,
         }
     }
 
     /// The same sample, born at the start.
     pub fn at_start(mut self) -> Self {
         self.start = true;
+        self
+    }
+
+    /// The same sample, made of typed constants at the start (and so born at the start).
+    pub fn of_constants(mut self) -> Self {
+        self.start = true;
+        self.constant = true;
         self
     }
 }
@@ -575,11 +589,16 @@ pub trait Node: Send {
         None
     }
     /// The inputs' constants (config `values`, spec 06 0.2.19) as `(port, value)`: each is the
-    /// input's value until a sample replaces it. They calculate nothing; `watch` shows them as
+    /// input's value until a sample replaces it. They calculate nothing by themselves (a pure
+    /// block with no wired input calculates from them once at start, [`Node::unwired`], spec 06
+    /// 0.2.30); `watch` shows them as
     /// the inputs' values from the start.
     fn seeds(&self) -> Vec<(String, Value)> {
         Vec::new()
     }
+    /// Called before [`Node::start`] when no edge leads into the node: a pure block then
+    /// calculates once at the start from its constants (spec 06 0.2.30).
+    fn unwired(&mut self) {}
 }
 
 pub(crate) fn truthy(v: &Value) -> bool {

@@ -447,6 +447,21 @@ bool isRangeText(String type, String name) =>
     type == 'date_range' && name == 'in' ||
     type == 'load_history' && name == 'time_range';
 
+/// Operands that the engine reads as a text only: a typed value stays the
+/// text it is (a CSV `1,2` or `5`, a JSON text), never the number or the
+/// list JSON would make of it. Such a text may hold several lines (the
+/// value viewer's Edit, flow-blocks.md "What calculates at start").
+const textOperands = <String, Set<String>>{
+  'table_from_csv': {'in'},
+  'split': {'in'},
+  'replace': {'in'},
+  'json_parse': {'in'},
+};
+
+/// Whether operand [name] of a block of [type] is a text ([textOperands]).
+bool isTextOperand(String type, String name) =>
+    textOperands[type]?.contains(name) ?? false;
+
 /// The choices a range text offers (docs/flow-blocks.md, `date_range`); any
 /// other text the engine reads (`2026-10`, `<a>/<b>`) is typed.
 const rangeChoices = [
@@ -714,6 +729,8 @@ FieldGroup groupOf(NodeType? t, FlowBlock b, FlowField f) {
 
 /// Outputs that say more under their own name than as `Output`.
 const outputLabelOverrides = <String, String>{
+  // A presence, not a value (docs/flow-blocks.md, "A key from a port").
+  'liveliness.out': 'Alive',
   'invoke.out': 'Result',
   'stats.avg': 'Average',
   'alarm.out': 'Active',
@@ -1102,8 +1119,12 @@ List<FlowField> fieldsOf(
         FlowField(
           id: 'out:$p',
           name: p,
+          // A `subscribe` output is its point's value, named after the
+          // point; a `liveliness` output is whether its node is there.
           label: _reads.contains(b.type) && p == 'out'
-              ? (pointName ?? fieldLabel(b.type, p))
+              ? (outputLabelOverrides['${b.type}.$p'] ??
+                    pointName ??
+                    fieldLabel(b.type, p))
               : (instance || t.dynOutParam != null && !t.outputs.contains(p)
                     ? p
                     : (b.type == 'invoke' && p == 'out' && behaves

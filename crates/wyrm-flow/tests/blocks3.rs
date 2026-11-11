@@ -246,7 +246,8 @@ async fn math_blocks_through_the_engine() {
     );
     assert_eq!(sent[0].1.q, Quality::Uncertain);
     assert_eq!(sent[0].1.t, 7);
-    // a constant on an operand calculates nothing by itself
+    // a constant on an operand calculates nothing by itself (the start of an unwired pure
+    // block is the runtime's, spec 06 0.2.30)
     let mut f = build(
         "format_number",
         &[(
@@ -646,4 +647,158 @@ async fn table_blocks_through_the_engine() {
             ("writable", Value::Bool(true))
         ])
     );
+}
+
+/// What `start` puts in the node's inbox: `(port, constant, start)` of each sample.
+fn started(n: &mut dyn Node, io: &Io) -> Vec<(String, bool, bool)> {
+    let got = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let g = got.clone();
+    let io = Io {
+        inject: Arc::new(move |p: &str, m: Msg| {
+            g.lock().unwrap().push((p.to_owned(), m.constant, m.start));
+        }),
+        ..io.clone()
+    };
+    n.start(&io);
+    let v = got.lock().unwrap().clone();
+    v
+}
+
+/// Spec 06 0.2.30: a pure block with no wired input calculates once at the start, made of
+/// constants; with a wired input, or when it keeps state, fires events or keeps time, it waits.
+#[tokio::test(flavor = "multi_thread")]
+async fn pure_blocks_calculate_at_start_only_when_unwired() {
+    let e = env().await;
+    let io = &e.io;
+    // the blocks that keep state, fire events, keep time or route never do
+    for ty in [
+        "counter",
+        "toggle",
+        "rising_edge",
+        "falling_edge",
+        "changed",
+        "event_gate",
+        "sample_and_hold",
+        "debounce",
+        "throttle",
+        "stopwatch",
+        "hub",
+        "trace",
+        "catch_error",
+        "router",
+        "table_recorder",
+        "table_page",
+        "now",
+        "number",
+        "string",
+        "bool",
+        "table",
+        "constant",
+    ] {
+        assert!(!wyrm_flow::blocks::computes_at_start(ty), "{ty}");
+    }
+    let start = [("__start".to_owned(), true, true)];
+    let mut done = 0;
+    for t in wyrm_flow::catalog::types() {
+        if !wyrm_flow::blocks::computes_at_start(t.ty) {
+            continue;
+        }
+        done += 1;
+        let c = sample(t.ty);
+        nodes::ports(t.ty, &c).unwrap_or_else(|e| panic!("{}: {e}", t.ty));
+        // wired: it waits for its first sample
+        let mut n = nodes::build(t.ty, "f", "n", &c).unwrap();
+        assert!(started(&mut *n, io).is_empty(), "{} wired", t.ty);
+        // unwired: one calculation at start, made of constants, that sends something
+        let mut n = nodes::build(t.ty, "f", "n", &c).unwrap();
+        n.unwired();
+        assert_eq!(started(&mut *n, io), start, "{}", t.ty);
+        let sent = feed(&mut *n, io, "__start", good(Value::Null).of_constants());
+        assert!(!sent.is_empty(), "{} sent nothing at start", t.ty);
+    }
+    // the list in docs/flow-blocks.md ("What calculates at start")
+    assert_eq!(done, 83, "pure blocks");
+    // 2 + 3 at start
+    let mut add = build(
+        "add",
+        &[(
+            "values",
+            Value::Map(BTreeMap::from([
+                ("in.0".to_owned(), Value::Int(2)),
+                ("in.1".to_owned(), Value::Int(3)),
+            ])),
+        )],
+    );
+    add.unwired();
+    assert_eq!(started(&mut *add, io), start);
+    let sent = feed(&mut *add, io, "__start", good(Value::Null).of_constants());
+    assert_eq!(on(&sent, "out"), Some(Value::Int(5)));
+    // an unwired stateful block stays quiet
+    let mut edge = build(
+        "rising_edge",
+        &[(
+            "values",
+            Value::Map(BTreeMap::from([("in".to_owned(), Value::Bool(true))])),
+        )],
+    );
+    edge.unwired();
+    assert!(started(&mut *edge, io).is_empty());
+}
+
+/// Spec 06 0.2.30: `now` gives the time at the start (made of constants) and every
+/// `interval_ms` (its ticks ordinary samples, the first one period later), and on each sample
+/// of `in`; 0 is only on `in`. It takes no constant: one saved before is ignored.
+#[tokio::test(flavor = "multi_thread")]
+async fn now_has_a_clock() {
+    let e = env().await;
+    let io = &e.io;
+    assert!(!wyrm_flow::blocks::takes_values("now"));
+    let mut n = build("now", &[]);
+    assert_eq!(n.tick_every(), Some(std::time::Duration::from_millis(1000)));
+    assert!(!n.first_tick_now());
+    assert_eq!(started(&mut *n, io), [("__start".to_owned(), true, true)]);
+    let t0 = on(
+        &feed(&mut *n, io, "__start", good(Value::Null).of_constants()),
+        "out",
+    )
+    .unwrap();
+    assert!(t0.as_f64().unwrap() > 1.7e15);
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let mut out = Out::default();
+    n.tick(0, &mut out);
+    let t1 = on(&out.0, "out").unwrap();
+    assert!(t1.as_f64().unwrap() > t0.as_f64().unwrap());
+    // a new period from its port; one it cannot keep is ignored
+    assert!(feed(&mut *n, io, "in.interval_ms", good(Value::Int(250))).is_empty());
+    assert_eq!(n.tick_every(), Some(std::time::Duration::from_millis(250)));
+    feed(&mut *n, io, "in.interval_ms", good(Value::Int(50)));
+    feed(&mut *n, io, "in.interval_ms", good(Value::Int(-1)));
+    assert_eq!(n.tick_every(), Some(std::time::Duration::from_millis(250)));
+    // 0: only on samples of `in`
+    let mut n = build(
+        "now",
+        &[
+            ("interval_ms", Value::Int(0)),
+            (
+                "values",
+                Value::Map(BTreeMap::from([("in".to_owned(), "today".into())])),
+            ),
+        ],
+    );
+    n.unwired();
+    assert_eq!(n.tick_every(), None);
+    assert!(started(&mut *n, io).is_empty());
+    assert!(on(&feed(&mut *n, io, "in", good("x")), "out").is_some());
+    // the config takes 0 or 100 … 86 400 000
+    for bad in [
+        Value::Int(50),
+        Value::Int(-5),
+        Value::Int(86_400_001),
+        "x".into(),
+    ] {
+        assert!(
+            nodes::ports("now", &cfg(&[("interval_ms", bad.clone())])).is_err(),
+            "{bad:?}"
+        );
+    }
 }

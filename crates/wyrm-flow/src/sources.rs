@@ -206,6 +206,7 @@ impl Source {
                             t: sample.t,
                             key: Some(key.into()),
                             start: std::mem::take(&mut first),
+                            constant: false,
                         },
                     );
                 }

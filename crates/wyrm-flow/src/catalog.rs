@@ -156,6 +156,16 @@ pub(crate) const KEY: Param = sc(
     "key_scope",
 );
 
+/// The key of `liveliness`: a node whose presence it reads, not a point whose value it reads.
+const LIVELINESS_KEY: Param = sc(
+    req(p(
+        "key",
+        "string",
+        "A node of this site whose presence is read (its liveliness token): downstream/<link>/…, dataflows/… or wy/<site>/… (may be absent when in.key brings it).",
+    )),
+    "key_scope",
+);
+
 pub(crate) const KEY_SCOPE: Param = p(
     "key_scope",
     "string",
@@ -172,7 +182,7 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "subscribe",
         category: "Sources",
-        description: "Values of a point as they change; in.key names another point inside key_scope.",
+        description: "The value of a point (its ~val) as it changes: numbers, text, any value the point has. To know whether a node is there at all, use liveliness. in.key names another point inside key_scope.",
         inputs: &["in.key"],
         outputs: &["out", "error"],
         dyn_inputs: None,
@@ -202,12 +212,12 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "liveliness",
         category: "Sources",
-        description: "Whether a node is alive (its liveliness token); in.key names another node inside key_scope.",
+        description: "Whether a node is there, not its value: true while its liveliness token is present (a link, a device or a broker that is up), false when the token goes. To read the value, use subscribe. in.key names another node inside key_scope.",
         inputs: &["in.key"],
         outputs: &["out", "error"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[KEY, KEY_SCOPE],
+        params: &[LIVELINESS_KEY, KEY_SCOPE],
     },
     NodeType {
         ty: "expression",

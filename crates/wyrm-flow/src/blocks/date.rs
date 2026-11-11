@@ -75,7 +75,12 @@ pub(super) fn shape(op: Op) -> Shape {
     match op {
         Op::Now => Shape {
             inputs: &["in"],
-            params: vec![],
+            // the time at start and every `interval_ms` (0: only on samples of `in`)
+            params: vec![param(
+                "interval_ms",
+                Value::Int(super::NOW_INTERVAL_MS),
+                true,
+            )],
             items: false,
             outputs: &[("out", Number)],
         },
