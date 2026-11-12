@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — generated view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+a{color:#F3A766;text-decoration:none}
+button{font-family:inherit}
+*{scrollbar-width:thin;scrollbar-color:#3A4249 transparent}
+@keyframes wy-blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes wy-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; background: #0E1113; font-size: 14px; overflow: hidden">
+
+<!-- Bar -->
+<header style="flex: none; height: 52px; border-bottom: 1px solid #252B30; background: #13171A; display: flex; align-items: center; gap: 12px; padding: 0 16px">
+<a href="Views.dc.html" style="display: flex; align-items: center; gap: 6px; color: #A3ABAF; font-size: 13px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Views</a>
+<span style="width: 1px; height: 22px; background: #252B30"></span>
+<span style="font-weight: 600">Pump station · north</span>
+<span style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 11px; background: {{status.bg}}; color: {{status.c}}; font-size: 12px">{{status.text}}</span>
+<code style="font-size: 11px; color: #6B747A">{{sub}}</code>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 8px">
+<div role="radiogroup" aria-label="Preview width" style="display: flex; gap: 2px; padding: 3px; border-radius: 8px; background: #1D2226; border: 1px solid #252B30">
+<sc-for list="{{widths}}" as="w" hint-placeholder-count="3"><button type="button" role="radio" aria-checked="{{w.on}}" onClick="{{w.pick}}" style="height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: {{w.bg}}; color: {{w.fg}}; font-size: 12px; cursor: pointer">{{w.name}}</button></sc-for>
+</div>
+<sc-if value="{{edit}}" hint-placeholder-val="{{true}}"><span style="display: flex; gap: 8px"><button type="button" style="height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 13px; cursor: pointer">Edit by hand</button>
+<button type="button" aria-disabled="{{pubDis}}" style="height: 34px; padding: 0 16px; border-radius: 8px; border: 0; background: {{pubBg}}; color: {{pubFg}}; font-size: 13px; font-weight: 600; cursor: pointer">Publish…</button></span></sc-if>
+</div>
+</header>
+
+<div style="flex: 1; min-height: 0; display: flex">
+
+<!-- Ask -->
+<sc-if value="{{edit}}" hint-placeholder-val="{{true}}">
+<aside aria-label="Describe the screen" style="flex: none; width: 320px; border-right: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; min-height: 0">
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+<sc-for list="{{chat}}" as="m" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 6px; align-items: {{m.align}}">
+<span style="font-size: 11px; color: #6B747A">{{m.who}}</span>
+<div style="max-width: 100%; padding: 10px 12px; border-radius: 10px; background: {{m.bg}}; border: 1px solid {{m.line}}; font-size: 13px; line-height: 1.5; color: #ECE9E1; white-space: pre-line">{{m.text}}</div>
+<sc-if value="{{m.hasSteps}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 4px; width: 100%">
+<sc-for list="{{m.steps}}" as="s" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: {{s.c}}"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{s.c}}"></span>{{s.t}}</span></sc-for>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<div style="padding: 12px; border-top: 1px solid #252B30; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="3"><button type="button" onClick="{{c.pick}}" style="height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid #2F373D; background: #161A1D; color: #C5CBCE; font-size: 12px; cursor: pointer">{{c.t}}</button></sc-for>
+</div>
+<label style="display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 10px; border: 1px solid #2F373D; background: #161A1D">
+<span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Ask for a change</span>
+<textarea rows="2" placeholder="Ask for a change: “add a pressure trend”, “bigger buttons for the panel”" style="flex: 1; min-width: 0; resize: none; border: 0; background: transparent; color: #ECE9E1; font: inherit; font-size: 13px; outline: none"></textarea>
+<button type="button" aria-label="Send" style="flex: none; width: 34px; height: 34px; border-radius: 8px; border: 0; background: #E8893A; color: #0E1113; cursor: pointer; display: grid; place-items: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+</label>
+<span style="font-size: 11px; color: #6B747A; line-height: 1.45">The assistant reads the tree as you; it can only use elements of the catalog and keys you may read.</span>
+</div>
+</aside>
+
+</sc-if>
+<!-- Surface -->
+<main aria-label="Generated screen" style="flex: 1; min-width: 0; overflow: auto; background-color: #0B0D0F; background-image: radial-gradient(#1D2226 1px, transparent 1px); background-size: 16px 16px; padding: 20px; display: flex; justify-content: center">
+<div style="width: 100%; max-width: {{surfaceW}}px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: baseline; gap: 10px"><span style="font-size: 20px; font-weight: 600">{{title}}</span><span style="font-size: 12px; color: #6CC4B0; display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>live · plant</span></div>
+
+<sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: {{row.cols}}; gap: 12px">
+<sc-for list="{{row.cards}}" as="card" hint-placeholder-count="3">
+<section aria-label="{{card.title}}" style="position: relative; padding: 14px; border-radius: 10px; border: {{card.border}}; background: #13171A; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<sc-if value="{{card.hasTitle}}" hint-placeholder-val="{{true}}"><span style="font-size: 13px; font-weight: 600">{{card.title}}</span></sc-if>
+<sc-if value="{{card.changed}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: -10px; right: 10px; height: 20px; padding: 0 8px; border-radius: 10px; background: #E8893A; color: #0E1113; font-size: 11px; font-weight: 600; display: flex; align-items: center">{{card.changeText}}</span></sc-if>
+
+<sc-if value="{{card.pending}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 8px"><span style="height: 14px; width: 40%; border-radius: 4px; background: linear-gradient(90deg, #1D2226 0, #2A3035 50%, #1D2226 100%); background-size: 400px 100%; animation: wy-shimmer 1.4s linear infinite"></span><span style="height: {{card.skelH}}px; border-radius: 6px; background: linear-gradient(90deg, #1D2226 0, #2A3035 50%, #1D2226 100%); background-size: 400px 100%; animation: wy-shimmer 1.4s linear infinite"></span></div>
+</sc-if>
+
+<sc-for list="{{card.items}}" as="it" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<!-- Value -->
+<sc-if value="{{it.isValue}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #A3ABAF">{{it.label}}</span><span style="display: flex; align-items: baseline; gap: 4px"><code style="font-size: {{it.size}}px; color: {{it.c}}">{{it.v}}</code><span style="font-size: 12px; color: #8E979C">{{it.unit}}</span></span><sc-if value="{{it.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; color: {{it.c}}">{{it.note}}</span></sc-if></div>
+</sc-if>
+<!-- Trend -->
+<sc-if value="{{it.isTrend}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; gap: 14px; font-size: 11px; color: #A3ABAF"><sc-for list="{{it.series}}" as="s" hint-placeholder-count="2"><span style="display: flex; align-items: center; gap: 6px"><span style="width: 12px; height: 2px; background: {{s.c}}"></span>{{s.label}}</span></sc-for><span style="margin-left: auto; color: #6B747A">{{it.range}} · hover for values</span></div>
+<svg viewBox="0 0 400 110" width="100%" height="110" preserveAspectRatio="none" role="img" aria-label="{{it.aria}}"><path d="M0 28H400M0 55H400M0 82H400" stroke="#1D2226" vector-effect="non-scaling-stroke"></path><sc-for list="{{it.series}}" as="s" hint-placeholder-count="2"><polyline fill="none" stroke="{{s.c}}" stroke-width="2" vector-effect="non-scaling-stroke" points="{{s.pts}}"></polyline></sc-for></svg>
+</div>
+</sc-if>
+<!-- Symbol + controls (pump) -->
+<sc-if value="{{it.isPump}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; gap: 12px">
+<svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="24" fill="{{it.symBg}}" stroke="{{it.symC}}" stroke-width="3"></circle><path d="M20 17l20 11-20 11z" fill="{{it.symC}}"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: {{it.symC}}">{{it.state}}</span><code style="font-size: 12px; color: #A3ABAF">{{it.speed}}</code></div>
+</div>
+</sc-if>
+<!-- Lamp -->
+<sc-if value="{{it.isLamp}}" hint-placeholder-val="{{false}}">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #C5CBCE"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{it.c}}; box-shadow: 0 0 0 3px {{it.ring}}"></span>{{it.label}}<span style="margin-left: auto; color: {{it.c}}">{{it.v}}</span></span>
+</sc-if>
+<!-- Switch -->
+<sc-if value="{{it.isSwitch}}" hint-placeholder-val="{{false}}">
+<span style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #C5CBCE">{{it.label}}<span role="switch" aria-checked="{{it.onAria}}" style="margin-left: auto; width: 36px; height: 20px; border-radius: 10px; background: {{it.track}}; position: relative"><span style="position: absolute; left: {{it.knob}}px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #ECE9E1"></span></span></span>
+</sc-if>
+<!-- Buttons -->
+<sc-if value="{{it.isButtons}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; gap: 8px"><sc-for list="{{it.buttons}}" as="b" hint-placeholder-count="2"><button type="button" aria-disabled="{{b.dis}}" title="{{b.tip}}" style="flex: 1; height: {{it.btnH}}px; border-radius: 8px; border: 1px solid {{b.line}}; background: {{b.bg}}; color: {{b.fg}}; font-size: 14px; font-weight: 600; cursor: pointer">{{b.label}}</button></sc-for></div>
+</sc-if>
+<!-- Alarms -->
+<sc-if value="{{it.isAlarms}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column"><sc-for list="{{it.rows}}" as="a" hint-placeholder-count="2"><div style="display: grid; grid-template-columns: 56px 1fr 70px; gap: 10px; padding: 6px 0; border-top: 1px solid #1D2226; font-size: 12px; color: #C5CBCE"><code style="color: #8E979C">{{a.t}}</code><span>{{a.msg}}</span><span style="color: {{a.c}}">{{a.st}}</span></div></sc-for></div>
+</sc-if>
+</div>
+</sc-for>
+</section>
+</sc-for>
+</div>
+</sc-for>
+
+<sc-if value="{{streaming}}" hint-placeholder-val="{{false}}"><span style="font-size: 12px; color: #8E979C; display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 14px; background: #E8893A; animation: wy-blink 1s steps(1) infinite"></span>building the rest of the screen…</span></sc-if>
+</div>
+</main>
+
+<!-- Messages / Checks / Data -->
+<sc-if value="{{edit}}" hint-placeholder-val="{{true}}">
+<aside aria-label="Under the screen" style="flex: none; width: 380px; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; min-height: 0">
+<div role="tablist" aria-label="Under the screen" style="display: flex; gap: 2px; padding: 8px; border-bottom: 1px solid #252B30">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="3"><button type="button" role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="flex: 1; height: 32px; border: 0; border-radius: 6px; background: {{t.bg}}; color: {{t.fg}}; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px">{{t.name}}<sc-if value="{{t.hasBadge}}" hint-placeholder-val="{{false}}"><span style="min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: {{t.badgeBg}}; color: {{t.badgeC}}; font-size: 11px; display: grid; place-items: center">{{t.badge}}</span></sc-if></button></sc-for>
+</div>
+
+<sc-if value="{{tabChecks}}" hint-placeholder-val="{{true}}">
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Studio checks every message before it draws it: the element is in the catalog, its properties match the schema, every key exists, and the role may read or write it.</span>
+<sc-for list="{{checks}}" as="c" hint-placeholder-count="5">
+<div style="display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: #161A1D">
+<span aria-hidden="true" style="flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: {{c.c}}"></span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 13px; color: #ECE9E1">{{c.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.45">{{c.d}}</span><sc-if value="{{c.hasFix}}" hint-placeholder-val="{{false}}"><span style="display: flex; gap: 12px; font-size: 12px; padding-top: 2px"><a href="#fix">{{c.fix}}</a><a href="#ask">Ask the assistant to fix</a></span></sc-if></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{tabMessages}}" hint-placeholder-val="{{false}}">
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">What the assistant sent, as A2UI messages. This is the view: Studio stores it as a version; values are never in it.</span>
+<sc-for list="{{msgs}}" as="m" hint-placeholder-count="4">
+<div style="border-radius: 8px; border: 1px solid {{m.line}}; background: #0E1113; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid #1D2226; font-size: 11px"><code style="color: {{m.c}}">{{m.kind}}</code><span style="color: #6B747A; margin-left: auto">{{m.meta}}</span></div>
+<code style="display: block; padding: 8px 10px; font-size: 11px; line-height: 1.55; color: #C5CBCE; white-space: pre-wrap; word-break: break-all">{{m.body}}</code>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{tabData}}" hint-placeholder-val="{{false}}">
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">The surface’s data model. A path is the WYRM key itself; Studio fills it from its own subscriptions with your rights, live.</span>
+<sc-for list="{{model}}" as="d" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 6px 8px; border-radius: 6px; background: {{d.bg}}; font-size: 12px"><code style="color: #C5CBCE; overflow-wrap: anywhere">{{d.path}}</code><code style="color: {{d.c}}">{{d.v}}</code></div>
+</sc-for>
+</div>
+</sc-if>
+</aside>
+</sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"review","options":["generating","review","checks","refine","kiosk"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  doc(refined) {
+    const K = 'wy/plant/downstream/modbus/plc1';
+    const P = (k) => ({ path: '/' + K + '/' + k });
+    const comps = [
+      { id: 'root', component: 'Column', children: ['kpis', 'main', 'bottom'] },
+      { id: 'kpis', component: 'Row', children: ['v_flow', 'v_press', 'v_level', 'v_power'] },
+      { id: 'v_flow', component: 'Value', label: 'Flow', value: P('flow_rate'), unit: 'm³/h', decimals: 1 },
+      { id: 'v_press', component: 'Value', label: 'Pressure', value: P('p_out'), unit: 'bar', decimals: 1, warnAbove: 4.5 },
+      { id: 'v_level', component: 'Value', label: 'Level T1', value: P('tank1/level'), unit: '%', decimals: 0 },
+      { id: 'v_power', component: 'Value', label: 'Power', value: P('power'), unit: 'kW', decimals: 1 },
+      { id: 'main', component: 'Row', weights: [2, 1], children: ['trend', 'pumps'] },
+      { id: 'trend', component: 'Trend', title: 'Flow and pressure', range: '1h', series: [P('flow_rate'), P('p_out')] },
+      { id: 'pumps', component: 'Column', children: { path: '/' + K + '/~children/pumps', componentId: 'pump_card' } },
+      { id: 'pump_card', component: 'Card', title: { path: 'name' }, children: ['pump_sym', 'pump_auto', 'pump_btns'] },
+      { id: 'pump_sym', component: 'Symbol', kind: 'pump', running: { path: 'run' }, fault: { path: 'fault' }, value: { path: 'speed' }, unit: 'rpm' },
+      { id: 'pump_auto', component: 'Switch', label: 'Auto mode', value: { path: 'auto' }, action: { event: { name: 'wyrm.set', context: { key: { path: 'auto/$key' }, value: { path: '$toggled' } } } } },
+      { id: 'pump_btns', component: 'Row', children: ['btn_start', 'btn_stop'] },
+      { id: 'btn_start', component: 'Button', label: 'Start', enabledWhen: { path: 'run', equals: false }, confirm: 'Start {name}?', action: { event: { name: 'wyrm.invoke', context: { key: { path: '$key' }, action: 'start' } } } },
+      { id: 'btn_stop', component: 'Button', label: 'Stop', variant: 'danger', enabledWhen: { path: 'run', equals: true }, confirm: 'Stop {name}?', action: { event: { name: 'wyrm.invoke', context: { key: { path: '$key' }, action: 'stop' } } } },
+      { id: 'bottom', component: 'Row', children: ['alarms'] },
+      { id: 'alarms', component: 'AlarmList', title: 'Alarms · this station', source: 'wy/plant/downstream/alarm', filter: K, limit: 5 }
+    ];
+    if (refined) {
+      comps.find((c) => c.id === 'trend').series.push(P('tank1/level'));
+      comps.find((c) => c.id === 'bottom').children = ['alarms', 'lamps'];
+      comps.push({ id: 'lamps', component: 'Card', title: 'Valves', children: ['l_v1', 'l_v2'] });
+      comps.push({ id: 'l_v1', component: 'Lamp', label: 'V1 inlet', on: P('v1/open'), onText: 'open', offText: 'closed' });
+      comps.push({ id: 'l_v2', component: 'Lamp', label: 'V2 outlet', on: P('v2/open'), onText: 'open', offText: 'closed' });
+    }
+    return comps;
+  }
+  renderVals() {
+    const st = this.state || {};
+    const stage = this.props.stage ?? 'review';
+    const kiosk = stage === 'kiosk';
+    const refined = stage === 'refine';
+    const gen = stage === 'generating';
+    const bad = stage === 'checks';
+    const tab = st.tab ?? (gen || refined ? 'messages' : 'checks');
+    const width = st.width ?? (kiosk ? 'panel' : 'desktop');
+    const T1 = '#ECE9E1', T3 = '#A3ABAF', TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const seg = (cur, id, name, pick, extra = {}) => ({ name, on: cur === id ? 'true' : 'false', bg: cur === id ? '#2F373D' : 'transparent', fg: cur === id ? T1 : T3, pick, ...extra });
+
+    // Pretend live values (what Studio's subscriptions would hold)
+    const live = { flow_rate: 12.8, p_out: 4.6, 'tank1/level': 58, power: 7.4,
+      pumps: [ { name: 'Pump 1', run: true, fault: false, speed: 1460, auto: true }, { name: 'Pump 2', run: false, fault: bad, speed: 0, auto: false } ],
+      'v1/open': true, 'v2/open': false };
+
+    const comps = this.doc(refined);
+    const byId = Object.fromEntries(comps.map((c) => [c.id, c]));
+    const done = gen ? new Set(['root', 'kpis', 'v_flow', 'v_press', 'v_level', 'v_power', 'main', 'trend']) : null;
+    const key = (p) => p.path.split('/plc1/')[1];
+
+    const series = (keys) => {
+      const shapes = { flow_rate: [50, 46, 52, 44, 48, 40, 46, 38, 44, 36, 42, 34, 38], p_out: [80, 78, 82, 76, 74, 79, 70, 72, 66, 69, 62, 64, 60], 'tank1/level': [30, 32, 35, 38, 41, 44, 47, 50, 52, 55, 57, 58, 58] };
+      const cols = { flow_rate: TEAL, p_out: '#E8893A', 'tank1/level': '#5FA8C9' };
+      const labels = { flow_rate: 'flow', p_out: 'pressure', 'tank1/level': 'level T1' };
+      return keys.map((p) => { const k = key(p); return { c: cols[k], label: labels[k], pts: shapes[k].map((v, i) => `${(i * 400 / 12).toFixed(0)},${v}`).join(' ') }; });
+    };
+    const item = (c, scope) => {
+      const base = { isValue: false, isTrend: false, isPump: false, isLamp: false, isSwitch: false, isButtons: false, isAlarms: false, hasNote: false };
+      if (c.component === 'Value') {
+        const v = live[key(c.value)]; const warn = c.warnAbove != null && v > c.warnAbove;
+        const missing = bad && c.id === 'v_power';
+        return { ...base, isValue: true, label: c.label, v: missing ? '—' : v.toFixed(c.decimals), unit: c.unit, size: kiosk ? 30 : 22,
+          c: missing ? '#6B747A' : warn ? AMBER : T1, hasNote: warn || missing, note: missing ? 'no such key: …/plc1/power' : `above ${c.warnAbove} ${c.unit}` };
+      }
+      if (c.component === 'Trend') return { ...base, isTrend: true, series: series(c.series), range: c.range, aria: `${c.title}, last hour` };
+      if (c.component === 'Symbol') { const p = scope; const fault = p.fault; return { ...base, isPump: true, symC: fault ? CORAL : p.run ? TEAL : '#5A6168', symBg: fault ? '#33201B' : p.run ? '#15302A' : '#161A1D', state: fault ? 'fault' : p.run ? 'running' : 'stopped', speed: `${p.speed} rpm` }; }
+      if (c.component === 'Switch') { const on = scope.auto; return { ...base, isSwitch: true, label: c.label, onAria: on ? 'true' : 'false', track: on ? '#36705F' : '#2F373D', knob: on ? 18 : 2 }; }
+      if (c.component === 'Row' && c.id === 'pump_btns') {
+        const p = scope;
+        const btn = (b, enabled, danger) => ({ label: b.label, dis: enabled ? 'false' : 'true', tip: enabled ? b.confirm.replace('{name}', p.name) : `${p.name} is ${p.run ? 'running' : 'stopped'}`,
+          bg: !enabled ? '#161A1D' : danger ? '#33201B' : '#22282D', fg: !enabled ? '#5A6168' : danger ? '#F0A28D' : T1, line: !enabled ? '#252B30' : danger ? '#5A3328' : '#3A4249' });
+        const noWrite = bad && p.name === 'Pump 2';
+        return { ...base, isButtons: true, btnH: kiosk ? 52 : 38, buttons: [btn(byId.btn_start, !p.run && !noWrite, false), btn(byId.btn_stop, p.run, true)] };
+      }
+      if (c.component === 'Lamp') { const on = live[key(c.on)]; return { ...base, isLamp: true, label: c.label, v: on ? c.onText : c.offText, c: on ? TEAL : '#5A6168', ring: on ? '#15302A' : '#1D2226' }; }
+      if (c.component === 'AlarmList') return { ...base, isAlarms: true, rows: [ { t: '11:42', msg: 'Pressure high at outlet', st: 'active', c: CORAL }, { t: '10:05', msg: 'Pump 2 no feedback', st: 'acked', c: AMBER } ] };
+      return null;
+    };
+    const changedIds = refined ? new Set(['trend', 'lamps']) : new Set();
+    const card = (title, items, opts = {}) => ({ title, hasTitle: !!title, items: items.filter(Boolean), border: opts.changed ? '2px solid #E8893A' : '1px solid #252B30',
+      changed: !!opts.changed, changeText: opts.changeText || 'changed', pending: !!opts.pending, skelH: opts.skelH || 60 });
+    const pend = (id) => done && !done.has(id);
+
+    const rows = [];
+    rows.push({ cols: kiosk || width === 'phone' ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+      cards: byId.kpis.children.map((id) => card(null, [item(byId[id])])) });
+    const pumpCards = live.pumps.map((p) => pend('pump_card') ? card('', [], { pending: true, skelH: 130 }) : card(p.name, [item(byId.pump_sym, p), item(byId.pump_auto, p), item(byId.pump_btns, p)]));
+    rows.push({ cols: width === 'phone' ? 'minmax(0, 1fr)' : 'minmax(0, 2fr) minmax(0, 1fr)', cards: [card('Flow and pressure' + (refined ? ' and level' : ''), [item(byId.trend)], { changed: changedIds.has('trend'), changeText: '+ level T1' }), { ...card('Pumps · from plc1/pumps', []), items: [], pumpCards, isPumps: true }] });
+    // flatten the pump column into the second card's items as nested cards is not possible: render pumps as their own row on narrow, column cell on wide
+    rows[1].cards = [rows[1].cards[0]];
+    const pumpsRow = { cols: width === 'phone' ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', cards: pumpCards };
+    rows.push(pumpsRow);
+    const bottom = [pend('alarms') ? card('', [], { pending: true, skelH: 70 }) : card(byId.alarms.title, [item(byId.alarms)])];
+    if (refined) bottom.push(card('Valves', [item(byId.l_v1), item(byId.l_v2)], { changed: true, changeText: 'new' }));
+    rows.push({ cols: bottom.length > 1 && width !== 'phone' ? 'minmax(0, 2fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', cards: bottom });
+
+    // Chat
+    const S = (t, c) => ({ t, c });
+    const chat = [
+      { who: 'olena', align: 'flex-end', bg: '#2A1F16', line: '#5A3E25', text: 'A screen for pump station north for the panel: flow, pressure, tank level, power, a trend, each pump with start/stop and auto, and the alarms of plc1.', hasSteps: false, steps: [] },
+      { who: 'Assistant', align: 'flex-start', bg: '#161A1D', line: '#252B30', text: gen ? 'Reading plc1 and building the screen…' : 'Done: 4 values, a 1 h trend, one card per pump under plc1/pumps (2 now, more appear by themselves), and the alarm list.',
+        hasSteps: true, steps: gen ? [S('tree_list plc1 · 14 nodes', TEAL), S('node_meta pumps/* · start, stop: write', TEAL), S('writing components 8 of 17', '#E8893A')] : [S('read 14 nodes, 2 pumps', TEAL), S('17 components, catalog wyrm:views/0.1', TEAL), S(bad ? '2 checks need you' : 'all checks pass', bad ? AMBER : TEAL)] }
+    ];
+    if (refined) chat.push({ who: 'olena', align: 'flex-end', bg: '#2A1F16', line: '#5A3E25', text: 'Add the tank level to the trend and the valve states next to the alarms.', hasSteps: false, steps: [] },
+      { who: 'Assistant', align: 'flex-start', bg: '#161A1D', line: '#252B30', text: 'Changed 2 components, added 3. Nothing else moved.', hasSteps: true, steps: [S('updateComponents: trend, bottom', '#E8893A'), S('+ lamps, l_v1, l_v2', '#E8893A')] });
+    const chips = ['Bigger for a 10" panel', 'Add pressure limits', 'Group by pump'].map((t) => ({ t, pick: () => {} }));
+
+    // Checks
+    const C = (t, d, c, fix) => ({ t, d, c, line: c === TEAL ? '#252B30' : c === AMBER ? '#4A4020' : '#5A3328', hasFix: !!fix, fix });
+    const checks = bad ? [
+      C('No such key: …/plc1/power', 'Value “Power” reads a key that does not exist. Close: …/plc1/power_kw (kW).', CORAL, 'Use power_kw'),
+      C('operator cannot write Pump 2', 'Start on Pump 2 needs write on …/pumps/pump2; operator has read. The button is shown disabled for them.', AMBER, 'Grant write in Access'),
+      C('16 components match the catalog', 'Every element is in wyrm:views/0.1 and its properties match its schema.', TEAL),
+      C('All other keys exist and are readable by operator, engineer', '11 keys, live now.', TEAL),
+      C('4 controls write to devices, each asks first', 'Start, Stop (wyrm.invoke), Auto mode (wyrm.set).', TEAL)
+    ] : [
+      C('17 components match the catalog', 'Every element is in wyrm:views/0.1 and its properties match its schema.', TEAL),
+      C('12 keys exist and are readable by operator, engineer', 'All bound now; values below in Data.', TEAL),
+      C('4 controls write to devices, each asks first', 'Start, Stop (wyrm.invoke) and Auto mode (wyrm.set) on each pump; operator has write on both pumps.', TEAL),
+      C('The pump list follows plc1/pumps', 'A template: a new pump under plc1/pumps gets its card without a new version.', TEAL),
+      C('Fits desktop, panel and phone', 'Rows reflow; buttons are 52 px high on the panel.', TEAL)
+    ];
+
+    // Messages
+    const j = (o) => JSON.stringify(o);
+    const comp = (id) => j(byId[id]);
+    const M = (kind, meta, body, c, line) => ({ kind, meta, body, c: c || '#F3A766', line: line || '#22282D' });
+    const msgs = refined ? [
+      M('updateComponents', 'turn 2 · 2 changed', j({ version: 'v0.9.1', updateComponents: { surfaceId: 'pump-station', components: [byId.trend, byId.bottom] } }), '#E8893A', '#5A3E25'),
+      M('updateComponents', 'turn 2 · 3 new', j({ version: 'v0.9.1', updateComponents: { surfaceId: 'pump-station', components: [byId.lamps, byId.l_v1, byId.l_v2] } }), '#E8893A', '#5A3E25')
+    ] : [
+      M('createSurface', 'turn 1', j({ version: 'v0.9.1', createSurface: { surfaceId: 'pump-station', catalogId: 'wyrm:views/0.1' } })),
+      M('updateComponents', 'layout + values', '[' + ['root', 'kpis', 'v_flow', 'v_press'].map(comp).join(',\n') + ', …]'),
+      M('updateComponents', 'pump template', '[' + ['pumps', 'pump_card', 'btn_start'].map(comp).join(',\n') + ', …]'),
+      ...(gen ? [M('updateComponents', 'streaming…', '[{"id":"pump_sym","component":"Symbol","kind":"pump","running":{"path":"run"}', '#E2C15A', '#4A4020')] : [M('updateComponents', 'alarms', comp('alarms'))])
+    ];
+    // Data model
+    const D = (path, v, c, b) => ({ path, v, c: c || T1, bg: b || 'transparent' });
+    const model = [
+      D('/wy/plant/…/plc1/flow_rate', '12.8'), D('/wy/plant/…/plc1/p_out', '4.6', AMBER), D('/wy/plant/…/plc1/tank1/level', '58'),
+      bad ? D('/wy/plant/…/plc1/power', 'no such key', CORAL, '#1A1311') : D('/wy/plant/…/plc1/power', '7.4'),
+      D('/wy/plant/…/plc1/~children/pumps', '[pump1, pump2]', '#F3A766'), D('  pump1/run · auto · speed', 'true · true · 1460', TEAL), D('  pump2/run · auto · speed', 'false · false · 0'),
+      ...(refined ? [D('/wy/plant/…/plc1/v1/open', 'true', TEAL, '#1E1813'), D('/wy/plant/…/plc1/v2/open', 'false', T1, '#1E1813')] : [])
+    ];
+
+    const failing = checks.filter((c) => c.c !== TEAL).length;
+    const tabs = [
+      seg(tab, 'checks', 'Checks', () => this.setState({ tab: 'checks' }), { hasBadge: true, badge: failing ? String(failing) : '✓', badgeBg: failing ? '#2E2814' : '#15302A', badgeC: failing ? AMBER : TEAL }),
+      seg(tab, 'messages', 'A2UI', () => this.setState({ tab: 'messages' }), { hasBadge: false }),
+      seg(tab, 'data', 'Data', () => this.setState({ tab: 'data' }), { hasBadge: false })
+    ];
+    const widths = [['desktop', 'Desktop'], ['panel', 'Panel 10"'], ['phone', 'Phone']].map(([id, n]) => seg(width, id, n, () => this.setState({ width: id })));
+    const status = kiosk ? { text: 'v5 published', bg: '#15302A', c: TEAL } : gen ? { text: 'generating…', bg: '#2A1F16', c: '#F3A766' } : bad ? { text: 'draft · 2 checks', bg: '#2E2814', c: AMBER } : refined ? { text: 'draft · 5 changes', bg: '#2A1F16', c: '#F3A766' } : { text: 'draft · ready to publish', bg: '#15302A', c: TEAL };
+    const pubOk = !gen && !bad;
+    return {
+      sub: kiosk ? 'kiosk · panel-north (operator) · the same surface, Flutter web' : 'catalog wyrm:views/0.1 · A2UI v0.9.1', edit: !kiosk, title: 'Pump station · north', rows, chat, chips, checks, msgs, model, tabs, widths, status,
+      streaming: gen, surfaceW: width === 'phone' ? 390 : width === 'panel' ? 1024 : 1100,
+      tabChecks: tab === 'checks', tabMessages: tab === 'messages', tabData: tab === 'data',
+      pubDis: pubOk ? 'false' : 'true', pubBg: pubOk ? '#E8893A' : '#22282D', pubFg: pubOk ? '#0E1113' : '#8E979C'
+    };
+  }
+}
+</script>
+</body>
+</html>

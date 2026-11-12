@@ -8,7 +8,16 @@
  "launch": {
   "view": "canvas"
  },
- "pages": [],
+ "pages": [
+  {
+   "id": "studio",
+   "name": "Studio"
+  },
+  {
+   "id": "genui",
+   "name": "GenUI views"
+  }
+ ],
  "boards": {
   "Main.dc.html": {
    "x": 0,
@@ -579,6 +588,61 @@
    "h": 900,
    "title": "Studio cannot start (own data unreadable)",
    "expand": "fill"
+  },
+  "GenView.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "GenUI · review: a screen from one sentence, checks pass (clickable tabs and widths)",
+   "expand": "fill",
+   "page": "genui",
+   "is_interactive": true
+  },
+  "GenViewGenerating.dc.html": {
+   "x": 1520,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "GenUI · generating: the surface fills as A2UI messages stream in",
+   "expand": "fill",
+   "page": "genui"
+  },
+  "GenViewChecks.dc.html": {
+   "x": 3040,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "GenUI · checks: an unknown key and a missing write right, with fixes",
+   "expand": "fill",
+   "page": "genui"
+  },
+  "GenViewRefine.dc.html": {
+   "x": 4560,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "GenUI · refine: “add level and valves”, only changed parts re-sent",
+   "expand": "fill",
+   "page": "genui"
+  },
+  "GenViewKiosk.dc.html": {
+   "x": 6080,
+   "y": 0,
+   "w": 1440,
+   "h": 900,
+   "title": "GenUI · the same surface in the kiosk (Flutter web)",
+   "expand": "fill",
+   "page": "genui"
+  },
+  "GenCatalog.dc.html": {
+   "x": 0,
+   "y": 1220,
+   "w": 1440,
+   "h": 1700,
+   "title": "wyrm:views/0.1 · the catalog the assistant composes from",
+   "expand": "fill",
+   "page": "genui"
   }
  },
  "order": [
@@ -647,7 +711,13 @@
   "ErrorQuiet.dc.html",
   "ErrorProblems.dc.html",
   "ErrorPanel.dc.html",
-  "ErrorFatal.dc.html"
+  "ErrorFatal.dc.html",
+  "GenView.dc.html",
+  "GenViewGenerating.dc.html",
+  "GenViewChecks.dc.html",
+  "GenViewRefine.dc.html",
+  "GenViewKiosk.dc.html",
+  "GenCatalog.dc.html"
  ],
  "notes": {
   "t-screens": {
@@ -929,6 +999,22 @@
    "text": "Errors: kit, dialog by kind, quiet errors, failed panel, start",
    "kind": "title1",
    "maxW": 18160
+  },
+  "t-genui": {
+   "x": 0,
+   "y": -260,
+   "text": "GenUI views: one sentence → A2UI → Flutter",
+   "kind": "title1",
+   "maxW": 7520,
+   "page": "genui"
+  },
+  "n-genui": {
+   "x": 1520,
+   "y": 1220,
+   "w": 560,
+   "page": "genui",
+   "fill": "orange",
+   "text": "What this tries\n\n• The view is the A2UI messages the assistant sent (createSurface + updateComponents), stored as a version. Values are never in it.\n• Data model paths are WYRM keys; Studio fills them live with the viewer's rights.\n• wyrm.set / wyrm.invoke actions run in Studio (confirm, token, read-back), never in the model.\n• Studio checks every part before drawing: catalog, schema, key exists, rights.\n• Same surface in Studio, on a phone and in the kiosk (Flutter web build served by the gateway).\n\nNot tried here: a real genui build (Flutter is not reachable from this sandbox), and which model writes the messages (Claude through the connector, or the agent link)."
   }
  },
  "designSystems": []
