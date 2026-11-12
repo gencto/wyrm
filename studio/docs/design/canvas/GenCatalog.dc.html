@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM views catalog</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px">
+<div style="max-width: 1240px; margin: 0 auto; padding: 56px 24px 72px; display: flex; flex-direction: column; gap: 40px">
+
+<header style="display: flex; flex-direction: column; gap: 14px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #E8893A">wyrm:views/0.1 · a GenUI catalog</span>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: clamp(28px, 3.6vw, 40px); line-height: 1.15; max-width: 940px">The assistant composes screens from these parts only. A view is the list of parts it sent.</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #C5CBCE; max-width: 860px">A2UI v0.9.1 messages (<code>createSurface</code>, <code>updateComponents</code>) with WYRM’s catalog. Flutter renders them with <code>genui</code> in Studio and in the kiosk (Flutter web). Studio fills the data model from its own subscriptions and runs every action itself; the model never sees a value or a token.</p>
+</header>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{rules}}" as="r" hint-placeholder-count="4">
+<div style="padding: 16px; border-radius: 12px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 15px; font-weight: 600">{{r.t}}</span>
+<span style="font-size: 13px; color: #C5CBCE; line-height: 1.55">{{r.d}}</span>
+<code style="font-size: 11px; color: #F3A766; white-space: pre-wrap; line-height: 1.5">{{r.code}}</code>
+</div>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">Parts</h2>
+<div style="border: 1px solid #252B30; border-radius: 12px; overflow-x: auto; background: #13171A">
+<div style="min-width: 980px">
+<div style="display: grid; grid-template-columns: 120px 110px 1fr 260px; gap: 12px; padding: 10px 16px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #8E979C; border-bottom: 1px solid #252B30"><span>Part</span><span>Group</span><span>Properties (bound ones take {path})</span><span>Reads · writes</span></div>
+<sc-for list="{{parts}}" as="p" hint-placeholder-count="12">
+<div style="display: grid; grid-template-columns: 120px 110px 1fr 260px; gap: 12px; align-items: baseline; padding: 10px 16px; border-top: 1px solid #1D2226; font-size: 13px">
+<code style="color: #ECE9E1; font-weight: 600">{{p.n}}</code>
+<span style="color: {{p.gc}}">{{p.g}}</span>
+<code style="font-size: 12px; color: #C5CBCE; line-height: 1.6">{{p.props}}</code>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">{{p.io}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rules = [
+      { t: 'A path is a key', d: 'A bound property names the WYRM key as a JSON pointer. Studio subscribes to it with the viewer’s rights and keeps the surface’s data model live.', code: '"value": {"path": "/wy/plant/downstream/modbus/plc1/p_out"}' },
+      { t: 'Lists come from the tree', d: 'A template over ~children repeats a part for each child of a node; a new pump appears without a new version. Paths inside are relative to the child.', code: '"children": {"path": "/wy/…/plc1/~children/pumps",\n             "componentId": "pump_card"}' },
+      { t: 'Two actions, run by Studio', d: 'wyrm.set and wyrm.invoke are handled in Studio, never sent to the model: confirm text, the viewer’s token, read-back, the error kinds of the errors spec.', code: '"action": {"event": {"name": "wyrm.invoke",\n  "context": {"key": {"path": "$key"}, "action": "stop"}}}' },
+      { t: 'Checked before drawn', d: 'Part in the catalog, properties match the schema, every key exists, the role may read it, every action exists with its level. A part that fails is drawn as a placeholder with the reason.', code: 'Checks: 17 parts · 12 keys · 4 writes' }
+    ];
+    const G = { show: ['Show', '#6CC4B0'], control: ['Control', '#F3A766'], mimic: ['Mimic', '#5FA8C9'], layout: ['Layout', '#A3ABAF'] };
+    const P = (n, g, props, io) => ({ n, g: G[g][0], gc: G[g][1], props, io });
+    const parts = [
+      P('Value', 'show', 'label, value*, unit, decimals, warnAbove, badBelow, size', 'reads value; unit and decimals from ~meta when left out'),
+      P('Gauge', 'show', 'label, value*, min, max, zones[{from,to,tone}], unit', 'reads value; min/max from ~meta range'),
+      P('Lamp', 'show', 'label, on*, onText, offText, tone', 'reads on (bool or enum)'),
+      P('Trend', 'show', 'title, series[*], range, rollup', 'history + live of each series (the Trend widget)'),
+      P('Table', 'show', 'rows* (~children), columns[{label, path}]', 'reads each row’s keys'),
+      P('AlarmList', 'show', 'title, source, filter, limit', 'alarm link get_alarms, read only'),
+      P('Button', 'control', 'label, variant, confirm, enabledWhen{path, equals}, action', 'wyrm.invoke or wyrm.set; asks first when confirm is set'),
+      P('Switch', 'control', 'label, value*, action', 'wyrm.set true/false'),
+      P('Slider', 'control', 'label, value*, min, max, step, unit, action', 'wyrm.set on release'),
+      P('Input', 'control', 'label, value*, kind, action', 'wyrm.set on Enter'),
+      P('Symbol', 'mimic', 'kind (pump, tank, valve, motor, fan), running*, fault*, value*, unit, label', 'reads its states; colour by state'),
+      P('Pipe', 'mimic', 'points, flowing*, tone', 'reads flowing for the animation'),
+      P('SvgLayer', 'mimic', 'asset, bindings[{id, fill|text|visible, path, rules}]', 'an imported SVG; each element id bound to a key'),
+      P('Column / Row', 'layout', 'children, weights, gap', '—'),
+      P('Card', 'layout', 'title*, children', '—'),
+      P('Tabs', 'layout', 'tabs[{label, child}]', '—'),
+      P('Text', 'layout', 'text*, variant', 'may read a value'),
+      P('Link', 'layout', 'label, page, params', 'opens another page of the view')
+    ];
+    return { rules, parts };
+  }
+}
+</script>
+</body>
+</html>

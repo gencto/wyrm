@@ -1,0 +1,42 @@
+{
+  "wyrm_views": 1,
+  "id": "demo-plant",
+  "title": "Plant · demo",
+  "home": "overview",
+  "pages": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "doc": "demo-plant.a2ui.jsonl"
+    },
+    {
+      "id": "device",
+      "title": "Device {device}",
+      "doc": "demo-device.a2ui.jsonl",
+      "params": {
+        "device": {
+          "under": "wy/plant/downstream/bacnet/sim"
+        }
+      }
+    }
+  ],
+  "nav": [
+    {
+      "page": "overview"
+    },
+    {
+      "label": "BACnet devices",
+      "children": {
+        "page": "device",
+        "each": "device"
+      }
+    }
+  ],
+  "kiosk": {
+    "rotate": [
+      "overview",
+      "device?device=wy/plant/downstream/bacnet/sim/d1"
+    ],
+    "every_s": 20
+  }
+}

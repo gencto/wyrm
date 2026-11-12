@@ -26,6 +26,7 @@ One screen per pull request. The golden of every frame is committed with it.
 | System | [system.md](system.md) | `System`, `SystemAvail`, `SystemAvailLag`, `SystemAvailNone`, `SystemLog`, `SystemMaint` |
 | Errors | [errors.md](errors.md) | `ErrorKit`, `ErrorDialog`, `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`, `ErrorQuiet`, `ErrorProblems`, `ErrorPanel`, `ErrorFatal` |
 | Trend chart | [trend.md](trend.md) | `Trend`, `TrendHover`, `TrendZoomed`, `TrendPinned`, `TrendGap`, `History` |
+| GenUI views (prototype brief) | [genui-views.md](genui-views.md) | `GenView`, `GenViewGenerating`, `GenViewChecks`, `GenViewRefine`, `GenViewKiosk`, `GenCatalog` |
 | App icon | [app-icon.md](app-icon.md) | `AppIcon` |
 
 The other screens follow the same template: Regions, Words, Controls, Selection and menus, States, Checklist, Found in the app.

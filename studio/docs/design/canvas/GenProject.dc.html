@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM view project</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+button{font-family:inherit}
+a{text-decoration:none}
+</style>
+</helmet>
+<div style="height: {{H}}px; width: 100%; background: {{c.g0}}; color: {{c.t1}}; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: {{fs}}px; display: flex; flex-direction: column; overflow: hidden">
+
+<!-- Frame: header -->
+<header style="flex: none; min-height: {{hdrH}}px; padding: 0 {{pad}}px; border-bottom: 1px solid {{c.l1}}; background: {{c.g1}}; display: flex; align-items: center; gap: 12px">
+<svg width="30" height="18" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="{{c.em}}" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="{{c.em}}" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="{{c.em}}"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="{{c.em}}" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="{{c.em}}" stroke-width="2"></circle></svg>
+<div style="display: flex; flex-direction: column; min-width: 0"><span style="font-weight: 600; font-size: {{titleFs}}px; white-space: nowrap">Pump station · north</span><sc-if value="{{showCrumbs}}" hint-placeholder-val="{{false}}"><nav aria-label="Breadcrumb" style="display: flex; gap: 6px; font-size: 12px; color: {{c.t4}}"><sc-for list="{{crumbs}}" as="b" hint-placeholder-count="3"><span style="color: {{b.c}}">{{b.t}}</span></sc-for></nav></sc-if></div>
+<sc-if value="{{banner}}" hint-placeholder-val="{{true}}">
+<div role="status" style="margin-left: 16px; flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: {{bannerH}}px; padding: 0 12px; border-radius: 8px; background: {{c.badTint}}; border: 1px solid {{c.badLine}}">
+<span style="flex: none; width: 10px; height: 10px; border-radius: 50%; background: {{c.bad}}"></span>
+<span style="font-weight: 600; color: {{c.badText}}; white-space: nowrap">3 active</span>
+<span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: {{c.t2}}">11:42 Pressure high at outlet · Pump 2 no feedback · Tank T1 level low</span>
+<button type="button" style="margin-left: auto; flex: none; height: {{ackH}}px; padding: 0 12px; border-radius: 6px; border: 1px solid {{c.badLine}}; background: transparent; color: {{c.badText}}; font-size: 13px; cursor: pointer">Acknowledge</button>
+</div>
+</sc-if>
+<sc-if value="{{bannerDot}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; background: {{c.badTint}}; color: {{c.badText}}; font-size: 12px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{c.bad}}"></span>3</span></sc-if>
+<sc-if value="{{showClock}}" hint-placeholder-val="{{true}}"><code style="flex: none; margin-left: 8px; font-size: {{clockFs}}px; color: {{c.t2}}">15:58</code></sc-if>
+<sc-if value="{{showUser}}" hint-placeholder-val="{{true}}"><span style="flex: none; width: 32px; height: 32px; border-radius: 50%; background: {{c.g4}}; color: {{c.t2}}; font-size: 12px; font-weight: 600; display: grid; place-items: center">OL</span></sc-if>
+</header>
+
+<!-- Top tabs (panel) -->
+<sc-if value="{{navTabs}}" hint-placeholder-val="{{false}}">
+<nav aria-label="Pages" style="flex: none; display: flex; gap: 4px; padding: 8px {{pad}}px; border-bottom: 1px solid {{c.l1}}; background: {{c.g1}}">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="5">
+<a href="#{{n.id}}" aria-current="{{n.cur}}" style="display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 18px; border-radius: 10px; background: {{n.bg}}; color: {{n.fg}}; font-size: 16px; font-weight: {{n.w}}">{{n.t}}<sc-if value="{{n.hasBadge}}" hint-placeholder-val="{{false}}"><span style="min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: {{n.badgeBg}}; color: {{n.badgeC}}; font-size: 12px; font-weight: 600; display: grid; place-items: center">{{n.badge}}</span></sc-if></a>
+</sc-for>
+</nav>
+</sc-if>
+
+<div style="flex: 1; min-height: 0; display: flex">
+<!-- Sidebar (desktop) -->
+<sc-if value="{{navSide}}" hint-placeholder-val="{{true}}">
+<nav aria-label="Pages" style="flex: none; width: 232px; border-right: 1px solid {{c.l1}}; background: {{c.g1}}; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow: auto">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="7">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<a href="#{{n.id}}" aria-current="{{n.cur}}" style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; background: {{n.bg}}; color: {{n.fg}}; font-size: 14px; font-weight: {{n.w}}"><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; background: {{n.icBg}}"></span>{{n.t}}<sc-if value="{{n.hasBadge}}" hint-placeholder-val="{{false}}"><span title="{{n.badgeTip}}" style="margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 10px; background: {{n.badgeBg}}; color: {{n.badgeC}}; font-size: 11px; font-weight: 600; display: grid; place-items: center">{{n.badge}}</span></sc-if></a>
+<sc-for list="{{n.kids}}" as="k" hint-placeholder-count="2">
+<a href="#{{k.id}}" aria-current="{{k.cur}}" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 36px; border-radius: 8px; background: {{k.bg}}; color: {{k.fg}}; font-size: 13px; font-weight: {{k.w}}">{{k.t}}<sc-if value="{{k.hasBadge}}" hint-placeholder-val="{{false}}"><span style="margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 10px; background: {{k.badgeBg}}; color: {{k.badgeC}}; font-size: 11px; font-weight: 600; display: grid; place-items: center">{{k.badge}}</span></sc-if></a>
+</sc-for>
+</div>
+</sc-for>
+<span style="margin-top: auto; padding: 10px; font-size: 11px; color: {{c.t4}}; line-height: 1.5">Badges: active alarms under the keys each page reads.</span>
+</nav>
+</sc-if>
+
+<!-- Page -->
+<main style="flex: 1; min-width: 0; overflow: auto; padding: {{pad}}px; display: flex; flex-direction: column; gap: {{gap}}px">
+<div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap"><h1 style="margin: 0; font-size: {{h1}}px; font-weight: 600">{{pageTitle}}</h1><span style="font-size: 12px; color: {{c.good}}; display: flex; align-items: center; gap: 6px"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{c.good}}"></span>live</span><sc-if value="{{isPump}}" hint-placeholder-val="{{false}}"><code style="font-size: 11px; color: {{c.t4}}">page Pump {pump} · pump = pump2 · faceplate from profile ksb:etanorm</code></sc-if></div>
+
+<!-- Overview page -->
+<sc-if value="{{isOverview}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: {{gap}}px">
+<div style="display: grid; grid-template-columns: repeat({{kpiCols}}, minmax(0, 1fr)); gap: {{gap}}px">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+<div style="padding: {{cardPad}}px; border-radius: 10px; border: 1px solid {{k.line}}; background: {{c.g1}}; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; color: {{c.t3}}">{{k.label}}</span><span style="display: flex; align-items: baseline; gap: 4px"><code style="font-size: {{kpiFs}}px; color: {{k.c}}">{{k.v}}</code><span style="font-size: 12px; color: {{c.t4}}">{{k.u}}</span></span><sc-if value="{{k.hasNote}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; color: {{k.c}}">{{k.note}}</span></sc-if></div>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: {{mainCols}}; gap: {{gap}}px">
+<sc-if value="{{showTrend}}" hint-placeholder-val="{{true}}">
+<section style="padding: {{cardPad}}px; border-radius: 10px; border: 1px solid {{c.l1}}; background: {{c.g1}}; display: flex; flex-direction: column; gap: 8px"><span style="font-weight: 600; font-size: 13px">Flow and pressure · 1 h</span>
+<svg viewBox="0 0 400 120" width="100%" height="{{trendH}}" preserveAspectRatio="none" role="img" aria-label="Flow and pressure over the last hour"><path d="M0 30H400M0 60H400M0 90H400" stroke="{{c.g3}}" vector-effect="non-scaling-stroke"></path><polyline fill="none" stroke="{{c.em}}" stroke-width="2" vector-effect="non-scaling-stroke" points="0,80 33,78 66,82 100,76 133,74 166,79 200,70 233,72 266,66 300,69 333,62 366,64 400,60"></polyline><polyline fill="none" stroke="{{c.good}}" stroke-width="2" vector-effect="non-scaling-stroke" points="0,50 33,46 66,52 100,44 133,48 166,40 200,46 233,38 266,44 300,36 333,42 366,34 400,38"></polyline></svg></section>
+</sc-if>
+<div style="display: grid; grid-template-columns: repeat({{pumpCols}}, minmax(0, 1fr)); gap: {{gap}}px; align-content: start">
+<sc-for list="{{pumps}}" as="p" hint-placeholder-count="2">
+<a href="#pump" style="padding: {{cardPad}}px; border-radius: 10px; border: 1px solid {{p.line}}; background: {{c.g1}}; color: {{c.t1}}; display: flex; align-items: center; gap: 12px">
+<svg width="{{symS}}" height="{{symS}}" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="24" fill="{{p.symBg}}" stroke="{{p.symC}}" stroke-width="3"></circle><path d="M20 17l20 11-20 11z" fill="{{p.symC}}"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-weight: 600">{{p.name}}</span><span style="font-size: 12px; color: {{p.symC}}">{{p.state}}</span><code style="font-size: 12px; color: {{c.t3}}">{{p.speed}}</code></div>
+<span aria-hidden="true" style="margin-left: auto; color: {{c.t4}}">›</span>
+</a>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- Pump page (faceplate) -->
+<sc-if value="{{isPump}}" hint-placeholder-val="{{false}}">
+<div style="display: grid; grid-template-columns: {{pumpPageCols}}; gap: {{gap}}px">
+<section style="padding: {{cardPad}}px; border-radius: 10px; border: 1px solid {{c.badLine}}; background: {{c.g1}}; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 14px"><svg width="72" height="72" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="24" fill="{{c.badTint}}" stroke="{{c.bad}}" stroke-width="3"></circle><path d="M20 17l20 11-20 11z" fill="{{c.bad}}"></path></svg><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 18px; font-weight: 600">Pump 2</span><span style="color: {{c.badText}}">fault · no feedback since 10:05</span><code style="font-size: 12px; color: {{c.t3}}">0 rpm · 8 412 h</code></div></div>
+<div style="display: flex; gap: 10px"><button type="button" aria-disabled="true" title="Pump 2 is in fault: acknowledge first" style="flex: 1; height: {{bigBtn}}px; border-radius: 10px; border: 1px solid {{c.l1}}; background: {{c.g2}}; color: {{c.muted}}; font-size: 16px; font-weight: 600">Start</button><button type="button" style="flex: 1; height: {{bigBtn}}px; border-radius: 10px; border: 1px solid {{c.l3}}; background: {{c.g4}}; color: {{c.t1}}; font-size: 16px; font-weight: 600; cursor: pointer">Reset fault</button></div>
+<div style="display: flex; align-items: center; gap: 10px"><span style="color: {{c.t2}}">Auto mode</span><span role="switch" aria-checked="false" style="margin-left: auto; width: 40px; height: 22px; border-radius: 11px; background: {{c.l2}}; position: relative"><span style="position: absolute; left: 2px; top: 2px; width: 18px; height: 18px; border-radius: 50%; background: {{c.g2}}; box-shadow: 0 1px 2px rgba(0,0,0,0.3)"></span></span></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><span style="display: flex; color: {{c.t2}}">Setpoint<code style="margin-left: auto; color: {{c.t1}}">4.2 bar</code></span><span style="height: 6px; border-radius: 3px; background: {{c.g4}}; position: relative"><span style="position: absolute; left: 0; top: 0; height: 6px; width: 58%; border-radius: 3px; background: {{c.em}}"></span><span style="position: absolute; left: calc(58% - 11px); top: -8px; width: 22px; height: 22px; border-radius: 50%; background: {{c.t1}}"></span></span></div>
+</section>
+<section style="padding: {{cardPad}}px; border-radius: 10px; border: 1px solid {{c.l1}}; background: {{c.g1}}; display: flex; flex-direction: column; gap: 8px">
+<span style="font-weight: 600; font-size: 13px">Alarms · Pump 2</span>
+<sc-for list="{{pumpAlarms}}" as="a" hint-placeholder-count="2"><div style="display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; padding: 8px 0; border-top: 1px solid {{c.g3}}; font-size: 13px"><code style="color: {{c.t4}}">{{a.t}}</code><span>{{a.m}}</span><span style="color: {{a.c}}">{{a.s}}</span></div></sc-for>
+<a href="#overview" style="margin-top: auto; font-size: 13px; color: {{c.emSoft}}">‹ Back to Pumps</a>
+</section>
+</div>
+</sc-if>
+</main>
+</div>
+
+<!-- Bottom bar (phone) -->
+<sc-if value="{{navBottom}}" hint-placeholder-val="{{false}}">
+<nav aria-label="Pages" style="flex: none; height: 68px; border-top: 1px solid {{c.l1}}; background: {{c.g1}}; display: grid; grid-template-columns: repeat(5, 1fr)">
+<sc-for list="{{navPhone}}" as="n" hint-placeholder-count="5">
+<a href="#{{n.id}}" aria-current="{{n.cur}}" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: {{n.fg}}; font-size: 11px; font-weight: {{n.w}}"><span aria-hidden="true" style="width: 22px; height: 22px; border-radius: 6px; background: {{n.icBg}}"></span>{{n.t}}<sc-if value="{{n.hasBadge}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: {{c.bad}}; color: {{c.onBad}}; font-size: 10px; font-weight: 600; display: grid; place-items: center">{{n.badge}}</span></sc-if></a>
+</sc-for>
+</nav>
+</sc-if>
+
+<!-- Kiosk rotation -->
+<sc-if value="{{kiosk}}" hint-placeholder-val="{{false}}">
+<div style="flex: none; height: 44px; border-top: 1px solid {{c.l1}}; background: {{c.g1}}; display: flex; align-items: center; gap: 14px; padding: 0 {{pad}}px; font-size: 13px; color: {{c.t3}}">
+<div style="display: flex; gap: 6px"><sc-for list="{{rot}}" as="r" hint-placeholder-count="4"><span style="width: {{r.w}}px; height: 8px; border-radius: 4px; background: {{r.c}}"></span></sc-for></div>
+<span>Overview · next: Pumps in 12 s</span>
+<span style="margin-left: auto">Rotation pauses for 60 s after a touch · stops while an alarm is unacknowledged</span>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","default":"desktop","options":["desktop","panel","phone","kiosk"]},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"page":{"editor":"enum","default":"overview","options":["overview","pump"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const mode = this.props.mode ?? 'desktop';
+    const light = (this.props.theme ?? 'dark') === 'light';
+    const page = this.props.page ?? 'overview';
+    const c = light ? {
+      g0: '#F3F1EC', g1: '#FAF9F6', g2: '#FFFFFF', g3: '#EDEAE3', g4: '#E4E0D8', l1: '#E2DED6', l2: '#D3CEC4', l3: '#BDB7AC',
+      t1: '#1B1F22', t2: '#353B40', t3: '#545B61', t4: '#6B7378', muted: '#9AA0A5',
+      em: '#C0651A', emSoft: '#B0581A', emTint: '#F7E6D6', good: '#237A66', goodTint: '#DDF1EC', warn: '#8A6D0E', warnTint: '#F6EDCF', warnLine: '#D9C27A',
+      bad: '#B3462B', badText: '#9A3A22', badTint: '#F8E3DD', badLine: '#E0A897', onBad: '#FFFFFF'
+    } : {
+      g0: '#0E1113', g1: '#13171A', g2: '#161A1D', g3: '#1D2226', g4: '#22282D', l1: '#252B30', l2: '#2F373D', l3: '#3A4249',
+      t1: '#ECE9E1', t2: '#C5CBCE', t3: '#A3ABAF', t4: '#8E979C', muted: '#5A6168',
+      em: '#E8893A', emSoft: '#F3A766', emTint: '#2A1F16', good: '#6CC4B0', goodTint: '#15302A', warn: '#E2C15A', warnTint: '#2E2814', warnLine: '#4A4020',
+      bad: '#E07A5F', badText: '#F0A28D', badTint: '#33201B', badLine: '#5A3328', onBad: '#0E1113'
+    };
+    const phone = mode === 'phone', panel = mode === 'panel', kiosk = mode === 'kiosk', desk = mode === 'desktop';
+    const big = panel || kiosk;
+    const isPump = page === 'pump';
+    const badge = (n, tone) => ({ hasBadge: n > 0, badge: String(n), badgeBg: tone === 'bad' ? c.badTint : c.warnTint, badgeC: tone === 'bad' ? c.badText : c.warn, badgeTip: `${n} active alarms under this page` });
+    const item = (id, t, cur, b, tone, kids = []) => ({ id, t, cur: cur ? 'page' : 'false', bg: cur ? c.emTint : 'transparent', fg: cur ? c.t1 : c.t3, w: cur ? 600 : 400,
+      icBg: cur ? c.em : c.l2, kids, ...badge(b || 0, tone) });
+    const nav = [
+      item('overview', 'Overview', !isPump, 0),
+      item('pumps', 'Pumps', false, 2, 'bad', desk ? [item('pump1', 'Pump 1', false, 0), item('pump2', 'Pump 2', isPump, 2, 'bad')] : []),
+      item('tank', 'Tank T1', false, 1, 'warn'),
+      item('energy', 'Energy', false, 0),
+      item('alarms', 'Alarms', false, 3, 'bad')
+    ];
+    if (!desk) nav[1] = { ...nav[1], cur: isPump ? 'page' : 'false', bg: isPump ? c.emTint : 'transparent', fg: isPump ? c.t1 : c.t3, w: isPump ? 600 : 400, icBg: isPump ? c.em : c.l2 };
+    const navPhone = nav.map((n) => ({ ...n }));
+    const kpis = [
+      { label: 'Flow', v: '12.8', u: 'm³/h' }, { label: 'Pressure', v: '4.6', u: 'bar', warn: 'above 4.5 bar' },
+      { label: 'Level T1', v: '18', u: '%', warn: 'low below 20 %' }, { label: 'Power', v: '7.4', u: 'kW' }
+    ].map((k) => ({ ...k, c: k.warn ? c.warn : c.t1, line: k.warn ? c.warnLine : c.l1, hasNote: !!k.warn, note: k.warn || '' }));
+    const pumps = [
+      { name: 'Pump 1', state: 'running', speed: '1 460 rpm', symC: c.good, symBg: c.goodTint, line: c.l1 },
+      { name: 'Pump 2', state: 'fault · no feedback', speed: '0 rpm', symC: c.bad, symBg: c.badTint, line: c.badLine }
+    ];
+    const pumpAlarms = [{ t: '10:05', m: 'No feedback after start', s: 'active', c: c.bad }, { t: '09:58', m: 'Start command', s: 'by olena', c: c.t4 }];
+    const crumbs = isPump ? [{ t: 'Overview', c: c.t4 }, { t: '›', c: c.muted }, { t: 'Pumps', c: c.t4 }, { t: '›', c: c.muted }, { t: 'Pump 2', c: c.t2 }] : [];
+    const rot = [true, false, false, false].map((on) => ({ w: on ? 22 : 8, c: on ? c.em : c.l3 }));
+    return {
+      c, kiosk, H: phone ? 844 : 900,
+      fs: big ? 15 : 14, titleFs: big ? 18 : 15, pad: phone ? 14 : big ? 22 : 20, gap: phone ? 10 : big ? 16 : 12, cardPad: big ? 18 : 14,
+      hdrH: big ? 68 : 56, bannerH: big ? 44 : 36, ackH: big ? 36 : 28, clockFs: big ? 18 : 13,
+      banner: !phone, bannerDot: phone, showClock: !phone, showUser: !kiosk,
+      navSide: desk, navTabs: panel, navBottom: phone, nav, navPhone,
+      showCrumbs: isPump && !phone, crumbs,
+      h1: phone ? 20 : big ? 26 : 22, pageTitle: isPump ? 'Pump 2' : 'Overview', isPump, isOverview: !isPump,
+      kpiCols: phone ? 2 : 4, kpiFs: big ? 34 : phone ? 22 : 24, kpis,
+      mainCols: phone ? 'minmax(0, 1fr)' : 'minmax(0, 2fr) minmax(0, 1fr)', showTrend: true, trendH: big ? 200 : phone ? 120 : 150,
+      pumpCols: 1, pumps, symS: big ? 64 : 48,
+      pumpPageCols: phone ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)', bigBtn: big || phone ? 56 : 44, pumpAlarms, rot
+    };
+  }
+}
+</script>
+</body>
+</html>
