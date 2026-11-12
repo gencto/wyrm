@@ -25,7 +25,8 @@ class LoadTrendWindowAction extends Action with Debounce, WaitingAction {
   @override
   Future<AppState?> reduce() async {
     final w = historian.window;
-    final keys = historian.points;
+    // A point the viewer may not read is never queried (spec trend.md §6).
+    final keys = historian.points.where(site.mayRead).toList();
     if (w == null || keys.isEmpty) {
       return historian.detail == null
           ? null

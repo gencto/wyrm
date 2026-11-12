@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/hist_window.dart';
 import 'package:models/log_line.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/traffic_sample.dart';
@@ -27,5 +28,6 @@ abstract class SystemState with _$SystemState {
     @Default(IMapConst({})) IMap<String, String> about,
     @Default(IMapConst({})) IMap<String, String> units,
     String? around,
+    HistWindow? trafficWindow,
   }) = _SystemState;
 }

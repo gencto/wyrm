@@ -51,13 +51,17 @@ The Y range always fits what is visible in the window (shown series, min/max whe
   - re-query after the window stops moving for 250 ms; keep the coarse line visible meanwhile; cancel a request a newer one supersedes;
   - the header names what is drawn: `15 min avg`, `raw`.
 - **Live** (System traffic; Explorer when a point is open without history): a ring of samples kept while Studio runs (System spec §Traffic), at most one hour; the window follows `now` until the user moves it (then `Follow now` replaces `Reset zoom`); no min/max line in the tooltip.
+- **Explorer** (proposed): the point's history tab keeps its one read of raw rows for the range (≤ 2000, `RetrieveHistoryAction`); zoom and the brush work on those rows and read nothing more, so it has no min/max line. Another point or range starts on the whole range.
+- **The range's step** (proposed): the brush uses the same ladder as the window (`stepFor`, `business/lib/wyrm/history_steps.dart`), so 24 h is read at 5 min (288 buckets) and the header says `5 min avg`; the idle board's `15 min avg` is its sample text. Min and max are read after the line (`agg=avg` first, then `min` and `max` together), so the line never waits for them.
 - **Minimum window**: 12 buckets of the brush's resolution (one hour on 24 h at 5 min) or 10 samples live.
 - **Gaps**: a stretch with no row longer than 2 buckets is a gap band; the reason comes from the historian when it recorded the point's `comm_fail` (bad rows) in that stretch, else none is invented.
 
 ## 5. Build
 - One widget in `ui`: `frx add-widget trend --dir charts`, fed a `TrendVm` (series with label, key, colour index, unit, decimals, points `(t, v, q?)`, optional `minMax` points; the full range; the window; the rollup label; flags `live`, `loading`). Gestures report to the connector: `onWindow(start, end)`, `onSeriesToggle(id)`; hover, marker A and the drag band are local widget state (they never reach the store).
 - Painting: `CustomPainter` for lines, grid, gaps and the brush; the tooltip, crosshair dots and chips as widgets in an `Overlay`/`Stack` so text renders with the theme. Repaint the crosshair layer on hover only (a separate `RepaintBoundary`).
-- Data actions in `business` (per page, with frx): `LoadTrendRangeAction` (coarse, whole range), `LoadTrendWindowAction` (fine, debounced 250 ms, cancels the previous), `LoadTrendExtremesAction` (min/max). Selectors compute the visible slice and the Y range so the widget stays dumb (`data-driven-widgets` skill).
+- Data actions in `business` (per page, with frx): `RetrieveSeriesAction` (the coarse range; it was there before and keeps its name), `SetTrendWindowAction` + `LoadTrendWindowAction` (fine, debounced 250 ms; an answer superseded by a newer window, range or pick is dropped by `historian.trendGen`), `LoadTrendExtremesAction` (min/max), `ToggleTrendSeriesAction`. The window is a `HistWindow {span, end?}` (no window = the whole range, no `end` = follows now); finer rows are `historian.detail` (`HistDetail`).
+- (proposed) The pure geometry (Y steps, gaps, runs, the bucket grid, clamping a window) is `ui/lib/charts/trend_scale.dart`, computed by the widget from its Vm once per change, not per hover: one implementation for the three screens, unit-tested without a widget. Times are written by a `TrendFormat` the connector builds (`app/lib/common/trend.dart`: the viewer's zone, weekday and month words from the locale), because the tooltip's buckets are known only to the widget.
+- (proposed) `TrendVm` flags for a host that has its own frame: `card` (System's traffic card, the Explorer inspector draw none), `legend` (System's header is the legend), `hint`, `plotHeight` (System 120, Explorer 180). The Y column is 44 px or the width of its widest label (`6000 msg/s`).
 - Replace `TrendChart` in `history_page.dart` and `explorer_page.dart`, and the chart inside `TrafficCard` (System) with `Trend`; delete `trend_chart.dart` when nothing uses it (`frx remove`).
 - Colours by series index: `ember`, `good`, `warn`, `badText`, `text2` (the History board shows `t1` ember, `t2` teal). Tokens as in `ui/lib/theme/extensions/colors.dart`.
 
@@ -72,18 +76,18 @@ The Y range always fits what is visible in the window (shown series, min/max whe
 | a series the viewer may not read | legend button with a lock, `You may not read <key>`; never queried |
 | live, not following | `Follow now` pill instead of `Reset zoom` |
 
-## 7. Found in the app (2026-11-12)
+## 7. Found in the app (2026-11-12, all fixed in PR #65)
 - `TrendChart` (`ui/lib/charts/trend_chart.dart`): static, min/max labels only, two time labels, no tooltip, no zoom, no brush, no gaps or quality, first series teal. Replace (§5).
 - `TrafficCard` draws its own lines (`inSeries`/`outSeries`) with an axis list; move its plot to `Trend` (live mode), keep its header (measure switch, figures).
 - `history_page.dart` reads about 300 buckets for the whole range per picked point; keep that as the brush's coarse range and add the window and extremes reads (§4). Live append keeps working: while the window ends at `now` it moves with the new samples (the right edge follows), once the user moves it away it stays.
 - `explorer_page.dart` "View History" uses `TrendChart` with `trendLabels`; same replacement, one series.
 
 ## 8. Checklist
-- [ ] Tooltip: time, bucket, values with units and decimals, min/max when loaded, quality line, no-data line, Δ from A; flips side past 60 %.
-- [ ] Crosshair snaps to buckets; keyboard ←/→/Home/End/Esc on the plot.
-- [ ] Drag-to-zoom, click marker A and clear, double-click reset, wheel/pinch zoom.
-- [ ] Brush: move, resize, draw new, keyboard on handles, minimum window, scrim outside.
-- [ ] Y range fits the window; second axis for a second unit.
-- [ ] History: coarse range + fine window + min/max, debounce, cancel; raw rows dashed when uncertain, gaps as bands.
-- [ ] System traffic and Explorer use the same widget; `TrendChart` removed.
-- [ ] Goldens: `Trend` (idle), `TrendHover`, `TrendZoomed`, `TrendPinned`, `TrendGap`, and `History` (dark and light).
+- [x] Tooltip: time, bucket, values with units and decimals, min/max when loaded, quality line, no-data line, Δ from A; flips side past 60 %.
+- [x] Crosshair snaps to buckets; keyboard ←/→/Home/End/Esc on the plot.
+- [x] Drag-to-zoom, click marker A and clear, double-click reset, wheel/pinch zoom.
+- [x] Brush: move, resize, draw new, keyboard on handles, minimum window, scrim outside.
+- [x] Y range fits the window; second axis for a second unit.
+- [x] History: coarse range + fine window + min/max, debounce, cancel; raw rows dashed when uncertain, gaps as bands.
+- [x] System traffic and Explorer use the same widget; `TrendChart` removed.
+- [x] Goldens: `Trend` (idle), `TrendHover`, `TrendZoomed`, `TrendPinned`, `TrendGap`, and `History` (dark and light), from the board's own data generator (`ui/test/frames/trend.dart`); plus loading, nothing recorded and one hidden.

@@ -371,9 +371,18 @@ class _TrendState extends State<Trend> {
     final c = context.colors;
     final s = S.current;
     final rangeText = _rangeText(vm.windowStart, vm.windowEnd);
-    const yW = 44.0;
     final hasRight = _geo.right != null;
-    const side = 52.0;
+    // 44 px, or wider for a long unit (`6000 msg/s`).
+    final yW = math
+        .max(
+          44,
+          math.max(
+            _labelWidth(_geo.left, _geo.leftUnit),
+            hasRight ? _labelWidth(_geo.right!, _geo.rightUnit) : 0,
+          ),
+        )
+        .toDouble();
+    final side = yW + 8;
     final body = Column(
       crossAxisAlignment: .stretch,
       spacing: 10,
@@ -459,6 +468,26 @@ class _TrendState extends State<Trend> {
       ),
       child: content,
     );
+  }
+
+  /// The width of the widest Y label of [axis] (the top one carries [unit]).
+  double _labelWidth(TrendAxis axis, String unit) {
+    var w = 0.0;
+    final ticks = axis.ticks;
+    for (final (i, v) in ticks.indexed) {
+      final p = TextPainter(
+        text: TextSpan(
+          text: i == ticks.length - 1 && unit.isNotEmpty
+              ? '${axis.label(v)} $unit'
+              : axis.label(v),
+          style: mono(size: 11),
+        ),
+        textDirection: .ltr,
+      )..layout();
+      w = math.max(w, p.width.ceilToDouble());
+      p.dispose();
+    }
+    return w;
   }
 
   // ---------------------------------------------------------------- header

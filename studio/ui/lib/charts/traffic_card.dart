@@ -7,6 +7,7 @@ import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
+import 'trend.dart';
 
 /// What [TrafficCard] draws: the router's network rates over the time
 /// Studio has sampled them.
@@ -24,11 +25,7 @@ final class TrafficCardVm extends Equatable {
     required this.empty,
     this.inLabel = 'in',
     this.outLabel = 'out',
-    this.inSeries = const [],
-    this.outSeries = const [],
-    this.top,
-    this.axis = const [],
-    this.describe = '',
+    this.trend,
   });
 
   final String title;
@@ -42,23 +39,13 @@ final class TrafficCardVm extends Equatable {
   final String outNow;
   final String unit;
 
-  /// The samples, oldest first, in the measure's unit.
-  final List<double> inSeries;
-  final List<double> outSeries;
-
-  /// The value at the top of the chart; the largest sample plus a tenth
-  /// when null.
-  final double? top;
-
-  /// The labels under the chart, spread from the first sample to the last.
-  final List<String> axis;
+  /// The two lines over the ring of samples (live, spec trend.md §4);
+  /// null before two samples.
+  final TrendVm? trend;
   final String note;
 
   /// Shown instead of the lines before two samples (`Collecting…`).
   final String empty;
-
-  /// The chart in words, for assistive technology.
-  final String describe;
 
   @override
   List<Object?> get props => [
@@ -72,28 +59,35 @@ final class TrafficCardVm extends Equatable {
     inNow,
     outNow,
     unit,
-    inSeries,
-    outSeries,
-    top,
-    axis,
+    trend,
     note,
     empty,
-    describe,
   ];
 }
 
 /// Board `System`, *Router traffic*: the measure switch, the two figures of
 /// now with their keys, the two lines and the time axis.
 class TrafficCard extends StatelessWidget {
-  const TrafficCard({required this.vm, required this.onMeasure, super.key});
+  const TrafficCard({
+    required this.vm,
+    required this.onMeasure,
+    this.onWindow,
+    this.onFollow,
+    this.onReset,
+    super.key,
+  });
 
   final TrafficCardVm vm;
   final ValueChanged<String> onMeasure;
 
+  /// The trend's window (µs), `Follow now` and `Reset zoom`.
+  final void Function(int start, int end)? onWindow;
+  final VoidCallback? onFollow;
+  final VoidCallback? onReset;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final ready = vm.inSeries.length >= 2 && vm.outSeries.length >= 2;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -131,49 +125,22 @@ class TrafficCard extends StatelessWidget {
               _now(c, c.text4, vm.outLabel, vm.outKey, vm.outNow),
             ],
           ),
-          SizedBox(
-            height: 120,
-            child: ready
-                ? Semantics(
-                    image: true,
-                    label: vm.describe,
-                    child: CustomPaint(
-                      size: Size.infinite,
-                      painter: _Lines(
-                        inSeries: vm.inSeries,
-                        outSeries: vm.outSeries,
-                        top: vm.top,
-                        grid: c.ground3,
-                        inColor: c.good,
-                        outColor: c.text4,
-                      ),
-                    ),
-                  )
-                : Center(
-                    child: Text(
-                      vm.empty,
-                      style: TextStyle(fontSize: 13, color: c.text4),
-                    ),
-                  ),
-          ),
-          if (vm.axis.isNotEmpty)
-            Row(
-              mainAxisAlignment: .spaceBetween,
-              children: [
-                for (final a in vm.axis)
-                  Flexible(
-                    child: Text(
-                      a,
-                      maxLines: 1,
-                      overflow: .ellipsis,
-                      style: TextStyle(
-                        fontFamily: AppFonts.mono,
-                        fontSize: 11,
-                        color: c.text4,
-                      ),
-                    ),
-                  ),
-              ],
+          if (vm.trend case final t?)
+            Trend(
+              vm: t,
+              onWindow: onWindow ?? (_, _) {},
+              onFollow: onFollow,
+              onReset: onReset,
+            )
+          else
+            SizedBox(
+              height: 120,
+              child: Center(
+                child: Text(
+                  vm.empty,
+                  style: TextStyle(fontSize: 13, color: c.text4),
+                ),
+              ),
             ),
           CodeText(
             vm.note,
@@ -231,77 +198,4 @@ class TrafficCard extends StatelessWidget {
           ),
         ],
       );
-}
-
-class _Lines extends CustomPainter {
-  const _Lines({
-    required this.inSeries,
-    required this.outSeries,
-    required this.top,
-    required this.grid,
-    required this.inColor,
-    required this.outColor,
-  });
-
-  final List<double> inSeries;
-  final List<double> outSeries;
-  final double? top;
-  final Color grid;
-  final Color inColor;
-  final Color outColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = grid
-      ..strokeWidth = 1;
-    for (final f in const [0.25, 0.5, 0.75]) {
-      final y = (size.height * f).roundToDouble() + 0.5;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-    var hi = top ?? 0;
-    if (top == null) {
-      for (final v in [...inSeries, ...outSeries]) {
-        if (v > hi) {
-          hi = v;
-        }
-      }
-      hi *= 1.1;
-    }
-    if (hi <= 0) {
-      hi = 1;
-    }
-    void line(List<double> series, Color color, double width) {
-      final path = Path();
-      for (final (i, v) in series.indexed) {
-        final x = size.width * i / (series.length - 1);
-        final y = size.height * (1 - (v / hi).clamp(0, 1));
-        if (i == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
-      }
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = width
-          ..strokeJoin = StrokeJoin.round,
-      );
-    }
-
-    line(outSeries, outColor, 1.6);
-    line(inSeries, inColor, 2);
-  }
-
-  @override
-  bool shouldRepaint(_Lines old) =>
-      old.inSeries != inSeries ||
-      old.outSeries != outSeries ||
-      old.top != top ||
-      old.grid != grid ||
-      old.inColor != inColor ||
-      old.outColor != outColor;
 }

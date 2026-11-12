@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/hist_point.dart';
+import 'package:models/hist_window.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 
@@ -33,5 +34,7 @@ abstract class NodesState with _$NodesState {
     String? historyFailed,
     @Default(IMapConst({})) IMap<String, String> listFailed,
     @Default(IMapConst({})) IMap<String, String> metaFailed,
+    HistWindow? historyWindow,
+    DateTime? historyAt,
   }) = _NodesState;
 }

@@ -11,6 +11,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/history_steps.dart';
+import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/hist_window.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -177,5 +178,36 @@ void main() {
     s.dispatchSync(SetTrendWindowAction(null));
     expect(s.state.historian.window, isNull);
     expect(s.state.historian.detail, isNull);
+  });
+
+  test('a point the viewer may not read is never queried', () async {
+    final login = FakeLogin(
+      session: FakeSession(
+        who: const WhoAmI(
+          subject: 'user:olena',
+          site: 'central',
+          roles: ['operator'],
+          max: 'read',
+          grants: [('wy/central/downstream/m/a', 'read')],
+        ),
+      ),
+    );
+    api = login.session.api;
+    s = fakeStore(login: login);
+    await s.dispatchAndWait(SetGatewayAction('http://g'));
+    await s.dispatchAndWait(SetUserAction('olena'));
+    await s.dispatchAndWait(SetPasswordAction('pw'));
+    await s.dispatchAndWait(LogInAction());
+    s
+      ..dispatchSync(PickPointAction(a))
+      ..dispatchSync(PickPointAction(b, add: true));
+    await s.dispatchAndWait(RetrieveSeriesAction());
+    expect(
+      {
+        for (final c in api.calls)
+          if (c.op == 'history') c.key,
+      },
+      {a},
+    );
   });
 }

@@ -35,6 +35,7 @@ import 'package:business/redux/system/actions/set_measure_action.dart';
 import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/system/actions/set_source_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart';
+import 'package:business/redux/system/actions/set_traffic_window_action.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:file_picker/file_picker.dart';
@@ -43,6 +44,7 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/attention_kind.dart';
+import 'package:models/hist_window.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
@@ -56,6 +58,7 @@ import 'package:models/workspace.dart';
 import 'package:ui/alerts/warn_banner.dart';
 import 'package:ui/buttons/pill_tabs.dart';
 import 'package:ui/charts/traffic_card.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/attention_panel.dart';
 import 'package:ui/containers/command_card.dart';
 import 'package:ui/containers/guide_card.dart';
@@ -73,6 +76,7 @@ import 'package:ui/tables/term_table.dart';
 
 import '../common/every.dart';
 import '../common/tab_visibility.dart';
+import '../common/trend.dart';
 import '../dialogs/profile_dialog.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -128,6 +132,9 @@ class SystemPageConnector extends StatelessWidget {
           onAttention: (id) => vm.onAttention(context, id),
           onTile: (key) => vm.onTile(context, key),
           onMeasure: vm.onMeasure,
+          onTrafficWindow: vm.onTrafficWindow,
+          onTrafficFollow: vm.onTrafficFollow,
+          onTrafficReset: vm.onTrafficReset,
           onBanner: () => vm.onElsewhere(context, 'audit'),
           onGuide: () => vm.onGuide(context),
           onSource: vm.onSource,
@@ -267,6 +274,32 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         }
       },
       onMeasure: (m) => dispatchSync(SetMeasureAction(m)),
+      onTrafficWindow: (a, b) {
+        final ring = system.samples;
+        if (ring.length < 2) {
+          return;
+        }
+        dispatchSync(
+          SetTrafficWindowAction(
+            trendWindow(
+              a,
+              b,
+              ring.first.time.microsecondsSinceEpoch,
+              ring.last.time.microsecondsSinceEpoch,
+            ),
+          ),
+        );
+      },
+      // Follow now keeps the window's width and lets its end follow.
+      onTrafficFollow: () => dispatchSync(
+        SetTrafficWindowAction(
+          switch (system.trafficWindow) {
+            final w? => HistWindow(span: w.span),
+            null => null,
+          },
+        ),
+      ),
+      onTrafficReset: () => dispatchSync(SetTrafficWindowAction(null)),
       onSource: (s) {
         dispatchSync(SetSourceAction(s.isEmpty ? null : s));
         _readLog();
@@ -564,23 +597,86 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       inNow: now('${key}_in_per_second'),
       outNow: now('${key}_out_per_second'),
       unit: unit,
-      inSeries: [for (final s in samples) of(s, inward: true)],
-      outSeries: [for (final s in samples) of(s, inward: false)],
-      axis: samples.length < 2
-          ? const []
-          : [
-              _clock(samples.first.time),
-              S.current.sysNow(_clock(samples.last.time)),
-            ],
+      trend: samples.length < 2
+          ? null
+          : _trafficTrend(
+              samples,
+              key,
+              unit,
+              of,
+              S.current.sysTrafficDescribe(
+                label,
+                _clock(samples.first.time),
+                _clock(samples.last.time),
+              ),
+            ),
       note: S.current.sysTrafficNote,
       empty: S.current.sysCollecting,
-      describe: samples.length < 2
-          ? ''
-          : S.current.sysTrafficDescribe(
-              label,
-              _clock(samples.first.time),
-              _clock(samples.last.time),
-            ),
+    );
+  }
+
+  /// The ring of samples as a live trend (spec trend.md §4): in and out,
+  /// the window following now until the user moves it.
+  TrendVm _trafficTrend(
+    IList<TrafficSample> samples,
+    String key,
+    String unit,
+    double Function(TrafficSample s, {required bool inward}) of,
+    String title,
+  ) {
+    final rs = samples.first.time.microsecondsSinceEpoch;
+    final re = samples.last.time.microsecondsSinceEpoch;
+    final w = system.trafficWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    List<TrendSample> line({required bool inward}) => [
+      for (final s in samples)
+        TrendSample(s.time.microsecondsSinceEpoch, of(s, inward: inward)),
+    ];
+    final ins = line(inward: true);
+    final outs = line(inward: false);
+    bool whole(List<TrendSample> l) =>
+        l.every((p) => p.v == p.v!.roundToDouble());
+    final decimals = whole(ins) && whole(outs) ? 0 : 1;
+    return TrendVm(
+      title: title,
+      series: [
+        TrendSeriesVm(
+          id: 'in',
+          name: '${key}_in_per_second',
+          label: S.current.sysIn,
+          color: .good,
+          unit: unit,
+          decimals: decimals,
+          samples: ins,
+          overview: ins,
+        ),
+        TrendSeriesVm(
+          id: 'out',
+          name: '${key}_out_per_second',
+          label: S.current.sysOut,
+          color: .text4,
+          unit: unit,
+          decimals: decimals,
+          samples: outs,
+          overview: outs,
+        ),
+      ],
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      rollup: rollupText(null),
+      // Ten samples at the ring's pace.
+      minWindow: 10 * ((re - rs) ~/ (samples.length - 1)),
+      endsNow: true,
+      live: true,
+      following: w?.end == null,
+      card: false,
+      legend: false,
+      hint: false,
+      plotHeight: 120,
+      format: trendFormat(),
     );
   }
 
@@ -1279,6 +1375,9 @@ class _Vm extends Vm {
     required this.onPoll,
     required this.onTab,
     required this.onMeasure,
+    required this.onTrafficWindow,
+    required this.onTrafficFollow,
+    required this.onTrafficReset,
     required this.onSource,
     required this.onLevel,
     required this.onFilter,
@@ -1333,6 +1432,9 @@ class _Vm extends Vm {
   final VoidCallback onPoll;
   final ValueChanged<String> onTab;
   final ValueChanged<String> onMeasure;
+  final void Function(int start, int end) onTrafficWindow;
+  final VoidCallback onTrafficFollow;
+  final VoidCallback onTrafficReset;
   final ValueChanged<String> onSource;
   final ValueChanged<String> onLevel;
   final ValueChanged<String> onFilter;

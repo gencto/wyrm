@@ -20,7 +20,9 @@ class LoadTrendExtremesAction extends Action {
 
   @override
   Future<AppState?> reduce() async {
-    final keys = historian.points;
+    // A point the viewer may not read is never queried (spec trend.md §6).
+    final keys = historian.points.where(site.mayRead).toList();
+    final picked = historian.points;
     final d = historian.detail;
     final gen = historian.trendGen;
     final String? step;
@@ -61,7 +63,7 @@ class LoadTrendExtremesAction extends Action {
     final got = await Future.wait([
       for (final k in keys) ...[read(k, 'min'), read(k, 'max')],
     ]);
-    if (historian.trendGen != gen || historian.points != keys) {
+    if (historian.trendGen != gen || historian.points != picked) {
       return null;
     }
     final low = {for (final (i, k) in keys.indexed) k: got[2 * i]}.lock;

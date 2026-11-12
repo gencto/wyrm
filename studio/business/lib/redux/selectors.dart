@@ -434,6 +434,10 @@ extension type SelectSite(AppState _state) {
   bool can(String level, String key) =>
       levelRank(levelOn(key)) >= levelRank(level);
 
+  /// The user may read [key]; true while the grants are not known yet, so a
+  /// trend never locks a series on a missing `/api/me`.
+  bool mayRead(String key) => _state.site.grants.isEmpty || can('read', key);
+
   /// Why a control that needs [level] on [key] is disabled, or null when the
   /// user has it (docs/studio.md §2 rule 8: shown, never hidden).
   String? needs(String level, String key) => can(level, key)
@@ -516,6 +520,12 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns metaFailed
   IMap<String, String> get metaFailed => _state.nodes.metaFailed;
+
+  /// Returns historyWindow
+  HistWindow? get historyWindow => _state.nodes.historyWindow;
+
+  /// Returns historyAt
+  DateTime? get historyAt => _state.nodes.historyAt;
 }
 
 extension type SelectLive(AppState _state) {
@@ -1053,6 +1063,9 @@ extension type SelectSystem(AppState _state) {
 
   /// Returns around
   String? get around => _state.system.around;
+
+  /// Returns trafficWindow
+  HistWindow? get trafficWindow => _state.system.trafficWindow;
 }
 
 extension type SelectPanels(AppState _state) {

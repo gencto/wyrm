@@ -293,7 +293,7 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
   (int, int) _range() {
     final h = historian;
     final span = RetrieveHistoryAction.span(h.range);
-    var end = h.seriesAt ?? DateTime.now().toUtc();
+    var end = historian.seriesAt ?? DateTime.now().toUtc();
     for (final s in h.series.values) {
       if (s.lastOrNull?.time case final t? when t.isAfter(end)) {
         end = t;
@@ -348,6 +348,7 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
               ),
               overview: trendSamples(rows),
               hidden: h.hidden.contains(k),
+              locked: !site.mayRead(k),
             );
           }(),
       ],
@@ -360,8 +361,8 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
       minWindow: 12 * minStep.inMicroseconds,
       endsNow: true,
       following: h.window?.end == null,
-      loading: h.seriesLoading && h.series.isEmpty,
-      refining: h.windowLoading,
+      loading: historian.seriesLoading && h.series.isEmpty,
+      refining: historian.windowLoading,
       format: trendFormat(),
     );
   }

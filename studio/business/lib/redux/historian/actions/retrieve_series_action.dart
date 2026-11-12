@@ -21,7 +21,8 @@ import 'load_trend_extremes_action.dart';
 class RetrieveSeriesAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
-    final keys = historian.points;
+    // A point the viewer may not read is never queried (spec trend.md §6).
+    final keys = historian.points.where(site.mayRead).toList();
     if (keys.isEmpty) {
       return state.copyWith.historian(
         series: const IMapConst({}),

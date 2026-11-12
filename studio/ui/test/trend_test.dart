@@ -168,6 +168,40 @@ void main() {
       expect(toggled, 't2');
     });
 
+    testWidgets('a second unit gets its own axis on the right', (t) async {
+      final f = trendFrame('idle');
+      final two = TrendFrame(
+        vm: TrendVm(
+          series: [
+            f.vm.series.first,
+            TrendSeriesVm(
+              id: 'p',
+              name: 'p1',
+              color: .good,
+              unit: 'bar',
+              samples: [
+                for (final x in f.vm.series.first.samples)
+                  TrendSample(x.t, x.v == null ? null : x.v! / 40, q: x.q),
+              ],
+            ),
+          ],
+          rangeStart: f.vm.rangeStart,
+          rangeEnd: f.vm.rangeEnd,
+          windowStart: f.vm.windowStart,
+          windowEnd: f.vm.windowEnd,
+          rollup: f.vm.rollup,
+          step: f.vm.step,
+          format: f.vm.format,
+        ),
+      );
+      await pump(t, trendBoard(two));
+      expect(find.textContaining(' °C'), findsOneWidget);
+      expect(find.textContaining(' bar'), findsOneWidget);
+      final left = t.getRect(find.textContaining(' °C'));
+      final right = t.getRect(find.textContaining(' bar'));
+      expect(right.left, greaterThan(left.right + 500));
+    });
+
     testWidgets('Reset zoom shows only while zoomed', (t) async {
       await pump(t, trendBoard(trendFrame('idle')));
       expect(find.text('Reset zoom'), findsNothing);

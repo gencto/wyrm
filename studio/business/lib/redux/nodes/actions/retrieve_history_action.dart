@@ -1,8 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/hist_point.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
+import '../../../wyrm/history_steps.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -55,20 +55,13 @@ class RetrieveHistoryAction extends Action with WaitingAction {
     }
     return state.copyWith.nodes(
       historyKey: key,
+      historyAt: DateTime.now().toUtc(),
+      // Another point starts on its whole range.
+      historyWindow: key == nodes.historyKey ? nodes.historyWindow : null,
       historyFailed: failed,
       history: [
         for (final r in rows)
-          HistPoint(
-            time: DateTime.fromMicrosecondsSinceEpoch(r.t, isUtc: true),
-            value:
-                number(r.v) ??
-                switch (r.v) {
-                  VBool(:final v) => v ? 1 : 0,
-                  _ => null,
-                },
-            text: text(r.v) ?? '${toDart(r.v)}',
-            quality: r.q?.wireName,
-          ),
+          histPoint(r).copyWith(text: text(r.v) ?? '${toDart(r.v)}'),
       ].lock,
     );
   }

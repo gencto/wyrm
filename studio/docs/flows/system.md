@@ -139,6 +139,57 @@ sequenceDiagram
     A1->>ST: copyWith(system.measure)
 ```
 
+## onTrafficWindow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as SetTrafficWindowAction
+    participant ST as AppState
+
+    User->>UI: onTrafficWindow
+    UI->>VM: onTrafficWindow()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(system.trafficWindow)
+```
+
+## onTrafficFollow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as SetTrafficWindowAction
+    participant ST as AppState
+
+    User->>UI: onTrafficFollow
+    UI->>VM: onTrafficFollow()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(system.trafficWindow)
+```
+
+## onTrafficReset
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as SetTrafficWindowAction
+    participant ST as AppState
+
+    User->>UI: onTrafficReset
+    UI->>VM: onTrafficReset()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(system.trafficWindow)
+```
+
 ## onSource
 
 ```mermaid
@@ -519,6 +570,9 @@ sequenceDiagram
 | `onPoll` | `PollSystemLogAction` | — |
 | `onTab` | `SetTabAction`, `RetrieveSystemLogAction` ? | `system.tab` |
 | `onMeasure` | `SetMeasureAction` | `system.measure` |
+| `onTrafficWindow` | `SetTrafficWindowAction` | `system.trafficWindow` |
+| `onTrafficFollow` | `SetTrafficWindowAction` | `system.trafficWindow` |
+| `onTrafficReset` | `SetTrafficWindowAction` | `system.trafficWindow` |
 | `onSource` | `SetSourceAction`, `RetrieveSystemLogAction` ? | `system.source` |
 | `onLevel` | `SetLogLevelAction`, `RetrieveSystemLogAction` ? | `system.logLevel` |
 | `onFilter` | `SetFilterAction`, `RetrieveSystemLogAction` ? | `system.filter` |

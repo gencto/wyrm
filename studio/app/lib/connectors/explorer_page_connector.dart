@@ -19,6 +19,7 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_action_action.dart';
 import 'package:business/redux/nodes/actions/set_history_range_action.dart';
+import 'package:business/redux/nodes/actions/set_history_window_action.dart';
 import 'package:business/redux/nodes/actions/set_point_filter_action.dart';
 import 'package:business/redux/nodes/actions/set_tab_action.dart';
 import 'package:business/redux/nodes/actions/set_tree_filter_action.dart';
@@ -30,6 +31,7 @@ import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/wyrm/calls.dart' show clearedNames;
+import 'package:business/wyrm/history_steps.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/kinds.dart';
 import 'package:business/wyrm/labels.dart';
@@ -52,7 +54,7 @@ import 'package:models/param_spec.dart';
 import 'package:models/quality.dart';
 import 'package:ui/alerts/read_fail.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
-import 'package:ui/charts/trend_chart.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/action_card.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/containers/inspector_sections.dart';
@@ -76,6 +78,7 @@ import '../common/flow_state.dart';
 import '../common/forms.dart';
 import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
+import '../common/trend.dart';
 import '../common/value_viewer.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -290,8 +293,8 @@ class ExplorerPageConnector extends StatelessWidget {
               range: vm.range,
               onHistoryRange: vm.onHistoryRange,
               trend: vm.trend,
-              trendLabels: vm.trendLabels,
-              trendEmpty: S.current.noHistory,
+              onTrendWindow: vm.onTrendWindow,
+              onTrendReset: vm.onTrendReset,
               historyColumns: [
                 ColumnVm(S.current.colTime, flex: 2),
                 ColumnVm(S.current.colValue, flex: 3),
@@ -822,20 +825,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       actionGroups: _groups(actions),
       result: _result(),
       range: nodes.historyRange,
-      trend: [
-        if (point != null && nodes.historyKey == point)
-          TrendSeriesVm(
-            label: point,
-            points: [
-              for (final h in nodes.history)
-                if (h.value case final v?)
-                  (h.time.millisecondsSinceEpoch, v.toDouble()),
-            ],
-          ),
-      ],
-      trendLabels: nodes.history.isEmpty
-          ? ('', '')
-          : (_time(nodes.history.first.time), _time(nodes.history.last.time)),
+      trend: point != null && nodes.historyKey == point ? _trend(point) : null,
       historyRows: [
         if (point != null && nodes.historyKey == point)
           for (final (i, h) in nodes.history.reversed.take(50).indexed)
@@ -955,6 +945,11 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           unawaited(dispatchAndWait(RetrieveHistoryAction(point)));
         }
       },
+      onTrendWindow: (a, b) {
+        final (start, end) = _historyRange();
+        dispatchSync(SetHistoryWindowAction(trendWindow(a, b, start, end)));
+      },
+      onTrendReset: () => dispatchSync(SetHistoryWindowAction(null)),
       onCloseInspector: () => dispatchSync(SetActionAction(null)),
       onSubmit: (values) => _submit(sel, values),
       onReadAgain: (key) => dispatchSync(RetryReadAction(key)),
@@ -1342,6 +1337,59 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
     String? unit, {
     List<String> choices = const [],
   }) => v == null ? '—' : valueText(v.value, choices: choices, unit: unit);
+
+  /// The point's history range in µs: the span of `nodes.historyRange` up
+  /// to when it was read (stable between dispatches).
+  (int, int) _historyRange() {
+    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    var end = nodes.historyAt ?? DateTime.now().toUtc();
+    if (nodes.history.lastOrNull?.time case final t? when t.isAfter(end)) {
+      end = t;
+    }
+    final e = end.microsecondsSinceEpoch;
+    return (e - span.inMicroseconds, e);
+  }
+
+  /// The point's trend (spec trend.md §4): one series of the raw rows read
+  /// for the range (≤ 2000), zoomed on them without reading again.
+  TrendVm _trend(String point) {
+    final (rs, re) = _historyRange();
+    final w = nodes.historyWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final info = nodes.table[point];
+    final rows = nodes.history;
+    final detail = nodes.detail[point];
+    return TrendVm(
+      title: info?.display ?? point.split('/').last,
+      series: [
+        TrendSeriesVm(
+          id: point,
+          name: point.split('/').last,
+          label: info?.display ?? '',
+          color: TrendColor.byIndex(0),
+          unit: detail?.unit ?? info?.unit ?? '',
+          decimals: trendDecimals(rows, precision: detail?.cfg['precision']),
+          samples: trendSamples(rows),
+          overview: trendSamples(rows),
+        ),
+      ],
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      rollup: rollupText(null),
+      minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
+      endsNow: true,
+      following: w?.end == null,
+      loading: rows.isEmpty && nodes.isWaiting,
+      card: false,
+      hint: false,
+      plotHeight: 180,
+      format: trendFormat(),
+    );
+  }
 
   static String _time(DateTime t) {
     final l = t.toLocal();
@@ -1925,7 +1973,8 @@ class _Vm extends Vm {
     required this.result,
     required this.range,
     required this.trend,
-    required this.trendLabels,
+    required this.onTrendWindow,
+    required this.onTrendReset,
     required this.historyRows,
     required this.historyNote,
     required this.historyFail,
@@ -1997,7 +2046,6 @@ class _Vm extends Vm {
            result,
            range,
            trend,
-           trendLabels,
            historyRows,
            historyNote,
            historyFail,
@@ -2046,8 +2094,9 @@ class _Vm extends Vm {
   final List<ActionCardGroupVm> actionGroups;
   final ResultVm? result;
   final String range;
-  final List<TrendSeriesVm> trend;
-  final (String, String) trendLabels;
+  final TrendVm? trend;
+  final void Function(int start, int end) onTrendWindow;
+  final VoidCallback onTrendReset;
   final List<RowVm> historyRows;
   final String? historyNote;
   final FailChipVm? historyFail;
