@@ -17,6 +17,7 @@ import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
+import 'package:models/live_set.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_line.dart';
 import 'package:models/login_failure.dart';
@@ -45,6 +46,7 @@ import 'package:models/workspace.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
+import '../wyrm/mappers/live_overlay_mapper.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -522,6 +524,9 @@ extension type SelectLive(AppState _state) {
 
   /// Returns failed
   IMap<String, String> get failed => _state.live.failed;
+
+  /// Returns lists
+  IMap<String, int> get lists => _state.live.lists;
 }
 
 extension type SelectLinks(AppState _state) {
@@ -707,6 +712,21 @@ extension type SelectFlows(AppState _state) {
 
   /// Returns blockTypes
   IList<NodeType> get blockTypes => _state.flows.blockTypes;
+
+  /// Returns follow
+  LiveSet? get follow => _state.flows.follow;
+
+  /// The flows with their state, version, deployer and error from their
+  /// live `~val` where Flows follows it.
+  IMap<String, FlowSummary> get shownTable => _state.flows.table.map(
+    (id, f) => MapEntry(
+      id,
+      liveFlow(
+        f,
+        _state.live.values['${SelectSite(_state).root}/dataflows/$id'],
+      ),
+    ),
+  );
 }
 
 extension type SelectFlowEditor(AppState _state) {
@@ -893,6 +913,25 @@ extension type SelectHistorian(AppState _state) {
 
   /// Returns points
   IList<String> get points => _state.historian.points;
+
+  /// Returns follow
+  LiveSet? get follow => _state.historian.follow;
+
+  /// The watch groups with their settings from the live values History
+  /// follows (`sys/history/*/*`).
+  IList<WatchGroup> get shownGroups => liveGroups(
+    _state.historian.groups,
+    '${SelectSite(_state).root}/sys/history',
+    _state.live.values,
+  );
+
+  /// The historian's values (rows written, size, oldest day …), live while
+  /// History follows `sys/history/*`.
+  IMap<String, String> get shownStats => liveStats(
+    _state.historian.stats,
+    '${SelectSite(_state).root}/sys/history',
+    _state.live.values,
+  );
 }
 
 extension type SelectAccess(AppState _state) {
@@ -913,6 +952,9 @@ extension type SelectAccess(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveAccessAction>();
+
+  /// Returns shown
+  bool get shown => _state.access.shown;
 }
 
 extension type SelectSystem(AppState _state) {

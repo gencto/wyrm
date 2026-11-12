@@ -1,9 +1,7 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/flows/actions/retrieve_flows_action.dart';
+import 'package:business/redux/flows/actions/follow_flows_action.dart';
 import 'package:business/redux/flows/actions/set_selected_flow_action.dart';
 import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
@@ -34,7 +32,7 @@ class FlowsPageConnector extends StatelessWidget {
     vm: () => _Factory(this),
     builder: (context, vm) => TabVisibility(
       onShow: vm.onShow,
-      onHide: () {},
+      onHide: vm.onHide,
       child: FlowsPage(
         title: S.current.flowsOn(vm.site),
         subtitle: S.current.flowsSubtitle,
@@ -79,9 +77,11 @@ class _Factory extends VmFactory<AppState, FlowsPageConnector, _Vm>
   @override
   _Vm fromStore() {
     final root = site.root ?? '';
-    final list = [for (final id in flows.view) ?flows.table[id]];
+    // The rows with their live state while Flows follows `dataflows/*`.
+    final table = flows.shownTable;
+    final list = [for (final id in flows.view) ?table[id]];
     final sel = flows.selectedFlow;
-    final f = sel == null ? null : flows.table[sel];
+    final f = sel == null ? null : table[sel];
     final configReason = site.needs('config', '$root/dataflows');
     return _Vm(
       site: site.viewed ?? '',
@@ -152,7 +152,10 @@ class _Factory extends VmFactory<AppState, FlowsPageConnector, _Vm>
                 footer: S.current.flowsFooter,
               );
             }(),
-      onShow: () => unawaited(dispatchAndWait(RetrieveFlowsAction())),
+      // The live list of `dataflows` fills and keeps the table; a
+      // definition is read only for a new flow or a new version.
+      onShow: () => dispatchSync(FollowFlowsAction(show: true)),
+      onHide: () => dispatchSync(FollowFlowsAction(show: false)),
       onRow: (id) => dispatchSync(SetSelectedFlowAction(id)),
       onTapFlowEditor: (id) => dispatch(GoAction.push(FlowEditorRoute(id: id))),
     );
@@ -167,6 +170,7 @@ class _Vm extends Vm {
     required this.rows,
     required this.inspector,
     required this.onShow,
+    required this.onHide,
     required this.onRow,
     required this.onTapFlowEditor,
   }) : super(equals: [site, newReason, rows, inspector]);
@@ -176,6 +180,7 @@ class _Vm extends Vm {
   final List<RowVm> rows;
   final DetailInspectorVm? inspector;
   final VoidCallback onShow;
+  final VoidCallback onHide;
   final ValueChanged<String> onRow;
   final void Function(String) onTapFlowEditor;
 }

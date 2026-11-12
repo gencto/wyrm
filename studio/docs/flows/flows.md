@@ -10,17 +10,22 @@ sequenceDiagram
     actor User
     participant UI as FlowsPage
     participant VM as FlowsPageConnector
-    participant A1 as RetrieveFlowsAction
+    participant A1 as FollowFlowsAction
     participant A2 as SetSelectedFlowAction
     participant ST as AppState
     participant NAV as Router
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(flows.table, flows.view)
-    A1-->>-VM: ActionStatus
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flows.follow)
+    A1->>ST: dispatchSync(FollowAction)
+
+    User->>UI: onHide
+    UI->>VM: onHide()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flows.follow)
+    A1->>ST: dispatchSync(FollowAction)
 
     User->>UI: onRow
     UI->>VM: onRow()
@@ -34,7 +39,8 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `RetrieveFlowsAction` | `flows.table, flows.view` |
+| `onShow` | `FollowFlowsAction` | `flows.follow` |
+| `onHide` | `FollowFlowsAction` | `flows.follow` |
 | `onRow` | `SetSelectedFlowAction` | `flows.selectedFlow` |
 | `onTapFlowEditor` | `GoAction.push` | — |
 

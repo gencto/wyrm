@@ -44,9 +44,14 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
     );
   }
 
+  /// The flows list learns the new version. While Flows follows
+  /// `dataflows` (its tab shown under the editor), the live `~val` brings
+  /// it and reads this flow's definition alone; else one full read.
   @override
   void after() {
     super.after();
-    unawaited(dispatchAndWait(RetrieveFlowsAction()));
+    if (flows.follow == null) {
+      unawaited(dispatchAndWait(RetrieveFlowsAction()));
+    }
   }
 }

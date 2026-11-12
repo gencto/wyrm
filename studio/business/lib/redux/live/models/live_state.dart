@@ -10,5 +10,6 @@ abstract class LiveState with _$LiveState {
     @Default(IMapConst({})) IMap<String, LiveValue> values,
     @Default(IMapConst({})) IMap<String, int> watched,
     @Default(IMapConst({})) IMap<String, String> failed,
+    @Default(IMapConst({})) IMap<String, int> lists,
   }) = _LiveState;
 }
