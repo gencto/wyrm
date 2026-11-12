@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$HistorianState {
 
- IList<WatchGroup> get groups; String? get selected; String get range; IMap<String, IList<HistPoint>> get series; IMap<String, String> get stats; IList<String> get points;
+ IList<WatchGroup> get groups; String? get selected; String get range; IMap<String, IList<HistPoint>> get series; IMap<String, String> get stats; IList<String> get points; LiveSet? get follow;
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $HistorianStateCopyWith<HistorianState> get copyWith => _$HistorianStateCopyWith
 @override
 bool operator ==(Object other) {
   final _this = this as HistorianState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is HistorianState&&const DeepCollectionEquality().equals(other.groups, _this.groups)&&(identical(other.selected, _this.selected) || other.selected == _this.selected)&&(identical(other.range, _this.range) || other.range == _this.range)&&(identical(other.series, _this.series) || other.series == _this.series)&&(identical(other.stats, _this.stats) || other.stats == _this.stats)&&const DeepCollectionEquality().equals(other.points, _this.points));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is HistorianState&&const DeepCollectionEquality().equals(other.groups, _this.groups)&&(identical(other.selected, _this.selected) || other.selected == _this.selected)&&(identical(other.range, _this.range) || other.range == _this.range)&&(identical(other.series, _this.series) || other.series == _this.series)&&(identical(other.stats, _this.stats) || other.stats == _this.stats)&&const DeepCollectionEquality().equals(other.points, _this.points)&&(identical(other.follow, _this.follow) || other.follow == _this.follow));
 }
 
 
 @override
 int get hashCode {
   final _this = this as HistorianState;
-  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.groups),_this.selected,_this.range,_this.series,_this.stats,const DeepCollectionEquality().hash(_this.points));
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.groups),_this.selected,_this.range,_this.series,_this.stats,const DeepCollectionEquality().hash(_this.points),_this.follow);
 }
 
 @override
 String toString() {
   final _this = this as HistorianState;
-  return 'HistorianState(groups: ${_this.groups}, selected: ${_this.selected}, range: ${_this.range}, series: ${_this.series}, stats: ${_this.stats}, points: ${_this.points})';
+  return 'HistorianState(groups: ${_this.groups}, selected: ${_this.selected}, range: ${_this.range}, series: ${_this.series}, stats: ${_this.stats}, points: ${_this.points}, follow: ${_this.follow})';
 }
 
 
@@ -51,11 +51,11 @@ abstract mixin class $HistorianStateCopyWith<$Res>  {
   factory $HistorianStateCopyWith(HistorianState value, $Res Function(HistorianState) _then) = _$HistorianStateCopyWithImpl;
 @useResult
 $Res call({
- IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points
+ IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points, LiveSet? follow
 });
 
 
-
+$LiveSetCopyWith<$Res>? get follow;
 
 }
 /// @nodoc
@@ -68,7 +68,7 @@ class _$HistorianStateCopyWithImpl<$Res>
 
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,Object? follow = freezed,}) {
   return _then(HistorianState(
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
@@ -76,10 +76,23 @@ as String?,range: null == range ? _self.range : range // ignore: cast_nullable_t
 as String,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
 as IMap<String, IList<HistPoint>>,stats: null == stats ? _self.stats : stats // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,points: null == points ? _self.points : points // ignore: cast_nullable_to_non_nullable
-as IList<String>,
+as IList<String>,follow: freezed == follow ? _self.follow : follow // ignore: cast_nullable_to_non_nullable
+as LiveSet?,
   ));
 }
+/// Create a copy of HistorianState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$LiveSetCopyWith<$Res>? get follow {
+    if (_self.follow == null) {
+    return null;
+  }
 
+  return $LiveSetCopyWith<$Res>(_self.follow!, (value) {
+    return _then(_self.copyWith(follow: value));
+  });
+}
 }
 
 
@@ -88,7 +101,7 @@ as IList<String>,
 
 
 class _HistorianState implements HistorianState {
-  const _HistorianState({this.groups = const IListConst([]), this.selected, this.range = '24h', this.series = const IMapConst({}), this.stats = const IMapConst({}), this.points = const IListConst([])});
+  const _HistorianState({this.groups = const IListConst([]), this.selected, this.range = '24h', this.series = const IMapConst({}), this.stats = const IMapConst({}), this.points = const IListConst([]), this.follow});
   
 
 @override@JsonKey() final  IList<WatchGroup> groups;
@@ -97,6 +110,7 @@ class _HistorianState implements HistorianState {
 @override@JsonKey() final  IMap<String, IList<HistPoint>> series;
 @override@JsonKey() final  IMap<String, String> stats;
 @override@JsonKey() final  IList<String> points;
+@override final  LiveSet? follow;
 
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
@@ -108,18 +122,18 @@ _$HistorianStateCopyWith<_HistorianState> get copyWith => __$HistorianStateCopyW
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points)&&(identical(other.follow, follow) || other.follow == follow));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points));
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points),follow);
 }
 
 @override
 String toString() {
-    return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points)';
+    return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points, follow: $follow)';
 }
 
 
@@ -130,11 +144,11 @@ abstract mixin class _$HistorianStateCopyWith<$Res> implements $HistorianStateCo
   factory _$HistorianStateCopyWith(_HistorianState value, $Res Function(_HistorianState) _then) = __$HistorianStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points
+ IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points, LiveSet? follow
 });
 
 
-
+@override $LiveSetCopyWith<$Res>? get follow;
 
 }
 /// @nodoc
@@ -147,7 +161,7 @@ class __$HistorianStateCopyWithImpl<$Res>
 
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,Object? follow = freezed,}) {
   return _then(_HistorianState(
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
@@ -155,11 +169,24 @@ as String?,range: null == range ? _self.range : range // ignore: cast_nullable_t
 as String,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
 as IMap<String, IList<HistPoint>>,stats: null == stats ? _self.stats : stats // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,points: null == points ? _self.points : points // ignore: cast_nullable_to_non_nullable
-as IList<String>,
+as IList<String>,follow: freezed == follow ? _self.follow : follow // ignore: cast_nullable_to_non_nullable
+as LiveSet?,
   ));
 }
 
+/// Create a copy of HistorianState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$LiveSetCopyWith<$Res>? get follow {
+    if (_self.follow == null) {
+    return null;
+  }
 
+  return $LiveSetCopyWith<$Res>(_self.follow!, (value) {
+    return _then(_self.copyWith(follow: value));
+  });
+}
 }
 
 // dart format on

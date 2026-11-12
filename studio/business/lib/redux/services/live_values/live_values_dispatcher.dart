@@ -5,6 +5,8 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
+import '../../flows/actions/apply_flow_values_action.dart';
+import '../../historian/actions/append_samples_action.dart';
 import '../../live/actions/set_live_values_action.dart';
 import '../../live/actions/set_read_failed_action.dart';
 import '../../nodes/actions/retry_read_action.dart';
@@ -12,7 +14,8 @@ import '../../problems/actions/add_problem_action.dart';
 import '../../problems/actions/resolve_stream_action.dart';
 import 'live_values.dart';
 
-/// One [SetLiveValuesAction] per batch; a failed subscription becomes the
+/// One [SetLiveValuesAction] per batch (then the batch to History's trend
+/// and to Flows' definitions); a failed subscription becomes the
 /// row's `read failed` mark and a quiet problem
 /// (docs/design/specs/errors.md §4).
 class LiveValuesDispatcher implements LiveValuesServiceListener {
@@ -22,7 +25,13 @@ class LiveValuesDispatcher implements LiveValuesServiceListener {
 
   @override
   void onValues(Map<String, LiveValue?> changed) {
-    _store.dispatchSync(SetLiveValuesAction(changed));
+    _store
+      ..dispatchSync(SetLiveValuesAction(changed))
+      // The screens that follow values beyond showing them: History's trend
+      // grows, Flows reads a definition whose version changed. Each does
+      // nothing while its tab is hidden.
+      ..dispatchSync(AppendSamplesAction(changed))
+      ..dispatchSync(ApplyFlowValuesAction(changed));
     // Values from a site whose stream was down: it is back.
     final down = {
       for (final e in _store.state.problems.items)

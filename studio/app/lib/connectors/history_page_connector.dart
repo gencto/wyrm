@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/historian/actions/follow_history_action.dart';
 import 'package:business/redux/historian/actions/pick_point_action.dart';
-import 'package:business/redux/historian/actions/retrieve_historian_action.dart';
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
 import 'package:business/redux/historian/actions/set_range_action.dart';
 import 'package:business/redux/historian/actions/set_selected_action.dart';
@@ -35,7 +35,7 @@ class HistoryPageConnector extends StatelessWidget {
     vm: () => _Factory(this),
     builder: (context, vm) => TabVisibility(
       onShow: vm.onShow,
-      onHide: () {},
+      onHide: vm.onHide,
       child: HistoryPage(
         groupsLabel: S.current.watchGroups(vm.groups.length),
         groups: vm.groups,
@@ -86,8 +86,10 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
   @override
   _Vm fromStore() {
     final h = historian;
-    final g = h.groups.where((g) => g.name == h.selected).firstOrNull;
-    final stats = h.stats;
+    // Groups and the historian's values with what History follows live.
+    final groupsLive = h.shownGroups;
+    final g = groupsLive.where((g) => g.name == h.selected).firstOrNull;
+    final stats = h.shownStats;
     // The one point picked: Stop recording works on its watch.
     final watch = g != null && h.points.length == 1
         ? switch (g.keys.indexOf(h.points.first)) {
@@ -105,7 +107,7 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
       ),
       configReason: site.needs('config', _base),
       groups: [
-        for (final x in h.groups)
+        for (final x in groupsLive)
           GroupItemVm(
             id: x.name,
             title: x.name,
@@ -257,7 +259,13 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
               ],
               footer: S.current.historyFooter,
             ),
-      onShow: () => unawaited(_load()),
+      onShow: () {
+        dispatchSync(FollowHistoryAction(show: true));
+        if (historian.points.isNotEmpty) {
+          unawaited(dispatchAndWait(RetrieveSeriesAction()));
+        }
+      },
+      onHide: () => dispatchSync(FollowHistoryAction(show: false)),
       onGroup: (id) => dispatchSync(SetSelectedAction(id)),
       onPoint: (key, add) {
         dispatchSync(PickPointAction(key, add: add));
@@ -267,9 +275,12 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
         dispatchSync(SetRangeAction(r));
         unawaited(dispatchAndWait(RetrieveSeriesAction()));
       },
+      // The groups, watches and values follow by themselves; the trend is
+      // read again (a purge, a watch stopped).
       onAction: (context, a) async {
-        if (await _run(context, a, '$_base/${g?.name}')) {
-          await _load();
+        if (await _run(context, a, '$_base/${g?.name}') &&
+            historian.points.isNotEmpty) {
+          await dispatchAndWait(RetrieveSeriesAction());
         }
       },
     );
@@ -301,15 +312,6 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
         );
     }
     return Future.value(false);
-  }
-
-  /// The groups and their points; recorded values only for the points
-  /// picked (none on a first open).
-  Future<void> _load() async {
-    await dispatchAndWait(RetrieveHistorianAction());
-    if (historian.points.isNotEmpty) {
-      await dispatchAndWait(RetrieveSeriesAction());
-    }
   }
 
   static String _hm(DateTime t) {
@@ -345,6 +347,7 @@ class _Vm extends Vm {
     required this.footer,
     required this.inspector,
     required this.onShow,
+    required this.onHide,
     required this.onGroup,
     required this.onPoint,
     required this.onRange,
@@ -382,6 +385,7 @@ class _Vm extends Vm {
   final String footer;
   final DetailInspectorVm? inspector;
   final VoidCallback onShow;
+  final VoidCallback onHide;
   final ValueChanged<String> onGroup;
 
   /// A point row was clicked; `add` with ⌘/Ctrl held.

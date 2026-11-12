@@ -18,6 +18,8 @@ import 'redux/services/flow_preview/flow_preview.dart';
 import 'redux/services/flow_preview/flow_preview_dispatcher.dart';
 import 'redux/services/flow_watch/flow_watch.dart';
 import 'redux/services/flow_watch/flow_watch_dispatcher.dart';
+import 'redux/services/live_lists/live_lists.dart';
+import 'redux/services/live_lists/live_lists_dispatcher.dart';
 import 'redux/services/live_values/live_values.dart';
 import 'redux/services/live_values/live_values_dispatcher.dart';
 import 'redux/services/traffic/traffic.dart';
@@ -87,6 +89,7 @@ class AppDependencies {
     connection.attach(session.connection);
     liveValues.attach(session.api, _store.state.live.watched.keys);
     treeWatch.attach(session.api, _store.state.nodes.expanded);
+    liveLists.attach(session.api, _store.state.live.lists.keys);
     agentTasks.attach(session.api);
     flowWatch.attach(session.api);
     flowPreview.attach(session.api);
@@ -102,6 +105,7 @@ class AppDependencies {
     await connection.detach();
     liveValues.detach();
     treeWatch.detach();
+    liveLists.detach();
     agentTasks.detach();
     flowWatch.detach();
     flowPreview.detach();
@@ -146,6 +150,12 @@ class AppDependencies {
     listener: TreeWatchDispatcher(store: _store),
   );
 
+  /// One live list per key a shown screen lists (`live.lists`): History's
+  /// groups and watches, the flows of `dataflows`.
+  late final liveLists = LiveListsService(
+    listener: LiveListsDispatcher(store: _store),
+  );
+
   /// The task states of the agent link in use.
   late final agentTasks = AgentTasksService(
     listener: AgentTasksDispatcher(store: _store),
@@ -176,6 +186,7 @@ class AppDependencies {
     await connection.start();
     await liveValues.start();
     await treeWatch.start();
+    await liveLists.start();
     await agentTasks.start();
     await flowWatch.start();
     await flowPreview.start();

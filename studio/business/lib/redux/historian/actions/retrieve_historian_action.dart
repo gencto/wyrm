@@ -6,6 +6,7 @@ import '../../../wyrm/calls.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
+import 'follow_history_action.dart';
 
 /// Reads the historian of the site (`sys/history`): its values (rows
 /// written, size, retention …) and each watch group with its settings and
@@ -79,5 +80,12 @@ class RetrieveHistorianAction extends Action with WaitingAction {
           .where((k) => shown?.keys.contains(k) ?? false)
           .toIList(),
     );
+  }
+
+  /// While History is shown, its subscriptions follow the new group and points.
+  @override
+  void after() {
+    super.after();
+    dispatchSync(FollowHistoryAction());
   }
 }

@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
+import 'package:business/redux/access/actions/poll_access_action.dart';
 import 'package:business/redux/access/actions/remove_user_action.dart';
 import 'package:business/redux/access/actions/retrieve_access_action.dart';
 import 'package:business/redux/access/actions/save_user_action.dart';
 import 'package:business/redux/access/actions/set_grant_action.dart';
 import 'package:business/redux/access/actions/set_selected_action.dart';
+import 'package:business/redux/access/actions/set_shown_action.dart';
 import 'package:business/redux/access/actions/set_tab_action.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:localization/localization.dart';
@@ -24,6 +26,7 @@ import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/pages/access_page.dart';
 import 'package:ui/tables/row_table.dart';
 
+import '../common/every.dart';
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
 
@@ -39,47 +42,53 @@ class AccessPageConnector extends StatelessWidget {
     vm: () => _Factory(this),
     builder: (context, vm) => TabVisibility(
       onShow: vm.onShow,
-      onHide: () {},
-      child: AccessPage(
-        title: S.current.accessOn(vm.site),
-        subtitle: S.current.accessSubtitle,
-        tabs: [
-          TabItemVm(
-            id: 'users',
-            label: S.current.tabUsers,
-            count: '${vm.userCount}',
-          ),
-          TabItemVm(
-            id: 'grants',
-            label: S.current.tabGrants,
-            count: '${vm.grantCount}',
-          ),
-          TabItemVm(id: 'audit', label: S.current.tabAudit),
-        ],
-        tab: vm.tab,
-        onTab: vm.onTab,
-        columns: vm.tab == 'grants'
-            ? [
-                ColumnVm(S.current.colRole, flex: 2),
-                ColumnVm(S.current.colKey, flex: 4),
-                ColumnVm(S.current.colLevel),
-                ColumnVm(S.current.colSource),
-              ]
-            : [
-                ColumnVm(S.current.colUser, flex: 2),
-                ColumnVm(S.current.colRoles, flex: 3),
-                ColumnVm(S.current.colState),
-              ],
-        rows: vm.rows,
-        onRow: vm.onRow,
-        empty: vm.empty,
-        audit: vm.audit,
-        addLabel: vm.tab == 'grants' ? S.current.addGrant : S.current.addUser,
-        addReason: vm.addReason,
-        onAdd: () =>
-            vm.onAction(context, vm.tab == 'grants' ? 'grant' : 'add-user'),
-        inspector: vm.inspector,
-        onAction: (a) => vm.onAction(context, a),
+      onHide: vm.onHide,
+      // `/api/users` has no stream: read again every 10 s while shown.
+      child: Every(
+        period: const Duration(seconds: 10),
+        enabled: vm.polling,
+        onTick: vm.onPoll,
+        child: AccessPage(
+          title: S.current.accessOn(vm.site),
+          subtitle: S.current.accessSubtitle,
+          tabs: [
+            TabItemVm(
+              id: 'users',
+              label: S.current.tabUsers,
+              count: '${vm.userCount}',
+            ),
+            TabItemVm(
+              id: 'grants',
+              label: S.current.tabGrants,
+              count: '${vm.grantCount}',
+            ),
+            TabItemVm(id: 'audit', label: S.current.tabAudit),
+          ],
+          tab: vm.tab,
+          onTab: vm.onTab,
+          columns: vm.tab == 'grants'
+              ? [
+                  ColumnVm(S.current.colRole, flex: 2),
+                  ColumnVm(S.current.colKey, flex: 4),
+                  ColumnVm(S.current.colLevel),
+                  ColumnVm(S.current.colSource),
+                ]
+              : [
+                  ColumnVm(S.current.colUser, flex: 2),
+                  ColumnVm(S.current.colRoles, flex: 3),
+                  ColumnVm(S.current.colState),
+                ],
+          rows: vm.rows,
+          onRow: vm.onRow,
+          empty: vm.empty,
+          audit: vm.audit,
+          addLabel: vm.tab == 'grants' ? S.current.addGrant : S.current.addUser,
+          addReason: vm.addReason,
+          onAdd: () =>
+              vm.onAction(context, vm.tab == 'grants' ? 'grant' : 'add-user'),
+          inspector: vm.inspector,
+          onAction: (a) => vm.onAction(context, a),
+        ),
       ),
     ),
   );
@@ -215,7 +224,13 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
                 ),
               ],
             ),
-      onShow: () => unawaited(dispatchAndWait(RetrieveAccessAction())),
+      polling: access.shown,
+      onShow: () {
+        dispatchSync(SetShownAction(true));
+        unawaited(dispatchAndWait(RetrieveAccessAction()));
+      },
+      onHide: () => dispatchSync(SetShownAction(false)),
+      onPoll: () => unawaited(dispatchAndWait(PollAccessAction())),
       onTab: (t) => dispatchSync(SetTabAction(t)),
       onRow: (id) {
         if (!id.startsWith('grant:')) {
@@ -395,7 +410,10 @@ class _Vm extends Vm {
     required this.audit,
     required this.addReason,
     required this.inspector,
+    required this.polling,
     required this.onShow,
+    required this.onHide,
+    required this.onPoll,
     required this.onTab,
     required this.onRow,
     required this.onAction,
@@ -410,6 +428,7 @@ class _Vm extends Vm {
            audit,
            addReason,
            inspector,
+           polling,
          ],
        );
 
@@ -422,7 +441,12 @@ class _Vm extends Vm {
   final List<String> audit;
   final String? addReason;
   final DetailInspectorVm? inspector;
+
+  /// The tab is shown: Access reads again every 10 s.
+  final bool polling;
   final VoidCallback onShow;
+  final VoidCallback onHide;
+  final VoidCallback onPoll;
   final ValueChanged<String> onTab;
   final ValueChanged<String> onRow;
   final Future<void> Function(BuildContext context, String action) onAction;

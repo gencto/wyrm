@@ -10,52 +10,68 @@ sequenceDiagram
     actor User
     participant UI as AccessPage
     participant VM as AccessPageConnector
-    participant A1 as RetrieveAccessAction
-    participant A2 as SetTabAction
-    participant A3 as SetSelectedAction
-    participant A4 as make
-    participant A5 as SaveUserAction
-    participant A6 as RemoveUserAction
+    participant A1 as SetShownAction
+    participant A2 as RetrieveAccessAction
+    participant A3 as PollAccessAction
+    participant A4 as SetTabAction
+    participant A5 as SetSelectedAction
+    participant A6 as make
+    participant A7 as SaveUserAction
+    participant A8 as RemoveUserAction
     participant ST as AppState
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(access.users, access.grants, access.audit)
-    A1-->>-VM: ActionStatus
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(access.shown)
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction
+    A2-->>-VM: ActionStatus
+
+    User->>UI: onHide
+    UI->>VM: onHide()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(access.shown)
+
+    User->>UI: onPoll
+    UI->>VM: onPoll()
+    VM->>+A3: dispatchAndWait
+    Note over A3: NonReentrant · async
+    A3-->>-VM: ActionStatus
 
     User->>UI: onTab
     UI->>VM: onTab()
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(access.tab)
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(access.tab)
 
     User->>UI: onRow
     UI->>VM: onRow()
     alt !id.startsWith('grant:')
-        VM->>A3: dispatchSync
-        A3->>ST: copyWith(access.selected)
+        VM->>A5: dispatchSync
+        A5->>ST: copyWith(access.selected)
     end
 
     User->>UI: onAction
     UI->>VM: onAction()
-    VM->>+A4: dispatchAndWait
-    A4-->>-VM: ActionStatus
-    VM->>+A5: dispatchAndWait
-    Note over A5: WaitingAction · async
-    A5->>A1: dispatchAndWait
-    A5-->>-VM: ActionStatus
+    VM->>+A6: dispatchAndWait
+    A6-->>-VM: ActionStatus
+    VM->>+A7: dispatchAndWait
+    Note over A7: WaitingAction · async
+    A7->>A2: dispatchAndWait
+    A7-->>-VM: ActionStatus
     alt await ConfirmDialog.ask(context, title: S.current.removeUserTitle(u.name), message: S.current.removeUserNote, confirm: S.current.remove, cancel: S.current.cancel)
-        VM->>+A6: dispatchAndWait
-        Note over A6: WaitingAction · async
-        A6->>ST: copyWith(access.users, access.selected)
-        A6-->>-VM: ActionStatus
+        VM->>+A8: dispatchAndWait
+        Note over A8: WaitingAction · async
+        A8->>ST: copyWith(access.users, access.selected)
+        A8-->>-VM: ActionStatus
     end
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `RetrieveAccessAction` | `access.users, access.grants, access.audit` |
+| `onShow` | `SetShownAction`, `RetrieveAccessAction` | `access.shown` |
+| `onHide` | `SetShownAction` | `access.shown` |
+| `onPoll` | `PollAccessAction` | — |
 | `onTab` | `SetTabAction` | `access.tab` |
 | `onRow` | `SetSelectedAction` ? | `access.selected` |
 | `onAction` | `make`, `SaveUserAction`, `RemoveUserAction` ? | `access.users, access.selected` |
