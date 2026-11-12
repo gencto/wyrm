@@ -10475,6 +10475,291 @@ class S {
       args: [keys],
     );
   }
+
+  /// `Hover for values · drag on the chart to zoom · click to set marker A · drag or resize the window below · double-click resets · ← → move the focused handle`
+  String get trendHint {
+    return Intl.message(
+      'Hover for values · drag on the chart to zoom · click to set marker A · drag or resize the window below · double-click resets · ← → move the focused handle',
+      name: 'trendHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reset zoom`
+  String get trendResetZoom {
+    return Intl.message(
+      'Reset zoom',
+      name: 'trendResetZoom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Follow now`
+  String get trendFollowNow {
+    return Intl.message(
+      'Follow now',
+      name: 'trendFollowNow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `no data`
+  String get trendNoData {
+    return Intl.message('no data', name: 'trendNoData', desc: '', args: []);
+  }
+
+  /// `no data recorded`
+  String get trendNoDataRecorded {
+    return Intl.message(
+      'no data recorded',
+      name: 'trendNoDataRecorded',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `bad quality recorded`
+  String get trendBadRecorded {
+    return Intl.message(
+      'bad quality recorded',
+      name: 'trendBadRecorded',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `all`
+  String get trendAll {
+    return Intl.message('all', name: 'trendAll', desc: '', args: []);
+  }
+
+  /// `now`
+  String get trendNow {
+    return Intl.message('now', name: 'trendNow', desc: '', args: []);
+  }
+
+  /// `No values recorded in this range.`
+  String get trendNothing {
+    return Intl.message(
+      'No values recorded in this range.',
+      name: 'trendNothing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `All series are hidden.`
+  String get trendAllHidden {
+    return Intl.message(
+      'All series are hidden.',
+      name: 'trendAllHidden',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `You may not read {key}`
+  String trendLocked(String key) {
+    return Intl.message(
+      'You may not read $key',
+      name: 'trendLocked',
+      desc: '',
+      args: [key],
+    );
+  }
+
+  /// `Show or hide {name}`
+  String trendShowHide(String name) {
+    return Intl.message(
+      'Show or hide $name',
+      name: 'trendShowHide',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Click to set marker A`
+  String get trendSetMarker {
+    return Intl.message(
+      'Click to set marker A',
+      name: 'trendSetMarker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Click A again to clear it`
+  String get trendClearMarker {
+    return Intl.message(
+      'Click A again to clear it',
+      name: 'trendClearMarker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A · {t}`
+  String trendMarker(String t) {
+    return Intl.message('A · $t', name: 'trendMarker', desc: '', args: [t]);
+  }
+
+  /// `min {min} · max {max}`
+  String trendMinMax(String min, String max) {
+    return Intl.message(
+      'min $min · max $max',
+      name: 'trendMinMax',
+      desc: '',
+      args: [min, max],
+    );
+  }
+
+  /// `uncertain · stale reads in this bucket`
+  String get trendUncertain {
+    return Intl.message(
+      'uncertain · stale reads in this bucket',
+      name: 'trendUncertain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Δ from A ({at}): {delta} {key} over {over}`
+  String trendDelta(String at, String delta, String key, String over) {
+    return Intl.message(
+      'Δ from A ($at): $delta $key over $over',
+      name: 'trendDelta',
+      desc: '',
+      args: [at, delta, key, over],
+    );
+  }
+
+  /// `{h} h {m} min`
+  String trendHoursMinutes(String h, String m) {
+    return Intl.message(
+      '$h h $m min',
+      name: 'trendHoursMinutes',
+      desc: '',
+      args: [h, m],
+    );
+  }
+
+  /// `{m} min`
+  String trendMinutes(String m) {
+    return Intl.message('$m min', name: 'trendMinutes', desc: '', args: [m]);
+  }
+
+  /// `{s} s`
+  String trendSeconds(String s) {
+    return Intl.message('$s s', name: 'trendSeconds', desc: '', args: [s]);
+  }
+
+  /// `{rollup} · {from}–{to}`
+  String trendBucket(String rollup, String from, String to) {
+    return Intl.message(
+      '$rollup · $from–$to',
+      name: 'trendBucket',
+      desc: '',
+      args: [rollup, from, to],
+    );
+  }
+
+  /// `raw · {t}`
+  String trendRawAt(String t) {
+    return Intl.message('raw · $t', name: 'trendRawAt', desc: '', args: [t]);
+  }
+
+  /// `raw`
+  String get trendRaw {
+    return Intl.message('raw', name: 'trendRaw', desc: '', args: []);
+  }
+
+  /// `{step} avg`
+  String trendAvg(String step) {
+    return Intl.message('$step avg', name: 'trendAvg', desc: '', args: [step]);
+  }
+
+  /// `{n} min`
+  String trendStepMinutes(String n) {
+    return Intl.message(
+      '$n min',
+      name: 'trendStepMinutes',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{n} h`
+  String trendStepHours(String n) {
+    return Intl.message('$n h', name: 'trendStepHours', desc: '', args: [n]);
+  }
+
+  /// `{n} d`
+  String trendStepDays(String n) {
+    return Intl.message('$n d', name: 'trendStepDays', desc: '', args: [n]);
+  }
+
+  /// `Start of the window`
+  String get trendWindowStart {
+    return Intl.message(
+      'Start of the window',
+      name: 'trendWindowStart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `End of the window`
+  String get trendWindowEnd {
+    return Intl.message(
+      'End of the window',
+      name: 'trendWindowEnd',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Drag to move the window`
+  String get trendMoveWindow {
+    return Intl.message(
+      'Drag to move the window',
+      name: 'trendMoveWindow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{what}, {range}. Use the window below to choose the range.`
+  String trendDescribe(String what, String range) {
+    return Intl.message(
+      '$what, $range. Use the window below to choose the range.',
+      name: 'trendDescribe',
+      desc: '',
+      args: [what, range],
+    );
+  }
+
+  /// `Mon,Tue,Wed,Thu,Fri,Sat,Sun`
+  String get trendWeekdays {
+    return Intl.message(
+      'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+      name: 'trendWeekdays',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec`
+  String get trendMonths {
+    return Intl.message(
+      'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec',
+      name: 'trendMonths',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
