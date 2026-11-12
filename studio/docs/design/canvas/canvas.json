@@ -111,7 +111,8 @@
    "w": 1440,
    "h": 1000,
    "title": "History · watch groups and trends",
-   "expand": "fill"
+   "expand": "fill",
+   "is_interactive": true
   },
   "FlowBind.dc.html": {
    "x": 0,
@@ -579,6 +580,42 @@
    "h": 900,
    "title": "Studio cannot start (own data unreadable)",
    "expand": "fill"
+  },
+  "Trend.dc.html": {
+   "x": 6080,
+   "y": 11200,
+   "w": 1100,
+   "h": 460,
+   "title": "Trend chart · interactive: hover, drag to zoom, click for marker A, brush window",
+   "is_interactive": true
+  },
+  "TrendHover.dc.html": {
+   "x": 7260,
+   "y": 11200,
+   "w": 1100,
+   "h": 460,
+   "title": "Trend · tooltip: time, bucket, avg with min/max per series"
+  },
+  "TrendZoomed.dc.html": {
+   "x": 8440,
+   "y": 11200,
+   "w": 1100,
+   "h": 460,
+   "title": "Trend · zoomed by the brush window; Reset zoom"
+  },
+  "TrendPinned.dc.html": {
+   "x": 9620,
+   "y": 11200,
+   "w": 1100,
+   "h": 460,
+   "title": "Trend · marker A and the delta from it"
+  },
+  "TrendGap.dc.html": {
+   "x": 10800,
+   "y": 11200,
+   "w": 1100,
+   "h": 460,
+   "title": "Trend · tooltip over a gap: no data, comm_fail"
   }
  },
  "order": [
@@ -647,7 +684,12 @@
   "ErrorQuiet.dc.html",
   "ErrorProblems.dc.html",
   "ErrorPanel.dc.html",
-  "ErrorFatal.dc.html"
+  "ErrorFatal.dc.html",
+  "Trend.dc.html",
+  "TrendHover.dc.html",
+  "TrendZoomed.dc.html",
+  "TrendPinned.dc.html",
+  "TrendGap.dc.html"
  ],
  "notes": {
   "t-screens": {

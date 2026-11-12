@@ -1,6 +1,6 @@
 # Design reference
 
-`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 67, 2026-11-10). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
+`canvas/` is a snapshot of the **WYRM Studio design canvas** (Claude Design, version 70, 2026-11-12). The canvas itself is the source of truth; this copy is here so that people and agents working in `studio/` can read every screen and state without access to it.
 
 The boards do not render on their own (they run inside the canvas). Read them as source:
 
@@ -21,6 +21,7 @@ The boards do not render on their own (they run inside the canvas). Read them as
 | Who controls what | `LinksRemote`, `LinksQuarantine`, `SitesChainQ`, `SitesStar`, `SitesTwoUp` | §7.2, §7.5 |
 | Assistant | `AssistantAsk`, `Assistant` (clickable), `AssistantRun`, `AssistantDone`, `AssistantFailed`, `AssistantRights`, `AssistantDrawer` | §7.8 |
 | Design system | `DesignSystem` (tokens, type, components, scrollbars), `Icons`, `PropertySheet` | §6 |
+| Trend chart | `Trend` (clickable: tooltip, zoom, marker, brush), `TrendHover`, `TrendZoomed`, `TrendPinned`, `TrendGap`; mounted by `History` | `specs/trend.md` |
 | Errors | `ErrorKit`, `ErrorDialog` (clickable) with `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`; `ErrorQuiet` (clickable) with `ErrorProblems`; `ErrorPanel` with `ErrorFatal` | `specs/errors.md` |
 | App icon | `AppIcon` (variants, every platform; its images are canvas uploads, `/_blob/<id>`, copied here by name to `canvas/icon/`) | `specs/app-icon.md` |
 
