@@ -247,7 +247,7 @@ class WyrmGateway {
   );
 
   Uri _userUrl(String name, [String? what]) => base.replace(
-    pathSegments: ['api', 'users', name, if (what != null) what],
+    pathSegments: ['api', 'users', name, ?what],
   );
 
   /// Close the HTTP client (open sockets stay until their clients close).
