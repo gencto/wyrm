@@ -1,165 +1,205 @@
 # WYRM
 
-A broker with IOT-DSA semantics (node tree, reactive `list`/`subscribe`/`invoke`, managed connectors, data-flow) on top of [Eclipse Zenoh](https://zenoh.io) as transport and data fabric.
+[![ci](https://github.com/gencto/wyrm/actions/workflows/ci.yml/badge.svg)](https://github.com/gencto/wyrm/actions/workflows/ci.yml)
 
-*Wyrm* — a wingless serpent-dragon: a long body of segments, like a tree of nodes; kin to the dragon on Zenoh's logo.
+WYRM is an industrial IoT broker. Devices, services and logic live in one tree of
+nodes. Every client reads it the same way: `list` a node's children, `subscribe`
+to values, `set` a value, `invoke` an action. Under the tree runs
+[Eclipse Zenoh](https://zenoh.io) 1.x as the transport. WYRM adds the semantics
+on top: key-space conventions, canonical CBOR, tokens and static plugins.
+Zenoh itself is not patched or forked.
 
-## Status
-- **Iteration 1 (core)** — done. `modbus` and `mockdev` run on the driver framework (ADR 0004); the bench `mock` stays on the raw layer.
-- **Iteration 2 (control plane)** — done: link registry, tokens, internal CA, generated ACL, supervisor, quarantine, audit, encrypted link secrets.
-- **Iteration 3 (flow)** — engine in `wyrmd` (`wy/<site>/dataflows`); deploys prove the deployer's rights on every command target.
-- **Iteration 4 (two brokers)** — `peers` over QUIC + mTLS; upstream sites command devices below, `sys` only where allowed (ADR 0018); optional `~val` downsampling.
-- **Iteration 5 (security)** — user gateway (HTTP + WebSocket, roles → per-request `ptok`), responder rate limits, audit of every `set`/`invoke`.
+One binary, `wyrmd`, is the broker. It holds the router, the admin, the flow
+engine, the historian, the user gateway and the links. **WYRM Studio**, a
+Flutter app, is the desktop window onto one broker or a chain of them.
 
-| Crate | Purpose |
-|---|---|
-| `crates/wyrm-core` | wire types (`Value`, `Sample`, `NodeMeta`, `Attachment`, `Status`, `PtokClaims`), canonical CBOR codec, key-space helpers, `wire_enum!` |
-| `crates/wyrm-link-sdk` | `trait Link`, `LinkCtx`, node tree, one queryable per link, `ptok` checks, liveliness, `TestHarness`, process host (`run::<L>()`) |
-| `crates/wyrm-client` | `list` / `subscribe` as streams, `set`, `invoke`, `meta`, `resolve`, token sources |
-| `crates/wyrm-state` | control-plane state: WAL (CBOR, CRC32C per record, HMAC chain) + postcard snapshot |
-| `crates/wyrm-history` | embedded historian: watch groups (None / Interval / All Data / Point Change), redb store with one file per day, Get History with rollups (ADR 0014, [`docs/history.md`](docs/history.md)) |
-| `crates/wyrm-storage` | broker storage `wy/<site>/storage` (as a DSA broker's `/data`): folders and typed values people create, `publish`, `export`/`import` as JSON, kept in one redb file (ADR 0017) |
-| `crates/wyrm-admin` | registry, link tokens (argon2id), internal CA, generated ACL (links, operators, peer sites), supervisor, quarantine, audit, encrypted link secrets — the `wy/<site>/sys/**` tree |
-| `crates/wyrm-flow` | data-flow engine: `~def` compiler, 15 node types, rhai sandbox, hot swap, node state in `wyrm-state` |
-| `crates/wyrm-gateway` | user gateway: logins (argon2id), sessions, roles → grants, WebSocket CBOR proxy with per-point filtering |
-| `crates/wyrmd` | broker: Zenoh router + static plugins (storage manager, REST) + admin + flow engine + gateway + links from `wyrmd.json5` |
-| `links/mock` | N points × F Hz on a configurable tree (tests, benchmarks) |
-| `links/probe` | test tool: runs scenarios through a broker's gateway as one of its users — actions, the `list` callbacks they cause (`added`/`changed`/`removed`, with delays) and values; built-ins `history`, `storage`, `tokens`, `dataflows`; as a link package (`Run Scenario`, secret `password`) or `wyr probe [names] --gateway http://127.0.0.1:8445 --site <site>` (password from `WYR_GATEWAY_PASSWORD`) |
-| `crates/wyrm-gateway-client` | client of the user gateway (login, WebSocket CBOR requests and streams), plain HTTP on loopback |
-| `links/modbus` | Modbus TCP on the driver framework (`connection → device → point`, DSA data types, batched FC1–4 reads, FC5/6/15/16/22 writes with read-back), with a simulator (`wyrm-modbus-sim`) |
-| `links/mqtt` | MQTT on the driver framework: plain topics (raw or JSON pointer) and Sparkplug B (BIRTH/DATA/DEATH, NCMD/DCMD, rebirth); TLS (ring); password from the link secrets (`auth_ref`) |
-| `crates/wyrm-wasm-host` | WebAssembly component host (no imports; fuel, memory and time limits) for the flow node `wasm` (ADR 0010) |
-| `crates/wyrm-ffi` | C ABI over `wyrm-client` (`include/wyrm.h`) for Dart and other languages |
-| `dart/` | `wyrm_core` (CBOR codec, 26 fixtures), `wyrm_client` (gateway WebSocket), `wyrm_ffi` (direct, via `wyrm-ffi`) |
-| `studio/` | WYRM Studio, the Flutter app (ADR 0037): an AsyncRedux monorepo made with `frx`; plan in [`docs/studio.md`](docs/studio.md) |
-| `links/agent` | AI agent as a link: `~act/ask` plans with an LLM over read-only tools, `tasks/<id>` (`~state` restricted), human `approve` with per-key tokens; scoped service token, `allowed_prefixes`, daily token budget |
-| `tools/wyrm-mcp` | MCP server over the tree for AI tools: browse, read, dry-run first, human approval for config-level changes (`docs/mcp.md`, ADR 0005) |
-| `tools/wyr` | CLI: `list`, `meta`, `resolve`, `sub`/`watch`, `tree`, `set`, `invoke`, `values` (recorded history), `bench`, `keygen`, `token` (human approval), `admin …`, `flow …`, and dev commands `new link\|flow`, `dev`, `sim`, `record`, `replay` (`tools/wyr/README.md`) |
+*Wyrm*: a wingless serpent-dragon. Its long body of segments is like a tree of
+nodes, and it is kin to the dragon on Zenoh's logo.
 
-Planned: more links, `~val?history=` (spec 01/03) and a history view in the explorer.
+> **Status: before 1.0 (version 0.1.0).** The protocol (`spec/` 0.2.31) and the
+> broker are tested on every commit (unit, fixture and end-to-end tests). Every
+> protocol link is tested against its own simulator. No link has been checked
+> against a real device yet ([ADR 0029](docs/adr/0029-delegated-decisions.md),
+> decision 5). Expect changes.
+
+## What you get
+
+**Broker core**
+- A node tree under `wy/<site>/…` with live `list`, `subscribe`, `set` and `invoke`. Metadata, profiles and units come with every node ([spec](spec/README.md)).
+- A control plane in the same tree (`sys/**`): links, packages, tokens, an internal CA, a generated ACL, quarantine, audit, logs and status values ([broker reference](docs/broker.md)).
+- Security on by default: TLS/mTLS off loopback, signed per-request tokens (`ptok`), secrets sealed outside the tree, rate limits, and an audit of every `set` and `invoke` ([threats](docs/security/threats.md)).
+- Broker storage `storage/**` for folders and typed values people create.
+
+**Links (connectors)**
+- Protocols: Modbus TCP/RTU (master and slave), BACnet/IP, OPC UA, Siemens S7, SNMP v2c/v3, MQTT and Sparkplug B, HTTP/REST JSON, Prometheus/OpenMetrics.
+- File stores: S3 and compatible stores, Google Drive, WebDAV, a local directory.
+- History sync to PostgreSQL/TimescaleDB, MySQL/MariaDB, MongoDB, InfluxDB and DynamoDB.
+- Messengers: Telegram (paired users can read and set points from a chat) and Slack.
+- Three ways to run a link: embedded, as a process, or as a sandboxed WebAssembly component. Links install while the broker runs: from the official list, a zip, a URL, Git or a `.wasm` file ([links](docs/links.md)).
+
+**Logic and data**
+- Dataflows: a graph of 125 block types. They cover math, logic, text, date and time, tables, readers, alarms, rhai scripts, WASM nodes and the action block that writes and invokes ([blocks](docs/flow-blocks.md)). Every block has a value test.
+- 14 ready-made flows in [`examples/flows`](examples/flows/README.md): a threshold alarm, running hours, daily energy, a schedule setpoint and more. A test compiles and runs each one.
+- Every deployed flow shows its counters in `dataflows/<id>/~val.stats`: samples, drops, restarts and command results ([ADR 0045](docs/adr/0045-flow-metrics.md)).
+- An embedded historian with watch groups, rollups and one file per day ([history](docs/history.md)).
+- Built-in links: a scheduler (weekly schedules, special days, overrides; [scheduler](docs/scheduler.md)), alarms (classes, acknowledgement, escalation, export; [alarm](docs/alarm.md)), DQL (live tables over many points; [dql](docs/dql.md)) and uplink (MQTT UNS, Sparkplug B, ThingsBoard, Azure IoT Hub, AWS IoT Core; [uplink](docs/uplink.md)).
+
+**Many sites**
+- Brokers form chains and stars over QUIC with mTLS. A downstream broker enrolls with its upstream, and the upstream reads it and commands it as the downstream allows ([broker reference](docs/broker.md#two-brokers)).
+- A standby broker follows the active one (stores, files, storage, history) and takes over through a witness ([operations](docs/operations.md)).
+
+**People and tools**
+- **WYRM Studio** (`studio/`), a desktop app in English and Ukrainian. Its screens:
+  - Explorer: the tree, actions, staged writes;
+  - Links: the install wizard and quarantine;
+  - Flows: the editor with live values, custom blocks, undo;
+  - History, Access and Sites (a map of the broker network);
+  - System: status, availability, log, maintenance;
+  - Assistant ([studio](docs/studio.md)).
+- A user gateway: logins, roles, and a WebSocket CBOR proxy that filters each point by the user's grants.
+- `wyr`, the CLI for operators and developers ([tools/wyr](tools/wyr/README.md)).
+- AI: an MCP server, a Claude Desktop extension and OAuth `/mcp` on the gateway ([claude](docs/claude.md), [mcp](docs/mcp.md)). The `wyrm-agent` CLI runs checked plans, and the agent link runs only plans a person approves ([agent](docs/agent.md)).
+- SDKs: Rust (`wyrm-client`, `wyrm-link-sdk`, portable links on `wyrm-link-api`), Dart (`dart/`) and a C ABI (`crates/wyrm-ffi`).
+
+## How it fits together
+
+```mermaid
+flowchart TB
+  studio["WYRM Studio · wyr · MCP / Claude"] -->|"HTTPS + WebSocket"| gw
+  subgraph wyrmd["wyrmd (one site)"]
+    gw["user gateway"]
+    admin["admin · sys/**"]
+    flow["flow engine · dataflows/**"]
+    hist["historian"]
+    stor["storage/**"]
+    emb["embedded links<br/>scheduler · alarm · dql · uplink"]
+    router(("Zenoh router"))
+    gw --- router
+    admin --- router
+    flow --- router
+    hist --- router
+    stor --- router
+    emb --- router
+  end
+  router -->|"mTLS"| proc["process and WASM links<br/>modbus · opcua · bacnet · s7 · …"]
+  proc --> dev["devices and services"]
+  router <-->|"QUIC + mTLS"| peers["upstream and downstream brokers"]
+```
+
+Rules that hold everywhere ([ADR 0001–0011](docs/adr/)):
+- Zenoh is the transport; WYRM puts its meaning into the key space, a CBOR attachment, the SDKs and static plugins. It never loads dynamic Zenoh plugins.
+- The broker persists only its own state: registry, ACL, PKI, profiles and flow definitions. A link owns its subtree and declares it again on every connect.
+- Nobody reads another component's state directly. Every component uses `put`, `get` and `subscribe` on keys, in-process too.
+- The wire has one codec: canonical CBOR with integer keys.
 
 ## Quick start
-`examples/wyrmd.json5` uses the current config format:
-```json5
-{
-  site: "local",
-  profile: "prod",                 // prod: loopback = requester only; dev: loopback = full rights
-  data_dir: "./data",              // state, audit, CA, link certificates and tokens
-  listen: ["tcp/127.0.0.1:7447", "tls/127.0.0.1:7448"],   // tls/ = process links and devices (mTLS)
-  admin_keys: [],                  // public key from `wyr keygen`
-  links: {
-    mock: { driver: "mock", params: { points: 100, rate_hz: 1, depth: 2, fanout: 4 } },
-    modbus: { driver: "modbus", mode: "process", params: { connections: { line1: { host: "127.0.0.1", port: 5020, devices: { ahu1: { unit: 1, points: { /* … */ } } } } } } },
-  },
-}
+
+### The demo: three sites and Studio
+
+```sh
+examples/demo/run.sh          # build, then start plant → edge → central; Ctrl+C stops all
 ```
+
+1. Wait until all three sites are up. Each site runs its links against their simulators: Modbus, HTTP, SNMP, Prometheus, S7, BACnet, OPC UA and mocks.
+2. Log in to a site's gateway with user `admin` and password `wyrm-demo-1` (or `$WYRM_GATEWAY_ADMIN_PASSWORD`). The gateways are central `http://127.0.0.1:8445`, edge `:8444` and plant `:8446`.
+3. Note that central reads plant through edge.
+
+`examples/demo/run.sh --clean` starts from empty sites.
+
+### WYRM Studio
+
+Studio needs Flutter 3.50.0 (pinned in `studio/pubspec.yaml`) and [`frx`](docs/studio.md#3-toolchain).
+
+```sh
+cd studio && flutter pub get
+cd app && flutter run -d macos     # or linux, windows
 ```
+
+Log in to one of the demo gateways. Each screen and its broker calls are in [docs/studio.md](docs/studio.md).
+
+### One broker
+
+```sh
 cargo build --release -p wyrmd -p wyr
-target/release/wyr keygen --out admin.key          # prints the public key
-# put that key into admin_keys in examples/wyrmd.json5, then:
-cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim &   # for the modbus link
-target/release/wyrmd -c examples/wyrmd.json5
-target/release/wyr list wy/local/downstream
-target/release/wyr list --watch wy/local/downstream/mock/g0
-target/release/wyr sub 'wy/local/downstream/mock/**'
-target/release/wyr --key admin.key set wy/local/downstream/mock/g0/g0/p0 42
-target/release/wyr --key admin.key invoke wy/local/downstream/mock count n=3
-target/release/wyr bench list wy/local/downstream/mock
+target/release/wyr keygen --out admin.key        # prints the public key
 ```
-`mode: "process"` runs the driver as a child process (`wyrmd link <driver>`) that connects over loopback mTLS with its own certificate.
 
-## Control plane
-`wyrm-admin` serves `wy/<site>/sys/**` with the same `list`/`subscribe`/`invoke` as devices. Actions need a `ptok` with `config`, except `hello`, which checks the link token.
+1. Put the printed key into `admin_keys` in [`examples/wyrmd.json5`](examples/wyrmd.json5).
+2. Start the Modbus simulator, which the example's `plc1` link talks to:
+   ```sh
+   cargo run -p wyrm-link-modbus --features bin --bin wyrm-modbus-sim &
+   ```
+3. Start the broker:
+   ```sh
+   target/release/wyrmd -c examples/wyrmd.json5
+   ```
+4. Read and write the tree:
+   ```sh
+   target/release/wyr list wy/local/downstream
+   target/release/wyr sub 'wy/local/downstream/mock/**'
+   target/release/wyr --key admin.key set wy/local/downstream/mock/g0/g0/p0 42
+   target/release/wyr --key admin.key invoke wy/local/downstream/mock count n=3
+   ```
 
-| Node | Actions / value |
+To use Studio with this broker:
+1. Uncomment the `gateway` line in the config.
+2. Start `wyrmd` once with `WYRM_GATEWAY_ADMIN_PASSWORD` set. This creates the first admin ([broker reference](docs/broker.md#gateway)).
+
+### Containers
+
+[`deploy/docker`](deploy/docker/README.md) builds minimal `scratch` images: static musl binaries, no shell, a non-root user.
+
+```sh
+docker compose -f deploy/docker/compose.yaml up -d --build
+```
+
+## Official links
+
+Each `links-v*` release on GitHub holds every official link as a package: WASM, and process binaries for linux-x86_64, linux-aarch64 and macos-aarch64. The release `links-index` holds the index. To get the official list in Studio's install wizard and in `install_repo`, set `packages.repository: "official"` in `wyrmd.json5`. The broker then checks the SHA-256 of every package. The manifest is [`links/official.json`](links/official.json); [links.md §12a](docs/links.md) describes the release.
+
+## Repository
+
+| Path | What |
 |---|---|
-| `sys` | values as on a DSA broker (versions, start time, traffic per second, `allow_all_links`, `enable_quarantine`); `~act/clear_conns`, `get_permissions`, `update_permissions {role, path, level}` |
-| `sys/links` | Install Link ▸ `~act/install {id, driver, mode, params}` (from Driver), `install_zip {name, zip}`, `install_url {name, url}`, `install_git {name, url, ref}`, `install_repo {name, package}`, `install_wasm {name, wasm}` — packages run as process or WASM links; see [`docs/links.md`](docs/links.md) |
-| `sys/packages/<name>` | installed link package (version, kind, source, SHA-256); `~act/remove` |
-| `sys/upstream` | brokers this one connects to (as DSA's): `~act/add {name, url, ca, token, enabled}` with `url` the upstream's `peers.enroll`; this broker makes its own key and asks for its certificate; `<site>` shows `url`, `ca`, `certificate`, `key` (SHA-256 of our public key), `status` (`pending authorization`, `issued`, a refusal), writable `enabled`; `~act/remove` (ADR 0015) |
-| `sys/overlays/<link>` | attributes the broker lays over that link's nodes (ADR 0016): today `attr.history` of each recorded point (its watch keys); the link's SDK merges them into `~meta` and the `view=list` summary (`has_history`) |
-| `sys/tokens` | `~act/add {count, hours}` → a token (shown once) that admits a downstream broker at once; `<id>` shows `uses` and `expires`, `~act/remove` |
-| `sys/~act/enroll` | open action on the `peers.enroll` listener: a downstream broker's `{site, csr, token, via}` → `{status: issued, certificate, port}`, `pending` or `refused` |
-| `sys/links/<id>` | `~act/start`, `stop`, `remove`, `hello {token}`, `set_secret {name, value}`, `delete_secret {name}`, `update {params}`, `history`, `rollback {rev}` (runtime-installed links; the last 10 params revisions are kept), `grant {path, level}` (requester grants, ADR 0013); child `state` (`installed`, `starting`, `connected`, `stopping`, `stopped`, `failed`) |
-| `sys/quarantine` | `~act/authorize {dsid, group, name, via}`, `deauthorize {link}` (a runtime external link or downstream broker goes back to quarantine) |
-| `sys/quarantine/<cn>` | unknown CA-signed certificate (a link over `tls`, or a downstream broker `broker:<site>` over `quic`, `attr.kind`); `~act/approve {driver, params, group, name}` (`{via}` for a broker), `reject` |
-| `sys/log_level`, `sys/~act/get_log {lines, level, filter, link}` | broker log level (saved) and its last log lines; `sys/links/<id>/log_level` and `~act/get_log` for each embedded or process link |
-| `sys/acl_denied` | router access-control drops (with the other broker status values: uptime, links, sessions, CPU, memory, disk) |
-| `sys/history` | embedded historian (ADR 0014): database values, `auto_purge`, `disk_space_remaining`, `retention_days`; `~act/add_watch_group {name, logging_type, interval, buffer_flush_time}`, `purge {timerange}`; `sys/history/<group>`: `edit`, `add_watch_path {path}`, `remove {purge}`; `sys/history/<group>/w<N>`: `enabled`, `start_date`, `end_date`, `get_history {timerange, interval, rollup, limit}`, `purge`, `unsubscribe`, `unsubscribe_purge` — see [`docs/history.md`](docs/history.md) |
-| `sys/audit` | `~act/tail {n}` — HMAC-chained audit records |
-| `wy/<site>/sys/broker` | liveliness token of the broker (no node); `sys` `~meta` carries `attr.proto`, `version`, `site` |
+| `crates/wyrmd` | the broker binary |
+| `crates/wyrm-core` | wire types, canonical CBOR codec, key-space helpers |
+| `crates/wyrm-link-sdk` | the link SDK and the driver framework (connection → device → point; ADR 0004) |
+| `crates/wyrm-client`, `crates/wyrm-gateway-client` | clients of the tree and of the user gateway |
+| `crates/wyrm-admin`, `wyrm-state`, `wyrm-gateway` | control plane, WAL state, user gateway |
+| `crates/wyrm-flow`, `wyrm-wasm-host` | dataflow engine and WebAssembly host |
+| `crates/wyrm-history`, `wyrm-history-sync`, `wyrm-storage`, `wyrm-schedule`, `wyrm-dql`, `wyrm-messenger`, `wyrm-filestore` | the cores of the historian, the sync links, storage, schedules, DQL, messengers and file stores |
+| `crates/wyrm-link-api`, `wyrm-link-portable`, `wyrm-link-guest` | portable links that run natively or as WASM components |
+| `crates/wyrm-ffi` | C ABI (`include/wyrm.h`) |
+| `links/*` | the links; `links/official.json` lists those that are released |
+| `studio/` | WYRM Studio (Flutter, AsyncRedux, made with `frx`) |
+| `dart/` | Dart packages: codec, gateway client, FFI |
+| `tools/wyr`, `tools/wyrm-mcp` | the CLI and the MCP server |
+| `spec/` | the normative protocol and its CBOR fixtures |
+| `docs/` | guides, ADRs, security review |
+| `examples/` | the demo, broker configs, flows, agent plans, example links |
+| `deploy/`, `packaging/` | container images, the Claude Desktop extension, the links release workflow |
 
-`wyr` gets admin commands as well (links, install, set-secret, …) — see `wyr --help`. ACL changes rebuild the router runtime (ADR 0006).
+## Documentation
 
-Link secrets (device passwords, keys) live in `data_dir/secrets.bin` (ChaCha20-Poly1305, key file 0600), never in the tree, `~def` or logs. `install` refuses params that look like secrets. Embedded links get them at start, process links in the `hello` reply; a link sees a new secret on its next start. `wyr admin set-secret <site> <id> <name>` reads the value from stdin.
+Start at [docs/README.md](docs/README.md). It lists a guide for each task and each protocol, plus the rules and decisions. Key entry points:
+- [broker.md](docs/broker.md): the `sys/**` tree, storage, many brokers, the gateway, flows from the CLI.
+- [operations.md](docs/operations.md): systemd, backup and restore, standby.
+- [`spec/`](spec/README.md): keys, metadata, values, tokens, methods, flow definitions.
+- [`docs/adr/`](docs/adr/): one file per decision.
 
-## Profiles
-A node's `~meta.is` names a profile; absent fields come from it, through `extends` (spec 02). The admin serves `wy/<site>/pub/<profile>/~meta` (10 built-ins such as `wy:number`, `wy:folder`, `wy:link`; others stored in its WAL) and changes them with `sys/profiles/~act/put {name, profile}` and `remove {name}` (`config`). `?expand=true` returns a profile with its chain folded in; `WyrmClient::meta_expanded(node)` returns a node's `~meta` with its profile applied. Links and upstream sites may read `pub/**`; nobody but the admin writes it.
+## Development
 
-## Storage
-`wy/<site>/storage` keeps nodes and values people create, as a DSA broker's `/data` (ADR 0017). The root offers `add_node {name}`, `add_value {name, type, editor}`, `publish {path, value}` (creates the missing folders and a `dynamic` value), `export` and `import {data | file}` (JSON: `$type`, `@editor`, `?value`, children as objects, binary as `{"$hex": …}`; a `file` larger than a WebSocket frame goes over `POST /api/invoke`); a folder also offers `delete {recursive}`, `rename {name}` and `duplicate {name}`, a value `~set`, `delete`, `rename` and `duplicate`. Types: `string`, `number`, `bool`, `array`, `map`, `binary`, `dynamic`. Every action and `~set` needs `write`; the admin keys, users through the gateway (viewer `read`, operator `write`, engineer `config`) and flows (at `write`) are trusted. The tree lives in `data_dir/storage/storage.redb`: structure at once, values at most once a second. Limits: 10 000 nodes, 16 levels, 32 KiB per value, 64 MiB in all, 4 MiB per import or export. A link stored under the id `storage` (before spec 0.2.2) stops `wyrmd` from starting: remove it with the previous version. The historian may watch storage values (`add_watch_path {path: "storage/…"}`); an upstream site reads them.
-
-## Flows
-The explorer edits flows (ADR 0019): **Edit Dataflow** on a flow, **New Dataflow** on `dataflows`. A window shows the node types (`dataflows/~act/node_types`) on the left, the blocks with a row per port and their wires in the middle, and the selected block's (or the flow's) properties on the right. Drag a type onto the canvas, drag from an output pin to an input pin to link, double-click an input pin to unlink, drag a block by its header; each edit is checked (`validate`), **Deploy** sends a new version with the blocks' positions (`~def.layout`).
-
-Besides `expression`, `window`, `alarm` and the other node types, a flow has logic blocks (`number`, `add`, `round`, `modulo`, `if`, `hub`, `stopwatch`, `concat`, …; ADR 0032): see [docs/flow-blocks.md](docs/flow-blocks.md).
-
-`wy/<site>/dataflows/~act/deploy {def, proofs}` deploys a flow (spec 06); `~def` is read-only. Links trust the flow engine's key, so the deployer sends one token per command target (`proofs`: target key → token with at least the flow's `maxperm`, same subject). Targets must be exact keys under `wy/<site>/downstream/` or `wy/<site>/storage/`. `wyrm_flow::command_targets` and `WyrmClient::proof` build the proofs.
-```
-wyr --key admin.key flow validate local peak.json5     # compile only
-wyr --key admin.key flow deploy   local peak.json5     # signs one proof per invoke/set target
-wyr flow list local                                     # id, state (running|stopped|error), version
-wyr --key admin.key flow show local peak                # state + ~def
-wyr --key admin.key flow stop|start|reload|remove local peak
-```
-
-## Two brokers
-```json5
-// central: brokers connect on 7449; they ask for their certificate on 7450
-peers: { listen: "quic/0.0.0.0:7449", enroll: "quic/0.0.0.0:7450" },
-```
-As in DSA (ADR 0015), the downstream broker adds the connection itself: on edge, `sys/upstream` ▸ **Add Upstream Connection** {Name `central`, Url `quic/central.example:7450`, CA (central's `data_dir/pki/ca.pem`), Token (optional)}. Edge makes its own key and asks central for a certificate. Central admits it:
-1. at once with a token from its `sys/tokens` ▸ Add Token, when edge relays no sites;
-2. at once with `sys/allow_all_links` on, when edge relays no sites;
-3. else edge waits in `sys/quarantine/edge` (`kind: broker`): compare its `key` with edge's `sys/upstream/central/key`, then **Authorize** (Via: the sites edge relays).
-
-A broker that names relayed sites (`via`, at most 16) always waits for Authorize, token or not: only an administrator gives a downstream broker the right to publish under other sites' names (security review ADM-2, ADR 0031).
-
-Edge then connects on 7449 and shows up in `wy/central/downstream/edge`; **Deauthorize** sends it back to quarantine. Central's QUIC listeners trust its own CA alone (certificate CN `broker:<site>`); edge trusts central's CA only on that connection.
-
-Without runtime steps (`wyrmd.json5` on both sides): central lists `downstream: [{ site: "edge" }]` and `wyrmd -c central.json5 ca` issues `data_dir/peers/edge/broker.{pem,key}`; edge names them: `upstream: [{ site: "central", endpoint: "quic/central.example:7449", ca, cert, key }]`. The upstream site may subscribe and query `~meta|~val` under `wy/<edge>/{downstream,dataflows,sys,upstream,storage}/**` (and `~def|~state` under `downstream`/`dataflows`). Requesters at the central broker may read `wy/<edge>/**`.
-
-Commands from above (ADR 0018): central's users (through its gateway) and operators (with central's admin key, `SigningTokens::new(key, "edge")`) may `set` and `invoke` on edge's `downstream`, `dataflows` and `storage` at `write`, as far as their grants at central go (`wy/central/x` grants count as `wy/edge/x`); `config` there (link actions such as Export, Edit, Stop) and edge's `sys` only when edge allows it: `allow_config: true` on the `peers.upstream` entry, or `sys/upstream/central/allow_config`. Edge learns the keys that sign these requests from `wy/central/sys/signing_keys` (central's admin keys and gateway key, and the keys above central; for `config` only those every hop allows) and trusts them only within its own site, at those levels; learning new keys rebuilds edge once. A `sys` action that edge does not allow is dropped on the way, so the caller sees a timeout. Edge's audit names the user as `user:<name>@central`. Clocks must agree within a few minutes (tokens live 5 minutes).
-
-Certificates last 365 days. The broker issues its own again (listener, client, process links, `data_dir/peers/<d>/broker.*`) when one has less than 30 days left: at a start, at each rebuild and in an hourly check that rebuilds when one was renewed. A downstream broker that enrolled asks its upstream again with the same key in those 30 days, and the upstream signs a new certificate for that key (audit `renew`); if the upstream does not renew, `sys/upstream/<u>/status` says so and the downstream asks again every hour (security review D-1, ADR 0031). УВАГА: files issued for `peers.downstream` without enrollment (`wyrmd ca`) are renewed only in the upstream's `data_dir/peers/<d>/`: copy them to the downstream again before the old ones end.
-
-A chain `plant → edge → central`: edge lists plant as its downstream (and listens on QUIC), central adds `via: ["plant"]` to its edge entry, and then reads `wy/plant/**` through edge (ADR 0007) and commands it as plant allows (`allow_config` at each hop for `sys`).
-
-Demo with a chain of three sites and connectors:
-`examples/demo/run.sh` starts `central`, `edge` (`mock`, `mockdev`, `modbus`
-as a process link, `modbus_slave`, `http`, `snmp`, `prometheus`) and `plant`
-(`mock`, `s7`, `bacnet`, `opcua`; connected to edge), each link against its
-simulator, each with a gateway (`:8445`, `:8444`, `:8446`, user
-`admin`, password `wyrm-demo-1`); central reads plant through edge. `wyrmd -c <cfg> ca` creates a site's CA
-and the certificates of the sites below it before they start. The app is
-WYRM Studio (`studio/`, [`docs/studio.md`](docs/studio.md)); it logs in to
-any of the three gateways.
-
-## Gateway
-```json5
-gateway: { listen: "0.0.0.0:8443", tls_cert: "gw.pem", tls_key: "gw.key", admin_user: "admin" },
-```
-Start `wyrmd` once with `WYRM_GATEWAY_ADMIN_PASSWORD` set to create the first admin. On a stopped broker, `wyrmd -c wyrmd.json5 user list|add <name> --roles a,b|passwd|roles|disable|enable|remove` manages users (passwords from stdin, changes audited as `local:cli`); while it runs, the stores are locked and the gateway's `/api/users` endpoints do the same. `POST /api/login {user, password}` (CBOR) returns a session; `POST /api/ws-ticket` (bearer session) returns a single-use 30 s ticket, and `GET /api/ws?ticket=…` opens the WebSocket proxy (`list`, `subscribe`, `set`, `invoke`, filtered by the user's grants). The gateway signs one `ptok` per request with its own key, which links, the flow engine and the admin (`sys/**`) trust; the user's grants decide what each request may do, and only the `admin` role has grants on `sys/**` (ADR 0009). Whoever can read `data_dir/gateway/gateway.key` is therefore a full administrator: keep `data_dir` readable by the broker user only. One user holds at most 8 WebSockets and sends at most 100 requests per second over all of them (burst 200; `rate_limited` past it); a `history` request asks for at most 10 000 rows (security review GW-2).
-
-## Spec and fixtures
-`spec/fixtures/fixtures.json` holds 23 canonical CBOR samples. Every SDK (Rust, Dart, C) must decode each to the documented JSON and re-encode to the exact bytes. Regenerate with `python spec/fixtures/gen.py`; CI fails if fixtures drift.
-
-## Build
-```
+```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
+- `spec/` is normative. A change there needs four more steps: update `spec/fixtures/gen.py`, regenerate the 28 fixtures, make every SDK's fixture test pass, and add a line to `spec/CHANGELOG.md`.
+- A decision goes into `docs/adr/`.
+- [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules (wire enums, QoS, logging, drivers).
+- Zenoh is pinned to an exact version, now 1.10.1. The MSRV is Rust 1.89.
+
 ## License
-Apache-2.0
+
+[Apache-2.0](LICENSE)

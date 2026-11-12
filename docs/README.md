@@ -6,6 +6,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 
 | Guide | Read it when you want to |
 |---|---|
+| [broker.md](broker.md) | look up the broker's own trees: `sys/**` (links, packages, tokens, quarantine, logs, history, audit), profiles, storage, two or more brokers, the gateway, flows from the CLI |
 | [links.md](links.md) | install a link while the broker runs, package one, give it network or grants; §12a: the official links (`links/official.json`, `packages.repository: "official"`, the release workflow) |
 | [history.md](history.md) | record points, read their history, keep broker storage (`storage`) |
 | [scheduler.md](scheduler.md) | switch equipment on a weekly schedule, with special days and overrides |
@@ -18,7 +19,7 @@ Start with the root [README](../README.md): what WYRM is, a quick start with one
 | [claude.md](claude.md) | connect Claude Desktop to the broker network as a gateway user (one-file extension, no API key) |
 | [mcp.md](mcp.md) | let an AI assistant read the tree and propose changes for a person to approve |
 | [agent.md](agent.md) | work on the broker network from the command line (`wyrm-agent`), or run the AI agent link |
-| [flow-blocks.md](flow-blocks.md) | calculate in a dataflow with blocks: variables, math, if, hub, stopwatch, text |
+| [flow-blocks.md](flow-blocks.md) | calculate in a dataflow with its 125 blocks; start from a ready-made flow in [`examples/flows`](../examples/flows/README.md) |
 | [operations.md](operations.md) | run `wyrmd` under systemd or a container, know what a restart recovers and how fast, back up and restore `data_dir` |
 | [studio.md](studio.md) | build WYRM Studio, the Flutter app: layout, rules, the `frx` commands of each phase, every screen's broker calls |
 
