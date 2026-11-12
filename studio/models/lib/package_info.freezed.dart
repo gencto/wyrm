@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'package_info.dart';
@@ -9,6 +9,7 @@ part of 'package_info.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -26,16 +27,21 @@ $PackageInfoCopyWith<PackageInfo> get copyWith => _$PackageInfoCopyWithImpl<Pack
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PackageInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.version, version) || other.version == version)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.source, source) || other.source == source)&&(identical(other.sha256, sha256) || other.sha256 == sha256));
+  final _this = this as PackageInfo;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PackageInfo&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.source, _this.source) || other.source == _this.source)&&(identical(other.sha256, _this.sha256) || other.sha256 == _this.sha256));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,name,version,kind,source,sha256);
+int get hashCode {
+  final _this = this as PackageInfo;
+  return Object.hash(runtimeType,_this.name,_this.version,_this.kind,_this.source,_this.sha256);
+}
 
 @override
 String toString() {
-  return 'PackageInfo(name: $name, version: $version, kind: $kind, source: $source, sha256: $sha256)';
+  final _this = this as PackageInfo;
+  return 'PackageInfo(name: ${_this.name}, version: ${_this.version}, kind: ${_this.kind}, source: ${_this.source}, sha256: ${_this.sha256})';
 }
 
 
@@ -64,7 +70,7 @@ class _$PackageInfoCopyWithImpl<$Res>
 /// Create a copy of PackageInfo
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? version = null,Object? kind = null,Object? source = freezed,Object? sha256 = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(PackageInfo(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
@@ -102,16 +108,18 @@ _$PackageInfoCopyWith<_PackageInfo> get copyWith => __$PackageInfoCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PackageInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.version, version) || other.version == version)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.source, source) || other.source == source)&&(identical(other.sha256, sha256) || other.sha256 == sha256));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PackageInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.version, version) || other.version == version)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.source, source) || other.source == source)&&(identical(other.sha256, sha256) || other.sha256 == sha256));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,name,version,kind,source,sha256);
+int get hashCode {
+    return Object.hash(runtimeType,name,version,kind,source,sha256);
+}
 
 @override
 String toString() {
-  return 'PackageInfo(name: $name, version: $version, kind: $kind, source: $source, sha256: $sha256)';
+    return 'PackageInfo(name: $name, version: $version, kind: $kind, source: $source, sha256: $sha256)';
 }
 
 

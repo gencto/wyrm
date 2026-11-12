@@ -19,8 +19,8 @@ import 'package:business/redux/link_install/actions/set_source_action.dart';
 import 'package:business/redux/link_install/actions/set_step_action.dart';
 import 'package:business/redux/nodes/actions/set_selected_node_action.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
@@ -290,14 +290,14 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
           ? null
           : () async {
               if (key == 'run') {
-                dispatch(SetStepAction(step + 1));
+                dispatchSync(SetStepAction(step + 1));
                 await dispatchAndWait(InstallLinkAction());
                 return;
               }
               if (!_official && key == 'choose') {
                 await dispatchAndWait(CheckPackageAction());
               }
-              dispatch(SetStepAction(step + 1));
+              dispatchSync(SetStepAction(step + 1));
             },
       onResultAction: (a) {
         switch (a) {
@@ -530,17 +530,15 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
 
   Future<void> _pick() async {
     final wasm = linkInstall.method == 'wasm';
-    final r = await FilePicker.pickFiles(
-      withData: true,
+    final f = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: [if (wasm) 'wasm' else 'zip'],
     );
-    final f = r?.files.single;
-    final bytes = f?.bytes;
-    if (f == null || bytes == null) {
+    if (f == null) {
       return;
     }
-    dispatch(
+    final bytes = await f.readAsBytes();
+    dispatchSync(
       SetSourceAction(
         wasm
             ? InstallSource.wasm(bytes: bytes, fileName: f.name)

@@ -1,7 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/pages/gallery_page.dart';
 
 @RoutePage()

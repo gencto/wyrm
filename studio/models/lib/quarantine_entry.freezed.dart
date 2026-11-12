@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'quarantine_entry.dart';
@@ -9,6 +9,7 @@ part of 'quarantine_entry.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -28,16 +29,21 @@ $QuarantineEntryCopyWith<QuarantineEntry> get copyWith => _$QuarantineEntryCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is QuarantineEntry&&(identical(other.cn, cn) || other.cn == cn)&&(identical(other.node, node) || other.node == node)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.from, from) || other.from == from)&&(identical(other.firstSeen, firstSeen) || other.firstSeen == firstSeen)&&const DeepCollectionEquality().equals(other.via, via)&&(identical(other.key, key) || other.key == key)&&(identical(other.deauthorized, deauthorized) || other.deauthorized == deauthorized));
+  final _this = this as QuarantineEntry;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is QuarantineEntry&&(identical(other.cn, _this.cn) || other.cn == _this.cn)&&(identical(other.node, _this.node) || other.node == _this.node)&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.from, _this.from) || other.from == _this.from)&&(identical(other.firstSeen, _this.firstSeen) || other.firstSeen == _this.firstSeen)&&const DeepCollectionEquality().equals(other.via, _this.via)&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.deauthorized, _this.deauthorized) || other.deauthorized == _this.deauthorized));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,cn,node,kind,from,firstSeen,const DeepCollectionEquality().hash(via),key,deauthorized);
+int get hashCode {
+  final _this = this as QuarantineEntry;
+  return Object.hash(runtimeType,_this.cn,_this.node,_this.kind,_this.from,_this.firstSeen,const DeepCollectionEquality().hash(_this.via),_this.key,_this.deauthorized);
+}
 
 @override
 String toString() {
-  return 'QuarantineEntry(cn: $cn, node: $node, kind: $kind, from: $from, firstSeen: $firstSeen, via: $via, key: $key, deauthorized: $deauthorized)';
+  final _this = this as QuarantineEntry;
+  return 'QuarantineEntry(cn: ${_this.cn}, node: ${_this.node}, kind: ${_this.kind}, from: ${_this.from}, firstSeen: ${_this.firstSeen}, via: ${_this.via}, key: ${_this.key}, deauthorized: ${_this.deauthorized})';
 }
 
 
@@ -66,7 +72,7 @@ class _$QuarantineEntryCopyWithImpl<$Res>
 /// Create a copy of QuarantineEntry
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? cn = null,Object? node = null,Object? kind = null,Object? from = freezed,Object? firstSeen = freezed,Object? via = null,Object? key = freezed,Object? deauthorized = null,}) {
-  return _then(_self.copyWith(
+  return _then(QuarantineEntry(
 cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
 as String,node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
@@ -112,16 +118,18 @@ _$QuarantineEntryCopyWith<_QuarantineEntry> get copyWith => __$QuarantineEntryCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _QuarantineEntry&&(identical(other.cn, cn) || other.cn == cn)&&(identical(other.node, node) || other.node == node)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.from, from) || other.from == from)&&(identical(other.firstSeen, firstSeen) || other.firstSeen == firstSeen)&&const DeepCollectionEquality().equals(other.via, via)&&(identical(other.key, key) || other.key == key)&&(identical(other.deauthorized, deauthorized) || other.deauthorized == deauthorized));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _QuarantineEntry&&(identical(other.cn, cn) || other.cn == cn)&&(identical(other.node, node) || other.node == node)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.from, from) || other.from == from)&&(identical(other.firstSeen, firstSeen) || other.firstSeen == firstSeen)&&const DeepCollectionEquality().equals(other.via, via)&&(identical(other.key, key) || other.key == key)&&(identical(other.deauthorized, deauthorized) || other.deauthorized == deauthorized));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,cn,node,kind,from,firstSeen,const DeepCollectionEquality().hash(via),key,deauthorized);
+int get hashCode {
+    return Object.hash(runtimeType,cn,node,kind,from,firstSeen,const DeepCollectionEquality().hash(via),key,deauthorized);
+}
 
 @override
 String toString() {
-  return 'QuarantineEntry(cn: $cn, node: $node, kind: $kind, from: $from, firstSeen: $firstSeen, via: $via, key: $key, deauthorized: $deauthorized)';
+    return 'QuarantineEntry(cn: $cn, node: $node, kind: $kind, from: $from, firstSeen: $firstSeen, via: $via, key: $key, deauthorized: $deauthorized)';
 }
 
 

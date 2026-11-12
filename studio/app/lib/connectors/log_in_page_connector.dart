@@ -11,8 +11,8 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_remember_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/session.dart';
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/login_failure.dart';
 import 'package:ui/alerts/unreachable_alert.dart';
 import 'package:ui/buttons/recent_chip.dart';
@@ -135,7 +135,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       await dispatchAndWait(OpenTreeAction());
       // The auth guard is re-run by the token's listenable, but auto_route
       // 11 does not redirect away from a resolved route on it: go there.
-      dispatch(GoAction.replace(const StudioRoute()));
+      dispatchSync(GoAction.replace(const StudioRoute()));
     }
 
     return _Vm(

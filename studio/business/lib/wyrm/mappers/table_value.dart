@@ -38,7 +38,7 @@ TableValue? tableOf(Object? v, {bool rowsOfMaps = false}) {
           case final List<Object?> l:
             rows.add([
               for (var i = 0; i < columns.length; i++)
-                i < l.length ? l[i] : null,
+                if (i < l.length) l[i] else null,
             ]);
           default:
             return null;

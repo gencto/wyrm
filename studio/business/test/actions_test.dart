@@ -10,8 +10,8 @@ import 'package:business/redux/session/actions/set_token_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:business/redux/window/actions/set_window_bounds_action.dart';
 import 'package:business/redux/window/actions/set_window_mode_action.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/panel_slot.dart';
 
 /// A store with nothing but a state.

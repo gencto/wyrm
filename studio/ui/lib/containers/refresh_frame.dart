@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../indicators/sweep_bar.dart';
 import '../theme/extensions/colors.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The regions a screen is made of, as a failure names them.
 enum FaultPanel {

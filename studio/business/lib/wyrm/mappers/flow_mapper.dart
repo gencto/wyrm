@@ -42,10 +42,12 @@ FlowDraft flowDraftOf(String id, Value def) {
         y: y,
         pins: {
           for (final l in layout.entries)
-            if (pinKeyOf(l.key) case (
-              final node,
-              final field,
-            ) when node == e.key)
+            if (pinKeyOf(l.key)
+                case (
+                  final node,
+                  final field,
+                )
+                when node == e.key)
               if (l.value case VArray(:final v) when v.isNotEmpty)
                 field: (number(v[0]) ?? 0) != 0,
         }.lock,

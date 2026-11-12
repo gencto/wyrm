@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../alerts/unreachable_alert.dart';
 import '../buttons/log_in_button.dart';

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'link_info.dart';
@@ -9,6 +9,7 @@ part of 'link_info.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -29,16 +30,21 @@ $LinkInfoCopyWith<LinkInfo> get copyWith => _$LinkInfoCopyWithImpl<LinkInfo>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkInfo&&(identical(other.id, id) || other.id == id)&&(identical(other.driver, driver) || other.driver == driver)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.state, state) || other.state == state)&&(identical(other.package, package) || other.package == package)&&(identical(other.version, version) || other.version == version)&&(identical(other.source, source) || other.source == source)&&(identical(other.sha256, sha256) || other.sha256 == sha256)&&(identical(other.device, device) || other.device == device)&&(identical(other.certificateCn, certificateCn) || other.certificateCn == certificateCn)&&(identical(other.note, note) || other.note == note)&&(identical(other.origin, origin) || other.origin == origin));
+  final _this = this as LinkInfo;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkInfo&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.driver, _this.driver) || other.driver == _this.driver)&&(identical(other.mode, _this.mode) || other.mode == _this.mode)&&(identical(other.state, _this.state) || other.state == _this.state)&&(identical(other.package, _this.package) || other.package == _this.package)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.source, _this.source) || other.source == _this.source)&&(identical(other.sha256, _this.sha256) || other.sha256 == _this.sha256)&&(identical(other.device, _this.device) || other.device == _this.device)&&(identical(other.certificateCn, _this.certificateCn) || other.certificateCn == _this.certificateCn)&&(identical(other.note, _this.note) || other.note == _this.note)&&(identical(other.origin, _this.origin) || other.origin == _this.origin));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,driver,mode,state,package,version,source,sha256,device,certificateCn,note,origin);
+int get hashCode {
+  final _this = this as LinkInfo;
+  return Object.hash(runtimeType,_this.id,_this.driver,_this.mode,_this.state,_this.package,_this.version,_this.source,_this.sha256,_this.device,_this.certificateCn,_this.note,_this.origin);
+}
 
 @override
 String toString() {
-  return 'LinkInfo(id: $id, driver: $driver, mode: $mode, state: $state, package: $package, version: $version, source: $source, sha256: $sha256, device: $device, certificateCn: $certificateCn, note: $note, origin: $origin)';
+  final _this = this as LinkInfo;
+  return 'LinkInfo(id: ${_this.id}, driver: ${_this.driver}, mode: ${_this.mode}, state: ${_this.state}, package: ${_this.package}, version: ${_this.version}, source: ${_this.source}, sha256: ${_this.sha256}, device: ${_this.device}, certificateCn: ${_this.certificateCn}, note: ${_this.note}, origin: ${_this.origin})';
 }
 
 
@@ -67,7 +73,7 @@ class _$LinkInfoCopyWithImpl<$Res>
 /// Create a copy of LinkInfo
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? driver = null,Object? mode = null,Object? state = null,Object? package = freezed,Object? version = freezed,Object? source = freezed,Object? sha256 = freezed,Object? device = freezed,Object? certificateCn = freezed,Object? note = freezed,Object? origin = null,}) {
-  return _then(_self.copyWith(
+  return _then(LinkInfo(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,driver: null == driver ? _self.driver : driver // ignore: cast_nullable_to_non_nullable
 as String,mode: null == mode ? _self.mode : mode // ignore: cast_nullable_to_non_nullable
@@ -122,16 +128,18 @@ _$LinkInfoCopyWith<_LinkInfo> get copyWith => __$LinkInfoCopyWithImpl<_LinkInfo>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkInfo&&(identical(other.id, id) || other.id == id)&&(identical(other.driver, driver) || other.driver == driver)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.state, state) || other.state == state)&&(identical(other.package, package) || other.package == package)&&(identical(other.version, version) || other.version == version)&&(identical(other.source, source) || other.source == source)&&(identical(other.sha256, sha256) || other.sha256 == sha256)&&(identical(other.device, device) || other.device == device)&&(identical(other.certificateCn, certificateCn) || other.certificateCn == certificateCn)&&(identical(other.note, note) || other.note == note)&&(identical(other.origin, origin) || other.origin == origin));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkInfo&&(identical(other.id, id) || other.id == id)&&(identical(other.driver, driver) || other.driver == driver)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.state, state) || other.state == state)&&(identical(other.package, package) || other.package == package)&&(identical(other.version, version) || other.version == version)&&(identical(other.source, source) || other.source == source)&&(identical(other.sha256, sha256) || other.sha256 == sha256)&&(identical(other.device, device) || other.device == device)&&(identical(other.certificateCn, certificateCn) || other.certificateCn == certificateCn)&&(identical(other.note, note) || other.note == note)&&(identical(other.origin, origin) || other.origin == origin));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,driver,mode,state,package,version,source,sha256,device,certificateCn,note,origin);
+int get hashCode {
+    return Object.hash(runtimeType,id,driver,mode,state,package,version,source,sha256,device,certificateCn,note,origin);
+}
 
 @override
 String toString() {
-  return 'LinkInfo(id: $id, driver: $driver, mode: $mode, state: $state, package: $package, version: $version, source: $source, sha256: $sha256, device: $device, certificateCn: $certificateCn, note: $note, origin: $origin)';
+    return 'LinkInfo(id: $id, driver: $driver, mode: $mode, state: $state, package: $package, version: $version, source: $source, sha256: $sha256, device: $device, certificateCn: $certificateCn, note: $note, origin: $origin)';
 }
 
 

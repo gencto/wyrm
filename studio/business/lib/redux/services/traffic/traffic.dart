@@ -26,13 +26,13 @@ class TrafficService extends DisposableServiceInterface {
 
   @override
   Future<void> start() async {
-    super.start();
+    await super.start();
     _timer ??= Timer.periodic(every, (_) => _listener.onTick());
   }
 
   @override
   Future<void> dispose() async {
-    super.dispose();
+    await super.dispose();
     _timer?.cancel();
     _timer = null;
   }

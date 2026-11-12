@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'panels_state.dart';
@@ -9,6 +9,7 @@ part of 'panels_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $PanelsStateCopyWith<PanelsState> get copyWith => _$PanelsStateCopyWithImpl<Pane
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PanelsState&&(identical(other.widths, widths) || other.widths == widths));
+  final _this = this as PanelsState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PanelsState&&(identical(other.widths, _this.widths) || other.widths == _this.widths));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,widths);
+int get hashCode {
+  final _this = this as PanelsState;
+  return Object.hash(runtimeType,_this.widths);
+}
 
 @override
 String toString() {
-  return 'PanelsState(widths: $widths)';
+  final _this = this as PanelsState;
+  return 'PanelsState(widths: ${_this.widths})';
 }
 
 
@@ -63,7 +69,7 @@ class _$PanelsStateCopyWithImpl<$Res>
 /// Create a copy of PanelsState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? widths = null,}) {
-  return _then(_self.copyWith(
+  return _then(PanelsState(
 widths: null == widths ? _self.widths : widths // ignore: cast_nullable_to_non_nullable
 as IMap<PanelSlot, double>,
   ));
@@ -92,16 +98,18 @@ _$PanelsStateCopyWith<_PanelsState> get copyWith => __$PanelsStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PanelsState&&(identical(other.widths, widths) || other.widths == widths));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PanelsState&&(identical(other.widths, widths) || other.widths == widths));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,widths);
+int get hashCode {
+    return Object.hash(runtimeType,widths);
+}
 
 @override
 String toString() {
-  return 'PanelsState(widths: $widths)';
+    return 'PanelsState(widths: $widths)';
 }
 
 

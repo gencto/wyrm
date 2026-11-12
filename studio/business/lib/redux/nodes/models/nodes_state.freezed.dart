@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'nodes_state.dart';
@@ -9,6 +9,7 @@ part of 'nodes_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $NodesStateCopyWith<NodesState> get copyWith => _$NodesStateCopyWithImpl<NodesSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed)&&(identical(other.listFailed, listFailed) || other.listFailed == listFailed)&&(identical(other.metaFailed, metaFailed) || other.metaFailed == metaFailed));
+  final _this = this as NodesState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodesState&&(identical(other.table, _this.table) || other.table == _this.table)&&const DeepCollectionEquality().equals(other.view, _this.view)&&const DeepCollectionEquality().equals(other.expanded, _this.expanded)&&(identical(other.selectedNode, _this.selectedNode) || other.selectedNode == _this.selectedNode)&&(identical(other.results, _this.results) || other.results == _this.results)&&(identical(other.tab, _this.tab) || other.tab == _this.tab)&&(identical(other.action, _this.action) || other.action == _this.action)&&(identical(other.historyRange, _this.historyRange) || other.historyRange == _this.historyRange)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&const DeepCollectionEquality().equals(other.history, _this.history)&&(identical(other.historyKey, _this.historyKey) || other.historyKey == _this.historyKey)&&(identical(other.point, _this.point) || other.point == _this.point)&&const DeepCollectionEquality().equals(other.checked, _this.checked)&&(identical(other.anchor, _this.anchor) || other.anchor == _this.anchor)&&(identical(other.treeFilter, _this.treeFilter) || other.treeFilter == _this.treeFilter)&&(identical(other.pointFilter, _this.pointFilter) || other.pointFilter == _this.pointFilter)&&const DeepCollectionEquality().equals(other.marked, _this.marked)&&const DeepCollectionEquality().equals(other.audit, _this.audit)&&const DeepCollectionEquality().equals(other.listed, _this.listed)&&(identical(other.viewedPoint, _this.viewedPoint) || other.viewedPoint == _this.viewedPoint)&&(identical(other.historyFailed, _this.historyFailed) || other.historyFailed == _this.historyFailed)&&(identical(other.listFailed, _this.listFailed) || other.listFailed == _this.listFailed)&&(identical(other.metaFailed, _this.metaFailed) || other.metaFailed == _this.metaFailed));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed,listFailed,metaFailed]);
+int get hashCode {
+  final _this = this as NodesState;
+  return Object.hashAll([runtimeType,_this.table,const DeepCollectionEquality().hash(_this.view),const DeepCollectionEquality().hash(_this.expanded),_this.selectedNode,_this.results,_this.tab,_this.action,_this.historyRange,_this.detail,const DeepCollectionEquality().hash(_this.history),_this.historyKey,_this.point,const DeepCollectionEquality().hash(_this.checked),_this.anchor,_this.treeFilter,_this.pointFilter,const DeepCollectionEquality().hash(_this.marked),const DeepCollectionEquality().hash(_this.audit),const DeepCollectionEquality().hash(_this.listed),_this.viewedPoint,_this.historyFailed,_this.listFailed,_this.metaFailed]);
+}
 
 @override
 String toString() {
-  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed, listFailed: $listFailed, metaFailed: $metaFailed)';
+  final _this = this as NodesState;
+  return 'NodesState(table: ${_this.table}, view: ${_this.view}, expanded: ${_this.expanded}, selectedNode: ${_this.selectedNode}, results: ${_this.results}, tab: ${_this.tab}, action: ${_this.action}, historyRange: ${_this.historyRange}, detail: ${_this.detail}, history: ${_this.history}, historyKey: ${_this.historyKey}, point: ${_this.point}, checked: ${_this.checked}, anchor: ${_this.anchor}, treeFilter: ${_this.treeFilter}, pointFilter: ${_this.pointFilter}, marked: ${_this.marked}, audit: ${_this.audit}, listed: ${_this.listed}, viewedPoint: ${_this.viewedPoint}, historyFailed: ${_this.historyFailed}, listFailed: ${_this.listFailed}, metaFailed: ${_this.metaFailed})';
 }
 
 
@@ -63,7 +69,7 @@ class _$NodesStateCopyWithImpl<$Res>
 /// Create a copy of NodesState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? expanded = null,Object? selectedNode = freezed,Object? results = null,Object? tab = null,Object? action = freezed,Object? historyRange = null,Object? detail = null,Object? history = null,Object? historyKey = freezed,Object? point = freezed,Object? checked = null,Object? anchor = freezed,Object? treeFilter = null,Object? pointFilter = null,Object? marked = null,Object? audit = null,Object? listed = null,Object? viewedPoint = freezed,Object? historyFailed = freezed,Object? listFailed = null,Object? metaFailed = null,}) {
-  return _then(_self.copyWith(
+  return _then(NodesState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, NodeInfo>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,expanded: null == expanded ? _self.expanded : expanded // ignore: cast_nullable_to_non_nullable
@@ -136,16 +142,18 @@ _$NodesStateCopyWith<_NodesState> get copyWith => __$NodesStateCopyWithImpl<_Nod
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed)&&(identical(other.listFailed, listFailed) || other.listFailed == listFailed)&&(identical(other.metaFailed, metaFailed) || other.metaFailed == metaFailed));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodesState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&const DeepCollectionEquality().equals(other.expanded, expanded)&&(identical(other.selectedNode, selectedNode) || other.selectedNode == selectedNode)&&(identical(other.results, results) || other.results == results)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.action, action) || other.action == action)&&(identical(other.historyRange, historyRange) || other.historyRange == historyRange)&&(identical(other.detail, detail) || other.detail == detail)&&const DeepCollectionEquality().equals(other.history, history)&&(identical(other.historyKey, historyKey) || other.historyKey == historyKey)&&(identical(other.point, point) || other.point == point)&&const DeepCollectionEquality().equals(other.checked, checked)&&(identical(other.anchor, anchor) || other.anchor == anchor)&&(identical(other.treeFilter, treeFilter) || other.treeFilter == treeFilter)&&(identical(other.pointFilter, pointFilter) || other.pointFilter == pointFilter)&&const DeepCollectionEquality().equals(other.marked, marked)&&const DeepCollectionEquality().equals(other.audit, audit)&&const DeepCollectionEquality().equals(other.listed, listed)&&(identical(other.viewedPoint, viewedPoint) || other.viewedPoint == viewedPoint)&&(identical(other.historyFailed, historyFailed) || other.historyFailed == historyFailed)&&(identical(other.listFailed, listFailed) || other.listFailed == listFailed)&&(identical(other.metaFailed, metaFailed) || other.metaFailed == metaFailed));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed,listFailed,metaFailed]);
+int get hashCode {
+    return Object.hashAll([runtimeType,table,const DeepCollectionEquality().hash(view),const DeepCollectionEquality().hash(expanded),selectedNode,results,tab,action,historyRange,detail,const DeepCollectionEquality().hash(history),historyKey,point,const DeepCollectionEquality().hash(checked),anchor,treeFilter,pointFilter,const DeepCollectionEquality().hash(marked),const DeepCollectionEquality().hash(audit),const DeepCollectionEquality().hash(listed),viewedPoint,historyFailed,listFailed,metaFailed]);
+}
 
 @override
 String toString() {
-  return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed, listFailed: $listFailed, metaFailed: $metaFailed)';
+    return 'NodesState(table: $table, view: $view, expanded: $expanded, selectedNode: $selectedNode, results: $results, tab: $tab, action: $action, historyRange: $historyRange, detail: $detail, history: $history, historyKey: $historyKey, point: $point, checked: $checked, anchor: $anchor, treeFilter: $treeFilter, pointFilter: $pointFilter, marked: $marked, audit: $audit, listed: $listed, viewedPoint: $viewedPoint, historyFailed: $historyFailed, listFailed: $listFailed, metaFailed: $metaFailed)';
 }
 
 

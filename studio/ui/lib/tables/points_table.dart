@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';

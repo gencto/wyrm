@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'flow_block.dart';
@@ -9,6 +9,7 @@ part of 'flow_block.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -30,16 +31,21 @@ $FlowBlockCopyWith<FlowBlock> get copyWith => _$FlowBlockCopyWithImpl<FlowBlock>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowBlock&&(identical(other.id, id) || other.id == id)&&(identical(other.type, type) || other.type == type)&&(identical(other.cfg, cfg) || other.cfg == cfg)&&(identical(other.x, x) || other.x == x)&&(identical(other.y, y) || other.y == y)&&(identical(other.pins, pins) || other.pins == pins));
+  final _this = this as FlowBlock;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowBlock&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.cfg, _this.cfg) || other.cfg == _this.cfg)&&(identical(other.x, _this.x) || other.x == _this.x)&&(identical(other.y, _this.y) || other.y == _this.y)&&(identical(other.pins, _this.pins) || other.pins == _this.pins));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,type,cfg,x,y,pins);
+int get hashCode {
+  final _this = this as FlowBlock;
+  return Object.hash(runtimeType,_this.id,_this.type,_this.cfg,_this.x,_this.y,_this.pins);
+}
 
 @override
 String toString() {
-  return 'FlowBlock(id: $id, type: $type, cfg: $cfg, x: $x, y: $y, pins: $pins)';
+  final _this = this as FlowBlock;
+  return 'FlowBlock(id: ${_this.id}, type: ${_this.type}, cfg: ${_this.cfg}, x: ${_this.x}, y: ${_this.y}, pins: ${_this.pins})';
 }
 
 
@@ -68,7 +74,7 @@ class _$FlowBlockCopyWithImpl<$Res>
 /// Create a copy of FlowBlock
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? type = null,Object? cfg = null,Object? x = null,Object? y = null,Object? pins = null,}) {
-  return _then(_self.copyWith(
+  return _then(FlowBlock(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nullable
@@ -112,16 +118,18 @@ _$FlowBlockCopyWith<_FlowBlock> get copyWith => __$FlowBlockCopyWithImpl<_FlowBl
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowBlock&&(identical(other.id, id) || other.id == id)&&(identical(other.type, type) || other.type == type)&&(identical(other.cfg, cfg) || other.cfg == cfg)&&(identical(other.x, x) || other.x == x)&&(identical(other.y, y) || other.y == y)&&(identical(other.pins, pins) || other.pins == pins));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowBlock&&(identical(other.id, id) || other.id == id)&&(identical(other.type, type) || other.type == type)&&(identical(other.cfg, cfg) || other.cfg == cfg)&&(identical(other.x, x) || other.x == x)&&(identical(other.y, y) || other.y == y)&&(identical(other.pins, pins) || other.pins == pins));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,type,cfg,x,y,pins);
+int get hashCode {
+    return Object.hash(runtimeType,id,type,cfg,x,y,pins);
+}
 
 @override
 String toString() {
-  return 'FlowBlock(id: $id, type: $type, cfg: $cfg, x: $x, y: $y, pins: $pins)';
+    return 'FlowBlock(id: $id, type: $type, cfg: $cfg, x: $x, y: $y, pins: $pins)';
 }
 
 

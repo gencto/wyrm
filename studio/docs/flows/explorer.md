@@ -60,7 +60,7 @@ sequenceDiagram
     alt nodes.expanded.isEmpty
         VM->>+A2: dispatchAndWait
         Note over A2: WaitingAction · async
-        A2->>ST: dispatch(ToggleNodeAction)
+        A2->>ST: dispatchSync(ToggleNodeAction)
         A2-->>-VM: ActionStatus
     end
     alt links.view.isEmpty

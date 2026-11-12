@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/alerts/unreachable_alert.dart';
 import 'package:ui/buttons/recent_chip.dart';
 import 'package:ui/containers/welcome_panel.dart';

@@ -1,15 +1,14 @@
-import 'package:async_redux/async_redux.dart';
-import 'package:business/redux/app_state.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/wyrm/calls.dart' show clearedNames;
 import 'package:business/wyrm/labels.dart';
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 
+import '../common/app_store.dart';
 import '../common/forms.dart';
 
 /// Runs [action] of the node [key] now, with a form made from its
@@ -21,7 +20,7 @@ Future<bool> runNodeAction(
   String action, {
   String? confirm,
 }) async {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   await store.dispatchAndWait(RetrieveNodeDetailAction(key));
   final a = store.state.nodes.detail[key]?.actions
       .where((x) => x.name == action)

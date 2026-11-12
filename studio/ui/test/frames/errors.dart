@@ -2,7 +2,7 @@
 // per item, split over lines.
 // ignore_for_file: no_adjacent_strings_in_list
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/alerts/panel_fault.dart';
 import 'package:ui/alerts/start_fault.dart';
 import 'package:ui/alerts/toast_stack.dart';

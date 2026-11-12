@@ -868,8 +868,7 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
   legend: _legend,
   inspectorKind: 'Action',
   inspectorTitle: 'stop_pump',
-  inspectorNote:
-      'Dragged from the tree. Runs when run when turns true; ok, code and message come back.',
+  inspectorNote: 'Dragged from the tree. Runs when run when turns true; ok, code and message come back.',
   inspectorRows: const [
     InspectorRowVm(
       id: 'run when',
@@ -1805,8 +1804,7 @@ FlowEditorPage _wave2({
       : null,
   createBlock: () => const CustomBlockDialogVm(
     title: 'Create custom block',
-    note:
-        '2 blocks become one block of this flow. Wires that cross its edge become its inputs and outputs.',
+    note: '2 blocks become one block of this flow. Wires that cross its edge become its inputs and outputs.',
     name: 'block1',
     inputs: [
       BlockPortVm(name: 'sum_0', detail: '← a.out'),
@@ -1835,8 +1833,7 @@ FlowBlockVm _var(String id, String type, String value, double x, double y) =>
 FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
   selected: 'level',
   kind: 'Tree node',
-  note:
-      'A point of the tree. A read-only point has no input; binding into a writable one writes ~set.',
+  note: 'A point of the tree. A read-only point has no input; binding into a writable one writes ~set.',
   blocks: [
     _var('name', 'string', 'pump1', 30, 60),
     FlowBlockVm(
@@ -1913,8 +1910,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
           row: 'p:key_scope',
           title: 'This block may read keys under',
           value: 'downstream/modbus/line1/**',
-          note:
-              'A key that comes on the wire is read only inside this scope. Whoever deploys must be able to read all of it.',
+          note: 'A key that comes on the wire is read only inside this scope. Whoever deploys must be able to read all of it.',
           suggestions: [
             'downstream/modbus/line1/**',
             'downstream/**',
@@ -2026,8 +2022,7 @@ FlowEditorPage flowActionBlock({
 }) => _wave2(
   selected: 'ramp1',
   kind: 'Action',
-  note:
-      'An action of the tree. It runs on its trigger, on a changed argument, on a period, or by Run.',
+  note: 'An action of the tree. It runs on its trigger, on a changed argument, on a period, or by Run.',
   blocks: _actionBlocks(preview: preview),
   wires: [
     const FlowWireVm('target', 'value', 'ramp1', 'target', writes: true),
@@ -2539,8 +2534,7 @@ FlowEditorPage flowCustomInside() => _wave2(
   selected: '~in',
   title: 'Inputs',
   kind: 'Custom block',
-  note:
-      'What the block takes. Drag from an input to every inner field it feeds; type its default here. + adds an input.',
+  note: 'What the block takes. Drag from an input to every inner field it feeds; type its default here. + adds an input.',
   crumbs: const ['mean2'],
   insideNote: '1 instance in this flow · a change here changes them all',
   deployReason: 'Go back to the flow to deploy',

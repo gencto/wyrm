@@ -1,5 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';

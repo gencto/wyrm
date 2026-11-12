@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';

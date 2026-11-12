@@ -72,6 +72,52 @@ class $AssetsSvgIconsGen {
   SvgGenImage get actionUp =>
       const SvgGenImage('assets/svg/icons/action_up.svg');
 
+  /// File path: assets/svg/icons/err_broker.svg
+  SvgGenImage get errBroker =>
+      const SvgGenImage('assets/svg/icons/err_broker.svg');
+
+  /// File path: assets/svg/icons/err_busy.svg
+  SvgGenImage get errBusy => const SvgGenImage('assets/svg/icons/err_busy.svg');
+
+  /// File path: assets/svg/icons/err_chevron.svg
+  SvgGenImage get errChevron =>
+      const SvgGenImage('assets/svg/icons/err_chevron.svg');
+
+  /// File path: assets/svg/icons/err_close.svg
+  SvgGenImage get errClose =>
+      const SvgGenImage('assets/svg/icons/err_close.svg');
+
+  /// File path: assets/svg/icons/err_copy.svg
+  SvgGenImage get errCopy => const SvgGenImage('assets/svg/icons/err_copy.svg');
+
+  /// File path: assets/svg/icons/err_gone.svg
+  SvgGenImage get errGone => const SvgGenImage('assets/svg/icons/err_gone.svg');
+
+  /// File path: assets/svg/icons/err_input.svg
+  SvgGenImage get errInput =>
+      const SvgGenImage('assets/svg/icons/err_input.svg');
+
+  /// File path: assets/svg/icons/err_mark.svg
+  SvgGenImage get errMark => const SvgGenImage('assets/svg/icons/err_mark.svg');
+
+  /// File path: assets/svg/icons/err_ok.svg
+  SvgGenImage get errOk => const SvgGenImage('assets/svg/icons/err_ok.svg');
+
+  /// File path: assets/svg/icons/err_reach.svg
+  SvgGenImage get errReach =>
+      const SvgGenImage('assets/svg/icons/err_reach.svg');
+
+  /// File path: assets/svg/icons/err_rights.svg
+  SvgGenImage get errRights =>
+      const SvgGenImage('assets/svg/icons/err_rights.svg');
+
+  /// File path: assets/svg/icons/err_studio.svg
+  SvgGenImage get errStudio =>
+      const SvgGenImage('assets/svg/icons/err_studio.svg');
+
+  /// File path: assets/svg/icons/err_warn.svg
+  SvgGenImage get errWarn => const SvgGenImage('assets/svg/icons/err_warn.svg');
+
   /// File path: assets/svg/icons/key_alt.svg
   SvgGenImage get keyAlt => const SvgGenImage('assets/svg/icons/key_alt.svg');
 
@@ -276,6 +322,19 @@ class $AssetsSvgIconsGen {
     actionStop,
     actionTrash,
     actionUp,
+    errBroker,
+    errBusy,
+    errChevron,
+    errClose,
+    errCopy,
+    errGone,
+    errInput,
+    errMark,
+    errOk,
+    errReach,
+    errRights,
+    errStudio,
+    errWarn,
     keyAlt,
     keyCmd,
     keyDown,

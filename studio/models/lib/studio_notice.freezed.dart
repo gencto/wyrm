@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'studio_notice.dart';
@@ -9,6 +9,7 @@ part of 'studio_notice.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -28,16 +29,21 @@ $StudioNoticeCopyWith<StudioNotice> get copyWith => _$StudioNoticeCopyWithImpl<S
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioNotice&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail));
+  final _this = this as StudioNotice;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioNotice&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.detail, _this.detail) || other.detail == _this.detail));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,title,detail);
+int get hashCode {
+  final _this = this as StudioNotice;
+  return Object.hash(runtimeType,_this.id,_this.title,_this.detail);
+}
 
 @override
 String toString() {
-  return 'StudioNotice(id: $id, title: $title, detail: $detail)';
+  final _this = this as StudioNotice;
+  return 'StudioNotice(id: ${_this.id}, title: ${_this.title}, detail: ${_this.detail})';
 }
 
 
@@ -66,7 +72,7 @@ class _$StudioNoticeCopyWithImpl<$Res>
 /// Create a copy of StudioNotice
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? title = null,Object? detail = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(StudioNotice(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,detail: freezed == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
@@ -102,16 +108,18 @@ _$StudioNoticeCopyWith<_StudioNotice> get copyWith => __$StudioNoticeCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioNotice&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioNotice&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,title,detail);
+int get hashCode {
+    return Object.hash(runtimeType,id,title,detail);
+}
 
 @override
 String toString() {
-  return 'StudioNotice(id: $id, title: $title, detail: $detail)';
+    return 'StudioNotice(id: $id, title: $title, detail: $detail)';
 }
 
 

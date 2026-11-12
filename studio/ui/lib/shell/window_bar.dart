@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// What a frameless desktop window asks of a page's top area (owner
 /// decision 2026-11-09, docs/studio.md §7.1). The app decides it from the

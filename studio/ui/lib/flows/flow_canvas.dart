@@ -3,9 +3,9 @@ import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../overlays/floating_window.dart';
 import '../theme/extensions/colors.dart';

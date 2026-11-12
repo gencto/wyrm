@@ -1,6 +1,6 @@
-import 'dart:async';
 import 'dart:io';
 
+import 'package:app/common/app_store.dart';
 import 'package:app/common/forms.dart';
 import 'package:app/connectors/log_in_page_connector.dart' show studioVersion;
 import 'package:app/dialogs/error_dialogs.dart';
@@ -17,10 +17,10 @@ import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
-import 'package:flutter/material.dart' hide Action;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart' hide Action;
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
@@ -83,14 +83,17 @@ Widget _app(Store<AppState> store) {
   NavigateAction.setNavigatorKey(navigator);
   return StoreProvider<AppState>(
     store: store,
-    child: MaterialApp(
-      navigatorKey: navigator,
-      theme: darkTheme(),
-      localizationsDelegates: const [S.delegate],
-      home: const Scaffold(body: Text('the screen')),
-      builder: (context, child) => ExceptionDialog<AppState>(
-        onShowUserExceptionDialog: showUserException,
-        child: child!,
+    child: AppStore(
+      store: store,
+      child: MaterialApp(
+        navigatorKey: navigator,
+        theme: darkTheme(),
+        localizationsDelegates: const [S.delegate],
+        home: const Scaffold(body: Text('the screen')),
+        builder: (context, child) => ExceptionDialog<AppState>(
+          onShowUserExceptionDialog: showUserException,
+          child: child!,
+        ),
       ),
     ),
   );
@@ -548,40 +551,38 @@ void main() {
       await tester.pumpWidget(_app(store));
       final context = tester.element(find.text('the screen'));
       var closed = false;
-      unawaited(
-        showDialog<void>(
-          context: context,
-          builder: (dialog) => PanelDialog(
-            title: 'Edit plc1',
-            child: ActionForm(
-              fields: [
-                ParamFieldVm(
-                  id: 'host',
-                  label: 'Host',
-                  kind: ParamKind.text,
-                  value: '10.0.0.7',
-                  onChanged: (_) {},
-                ),
-                ParamFieldVm(
-                  id: 'poll_rate',
-                  label: 'Poll rate',
-                  kind: ParamKind.number,
-                  value: 1000,
-                  onChanged: (_) {},
-                ),
-              ],
-              submit: 'Save',
-              onSubmit: (v) => sendForm(
-                store.dispatchAndWait(
-                  _Refused(
-                    Status.invalidParameter,
-                    'poll_rate: ${v['poll_rate']} is below the minimum of '
-                    '100 ms.',
-                    name: 'edit',
-                  ),
-                ),
-                onOk: () => closed = true,
+      showDialog<void>(
+        context: context,
+        builder: (dialog) => PanelDialog(
+          title: 'Edit plc1',
+          child: ActionForm(
+            fields: [
+              ParamFieldVm(
+                id: 'host',
+                label: 'Host',
+                kind: ParamKind.text,
+                value: '10.0.0.7',
+                onChanged: (_) {},
               ),
+              ParamFieldVm(
+                id: 'poll_rate',
+                label: 'Poll rate',
+                kind: ParamKind.number,
+                value: 1000,
+                onChanged: (_) {},
+              ),
+            ],
+            submit: 'Save',
+            onSubmit: (v) => sendForm(
+              store.dispatchAndWait(
+                _Refused(
+                  Status.invalidParameter,
+                  'poll_rate: ${v['poll_rate']} is below the minimum of '
+                  '100 ms.',
+                  name: 'edit',
+                ),
+              ),
+              onOk: () => closed = true,
             ),
           ),
         ),

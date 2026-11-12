@@ -19,8 +19,8 @@ import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dar
 import 'package:business/redux/quarantine/actions/set_admission_options_action.dart';
 import 'package:business/redux/quarantine/actions/set_selected_entry_action.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
@@ -652,7 +652,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       case 'grant' when id != null:
         await showLinkGrant(context, id, _root);
       case 'upgrade':
-        dispatch(GoAction.push(const LinkInstallRoute()));
+        dispatchSync(GoAction.push(const LinkInstallRoute()));
       case 'remove' when id != null:
         final external = links.table[id]?.mode == LinkMode.external;
         if (await ConfirmDialog.ask(

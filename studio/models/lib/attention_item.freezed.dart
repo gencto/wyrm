@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'attention_item.dart';
@@ -9,6 +9,7 @@ part of 'attention_item.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -31,16 +32,21 @@ $AttentionItemCopyWith<AttentionItem> get copyWith => _$AttentionItemCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionItem&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.name, name) || other.name == name)&&(identical(other.count, count) || other.count == count)&&(identical(other.more, more) || other.more == more)&&(identical(other.since, since) || other.since == since));
+  final _this = this as AttentionItem;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AttentionItem&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.subject, _this.subject) || other.subject == _this.subject)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.count, _this.count) || other.count == _this.count)&&(identical(other.more, _this.more) || other.more == _this.more)&&(identical(other.since, _this.since) || other.since == _this.since));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,kind,subject,name,count,more,since);
+int get hashCode {
+  final _this = this as AttentionItem;
+  return Object.hash(runtimeType,_this.kind,_this.subject,_this.name,_this.count,_this.more,_this.since);
+}
 
 @override
 String toString() {
-  return 'AttentionItem(kind: $kind, subject: $subject, name: $name, count: $count, more: $more, since: $since)';
+  final _this = this as AttentionItem;
+  return 'AttentionItem(kind: ${_this.kind}, subject: ${_this.subject}, name: ${_this.name}, count: ${_this.count}, more: ${_this.more}, since: ${_this.since})';
 }
 
 
@@ -69,7 +75,7 @@ class _$AttentionItemCopyWithImpl<$Res>
 /// Create a copy of AttentionItem
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? kind = null,Object? subject = null,Object? name = null,Object? count = null,Object? more = null,Object? since = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(AttentionItem(
 kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as AttentionKind,subject: null == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -114,16 +120,18 @@ _$AttentionItemCopyWith<_AttentionItem> get copyWith => __$AttentionItemCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AttentionItem&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.name, name) || other.name == name)&&(identical(other.count, count) || other.count == count)&&(identical(other.more, more) || other.more == more)&&(identical(other.since, since) || other.since == since));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AttentionItem&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.name, name) || other.name == name)&&(identical(other.count, count) || other.count == count)&&(identical(other.more, more) || other.more == more)&&(identical(other.since, since) || other.since == since));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,kind,subject,name,count,more,since);
+int get hashCode {
+    return Object.hash(runtimeType,kind,subject,name,count,more,since);
+}
 
 @override
 String toString() {
-  return 'AttentionItem(kind: $kind, subject: $subject, name: $name, count: $count, more: $more, since: $since)';
+    return 'AttentionItem(kind: $kind, subject: $subject, name: $name, count: $count, more: $more, since: $since)';
 }
 
 

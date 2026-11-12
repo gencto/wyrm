@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../containers/sys_tile.dart';
 import '../theme/extensions/colors.dart';

@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/shake.dart';
 import 'package:ui/indicators/wyrm_loader.dart';
 

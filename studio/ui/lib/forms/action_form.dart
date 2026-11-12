@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../theme/extensions/colors.dart';
@@ -32,8 +32,9 @@ final class FieldRefusal {
 /// What a form's submit does with the values, by field id. It answers a
 /// [FieldRefusal] when the broker refused them as wrong input, so the form
 /// can mark the field; null in every other case.
-typedef FormSubmit =
-    FutureOr<FieldRefusal?> Function(Map<String, Object?> values);
+typedef FormSubmit = FutureOr<FieldRefusal?> Function(
+  Map<String, Object?> values,
+);
 
 /// A [ParamForm] that keeps what is typed and hands it over on submit: the
 /// arguments of an action (Approve, Grant, an Explorer action, an install).
@@ -141,10 +142,13 @@ class _ActionFormState extends State<ActionForm> {
   );
 
   Future<void> _pick(ParamFieldVm f) async {
-    final r = await FilePicker.pickFiles(withData: true);
-    final file = r?.files.single;
-    if (file?.bytes case final bytes?) {
-      setState(() => _values[f.id] = PickedFile(file!.name, bytes));
+    final file = await FilePicker.pickFile();
+    if (file == null) {
+      return;
+    }
+    final bytes = await file.readAsBytes();
+    if (mounted) {
+      setState(() => _values[f.id] = PickedFile(file.name, bytes));
     }
   }
 

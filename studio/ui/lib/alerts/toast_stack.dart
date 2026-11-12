@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:equatable/equatable.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../dialogs/error_dialog.dart' show errorTone;
 import '../indicators/app_icon.dart';

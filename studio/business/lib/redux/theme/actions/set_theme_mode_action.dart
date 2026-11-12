@@ -1,6 +1,6 @@
 // `material.dart` exports its own `Action` (the widgets/intents one), which
 // collides with this app's action base — hide it.
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:material_ui/material_ui.dart' show ThemeMode;
 
 import '../../app_state.dart';
 import '../../common/action.dart';

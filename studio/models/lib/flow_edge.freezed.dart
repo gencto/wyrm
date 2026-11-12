@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'flow_edge.dart';
@@ -9,6 +9,7 @@ part of 'flow_edge.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $FlowEdgeCopyWith<FlowEdge> get copyWith => _$FlowEdgeCopyWithImpl<FlowEdge>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowEdge&&(identical(other.from, from) || other.from == from)&&(identical(other.fromPort, fromPort) || other.fromPort == fromPort)&&(identical(other.to, to) || other.to == to)&&(identical(other.toPort, toPort) || other.toPort == toPort));
+  final _this = this as FlowEdge;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowEdge&&(identical(other.from, _this.from) || other.from == _this.from)&&(identical(other.fromPort, _this.fromPort) || other.fromPort == _this.fromPort)&&(identical(other.to, _this.to) || other.to == _this.to)&&(identical(other.toPort, _this.toPort) || other.toPort == _this.toPort));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,from,fromPort,to,toPort);
+int get hashCode {
+  final _this = this as FlowEdge;
+  return Object.hash(runtimeType,_this.from,_this.fromPort,_this.to,_this.toPort);
+}
 
 @override
 String toString() {
-  return 'FlowEdge(from: $from, fromPort: $fromPort, to: $to, toPort: $toPort)';
+  final _this = this as FlowEdge;
+  return 'FlowEdge(from: ${_this.from}, fromPort: ${_this.fromPort}, to: ${_this.to}, toPort: ${_this.toPort})';
 }
 
 
@@ -63,7 +69,7 @@ class _$FlowEdgeCopyWithImpl<$Res>
 /// Create a copy of FlowEdge
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? from = null,Object? fromPort = null,Object? to = null,Object? toPort = null,}) {
-  return _then(_self.copyWith(
+  return _then(FlowEdge(
 from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
 as String,fromPort: null == fromPort ? _self.fromPort : fromPort // ignore: cast_nullable_to_non_nullable
 as String,to: null == to ? _self.to : to // ignore: cast_nullable_to_non_nullable
@@ -98,16 +104,18 @@ _$FlowEdgeCopyWith<_FlowEdge> get copyWith => __$FlowEdgeCopyWithImpl<_FlowEdge>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowEdge&&(identical(other.from, from) || other.from == from)&&(identical(other.fromPort, fromPort) || other.fromPort == fromPort)&&(identical(other.to, to) || other.to == to)&&(identical(other.toPort, toPort) || other.toPort == toPort));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowEdge&&(identical(other.from, from) || other.from == from)&&(identical(other.fromPort, fromPort) || other.fromPort == fromPort)&&(identical(other.to, to) || other.to == to)&&(identical(other.toPort, toPort) || other.toPort == toPort));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,from,fromPort,to,toPort);
+int get hashCode {
+    return Object.hash(runtimeType,from,fromPort,to,toPort);
+}
 
 @override
 String toString() {
-  return 'FlowEdge(from: $from, fromPort: $fromPort, to: $to, toPort: $toPort)';
+    return 'FlowEdge(from: $from, fromPort: $fromPort, to: $to, toPort: $toPort)';
 }
 
 

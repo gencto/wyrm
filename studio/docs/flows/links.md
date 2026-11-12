@@ -19,10 +19,10 @@ sequenceDiagram
     UI->>VM: settings()
     VM->>A1: dispatch
     Note over A1: WaitingAction · async
-    A1->>ST: dispatch(AddChangesAction)
+    A1->>ST: dispatchSync(AddChangesAction)
     VM->>A1: dispatch
     Note over A1: WaitingAction · async
-    A1->>ST: dispatch(AddChangesAction)
+    A1->>ST: dispatchSync(AddChangesAction)
 ```
 
 ## onShow

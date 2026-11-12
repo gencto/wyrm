@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'site_state.dart';
@@ -9,6 +9,7 @@ part of 'site_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $SiteStateCopyWith<SiteState> get copyWith => _$SiteStateCopyWithImpl<SiteState>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SiteState&&(identical(other.gateway, gateway) || other.gateway == gateway)&&(identical(other.user, user) || other.user == user)&&(identical(other.name, name) || other.name == name)&&(identical(other.role, role) || other.role == role)&&(identical(other.connected, connected) || other.connected == connected)&&(identical(other.current, current) || other.current == current)&&const DeepCollectionEquality().equals(other.grants, grants)&&const DeepCollectionEquality().equals(other.choices, choices));
+  final _this = this as SiteState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SiteState&&(identical(other.gateway, _this.gateway) || other.gateway == _this.gateway)&&(identical(other.user, _this.user) || other.user == _this.user)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.role, _this.role) || other.role == _this.role)&&(identical(other.connected, _this.connected) || other.connected == _this.connected)&&(identical(other.current, _this.current) || other.current == _this.current)&&const DeepCollectionEquality().equals(other.grants, _this.grants)&&const DeepCollectionEquality().equals(other.choices, _this.choices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,gateway,user,name,role,connected,current,const DeepCollectionEquality().hash(grants),const DeepCollectionEquality().hash(choices));
+int get hashCode {
+  final _this = this as SiteState;
+  return Object.hash(runtimeType,_this.gateway,_this.user,_this.name,_this.role,_this.connected,_this.current,const DeepCollectionEquality().hash(_this.grants),const DeepCollectionEquality().hash(_this.choices));
+}
 
 @override
 String toString() {
-  return 'SiteState(gateway: $gateway, user: $user, name: $name, role: $role, connected: $connected, current: $current, grants: $grants, choices: $choices)';
+  final _this = this as SiteState;
+  return 'SiteState(gateway: ${_this.gateway}, user: ${_this.user}, name: ${_this.name}, role: ${_this.role}, connected: ${_this.connected}, current: ${_this.current}, grants: ${_this.grants}, choices: ${_this.choices})';
 }
 
 
@@ -63,7 +69,7 @@ class _$SiteStateCopyWithImpl<$Res>
 /// Create a copy of SiteState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? gateway = freezed,Object? user = freezed,Object? name = freezed,Object? role = freezed,Object? connected = null,Object? current = freezed,Object? grants = null,Object? choices = null,}) {
-  return _then(_self.copyWith(
+  return _then(SiteState(
 gateway: freezed == gateway ? _self.gateway : gateway // ignore: cast_nullable_to_non_nullable
 as String?,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
 as String?,name: freezed == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -106,16 +112,18 @@ _$SiteStateCopyWith<_SiteState> get copyWith => __$SiteStateCopyWithImpl<_SiteSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _SiteState&&(identical(other.gateway, gateway) || other.gateway == gateway)&&(identical(other.user, user) || other.user == user)&&(identical(other.name, name) || other.name == name)&&(identical(other.role, role) || other.role == role)&&(identical(other.connected, connected) || other.connected == connected)&&(identical(other.current, current) || other.current == current)&&const DeepCollectionEquality().equals(other.grants, grants)&&const DeepCollectionEquality().equals(other.choices, choices));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SiteState&&(identical(other.gateway, gateway) || other.gateway == gateway)&&(identical(other.user, user) || other.user == user)&&(identical(other.name, name) || other.name == name)&&(identical(other.role, role) || other.role == role)&&(identical(other.connected, connected) || other.connected == connected)&&(identical(other.current, current) || other.current == current)&&const DeepCollectionEquality().equals(other.grants, grants)&&const DeepCollectionEquality().equals(other.choices, choices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,gateway,user,name,role,connected,current,const DeepCollectionEquality().hash(grants),const DeepCollectionEquality().hash(choices));
+int get hashCode {
+    return Object.hash(runtimeType,gateway,user,name,role,connected,current,const DeepCollectionEquality().hash(grants),const DeepCollectionEquality().hash(choices));
+}
 
 @override
 String toString() {
-  return 'SiteState(gateway: $gateway, user: $user, name: $name, role: $role, connected: $connected, current: $current, grants: $grants, choices: $choices)';
+    return 'SiteState(gateway: $gateway, user: $user, name: $name, role: $role, connected: $connected, current: $current, grants: $grants, choices: $choices)';
 }
 
 

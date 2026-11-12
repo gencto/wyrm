@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'problems_state.dart';
@@ -9,6 +9,7 @@ part of 'problems_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $ProblemsStateCopyWith<ProblemsState> get copyWith => _$ProblemsStateCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProblemsState&&const DeepCollectionEquality().equals(other.items, items)&&(identical(other.unread, unread) || other.unread == unread)&&(identical(other.open, open) || other.open == open)&&const DeepCollectionEquality().equals(other.toasts, toasts)&&const DeepCollectionEquality().equals(other.notices, notices));
+  final _this = this as ProblemsState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ProblemsState&&const DeepCollectionEquality().equals(other.items, _this.items)&&(identical(other.unread, _this.unread) || other.unread == _this.unread)&&(identical(other.open, _this.open) || other.open == _this.open)&&const DeepCollectionEquality().equals(other.toasts, _this.toasts)&&const DeepCollectionEquality().equals(other.notices, _this.notices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(items),unread,open,const DeepCollectionEquality().hash(toasts),const DeepCollectionEquality().hash(notices));
+int get hashCode {
+  final _this = this as ProblemsState;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.items),_this.unread,_this.open,const DeepCollectionEquality().hash(_this.toasts),const DeepCollectionEquality().hash(_this.notices));
+}
 
 @override
 String toString() {
-  return 'ProblemsState(items: $items, unread: $unread, open: $open, toasts: $toasts, notices: $notices)';
+  final _this = this as ProblemsState;
+  return 'ProblemsState(items: ${_this.items}, unread: ${_this.unread}, open: ${_this.open}, toasts: ${_this.toasts}, notices: ${_this.notices})';
 }
 
 
@@ -63,7 +69,7 @@ class _$ProblemsStateCopyWithImpl<$Res>
 /// Create a copy of ProblemsState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? items = null,Object? unread = null,Object? open = null,Object? toasts = null,Object? notices = null,}) {
-  return _then(_self.copyWith(
+  return _then(ProblemsState(
 items: null == items ? _self.items : items // ignore: cast_nullable_to_non_nullable
 as IList<StudioError>,unread: null == unread ? _self.unread : unread // ignore: cast_nullable_to_non_nullable
 as int,open: null == open ? _self.open : open // ignore: cast_nullable_to_non_nullable
@@ -100,16 +106,18 @@ _$ProblemsStateCopyWith<_ProblemsState> get copyWith => __$ProblemsStateCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProblemsState&&const DeepCollectionEquality().equals(other.items, items)&&(identical(other.unread, unread) || other.unread == unread)&&(identical(other.open, open) || other.open == open)&&const DeepCollectionEquality().equals(other.toasts, toasts)&&const DeepCollectionEquality().equals(other.notices, notices));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ProblemsState&&const DeepCollectionEquality().equals(other.items, items)&&(identical(other.unread, unread) || other.unread == unread)&&(identical(other.open, open) || other.open == open)&&const DeepCollectionEquality().equals(other.toasts, toasts)&&const DeepCollectionEquality().equals(other.notices, notices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(items),unread,open,const DeepCollectionEquality().hash(toasts),const DeepCollectionEquality().hash(notices));
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(items),unread,open,const DeepCollectionEquality().hash(toasts),const DeepCollectionEquality().hash(notices));
+}
 
 @override
 String toString() {
-  return 'ProblemsState(items: $items, unread: $unread, open: $open, toasts: $toasts, notices: $notices)';
+    return 'ProblemsState(items: $items, unread: $unread, open: $open, toasts: $toasts, notices: $notices)';
 }
 
 

@@ -15,13 +15,14 @@ import 'package:business/redux/system/actions/set_tab_action.dart'
     as system_slice;
 import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/pages/system_page.dart';
 
+import '../common/app_store.dart';
 import '../errors.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -76,7 +77,7 @@ void showUserException({
   required UserException userException,
   required bool useLocalContext,
 }) {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   final thrown = studioExceptionOf(userException, null);
   var e = thrown.error;
   if (userException is! StudioException) {
@@ -104,7 +105,7 @@ void showUserException({
 /// *Details* of a toast or of a card in Problems: the dialog of the problem
 /// [id], read only. It repeats no write and counts nothing down.
 Future<void> showProblemDetails(BuildContext context, int id) async {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   final e = store.state.problems.items.where((p) => p.id == id).firstOrNull;
   if (e == null || _open) {
     return;
@@ -176,7 +177,7 @@ Future<void> _show(
           );
         case .log:
           aimLogAt(store, e);
-          store.dispatch(GoAction.navigate(const SystemRoute()));
+          store.dispatchSync(GoAction.navigate(const SystemRoute()));
           unawaited(store.dispatchAndWait(RetrieveSystemLogAction()));
         case .ok || .form:
           // Back to the form: the form is under this dialog, with its
@@ -190,7 +191,7 @@ Future<void> _show(
         store
           ..dispatchSync(access_slice.SetTabAction('users'))
           ..dispatchSync(SetSelectedAction(store.state.site.user))
-          ..dispatch(GoAction.navigate(const AccessRoute()));
+          ..dispatchSync(GoAction.navigate(const AccessRoute()));
       }
     case _Closed.dismissed:
       break;

@@ -48,10 +48,12 @@ class AgentTasksService extends DisposableServiceInterface {
     final prefix = '$agent/tasks/';
     _sub = api.subscribe('$prefix*').listen(
       (e) {
-        if (e case ValSample(
-          :final key,
-          :final sample,
-        ) when key.startsWith(prefix)) {
+        if (e
+            case ValSample(
+              :final key,
+              :final sample,
+            )
+            when key.startsWith(prefix)) {
           final id = key.substring(prefix.length);
           _listener.onTaskState(id, taskStateOf(str(sample.v['state'])));
         }
@@ -70,7 +72,7 @@ class AgentTasksService extends DisposableServiceInterface {
 
   @override
   Future<void> dispose() async {
-    super.dispose();
+    await super.dispose();
     detach();
   }
 }

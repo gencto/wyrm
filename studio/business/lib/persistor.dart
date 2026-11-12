@@ -1,6 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/panel_slot.dart';
 import 'package:storage/storage.dart';
 

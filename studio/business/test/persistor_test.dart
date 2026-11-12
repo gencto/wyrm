@@ -1,8 +1,8 @@
 import 'package:business/persistor.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/panel_slot.dart';
 import 'package:storage/storage.dart';
 

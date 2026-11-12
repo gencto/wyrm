@@ -7,11 +7,12 @@ import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/store.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:pro_pretty_logging/pro_pretty_logging.dart';
 
 import 'app.dart';
+import 'common/app_store.dart';
 import 'common/window.dart';
 import 'errors.dart';
 import 'faults.dart';
@@ -83,7 +84,10 @@ Future<void> runEnv(Environment env) async {
   runApp(
     StoreProvider(
       store: store,
-      child: AppConnector(routerConfig: routerConfig),
+      child: AppStore(
+        store: store,
+        child: AppConnector(routerConfig: routerConfig),
+      ),
     ),
   );
 }

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'window_state.dart';
@@ -9,6 +9,7 @@ part of 'window_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $WindowStateCopyWith<WindowState> get copyWith => _$WindowStateCopyWithImpl<Wind
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is WindowState&&(identical(other.maximized, maximized) || other.maximized == maximized)&&(identical(other.fullScreen, fullScreen) || other.fullScreen == fullScreen)&&(identical(other.left, left) || other.left == left)&&(identical(other.top, top) || other.top == top)&&(identical(other.width, width) || other.width == width)&&(identical(other.height, height) || other.height == height));
+  final _this = this as WindowState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is WindowState&&(identical(other.maximized, _this.maximized) || other.maximized == _this.maximized)&&(identical(other.fullScreen, _this.fullScreen) || other.fullScreen == _this.fullScreen)&&(identical(other.left, _this.left) || other.left == _this.left)&&(identical(other.top, _this.top) || other.top == _this.top)&&(identical(other.width, _this.width) || other.width == _this.width)&&(identical(other.height, _this.height) || other.height == _this.height));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,maximized,fullScreen,left,top,width,height);
+int get hashCode {
+  final _this = this as WindowState;
+  return Object.hash(runtimeType,_this.maximized,_this.fullScreen,_this.left,_this.top,_this.width,_this.height);
+}
 
 @override
 String toString() {
-  return 'WindowState(maximized: $maximized, fullScreen: $fullScreen, left: $left, top: $top, width: $width, height: $height)';
+  final _this = this as WindowState;
+  return 'WindowState(maximized: ${_this.maximized}, fullScreen: ${_this.fullScreen}, left: ${_this.left}, top: ${_this.top}, width: ${_this.width}, height: ${_this.height})';
 }
 
 
@@ -63,7 +69,7 @@ class _$WindowStateCopyWithImpl<$Res>
 /// Create a copy of WindowState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? maximized = null,Object? fullScreen = null,Object? left = freezed,Object? top = freezed,Object? width = freezed,Object? height = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(WindowState(
 maximized: null == maximized ? _self.maximized : maximized // ignore: cast_nullable_to_non_nullable
 as bool,fullScreen: null == fullScreen ? _self.fullScreen : fullScreen // ignore: cast_nullable_to_non_nullable
 as bool,left: freezed == left ? _self.left : left // ignore: cast_nullable_to_non_nullable
@@ -102,16 +108,18 @@ _$WindowStateCopyWith<_WindowState> get copyWith => __$WindowStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _WindowState&&(identical(other.maximized, maximized) || other.maximized == maximized)&&(identical(other.fullScreen, fullScreen) || other.fullScreen == fullScreen)&&(identical(other.left, left) || other.left == left)&&(identical(other.top, top) || other.top == top)&&(identical(other.width, width) || other.width == width)&&(identical(other.height, height) || other.height == height));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _WindowState&&(identical(other.maximized, maximized) || other.maximized == maximized)&&(identical(other.fullScreen, fullScreen) || other.fullScreen == fullScreen)&&(identical(other.left, left) || other.left == left)&&(identical(other.top, top) || other.top == top)&&(identical(other.width, width) || other.width == width)&&(identical(other.height, height) || other.height == height));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,maximized,fullScreen,left,top,width,height);
+int get hashCode {
+    return Object.hash(runtimeType,maximized,fullScreen,left,top,width,height);
+}
 
 @override
 String toString() {
-  return 'WindowState(maximized: $maximized, fullScreen: $fullScreen, left: $left, top: $top, width: $width, height: $height)';
+    return 'WindowState(maximized: $maximized, fullScreen: $fullScreen, left: $left, top: $top, width: $width, height: $height)';
 }
 
 

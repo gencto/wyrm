@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'assistant_state.dart';
@@ -9,6 +9,7 @@ part of 'assistant_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $AssistantStateCopyWith<AssistantState> get copyWith => _$AssistantStateCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg));
+  final _this = this as AssistantState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AssistantState&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.panel, _this.panel) || other.panel == _this.panel)&&(identical(other.agent, _this.agent) || other.agent == _this.agent)&&(identical(other.cfg, _this.cfg) || other.cfg == _this.cfg));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,draft,panel,agent,cfg);
+int get hashCode {
+  final _this = this as AssistantState;
+  return Object.hash(runtimeType,_this.draft,_this.panel,_this.agent,_this.cfg);
+}
 
 @override
 String toString() {
-  return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg)';
+  final _this = this as AssistantState;
+  return 'AssistantState(draft: ${_this.draft}, panel: ${_this.panel}, agent: ${_this.agent}, cfg: ${_this.cfg})';
 }
 
 
@@ -63,7 +69,7 @@ class _$AssistantStateCopyWithImpl<$Res>
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,}) {
-  return _then(_self.copyWith(
+  return _then(AssistantState(
 draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as String?,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
 as String,agent: freezed == agent ? _self.agent : agent // ignore: cast_nullable_to_non_nullable
@@ -98,16 +104,18 @@ _$AssistantStateCopyWith<_AssistantState> get copyWith => __$AssistantStateCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,draft,panel,agent,cfg);
+int get hashCode {
+    return Object.hash(runtimeType,draft,panel,agent,cfg);
+}
 
 @override
 String toString() {
-  return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg)';
+    return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg)';
 }
 
 
