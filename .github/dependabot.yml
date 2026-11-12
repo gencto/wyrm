@@ -1,0 +1,33 @@
+# Dependabot (security policy: SECURITY.md).
+# - cargo: security updates only. Version upgrades are planned by hand: zenoh is pinned to an exact
+#   version and moved quarterly with the fixture suite, rustls is pinned on purpose (ADR 0029 item 6).
+#   `cargo audit` (ci.yml, audit.yml) is the gate; accepted advisories are in .cargo/audit.toml.
+# - github-actions: every action is pinned to a commit SHA; Dependabot moves the SHA and the comment.
+# - pub: Studio (one pub workspace, studio/pubspec.lock) and the Dart SDK packages.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 0
+    labels: [dependencies, rust]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies, ci]
+
+  - package-ecosystem: pub
+    directories:
+      - "/studio"
+      - "/dart/wyrm_core"
+      - "/dart/wyrm_client"
+      - "/dart/wyrm_ffi"
+    schedule: { interval: weekly, day: monday }
+    groups:
+      pub-minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies, dart]

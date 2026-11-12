@@ -757,10 +757,22 @@ index of a release names the files of that release, so a broker that read
 the index just before the next release still installs matching files.
 
 **Trust.** The index is fetched over HTTPS from github.com and every zip is
-checked against its SHA-256. Neither the index nor the packages are signed
-yet: whoever can write release assets of the repository can change what
-brokers install. The install still shows the network and grants a package
-asks for before it runs anything (§13).
+checked against its SHA-256. The broker checks no signature: whoever can
+write release assets of the repository can change what brokers install. The
+install still shows the network and grants a package asks for before it runs
+anything (§13).
+
+**Provenance.** Since the release after `links-v2026.11.12`, the workflow
+attests every zip and `links-index.json` (GitHub build provenance, SLSA): the
+attestation names the workflow, the commit and the tag that built the file.
+Check a file before you install it by hand or mirror it:
+
+```sh
+gh attestation verify example-link-1.0.0-linux-x86_64.zip -R gencto/wyrm
+```
+
+A file that fails this check did not come from the release workflow of this
+repository. `links-v2026.11.12` has no attestations; check it by `SHA256SUMS`.
 
 ## 13. Trust and security
 

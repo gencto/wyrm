@@ -186,6 +186,7 @@ Start at [docs/README.md](docs/README.md). It lists a guide for each task and ea
 - [operations.md](docs/operations.md): systemd, backup and restore, standby.
 - [`spec/`](spec/README.md): keys, metadata, values, tokens, methods, flow definitions.
 - [`docs/adr/`](docs/adr/): one file per decision.
+- [SECURITY.md](SECURITY.md): how to report a vulnerability, what is supported.
 
 ## Development
 
