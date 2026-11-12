@@ -150,21 +150,25 @@ void main() {
       await batch();
       expect(s.state.historian.series[a]!.length, 2);
 
-      api.subs[a]!.add(ValSample(a, Sample(const VFloat(7), t: now())));
+      // One 12 s slot (the 1 h bucket; it nests in the 24 h one, both from
+      // the epoch): times read by `now()` apart could fall in two slots.
+      // The next slot, so that the read's first row is older than 1 h of it.
+      final t = (now() ~/ 12000000 + 1) * 12000000 + 1000;
+      api.subs[a]!.add(ValSample(a, Sample(const VFloat(7), t: t)));
       await batch();
       final series = s.state.historian.series[a]!;
       expect(series.length, 3);
       expect(series.last.value, 7);
 
       // A sample in the same bucket (24 h / 300 ≈ 4.8 min) takes its place.
-      api.subs[a]!.add(ValSample(a, Sample(const VBool(true), t: now())));
+      api.subs[a]!.add(ValSample(a, Sample(const VBool(true), t: t + 1)));
       await batch();
       expect(s.state.historian.series[a]!.length, 3);
       expect(s.state.historian.series[a]!.last.value, 1);
 
       // Points older than the range drop off (1 h: the first one).
       s.dispatchSync(SetRangeAction('1h'));
-      api.subs[a]!.add(ValSample(a, Sample(const VFloat(8), t: now())));
+      api.subs[a]!.add(ValSample(a, Sample(const VFloat(8), t: t + 2)));
       await batch();
       expect(s.state.historian.series[a]!.map((p) => p.value), [2, 8]);
 
