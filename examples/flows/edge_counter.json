@@ -1,0 +1,31 @@
+{
+  "id": "edge_counter",
+  "version": 1,
+  "description": "Counts the rising edges of a digital input (here: the point going above 25), in all and since local midnight.",
+  "nodes": {
+    "input": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "as_bool": { "type": "if", "op": ">", "values": { "in.1": 25 } },
+    "edge": { "type": "rising_edge" },
+    "total": { "type": "counter" },
+    "today": { "type": "counter" },
+    "day": {
+      "type": "date_range",
+      "time_zone": "Europe/Kyiv",
+      "values": { "in": "today" }
+    },
+    "new_day": { "type": "changed" },
+    "count_total": { "type": "publish", "node": "count_total", "meta": { "type": "number" } },
+    "count_today": { "type": "publish", "node": "count_today", "meta": { "type": "number" } }
+  },
+  "edges": [
+    ["input.out", "as_bool.in.0"],
+    ["as_bool.out", "edge.in"],
+    ["edge.on_edge", "total.in"],
+    ["edge.on_edge", "today.in"],
+    ["day.start", "new_day.in"],
+    ["new_day.on_change", "today.reset"],
+    ["total.out", "count_total.in"],
+    ["today.out", "count_today.in"]
+  ],
+  "policy": { "state_flush_s": 10 }
+}

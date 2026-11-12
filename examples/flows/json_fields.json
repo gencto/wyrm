@@ -1,0 +1,26 @@
+{
+  "id": "json_fields",
+  "version": 1,
+  "description": "A point that holds a JSON text, split into fields: temperature, status and the first alarm; parse_error says the text was no JSON.",
+  "nodes": {
+    "src": { "type": "subscribe", "key": "storage/plant/status_json" },
+    "parse": { "type": "json_parse" },
+    "temp": { "type": "get", "path": "temperature" },
+    "status": { "type": "get", "path": "status" },
+    "alarm": { "type": "get", "path": "alarms.0" },
+    "temperature": { "type": "publish", "node": "temperature", "meta": { "type": "number" } },
+    "state": { "type": "publish", "node": "state", "meta": { "type": "string" } },
+    "first_alarm": { "type": "publish", "node": "first_alarm" },
+    "parse_error": { "type": "publish", "node": "parse_error", "meta": { "type": "bool" } }
+  },
+  "edges": [
+    ["src.out", "parse.in"],
+    ["parse.out", "temp.in"],
+    ["parse.out", "status.in"],
+    ["parse.out", "alarm.in"],
+    ["temp.out", "temperature.in"],
+    ["status.out", "state.in"],
+    ["alarm.out", "first_alarm.in"],
+    ["parse.parse_error", "parse_error.in"]
+  ]
+}

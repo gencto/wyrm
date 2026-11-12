@@ -1,0 +1,31 @@
+{
+  "id": "setpoint_schedule",
+  "version": 1,
+  "description": "Day and night setpoint: 21 from 07:00 to 18:59 local time, else 17, written to the point when the period changes (never at deploy).",
+  "nodes": {
+    "clock": { "type": "now", "interval_ms": 60000 },
+    "parts": { "type": "date_parse", "time_zone": "Europe/Kyiv" },
+    "day_time": {
+      "type": "if",
+      "op": "<=",
+      "inputs": ["from", "hour", "to"],
+      "values": { "in.from": 7, "in.to": 18 },
+      "then": 21,
+      "else": 17
+    },
+    "write": {
+      "type": "set",
+      "path": "downstream/mock/p3",
+      "auto_run": true,
+      "run_on_start": false
+    },
+    "setpoint": { "type": "publish", "node": "setpoint", "meta": { "type": "number", "unit": "°C" } }
+  },
+  "edges": [
+    ["clock.out", "parts.in"],
+    ["parts.hour", "day_time.in.hour"],
+    ["day_time.out", "write.in"],
+    ["day_time.out", "setpoint.in"]
+  ],
+  "permissions": { "maxperm": "write" }
+}

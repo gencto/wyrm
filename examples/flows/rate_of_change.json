@@ -1,0 +1,26 @@
+{
+  "id": "rate_of_change",
+  "version": 1,
+  "description": "Rate of change of a level over the last 60 s in units per minute, and a flag when it rises faster than 2 per minute.",
+  "nodes": {
+    "level": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "rate": { "type": "window", "kind": "sliding", "size_s": 60, "fn": "rate" },
+    "per_min": { "type": "scale", "k": 60 },
+    "rate_r": { "type": "round", "precision": 3 },
+    "fast": { "type": "alarm", "high": 2, "hysteresis": 0.5 },
+    "rate_per_min": {
+      "type": "publish",
+      "node": "rate_per_min",
+      "meta": { "type": "number", "unit": "1/min" }
+    },
+    "rising_fast": { "type": "publish", "node": "rising_fast", "meta": { "type": "bool" } }
+  },
+  "edges": [
+    ["level.out", "rate.in"],
+    ["rate.out", "per_min.in"],
+    ["per_min.out", "rate_r.in"],
+    ["rate_r.out", "rate_per_min.in"],
+    ["per_min.out", "fast.in"],
+    ["fast.out", "rising_fast.in"]
+  ]
+}

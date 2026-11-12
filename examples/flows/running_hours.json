@@ -1,0 +1,25 @@
+{
+  "id": "running_hours",
+  "version": 1,
+  "description": "Running hours of a pump: a stopwatch counts seconds while the pump runs (here: while the point is above 20); the count is kept across hot swaps and restarts.",
+  "nodes": {
+    "status": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "running": { "type": "if", "op": ">", "values": { "in.1": 20 } },
+    "clock": { "type": "stopwatch", "interval": 1, "step": 1 },
+    "to_hours": { "type": "divide", "values": { "in.1": 3600 } },
+    "hours_r": { "type": "round", "precision": 2 },
+    "seconds": { "type": "publish", "node": "seconds", "meta": { "type": "number", "unit": "s" } },
+    "hours": { "type": "publish", "node": "hours", "meta": { "type": "number", "unit": "h" } },
+    "is_running": { "type": "publish", "node": "running", "meta": { "type": "bool" } }
+  },
+  "edges": [
+    ["status.out", "running.in.0"],
+    ["running.out", "clock.in.enabled"],
+    ["running.out", "is_running.in"],
+    ["clock.out", "seconds.in"],
+    ["clock.out", "to_hours.in.0"],
+    ["to_hours.out", "hours_r.in"],
+    ["hours_r.out", "hours.in"]
+  ],
+  "policy": { "state_flush_s": 10 }
+}

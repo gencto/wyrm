@@ -1,0 +1,42 @@
+{
+  "id": "condition_setpoint",
+  "version": 1,
+  "description": "Write on a condition: when the temperature stays above 28 for 10 s, write 1 to a command point; when it is back below 26, write 0. Only the edges write: a deploy writes nothing.",
+  "nodes": {
+    "temp": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "hot": { "type": "alarm", "high": 28, "hysteresis": 2, "delay_s": 10 },
+    "went_hot": { "type": "rising_edge" },
+    "went_ok": { "type": "falling_edge" },
+    "on_value": { "type": "number", "value": 1 },
+    "off_value": { "type": "number", "value": 0 },
+    "fan_on": {
+      "type": "set",
+      "path": "downstream/mock/p3",
+      "auto_run": false,
+      "run_on_start": false
+    },
+    "fan_off": {
+      "type": "set",
+      "path": "downstream/mock/p3",
+      "auto_run": false,
+      "run_on_start": false
+    },
+    "errors": { "type": "catch_error", "inputs": ["on", "off"] },
+    "hot_now": { "type": "publish", "node": "hot", "meta": { "type": "bool" } },
+    "last_error": { "type": "publish", "node": "last_error", "meta": { "type": "string" } }
+  },
+  "edges": [
+    ["temp.out", "hot.in"],
+    ["hot.out", "went_hot.in"],
+    ["hot.out", "went_ok.in"],
+    ["hot.out", "hot_now.in"],
+    ["on_value.out", "fan_on.in"],
+    ["off_value.out", "fan_off.in"],
+    ["went_hot.on_edge", "fan_on.trigger"],
+    ["went_ok.on_edge", "fan_off.trigger"],
+    ["fan_on.error", "errors.in.on"],
+    ["fan_off.error", "errors.in.off"],
+    ["errors.out", "last_error.in"]
+  ],
+  "permissions": { "maxperm": "write" }
+}
