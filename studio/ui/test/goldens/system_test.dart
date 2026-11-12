@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/pages/system_page.dart';
 
@@ -16,6 +17,7 @@ void main() {
     test('goldens', () {}, skip: 'goldens are compared on macOS');
     return;
   }
+  setUpAll(() => S.load(const Locale('en')));
 
   Future<void> shoot(WidgetTester tester, String name, Widget page) async {
     tester.view.physicalSize = const Size(1364, 944);

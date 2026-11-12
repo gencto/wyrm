@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/segmented_tabs.dart';
-import '../charts/trend_chart.dart';
+import '../charts/trend.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/section_label.dart';
 import '../containers/side_panels.dart';
@@ -42,8 +42,8 @@ class HistoryPage extends StatelessWidget {
     required this.range,
     required this.onRange,
     required this.trend,
-    required this.trendLabels,
     required this.trendEmpty,
+    required this.onTrendWindow,
     required this.pointsLabel,
     required this.columns,
     required this.points,
@@ -59,6 +59,8 @@ class HistoryPage extends StatelessWidget {
     this.inspector,
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
+    this.onTrendToggle,
+    this.onTrendReset,
     super.key,
   });
 
@@ -73,9 +75,17 @@ class HistoryPage extends StatelessWidget {
   final List<TabItemVm> ranges;
   final String range;
   final ValueChanged<String> onRange;
-  final List<TrendSeriesVm> trend;
-  final (String, String) trendLabels;
+
+  /// The picked points' trend; null while none is picked.
+  final TrendVm? trend;
+
+  /// Shown in place of the trend while no point is picked.
   final String trendEmpty;
+
+  /// The trend's window (µs), its legend toggles and `Reset zoom`.
+  final void Function(int start, int end) onTrendWindow;
+  final ValueChanged<String>? onTrendToggle;
+  final VoidCallback? onTrendReset;
   final String pointsLabel;
   final List<ColumnVm> columns;
   final List<RowVm> points;
@@ -214,20 +224,27 @@ class HistoryPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 18),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: c.ground1,
-                  border: .all(color: c.line1),
-                  borderRadius: Radii.card,
+              if (trend case final t?)
+                Trend(
+                  vm: t,
+                  onWindow: onTrendWindow,
+                  onSeriesToggle: onTrendToggle,
+                  onReset: onTrendReset,
+                )
+              else
+                Container(
+                  height: 200,
+                  alignment: .center,
+                  decoration: BoxDecoration(
+                    color: c.ground1,
+                    border: .all(color: c.line1),
+                    borderRadius: Radii.card,
+                  ),
+                  child: Text(
+                    trendEmpty,
+                    style: TextStyle(fontSize: 13, color: c.text4),
+                  ),
                 ),
-                child: TrendChart(
-                  series: trend,
-                  empty: trendEmpty,
-                  timeLabels: trendLabels,
-                  height: 260,
-                ),
-              ),
               const SizedBox(height: 22),
               SectionLabel(pointsLabel),
               if (pointsHint case final hint?) ...[

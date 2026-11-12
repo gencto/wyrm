@@ -155,11 +155,28 @@ class FakeWyrmApi implements WyrmApi {
     String? window,
     int? limit,
   }) async {
-    calls.add(Call('history', key));
+    calls.add(
+      Call(
+        'history',
+        key,
+        args: VMap({
+          'from': VStr(from),
+          'to': VStr(to),
+          if (agg != null) 'agg': VStr(agg),
+          if (window != null) 'window': VStr(window),
+          if (limit != null) 'limit': VInt(limit),
+        }),
+      ),
+    );
     if (errors['$key ▸ history'] case final e?) {
       throw e;
     }
-    return histories[key] ?? const [];
+    // `<key> ▸ <agg>` answers a rollup of its own (min, max), and
+    // `<key> ▸ <window>` a window of its own (`1m`).
+    return histories['$key ▸ $agg'] ??
+        histories['$key ▸ $window'] ??
+        histories[key] ??
+        const [];
   }
 
   var closed = false;

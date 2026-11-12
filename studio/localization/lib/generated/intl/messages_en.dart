@@ -527,38 +527,70 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m223(site) => "Tree · ${site}";
 
-  static String m224(unit) => "unit ${unit}";
+  static String m224(step) => "${step} avg";
 
-  static String m225(d) => "up ${d}";
+  static String m225(rollup, from, to) => "${rollup} · ${from}–${to}";
 
-  static String m226(v) => "Version ${v} · deployed";
+  static String m226(at, delta, key, over) =>
+      "Δ from A (${at}): ${delta} ${key} over ${over}";
 
-  static String m227(site) => "via ${site}";
+  static String m227(what, range) =>
+      "${what}, ${range}. Use the window below to choose the range.";
 
-  static String m228(delimiter, header) =>
+  static String m228(h, m) => "${h} h ${m} min";
+
+  static String m229(key) => "You may not read ${key}";
+
+  static String m230(t) => "A · ${t}";
+
+  static String m231(min, max) => "min ${min} · max ${max}";
+
+  static String m232(m) => "${m} min";
+
+  static String m233(t) => "raw · ${t}";
+
+  static String m234(s) => "${s} s";
+
+  static String m235(name) => "Show or hide ${name}";
+
+  static String m236(n) => "${n} d";
+
+  static String m237(n) => "${n} h";
+
+  static String m238(n) => "${n} min";
+
+  static String m239(unit) => "unit ${unit}";
+
+  static String m240(d) => "up ${d}";
+
+  static String m241(v) => "Version ${v} · deployed";
+
+  static String m242(site) => "via ${site}";
+
+  static String m243(delimiter, header) =>
       "Read as the block reads it: delimiter ${delimiter}, ${header}";
 
-  static String m229(keys) => "${keys} saves · Esc cancels";
+  static String m244(keys) => "${keys} saves · Esc cancels";
 
-  static String m230(keys) => "${keys} saves · Esc discards the changes";
+  static String m245(keys) => "${keys} saves · Esc discards the changes";
 
-  static String m231(n, who) => "${n} waiting to be let in: ${who}";
+  static String m246(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m232(value) => "was ${value}";
+  static String m247(value) => "was ${value}";
 
-  static String m233(n) => "Watch groups · ${n}";
+  static String m248(n) => "Watch groups · ${n}";
 
-  static String m234(user) => "Welcome, ${user}";
+  static String m249(user) => "Welcome, ${user}";
 
-  static String m235(value) => "would run on ${value}";
+  static String m250(value) => "would run on ${value}";
 
-  static String m236(value) => "would send ${value}";
+  static String m251(value) => "would send ${value}";
 
-  static String m237(value) => "would write ${value}";
+  static String m252(value) => "would write ${value}";
 
-  static String m238(level) => "Turning this on needs ${level} level";
+  static String m253(level) => "Turning this on needs ${level} level";
 
-  static String m239(site) => "wyrmd on ${site}";
+  static String m254(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2441,10 +2473,68 @@ class MessageLookup extends MessageLookupByLibrary {
     "treePointNote2": MessageLookupByLibrary.simpleMessage(
       "on the canvas: a block that reads it (a writable point asks Read or Write; Alt writes). On a field: wired into it.",
     ),
+    "trendAll": MessageLookupByLibrary.simpleMessage("all"),
+    "trendAllHidden": MessageLookupByLibrary.simpleMessage(
+      "All series are hidden.",
+    ),
+    "trendAvg": m224,
+    "trendBadRecorded": MessageLookupByLibrary.simpleMessage(
+      "bad quality recorded",
+    ),
+    "trendBucket": m225,
+    "trendClearMarker": MessageLookupByLibrary.simpleMessage(
+      "Click A again to clear it",
+    ),
+    "trendDelta": m226,
+    "trendDescribe": m227,
+    "trendFollowNow": MessageLookupByLibrary.simpleMessage("Follow now"),
+    "trendHint": MessageLookupByLibrary.simpleMessage(
+      "Hover for values · drag on the chart to zoom · click to set marker A · drag or resize the window below · double-click resets · ← → move the focused handle",
+    ),
+    "trendHoursMinutes": m228,
+    "trendLocked": m229,
+    "trendMarker": m230,
+    "trendMinMax": m231,
+    "trendMinutes": m232,
+    "trendMonths": MessageLookupByLibrary.simpleMessage(
+      "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec",
+    ),
+    "trendMoveWindow": MessageLookupByLibrary.simpleMessage(
+      "Drag to move the window",
+    ),
+    "trendNoData": MessageLookupByLibrary.simpleMessage("no data"),
+    "trendNoDataRecorded": MessageLookupByLibrary.simpleMessage(
+      "no data recorded",
+    ),
+    "trendNothing": MessageLookupByLibrary.simpleMessage(
+      "No values recorded in this range.",
+    ),
+    "trendNow": MessageLookupByLibrary.simpleMessage("now"),
+    "trendRaw": MessageLookupByLibrary.simpleMessage("raw"),
+    "trendRawAt": m233,
+    "trendResetZoom": MessageLookupByLibrary.simpleMessage("Reset zoom"),
+    "trendSeconds": m234,
+    "trendSetMarker": MessageLookupByLibrary.simpleMessage(
+      "Click to set marker A",
+    ),
+    "trendShowHide": m235,
+    "trendStepDays": m236,
+    "trendStepHours": m237,
+    "trendStepMinutes": m238,
+    "trendUncertain": MessageLookupByLibrary.simpleMessage(
+      "uncertain · stale reads in this bucket",
+    ),
+    "trendWeekdays": MessageLookupByLibrary.simpleMessage(
+      "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
+    ),
+    "trendWindowEnd": MessageLookupByLibrary.simpleMessage("End of the window"),
+    "trendWindowStart": MessageLookupByLibrary.simpleMessage(
+      "Start of the window",
+    ),
     "tryAgain": MessageLookupByLibrary.simpleMessage("Try again"),
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn on"),
     "unbind": MessageLookupByLibrary.simpleMessage("Unbind"),
-    "unitNumber": m224,
+    "unitNumber": m239,
     "unpinField": MessageLookupByLibrary.simpleMessage("Unpin from block"),
     "unreachableAdvice": MessageLookupByLibrary.simpleMessage(
       "The broker may be restarting or this computer is on another network.",
@@ -2452,7 +2542,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "The point stops being recorded; its rows stay.",
     ),
-    "upFor": m225,
+    "upFor": m240,
     "updating": MessageLookupByLibrary.simpleMessage("Updating…"),
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
     "upstreamBroker": MessageLookupByLibrary.simpleMessage("Upstream broker"),
@@ -2471,8 +2561,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "a preview of the draft; nothing is written",
     ),
-    "versionDeployed": m226,
-    "viaSite": m227,
+    "versionDeployed": m241,
+    "viaSite": m242,
     "viewValue": MessageLookupByLibrary.simpleMessage("View value"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true or false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -2488,7 +2578,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerCsvRefused": MessageLookupByLibrary.simpleMessage(
       "The block refuses this text (parse_error): it has no row, or it passes a bound of a table.",
     ),
-    "viewerCsvRules": m228,
+    "viewerCsvRules": m243,
     "viewerCsvWired": MessageLookupByLibrary.simpleMessage(
       "A wire feeds the delimiter or the header: the table uses the values they hold now.",
     ),
@@ -2508,19 +2598,19 @@ class MessageLookup extends MessageLookupByLibrary {
       "Read only: the block computes this output.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Save"),
-    "viewerSaveHint": m229,
+    "viewerSaveHint": m244,
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("As table"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Text"),
-    "viewerTableHint": m230,
+    "viewerTableHint": m245,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m231,
-    "wasValue": m232,
+    "waitingToBeLetIn": m246,
+    "wasValue": m247,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m233,
-    "welcomeUser": m234,
+    "watchGroups": m248,
+    "welcomeUser": m249,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
@@ -2556,10 +2646,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "wouldRun": m235,
-    "wouldSend": m236,
-    "wouldWrite": m237,
-    "writableNeeds": m238,
+    "wouldRun": m250,
+    "wouldSend": m251,
+    "wouldWrite": m252,
+    "writableNeeds": m253,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.",
     ),
@@ -2571,7 +2661,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m239,
+    "wyrmdOn": m254,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

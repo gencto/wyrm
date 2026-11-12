@@ -4,6 +4,7 @@
 import 'package:ui/alerts/warn_banner.dart';
 import 'package:ui/buttons/pill_tabs.dart';
 import 'package:ui/charts/traffic_card.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/attention_panel.dart';
 import 'package:ui/containers/command_card.dart';
 import 'package:ui/containers/guide_card.dart';
@@ -17,6 +18,8 @@ import 'package:ui/pages/system_page.dart';
 import 'package:ui/tables/log_table.dart';
 import 'package:ui/tables/row_list.dart';
 import 'package:ui/tables/term_table.dart';
+
+import 'trend.dart';
 
 // The data of boards `System`, `SystemAvail`, `SystemAvailLag`,
 // `SystemAvailNone`, `SystemLog` and `SystemMaint` (design canvas), as
@@ -50,6 +53,55 @@ List<double> _curve(String points) {
     }
   }
   return out;
+}
+
+/// The board's two lines as a live trend: 41 samples over the hour from
+/// 01:02 (UTC) to 02:02, in msg/s (the board's 120 px box × 80).
+TrendVm _traffic(List<double> inward, List<double> outward) {
+  final t0 = DateTime.utc(2026, 11, 12, 1, 2).microsecondsSinceEpoch;
+  const step = 90 * 1000000;
+  List<TrendSample> line(List<double> v) => [
+    for (final (i, x) in v.indexed) TrendSample(t0 + i * step, x * 80),
+  ];
+  final end = t0 + (inward.length - 1) * step;
+  return TrendVm(
+    title: 'messages in and out per second over the last hour',
+    series: [
+      TrendSeriesVm(
+        id: 'in',
+        name: 'messages_in_per_second',
+        label: 'in',
+        color: .good,
+        unit: 'msg/s',
+        decimals: 0,
+        samples: line(inward),
+        overview: line(inward),
+      ),
+      TrendSeriesVm(
+        id: 'out',
+        name: 'messages_out_per_second',
+        label: 'out',
+        color: .text4,
+        unit: 'msg/s',
+        decimals: 0,
+        samples: line(outward),
+        overview: line(outward),
+      ),
+    ],
+    rangeStart: t0,
+    rangeEnd: end,
+    windowStart: t0,
+    windowEnd: end,
+    rollup: 'raw',
+    minWindow: 10 * step,
+    endsNow: true,
+    live: true,
+    card: false,
+    legend: false,
+    hint: false,
+    plotHeight: 120,
+    format: trendFormat,
+  );
 }
 
 const _reason = 'needs config on sys';
@@ -247,23 +299,18 @@ SystemPage _page({
         inNow: dash ?? '5,120',
         outNow: dash ?? '4,870',
         unit: 'msg/s',
-        inSeries: loading
-            ? const []
-            : _curve(
-                '0,58 40,57 80,59 120,56 160,57 200,58 240,57 280,56 320,57 360,58 400,57 440,104 460,70 480,58 520,57 560,56 600,58 640,57 680,55 720,57 760,56 800,57',
+        trend: loading
+            ? null
+            : _traffic(
+                _curve(
+                  '0,58 40,57 80,59 120,56 160,57 200,58 240,57 280,56 320,57 360,58 400,57 440,104 460,70 480,58 520,57 560,56 600,58 640,57 680,55 720,57 760,56 800,57',
+                ),
+                _curve(
+                  '0,52 40,50 80,51 120,49 160,50 200,52 240,51 280,50 320,49 360,51 400,50 440,96 460,62 480,51 520,50 560,49 600,51 640,50 680,48 720,50 760,49 800,50',
+                ),
               ),
-        outSeries: loading
-            ? const []
-            : _curve(
-                '0,52 40,50 80,51 120,49 160,50 200,52 240,51 280,50 320,49 360,51 400,50 440,96 460,62 480,51 520,50 560,49 600,51 640,50 680,48 720,50 760,49 800,50',
-              ),
-        top: 120,
-        axis: loading
-            ? const []
-            : const ['01:02', '01:12 reconnect to edge', '02:02 · now'],
         note: 'Sampled from the `sys` rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.',
         empty: 'Collecting…',
-        describe: 'messages in and out per second over the last hour, steady with one dip at the 01:12 reconnect to edge',
       ),
     ),
     availability: ha == Ha.none

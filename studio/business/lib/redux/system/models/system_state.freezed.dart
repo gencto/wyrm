@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$SystemState {
 
- IList<LogLine> get log; String? get logLevel; String? get filter; String get tab; String get measure; String? get source; int get lines; bool get auto; bool get shown; String? get logError; IList<TrafficSample> get samples; String? get trafficRoot; IList<ProfileInfo> get profiles; String? get profilesNote; int? get aclSeen; IMap<String, String> get about; IMap<String, String> get units; String? get around;
+ IList<LogLine> get log; String? get logLevel; String? get filter; String get tab; String get measure; String? get source; int get lines; bool get auto; bool get shown; String? get logError; IList<TrafficSample> get samples; String? get trafficRoot; IList<ProfileInfo> get profiles; String? get profilesNote; int? get aclSeen; IMap<String, String> get about; IMap<String, String> get units; String? get around; HistWindow? get trafficWindow;
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $SystemStateCopyWith<SystemState> get copyWith => _$SystemStateCopyWithImpl<Syst
 @override
 bool operator ==(Object other) {
   final _this = this as SystemState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SystemState&&const DeepCollectionEquality().equals(other.log, _this.log)&&(identical(other.logLevel, _this.logLevel) || other.logLevel == _this.logLevel)&&(identical(other.filter, _this.filter) || other.filter == _this.filter)&&(identical(other.tab, _this.tab) || other.tab == _this.tab)&&(identical(other.measure, _this.measure) || other.measure == _this.measure)&&(identical(other.source, _this.source) || other.source == _this.source)&&(identical(other.lines, _this.lines) || other.lines == _this.lines)&&(identical(other.auto, _this.auto) || other.auto == _this.auto)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&(identical(other.logError, _this.logError) || other.logError == _this.logError)&&const DeepCollectionEquality().equals(other.samples, _this.samples)&&(identical(other.trafficRoot, _this.trafficRoot) || other.trafficRoot == _this.trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, _this.profiles)&&(identical(other.profilesNote, _this.profilesNote) || other.profilesNote == _this.profilesNote)&&(identical(other.aclSeen, _this.aclSeen) || other.aclSeen == _this.aclSeen)&&(identical(other.about, _this.about) || other.about == _this.about)&&(identical(other.units, _this.units) || other.units == _this.units)&&(identical(other.around, _this.around) || other.around == _this.around));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SystemState&&const DeepCollectionEquality().equals(other.log, _this.log)&&(identical(other.logLevel, _this.logLevel) || other.logLevel == _this.logLevel)&&(identical(other.filter, _this.filter) || other.filter == _this.filter)&&(identical(other.tab, _this.tab) || other.tab == _this.tab)&&(identical(other.measure, _this.measure) || other.measure == _this.measure)&&(identical(other.source, _this.source) || other.source == _this.source)&&(identical(other.lines, _this.lines) || other.lines == _this.lines)&&(identical(other.auto, _this.auto) || other.auto == _this.auto)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&(identical(other.logError, _this.logError) || other.logError == _this.logError)&&const DeepCollectionEquality().equals(other.samples, _this.samples)&&(identical(other.trafficRoot, _this.trafficRoot) || other.trafficRoot == _this.trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, _this.profiles)&&(identical(other.profilesNote, _this.profilesNote) || other.profilesNote == _this.profilesNote)&&(identical(other.aclSeen, _this.aclSeen) || other.aclSeen == _this.aclSeen)&&(identical(other.about, _this.about) || other.about == _this.about)&&(identical(other.units, _this.units) || other.units == _this.units)&&(identical(other.around, _this.around) || other.around == _this.around)&&(identical(other.trafficWindow, _this.trafficWindow) || other.trafficWindow == _this.trafficWindow));
 }
 
 
 @override
 int get hashCode {
   final _this = this as SystemState;
-  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.log),_this.logLevel,_this.filter,_this.tab,_this.measure,_this.source,_this.lines,_this.auto,_this.shown,_this.logError,const DeepCollectionEquality().hash(_this.samples),_this.trafficRoot,const DeepCollectionEquality().hash(_this.profiles),_this.profilesNote,_this.aclSeen,_this.about,_this.units,_this.around);
+  return Object.hashAll([runtimeType,const DeepCollectionEquality().hash(_this.log),_this.logLevel,_this.filter,_this.tab,_this.measure,_this.source,_this.lines,_this.auto,_this.shown,_this.logError,const DeepCollectionEquality().hash(_this.samples),_this.trafficRoot,const DeepCollectionEquality().hash(_this.profiles),_this.profilesNote,_this.aclSeen,_this.about,_this.units,_this.around,_this.trafficWindow]);
 }
 
 @override
 String toString() {
   final _this = this as SystemState;
-  return 'SystemState(log: ${_this.log}, logLevel: ${_this.logLevel}, filter: ${_this.filter}, tab: ${_this.tab}, measure: ${_this.measure}, source: ${_this.source}, lines: ${_this.lines}, auto: ${_this.auto}, shown: ${_this.shown}, logError: ${_this.logError}, samples: ${_this.samples}, trafficRoot: ${_this.trafficRoot}, profiles: ${_this.profiles}, profilesNote: ${_this.profilesNote}, aclSeen: ${_this.aclSeen}, about: ${_this.about}, units: ${_this.units}, around: ${_this.around})';
+  return 'SystemState(log: ${_this.log}, logLevel: ${_this.logLevel}, filter: ${_this.filter}, tab: ${_this.tab}, measure: ${_this.measure}, source: ${_this.source}, lines: ${_this.lines}, auto: ${_this.auto}, shown: ${_this.shown}, logError: ${_this.logError}, samples: ${_this.samples}, trafficRoot: ${_this.trafficRoot}, profiles: ${_this.profiles}, profilesNote: ${_this.profilesNote}, aclSeen: ${_this.aclSeen}, about: ${_this.about}, units: ${_this.units}, around: ${_this.around}, trafficWindow: ${_this.trafficWindow})';
 }
 
 
@@ -51,11 +51,11 @@ abstract mixin class $SystemStateCopyWith<$Res>  {
   factory $SystemStateCopyWith(SystemState value, $Res Function(SystemState) _then) = _$SystemStateCopyWithImpl;
 @useResult
 $Res call({
- IList<LogLine> log, String? logLevel, String? filter, String tab, String measure, String? source, int lines, bool auto, bool shown, String? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around
+ IList<LogLine> log, String? logLevel, String? filter, String tab, String measure, String? source, int lines, bool auto, bool shown, String? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
 });
 
 
-
+$HistWindowCopyWith<$Res>? get trafficWindow;
 
 }
 /// @nodoc
@@ -68,7 +68,7 @@ class _$SystemStateCopyWithImpl<$Res>
 
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? log = null,Object? logLevel = freezed,Object? filter = freezed,Object? tab = null,Object? measure = null,Object? source = freezed,Object? lines = null,Object? auto = null,Object? shown = null,Object? logError = freezed,Object? samples = null,Object? trafficRoot = freezed,Object? profiles = null,Object? profilesNote = freezed,Object? aclSeen = freezed,Object? about = null,Object? units = null,Object? around = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? log = null,Object? logLevel = freezed,Object? filter = freezed,Object? tab = null,Object? measure = null,Object? source = freezed,Object? lines = null,Object? auto = null,Object? shown = null,Object? logError = freezed,Object? samples = null,Object? trafficRoot = freezed,Object? profiles = null,Object? profilesNote = freezed,Object? aclSeen = freezed,Object? about = null,Object? units = null,Object? around = freezed,Object? trafficWindow = freezed,}) {
   return _then(SystemState(
 log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<LogLine>,logLevel: freezed == logLevel ? _self.logLevel : logLevel // ignore: cast_nullable_to_non_nullable
@@ -88,10 +88,23 @@ as String?,aclSeen: freezed == aclSeen ? _self.aclSeen : aclSeen // ignore: cast
 as int?,about: null == about ? _self.about : about // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,units: null == units ? _self.units : units // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,around: freezed == around ? _self.around : around // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,trafficWindow: freezed == trafficWindow ? _self.trafficWindow : trafficWindow // ignore: cast_nullable_to_non_nullable
+as HistWindow?,
   ));
 }
+/// Create a copy of SystemState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$HistWindowCopyWith<$Res>? get trafficWindow {
+    if (_self.trafficWindow == null) {
+    return null;
+  }
 
+  return $HistWindowCopyWith<$Res>(_self.trafficWindow!, (value) {
+    return _then(_self.copyWith(trafficWindow: value));
+  });
+}
 }
 
 
@@ -100,7 +113,7 @@ as String?,
 
 
 class _SystemState implements SystemState {
-  const _SystemState({this.log = const IListConst([]), this.logLevel, this.filter, this.tab = 'overview', this.measure = 'messages', this.source, this.lines = 200, this.auto = true, this.shown = false, this.logError, this.samples = const IListConst([]), this.trafficRoot, this.profiles = const IListConst([]), this.profilesNote, this.aclSeen, this.about = const IMapConst({}), this.units = const IMapConst({}), this.around});
+  const _SystemState({this.log = const IListConst([]), this.logLevel, this.filter, this.tab = 'overview', this.measure = 'messages', this.source, this.lines = 200, this.auto = true, this.shown = false, this.logError, this.samples = const IListConst([]), this.trafficRoot, this.profiles = const IListConst([]), this.profilesNote, this.aclSeen, this.about = const IMapConst({}), this.units = const IMapConst({}), this.around, this.trafficWindow});
   
 
 @override@JsonKey() final  IList<LogLine> log;
@@ -121,6 +134,7 @@ class _SystemState implements SystemState {
 @override@JsonKey() final  IMap<String, String> about;
 @override@JsonKey() final  IMap<String, String> units;
 @override final  String? around;
+@override final  HistWindow? trafficWindow;
 
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
@@ -132,18 +146,18 @@ _$SystemStateCopyWith<_SystemState> get copyWith => __$SystemStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SystemState&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.logLevel, logLevel) || other.logLevel == logLevel)&&(identical(other.filter, filter) || other.filter == filter)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.measure, measure) || other.measure == measure)&&(identical(other.source, source) || other.source == source)&&(identical(other.lines, lines) || other.lines == lines)&&(identical(other.auto, auto) || other.auto == auto)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.logError, logError) || other.logError == logError)&&const DeepCollectionEquality().equals(other.samples, samples)&&(identical(other.trafficRoot, trafficRoot) || other.trafficRoot == trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, profiles)&&(identical(other.profilesNote, profilesNote) || other.profilesNote == profilesNote)&&(identical(other.aclSeen, aclSeen) || other.aclSeen == aclSeen)&&(identical(other.about, about) || other.about == about)&&(identical(other.units, units) || other.units == units)&&(identical(other.around, around) || other.around == around));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SystemState&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.logLevel, logLevel) || other.logLevel == logLevel)&&(identical(other.filter, filter) || other.filter == filter)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.measure, measure) || other.measure == measure)&&(identical(other.source, source) || other.source == source)&&(identical(other.lines, lines) || other.lines == lines)&&(identical(other.auto, auto) || other.auto == auto)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.logError, logError) || other.logError == logError)&&const DeepCollectionEquality().equals(other.samples, samples)&&(identical(other.trafficRoot, trafficRoot) || other.trafficRoot == trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, profiles)&&(identical(other.profilesNote, profilesNote) || other.profilesNote == profilesNote)&&(identical(other.aclSeen, aclSeen) || other.aclSeen == aclSeen)&&(identical(other.about, about) || other.about == about)&&(identical(other.units, units) || other.units == units)&&(identical(other.around, around) || other.around == around)&&(identical(other.trafficWindow, trafficWindow) || other.trafficWindow == trafficWindow));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,const DeepCollectionEquality().hash(log),logLevel,filter,tab,measure,source,lines,auto,shown,logError,const DeepCollectionEquality().hash(samples),trafficRoot,const DeepCollectionEquality().hash(profiles),profilesNote,aclSeen,about,units,around);
+    return Object.hashAll([runtimeType,const DeepCollectionEquality().hash(log),logLevel,filter,tab,measure,source,lines,auto,shown,logError,const DeepCollectionEquality().hash(samples),trafficRoot,const DeepCollectionEquality().hash(profiles),profilesNote,aclSeen,about,units,around,trafficWindow]);
 }
 
 @override
 String toString() {
-    return 'SystemState(log: $log, logLevel: $logLevel, filter: $filter, tab: $tab, measure: $measure, source: $source, lines: $lines, auto: $auto, shown: $shown, logError: $logError, samples: $samples, trafficRoot: $trafficRoot, profiles: $profiles, profilesNote: $profilesNote, aclSeen: $aclSeen, about: $about, units: $units, around: $around)';
+    return 'SystemState(log: $log, logLevel: $logLevel, filter: $filter, tab: $tab, measure: $measure, source: $source, lines: $lines, auto: $auto, shown: $shown, logError: $logError, samples: $samples, trafficRoot: $trafficRoot, profiles: $profiles, profilesNote: $profilesNote, aclSeen: $aclSeen, about: $about, units: $units, around: $around, trafficWindow: $trafficWindow)';
 }
 
 
@@ -154,11 +168,11 @@ abstract mixin class _$SystemStateCopyWith<$Res> implements $SystemStateCopyWith
   factory _$SystemStateCopyWith(_SystemState value, $Res Function(_SystemState) _then) = __$SystemStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<LogLine> log, String? logLevel, String? filter, String tab, String measure, String? source, int lines, bool auto, bool shown, String? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around
+ IList<LogLine> log, String? logLevel, String? filter, String tab, String measure, String? source, int lines, bool auto, bool shown, String? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
 });
 
 
-
+@override $HistWindowCopyWith<$Res>? get trafficWindow;
 
 }
 /// @nodoc
@@ -171,7 +185,7 @@ class __$SystemStateCopyWithImpl<$Res>
 
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? log = null,Object? logLevel = freezed,Object? filter = freezed,Object? tab = null,Object? measure = null,Object? source = freezed,Object? lines = null,Object? auto = null,Object? shown = null,Object? logError = freezed,Object? samples = null,Object? trafficRoot = freezed,Object? profiles = null,Object? profilesNote = freezed,Object? aclSeen = freezed,Object? about = null,Object? units = null,Object? around = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? log = null,Object? logLevel = freezed,Object? filter = freezed,Object? tab = null,Object? measure = null,Object? source = freezed,Object? lines = null,Object? auto = null,Object? shown = null,Object? logError = freezed,Object? samples = null,Object? trafficRoot = freezed,Object? profiles = null,Object? profilesNote = freezed,Object? aclSeen = freezed,Object? about = null,Object? units = null,Object? around = freezed,Object? trafficWindow = freezed,}) {
   return _then(_SystemState(
 log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<LogLine>,logLevel: freezed == logLevel ? _self.logLevel : logLevel // ignore: cast_nullable_to_non_nullable
@@ -191,11 +205,24 @@ as String?,aclSeen: freezed == aclSeen ? _self.aclSeen : aclSeen // ignore: cast
 as int?,about: null == about ? _self.about : about // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,units: null == units ? _self.units : units // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,around: freezed == around ? _self.around : around // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,trafficWindow: freezed == trafficWindow ? _self.trafficWindow : trafficWindow // ignore: cast_nullable_to_non_nullable
+as HistWindow?,
   ));
 }
 
+/// Create a copy of SystemState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$HistWindowCopyWith<$Res>? get trafficWindow {
+    if (_self.trafficWindow == null) {
+    return null;
+  }
 
+  return $HistWindowCopyWith<$Res>(_self.trafficWindow!, (value) {
+    return _then(_self.copyWith(trafficWindow: value));
+  });
+}
 }
 
 // dart format on
