@@ -196,6 +196,9 @@ struct FlowRt {
     stats: Arc<FlowStats>,
     /// The counters the last `~val` carried: the clock publishes only when they moved.
     shown: Mutex<Option<StatsSnapshot>>,
+    /// The error of a draft that did not compile while this version runs: shown in `~val`
+    /// (state `error`) until the next state change (deploy, start, stop, reload, restart).
+    refused: Option<String>,
 }
 
 impl FlowRt {
@@ -293,7 +296,8 @@ impl State {
 
     async fn publish_val(&self, id: &str) {
         let Some(f) = self.flows.get(id) else { return };
-        let state = if f.error.is_some() {
+        let error = f.error.as_ref().or(f.refused.as_ref());
+        let state = if error.is_some() {
             STATE_ERROR
         } else if f.stopped || !f.def.enabled {
             STATE_STOPPED
@@ -302,7 +306,7 @@ impl State {
         };
         let mut m = BTreeMap::new();
         m.insert("state".into(), Value::UInt(state));
-        if let Some(e) = &f.error {
+        if let Some(e) = error {
             m.insert("error".into(), Value::Str(e.clone()));
         }
         m.insert("version".into(), Value::UInt(f.def.version));
@@ -557,12 +561,10 @@ impl State {
                     _ => None,
                 } {
                     if let Some(f) = self.flows.get_mut(&id) {
-                        f.error = Some(e.0.clone());
-                        // still running: keep `run`; the error describes the draft
+                        // still running: keep `run`; the error describes the draft and stays
+                        // in every `~val` (the counters' too) until the next state change
+                        f.refused = Some(e.0.clone());
                         self.publish_val(&id).await;
-                        if let Some(f) = self.flows.get_mut(&id) {
-                            f.error = None;
-                        }
                     }
                 }
                 return Err(LinkError::invalid_parameter(e.0));
@@ -618,6 +620,7 @@ impl State {
                 probe,
                 stats: Arc::new(FlowStats::default()),
                 shown: Mutex::new(None),
+                refused: None,
             },
         );
         self.declare(&id).await?;
@@ -697,6 +700,7 @@ async fn supervise(
                 if let Some(f) = st.flows.get_mut(&id) {
                     f.error = None;
                     f.since = now_us();
+                    f.refused = None;
                     // the same counters go on: this run is a restart, not a start
                     f.stats.restarts.fetch_add(1, Ordering::Relaxed);
                 }
@@ -1481,6 +1485,7 @@ impl Link for Engine {
                 if let Some(f) = st.flows.get_mut(id) {
                     f.stopped = !on;
                     f.since = now_us();
+                    f.refused = None;
                     // a start counts from zero; a stopped flow keeps the totals of its run
                     if on {
                         f.stats = Arc::new(FlowStats::default());
@@ -1495,6 +1500,7 @@ impl Link for Engine {
                 let states = st.halt(id).await;
                 if let Some(f) = st.flows.get_mut(id) {
                     f.stats = Arc::new(FlowStats::default());
+                    f.refused = None;
                 }
                 st.launch(id, states, &shared);
                 st.publish_val(id).await;

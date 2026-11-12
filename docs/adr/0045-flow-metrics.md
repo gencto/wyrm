@@ -85,6 +85,12 @@ The counters belong to a run that an operator or a deploy started:
 So a busy flow sends at most one more `~val` per period, and an idle site sends
 none.
 
+- A draft that does not compile shows `state: 2` and its `error` while the old
+  version runs (spec 06). The engine keeps that error with the flow
+  (`FlowRt::refused`), so the counters' later `~val`s carry it too, until the next
+  state change (deploy, start, stop, reload, restart). Without this, the first
+  counters-only `~val` would hide the refusal.
+
 ### 4. Out of scope
 
 Per-node counters (rates per edge, per-node drops) would grow `~val` with the flow

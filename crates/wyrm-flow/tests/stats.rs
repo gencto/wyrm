@@ -411,3 +411,63 @@ async fn counters_are_published_at_a_bounded_rate_and_only_when_they_moved() {
     assert!(after - before <= 2, "{before} → {after}");
     env.stop().await;
 }
+
+/// A draft that does not compile leaves the running version and shows its error in `~val`
+/// (spec 06): the counters' later `~val`s keep that error until the next state change.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_draft_stays_shown_while_the_counters_move() {
+    let every = Duration::from_millis(200);
+    let env = Env::start("refused", every).await;
+    let vals = env.vals("busy").await;
+    env.deploy(ticking("busy", 10)).await;
+    let mut broken = ticking("busy", 10);
+    if let Value::Map(m) = &mut broken {
+        m.insert("version".into(), Value::UInt(2));
+        m.insert(
+            "nodes".into(),
+            map(&[("clock", map(&[("type", s("no_such_type"))]))]),
+        );
+        m.insert("edges".into(), arr(&[]));
+    }
+    let err = env
+        .client
+        .invoke_one(
+            &format!("wy/{SITE}/dataflows"),
+            "deploy",
+            map(&[("def", broken), ("proofs", Value::Map(Default::default()))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("nodes.clock"), "{err}");
+    let refused = first(&vals, "refused", |v| count(v, &["state"]) == 2).await;
+    let n = vals.lock().unwrap().len();
+    tokio::time::sleep(every * 4).await;
+    let seen = vals.lock().unwrap().clone();
+    assert!(seen.len() > n, "the counters went on: {}", seen.len());
+    let (_, last) = seen.last().unwrap();
+    assert_eq!(count(last, &["state"]), 2, "{last:?}");
+    assert_eq!(at(last, &["error"]), at(&refused, &["error"]), "{last:?}");
+    assert_eq!(version(last), 1, "the old version runs");
+    assert!(
+        count(last, &["stats", "samples_in"]) > count(&refused, &["stats", "samples_in"]),
+        "{last:?}"
+    );
+    // the next state change ends it: every `~val` from the reload's own on is running
+    let before = vals.lock().unwrap().len();
+    env.client
+        .invoke_one(
+            &format!("wy/{SITE}/dataflows/busy"),
+            "reload",
+            Value::Map(Default::default()),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(every * 3).await;
+    let after = vals.lock().unwrap()[before..].to_vec();
+    assert!(!after.is_empty(), "the reload published");
+    for (_, v) in &after {
+        assert_eq!(count(v, &["state"]), 0, "{v:?}");
+        assert!(at(v, &["error"]).is_none(), "{v:?}");
+    }
+    env.stop().await;
+}
