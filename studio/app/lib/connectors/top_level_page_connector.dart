@@ -1,6 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/overlays/barrier_overlay.dart';
 import 'package:ui/overlays/no_internet_overlay.dart';
 

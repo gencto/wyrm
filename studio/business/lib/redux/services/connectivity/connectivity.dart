@@ -25,7 +25,7 @@ class ConnectivityService extends DisposableServiceInterface {
 
   @override
   Future<void> start() async {
-    super.start();
+    await super.start();
 
     if (!kIsWeb) {
       _subscription = Connectivity().onConnectivityChanged.listen(
@@ -40,7 +40,7 @@ class ConnectivityService extends DisposableServiceInterface {
 
   @override
   Future<void> dispose() async {
-    super.dispose();
+    await super.dispose();
     await _subscription?.cancel();
     _subscription = null;
   }

@@ -20,7 +20,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
       return null;
     }
     String word(bool v) => v ? 'on' : 'off';
-    dispatch(
+    dispatchSync(
       AddChangesAction(
         [
           if (holdUnknown case final v?)

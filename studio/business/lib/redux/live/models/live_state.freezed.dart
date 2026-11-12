@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'live_state.dart';
@@ -9,6 +9,7 @@ part of 'live_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $LiveStateCopyWith<LiveState> get copyWith => _$LiveStateCopyWithImpl<LiveState>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.lists, lists) || other.lists == lists));
+  final _this = this as LiveState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveState&&(identical(other.values, _this.values) || other.values == _this.values)&&(identical(other.watched, _this.watched) || other.watched == _this.watched)&&(identical(other.failed, _this.failed) || other.failed == _this.failed)&&(identical(other.lists, _this.lists) || other.lists == _this.lists));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,values,watched,failed,lists);
+int get hashCode {
+  final _this = this as LiveState;
+  return Object.hash(runtimeType,_this.values,_this.watched,_this.failed,_this.lists);
+}
 
 @override
 String toString() {
-  return 'LiveState(values: $values, watched: $watched, failed: $failed, lists: $lists)';
+  final _this = this as LiveState;
+  return 'LiveState(values: ${_this.values}, watched: ${_this.watched}, failed: ${_this.failed}, lists: ${_this.lists})';
 }
 
 
@@ -63,7 +69,7 @@ class _$LiveStateCopyWithImpl<$Res>
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? values = null,Object? watched = null,Object? failed = null,Object? lists = null,}) {
-  return _then(_self.copyWith(
+  return _then(LiveState(
 values: null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IMap<String, int>,failed: null == failed ? _self.failed : failed // ignore: cast_nullable_to_non_nullable
@@ -98,16 +104,18 @@ _$LiveStateCopyWith<_LiveState> get copyWith => __$LiveStateCopyWithImpl<_LiveSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.lists, lists) || other.lists == lists));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.lists, lists) || other.lists == lists));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,values,watched,failed,lists);
+int get hashCode {
+    return Object.hash(runtimeType,values,watched,failed,lists);
+}
 
 @override
 String toString() {
-  return 'LiveState(values: $values, watched: $watched, failed: $failed, lists: $lists)';
+    return 'LiveState(values: $values, watched: $watched, failed: $failed, lists: $lists)';
 }
 
 

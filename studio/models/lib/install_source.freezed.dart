@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'install_source.dart';
@@ -9,6 +9,7 @@ part of 'install_source.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -20,7 +21,7 @@ mixin _$InstallSource {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSource);
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSource);
 }
 
 
@@ -29,7 +30,7 @@ int get hashCode => runtimeType.hashCode;
 
 @override
 String toString() {
-  return 'InstallSource()';
+    return 'InstallSource()';
 }
 
 
@@ -61,16 +62,18 @@ $InstallSourceBuiltInCopyWith<InstallSourceBuiltIn> get copyWith => _$InstallSou
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceBuiltIn&&(identical(other.driver, driver) || other.driver == driver));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceBuiltIn&&(identical(other.driver, driver) || other.driver == driver));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,driver);
+int get hashCode {
+    return Object.hash(runtimeType,driver);
+}
 
 @override
 String toString() {
-  return 'InstallSource.builtIn(driver: $driver)';
+    return 'InstallSource.builtIn(driver: $driver)';
 }
 
 
@@ -128,16 +131,18 @@ $InstallSourceRepositoryCopyWith<InstallSourceRepository> get copyWith => _$Inst
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceRepository&&(identical(other.package, package) || other.package == package)&&(identical(other.version, version) || other.version == version));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceRepository&&(identical(other.package, package) || other.package == package)&&(identical(other.version, version) || other.version == version));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,package,version);
+int get hashCode {
+    return Object.hash(runtimeType,package,version);
+}
 
 @override
 String toString() {
-  return 'InstallSource.repository(package: $package, version: $version)';
+    return 'InstallSource.repository(package: $package, version: $version)';
 }
 
 
@@ -196,16 +201,18 @@ $InstallSourceZipCopyWith<InstallSourceZip> get copyWith => _$InstallSourceZipCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceZip&&const DeepCollectionEquality().equals(other.bytes, bytes)&&(identical(other.fileName, fileName) || other.fileName == fileName));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceZip&&const DeepCollectionEquality().equals(other.bytes, bytes)&&(identical(other.fileName, fileName) || other.fileName == fileName));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(bytes),fileName);
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(bytes),fileName);
+}
 
 @override
 String toString() {
-  return 'InstallSource.zip(bytes: $bytes, fileName: $fileName)';
+    return 'InstallSource.zip(bytes: $bytes, fileName: $fileName)';
 }
 
 
@@ -263,16 +270,18 @@ $InstallSourceUrlCopyWith<InstallSourceUrl> get copyWith => _$InstallSourceUrlCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceUrl&&(identical(other.url, url) || other.url == url));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceUrl&&(identical(other.url, url) || other.url == url));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,url);
+int get hashCode {
+    return Object.hash(runtimeType,url);
+}
 
 @override
 String toString() {
-  return 'InstallSource.url(url: $url)';
+    return 'InstallSource.url(url: $url)';
 }
 
 
@@ -330,16 +339,18 @@ $InstallSourceGitCopyWith<InstallSourceGit> get copyWith => _$InstallSourceGitCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceGit&&(identical(other.url, url) || other.url == url)&&(identical(other.ref, ref) || other.ref == ref));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceGit&&(identical(other.url, url) || other.url == url)&&(identical(other.ref, ref) || other.ref == ref));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,url,ref);
+int get hashCode {
+    return Object.hash(runtimeType,url,ref);
+}
 
 @override
 String toString() {
-  return 'InstallSource.git(url: $url, ref: $ref)';
+    return 'InstallSource.git(url: $url, ref: $ref)';
 }
 
 
@@ -398,16 +409,18 @@ $InstallSourceWasmCopyWith<InstallSourceWasm> get copyWith => _$InstallSourceWas
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceWasm&&const DeepCollectionEquality().equals(other.bytes, bytes)&&(identical(other.fileName, fileName) || other.fileName == fileName));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceWasm&&const DeepCollectionEquality().equals(other.bytes, bytes)&&(identical(other.fileName, fileName) || other.fileName == fileName));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(bytes),fileName);
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(bytes),fileName);
+}
 
 @override
 String toString() {
-  return 'InstallSource.wasm(bytes: $bytes, fileName: $fileName)';
+    return 'InstallSource.wasm(bytes: $bytes, fileName: $fileName)';
 }
 
 

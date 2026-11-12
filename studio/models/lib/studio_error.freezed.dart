@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'studio_error.dart';
@@ -9,6 +9,7 @@ part of 'studio_error.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -53,16 +54,21 @@ $StudioErrorCopyWith<StudioError> get copyWith => _$StudioErrorCopyWithImpl<Stud
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioError&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.message, message) || other.message == message)&&(identical(other.status, status) || other.status == status)&&(identical(other.key, key) || other.key == key)&&(identical(other.call, call) || other.call == call)&&(identical(other.thing, thing) || other.thing == thing)&&(identical(other.site, site) || other.site == site)&&(identical(other.at, at) || other.at == at)&&(identical(other.quiet, quiet) || other.quiet == quiet)&&(identical(other.write, write) || other.write == write)&&(identical(other.retry, retry) || other.retry == retry)&&(identical(other.reload, reload) || other.reload == reload)&&(identical(other.field, field) || other.field == field)&&(identical(other.report, report) || other.report == report)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.stream, stream) || other.stream == stream)&&(identical(other.wait, wait) || other.wait == wait));
+  final _this = this as StudioError;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is StudioError&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.call, _this.call) || other.call == _this.call)&&(identical(other.thing, _this.thing) || other.thing == _this.thing)&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.at, _this.at) || other.at == _this.at)&&(identical(other.quiet, _this.quiet) || other.quiet == _this.quiet)&&(identical(other.write, _this.write) || other.write == _this.write)&&(identical(other.retry, _this.retry) || other.retry == _this.retry)&&(identical(other.reload, _this.reload) || other.reload == _this.reload)&&(identical(other.field, _this.field) || other.field == _this.field)&&(identical(other.report, _this.report) || other.report == _this.report)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&(identical(other.stream, _this.stream) || other.stream == _this.stream)&&(identical(other.wait, _this.wait) || other.wait == _this.wait));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,kind,id,title,message,status,key,call,thing,site,at,quiet,write,retry,reload,field,report,shown,stream,wait]);
+int get hashCode {
+  final _this = this as StudioError;
+  return Object.hashAll([runtimeType,_this.kind,_this.id,_this.title,_this.message,_this.status,_this.key,_this.call,_this.thing,_this.site,_this.at,_this.quiet,_this.write,_this.retry,_this.reload,_this.field,_this.report,_this.shown,_this.stream,_this.wait]);
+}
 
 @override
 String toString() {
-  return 'StudioError(kind: $kind, id: $id, title: $title, message: $message, status: $status, key: $key, call: $call, thing: $thing, site: $site, at: $at, quiet: $quiet, write: $write, retry: $retry, reload: $reload, field: $field, report: $report, shown: $shown, stream: $stream, wait: $wait)';
+  final _this = this as StudioError;
+  return 'StudioError(kind: ${_this.kind}, id: ${_this.id}, title: ${_this.title}, message: ${_this.message}, status: ${_this.status}, key: ${_this.key}, call: ${_this.call}, thing: ${_this.thing}, site: ${_this.site}, at: ${_this.at}, quiet: ${_this.quiet}, write: ${_this.write}, retry: ${_this.retry}, reload: ${_this.reload}, field: ${_this.field}, report: ${_this.report}, shown: ${_this.shown}, stream: ${_this.stream}, wait: ${_this.wait})';
 }
 
 
@@ -91,7 +97,7 @@ class _$StudioErrorCopyWithImpl<$Res>
 /// Create a copy of StudioError
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? kind = null,Object? id = null,Object? title = null,Object? message = null,Object? status = freezed,Object? key = freezed,Object? call = freezed,Object? thing = freezed,Object? site = freezed,Object? at = freezed,Object? quiet = null,Object? write = null,Object? retry = freezed,Object? reload = freezed,Object? field = freezed,Object? report = freezed,Object? shown = null,Object? stream = freezed,Object? wait = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(StudioError(
 kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as ErrorKind,id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as int,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
@@ -196,16 +202,18 @@ _$StudioErrorCopyWith<_StudioError> get copyWith => __$StudioErrorCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioError&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.message, message) || other.message == message)&&(identical(other.status, status) || other.status == status)&&(identical(other.key, key) || other.key == key)&&(identical(other.call, call) || other.call == call)&&(identical(other.thing, thing) || other.thing == thing)&&(identical(other.site, site) || other.site == site)&&(identical(other.at, at) || other.at == at)&&(identical(other.quiet, quiet) || other.quiet == quiet)&&(identical(other.write, write) || other.write == write)&&(identical(other.retry, retry) || other.retry == retry)&&(identical(other.reload, reload) || other.reload == reload)&&(identical(other.field, field) || other.field == field)&&(identical(other.report, report) || other.report == report)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.stream, stream) || other.stream == stream)&&(identical(other.wait, wait) || other.wait == wait));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StudioError&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.message, message) || other.message == message)&&(identical(other.status, status) || other.status == status)&&(identical(other.key, key) || other.key == key)&&(identical(other.call, call) || other.call == call)&&(identical(other.thing, thing) || other.thing == thing)&&(identical(other.site, site) || other.site == site)&&(identical(other.at, at) || other.at == at)&&(identical(other.quiet, quiet) || other.quiet == quiet)&&(identical(other.write, write) || other.write == write)&&(identical(other.retry, retry) || other.retry == retry)&&(identical(other.reload, reload) || other.reload == reload)&&(identical(other.field, field) || other.field == field)&&(identical(other.report, report) || other.report == report)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.stream, stream) || other.stream == stream)&&(identical(other.wait, wait) || other.wait == wait));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,kind,id,title,message,status,key,call,thing,site,at,quiet,write,retry,reload,field,report,shown,stream,wait]);
+int get hashCode {
+    return Object.hashAll([runtimeType,kind,id,title,message,status,key,call,thing,site,at,quiet,write,retry,reload,field,report,shown,stream,wait]);
+}
 
 @override
 String toString() {
-  return 'StudioError(kind: $kind, id: $id, title: $title, message: $message, status: $status, key: $key, call: $call, thing: $thing, site: $site, at: $at, quiet: $quiet, write: $write, retry: $retry, reload: $reload, field: $field, report: $report, shown: $shown, stream: $stream, wait: $wait)';
+    return 'StudioError(kind: $kind, id: $id, title: $title, message: $message, status: $status, key: $key, call: $call, thing: $thing, site: $site, at: $at, quiet: $quiet, write: $write, retry: $retry, reload: $reload, field: $field, report: $report, shown: $shown, stream: $stream, wait: $wait)';
 }
 
 

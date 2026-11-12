@@ -1,7 +1,7 @@
 // Canvas data, kept as the boards write it.
 // ignore_for_file: lines_longer_than_80_chars
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/containers/inspector_sections.dart';
@@ -483,8 +483,7 @@ ExplorerPage _page({
     ToolButtonVm(
       id: 'ping',
       label: 'Ping',
-      disabledReason:
-          'This node has no ping action: the driver pings by itself (cfg ping).',
+      disabledReason: 'This node has no ping action: the driver pings by itself (cfg ping).',
     ),
   ],
   actionsLabel: 'Actions',
@@ -500,8 +499,7 @@ ExplorerPage _page({
   points: points ?? _points(),
   pointsEmpty: empty,
   emptyButtons: _toolbar.take(2).toList(),
-  pointsNote:
-      'Values update live. Edits are staged in this session; nothing is written to the device until you apply.',
+  pointsNote: 'Values update live. Edits are staged in this session; nothing is written to the device until you apply.',
   onPoint: _none,
   onCheck: _none,
   onRange: _none,
@@ -619,8 +617,7 @@ Widget explorerReview() => _shell(
       askReason: 'The broker has no call to send a request to an admin yet.',
       discard: 'Discard all',
       empty: 'Nothing staged.',
-      note:
-          'Each write is checked by the link and recorded in sys/audit/modbus. A value shows only after it is read back.',
+      note: 'Each write is checked by the link and recorded in sys/audit/modbus. A value shows only after it is read back.',
       audit: 'sys/audit/modbus',
       refused: 'The broker refused a change',
     ),
@@ -658,8 +655,7 @@ Widget explorerOffline() => _shell(
       sections: _pointInspector().sections,
     ),
   ),
-  offline:
-      'The gateway connection is lost. Reconnecting; values on screen are the last ones received.',
+  offline: 'The gateway connection is lost. Reconnecting; values on screen are the last ones received.',
 );
 
 /// The point frame after the viewer dragged the panel edges: a wider tree,

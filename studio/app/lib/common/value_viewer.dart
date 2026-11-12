@@ -217,11 +217,13 @@ final viewerTables = ViewerTables(
 (String, ViewerCsvVm, TableDataVm?)? _lastCsv;
 
 TableDataVm? _readCsv(String text, ViewerCsvVm rules) {
-  if (_lastCsv case (
-    final t,
-    final r,
-    final got,
-  ) when t == text && r == rules) {
+  if (_lastCsv
+      case (
+        final t,
+        final r,
+        final got,
+      )
+      when t == text && r == rules) {
     return got;
   }
   final got = switch (parseCsv(

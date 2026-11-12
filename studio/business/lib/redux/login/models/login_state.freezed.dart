@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'login_state.dart';
@@ -9,6 +9,7 @@ part of 'login_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $LoginStateCopyWith<LoginState> get copyWith => _$LoginStateCopyWithImpl<LoginSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LoginState&&(identical(other.password, password) || other.password == password)&&(identical(other.gateway, gateway) || other.gateway == gateway)&&(identical(other.user, user) || other.user == user)&&(identical(other.step, step) || other.step == step)&&const DeepCollectionEquality().equals(other.recent, recent)&&(identical(other.probes, probes) || other.probes == probes)&&(identical(other.remember, remember) || other.remember == remember)&&(identical(other.failure, failure) || other.failure == failure)&&(identical(other.reason, reason) || other.reason == reason)&&(identical(other.preload, preload) || other.preload == preload)&&const DeepCollectionEquality().equals(other.preloadLate, preloadLate));
+  final _this = this as LoginState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LoginState&&(identical(other.password, _this.password) || other.password == _this.password)&&(identical(other.gateway, _this.gateway) || other.gateway == _this.gateway)&&(identical(other.user, _this.user) || other.user == _this.user)&&(identical(other.step, _this.step) || other.step == _this.step)&&const DeepCollectionEquality().equals(other.recent, _this.recent)&&(identical(other.probes, _this.probes) || other.probes == _this.probes)&&(identical(other.remember, _this.remember) || other.remember == _this.remember)&&(identical(other.failure, _this.failure) || other.failure == _this.failure)&&(identical(other.reason, _this.reason) || other.reason == _this.reason)&&(identical(other.preload, _this.preload) || other.preload == _this.preload)&&const DeepCollectionEquality().equals(other.preloadLate, _this.preloadLate));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,password,gateway,user,step,const DeepCollectionEquality().hash(recent),probes,remember,failure,reason,preload,const DeepCollectionEquality().hash(preloadLate));
+int get hashCode {
+  final _this = this as LoginState;
+  return Object.hash(runtimeType,_this.password,_this.gateway,_this.user,_this.step,const DeepCollectionEquality().hash(_this.recent),_this.probes,_this.remember,_this.failure,_this.reason,_this.preload,const DeepCollectionEquality().hash(_this.preloadLate));
+}
 
 @override
 String toString() {
-  return 'LoginState(password: $password, gateway: $gateway, user: $user, step: $step, recent: $recent, probes: $probes, remember: $remember, failure: $failure, reason: $reason, preload: $preload, preloadLate: $preloadLate)';
+  final _this = this as LoginState;
+  return 'LoginState(password: ${_this.password}, gateway: ${_this.gateway}, user: ${_this.user}, step: ${_this.step}, recent: ${_this.recent}, probes: ${_this.probes}, remember: ${_this.remember}, failure: ${_this.failure}, reason: ${_this.reason}, preload: ${_this.preload}, preloadLate: ${_this.preloadLate})';
 }
 
 
@@ -63,7 +69,7 @@ class _$LoginStateCopyWithImpl<$Res>
 /// Create a copy of LoginState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? password = freezed,Object? gateway = freezed,Object? user = freezed,Object? step = null,Object? recent = null,Object? probes = null,Object? remember = null,Object? failure = freezed,Object? reason = freezed,Object? preload = null,Object? preloadLate = null,}) {
-  return _then(_self.copyWith(
+  return _then(LoginState(
 password: freezed == password ? _self.password : password // ignore: cast_nullable_to_non_nullable
 as String?,gateway: freezed == gateway ? _self.gateway : gateway // ignore: cast_nullable_to_non_nullable
 as String?,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
@@ -112,16 +118,18 @@ _$LoginStateCopyWith<_LoginState> get copyWith => __$LoginStateCopyWithImpl<_Log
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LoginState&&(identical(other.password, password) || other.password == password)&&(identical(other.gateway, gateway) || other.gateway == gateway)&&(identical(other.user, user) || other.user == user)&&(identical(other.step, step) || other.step == step)&&const DeepCollectionEquality().equals(other.recent, recent)&&(identical(other.probes, probes) || other.probes == probes)&&(identical(other.remember, remember) || other.remember == remember)&&(identical(other.failure, failure) || other.failure == failure)&&(identical(other.reason, reason) || other.reason == reason)&&(identical(other.preload, preload) || other.preload == preload)&&const DeepCollectionEquality().equals(other.preloadLate, preloadLate));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LoginState&&(identical(other.password, password) || other.password == password)&&(identical(other.gateway, gateway) || other.gateway == gateway)&&(identical(other.user, user) || other.user == user)&&(identical(other.step, step) || other.step == step)&&const DeepCollectionEquality().equals(other.recent, recent)&&(identical(other.probes, probes) || other.probes == probes)&&(identical(other.remember, remember) || other.remember == remember)&&(identical(other.failure, failure) || other.failure == failure)&&(identical(other.reason, reason) || other.reason == reason)&&(identical(other.preload, preload) || other.preload == preload)&&const DeepCollectionEquality().equals(other.preloadLate, preloadLate));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,password,gateway,user,step,const DeepCollectionEquality().hash(recent),probes,remember,failure,reason,preload,const DeepCollectionEquality().hash(preloadLate));
+int get hashCode {
+    return Object.hash(runtimeType,password,gateway,user,step,const DeepCollectionEquality().hash(recent),probes,remember,failure,reason,preload,const DeepCollectionEquality().hash(preloadLate));
+}
 
 @override
 String toString() {
-  return 'LoginState(password: $password, gateway: $gateway, user: $user, step: $step, recent: $recent, probes: $probes, remember: $remember, failure: $failure, reason: $reason, preload: $preload, preloadLate: $preloadLate)';
+    return 'LoginState(password: $password, gateway: $gateway, user: $user, step: $step, recent: $recent, probes: $probes, remember: $remember, failure: $failure, reason: $reason, preload: $preload, preloadLate: $preloadLate)';
 }
 
 

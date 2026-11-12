@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// A round dot in a status colour, with an optional halo ring of the same
 /// colour at 15 % (the gateway field of the log-in board: dot 8, halo 4;

@@ -40,7 +40,7 @@ class UpdateLinkParamsAction extends Action with NonReentrant, WaitingAction {
       return null;
     }
     final params = jsonDecode(json) as Map<String, Object?>;
-    dispatch(
+    dispatchSync(
       AddChangesAction(
         [
           StagedChange(

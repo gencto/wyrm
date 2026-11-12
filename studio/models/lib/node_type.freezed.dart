@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'node_type.dart';
@@ -9,6 +9,7 @@ part of 'node_type.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -37,16 +38,21 @@ $NodeTypeCopyWith<NodeType> get copyWith => _$NodeTypeCopyWithImpl<NodeType>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues)&&(identical(other.dynInKeys, dynInKeys) || other.dynInKeys == dynInKeys)&&(identical(other.trigger, trigger) || other.trigger == trigger));
+  final _this = this as NodeType;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeType&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.category, _this.category) || other.category == _this.category)&&(identical(other.description, _this.description) || other.description == _this.description)&&const DeepCollectionEquality().equals(other.inputs, _this.inputs)&&const DeepCollectionEquality().equals(other.outputs, _this.outputs)&&(identical(other.dynInParam, _this.dynInParam) || other.dynInParam == _this.dynInParam)&&(identical(other.dynInPrefix, _this.dynInPrefix) || other.dynInPrefix == _this.dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, _this.dynInDefaults)&&(identical(other.dynOutParam, _this.dynOutParam) || other.dynOutParam == _this.dynOutParam)&&(identical(other.dynOutPrefix, _this.dynOutPrefix) || other.dynOutPrefix == _this.dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, _this.dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, _this.params)&&(identical(other.portTypes, _this.portTypes) || other.portTypes == _this.portTypes)&&(identical(other.echoInputs, _this.echoInputs) || other.echoInputs == _this.echoInputs)&&(identical(other.takesValues, _this.takesValues) || other.takesValues == _this.takesValues)&&(identical(other.dynInKeys, _this.dynInKeys) || other.dynInKeys == _this.dynInKeys)&&(identical(other.trigger, _this.trigger) || other.trigger == _this.trigger));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues,dynInKeys,trigger);
+int get hashCode {
+  final _this = this as NodeType;
+  return Object.hash(runtimeType,_this.type,_this.category,_this.description,const DeepCollectionEquality().hash(_this.inputs),const DeepCollectionEquality().hash(_this.outputs),_this.dynInParam,_this.dynInPrefix,const DeepCollectionEquality().hash(_this.dynInDefaults),_this.dynOutParam,_this.dynOutPrefix,const DeepCollectionEquality().hash(_this.dynOutDefaults),const DeepCollectionEquality().hash(_this.params),_this.portTypes,_this.echoInputs,_this.takesValues,_this.dynInKeys,_this.trigger);
+}
 
 @override
 String toString() {
-  return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues, dynInKeys: $dynInKeys, trigger: $trigger)';
+  final _this = this as NodeType;
+  return 'NodeType(type: ${_this.type}, category: ${_this.category}, description: ${_this.description}, inputs: ${_this.inputs}, outputs: ${_this.outputs}, dynInParam: ${_this.dynInParam}, dynInPrefix: ${_this.dynInPrefix}, dynInDefaults: ${_this.dynInDefaults}, dynOutParam: ${_this.dynOutParam}, dynOutPrefix: ${_this.dynOutPrefix}, dynOutDefaults: ${_this.dynOutDefaults}, params: ${_this.params}, portTypes: ${_this.portTypes}, echoInputs: ${_this.echoInputs}, takesValues: ${_this.takesValues}, dynInKeys: ${_this.dynInKeys}, trigger: ${_this.trigger})';
 }
 
 
@@ -75,7 +81,7 @@ class _$NodeTypeCopyWithImpl<$Res>
 /// Create a copy of NodeType
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,Object? dynInKeys = null,Object? trigger = null,}) {
-  return _then(_self.copyWith(
+  return _then(NodeType(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
 as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
@@ -148,16 +154,18 @@ _$NodeTypeCopyWith<_NodeType> get copyWith => __$NodeTypeCopyWithImpl<_NodeType>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues)&&(identical(other.dynInKeys, dynInKeys) || other.dynInKeys == dynInKeys)&&(identical(other.trigger, trigger) || other.trigger == trigger));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeType&&(identical(other.type, type) || other.type == type)&&(identical(other.category, category) || other.category == category)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs)&&(identical(other.dynInParam, dynInParam) || other.dynInParam == dynInParam)&&(identical(other.dynInPrefix, dynInPrefix) || other.dynInPrefix == dynInPrefix)&&const DeepCollectionEquality().equals(other.dynInDefaults, dynInDefaults)&&(identical(other.dynOutParam, dynOutParam) || other.dynOutParam == dynOutParam)&&(identical(other.dynOutPrefix, dynOutPrefix) || other.dynOutPrefix == dynOutPrefix)&&const DeepCollectionEquality().equals(other.dynOutDefaults, dynOutDefaults)&&const DeepCollectionEquality().equals(other.params, params)&&(identical(other.portTypes, portTypes) || other.portTypes == portTypes)&&(identical(other.echoInputs, echoInputs) || other.echoInputs == echoInputs)&&(identical(other.takesValues, takesValues) || other.takesValues == takesValues)&&(identical(other.dynInKeys, dynInKeys) || other.dynInKeys == dynInKeys)&&(identical(other.trigger, trigger) || other.trigger == trigger));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues,dynInKeys,trigger);
+int get hashCode {
+    return Object.hash(runtimeType,type,category,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs),dynInParam,dynInPrefix,const DeepCollectionEquality().hash(dynInDefaults),dynOutParam,dynOutPrefix,const DeepCollectionEquality().hash(dynOutDefaults),const DeepCollectionEquality().hash(params),portTypes,echoInputs,takesValues,dynInKeys,trigger);
+}
 
 @override
 String toString() {
-  return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues, dynInKeys: $dynInKeys, trigger: $trigger)';
+    return 'NodeType(type: $type, category: $category, description: $description, inputs: $inputs, outputs: $outputs, dynInParam: $dynInParam, dynInPrefix: $dynInPrefix, dynInDefaults: $dynInDefaults, dynOutParam: $dynOutParam, dynOutPrefix: $dynOutPrefix, dynOutDefaults: $dynOutDefaults, params: $params, portTypes: $portTypes, echoInputs: $echoInputs, takesValues: $takesValues, dynInKeys: $dynInKeys, trigger: $trigger)';
 }
 
 

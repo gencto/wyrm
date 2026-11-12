@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'tasks_state.dart';
@@ -9,6 +9,7 @@ part of 'tasks_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $TasksStateCopyWith<TasksState> get copyWith => _$TasksStateCopyWithImpl<TasksSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask)&&(identical(other.events, events) || other.events == events));
+  final _this = this as TasksState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TasksState&&(identical(other.table, _this.table) || other.table == _this.table)&&const DeepCollectionEquality().equals(other.view, _this.view)&&(identical(other.selectedTask, _this.selectedTask) || other.selectedTask == _this.selectedTask)&&(identical(other.events, _this.events) || other.events == _this.events));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask,events);
+int get hashCode {
+  final _this = this as TasksState;
+  return Object.hash(runtimeType,_this.table,const DeepCollectionEquality().hash(_this.view),_this.selectedTask,_this.events);
+}
 
 @override
 String toString() {
-  return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask, events: $events)';
+  final _this = this as TasksState;
+  return 'TasksState(table: ${_this.table}, view: ${_this.view}, selectedTask: ${_this.selectedTask}, events: ${_this.events})';
 }
 
 
@@ -63,7 +69,7 @@ class _$TasksStateCopyWithImpl<$Res>
 /// Create a copy of TasksState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? selectedTask = freezed,Object? events = null,}) {
-  return _then(_self.copyWith(
+  return _then(TasksState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, AgentTask>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,selectedTask: freezed == selectedTask ? _self.selectedTask : selectedTask // ignore: cast_nullable_to_non_nullable
@@ -98,16 +104,18 @@ _$TasksStateCopyWith<_TasksState> get copyWith => __$TasksStateCopyWithImpl<_Tas
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask)&&(identical(other.events, events) || other.events == events));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TasksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.selectedTask, selectedTask) || other.selectedTask == selectedTask)&&(identical(other.events, events) || other.events == events));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask,events);
+int get hashCode {
+    return Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),selectedTask,events);
+}
 
 @override
 String toString() {
-  return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask, events: $events)';
+    return 'TasksState(table: $table, view: $view, selectedTask: $selectedTask, events: $events)';
 }
 
 

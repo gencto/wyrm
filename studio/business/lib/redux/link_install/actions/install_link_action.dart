@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/install_source.dart';
@@ -57,7 +59,7 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
         _ => throw StateError('no package to install'),
       },
     };
-    dispatch(_Phase('installing'));
+    dispatchSync(_Phase('installing'));
     String? message;
     String? refusedField;
     String? refusedSaid;
@@ -89,7 +91,7 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
       }
     }
     if (success) {
-      dispatch(RetrieveLinksAction());
+      unawaited(dispatchAndWait(RetrieveLinksAction()));
     }
     return state.copyWith.linkInstall(
       phase: success ? 'done' : 'failed',

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'links_state.dart';
@@ -9,6 +9,7 @@ part of 'links_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $LinksStateCopyWith<LinksState> get copyWith => _$LinksStateCopyWithImpl<LinksSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.selectedLink, selectedLink) || other.selectedLink == selectedLink)&&const DeepCollectionEquality().equals(other.log, log)&&const DeepCollectionEquality().equals(other.revisions, revisions)&&(identical(other.version, version) || other.version == version));
+  final _this = this as LinksState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinksState&&(identical(other.table, _this.table) || other.table == _this.table)&&const DeepCollectionEquality().equals(other.view, _this.view)&&(identical(other.tab, _this.tab) || other.tab == _this.tab)&&(identical(other.selectedLink, _this.selectedLink) || other.selectedLink == _this.selectedLink)&&const DeepCollectionEquality().equals(other.log, _this.log)&&const DeepCollectionEquality().equals(other.revisions, _this.revisions)&&(identical(other.version, _this.version) || other.version == _this.version));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),tab,selectedLink,const DeepCollectionEquality().hash(log),const DeepCollectionEquality().hash(revisions),version);
+int get hashCode {
+  final _this = this as LinksState;
+  return Object.hash(runtimeType,_this.table,const DeepCollectionEquality().hash(_this.view),_this.tab,_this.selectedLink,const DeepCollectionEquality().hash(_this.log),const DeepCollectionEquality().hash(_this.revisions),_this.version);
+}
 
 @override
 String toString() {
-  return 'LinksState(table: $table, view: $view, tab: $tab, selectedLink: $selectedLink, log: $log, revisions: $revisions, version: $version)';
+  final _this = this as LinksState;
+  return 'LinksState(table: ${_this.table}, view: ${_this.view}, tab: ${_this.tab}, selectedLink: ${_this.selectedLink}, log: ${_this.log}, revisions: ${_this.revisions}, version: ${_this.version})';
 }
 
 
@@ -63,7 +69,7 @@ class _$LinksStateCopyWithImpl<$Res>
 /// Create a copy of LinksState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? table = null,Object? view = null,Object? tab = null,Object? selectedLink = freezed,Object? log = null,Object? revisions = null,Object? version = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(LinksState(
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, LinkInfo>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,tab: null == tab ? _self.tab : tab // ignore: cast_nullable_to_non_nullable
@@ -104,16 +110,18 @@ _$LinksStateCopyWith<_LinksState> get copyWith => __$LinksStateCopyWithImpl<_Lin
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.selectedLink, selectedLink) || other.selectedLink == selectedLink)&&const DeepCollectionEquality().equals(other.log, log)&&const DeepCollectionEquality().equals(other.revisions, revisions)&&(identical(other.version, version) || other.version == version));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinksState&&(identical(other.table, table) || other.table == table)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.selectedLink, selectedLink) || other.selectedLink == selectedLink)&&const DeepCollectionEquality().equals(other.log, log)&&const DeepCollectionEquality().equals(other.revisions, revisions)&&(identical(other.version, version) || other.version == version));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),tab,selectedLink,const DeepCollectionEquality().hash(log),const DeepCollectionEquality().hash(revisions),version);
+int get hashCode {
+    return Object.hash(runtimeType,table,const DeepCollectionEquality().hash(view),tab,selectedLink,const DeepCollectionEquality().hash(log),const DeepCollectionEquality().hash(revisions),version);
+}
 
 @override
 String toString() {
-  return 'LinksState(table: $table, view: $view, tab: $tab, selectedLink: $selectedLink, log: $log, revisions: $revisions, version: $version)';
+    return 'LinksState(table: $table, view: $view, tab: $tab, selectedLink: $selectedLink, log: $log, revisions: $revisions, version: $version)';
 }
 
 

@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/alerts/panel_fault.dart';
 import 'package:ui/alerts/read_fail.dart';
 import 'package:ui/alerts/start_fault.dart';

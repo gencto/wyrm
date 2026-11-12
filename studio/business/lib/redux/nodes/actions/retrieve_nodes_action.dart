@@ -21,7 +21,7 @@ class RetrieveNodesAction extends Action with WaitingAction {
   Future<AppState?> reduce() async {
     final root = site.root;
     if (root != null) {
-      dispatch(ToggleNodeAction('$root/downstream', open: true));
+      dispatchSync(ToggleNodeAction('$root/downstream', open: true));
       for (final s in preload) {
         deps.treeWatch.open('$root/$s');
       }

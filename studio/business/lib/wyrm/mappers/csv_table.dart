@@ -140,7 +140,10 @@ TableValue? parseCsv(String s, {String delimiter = ',', bool header = true}) {
   }
   return TableValue(columns, [
     for (final r in body)
-      [for (var i = 0; i < columns.length; i++) i < r.length ? r[i] : null],
+      [
+        for (var i = 0; i < columns.length; i++)
+          if (i < r.length) r[i] else null,
+      ],
   ]);
 }
 

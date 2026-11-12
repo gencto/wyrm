@@ -40,9 +40,9 @@ class FrameClient implements WyrmApi {
   int _nextId = 1; // id 0 is the server's "unparsable frame"
   bool _closed = false;
 
-  /// [bulk] carries invokes whose arguments do not fit a frame (the
+  /// [_bulk] carries invokes whose arguments do not fit a frame (the
   /// gateway's `POST /api/invoke`); without it they go in a frame anyway.
-  FrameClient(this._t, {BulkInvoke? bulk}) : _bulk = bulk {
+  FrameClient(this._t, {this._bulk}) {
     _sub = _t.incoming.listen(_onFrame, onDone: _onGone, onError: (Object _) => _onGone());
   }
 
@@ -60,9 +60,9 @@ class FrameClient implements WyrmApi {
       'id': VInt(id),
       'op': VStr(op),
       if (key.isNotEmpty) 'key': VStr(key),
-      if (value != null) 'value': value,
+      'value': ?value,
       if (action != null) 'action': VStr(action),
-      if (args != null) 'args': args,
+      'args': ?args,
       if (sub != null) 'sub': VInt(sub),
     });
   }

@@ -6,12 +6,12 @@ description: >-
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.14.0
   # The one Flutter version of Studio: CI reads it from here
   # (`flutter-version-file`), `flutter pub get` refuses another one. The
   # goldens in `ui/test` are drawn with it. To move: change this line,
   # run analyze and the tests, draw the goldens again, in one PR.
-  flutter: 3.44.4
+  flutter: 3.50.0
 
 # Pub workspaces (monorepo support). Each listed directory must contain a
 # pubspec.yaml with `resolution: workspace`. Run `flutter pub get` from this

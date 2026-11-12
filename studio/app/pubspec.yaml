@@ -4,24 +4,26 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 version: 1.0.0
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.14.0
 
 resolution: workspace
 
 dependencies:
-  async_redux: ^28.4.0
-  auto_route: ^11.1.0
+  async_redux: ^29.2.3
+  auto_route: ^11.2.0
   business:
     path: ../business
-  equatable: ^2.1.0
-  fast_immutable_collections: ^11.2.0
-  file_picker: ^11.0.2
+  cupertino_ui: ^1.1.6
+  equatable: ^3.0.0
+  fast_immutable_collections: ^12.0.0
+  file_picker: ^13.3.3
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
   localization:
     path: ../localization
+  material_ui: ^1.11.0
   models:
     path: ../models
   pro_pretty_logging: ^2.0.0
@@ -32,13 +34,13 @@ dependencies:
   window_manager: ^0.5.2
 
 dev_dependencies:
-  auto_route_generator: "^10.5.0"
-  build_runner: ^2.15.1
+  auto_route_generator: ^10.6.0
+  build_runner: ^2.16.1
   flutter_test:
     sdk: flutter
   integration_test:
     sdk: flutter
-  pro_lints: ^6.1.0
+  pro_lints: ^6.2.0
   # The error tests build a store over in-memory storage and throw the
   # client's own refusals.
   storage:

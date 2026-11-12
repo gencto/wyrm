@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'catalog_item.dart';
@@ -9,6 +9,7 @@ part of 'catalog_item.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -42,16 +43,21 @@ $CatalogItemCopyWith<CatalogItem> get copyWith => _$CatalogItemCopyWithImpl<Cata
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing)&&(identical(other.version, version) || other.version == version)&&(identical(other.official, official) || other.official == official));
+  final _this = this as CatalogItem;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is CatalogItem&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.code, _this.code) || other.code == _this.code)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.tag, _this.tag) || other.tag == _this.tag)&&(identical(other.category, _this.category) || other.category == _this.category)&&(identical(other.builtIn, _this.builtIn) || other.builtIn == _this.builtIn)&&const DeepCollectionEquality().equals(other.modes, _this.modes)&&(identical(other.existing, _this.existing) || other.existing == _this.existing)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.official, _this.official) || other.official == _this.official));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing,version,official);
+int get hashCode {
+  final _this = this as CatalogItem;
+  return Object.hash(runtimeType,_this.id,_this.code,_this.name,_this.description,_this.tag,_this.category,_this.builtIn,const DeepCollectionEquality().hash(_this.modes),_this.existing,_this.version,_this.official);
+}
 
 @override
 String toString() {
-  return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing, version: $version, official: $official)';
+  final _this = this as CatalogItem;
+  return 'CatalogItem(id: ${_this.id}, code: ${_this.code}, name: ${_this.name}, description: ${_this.description}, tag: ${_this.tag}, category: ${_this.category}, builtIn: ${_this.builtIn}, modes: ${_this.modes}, existing: ${_this.existing}, version: ${_this.version}, official: ${_this.official})';
 }
 
 
@@ -80,7 +86,7 @@ class _$CatalogItemCopyWithImpl<$Res>
 /// Create a copy of CatalogItem
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? code = null,Object? name = null,Object? description = null,Object? tag = null,Object? category = null,Object? builtIn = null,Object? modes = null,Object? existing = null,Object? version = freezed,Object? official = null,}) {
-  return _then(_self.copyWith(
+  return _then(CatalogItem(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,code: null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -146,16 +152,18 @@ _$CatalogItemCopyWith<_CatalogItem> get copyWith => __$CatalogItemCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing)&&(identical(other.version, version) || other.version == version)&&(identical(other.official, official) || other.official == official));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _CatalogItem&&(identical(other.id, id) || other.id == id)&&(identical(other.code, code) || other.code == code)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description)&&(identical(other.tag, tag) || other.tag == tag)&&(identical(other.category, category) || other.category == category)&&(identical(other.builtIn, builtIn) || other.builtIn == builtIn)&&const DeepCollectionEquality().equals(other.modes, modes)&&(identical(other.existing, existing) || other.existing == existing)&&(identical(other.version, version) || other.version == version)&&(identical(other.official, official) || other.official == official));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing,version,official);
+int get hashCode {
+    return Object.hash(runtimeType,id,code,name,description,tag,category,builtIn,const DeepCollectionEquality().hash(modes),existing,version,official);
+}
 
 @override
 String toString() {
-  return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing, version: $version, official: $official)';
+    return 'CatalogItem(id: $id, code: $code, name: $name, description: $description, tag: $tag, category: $category, builtIn: $builtIn, modes: $modes, existing: $existing, version: $version, official: $official)';
 }
 
 

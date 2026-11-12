@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'link_install_state.dart';
@@ -9,6 +9,7 @@ part of 'link_install_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $LinkInstallStateCopyWith<LinkInstallState> get copyWith => _$LinkInstallStateCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method)&&(identical(other.refusedField, refusedField) || other.refusedField == refusedField)&&(identical(other.refusedSaid, refusedSaid) || other.refusedSaid == refusedSaid));
+  final _this = this as LinkInstallState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkInstallState&&(identical(other.step, _this.step) || other.step == _this.step)&&(identical(other.source, _this.source) || other.source == _this.source)&&(identical(other.item, _this.item) || other.item == _this.item)&&(identical(other.broker, _this.broker) || other.broker == _this.broker)&&(identical(other.mode, _this.mode) || other.mode == _this.mode)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.acceptRights, _this.acceptRights) || other.acceptRights == _this.acceptRights)&&const DeepCollectionEquality().equals(other.checks, _this.checks)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.path, _this.path) || other.path == _this.path)&&(identical(other.category, _this.category) || other.category == _this.category)&&(identical(other.query, _this.query) || other.query == _this.query)&&(identical(other.phase, _this.phase) || other.phase == _this.phase)&&(identical(other.manifest, _this.manifest) || other.manifest == _this.manifest)&&(identical(other.rights, _this.rights) || other.rights == _this.rights)&&const DeepCollectionEquality().equals(other.catalog, _this.catalog)&&const DeepCollectionEquality().equals(other.targets, _this.targets)&&(identical(other.method, _this.method) || other.method == _this.method)&&(identical(other.refusedField, _this.refusedField) || other.refusedField == _this.refusedField)&&(identical(other.refusedSaid, _this.refusedSaid) || other.refusedSaid == _this.refusedSaid));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method,refusedField,refusedSaid]);
+int get hashCode {
+  final _this = this as LinkInstallState;
+  return Object.hashAll([runtimeType,_this.step,_this.source,_this.item,_this.broker,_this.mode,_this.name,_this.acceptRights,const DeepCollectionEquality().hash(_this.checks),_this.message,_this.path,_this.category,_this.query,_this.phase,_this.manifest,_this.rights,const DeepCollectionEquality().hash(_this.catalog),const DeepCollectionEquality().hash(_this.targets),_this.method,_this.refusedField,_this.refusedSaid]);
+}
 
 @override
 String toString() {
-  return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method, refusedField: $refusedField, refusedSaid: $refusedSaid)';
+  final _this = this as LinkInstallState;
+  return 'LinkInstallState(step: ${_this.step}, source: ${_this.source}, item: ${_this.item}, broker: ${_this.broker}, mode: ${_this.mode}, name: ${_this.name}, acceptRights: ${_this.acceptRights}, checks: ${_this.checks}, message: ${_this.message}, path: ${_this.path}, category: ${_this.category}, query: ${_this.query}, phase: ${_this.phase}, manifest: ${_this.manifest}, rights: ${_this.rights}, catalog: ${_this.catalog}, targets: ${_this.targets}, method: ${_this.method}, refusedField: ${_this.refusedField}, refusedSaid: ${_this.refusedSaid})';
 }
 
 
@@ -63,7 +69,7 @@ class _$LinkInstallStateCopyWithImpl<$Res>
 /// Create a copy of LinkInstallState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? step = null,Object? source = freezed,Object? item = freezed,Object? broker = freezed,Object? mode = freezed,Object? name = freezed,Object? acceptRights = null,Object? checks = null,Object? message = freezed,Object? path = null,Object? category = null,Object? query = freezed,Object? phase = freezed,Object? manifest = freezed,Object? rights = freezed,Object? catalog = null,Object? targets = null,Object? method = null,Object? refusedField = freezed,Object? refusedSaid = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(LinkInstallState(
 step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as int,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as InstallSource?,item: freezed == item ? _self.item : item // ignore: cast_nullable_to_non_nullable
@@ -142,16 +148,18 @@ _$LinkInstallStateCopyWith<_LinkInstallState> get copyWith => __$LinkInstallStat
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method)&&(identical(other.refusedField, refusedField) || other.refusedField == refusedField)&&(identical(other.refusedSaid, refusedSaid) || other.refusedSaid == refusedSaid));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkInstallState&&(identical(other.step, step) || other.step == step)&&(identical(other.source, source) || other.source == source)&&(identical(other.item, item) || other.item == item)&&(identical(other.broker, broker) || other.broker == broker)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.name, name) || other.name == name)&&(identical(other.acceptRights, acceptRights) || other.acceptRights == acceptRights)&&const DeepCollectionEquality().equals(other.checks, checks)&&(identical(other.message, message) || other.message == message)&&(identical(other.path, path) || other.path == path)&&(identical(other.category, category) || other.category == category)&&(identical(other.query, query) || other.query == query)&&(identical(other.phase, phase) || other.phase == phase)&&(identical(other.manifest, manifest) || other.manifest == manifest)&&(identical(other.rights, rights) || other.rights == rights)&&const DeepCollectionEquality().equals(other.catalog, catalog)&&const DeepCollectionEquality().equals(other.targets, targets)&&(identical(other.method, method) || other.method == method)&&(identical(other.refusedField, refusedField) || other.refusedField == refusedField)&&(identical(other.refusedSaid, refusedSaid) || other.refusedSaid == refusedSaid));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method,refusedField,refusedSaid]);
+int get hashCode {
+    return Object.hashAll([runtimeType,step,source,item,broker,mode,name,acceptRights,const DeepCollectionEquality().hash(checks),message,path,category,query,phase,manifest,rights,const DeepCollectionEquality().hash(catalog),const DeepCollectionEquality().hash(targets),method,refusedField,refusedSaid]);
+}
 
 @override
 String toString() {
-  return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method, refusedField: $refusedField, refusedSaid: $refusedSaid)';
+    return 'LinkInstallState(step: $step, source: $source, item: $item, broker: $broker, mode: $mode, name: $name, acceptRights: $acceptRights, checks: $checks, message: $message, path: $path, category: $category, query: $query, phase: $phase, manifest: $manifest, rights: $rights, catalog: $catalog, targets: $targets, method: $method, refusedField: $refusedField, refusedSaid: $refusedSaid)';
 }
 
 

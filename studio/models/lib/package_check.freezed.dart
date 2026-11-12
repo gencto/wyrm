@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'package_check.dart';
@@ -9,6 +9,7 @@ part of 'package_check.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -26,16 +27,21 @@ $PackageCheckCopyWith<PackageCheck> get copyWith => _$PackageCheckCopyWithImpl<P
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PackageCheck&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.result, result) || other.result == result));
+  final _this = this as PackageCheck;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PackageCheck&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&(identical(other.result, _this.result) || other.result == _this.result));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,title,detail,result);
+int get hashCode {
+  final _this = this as PackageCheck;
+  return Object.hash(runtimeType,_this.title,_this.detail,_this.result);
+}
 
 @override
 String toString() {
-  return 'PackageCheck(title: $title, detail: $detail, result: $result)';
+  final _this = this as PackageCheck;
+  return 'PackageCheck(title: ${_this.title}, detail: ${_this.detail}, result: ${_this.result})';
 }
 
 
@@ -64,7 +70,7 @@ class _$PackageCheckCopyWithImpl<$Res>
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? title = null,Object? detail = null,Object? result = null,}) {
-  return _then(_self.copyWith(
+  return _then(PackageCheck(
 title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,detail: null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
 as String,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
@@ -98,16 +104,18 @@ _$PackageCheckCopyWith<_PackageCheck> get copyWith => __$PackageCheckCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _PackageCheck&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.result, result) || other.result == result));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PackageCheck&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.result, result) || other.result == result));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,title,detail,result);
+int get hashCode {
+    return Object.hash(runtimeType,title,detail,result);
+}
 
 @override
 String toString() {
-  return 'PackageCheck(title: $title, detail: $detail, result: $result)';
+    return 'PackageCheck(title: $title, detail: $detail, result: $result)';
 }
 
 

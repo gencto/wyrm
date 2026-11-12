@@ -163,7 +163,7 @@ sequenceDiagram
 
     User->>UI: onPickFile
     UI->>VM: onPickFile()
-    VM->>A1: dispatch
+    VM->>A1: dispatchSync
     A1->>ST: copyWith(linkInstall.source)
 ```
 
@@ -253,13 +253,13 @@ sequenceDiagram
     User->>UI: onNext
     UI->>VM: onNext()
     alt key == 'run'
-        VM->>A1: dispatch
+        VM->>A1: dispatchSync
         A1->>ST: copyWith(linkInstall.step)
         VM->>+A2: dispatchAndWait
         Note over A2: NonReentrant · WaitingAction · async
         A2->>ST: copyWith(linkInstall.phase, linkInstall.message, linkInstall.refusedField, linkInstall.refusedSaid, linkInstall.step)
-        A2->>ST: dispatch(_Phase)
-        A2->>ST: dispatch(RetrieveLinksAction)
+        A2->>ST: dispatchSync(_Phase)
+        A2->>ST: dispatchAndWait(RetrieveLinksAction)
         A2-->>-VM: ActionStatus
     end
     alt !_official && key == 'choose'
@@ -268,7 +268,7 @@ sequenceDiagram
         A3->>ST: copyWith(linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode)
         A3-->>-VM: ActionStatus
     end
-    VM->>A1: dispatch
+    VM->>A1: dispatchSync
     A1->>ST: copyWith(linkInstall.step)
 ```
 

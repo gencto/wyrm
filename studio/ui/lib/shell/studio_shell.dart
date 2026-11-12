@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../alerts/offline_banner.dart';
 import '../theme/extensions/colors.dart';

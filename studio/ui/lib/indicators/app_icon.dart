@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// One icon of the canvas set (`ui/assets/svg/icons/<name>.svg`, 24×24,
 /// stroke 1.8, `currentColor`), tinted with [color] or the current

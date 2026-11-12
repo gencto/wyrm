@@ -30,14 +30,12 @@ List<TabItemVm> tabs() => const [
 
 LinksPage linksLocal() => LinksPage(
   title: 'Links on plant',
-  subtitle:
-      'Links that run on this broker you manage fully. Links on other devices you only let in, limit or cut off.',
+  subtitle: 'Links that run on this broker you manage fully. Links on other devices you only let in, limit or cut off.',
   addLabel: 'Add a link',
   onTapLinkInstall: () {},
   tabs: tabs(),
   tab: 'local',
-  description:
-      'Started and watched by plant: built-in drivers and installed packages. You can stop, change, upgrade and remove them.',
+  description: 'Started and watched by plant: built-in drivers and installed packages. You can stop, change, upgrade and remove them.',
   columns: const [
     ColumnVm('Link', flex: 3),
     ColumnVm('Version · source', flex: 3),
@@ -172,19 +170,16 @@ LinksPage linksLocal() => LinksPage(
 
 LinksPage linksQuarantine() => LinksPage(
   title: 'Links on plant',
-  subtitle:
-      'Links that run on this broker you manage fully. Links on other devices you only let in, limit or cut off.',
+  subtitle: 'Links that run on this broker you manage fully. Links on other devices you only let in, limit or cut off.',
   addLabel: 'Add a link',
   onTapLinkInstall: () {},
   tabs: tabs(),
   tab: 'quarantine',
-  description:
-      'Connections with a certificate from this site that no link is set up for. They can read and write nothing until you approve them.',
+  description: 'Connections with a certificate from this site that no link is set up for. They can read and write nothing until you approve them.',
   settings: const [
     SettingCardVm(
       title: 'Hold unknown connections here',
-      description:
-          'Off (with Allow all links off too): unknown certificates are ignored.',
+      description: 'Off (with Allow all links off too): unknown certificates are ignored.',
       keyName: 'sys/enable_quarantine',
       value: FieldVm(value: true, onChanged: _none),
     ),
@@ -253,8 +248,7 @@ LinksPage linksQuarantine() => LinksPage(
       label: 'Let it in',
       submit: 'Approve',
       secondary: 'Reject',
-      note:
-          'Approve makes it an external link with its own branch and a link token.',
+      note: 'Approve makes it an external link with its own branch and a link token.',
       fields: [
         ParamFieldVm(
           id: 'name',

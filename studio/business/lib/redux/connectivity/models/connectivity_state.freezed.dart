@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'connectivity_state.dart';
@@ -9,6 +9,7 @@ part of 'connectivity_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $ConnectivityStateCopyWith<ConnectivityState> get copyWith => _$ConnectivityStat
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ConnectivityState&&(identical(other.isAvailable, isAvailable) || other.isAvailable == isAvailable));
+  final _this = this as ConnectivityState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ConnectivityState&&(identical(other.isAvailable, _this.isAvailable) || other.isAvailable == _this.isAvailable));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,isAvailable);
+int get hashCode {
+  final _this = this as ConnectivityState;
+  return Object.hash(runtimeType,_this.isAvailable);
+}
 
 @override
 String toString() {
-  return 'ConnectivityState(isAvailable: $isAvailable)';
+  final _this = this as ConnectivityState;
+  return 'ConnectivityState(isAvailable: ${_this.isAvailable})';
 }
 
 
@@ -63,7 +69,7 @@ class _$ConnectivityStateCopyWithImpl<$Res>
 /// Create a copy of ConnectivityState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? isAvailable = null,}) {
-  return _then(_self.copyWith(
+  return _then(ConnectivityState(
 isAvailable: null == isAvailable ? _self.isAvailable : isAvailable // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
@@ -92,16 +98,18 @@ _$ConnectivityStateCopyWith<_ConnectivityState> get copyWith => __$ConnectivityS
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ConnectivityState&&(identical(other.isAvailable, isAvailable) || other.isAvailable == isAvailable));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ConnectivityState&&(identical(other.isAvailable, isAvailable) || other.isAvailable == isAvailable));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,isAvailable);
+int get hashCode {
+    return Object.hash(runtimeType,isAvailable);
+}
 
 @override
 String toString() {
-  return 'ConnectivityState(isAvailable: $isAvailable)';
+    return 'ConnectivityState(isAvailable: $isAvailable)';
 }
 
 

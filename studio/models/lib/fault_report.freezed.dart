@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'fault_report.dart';
@@ -9,6 +9,7 @@ part of 'fault_report.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -32,16 +33,21 @@ $FaultReportCopyWith<FaultReport> get copyWith => _$FaultReportCopyWithImpl<Faul
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FaultReport&&(identical(other.type, type) || other.type == type)&&(identical(other.line, line) || other.line == line)&&(identical(other.where, where) || other.where == where)&&(identical(other.screen, screen) || other.screen == screen)&&(identical(other.stack, stack) || other.stack == stack));
+  final _this = this as FaultReport;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FaultReport&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.line, _this.line) || other.line == _this.line)&&(identical(other.where, _this.where) || other.where == _this.where)&&(identical(other.screen, _this.screen) || other.screen == _this.screen)&&(identical(other.stack, _this.stack) || other.stack == _this.stack));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,type,line,where,screen,stack);
+int get hashCode {
+  final _this = this as FaultReport;
+  return Object.hash(runtimeType,_this.type,_this.line,_this.where,_this.screen,_this.stack);
+}
 
 @override
 String toString() {
-  return 'FaultReport(type: $type, line: $line, where: $where, screen: $screen, stack: $stack)';
+  final _this = this as FaultReport;
+  return 'FaultReport(type: ${_this.type}, line: ${_this.line}, where: ${_this.where}, screen: ${_this.screen}, stack: ${_this.stack})';
 }
 
 
@@ -70,7 +76,7 @@ class _$FaultReportCopyWithImpl<$Res>
 /// Create a copy of FaultReport
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? line = null,Object? where = null,Object? screen = freezed,Object? stack = null,}) {
-  return _then(_self.copyWith(
+  return _then(FaultReport(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String,line: null == line ? _self.line : line // ignore: cast_nullable_to_non_nullable
 as String,where: null == where ? _self.where : where // ignore: cast_nullable_to_non_nullable
@@ -114,16 +120,18 @@ _$FaultReportCopyWith<_FaultReport> get copyWith => __$FaultReportCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FaultReport&&(identical(other.type, type) || other.type == type)&&(identical(other.line, line) || other.line == line)&&(identical(other.where, where) || other.where == where)&&(identical(other.screen, screen) || other.screen == screen)&&(identical(other.stack, stack) || other.stack == stack));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FaultReport&&(identical(other.type, type) || other.type == type)&&(identical(other.line, line) || other.line == line)&&(identical(other.where, where) || other.where == where)&&(identical(other.screen, screen) || other.screen == screen)&&(identical(other.stack, stack) || other.stack == stack));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,type,line,where,screen,stack);
+int get hashCode {
+    return Object.hash(runtimeType,type,line,where,screen,stack);
+}
 
 @override
 String toString() {
-  return 'FaultReport(type: $type, line: $line, where: $where, screen: $screen, stack: $stack)';
+    return 'FaultReport(type: $type, line: $line, where: $where, screen: $screen, stack: $stack)';
 }
 
 

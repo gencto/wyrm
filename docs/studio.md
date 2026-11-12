@@ -43,7 +43,8 @@ Dependencies point one way: `app → ui, business, localization`; `business → 
 
 | Tool | Version | Note |
 |---|---|---|
-| Flutter | stable with Dart ≥ 3.12 | `sdk: ^3.12.0` in every `pubspec.yaml` |
+| Flutter | 3.50.0 (Dart 3.14), pinned | `environment.flutter: 3.50.0` in `studio/pubspec.yaml` (CI and `flutter pub get` read it; the `ui` goldens are drawn with it); `sdk: ^3.14.0` in every `pubspec.yaml`, `dart/` included |
+| Material, Cupertino | `material_ui`, `cupertino_ui` | import `package:material_ui/material_ui.dart` (and `GlobalCupertinoLocalizations` from `package:cupertino_ui`), never `package:flutter/material.dart`: deprecated since Flutter 3.47 |
 | frx | 0.3.7 | `curl -fsSL https://raw.githubusercontent.com/pro100andrey/flutter_redux_templates/main/tools/scripts/install.sh \| sh`, then `frx upgrade` from time to time |
 | VS Code extension | FRX | optional: palette commands, tree view, F2 rename, Problems from `frx doctor` |
 

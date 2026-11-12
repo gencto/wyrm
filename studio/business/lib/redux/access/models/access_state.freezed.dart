@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'access_state.dart';
@@ -9,6 +9,7 @@ part of 'access_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $AccessStateCopyWith<AccessState> get copyWith => _$AccessStateCopyWithImpl<Acce
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AccessState&&const DeepCollectionEquality().equals(other.users, users)&&const DeepCollectionEquality().equals(other.grants, grants)&&const DeepCollectionEquality().equals(other.audit, audit)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.shown, shown) || other.shown == shown));
+  final _this = this as AccessState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AccessState&&const DeepCollectionEquality().equals(other.users, _this.users)&&const DeepCollectionEquality().equals(other.grants, _this.grants)&&const DeepCollectionEquality().equals(other.audit, _this.audit)&&(identical(other.selected, _this.selected) || other.selected == _this.selected)&&(identical(other.tab, _this.tab) || other.tab == _this.tab)&&(identical(other.shown, _this.shown) || other.shown == _this.shown));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(users),const DeepCollectionEquality().hash(grants),const DeepCollectionEquality().hash(audit),selected,tab,shown);
+int get hashCode {
+  final _this = this as AccessState;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.users),const DeepCollectionEquality().hash(_this.grants),const DeepCollectionEquality().hash(_this.audit),_this.selected,_this.tab,_this.shown);
+}
 
 @override
 String toString() {
-  return 'AccessState(users: $users, grants: $grants, audit: $audit, selected: $selected, tab: $tab, shown: $shown)';
+  final _this = this as AccessState;
+  return 'AccessState(users: ${_this.users}, grants: ${_this.grants}, audit: ${_this.audit}, selected: ${_this.selected}, tab: ${_this.tab}, shown: ${_this.shown})';
 }
 
 
@@ -63,7 +69,7 @@ class _$AccessStateCopyWithImpl<$Res>
 /// Create a copy of AccessState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? users = null,Object? grants = null,Object? audit = null,Object? selected = freezed,Object? tab = null,Object? shown = null,}) {
-  return _then(_self.copyWith(
+  return _then(AccessState(
 users: null == users ? _self.users : users // ignore: cast_nullable_to_non_nullable
 as IList<UserInfo>,grants: null == grants ? _self.grants : grants // ignore: cast_nullable_to_non_nullable
 as IList<RoleGrant>,audit: null == audit ? _self.audit : audit // ignore: cast_nullable_to_non_nullable
@@ -102,16 +108,18 @@ _$AccessStateCopyWith<_AccessState> get copyWith => __$AccessStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AccessState&&const DeepCollectionEquality().equals(other.users, users)&&const DeepCollectionEquality().equals(other.grants, grants)&&const DeepCollectionEquality().equals(other.audit, audit)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.shown, shown) || other.shown == shown));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AccessState&&const DeepCollectionEquality().equals(other.users, users)&&const DeepCollectionEquality().equals(other.grants, grants)&&const DeepCollectionEquality().equals(other.audit, audit)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.shown, shown) || other.shown == shown));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(users),const DeepCollectionEquality().hash(grants),const DeepCollectionEquality().hash(audit),selected,tab,shown);
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(users),const DeepCollectionEquality().hash(grants),const DeepCollectionEquality().hash(audit),selected,tab,shown);
+}
 
 @override
 String toString() {
-  return 'AccessState(users: $users, grants: $grants, audit: $audit, selected: $selected, tab: $tab, shown: $shown)';
+    return 'AccessState(users: $users, grants: $grants, audit: $audit, selected: $selected, tab: $tab, shown: $shown)';
 }
 
 

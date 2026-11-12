@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
@@ -350,10 +350,12 @@ class _ValueViewerState extends State<ValueViewer> {
     if (_csv case final rules? when _asTable) {
       return widget.tables!.readCsv!(_csvText, rules);
     }
-    if (widget.vm.edit case ViewerEditVm(
-      kind: .table,
-      :final table?,
-    ) when widget.onSave != null) {
+    if (widget.vm.edit
+        case ViewerEditVm(
+          kind: .table,
+          :final table?,
+        )
+        when widget.onSave != null) {
       return table;
     }
     return switch (widget.vm.content) {

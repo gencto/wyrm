@@ -214,7 +214,7 @@ class FlowWatchService extends DisposableServiceInterface {
 
   @override
   Future<void> dispose() async {
-    super.dispose();
+    await super.dispose();
     detach();
     _flush?.cancel();
     _flush = null;

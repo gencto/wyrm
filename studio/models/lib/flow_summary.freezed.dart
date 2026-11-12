@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'flow_summary.dart';
@@ -9,6 +9,7 @@ part of 'flow_summary.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $FlowSummaryCopyWith<FlowSummary> get copyWith => _$FlowSummaryCopyWithImpl<Flow
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes)&&(identical(other.blocks, blocks) || other.blocks == blocks)&&(identical(other.description, description) || other.description == description)&&(identical(other.running, running) || other.running == running));
+  final _this = this as FlowSummary;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowSummary&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.deployedBy, _this.deployedBy) || other.deployedBy == _this.deployedBy)&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.problem, _this.problem) || other.problem == _this.problem)&&const DeepCollectionEquality().equals(other.reads, _this.reads)&&const DeepCollectionEquality().equals(other.writes, _this.writes)&&(identical(other.blocks, _this.blocks) || other.blocks == _this.blocks)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.running, _this.running) || other.running == _this.running));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes),blocks,description,running);
+int get hashCode {
+  final _this = this as FlowSummary;
+  return Object.hash(runtimeType,_this.id,_this.version,_this.deployedBy,_this.draft,_this.problem,const DeepCollectionEquality().hash(_this.reads),const DeepCollectionEquality().hash(_this.writes),_this.blocks,_this.description,_this.running);
+}
 
 @override
 String toString() {
-  return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes, blocks: $blocks, description: $description, running: $running)';
+  final _this = this as FlowSummary;
+  return 'FlowSummary(id: ${_this.id}, version: ${_this.version}, deployedBy: ${_this.deployedBy}, draft: ${_this.draft}, problem: ${_this.problem}, reads: ${_this.reads}, writes: ${_this.writes}, blocks: ${_this.blocks}, description: ${_this.description}, running: ${_this.running})';
 }
 
 
@@ -63,7 +69,7 @@ class _$FlowSummaryCopyWithImpl<$Res>
 /// Create a copy of FlowSummary
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? version = freezed,Object? deployedBy = freezed,Object? draft = null,Object? problem = freezed,Object? reads = null,Object? writes = null,Object? blocks = null,Object? description = freezed,Object? running = null,}) {
-  return _then(_self.copyWith(
+  return _then(FlowSummary(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as int?,deployedBy: freezed == deployedBy ? _self.deployedBy : deployedBy // ignore: cast_nullable_to_non_nullable
@@ -110,16 +116,18 @@ _$FlowSummaryCopyWith<_FlowSummary> get copyWith => __$FlowSummaryCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes)&&(identical(other.blocks, blocks) || other.blocks == blocks)&&(identical(other.description, description) || other.description == description)&&(identical(other.running, running) || other.running == running));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowSummary&&(identical(other.id, id) || other.id == id)&&(identical(other.version, version) || other.version == version)&&(identical(other.deployedBy, deployedBy) || other.deployedBy == deployedBy)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.problem, problem) || other.problem == problem)&&const DeepCollectionEquality().equals(other.reads, reads)&&const DeepCollectionEquality().equals(other.writes, writes)&&(identical(other.blocks, blocks) || other.blocks == blocks)&&(identical(other.description, description) || other.description == description)&&(identical(other.running, running) || other.running == running));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes),blocks,description,running);
+int get hashCode {
+    return Object.hash(runtimeType,id,version,deployedBy,draft,problem,const DeepCollectionEquality().hash(reads),const DeepCollectionEquality().hash(writes),blocks,description,running);
+}
 
 @override
 String toString() {
-  return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes, blocks: $blocks, description: $description, running: $running)';
+    return 'FlowSummary(id: $id, version: $version, deployedBy: $deployedBy, draft: $draft, problem: $problem, reads: $reads, writes: $writes, blocks: $blocks, description: $description, running: $running)';
 }
 
 

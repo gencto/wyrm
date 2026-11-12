@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'peer.dart';
@@ -9,6 +9,7 @@ part of 'peer.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -27,16 +28,21 @@ $PeerCopyWith<Peer> get copyWith => _$PeerCopyWithImpl<Peer>(this as Peer, _$ide
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Peer&&(identical(other.site, site) || other.site == site)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.parent, parent) || other.parent == parent)&&(identical(other.connected, connected) || other.connected == connected)&&(identical(other.url, url) || other.url == url)&&(identical(other.status, status) || other.status == status)&&(identical(other.allowConfig, allowConfig) || other.allowConfig == allowConfig)&&(identical(other.valHz, valHz) || other.valHz == valHz)&&const DeepCollectionEquality().equals(other.via, via)&&(identical(other.platform, platform) || other.platform == platform));
+  final _this = this as Peer;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is Peer&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.parent, _this.parent) || other.parent == _this.parent)&&(identical(other.connected, _this.connected) || other.connected == _this.connected)&&(identical(other.url, _this.url) || other.url == _this.url)&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.allowConfig, _this.allowConfig) || other.allowConfig == _this.allowConfig)&&(identical(other.valHz, _this.valHz) || other.valHz == _this.valHz)&&const DeepCollectionEquality().equals(other.via, _this.via)&&(identical(other.platform, _this.platform) || other.platform == _this.platform));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,site,kind,parent,connected,url,status,allowConfig,valHz,const DeepCollectionEquality().hash(via),platform);
+int get hashCode {
+  final _this = this as Peer;
+  return Object.hash(runtimeType,_this.site,_this.kind,_this.parent,_this.connected,_this.url,_this.status,_this.allowConfig,_this.valHz,const DeepCollectionEquality().hash(_this.via),_this.platform);
+}
 
 @override
 String toString() {
-  return 'Peer(site: $site, kind: $kind, parent: $parent, connected: $connected, url: $url, status: $status, allowConfig: $allowConfig, valHz: $valHz, via: $via, platform: $platform)';
+  final _this = this as Peer;
+  return 'Peer(site: ${_this.site}, kind: ${_this.kind}, parent: ${_this.parent}, connected: ${_this.connected}, url: ${_this.url}, status: ${_this.status}, allowConfig: ${_this.allowConfig}, valHz: ${_this.valHz}, via: ${_this.via}, platform: ${_this.platform})';
 }
 
 
@@ -65,7 +71,7 @@ class _$PeerCopyWithImpl<$Res>
 /// Create a copy of Peer
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? site = null,Object? kind = null,Object? parent = freezed,Object? connected = null,Object? url = freezed,Object? status = freezed,Object? allowConfig = freezed,Object? valHz = freezed,Object? via = null,Object? platform = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(Peer(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as PeerKind,parent: freezed == parent ? _self.parent : parent // ignore: cast_nullable_to_non_nullable
@@ -114,16 +120,18 @@ _$PeerCopyWith<_Peer> get copyWith => __$PeerCopyWithImpl<_Peer>(this, _$identit
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _Peer&&(identical(other.site, site) || other.site == site)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.parent, parent) || other.parent == parent)&&(identical(other.connected, connected) || other.connected == connected)&&(identical(other.url, url) || other.url == url)&&(identical(other.status, status) || other.status == status)&&(identical(other.allowConfig, allowConfig) || other.allowConfig == allowConfig)&&(identical(other.valHz, valHz) || other.valHz == valHz)&&const DeepCollectionEquality().equals(other.via, via)&&(identical(other.platform, platform) || other.platform == platform));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _Peer&&(identical(other.site, site) || other.site == site)&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.parent, parent) || other.parent == parent)&&(identical(other.connected, connected) || other.connected == connected)&&(identical(other.url, url) || other.url == url)&&(identical(other.status, status) || other.status == status)&&(identical(other.allowConfig, allowConfig) || other.allowConfig == allowConfig)&&(identical(other.valHz, valHz) || other.valHz == valHz)&&const DeepCollectionEquality().equals(other.via, via)&&(identical(other.platform, platform) || other.platform == platform));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,site,kind,parent,connected,url,status,allowConfig,valHz,const DeepCollectionEquality().hash(via),platform);
+int get hashCode {
+    return Object.hash(runtimeType,site,kind,parent,connected,url,status,allowConfig,valHz,const DeepCollectionEquality().hash(via),platform);
+}
 
 @override
 String toString() {
-  return 'Peer(site: $site, kind: $kind, parent: $parent, connected: $connected, url: $url, status: $status, allowConfig: $allowConfig, valHz: $valHz, via: $via, platform: $platform)';
+    return 'Peer(site: $site, kind: $kind, parent: $parent, connected: $connected, url: $url, status: $status, allowConfig: $allowConfig, valHz: $valHz, via: $via, platform: $platform)';
 }
 
 

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'task_event.dart';
@@ -9,6 +9,7 @@ part of 'task_event.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -26,16 +27,21 @@ $TaskEventCopyWith<TaskEvent> get copyWith => _$TaskEventCopyWithImpl<TaskEvent>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TaskEvent&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.text, text) || other.text == text)&&(identical(other.time, time) || other.time == time));
+  final _this = this as TaskEvent;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TaskEvent&&(identical(other.kind, _this.kind) || other.kind == _this.kind)&&(identical(other.text, _this.text) || other.text == _this.text)&&(identical(other.time, _this.time) || other.time == _this.time));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,kind,text,time);
+int get hashCode {
+  final _this = this as TaskEvent;
+  return Object.hash(runtimeType,_this.kind,_this.text,_this.time);
+}
 
 @override
 String toString() {
-  return 'TaskEvent(kind: $kind, text: $text, time: $time)';
+  final _this = this as TaskEvent;
+  return 'TaskEvent(kind: ${_this.kind}, text: ${_this.text}, time: ${_this.time})';
 }
 
 
@@ -64,7 +70,7 @@ class _$TaskEventCopyWithImpl<$Res>
 /// Create a copy of TaskEvent
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? kind = null,Object? text = null,Object? time = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(TaskEvent(
 kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
 as String,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String,time: freezed == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
@@ -98,16 +104,18 @@ _$TaskEventCopyWith<_TaskEvent> get copyWith => __$TaskEventCopyWithImpl<_TaskEv
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TaskEvent&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.text, text) || other.text == text)&&(identical(other.time, time) || other.time == time));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TaskEvent&&(identical(other.kind, kind) || other.kind == kind)&&(identical(other.text, text) || other.text == text)&&(identical(other.time, time) || other.time == time));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,kind,text,time);
+int get hashCode {
+    return Object.hash(runtimeType,kind,text,time);
+}
 
 @override
 String toString() {
-  return 'TaskEvent(kind: $kind, text: $text, time: $time)';
+    return 'TaskEvent(kind: $kind, text: $text, time: $time)';
 }
 
 

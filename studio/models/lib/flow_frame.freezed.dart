@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'flow_frame.dart';
@@ -9,6 +9,7 @@ part of 'flow_frame.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -29,16 +30,21 @@ $FlowFrameCopyWith<FlowFrame> get copyWith => _$FlowFrameCopyWithImpl<FlowFrame>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowFrame&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.block, block) || other.block == block)&&(identical(other.instance, instance) || other.instance == instance)&&const DeepCollectionEquality().equals(other.undo, undo)&&const DeepCollectionEquality().equals(other.redo, redo)&&const DeepCollectionEquality().equals(other.selection, selection));
+  final _this = this as FlowFrame;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowFrame&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.block, _this.block) || other.block == _this.block)&&(identical(other.instance, _this.instance) || other.instance == _this.instance)&&const DeepCollectionEquality().equals(other.undo, _this.undo)&&const DeepCollectionEquality().equals(other.redo, _this.redo)&&const DeepCollectionEquality().equals(other.selection, _this.selection));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,draft,block,instance,const DeepCollectionEquality().hash(undo),const DeepCollectionEquality().hash(redo),const DeepCollectionEquality().hash(selection));
+int get hashCode {
+  final _this = this as FlowFrame;
+  return Object.hash(runtimeType,_this.draft,_this.block,_this.instance,const DeepCollectionEquality().hash(_this.undo),const DeepCollectionEquality().hash(_this.redo),const DeepCollectionEquality().hash(_this.selection));
+}
 
 @override
 String toString() {
-  return 'FlowFrame(draft: $draft, block: $block, instance: $instance, undo: $undo, redo: $redo, selection: $selection)';
+  final _this = this as FlowFrame;
+  return 'FlowFrame(draft: ${_this.draft}, block: ${_this.block}, instance: ${_this.instance}, undo: ${_this.undo}, redo: ${_this.redo}, selection: ${_this.selection})';
 }
 
 
@@ -67,7 +73,7 @@ class _$FlowFrameCopyWithImpl<$Res>
 /// Create a copy of FlowFrame
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? draft = null,Object? block = null,Object? instance = freezed,Object? undo = null,Object? redo = null,Object? selection = null,}) {
-  return _then(_self.copyWith(
+  return _then(FlowFrame(
 draft: null == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as FlowDraft,block: null == block ? _self.block : block // ignore: cast_nullable_to_non_nullable
 as String,instance: freezed == instance ? _self.instance : instance // ignore: cast_nullable_to_non_nullable
@@ -119,16 +125,18 @@ _$FlowFrameCopyWith<_FlowFrame> get copyWith => __$FlowFrameCopyWithImpl<_FlowFr
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowFrame&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.block, block) || other.block == block)&&(identical(other.instance, instance) || other.instance == instance)&&const DeepCollectionEquality().equals(other.undo, undo)&&const DeepCollectionEquality().equals(other.redo, redo)&&const DeepCollectionEquality().equals(other.selection, selection));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowFrame&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.block, block) || other.block == block)&&(identical(other.instance, instance) || other.instance == instance)&&const DeepCollectionEquality().equals(other.undo, undo)&&const DeepCollectionEquality().equals(other.redo, redo)&&const DeepCollectionEquality().equals(other.selection, selection));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,draft,block,instance,const DeepCollectionEquality().hash(undo),const DeepCollectionEquality().hash(redo),const DeepCollectionEquality().hash(selection));
+int get hashCode {
+    return Object.hash(runtimeType,draft,block,instance,const DeepCollectionEquality().hash(undo),const DeepCollectionEquality().hash(redo),const DeepCollectionEquality().hash(selection));
+}
 
 @override
 String toString() {
-  return 'FlowFrame(draft: $draft, block: $block, instance: $instance, undo: $undo, redo: $redo, selection: $selection)';
+    return 'FlowFrame(draft: $draft, block: $block, instance: $instance, undo: $undo, redo: $redo, selection: $selection)';
 }
 
 

@@ -101,9 +101,7 @@ SystemPage _page({
   return SystemPage(
     title: 'wyrmd on plant',
     pill: const StatusPillVm(label: 'Running · active', tone: Tone.good),
-    meta: loading
-        ? '—'
-        : '0.1.0 · Zenoh 1.10.1 · rust (prod) · started 2026-11-04 21:58 UTC · up 6 d 4 h',
+    meta: loading ? '—' : '0.1.0 · Zenoh 1.10.1 · rust (prod) · started 2026-11-04 21:58 UTC · up 6 d 4 h',
     tabsLabel: 'System sections',
     tabs: [
       const PillTabVm(id: 'overview', label: 'Overview'),
@@ -131,8 +129,7 @@ SystemPage _page({
               unit: loading ? '' : 'of 5',
               sub: loading ? 'open Links' : 'bacnet failed · open Links',
               subTone: loading ? Tone.neutral : Tone.bad,
-              about:
-                  'Links whose liveliness token is present (they serve their tree).',
+              about: 'Links whose liveliness token is present (they serve their tree).',
               link: true,
             ),
             SysTileVm(
@@ -178,8 +175,7 @@ SystemPage _page({
               keyName: 'sessions',
               value: dash ?? '14',
               sub: 'network sessions; gateway users not counted',
-              about:
-                  'Network sessions of the router: links, peer brokers. Gateway users share one in-process session.',
+              about: 'Network sessions of the router: links, peer brokers. Gateway users share one in-process session.',
             ),
           ],
         ),
@@ -192,8 +188,7 @@ SystemPage _page({
               value: dash ?? '17',
               unit: '%',
               sub: '100 = one core',
-              about:
-                  'CPU time of the broker process over the metrics interval; 100 = one core.',
+              about: 'CPU time of the broker process over the metrics interval; 100 = one core.',
             ),
             SysTileVm(
               label: 'Memory',
@@ -225,8 +220,7 @@ SystemPage _page({
               keyName: 'acl_denied',
               value: dash ?? '3',
               sub: 'since the router started · open Audit',
-              about:
-                  "Messages the router's access control dropped since the router started.",
+              about: "Messages the router's access control dropped since the router started.",
               link: true,
             ),
             SysTileVm(
@@ -267,19 +261,16 @@ SystemPage _page({
         axis: loading
             ? const []
             : const ['01:02', '01:12 reconnect to edge', '02:02 · now'],
-        note:
-            'Sampled from the `sys` rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.',
+        note: 'Sampled from the `sys` rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.',
         empty: 'Collecting…',
-        describe:
-            'messages in and out per second over the last hour, steady with one dip at the 01:12 reconnect to edge',
+        describe: 'messages in and out per second over the last hour, steady with one dip at the 01:12 reconnect to edge',
       ),
     ),
     availability: ha == Ha.none
         ? const SystemAvailVm(
             guide: GuideCardVm(
               title: 'No standby is following this broker',
-              body:
-                  '`sys/standby_connected` is 0. Either no warm standby is configured, or the one configured cannot reach this broker. If this host fails, the site stops until it is back; links on other machines walk to their next endpoint only if they have one.',
+              body: '`sys/standby_connected` is 0. Either no warm standby is configured, or the one configured cannot reach this broker. If this host fails, the site stops until it is back; links on other machines walk to their next endpoint only if they have one.',
               stepsTitle: 'To add one (on the hosts, not in Studio)',
               steps: [
                 '1. Copy the keys to the second host: `wyrmd keys export` here, `wyrmd keys import` there.',
@@ -293,14 +284,12 @@ SystemPage _page({
             pair: StandbyPairVm(
               activeLabel: 'This broker · active',
               activeName: 'plant',
-              activeNote:
-                  'Serves links, flows, the gateway and peers. Answers `sys/replication/**` for its standby.',
+              activeNote: 'Serves links, flows, the gateway and peers. Answers `sys/replication/**` for its standby.',
               flow: 'WAL, files, storage, history',
               every: 'pulled every 1 s',
               standbyLabel: lag ? 'Standby · behind' : 'Standby · following',
               standbyName: 'standby:plant',
-              standbyNote:
-                  'Same keys, own `data_dir`. Takes over only if this broker stops answering and a witness still answers it.',
+              standbyNote: 'Same keys, own `data_dir`. Takes over only if this broker stops answering and a witness still answers it.',
               behind: lag,
             ),
             tiles: [
@@ -310,8 +299,7 @@ SystemPage _page({
                 value: '1',
                 sub: 'follows this broker over the peer link',
                 tone: Tone.good,
-                about:
-                    '1 while a warm standby follows this broker over the peer link (ADR 0036).',
+                about: '1 while a warm standby follows this broker over the peer link (ADR 0036).',
               ),
               SysTileVm(
                 label: 'Lag',
@@ -324,8 +312,7 @@ SystemPage _page({
                 tone: lag ? Tone.warn : Tone.neutral,
                 subTone: lag ? Tone.warn : Tone.neutral,
                 outlined: lag,
-                about:
-                    'Records of the registry WAL the standby has not received yet.',
+                about: 'Records of the registry WAL the standby has not received yet.',
               ),
               SysTileVm(
                 label: 'Arbiter lease',
@@ -337,8 +324,7 @@ SystemPage _page({
                     : 'renewed by the lease arbiter',
                 tone: lag ? Tone.warn : Tone.neutral,
                 subTone: lag ? Tone.warn : Tone.neutral,
-                about:
-                    'Seconds left of the lease the arbiters granted this broker; 0 without arbiters.',
+                about: 'Seconds left of the lease the arbiters granted this broker; 0 without arbiters.',
               ),
               SysTileVm(
                 label: 'Forks moved aside',
@@ -350,15 +336,13 @@ SystemPage _page({
                     : 'no split since this broker started',
                 tone: lag ? Tone.bad : Tone.neutral,
                 subTone: lag ? Tone.bad : Tone.neutral,
-                about:
-                    'Sets of records the standby moved aside after a healed split.',
+                about: 'Sets of records the standby moved aside after a healed split.',
               ),
             ],
             banner: lag
                 ? const WarnBannerVm(
                     title: 'The standby is behind and moved a fork aside',
-                    body:
-                        '1,240 registry records are not on the standby yet: a takeover now would lose them. One set of records was moved aside after both brokers were active (a healed split): the audit record `standby_forked` says which.',
+                    body: '1,240 registry records are not on the standby yet: a takeover now would lose them. One set of records was moved aside after both brokers were active (a healed split): the audit record `standby_forked` says which.',
                     action: 'Open the audit record ›',
                   )
                 : null,
@@ -366,23 +350,19 @@ SystemPage _page({
             held: const [
               TermVm(
                 term: 'Control plane',
-                text:
-                    'Registry, flow definitions and gateway users: the WAL records themselves, checked against the HMAC chain.',
+                text: 'Registry, flow definitions and gateway users: the WAL records themselves, checked against the HMAC chain.',
               ),
               TermVm(
                 term: 'Secrets and link data',
-                text:
-                    'secrets.bin, link tokens, link data_dirs and packages: sealed parts of 1 MiB, files up to 64 MiB, removed when gone here.',
+                text: 'secrets.bin, link tokens, link data_dirs and packages: sealed parts of 1 MiB, files up to 64 MiB, removed when gone here.',
               ),
               TermVm(
                 term: 'Broker storage',
-                text:
-                    'The storage change journal, applied into the standby’s own storage (full tree beyond 20,000 changes).',
+                text: 'The storage change journal, applied into the standby’s own storage (full tree beyond 20,000 changes).',
               ),
               TermVm(
                 term: 'History',
-                text:
-                    'Every series’ rows from the change journal, written into the standby’s own day files.',
+                text: 'Every series’ rows from the change journal, written into the standby’s own day files.',
               ),
             ],
           ),
@@ -438,8 +418,7 @@ SystemPage _page({
                 time: '01:58:10',
                 level: 'WARN',
                 target: 'admin::peers',
-                message:
-                    'line2 asks for broker:line2 relaying 1 site; waits for Authorize',
+                message: 'line2 asks for broker:line2 relaying 1 site; waits for Authorize',
               ),
               LogRowVm(
                 time: '01:56:31',
@@ -458,8 +437,7 @@ SystemPage _page({
                 time: '01:41:02',
                 level: 'INFO',
                 target: 'admin',
-                message:
-                    'ACL rebuilt from registry (23 rules); router runtime restarted in 0.9 s',
+                message: 'ACL rebuilt from registry (23 rules); router runtime restarted in 0.9 s',
               ),
               LogRowVm(
                 time: '01:41:01',
@@ -498,8 +476,7 @@ SystemPage _page({
           : 'The log is read with config on sys.',
       levelTitle: 'Broker log level',
       levelKey: 'sys/log_level',
-      levelNote:
-          "Staged in Review and apply; once applied it takes effect at once, no restart, and replaces `RUST_LOG`. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link's own level: Links › the link › Log.",
+      levelNote: "Staged in Review and apply; once applied it takes effect at once, no restart, and replaces `RUST_LOG`. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link's own level: Links › the link › Log.",
       levels: const [
         PillTabVm(id: 'error', label: 'error'),
         PillTabVm(id: 'warn', label: 'warn'),
@@ -512,8 +489,7 @@ SystemPage _page({
     ),
     maintenance: SystemMaintVm(
       staleTitle: 'Disconnected links',
-      staleNote:
-          'Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.',
+      staleNote: 'Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.',
       stale: const [
         RowItemVm(
           id: 'meter-07',
@@ -533,8 +509,7 @@ SystemPage _page({
       clearReason: rights ? null : _reason,
       staleFooter: '`sys/~act/clear_conns` · config · asks before it runs',
       profilesTitle: 'Device profiles',
-      profilesNote:
-          'Models served as `pub/<vendor>:<model>`: points, units and ranges that links and the assistant inherit.',
+      profilesNote: 'Models served as `pub/<vendor>:<model>`: points, units and ranges that links and the assistant inherit.',
       putLabel: 'Put profile…',
       putReason: rights ? null : _reason,
       profiles: [
@@ -555,24 +530,20 @@ SystemPage _page({
       profilesEmpty: 'No profiles.',
       profilesFooter: '`sys/profiles` › Put Profile, Remove Profile · config',
       backupTitle: 'Back up and restore',
-      backupNote:
-          "Everything the broker owns is in its `data_dir` (here 1.9 GiB). Studio does not take backups: they hold the site's keys and are made on the host. The steps, ready to copy:",
+      backupNote: "Everything the broker owns is in its `data_dir` (here 1.9 GiB). Studio does not take backups: they hold the site's keys and are made on the host. The steps, ready to copy:",
       commands: const [
         CommandCardVm(
           id: 'backup',
           title: 'Back up (broker stopped)',
-          code:
-              'sudo systemctl stop wyrmd\nsudo tar --same-permissions -czf /backup/wyrm-plant.tgz -C /var/lib wyrm\nsudo systemctl start wyrmd',
-          note:
-              'Consistent and simplest. With a filesystem snapshot (LVM, btrfs, ZFS) the broker can keep running.',
+          code: 'sudo systemctl stop wyrmd\nsudo tar --same-permissions -czf /backup/wyrm-plant.tgz -C /var/lib wyrm\nsudo systemctl start wyrmd',
+          note: 'Consistent and simplest. With a filesystem snapshot (LVM, btrfs, ZFS) the broker can keep running.',
           copyLabel: 'Copy: Back up (broker stopped)',
         ),
         CommandCardVm(
           id: 'verify',
           title: 'Check a copy',
           code: 'wyrmd -c /etc/wyrm/wyrmd.json5 verify',
-          note:
-              'Checks every control-plane store offline: CRC, HMAC chain, anchors. Run it on the restored data_dir before a start.',
+          note: 'Checks every control-plane store offline: CRC, HMAC chain, anchors. Run it on the restored data_dir before a start.',
           copyLabel: 'Copy: Check a copy',
         ),
         CommandCardVm(
@@ -584,8 +555,7 @@ SystemPage _page({
           copyLabel: 'Copy: Before a restart with a changed file',
         ),
       ],
-      backupWarning:
-          "A backup holds the site CA and the gateway key: whoever reads it is an administrator. Encrypt it and keep it where only the broker's administrators can read it.",
+      backupWarning: "A backup holds the site CA and the gateway key: whoever reads it is an administrator. Encrypt it and keep it where only the broker's administrators can read it.",
       elsewhereLabel: 'Also broker settings, kept where they are used:',
       elsewhere: const [
         ElsewhereVm(
@@ -599,8 +569,7 @@ SystemPage _page({
     ),
     attention: AttentionPanelVm(
       heading: 'Needs a look · ${loading ? 0 : attention.length}',
-      note:
-          "From the broker's own values. Each opens the screen where it is fixed.",
+      note: "From the broker's own values. Each opens the screen where it is fixed.",
       empty: 'Nothing needs a look.',
       items: loading ? const [] : attention,
       factsTitle: 'This broker',

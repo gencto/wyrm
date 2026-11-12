@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'live_set.dart';
@@ -9,6 +9,7 @@ part of 'live_set.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $LiveSetCopyWith<LiveSet> get copyWith => _$LiveSetCopyWithImpl<LiveSet>(this as
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveSet&&const DeepCollectionEquality().equals(other.values, values)&&const DeepCollectionEquality().equals(other.lists, lists));
+  final _this = this as LiveSet;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveSet&&const DeepCollectionEquality().equals(other.values, _this.values)&&const DeepCollectionEquality().equals(other.lists, _this.lists));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(values),const DeepCollectionEquality().hash(lists));
+int get hashCode {
+  final _this = this as LiveSet;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.values),const DeepCollectionEquality().hash(_this.lists));
+}
 
 @override
 String toString() {
-  return 'LiveSet(values: $values, lists: $lists)';
+  final _this = this as LiveSet;
+  return 'LiveSet(values: ${_this.values}, lists: ${_this.lists})';
 }
 
 
@@ -63,7 +69,7 @@ class _$LiveSetCopyWithImpl<$Res>
 /// Create a copy of LiveSet
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? values = null,Object? lists = null,}) {
-  return _then(_self.copyWith(
+  return _then(LiveSet(
 values: null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
 as IList<String>,lists: null == lists ? _self.lists : lists // ignore: cast_nullable_to_non_nullable
 as IList<String>,
@@ -94,16 +100,18 @@ _$LiveSetCopyWith<_LiveSet> get copyWith => __$LiveSetCopyWithImpl<_LiveSet>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveSet&&const DeepCollectionEquality().equals(other.values, values)&&const DeepCollectionEquality().equals(other.lists, lists));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveSet&&const DeepCollectionEquality().equals(other.values, values)&&const DeepCollectionEquality().equals(other.lists, lists));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(values),const DeepCollectionEquality().hash(lists));
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(values),const DeepCollectionEquality().hash(lists));
+}
 
 @override
 String toString() {
-  return 'LiveSet(values: $values, lists: $lists)';
+    return 'LiveSet(values: $values, lists: $lists)';
 }
 
 

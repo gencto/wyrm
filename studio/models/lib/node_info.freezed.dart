@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'node_info.dart';
@@ -9,6 +9,7 @@ part of 'node_info.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -33,16 +34,21 @@ $NodeInfoCopyWith<NodeInfo> get copyWith => _$NodeInfoCopyWithImpl<NodeInfo>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeInfo&&(identical(other.key, key) || other.key == key)&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.unit, unit) || other.unit == unit)&&(identical(other.writable, writable) || other.writable == writable)&&(identical(other.hasChildren, hasChildren) || other.hasChildren == hasChildren)&&(identical(other.hasHistory, hasHistory) || other.hasHistory == hasHistory)&&(identical(other.isAction, isAction) || other.isAction == isAction)&&(identical(other.profile, profile) || other.profile == profile)&&const DeepCollectionEquality().equals(other.choices, choices));
+  final _this = this as NodeInfo;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NodeInfo&&(identical(other.key, _this.key) || other.key == _this.key)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.unit, _this.unit) || other.unit == _this.unit)&&(identical(other.writable, _this.writable) || other.writable == _this.writable)&&(identical(other.hasChildren, _this.hasChildren) || other.hasChildren == _this.hasChildren)&&(identical(other.hasHistory, _this.hasHistory) || other.hasHistory == _this.hasHistory)&&(identical(other.isAction, _this.isAction) || other.isAction == _this.isAction)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&const DeepCollectionEquality().equals(other.choices, _this.choices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,key,name,display,type,unit,writable,hasChildren,hasHistory,isAction,profile,const DeepCollectionEquality().hash(choices));
+int get hashCode {
+  final _this = this as NodeInfo;
+  return Object.hash(runtimeType,_this.key,_this.name,_this.display,_this.type,_this.unit,_this.writable,_this.hasChildren,_this.hasHistory,_this.isAction,_this.profile,const DeepCollectionEquality().hash(_this.choices));
+}
 
 @override
 String toString() {
-  return 'NodeInfo(key: $key, name: $name, display: $display, type: $type, unit: $unit, writable: $writable, hasChildren: $hasChildren, hasHistory: $hasHistory, isAction: $isAction, profile: $profile, choices: $choices)';
+  final _this = this as NodeInfo;
+  return 'NodeInfo(key: ${_this.key}, name: ${_this.name}, display: ${_this.display}, type: ${_this.type}, unit: ${_this.unit}, writable: ${_this.writable}, hasChildren: ${_this.hasChildren}, hasHistory: ${_this.hasHistory}, isAction: ${_this.isAction}, profile: ${_this.profile}, choices: ${_this.choices})';
 }
 
 
@@ -71,7 +77,7 @@ class _$NodeInfoCopyWithImpl<$Res>
 /// Create a copy of NodeInfo
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? key = null,Object? name = null,Object? display = freezed,Object? type = freezed,Object? unit = freezed,Object? writable = freezed,Object? hasChildren = null,Object? hasHistory = null,Object? isAction = null,Object? profile = freezed,Object? choices = null,}) {
-  return _then(_self.copyWith(
+  return _then(NodeInfo(
 key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
@@ -128,16 +134,18 @@ _$NodeInfoCopyWith<_NodeInfo> get copyWith => __$NodeInfoCopyWithImpl<_NodeInfo>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeInfo&&(identical(other.key, key) || other.key == key)&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.unit, unit) || other.unit == unit)&&(identical(other.writable, writable) || other.writable == writable)&&(identical(other.hasChildren, hasChildren) || other.hasChildren == hasChildren)&&(identical(other.hasHistory, hasHistory) || other.hasHistory == hasHistory)&&(identical(other.isAction, isAction) || other.isAction == isAction)&&(identical(other.profile, profile) || other.profile == profile)&&const DeepCollectionEquality().equals(other.choices, choices));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NodeInfo&&(identical(other.key, key) || other.key == key)&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.unit, unit) || other.unit == unit)&&(identical(other.writable, writable) || other.writable == writable)&&(identical(other.hasChildren, hasChildren) || other.hasChildren == hasChildren)&&(identical(other.hasHistory, hasHistory) || other.hasHistory == hasHistory)&&(identical(other.isAction, isAction) || other.isAction == isAction)&&(identical(other.profile, profile) || other.profile == profile)&&const DeepCollectionEquality().equals(other.choices, choices));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,key,name,display,type,unit,writable,hasChildren,hasHistory,isAction,profile,const DeepCollectionEquality().hash(choices));
+int get hashCode {
+    return Object.hash(runtimeType,key,name,display,type,unit,writable,hasChildren,hasHistory,isAction,profile,const DeepCollectionEquality().hash(choices));
+}
 
 @override
 String toString() {
-  return 'NodeInfo(key: $key, name: $name, display: $display, type: $type, unit: $unit, writable: $writable, hasChildren: $hasChildren, hasHistory: $hasHistory, isAction: $isAction, profile: $profile, choices: $choices)';
+    return 'NodeInfo(key: $key, name: $name, display: $display, type: $type, unit: $unit, writable: $writable, hasChildren: $hasChildren, hasHistory: $hasHistory, isAction: $isAction, profile: $profile, choices: $choices)';
 }
 
 

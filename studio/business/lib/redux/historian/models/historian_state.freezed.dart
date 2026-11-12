@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'historian_state.dart';
@@ -9,6 +9,7 @@ part of 'historian_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $HistorianStateCopyWith<HistorianState> get copyWith => _$HistorianStateCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points)&&(identical(other.follow, follow) || other.follow == follow));
+  final _this = this as HistorianState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is HistorianState&&const DeepCollectionEquality().equals(other.groups, _this.groups)&&(identical(other.selected, _this.selected) || other.selected == _this.selected)&&(identical(other.range, _this.range) || other.range == _this.range)&&(identical(other.series, _this.series) || other.series == _this.series)&&(identical(other.stats, _this.stats) || other.stats == _this.stats)&&const DeepCollectionEquality().equals(other.points, _this.points)&&(identical(other.follow, _this.follow) || other.follow == _this.follow));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points),follow);
+int get hashCode {
+  final _this = this as HistorianState;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.groups),_this.selected,_this.range,_this.series,_this.stats,const DeepCollectionEquality().hash(_this.points),_this.follow);
+}
 
 @override
 String toString() {
-  return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points, follow: $follow)';
+  final _this = this as HistorianState;
+  return 'HistorianState(groups: ${_this.groups}, selected: ${_this.selected}, range: ${_this.range}, series: ${_this.series}, stats: ${_this.stats}, points: ${_this.points}, follow: ${_this.follow})';
 }
 
 
@@ -63,7 +69,7 @@ class _$HistorianStateCopyWithImpl<$Res>
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? groups = null,Object? selected = freezed,Object? range = null,Object? series = null,Object? stats = null,Object? points = null,Object? follow = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(HistorianState(
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,range: null == range ? _self.range : range // ignore: cast_nullable_to_non_nullable
@@ -116,16 +122,18 @@ _$HistorianStateCopyWith<_HistorianState> get copyWith => __$HistorianStateCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points)&&(identical(other.follow, follow) || other.follow == follow));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _HistorianState&&const DeepCollectionEquality().equals(other.groups, groups)&&(identical(other.selected, selected) || other.selected == selected)&&(identical(other.range, range) || other.range == range)&&(identical(other.series, series) || other.series == series)&&(identical(other.stats, stats) || other.stats == stats)&&const DeepCollectionEquality().equals(other.points, points)&&(identical(other.follow, follow) || other.follow == follow));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points),follow);
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(groups),selected,range,series,stats,const DeepCollectionEquality().hash(points),follow);
+}
 
 @override
 String toString() {
-  return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points, follow: $follow)';
+    return 'HistorianState(groups: $groups, selected: $selected, range: $range, series: $series, stats: $stats, points: $points, follow: $follow)';
 }
 
 

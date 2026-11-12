@@ -84,8 +84,10 @@ class OpenTreeAction extends Action {
   Future<bool> _start(int i, String root) async {
     switch (i) {
       case 0:
-        dispatch(
-          RetrieveNodesAction(preload: sections.sublist(1), quiet: true),
+        unawaited(
+          dispatchAndWait(
+            RetrieveNodesAction(preload: sections.sublist(1), quiet: true),
+          ),
         );
         final keys = [for (final s in sections) '$root/$s'];
         try {

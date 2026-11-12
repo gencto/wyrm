@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'traffic_sample.dart';
@@ -9,6 +9,7 @@ part of 'traffic_sample.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -26,16 +27,21 @@ $TrafficSampleCopyWith<TrafficSample> get copyWith => _$TrafficSampleCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TrafficSample&&(identical(other.time, time) || other.time == time)&&(identical(other.messagesIn, messagesIn) || other.messagesIn == messagesIn)&&(identical(other.messagesOut, messagesOut) || other.messagesOut == messagesOut)&&(identical(other.framesIn, framesIn) || other.framesIn == framesIn)&&(identical(other.framesOut, framesOut) || other.framesOut == framesOut)&&(identical(other.dataIn, dataIn) || other.dataIn == dataIn)&&(identical(other.dataOut, dataOut) || other.dataOut == dataOut));
+  final _this = this as TrafficSample;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TrafficSample&&(identical(other.time, _this.time) || other.time == _this.time)&&(identical(other.messagesIn, _this.messagesIn) || other.messagesIn == _this.messagesIn)&&(identical(other.messagesOut, _this.messagesOut) || other.messagesOut == _this.messagesOut)&&(identical(other.framesIn, _this.framesIn) || other.framesIn == _this.framesIn)&&(identical(other.framesOut, _this.framesOut) || other.framesOut == _this.framesOut)&&(identical(other.dataIn, _this.dataIn) || other.dataIn == _this.dataIn)&&(identical(other.dataOut, _this.dataOut) || other.dataOut == _this.dataOut));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,time,messagesIn,messagesOut,framesIn,framesOut,dataIn,dataOut);
+int get hashCode {
+  final _this = this as TrafficSample;
+  return Object.hash(runtimeType,_this.time,_this.messagesIn,_this.messagesOut,_this.framesIn,_this.framesOut,_this.dataIn,_this.dataOut);
+}
 
 @override
 String toString() {
-  return 'TrafficSample(time: $time, messagesIn: $messagesIn, messagesOut: $messagesOut, framesIn: $framesIn, framesOut: $framesOut, dataIn: $dataIn, dataOut: $dataOut)';
+  final _this = this as TrafficSample;
+  return 'TrafficSample(time: ${_this.time}, messagesIn: ${_this.messagesIn}, messagesOut: ${_this.messagesOut}, framesIn: ${_this.framesIn}, framesOut: ${_this.framesOut}, dataIn: ${_this.dataIn}, dataOut: ${_this.dataOut})';
 }
 
 
@@ -64,7 +70,7 @@ class _$TrafficSampleCopyWithImpl<$Res>
 /// Create a copy of TrafficSample
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? time = null,Object? messagesIn = null,Object? messagesOut = null,Object? framesIn = null,Object? framesOut = null,Object? dataIn = null,Object? dataOut = null,}) {
-  return _then(_self.copyWith(
+  return _then(TrafficSample(
 time: null == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as DateTime,messagesIn: null == messagesIn ? _self.messagesIn : messagesIn // ignore: cast_nullable_to_non_nullable
 as double,messagesOut: null == messagesOut ? _self.messagesOut : messagesOut // ignore: cast_nullable_to_non_nullable
@@ -106,16 +112,18 @@ _$TrafficSampleCopyWith<_TrafficSample> get copyWith => __$TrafficSampleCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _TrafficSample&&(identical(other.time, time) || other.time == time)&&(identical(other.messagesIn, messagesIn) || other.messagesIn == messagesIn)&&(identical(other.messagesOut, messagesOut) || other.messagesOut == messagesOut)&&(identical(other.framesIn, framesIn) || other.framesIn == framesIn)&&(identical(other.framesOut, framesOut) || other.framesOut == framesOut)&&(identical(other.dataIn, dataIn) || other.dataIn == dataIn)&&(identical(other.dataOut, dataOut) || other.dataOut == dataOut));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TrafficSample&&(identical(other.time, time) || other.time == time)&&(identical(other.messagesIn, messagesIn) || other.messagesIn == messagesIn)&&(identical(other.messagesOut, messagesOut) || other.messagesOut == messagesOut)&&(identical(other.framesIn, framesIn) || other.framesIn == framesIn)&&(identical(other.framesOut, framesOut) || other.framesOut == framesOut)&&(identical(other.dataIn, dataIn) || other.dataIn == dataIn)&&(identical(other.dataOut, dataOut) || other.dataOut == dataOut));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,time,messagesIn,messagesOut,framesIn,framesOut,dataIn,dataOut);
+int get hashCode {
+    return Object.hash(runtimeType,time,messagesIn,messagesOut,framesIn,framesOut,dataIn,dataOut);
+}
 
 @override
 String toString() {
-  return 'TrafficSample(time: $time, messagesIn: $messagesIn, messagesOut: $messagesOut, framesIn: $framesIn, framesOut: $framesOut, dataIn: $dataIn, dataOut: $dataOut)';
+    return 'TrafficSample(time: $time, messagesIn: $messagesIn, messagesOut: $messagesOut, framesIn: $framesIn, framesOut: $framesOut, dataIn: $dataIn, dataOut: $dataOut)';
 }
 
 

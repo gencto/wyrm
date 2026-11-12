@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'agent_task.dart';
@@ -9,6 +9,7 @@ part of 'agent_task.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $AgentTaskCopyWith<AgentTask> get copyWith => _$AgentTaskCopyWithImpl<AgentTask>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AgentTask&&(identical(other.id, id) || other.id == id)&&(identical(other.state, state) || other.state == state)&&(identical(other.owner, owner) || other.owner == owner)&&(identical(other.ask, ask) || other.ask == ask)&&const DeepCollectionEquality().equals(other.plan, plan)&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.error, error) || other.error == error)&&(identical(other.tokens, tokens) || other.tokens == tokens));
+  final _this = this as AgentTask;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AgentTask&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.state, _this.state) || other.state == _this.state)&&(identical(other.owner, _this.owner) || other.owner == _this.owner)&&(identical(other.ask, _this.ask) || other.ask == _this.ask)&&const DeepCollectionEquality().equals(other.plan, _this.plan)&&const DeepCollectionEquality().equals(other.log, _this.log)&&(identical(other.error, _this.error) || other.error == _this.error)&&(identical(other.tokens, _this.tokens) || other.tokens == _this.tokens));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,state,owner,ask,const DeepCollectionEquality().hash(plan),const DeepCollectionEquality().hash(log),error,tokens);
+int get hashCode {
+  final _this = this as AgentTask;
+  return Object.hash(runtimeType,_this.id,_this.state,_this.owner,_this.ask,const DeepCollectionEquality().hash(_this.plan),const DeepCollectionEquality().hash(_this.log),_this.error,_this.tokens);
+}
 
 @override
 String toString() {
-  return 'AgentTask(id: $id, state: $state, owner: $owner, ask: $ask, plan: $plan, log: $log, error: $error, tokens: $tokens)';
+  final _this = this as AgentTask;
+  return 'AgentTask(id: ${_this.id}, state: ${_this.state}, owner: ${_this.owner}, ask: ${_this.ask}, plan: ${_this.plan}, log: ${_this.log}, error: ${_this.error}, tokens: ${_this.tokens})';
 }
 
 
@@ -63,7 +69,7 @@ class _$AgentTaskCopyWithImpl<$Res>
 /// Create a copy of AgentTask
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? log = null,Object? error = freezed,Object? tokens = null,}) {
-  return _then(_self.copyWith(
+  return _then(AgentTask(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as TaskState,owner: null == owner ? _self.owner : owner // ignore: cast_nullable_to_non_nullable
@@ -106,16 +112,18 @@ _$AgentTaskCopyWith<_AgentTask> get copyWith => __$AgentTaskCopyWithImpl<_AgentT
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AgentTask&&(identical(other.id, id) || other.id == id)&&(identical(other.state, state) || other.state == state)&&(identical(other.owner, owner) || other.owner == owner)&&(identical(other.ask, ask) || other.ask == ask)&&const DeepCollectionEquality().equals(other.plan, plan)&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.error, error) || other.error == error)&&(identical(other.tokens, tokens) || other.tokens == tokens));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AgentTask&&(identical(other.id, id) || other.id == id)&&(identical(other.state, state) || other.state == state)&&(identical(other.owner, owner) || other.owner == owner)&&(identical(other.ask, ask) || other.ask == ask)&&const DeepCollectionEquality().equals(other.plan, plan)&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.error, error) || other.error == error)&&(identical(other.tokens, tokens) || other.tokens == tokens));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,state,owner,ask,const DeepCollectionEquality().hash(plan),const DeepCollectionEquality().hash(log),error,tokens);
+int get hashCode {
+    return Object.hash(runtimeType,id,state,owner,ask,const DeepCollectionEquality().hash(plan),const DeepCollectionEquality().hash(log),error,tokens);
+}
 
 @override
 String toString() {
-  return 'AgentTask(id: $id, state: $state, owner: $owner, ask: $ask, plan: $plan, log: $log, error: $error, tokens: $tokens)';
+    return 'AgentTask(id: $id, state: $state, owner: $owner, ask: $ask, plan: $plan, log: $log, error: $error, tokens: $tokens)';
 }
 
 

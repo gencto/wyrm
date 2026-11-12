@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'system_state.dart';
@@ -9,6 +9,7 @@ part of 'system_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $SystemStateCopyWith<SystemState> get copyWith => _$SystemStateCopyWithImpl<Syst
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SystemState&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.logLevel, logLevel) || other.logLevel == logLevel)&&(identical(other.filter, filter) || other.filter == filter)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.measure, measure) || other.measure == measure)&&(identical(other.source, source) || other.source == source)&&(identical(other.lines, lines) || other.lines == lines)&&(identical(other.auto, auto) || other.auto == auto)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.logError, logError) || other.logError == logError)&&const DeepCollectionEquality().equals(other.samples, samples)&&(identical(other.trafficRoot, trafficRoot) || other.trafficRoot == trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, profiles)&&(identical(other.profilesNote, profilesNote) || other.profilesNote == profilesNote)&&(identical(other.aclSeen, aclSeen) || other.aclSeen == aclSeen)&&(identical(other.about, about) || other.about == about)&&(identical(other.units, units) || other.units == units)&&(identical(other.around, around) || other.around == around));
+  final _this = this as SystemState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SystemState&&const DeepCollectionEquality().equals(other.log, _this.log)&&(identical(other.logLevel, _this.logLevel) || other.logLevel == _this.logLevel)&&(identical(other.filter, _this.filter) || other.filter == _this.filter)&&(identical(other.tab, _this.tab) || other.tab == _this.tab)&&(identical(other.measure, _this.measure) || other.measure == _this.measure)&&(identical(other.source, _this.source) || other.source == _this.source)&&(identical(other.lines, _this.lines) || other.lines == _this.lines)&&(identical(other.auto, _this.auto) || other.auto == _this.auto)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&(identical(other.logError, _this.logError) || other.logError == _this.logError)&&const DeepCollectionEquality().equals(other.samples, _this.samples)&&(identical(other.trafficRoot, _this.trafficRoot) || other.trafficRoot == _this.trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, _this.profiles)&&(identical(other.profilesNote, _this.profilesNote) || other.profilesNote == _this.profilesNote)&&(identical(other.aclSeen, _this.aclSeen) || other.aclSeen == _this.aclSeen)&&(identical(other.about, _this.about) || other.about == _this.about)&&(identical(other.units, _this.units) || other.units == _this.units)&&(identical(other.around, _this.around) || other.around == _this.around));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(log),logLevel,filter,tab,measure,source,lines,auto,shown,logError,const DeepCollectionEquality().hash(samples),trafficRoot,const DeepCollectionEquality().hash(profiles),profilesNote,aclSeen,about,units,around);
+int get hashCode {
+  final _this = this as SystemState;
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.log),_this.logLevel,_this.filter,_this.tab,_this.measure,_this.source,_this.lines,_this.auto,_this.shown,_this.logError,const DeepCollectionEquality().hash(_this.samples),_this.trafficRoot,const DeepCollectionEquality().hash(_this.profiles),_this.profilesNote,_this.aclSeen,_this.about,_this.units,_this.around);
+}
 
 @override
 String toString() {
-  return 'SystemState(log: $log, logLevel: $logLevel, filter: $filter, tab: $tab, measure: $measure, source: $source, lines: $lines, auto: $auto, shown: $shown, logError: $logError, samples: $samples, trafficRoot: $trafficRoot, profiles: $profiles, profilesNote: $profilesNote, aclSeen: $aclSeen, about: $about, units: $units, around: $around)';
+  final _this = this as SystemState;
+  return 'SystemState(log: ${_this.log}, logLevel: ${_this.logLevel}, filter: ${_this.filter}, tab: ${_this.tab}, measure: ${_this.measure}, source: ${_this.source}, lines: ${_this.lines}, auto: ${_this.auto}, shown: ${_this.shown}, logError: ${_this.logError}, samples: ${_this.samples}, trafficRoot: ${_this.trafficRoot}, profiles: ${_this.profiles}, profilesNote: ${_this.profilesNote}, aclSeen: ${_this.aclSeen}, about: ${_this.about}, units: ${_this.units}, around: ${_this.around})';
 }
 
 
@@ -63,7 +69,7 @@ class _$SystemStateCopyWithImpl<$Res>
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? log = null,Object? logLevel = freezed,Object? filter = freezed,Object? tab = null,Object? measure = null,Object? source = freezed,Object? lines = null,Object? auto = null,Object? shown = null,Object? logError = freezed,Object? samples = null,Object? trafficRoot = freezed,Object? profiles = null,Object? profilesNote = freezed,Object? aclSeen = freezed,Object? about = null,Object? units = null,Object? around = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(SystemState(
 log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<LogLine>,logLevel: freezed == logLevel ? _self.logLevel : logLevel // ignore: cast_nullable_to_non_nullable
 as String?,filter: freezed == filter ? _self.filter : filter // ignore: cast_nullable_to_non_nullable
@@ -126,16 +132,18 @@ _$SystemStateCopyWith<_SystemState> get copyWith => __$SystemStateCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _SystemState&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.logLevel, logLevel) || other.logLevel == logLevel)&&(identical(other.filter, filter) || other.filter == filter)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.measure, measure) || other.measure == measure)&&(identical(other.source, source) || other.source == source)&&(identical(other.lines, lines) || other.lines == lines)&&(identical(other.auto, auto) || other.auto == auto)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.logError, logError) || other.logError == logError)&&const DeepCollectionEquality().equals(other.samples, samples)&&(identical(other.trafficRoot, trafficRoot) || other.trafficRoot == trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, profiles)&&(identical(other.profilesNote, profilesNote) || other.profilesNote == profilesNote)&&(identical(other.aclSeen, aclSeen) || other.aclSeen == aclSeen)&&(identical(other.about, about) || other.about == about)&&(identical(other.units, units) || other.units == units)&&(identical(other.around, around) || other.around == around));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SystemState&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.logLevel, logLevel) || other.logLevel == logLevel)&&(identical(other.filter, filter) || other.filter == filter)&&(identical(other.tab, tab) || other.tab == tab)&&(identical(other.measure, measure) || other.measure == measure)&&(identical(other.source, source) || other.source == source)&&(identical(other.lines, lines) || other.lines == lines)&&(identical(other.auto, auto) || other.auto == auto)&&(identical(other.shown, shown) || other.shown == shown)&&(identical(other.logError, logError) || other.logError == logError)&&const DeepCollectionEquality().equals(other.samples, samples)&&(identical(other.trafficRoot, trafficRoot) || other.trafficRoot == trafficRoot)&&const DeepCollectionEquality().equals(other.profiles, profiles)&&(identical(other.profilesNote, profilesNote) || other.profilesNote == profilesNote)&&(identical(other.aclSeen, aclSeen) || other.aclSeen == aclSeen)&&(identical(other.about, about) || other.about == about)&&(identical(other.units, units) || other.units == units)&&(identical(other.around, around) || other.around == around));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(log),logLevel,filter,tab,measure,source,lines,auto,shown,logError,const DeepCollectionEquality().hash(samples),trafficRoot,const DeepCollectionEquality().hash(profiles),profilesNote,aclSeen,about,units,around);
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(log),logLevel,filter,tab,measure,source,lines,auto,shown,logError,const DeepCollectionEquality().hash(samples),trafficRoot,const DeepCollectionEquality().hash(profiles),profilesNote,aclSeen,about,units,around);
+}
 
 @override
 String toString() {
-  return 'SystemState(log: $log, logLevel: $logLevel, filter: $filter, tab: $tab, measure: $measure, source: $source, lines: $lines, auto: $auto, shown: $shown, logError: $logError, samples: $samples, trafficRoot: $trafficRoot, profiles: $profiles, profilesNote: $profilesNote, aclSeen: $aclSeen, about: $about, units: $units, around: $around)';
+    return 'SystemState(log: $log, logLevel: $logLevel, filter: $filter, tab: $tab, measure: $measure, source: $source, lines: $lines, auto: $auto, shown: $shown, logError: $logError, samples: $samples, trafficRoot: $trafficRoot, profiles: $profiles, profilesNote: $profilesNote, aclSeen: $aclSeen, about: $about, units: $units, around: $around)';
 }
 
 

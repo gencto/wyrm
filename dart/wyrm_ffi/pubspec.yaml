@@ -4,15 +4,15 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.7.0
+  sdk: ^3.14.0
 
 dependencies:
-  ffi: ^2.1.0
+  ffi: ^2.2.0
   wyrm_client:
     path: ../wyrm_client
   wyrm_core:
     path: ../wyrm_core
 
 dev_dependencies:
-  lints: ^6.0.0
-  test: ^1.25.0
+  lints: ^6.1.0
+  test: ^1.33.0

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'block_info.dart';
@@ -9,6 +9,7 @@ part of 'block_info.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -26,16 +27,21 @@ $BlockInfoCopyWith<BlockInfo> get copyWith => _$BlockInfoCopyWithImpl<BlockInfo>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.version, version) || other.version == version)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs));
+  final _this = this as BlockInfo;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is BlockInfo&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.description, _this.description) || other.description == _this.description)&&const DeepCollectionEquality().equals(other.inputs, _this.inputs)&&const DeepCollectionEquality().equals(other.outputs, _this.outputs));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,name,version,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs));
+int get hashCode {
+  final _this = this as BlockInfo;
+  return Object.hash(runtimeType,_this.name,_this.version,_this.description,const DeepCollectionEquality().hash(_this.inputs),const DeepCollectionEquality().hash(_this.outputs));
+}
 
 @override
 String toString() {
-  return 'BlockInfo(name: $name, version: $version, description: $description, inputs: $inputs, outputs: $outputs)';
+  final _this = this as BlockInfo;
+  return 'BlockInfo(name: ${_this.name}, version: ${_this.version}, description: ${_this.description}, inputs: ${_this.inputs}, outputs: ${_this.outputs})';
 }
 
 
@@ -64,7 +70,7 @@ class _$BlockInfoCopyWithImpl<$Res>
 /// Create a copy of BlockInfo
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? version = null,Object? description = freezed,Object? inputs = null,Object? outputs = null,}) {
-  return _then(_self.copyWith(
+  return _then(BlockInfo(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as int,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
@@ -102,16 +108,18 @@ _$BlockInfoCopyWith<_BlockInfo> get copyWith => __$BlockInfoCopyWithImpl<_BlockI
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.version, version) || other.version == version)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _BlockInfo&&(identical(other.name, name) || other.name == name)&&(identical(other.version, version) || other.version == version)&&(identical(other.description, description) || other.description == description)&&const DeepCollectionEquality().equals(other.inputs, inputs)&&const DeepCollectionEquality().equals(other.outputs, outputs));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,name,version,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs));
+int get hashCode {
+    return Object.hash(runtimeType,name,version,description,const DeepCollectionEquality().hash(inputs),const DeepCollectionEquality().hash(outputs));
+}
 
 @override
 String toString() {
-  return 'BlockInfo(name: $name, version: $version, description: $description, inputs: $inputs, outputs: $outputs)';
+    return 'BlockInfo(name: $name, version: $version, description: $description, inputs: $inputs, outputs: $outputs)';
 }
 
 

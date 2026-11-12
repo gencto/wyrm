@@ -9,6 +9,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:app/common/app_store.dart';
 import 'package:app/navigation/app_router.dart';
 import 'package:app/run_env.dart';
 import 'package:async_redux/async_redux.dart';
@@ -21,11 +22,11 @@ import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/wyrm/calls.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/error_kind.dart';
 import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/dialogs/error_dialog.dart';
@@ -364,7 +365,7 @@ void main() {
     await shot(tester, '00_login');
 
     final fields = find.byType(EditableText);
-    final store = StoreProvider.backdoorInheritedWidget<AppState>(
+    final store = AppStore.of(
       tester.element(find.byType(Router<Object>).first),
     );
 

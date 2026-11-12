@@ -17,9 +17,9 @@ import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/node_info.dart';
 import 'package:models/workspace.dart';
 import 'package:ui/buttons/problems_pill.dart';
@@ -389,7 +389,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
       onRemoveChange: (id) => dispatch(RemoveChangeAction(id)),
       onLogOut: () async {
         await dispatchAndWait(LogOutAction());
-        dispatch(GoAction.replace(const LogInRoute()));
+        dispatchSync(GoAction.replace(const LogInRoute()));
       },
       onLanguage: (code) => dispatchSync(SetLanguageAction(code)),
       onTheme: (mode) => dispatchSync(SetThemeModeAction(mode)),

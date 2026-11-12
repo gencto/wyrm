@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'link_revision.dart';
@@ -9,6 +9,7 @@ part of 'link_revision.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -26,16 +27,21 @@ $LinkRevisionCopyWith<LinkRevision> get copyWith => _$LinkRevisionCopyWithImpl<L
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkRevision&&(identical(other.rev, rev) || other.rev == rev)&&(identical(other.params, params) || other.params == params));
+  final _this = this as LinkRevision;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LinkRevision&&(identical(other.rev, _this.rev) || other.rev == _this.rev)&&(identical(other.params, _this.params) || other.params == _this.params));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,rev,params);
+int get hashCode {
+  final _this = this as LinkRevision;
+  return Object.hash(runtimeType,_this.rev,_this.params);
+}
 
 @override
 String toString() {
-  return 'LinkRevision(rev: $rev, params: $params)';
+  final _this = this as LinkRevision;
+  return 'LinkRevision(rev: ${_this.rev}, params: ${_this.params})';
 }
 
 
@@ -64,7 +70,7 @@ class _$LinkRevisionCopyWithImpl<$Res>
 /// Create a copy of LinkRevision
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? rev = null,Object? params = null,}) {
-  return _then(_self.copyWith(
+  return _then(LinkRevision(
 rev: null == rev ? _self.rev : rev // ignore: cast_nullable_to_non_nullable
 as int,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as String,
@@ -96,16 +102,18 @@ _$LinkRevisionCopyWith<_LinkRevision> get copyWith => __$LinkRevisionCopyWithImp
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkRevision&&(identical(other.rev, rev) || other.rev == rev)&&(identical(other.params, params) || other.params == params));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _LinkRevision&&(identical(other.rev, rev) || other.rev == rev)&&(identical(other.params, params) || other.params == params));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,rev,params);
+int get hashCode {
+    return Object.hash(runtimeType,rev,params);
+}
 
 @override
 String toString() {
-  return 'LinkRevision(rev: $rev, params: $params)';
+    return 'LinkRevision(rev: $rev, params: $params)';
 }
 
 

@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'flows_state.dart';
@@ -9,6 +9,7 @@ part of 'flows_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $FlowsStateCopyWith<FlowsState> get copyWith => _$FlowsStateCopyWithImpl<FlowsSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs)&&const DeepCollectionEquality().equals(other.blockTypes, blockTypes)&&(identical(other.follow, follow) || other.follow == follow));
+  final _this = this as FlowsState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowsState&&(identical(other.query, _this.query) || other.query == _this.query)&&const DeepCollectionEquality().equals(other.view, _this.view)&&(identical(other.table, _this.table) || other.table == _this.table)&&(identical(other.selectedFlow, _this.selectedFlow) || other.selectedFlow == _this.selectedFlow)&&(identical(other.defs, _this.defs) || other.defs == _this.defs)&&const DeepCollectionEquality().equals(other.blockTypes, _this.blockTypes)&&(identical(other.follow, _this.follow) || other.follow == _this.follow));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs,const DeepCollectionEquality().hash(blockTypes),follow);
+int get hashCode {
+  final _this = this as FlowsState;
+  return Object.hash(runtimeType,_this.query,const DeepCollectionEquality().hash(_this.view),_this.table,_this.selectedFlow,_this.defs,const DeepCollectionEquality().hash(_this.blockTypes),_this.follow);
+}
 
 @override
 String toString() {
-  return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs, blockTypes: $blockTypes, follow: $follow)';
+  final _this = this as FlowsState;
+  return 'FlowsState(query: ${_this.query}, view: ${_this.view}, table: ${_this.table}, selectedFlow: ${_this.selectedFlow}, defs: ${_this.defs}, blockTypes: ${_this.blockTypes}, follow: ${_this.follow})';
 }
 
 
@@ -63,7 +69,7 @@ class _$FlowsStateCopyWithImpl<$Res>
 /// Create a copy of FlowsState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? query = freezed,Object? view = null,Object? table = null,Object? selectedFlow = freezed,Object? defs = null,Object? blockTypes = null,Object? follow = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(FlowsState(
 query: freezed == query ? _self.query : query // ignore: cast_nullable_to_non_nullable
 as String?,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
@@ -116,16 +122,18 @@ _$FlowsStateCopyWith<_FlowsState> get copyWith => __$FlowsStateCopyWithImpl<_Flo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs)&&const DeepCollectionEquality().equals(other.blockTypes, blockTypes)&&(identical(other.follow, follow) || other.follow == follow));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowsState&&(identical(other.query, query) || other.query == query)&&const DeepCollectionEquality().equals(other.view, view)&&(identical(other.table, table) || other.table == table)&&(identical(other.selectedFlow, selectedFlow) || other.selectedFlow == selectedFlow)&&(identical(other.defs, defs) || other.defs == defs)&&const DeepCollectionEquality().equals(other.blockTypes, blockTypes)&&(identical(other.follow, follow) || other.follow == follow));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs,const DeepCollectionEquality().hash(blockTypes),follow);
+int get hashCode {
+    return Object.hash(runtimeType,query,const DeepCollectionEquality().hash(view),table,selectedFlow,defs,const DeepCollectionEquality().hash(blockTypes),follow);
+}
 
 @override
 String toString() {
-  return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs, blockTypes: $blockTypes, follow: $follow)';
+    return 'FlowsState(query: $query, view: $view, table: $table, selectedFlow: $selectedFlow, defs: $defs, blockTypes: $blockTypes, follow: $follow)';
 }
 
 

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
@@ -39,9 +39,9 @@ import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
@@ -833,15 +833,16 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
     }
     final text = '${logText(lines)}\n';
     try {
-      final path = await FilePicker.saveFile(
+      // The picker writes the bytes itself (file_picker 12+).
+      final saved = await FilePicker.saveFile(
         fileName: logFileName(site.viewed ?? 'site', DateTime.now()),
-        type: FileType.custom,
-        allowedExtensions: const ['log'],
+        bytes: utf8.encode(text),
+        mimeType: 'text/plain',
       );
-      if (path == null) {
+      if (saved == null) {
         return;
       }
-      await File(path).writeAsString(text);
+      final path = saved.isScheme('file') ? saved.toFilePath() : '$saved';
       if (context.mounted) {
         _say(context, S.current.sysLogSaved(path));
       }

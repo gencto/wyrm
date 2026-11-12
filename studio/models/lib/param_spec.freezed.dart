@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'param_spec.dart';
@@ -9,6 +9,7 @@ part of 'param_spec.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -34,16 +35,21 @@ $ParamSpecCopyWith<ParamSpec> get copyWith => _$ParamSpecCopyWithImpl<ParamSpec>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope));
+  final _this = this as ParamSpec;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ParamSpec&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.display, _this.display) || other.display == _this.display)&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.required, _this.required) || other.required == _this.required)&&const DeepCollectionEquality().equals(other.defaultValue, _this.defaultValue)&&(identical(other.min, _this.min) || other.min == _this.min)&&(identical(other.max, _this.max) || other.max == _this.max)&&const DeepCollectionEquality().equals(other.choices, _this.choices)&&(identical(other.editor, _this.editor) || other.editor == _this.editor)&&(identical(other.secret, _this.secret) || other.secret == _this.secret)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.port, _this.port) || other.port == _this.port)&&(identical(other.echo, _this.echo) || other.echo == _this.echo)&&(identical(other.scope, _this.scope) || other.scope == _this.scope));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,name,display,type,required,const DeepCollectionEquality().hash(defaultValue),min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope);
+int get hashCode {
+  final _this = this as ParamSpec;
+  return Object.hash(runtimeType,_this.name,_this.display,_this.type,_this.required,const DeepCollectionEquality().hash(_this.defaultValue),_this.min,_this.max,const DeepCollectionEquality().hash(_this.choices),_this.editor,_this.secret,_this.description,_this.port,_this.echo,_this.scope);
+}
 
 @override
 String toString() {
-  return 'ParamSpec(name: $name, display: $display, type: $type, required: $required, defaultValue: $defaultValue, min: $min, max: $max, choices: $choices, editor: $editor, secret: $secret, description: $description, port: $port, echo: $echo, scope: $scope)';
+  final _this = this as ParamSpec;
+  return 'ParamSpec(name: ${_this.name}, display: ${_this.display}, type: ${_this.type}, required: ${_this.required}, defaultValue: ${_this.defaultValue}, min: ${_this.min}, max: ${_this.max}, choices: ${_this.choices}, editor: ${_this.editor}, secret: ${_this.secret}, description: ${_this.description}, port: ${_this.port}, echo: ${_this.echo}, scope: ${_this.scope})';
 }
 
 
@@ -72,7 +78,7 @@ class _$ParamSpecCopyWithImpl<$Res>
 /// Create a copy of ParamSpec
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? display = freezed,Object? type = null,Object? required = null,Object? defaultValue = freezed,Object? min = freezed,Object? max = freezed,Object? choices = null,Object? editor = freezed,Object? secret = null,Object? description = freezed,Object? port = freezed,Object? echo = freezed,Object? scope = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(ParamSpec(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
@@ -135,16 +141,18 @@ _$ParamSpecCopyWith<_ParamSpec> get copyWith => __$ParamSpecCopyWithImpl<_ParamS
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ParamSpec&&(identical(other.name, name) || other.name == name)&&(identical(other.display, display) || other.display == display)&&(identical(other.type, type) || other.type == type)&&(identical(other.required, required) || other.required == required)&&const DeepCollectionEquality().equals(other.defaultValue, defaultValue)&&(identical(other.min, min) || other.min == min)&&(identical(other.max, max) || other.max == max)&&const DeepCollectionEquality().equals(other.choices, choices)&&(identical(other.editor, editor) || other.editor == editor)&&(identical(other.secret, secret) || other.secret == secret)&&(identical(other.description, description) || other.description == description)&&(identical(other.port, port) || other.port == port)&&(identical(other.echo, echo) || other.echo == echo)&&(identical(other.scope, scope) || other.scope == scope));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,name,display,type,required,const DeepCollectionEquality().hash(defaultValue),min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope);
+int get hashCode {
+    return Object.hash(runtimeType,name,display,type,required,const DeepCollectionEquality().hash(defaultValue),min,max,const DeepCollectionEquality().hash(choices),editor,secret,description,port,echo,scope);
+}
 
 @override
 String toString() {
-  return 'ParamSpec(name: $name, display: $display, type: $type, required: $required, defaultValue: $defaultValue, min: $min, max: $max, choices: $choices, editor: $editor, secret: $secret, description: $description, port: $port, echo: $echo, scope: $scope)';
+    return 'ParamSpec(name: $name, display: $display, type: $type, required: $required, defaultValue: $defaultValue, min: $min, max: $max, choices: $choices, editor: $editor, secret: $secret, description: $description, port: $port, echo: $echo, scope: $scope)';
 }
 
 

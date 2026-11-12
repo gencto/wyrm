@@ -1,7 +1,7 @@
 import 'dart:collection';
 
 import 'package:async_redux/async_redux.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Takes each `UserException` off the store's error queue and hands it to
 /// [onShowUserExceptionDialog] after the frame (async_redux's
@@ -119,9 +119,8 @@ class _Vm extends Vm {
   int get hashCode => rebuild.hashCode;
 }
 
-typedef ShowUserExceptionDialog =
-    void Function({
-      required BuildContext context,
-      required UserException userException,
-      required bool useLocalContext,
-    });
+typedef ShowUserExceptionDialog = void Function({
+  required BuildContext context,
+  required UserException userException,
+  required bool useLocalContext,
+});

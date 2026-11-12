@@ -10,10 +10,10 @@ import 'dart:ui' as ui;
 
 import 'package:app/run_env.dart';
 import 'package:business/environment.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 // ignore: do_not_use_environment, a test parameter.
 const gateway = String.fromEnvironment('WYRM_GATEWAY');

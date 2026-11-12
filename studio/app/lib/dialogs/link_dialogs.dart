@@ -8,8 +8,8 @@ import 'package:business/redux/links/actions/retrieve_link_history_action.dart';
 import 'package:business/redux/links/actions/rollback_link_params_action.dart';
 import 'package:business/redux/links/actions/update_link_params_action.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
-import 'package:flutter/material.dart';
 import 'package:localization/localization.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:models/link_revision.dart';
 import 'package:ui/buttons/button.dart';
 import 'package:ui/forms/action_form.dart';
@@ -18,11 +18,12 @@ import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/log_view.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 
+import '../common/app_store.dart';
 import '../common/forms.dart';
 
 /// View log: the last lines of the link's own log.
 Future<void> showLinkLog(BuildContext context, String id) {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   unawaited(store.dispatchAndWait(GetLinkLogAction(id)));
   return showDialog<void>(
     context: context,
@@ -53,7 +54,7 @@ Future<void> showLinkLog(BuildContext context, String id) {
 /// Edit params: the parameters of the newest revision as JSON; Stage puts an
 /// `update` into the staged changes.
 Future<void> showLinkParams(BuildContext context, String id) async {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   await store.dispatchAndWait(RetrieveLinkHistoryAction(id));
   if (!context.mounted) {
     return;
@@ -119,7 +120,7 @@ Future<void> showLinkParams(BuildContext context, String id) async {
 
 /// Params history: each revision, newest first, with Roll back.
 Future<void> showLinkHistory(BuildContext context, String id) {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   unawaited(store.dispatchAndWait(RetrieveLinkHistoryAction(id)));
   return showDialog<void>(
     context: context,
@@ -186,7 +187,7 @@ Future<void> showLinkHistory(BuildContext context, String id) {
 
 /// Secrets: set one (sealed, never shown again) or delete one by name.
 Future<void> showLinkSecrets(BuildContext context, String key) {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   return showDialog<void>(
     context: context,
     builder: (dialog) => PanelDialog(
@@ -236,7 +237,7 @@ Future<void> showLinkSecrets(BuildContext context, String key) {
 
 /// Grant access: read or write outside the link's own branch.
 Future<void> showLinkGrant(BuildContext context, String id, String root) {
-  final store = StoreProvider.backdoorInheritedWidget<AppState>(context);
+  final store = AppStore.of(context);
   return showDialog<void>(
     context: context,
     builder: (dialog) => PanelDialog(

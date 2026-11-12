@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'app_state.dart';
@@ -9,6 +9,7 @@ part of 'app_state.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 /// @nodoc
@@ -25,16 +26,21 @@ $AppStateCopyWith<AppState> get copyWith => _$AppStateCopyWithImpl<AppState>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppState&&(identical(other.connectivity, connectivity) || other.connectivity == connectivity)&&(identical(other.login, login) || other.login == login)&&(identical(other.session, session) || other.session == session)&&(identical(other.theme, theme) || other.theme == theme)&&(identical(other.language, language) || other.language == language)&&(identical(other.site, site) || other.site == site)&&(identical(other.nodes, nodes) || other.nodes == nodes)&&(identical(other.live, live) || other.live == live)&&(identical(other.links, links) || other.links == links)&&(identical(other.quarantine, quarantine) || other.quarantine == quarantine)&&(identical(other.packages, packages) || other.packages == packages)&&(identical(other.linkInstall, linkInstall) || other.linkInstall == linkInstall)&&(identical(other.peers, peers) || other.peers == peers)&&(identical(other.flows, flows) || other.flows == flows)&&(identical(other.flowEditor, flowEditor) || other.flowEditor == flowEditor)&&(identical(other.tasks, tasks) || other.tasks == tasks)&&(identical(other.assistant, assistant) || other.assistant == assistant)&&(identical(other.changes, changes) || other.changes == changes)&&(identical(other.historian, historian) || other.historian == historian)&&(identical(other.access, access) || other.access == access)&&(identical(other.system, system) || other.system == system)&&(identical(other.panels, panels) || other.panels == panels)&&(identical(other.window, window) || other.window == window)&&(identical(other.problems, problems) || other.problems == problems)&&(identical(other.wait, wait) || other.wait == wait));
+  final _this = this as AppState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppState&&(identical(other.connectivity, _this.connectivity) || other.connectivity == _this.connectivity)&&(identical(other.login, _this.login) || other.login == _this.login)&&(identical(other.session, _this.session) || other.session == _this.session)&&(identical(other.theme, _this.theme) || other.theme == _this.theme)&&(identical(other.language, _this.language) || other.language == _this.language)&&(identical(other.site, _this.site) || other.site == _this.site)&&(identical(other.nodes, _this.nodes) || other.nodes == _this.nodes)&&(identical(other.live, _this.live) || other.live == _this.live)&&(identical(other.links, _this.links) || other.links == _this.links)&&(identical(other.quarantine, _this.quarantine) || other.quarantine == _this.quarantine)&&(identical(other.packages, _this.packages) || other.packages == _this.packages)&&(identical(other.linkInstall, _this.linkInstall) || other.linkInstall == _this.linkInstall)&&(identical(other.peers, _this.peers) || other.peers == _this.peers)&&(identical(other.flows, _this.flows) || other.flows == _this.flows)&&(identical(other.flowEditor, _this.flowEditor) || other.flowEditor == _this.flowEditor)&&(identical(other.tasks, _this.tasks) || other.tasks == _this.tasks)&&(identical(other.assistant, _this.assistant) || other.assistant == _this.assistant)&&(identical(other.changes, _this.changes) || other.changes == _this.changes)&&(identical(other.historian, _this.historian) || other.historian == _this.historian)&&(identical(other.access, _this.access) || other.access == _this.access)&&(identical(other.system, _this.system) || other.system == _this.system)&&(identical(other.panels, _this.panels) || other.panels == _this.panels)&&(identical(other.window, _this.window) || other.window == _this.window)&&(identical(other.problems, _this.problems) || other.problems == _this.problems)&&(identical(other.wait, _this.wait) || other.wait == _this.wait));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,connectivity,login,session,theme,language,site,nodes,live,links,quarantine,packages,linkInstall,peers,flows,flowEditor,tasks,assistant,changes,historian,access,system,panels,window,problems,wait]);
+int get hashCode {
+  final _this = this as AppState;
+  return Object.hashAll([runtimeType,_this.connectivity,_this.login,_this.session,_this.theme,_this.language,_this.site,_this.nodes,_this.live,_this.links,_this.quarantine,_this.packages,_this.linkInstall,_this.peers,_this.flows,_this.flowEditor,_this.tasks,_this.assistant,_this.changes,_this.historian,_this.access,_this.system,_this.panels,_this.window,_this.problems,_this.wait]);
+}
 
 @override
 String toString() {
-  return 'AppState(connectivity: $connectivity, login: $login, session: $session, theme: $theme, language: $language, site: $site, nodes: $nodes, live: $live, links: $links, quarantine: $quarantine, packages: $packages, linkInstall: $linkInstall, peers: $peers, flows: $flows, flowEditor: $flowEditor, tasks: $tasks, assistant: $assistant, changes: $changes, historian: $historian, access: $access, system: $system, panels: $panels, window: $window, problems: $problems, wait: $wait)';
+  final _this = this as AppState;
+  return 'AppState(connectivity: ${_this.connectivity}, login: ${_this.login}, session: ${_this.session}, theme: ${_this.theme}, language: ${_this.language}, site: ${_this.site}, nodes: ${_this.nodes}, live: ${_this.live}, links: ${_this.links}, quarantine: ${_this.quarantine}, packages: ${_this.packages}, linkInstall: ${_this.linkInstall}, peers: ${_this.peers}, flows: ${_this.flows}, flowEditor: ${_this.flowEditor}, tasks: ${_this.tasks}, assistant: ${_this.assistant}, changes: ${_this.changes}, historian: ${_this.historian}, access: ${_this.access}, system: ${_this.system}, panels: ${_this.panels}, window: ${_this.window}, problems: ${_this.problems}, wait: ${_this.wait})';
 }
 
 
@@ -63,7 +69,7 @@ class _$AppStateCopyWithImpl<$Res>
 /// Create a copy of AppState
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? connectivity = null,Object? login = null,Object? session = null,Object? theme = null,Object? language = null,Object? site = null,Object? nodes = null,Object? live = null,Object? links = null,Object? quarantine = null,Object? packages = null,Object? linkInstall = null,Object? peers = null,Object? flows = null,Object? flowEditor = null,Object? tasks = null,Object? assistant = null,Object? changes = null,Object? historian = null,Object? access = null,Object? system = null,Object? panels = null,Object? window = null,Object? problems = null,Object? wait = null,}) {
-  return _then(_self.copyWith(
+  return _then(AppState(
 connectivity: null == connectivity ? _self.connectivity : connectivity // ignore: cast_nullable_to_non_nullable
 as ConnectivityState,login: null == login ? _self.login : login // ignore: cast_nullable_to_non_nullable
 as LoginState,session: null == session ? _self.session : session // ignore: cast_nullable_to_non_nullable
@@ -356,16 +362,18 @@ _$AppStateCopyWith<_AppState> get copyWith => __$AppStateCopyWithImpl<_AppState>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppState&&(identical(other.connectivity, connectivity) || other.connectivity == connectivity)&&(identical(other.login, login) || other.login == login)&&(identical(other.session, session) || other.session == session)&&(identical(other.theme, theme) || other.theme == theme)&&(identical(other.language, language) || other.language == language)&&(identical(other.site, site) || other.site == site)&&(identical(other.nodes, nodes) || other.nodes == nodes)&&(identical(other.live, live) || other.live == live)&&(identical(other.links, links) || other.links == links)&&(identical(other.quarantine, quarantine) || other.quarantine == quarantine)&&(identical(other.packages, packages) || other.packages == packages)&&(identical(other.linkInstall, linkInstall) || other.linkInstall == linkInstall)&&(identical(other.peers, peers) || other.peers == peers)&&(identical(other.flows, flows) || other.flows == flows)&&(identical(other.flowEditor, flowEditor) || other.flowEditor == flowEditor)&&(identical(other.tasks, tasks) || other.tasks == tasks)&&(identical(other.assistant, assistant) || other.assistant == assistant)&&(identical(other.changes, changes) || other.changes == changes)&&(identical(other.historian, historian) || other.historian == historian)&&(identical(other.access, access) || other.access == access)&&(identical(other.system, system) || other.system == system)&&(identical(other.panels, panels) || other.panels == panels)&&(identical(other.window, window) || other.window == window)&&(identical(other.problems, problems) || other.problems == problems)&&(identical(other.wait, wait) || other.wait == wait));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppState&&(identical(other.connectivity, connectivity) || other.connectivity == connectivity)&&(identical(other.login, login) || other.login == login)&&(identical(other.session, session) || other.session == session)&&(identical(other.theme, theme) || other.theme == theme)&&(identical(other.language, language) || other.language == language)&&(identical(other.site, site) || other.site == site)&&(identical(other.nodes, nodes) || other.nodes == nodes)&&(identical(other.live, live) || other.live == live)&&(identical(other.links, links) || other.links == links)&&(identical(other.quarantine, quarantine) || other.quarantine == quarantine)&&(identical(other.packages, packages) || other.packages == packages)&&(identical(other.linkInstall, linkInstall) || other.linkInstall == linkInstall)&&(identical(other.peers, peers) || other.peers == peers)&&(identical(other.flows, flows) || other.flows == flows)&&(identical(other.flowEditor, flowEditor) || other.flowEditor == flowEditor)&&(identical(other.tasks, tasks) || other.tasks == tasks)&&(identical(other.assistant, assistant) || other.assistant == assistant)&&(identical(other.changes, changes) || other.changes == changes)&&(identical(other.historian, historian) || other.historian == historian)&&(identical(other.access, access) || other.access == access)&&(identical(other.system, system) || other.system == system)&&(identical(other.panels, panels) || other.panels == panels)&&(identical(other.window, window) || other.window == window)&&(identical(other.problems, problems) || other.problems == problems)&&(identical(other.wait, wait) || other.wait == wait));
 }
 
 
 @override
-int get hashCode => Object.hashAll([runtimeType,connectivity,login,session,theme,language,site,nodes,live,links,quarantine,packages,linkInstall,peers,flows,flowEditor,tasks,assistant,changes,historian,access,system,panels,window,problems,wait]);
+int get hashCode {
+    return Object.hashAll([runtimeType,connectivity,login,session,theme,language,site,nodes,live,links,quarantine,packages,linkInstall,peers,flows,flowEditor,tasks,assistant,changes,historian,access,system,panels,window,problems,wait]);
+}
 
 @override
 String toString() {
-  return 'AppState(connectivity: $connectivity, login: $login, session: $session, theme: $theme, language: $language, site: $site, nodes: $nodes, live: $live, links: $links, quarantine: $quarantine, packages: $packages, linkInstall: $linkInstall, peers: $peers, flows: $flows, flowEditor: $flowEditor, tasks: $tasks, assistant: $assistant, changes: $changes, historian: $historian, access: $access, system: $system, panels: $panels, window: $window, problems: $problems, wait: $wait)';
+    return 'AppState(connectivity: $connectivity, login: $login, session: $session, theme: $theme, language: $language, site: $site, nodes: $nodes, live: $live, links: $links, quarantine: $quarantine, packages: $packages, linkInstall: $linkInstall, peers: $peers, flows: $flows, flowEditor: $flowEditor, tasks: $tasks, assistant: $assistant, changes: $changes, historian: $historian, access: $access, system: $system, panels: $panels, window: $window, problems: $problems, wait: $wait)';
 }
 
 
