@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Views style contract</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px">
+<div style="max-width: 1240px; margin: 0 auto; padding: 56px 24px 72px; display: flex; flex-direction: column; gap: 36px">
+<header style="display: flex; flex-direction: column; gap: 12px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #E8893A">Style contract · project manifest</span>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; max-width: 960px">The assistant picks parts and variants. Studio owns colour, type, density and the menu.</h1>
+</header>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px">
+<div style="padding: 18px; border-radius: 12px; border: 1px solid #36705F; background: #13171A; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 16px; font-weight: 600; color: #6CC4B0">The document may choose</span>
+<sc-for list="{{may}}" as="m" hint-placeholder-count="5"><div style="display: grid; grid-template-columns: 110px 1fr; gap: 10px; font-size: 13px"><code style="color: #ECE9E1">{{m.k}}</code><span style="color: #C5CBCE; line-height: 1.5">{{m.v}}</span></div></sc-for>
+</div>
+<div style="padding: 18px; border-radius: 12px; border: 1px solid #5A3328; background: #13171A; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 16px; font-weight: 600; color: #F0A28D">Never in the document</span>
+<sc-for list="{{never}}" as="m" hint-placeholder-count="5"><div style="display: grid; grid-template-columns: 110px 1fr; gap: 10px; font-size: 13px"><code style="color: #ECE9E1">{{m.k}}</code><span style="color: #C5CBCE; line-height: 1.5">{{m.v}}</span></div></sc-for>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">State colours are fixed</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px">
+<sc-for list="{{states}}" as="s" hint-placeholder-count="5"><div style="display: flex; gap: 10px; align-items: center; padding: 12px; border-radius: 10px; border: 1px solid #252B30; background: #13171A"><span style="width: 14px; height: 14px; border-radius: 50%; background: {{s.c}}"></span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 600">{{s.n}}</span><span style="font-size: 12px; color: #8E979C">{{s.d}}</span></div></div></sc-for>
+</div>
+<span style="font-size: 12px; color: #8E979C">After ISA-101: colour means state, never decoration. Light and dark themes map the same roles (theme tokens of ui/lib/theme/common.dart).</span>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">Density comes from where it is shown</h2>
+<div style="border: 1px solid #252B30; border-radius: 12px; overflow-x: auto; background: #13171A">
+<div style="min-width: 860px">
+<div style="display: grid; grid-template-columns: 130px repeat(6, 1fr); gap: 10px; padding: 10px 16px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #8E979C; border-bottom: 1px solid #252B30"><span>Where</span><span>Menu</span><span>Value</span><span>Button</span><span>Header</span><span>Gap</span><span>Alarm banner</span></div>
+<sc-for list="{{dens}}" as="d" hint-placeholder-count="4"><div style="display: grid; grid-template-columns: 130px repeat(6, 1fr); gap: 10px; padding: 10px 16px; border-top: 1px solid #1D2226; font-size: 13px; color: #C5CBCE"><span style="font-weight: 600; color: #ECE9E1">{{d.w}}</span><span>{{d.menu}}</span><code>{{d.val}}</code><code>{{d.btn}}</code><code>{{d.hdr}}</code><code>{{d.gap}}</code><span>{{d.ban}}</span></div></sc-for>
+</div>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">A project is a manifest around the pages</h2>
+<code style="display: block; padding: 16px; border-radius: 12px; border: 1px solid #252B30; background: #0B0D0F; font-size: 12px; line-height: 1.6; color: #C5CBCE; white-space: pre">{{manifest}}</code>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Pages are A2UI documents (one surface each); the comments in the manifest are for this board only. <code>wyrm.open {page, params}</code> is the third action Studio handles: it navigates, fills the page's parameters and keeps the back stack and breadcrumbs. Pages a role cannot read are not in its menu.</span>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const may = [
+      { k: 'size', v: 's · m · l on Value, Gauge, Symbol' },
+      { k: 'variant', v: 'primary · neutral · danger on Button; plain · outlined on Card' },
+      { k: 'emphasis', v: 'normal · key on Card: a key card spans wider and comes first on a phone' },
+      { k: 'weights', v: 'relative widths in a Row; collapses to one column below 600 px' },
+      { k: 'limits', v: 'warnAbove, warnBelow, badAbove, badBelow when ~meta has none' }
+    ];
+    const never = [
+      { k: 'colour', v: 'no hex, no rgb, no named colours; the theme field of createSurface is ignored' },
+      { k: 'font', v: 'no family, size or weight; sizes come from size and the density' },
+      { k: 'px', v: 'no pixel sizes or positions outside a Mimic canvas' },
+      { k: 'state', v: 'no “make it red when…”: state colour follows quality, limits and alarms' },
+      { k: 'html', v: 'no markup, scripts or URLs to load' }
+    ];
+    const states = [
+      { n: 'Normal', d: 'value in range, good quality', c: '#ECE9E1' }, { n: 'Running / on', d: 'Symbol running, Lamp on', c: '#6CC4B0' },
+      { n: 'Warning', d: 'warn limits, uncertain quality', c: '#E2C15A' }, { n: 'Alarm / fault', d: 'bad limits, fault, active alarm', c: '#E07A5F' },
+      { n: 'Stopped / no data', d: 'off, stale, not readable', c: '#5A6168' }
+    ];
+    const dens = [
+      { w: 'Desktop', menu: 'sidebar, 2 levels', val: '24 px', btn: '38–44', hdr: '56', gap: '12', ban: 'one line + Acknowledge' },
+      { w: 'Panel 10–15"', menu: 'top tabs, 52 px', val: '34 px', btn: '56', hdr: '68', gap: '16', ban: 'one line, larger' },
+      { w: 'Phone', menu: 'bottom bar, 5 items', val: '22 px', btn: '56', hdr: '56', gap: '10', ban: 'red count in the header' },
+      { w: 'Kiosk', menu: 'hidden, pages rotate', val: '34 px', btn: '56', hdr: '68', gap: '16', ban: 'one line; rotation stops on alarm' }
+    ];
+    const manifest = `{
+  "wyrm_views": 1,
+  "id": "pump-station",
+  "title": "Pump station · north",
+  "home": "overview",
+  "frame": "frame.a2ui.jsonl",              // header: title, clock, alarm banner
+  "pages": [
+    { "id": "overview", "title": "Overview", "doc": "overview.a2ui.jsonl" },
+    { "id": "pump", "title": "Pump {pump}", "doc": "pump.a2ui.jsonl",
+      "params": { "pump": { "under": "wy/plant/downstream/modbus/plc1/pumps" } },
+      "faceplate": "ksb:etanorm" },
+    { "id": "tank", "title": "Tank T1", "doc": "tank.a2ui.jsonl", "roles": ["operator", "engineer"] },
+    { "id": "alarms", "title": "Alarms", "doc": "alarms.a2ui.jsonl" }
+  ],
+  "nav": [
+    { "page": "overview" },
+    { "label": "Pumps", "children": { "page": "pump", "each": "pump" } },   // one item per pump
+    { "page": "tank" }, { "page": "alarms" }
+  ],
+  "kiosk": { "rotate": ["overview", "pump?pump=pump1", "tank"], "every_s": 20 }
+}`;
+    return { may, never, states, dens, manifest };
+  }
+}
+</script>
+</body>
+</html>
