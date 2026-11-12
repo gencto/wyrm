@@ -13,5 +13,6 @@ abstract class AccessState with _$AccessState {
     @Default(IListConst([])) IList<String> audit,
     String? selected,
     @Default('users') String tab,
+    @Default(false) bool shown,
   }) = _AccessState;
 }

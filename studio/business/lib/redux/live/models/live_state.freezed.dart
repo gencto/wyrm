@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$LiveState {
 
- IMap<String, LiveValue> get values; IMap<String, int> get watched; IMap<String, String> get failed;
+ IMap<String, LiveValue> get values; IMap<String, int> get watched; IMap<String, String> get failed; IMap<String, int> get lists;
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $LiveStateCopyWith<LiveState> get copyWith => _$LiveStateCopyWithImpl<LiveState>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.lists, lists) || other.lists == lists));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,values,watched,failed);
+int get hashCode => Object.hash(runtimeType,values,watched,failed,lists);
 
 @override
 String toString() {
-  return 'LiveState(values: $values, watched: $watched, failed: $failed)';
+  return 'LiveState(values: $values, watched: $watched, failed: $failed, lists: $lists)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $LiveStateCopyWith<$Res>  {
   factory $LiveStateCopyWith(LiveState value, $Res Function(LiveState) _then) = _$LiveStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, LiveValue> values, IMap<String, int> watched, IMap<String, String> failed
+ IMap<String, LiveValue> values, IMap<String, int> watched, IMap<String, String> failed, IMap<String, int> lists
 });
 
 
@@ -62,12 +62,13 @@ class _$LiveStateCopyWithImpl<$Res>
 
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? values = null,Object? watched = null,Object? failed = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? values = null,Object? watched = null,Object? failed = null,Object? lists = null,}) {
   return _then(_self.copyWith(
 values: null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IMap<String, int>,failed: null == failed ? _self.failed : failed // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,
+as IMap<String, String>,lists: null == lists ? _self.lists : lists // ignore: cast_nullable_to_non_nullable
+as IMap<String, int>,
   ));
 }
 
@@ -79,12 +80,13 @@ as IMap<String, String>,
 
 
 class _LiveState implements LiveState {
-  const _LiveState({this.values = const IMapConst({}), this.watched = const IMapConst({}), this.failed = const IMapConst({})});
+  const _LiveState({this.values = const IMapConst({}), this.watched = const IMapConst({}), this.failed = const IMapConst({}), this.lists = const IMapConst({})});
   
 
 @override@JsonKey() final  IMap<String, LiveValue> values;
 @override@JsonKey() final  IMap<String, int> watched;
 @override@JsonKey() final  IMap<String, String> failed;
+@override@JsonKey() final  IMap<String, int> lists;
 
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
@@ -96,16 +98,16 @@ _$LiveStateCopyWith<_LiveState> get copyWith => __$LiveStateCopyWithImpl<_LiveSt
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _LiveState&&(identical(other.values, values) || other.values == values)&&(identical(other.watched, watched) || other.watched == watched)&&(identical(other.failed, failed) || other.failed == failed)&&(identical(other.lists, lists) || other.lists == lists));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,values,watched,failed);
+int get hashCode => Object.hash(runtimeType,values,watched,failed,lists);
 
 @override
 String toString() {
-  return 'LiveState(values: $values, watched: $watched, failed: $failed)';
+  return 'LiveState(values: $values, watched: $watched, failed: $failed, lists: $lists)';
 }
 
 
@@ -116,7 +118,7 @@ abstract mixin class _$LiveStateCopyWith<$Res> implements $LiveStateCopyWith<$Re
   factory _$LiveStateCopyWith(_LiveState value, $Res Function(_LiveState) _then) = __$LiveStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, LiveValue> values, IMap<String, int> watched, IMap<String, String> failed
+ IMap<String, LiveValue> values, IMap<String, int> watched, IMap<String, String> failed, IMap<String, int> lists
 });
 
 
@@ -133,12 +135,13 @@ class __$LiveStateCopyWithImpl<$Res>
 
 /// Create a copy of LiveState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? values = null,Object? watched = null,Object? failed = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? values = null,Object? watched = null,Object? failed = null,Object? lists = null,}) {
   return _then(_LiveState(
 values: null == values ? _self.values : values // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IMap<String, int>,failed: null == failed ? _self.failed : failed // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,
+as IMap<String, String>,lists: null == lists ? _self.lists : lists // ignore: cast_nullable_to_non_nullable
+as IMap<String, int>,
   ));
 }
 

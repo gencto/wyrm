@@ -11,7 +11,7 @@ sequenceDiagram
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
     participant A1 as SetPanelWidthAction
-    participant A2 as RetrieveHistorianAction
+    participant A2 as FollowHistoryAction
     participant A3 as RetrieveSeriesAction
     participant A4 as SetSelectedAction
     participant A5 as PickPointAction
@@ -25,10 +25,9 @@ sequenceDiagram
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected, historian.points)
-    A2-->>-VM: ActionStatus
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(historian.follow)
+    A2->>ST: dispatchSync(FollowAction)
     alt historian.points.isNotEmpty
         VM->>+A3: dispatchAndWait
         Note over A3: WaitingAction · async
@@ -36,15 +35,23 @@ sequenceDiagram
         A3-->>-VM: ActionStatus
     end
 
+    User->>UI: onHide
+    UI->>VM: onHide()
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(historian.follow)
+    A2->>ST: dispatchSync(FollowAction)
+
     User->>UI: onGroup
     UI->>VM: onGroup()
     VM->>A4: dispatchSync
     A4->>ST: copyWith(historian.selected, historian.points, historian.series)
+    A4->>A2: dispatchSync
 
     User->>UI: onPoint
     UI->>VM: onPoint()
     VM->>A5: dispatchSync
     A5->>ST: copyWith(historian.points, historian.series)
+    A5->>A2: dispatchSync
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
     A3->>ST: copyWith(historian.series)
@@ -61,11 +68,7 @@ sequenceDiagram
 
     User->>UI: onAction
     UI->>VM: onAction()
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.groups, historian.stats, historian.selected, historian.points)
-    A2-->>-VM: ActionStatus
-    alt historian.points.isNotEmpty
+    alt await _run(context, a, '$_base/${g?.name}') && historian.points.isNotEmpty
         VM->>+A3: dispatchAndWait
         Note over A3: WaitingAction · async
         A3->>ST: copyWith(historian.series)
@@ -76,11 +79,12 @@ sequenceDiagram
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
-| `onShow` | `RetrieveHistorianAction`, `RetrieveSeriesAction` ? | `historian.groups, historian.stats, historian.selected, historian.points`, `historian.series` |
+| `onShow` | `FollowHistoryAction`, `RetrieveSeriesAction` ? | `historian.follow`, `historian.series` |
+| `onHide` | `FollowHistoryAction` | `historian.follow` |
 | `onGroup` | `SetSelectedAction` | `historian.selected, historian.points, historian.series` |
 | `onPoint` | `PickPointAction`, `RetrieveSeriesAction` | `historian.points, historian.series`, `historian.series` |
 | `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range`, `historian.series` |
-| `onAction` | `RetrieveHistorianAction`, `RetrieveSeriesAction` ? | `historian.groups, historian.stats, historian.selected, historian.points`, `historian.series` |
+| `onAction` | `RetrieveSeriesAction` ? | `historian.series` |
 
 `?` marks a dispatch that only runs under a condition.
 

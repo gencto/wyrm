@@ -170,7 +170,9 @@ sequenceDiagram
     VM->>A4: dispatchSync
     A4->>ST: copyWith(links.tab)
     VM->>A5: dispatchSync
-    A5->>ST: copyWith(site, nodes, links, quarantine, packages, flows)
+    A5->>ST: copyWith(site, nodes, links, quarantine, packages, flows, historian)
+    A5->>ST: dispatchSync(FollowHistoryAction)
+    A5->>ST: dispatchSync(FollowFlowsAction)
     A5->>ST: dispatchAndWait(RetrieveLinksAction)
     VM->>A6: dispatchSync
     A6->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
@@ -223,7 +225,7 @@ sequenceDiagram
 | `onReview` | `SetTabAction` | `links.tab` |
 | `onConnect` | `RetrieveNodeDetailAction`, `AddUpstreamAction` | `nodes.detail` |
 | `onToken.onSubmit` | `IssueSiteTokenAction` | `nodes.results` |
-| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
+| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows, historian`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 | `onSubmit` | `AuthorizeBrokerAction` | — |
 
 `?` marks a dispatch that only runs under a condition.

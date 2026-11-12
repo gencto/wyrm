@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../app_state.dart';
 import '../../common/action.dart';
+import 'follow_history_action.dart';
 
 /// Picks the recorded key [key] of the selected group for the trend. A
 /// plain pick shows that point alone (a second pick of it clears it);
@@ -37,5 +38,12 @@ class PickPointAction extends Action {
           if (next.contains(e.key)) e.key: e.value,
       }.lock,
     );
+  }
+
+  /// While History is shown, its subscriptions follow the new points.
+  @override
+  void after() {
+    super.after();
+    dispatchSync(FollowHistoryAction());
   }
 }
