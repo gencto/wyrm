@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/historian/actions/load_trend_extremes_action.dart';
 import 'package:business/redux/historian/actions/load_trend_window_action.dart';
 import 'package:business/redux/historian/actions/pick_point_action.dart';
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
@@ -12,6 +13,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/history_steps.dart';
 import 'package:business/wyrm/session.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/hist_window.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -82,6 +84,28 @@ void main() {
     expect(s.state.historian.high[a]!.single.value, 1.5);
   });
 
+  test('a range change forgets the old min and max', () async {
+    s.dispatchSync(PickPointAction(a));
+    await s.dispatchAndWait(RetrieveSeriesAction());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(s.state.historian.low, isNotEmpty);
+    s.dispatchSync(SetRangeAction('7d'));
+    expect(s.state.historian.low, isEmpty);
+    expect(s.state.historian.high, isEmpty);
+  });
+
+  test('a point never opened gets its unit from a quiet meta read', () async {
+    api.metas[a] = NodeMeta(unit: const TText('°C'));
+    s.dispatchSync(PickPointAction(a));
+    await s.dispatchAndWait(RetrieveSeriesAction());
+    expect(s.state.nodes.detail[a]?.unit, '°C');
+    // A refusal leaves it out, with no dialog and no problem.
+    s.dispatchSync(PickPointAction(b));
+    await s.dispatchAndWait(RetrieveSeriesAction());
+    expect(s.state.nodes.detail[b], isNull);
+    expect(s.state.problems.items, isEmpty);
+  });
+
   test('a window of 1 h reads raw rows with their quality', () async {
     s.dispatchSync(PickPointAction(a));
     await s.dispatchAndWait(RetrieveSeriesAction());
@@ -135,6 +159,32 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(s.state.historian.detail!.low[a]!.single.value, 0.5);
     expect(s.state.historian.detail!.high[a]!.single.value, 1.5);
+  });
+
+  test('live rows of a following window keep its min and max', () async {
+    s
+      ..dispatchSync(PickPointAction(a))
+      ..dispatchSync(
+        SetTrendWindowAction(const HistWindow(span: Duration(hours: 6))),
+      );
+    await s.dispatchAndWait(LoadTrendWindowAction());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    // The extremes read again while a live batch grows the window's rows.
+    final read = s.dispatchAndWait(LoadTrendExtremesAction(detail: true));
+    s.dispatchSync(
+      UpdateStateAction<AppState>.withReducer((st) {
+        final d = st.historian.detail!;
+        return st.copyWith.historian(
+          detail: d.copyWith(
+            to: DateTime.now().toUtc(),
+            low: const IMapConst({}),
+            high: const IMapConst({}),
+          ),
+        );
+      }),
+    );
+    await read;
+    expect(s.state.historian.detail!.low[a]!.single.value, 0.5);
   });
 
   test('a range change ends the window; its late answer is dropped', () async {

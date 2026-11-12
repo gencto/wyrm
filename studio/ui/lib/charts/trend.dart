@@ -169,6 +169,7 @@ final class TrendVm extends Equatable {
     this.legend = true,
     this.hint = true,
     this.plotHeight = 240,
+    this.empty,
   });
 
   final List<TrendSeriesVm> series;
@@ -213,6 +214,10 @@ final class TrendVm extends Equatable {
   final bool hint;
   final double plotHeight;
 
+  /// What the plot says when nothing was recorded; *No values recorded in
+  /// this range.* when null.
+  final String? empty;
+
   /// How times are written.
   final TrendFormat format;
 
@@ -238,6 +243,7 @@ final class TrendVm extends Equatable {
     legend,
     hint,
     plotHeight,
+    empty,
     format,
   ];
 }
@@ -726,7 +732,7 @@ class _TrendState extends State<Trend> {
       return SizedBox(height: h, child: _skeleton(c, bars: 3));
     }
     final message = _geo.empty
-        ? s.trendNothing
+        ? vm.empty ?? s.trendNothing
         : _geo.shown.isEmpty
         ? s.trendAllHidden
         : null;

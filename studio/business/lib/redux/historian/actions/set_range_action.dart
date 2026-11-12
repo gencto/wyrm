@@ -1,3 +1,5 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -14,6 +16,8 @@ class SetRangeAction extends Action {
     range: range,
     window: null,
     detail: null,
+    low: const IMapConst({}),
+    high: const IMapConst({}),
     trendGen: historian.trendGen + 1,
   );
 }

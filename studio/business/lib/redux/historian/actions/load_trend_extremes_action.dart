@@ -69,8 +69,10 @@ class LoadTrendExtremesAction extends Action {
     final low = {for (final (i, k) in keys.indexed) k: got[2 * i]}.lock;
     final high = {for (final (i, k) in keys.indexed) k: got[2 * i + 1]}.lock;
     if (detail) {
+      // Live samples grow the window's rows meanwhile; the same read is the
+      // same start and step.
       final now = historian.detail;
-      if (now == null || now != d) {
+      if (now == null || now.from != d!.from || now.step != d.step) {
         return null;
       }
       return state.copyWith.historian(

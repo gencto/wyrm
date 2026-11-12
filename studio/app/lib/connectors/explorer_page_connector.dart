@@ -1342,11 +1342,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
   /// to when it was read (stable between dispatches).
   (int, int) _historyRange() {
     final span = RetrieveHistoryAction.span(nodes.historyRange);
-    var end = nodes.historyAt ?? DateTime.now().toUtc();
-    if (nodes.history.lastOrNull?.time case final t? when t.isAfter(end)) {
-      end = t;
-    }
-    final e = end.microsecondsSinceEpoch;
+    final e = trendRangeEnd(nodes.historyAt, [nodes.history.lastOrNull?.time]);
     return (e - span.inMicroseconds, e);
   }
 
@@ -1383,7 +1379,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
       endsNow: true,
       following: w?.end == null,
-      loading: rows.isEmpty && nodes.isWaiting,
+      loading: rows.isEmpty && nodes.historyLoading,
+      empty: S.current.noHistory,
       card: false,
       hint: false,
       plotHeight: 180,

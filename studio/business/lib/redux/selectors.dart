@@ -526,6 +526,10 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns historyAt
   DateTime? get historyAt => _state.nodes.historyAt;
+
+  /// Returns historyLoading
+  bool get historyLoading =>
+      _state.wait.isWaitingForType<RetrieveHistoryAction>();
 }
 
 extension type SelectLive(AppState _state) {

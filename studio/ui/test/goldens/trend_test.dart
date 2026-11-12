@@ -53,6 +53,7 @@ void main() {
     'states: loading, refining, nothing recorded, one hidden',
     (t) async {
       await shoot(t, 'trend_loading', trendFrame('idle', loading: true));
+      await shoot(t, 'trend_refining', trendFrame('zoomed', refining: true));
       await shoot(t, 'trend_empty', trendFrame('idle', empty: true));
       await shoot(
         t,

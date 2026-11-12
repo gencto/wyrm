@@ -83,8 +83,13 @@ List<TrendSample> trendSamples(
 /// The decimals to write values of [rows] with: the point's `precision`
 /// when known, else 0 for whole numbers and 1 otherwise.
 int trendDecimals(Iterable<HistPoint> rows, {Object? precision}) {
-  if (precision case final num p) {
-    return p.toInt().clamp(0, 6);
+  final p = switch (precision) {
+    final num n => n.toInt(),
+    final String t => int.tryParse(t),
+    _ => null,
+  };
+  if (p != null) {
+    return p.clamp(0, 6);
   }
   for (final r in rows) {
     final v = r.value;
@@ -108,4 +113,33 @@ HistWindow? trendWindow(int start, int end, int rangeStart, int rangeEnd) {
     span: Duration(microseconds: end - start),
     end: toEnd ? null : DateTime.fromMicrosecondsSinceEpoch(end, isUtc: true),
   );
+}
+
+/// The finer rows read for [from]…[to] (µs) cover the window
+/// [start]…[end]: they start at most a minute after it and, unless the
+/// window [follows] now (its rows grow with new samples), end at most a
+/// minute before it.
+bool detailCovers({
+  required int from,
+  required int to,
+  required int start,
+  required int end,
+  required bool follows,
+}) {
+  const slack = 60 * 1000000;
+  return from <= start + slack && (follows || to >= end - slack);
+}
+
+/// The end of a trend's range (µs): the latest of when it was read
+/// ([readAt], now when never) and the [newest] rows since (the range's last
+/// samples, the window's own read), so the range stays put between
+/// dispatches and still moves with new samples.
+int trendRangeEnd(DateTime? readAt, Iterable<DateTime?> newest) {
+  var end = readAt ?? DateTime.now().toUtc();
+  for (final t in newest) {
+    if (t != null && t.isAfter(end)) {
+      end = t;
+    }
+  }
+  return end.microsecondsSinceEpoch;
 }

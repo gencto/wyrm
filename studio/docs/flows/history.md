@@ -191,7 +191,7 @@ sequenceDiagram
     User->>UI: onRange
     UI->>VM: onRange()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(historian.range, historian.window, historian.detail, historian.trendGen)
+    A1->>ST: copyWith(historian.range, historian.window, historian.detail, historian.low, historian.high, historian.trendGen)
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
     A2->>ST: copyWith(historian.series, historian.low, historian.high, historian.detail)
@@ -231,7 +231,7 @@ sequenceDiagram
 | `onTrendWindow` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
 | `onTrendToggle` | `ToggleTrendSeriesAction` | `historian.hidden` |
 | `onTrendReset` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
-| `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range, historian.window, historian.detail, historian.trendGen`, `historian.series, historian.low, historian.high, historian.detail` |
+| `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range, historian.window, historian.detail, historian.low, historian.high, historian.trendGen`, `historian.series, historian.low, historian.high, historian.detail` |
 | `onAction` | `RetrieveSeriesAction` ? | `historian.series, historian.low, historian.high, historian.detail` |
 
 `?` marks a dispatch that only runs under a condition.

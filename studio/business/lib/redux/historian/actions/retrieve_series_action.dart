@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/hist_point.dart';
+import 'package:models/node_detail.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/history_steps.dart';
+import '../../../wyrm/mappers/node_detail_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../nodes/actions/retrieve_history_action.dart';
@@ -54,9 +56,24 @@ class RetrieveSeriesAction extends Action with WaitingAction {
       step = stepFor(span, raw: false);
       got = await Future.wait([for (final k in keys) read(k, step)]);
     }
+    // The unit, name and decimals of a point the Explorer never opened: its
+    // `~meta`, read quietly (a failure only leaves them out).
+    final metas = <String, NodeDetail>{};
+    for (final k in keys) {
+      if (nodes.detail[k] == null) {
+        try {
+          metas[k] = nodeDetailOf(k, await deps.wyrm.meta(k));
+        } on WyrmException {
+          // The trend shows the point without a unit.
+        }
+      }
+    }
     // The user may have picked other points while these were read.
     final now = historian.points;
-    return state.copyWith.historian(
+    final withMeta = metas.isEmpty
+        ? state
+        : state.copyWith.nodes(detail: nodes.detail.addMap(metas));
+    return withMeta.copyWith.historian(
       seriesAt: DateTime.now().toUtc(),
       series: {
         for (final (i, k) in keys.indexed)

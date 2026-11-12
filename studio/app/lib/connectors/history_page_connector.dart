@@ -293,13 +293,11 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
   (int, int) _range() {
     final h = historian;
     final span = RetrieveHistoryAction.span(h.range);
-    var end = historian.seriesAt ?? DateTime.now().toUtc();
-    for (final s in h.series.values) {
-      if (s.lastOrNull?.time case final t? when t.isAfter(end)) {
-        end = t;
-      }
-    }
-    final e = end.microsecondsSinceEpoch;
+    // A window read later (and following now) ends at its own read.
+    final e = trendRangeEnd(historian.seriesAt, [
+      for (final s in h.series.values) s.lastOrNull?.time,
+      h.detail?.to,
+    ]);
     return (e - span.inMicroseconds, e);
   }
 
@@ -317,12 +315,16 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
       ),
     };
     final d = h.detail;
-    const slack = 60 * 1000000;
     final fine =
         h.window != null &&
         d != null &&
-        d.from.microsecondsSinceEpoch <= ws + slack &&
-        (h.window!.end == null || d.to.microsecondsSinceEpoch >= we - slack);
+        detailCovers(
+          from: d.from.microsecondsSinceEpoch,
+          to: d.to.microsecondsSinceEpoch,
+          start: ws,
+          end: we,
+          follows: h.window!.end == null,
+        );
     final coarse = stepFor(span);
     final step = fine ? (d.step == 'raw' ? null : d.step) : coarse;
     final minStep = stepDuration(stepFor(span, raw: false))!;
@@ -332,15 +334,16 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
         for (final (i, k) in h.points.indexed)
           () {
             final info = nodes.table[k];
+            final meta = nodes.detail[k];
             final rows = h.series[k] ?? const IListConst([]);
             final plot = fine ? d.points[k] ?? rows : rows;
             return TrendSeriesVm(
               id: k,
               name: k.split('/').last,
-              label: info?.display ?? '',
+              label: meta?.display ?? info?.display ?? '',
               color: TrendColor.byIndex(i),
-              unit: info?.unit ?? '',
-              decimals: trendDecimals(plot),
+              unit: meta?.unit ?? info?.unit ?? '',
+              decimals: trendDecimals(plot, precision: meta?.cfg['precision']),
               samples: trendSamples(
                 plot,
                 low: fine ? d.low[k] : h.low[k],
