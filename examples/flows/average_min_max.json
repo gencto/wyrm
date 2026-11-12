@@ -1,0 +1,32 @@
+{
+  "id": "average_min_max",
+  "version": 1,
+  "description": "The average, the highest and the lowest of three temperatures, published as three flow values.",
+  "nodes": {
+    "a": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "b": { "type": "subscribe", "key": "downstream/mock/p1" },
+    "c": { "type": "subscribe", "key": "downstream/mock/p2" },
+    "mean": { "type": "average", "inputs": ["a", "b", "c"] },
+    "highest": { "type": "max", "inputs": ["a", "b", "c"] },
+    "lowest": { "type": "min", "inputs": ["a", "b", "c"] },
+    "mean_r": { "type": "round", "precision": 2 },
+    "avg": { "type": "publish", "node": "avg", "meta": { "type": "number", "unit": "°C" } },
+    "max": { "type": "publish", "node": "max", "meta": { "type": "number", "unit": "°C" } },
+    "min": { "type": "publish", "node": "min", "meta": { "type": "number", "unit": "°C" } }
+  },
+  "edges": [
+    ["a.out", "mean.in.a"],
+    ["b.out", "mean.in.b"],
+    ["c.out", "mean.in.c"],
+    ["a.out", "highest.in.a"],
+    ["b.out", "highest.in.b"],
+    ["c.out", "highest.in.c"],
+    ["a.out", "lowest.in.a"],
+    ["b.out", "lowest.in.b"],
+    ["c.out", "lowest.in.c"],
+    ["mean.out", "mean_r.in"],
+    ["mean_r.out", "avg.in"],
+    ["highest.out", "max.in"],
+    ["lowest.out", "min.in"]
+  ]
+}

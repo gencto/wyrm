@@ -409,7 +409,9 @@ it does for the official one.
 - Running: `wy/<site>/sys/uptime`, `links_total`, `links_connected`,
   `quarantined`, `acl_denied`, `cpu`, `memory`, `disk_free`, `data_size`
   (`wyr list wy/<site>/sys`), `sys/links/<id>/state` and `error` per link,
-  `sys/history/disk_space_remaining`. The liveliness token
+  `sys/history/disk_space_remaining`; per flow `dataflows/<id>` (`~val`:
+  `state` and the counters `stats.samples_in`, `dropped`, `commands.error`,
+  ADR 0045, [flow-blocks.md](flow-blocks.md)). The liveliness token
   `wy/<site>/sys/broker` is what links and peers watch; a monitor can watch
   it too (`wyr sub`).
 - `sys/~act/get_log` and per-link `get_log` hold the recent log ring; the

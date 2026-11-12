@@ -1,0 +1,22 @@
+{
+  "id": "rolling_table",
+  "version": 1,
+  "description": "A table of the last 60 samples of a point (at most one per second), and the average of those rows.",
+  "nodes": {
+    "temp": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "one_per_s": { "type": "throttle", "ms": 1000 },
+    "rec": { "type": "table_recorder", "inputs": ["temp"], "buffer_size": 60 },
+    "avg": { "type": "table_aggregate", "column": "temp", "method": "average" },
+    "avg_r": { "type": "round", "precision": 2 },
+    "last_samples": { "type": "publish", "node": "last_samples" },
+    "avg_last": { "type": "publish", "node": "avg_last", "meta": { "type": "number", "unit": "°C" } }
+  },
+  "edges": [
+    ["temp.out", "one_per_s.in"],
+    ["one_per_s.out", "rec.in.temp"],
+    ["rec.out", "last_samples.in"],
+    ["rec.out", "avg.in"],
+    ["avg.out", "avg_r.in"],
+    ["avg_r.out", "avg_last.in"]
+  ]
+}

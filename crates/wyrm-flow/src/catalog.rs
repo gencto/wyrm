@@ -293,7 +293,7 @@ pub const TYPES: &[NodeType] = &[
     NodeType {
         ty: "deadband",
         category: "Math",
-        description: "Passes a value that moved by more than abs or pct.",
+        description: "Passes a value that moved by abs or pct or more (or whose quality changed).",
         inputs: &["in", "in.abs", "in.pct"],
         outputs: &["out"],
         dyn_inputs: None,

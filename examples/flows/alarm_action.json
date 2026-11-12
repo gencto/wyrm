@@ -1,0 +1,29 @@
+{
+  "id": "alarm_action",
+  "version": 1,
+  "description": "Run an action when an alarm is raised: the action block (invoke) on the rising edge of a high alarm; its errors and the time of the last run are published.",
+  "nodes": {
+    "temp": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "high": { "type": "alarm", "high": 28, "hysteresis": 1, "delay_s": 5 },
+    "raised": { "type": "rising_edge" },
+    "act": {
+      "type": "invoke",
+      "path": "downstream/mock",
+      "action": "reset",
+      "auto_run": false,
+      "run_on_start": false
+    },
+    "errors": { "type": "catch_error", "inputs": ["act"] },
+    "last_run": { "type": "publish", "node": "last_run", "meta": { "type": "number", "unit": "µs" } },
+    "last_error": { "type": "publish", "node": "last_error", "meta": { "type": "string" } }
+  },
+  "edges": [
+    ["temp.out", "high.in"],
+    ["high.out", "raised.in"],
+    ["raised.on_edge", "act.trigger"],
+    ["act.error", "errors.in.act"],
+    ["act.last_run", "last_run.in"],
+    ["errors.out", "last_error.in"]
+  ],
+  "permissions": { "maxperm": "write" }
+}

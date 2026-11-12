@@ -1,0 +1,24 @@
+{
+  "id": "stale_watchdog",
+  "version": 1,
+  "description": "No-data watchdog: every 5 s it checks whether the point's last sample is older than 30 s; it also shows whether the link is up (its liveliness).",
+  "nodes": {
+    "point": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "tick": { "type": "timer", "period_ms": 5000 },
+    "check": {
+      "type": "expression",
+      "inputs": ["x", "tick"],
+      "expr": "x.age_ms > 30000",
+      "quality": "ignore"
+    },
+    "link": { "type": "liveliness", "key": "downstream/mock" },
+    "stale": { "type": "publish", "node": "stale", "meta": { "type": "bool" } },
+    "link_up": { "type": "publish", "node": "link_up", "meta": { "type": "bool" } }
+  },
+  "edges": [
+    ["point.out", "check.in.x"],
+    ["tick.out", "check.in.tick"],
+    ["check.out", "stale.in"],
+    ["link.out", "link_up.in"]
+  ]
+}

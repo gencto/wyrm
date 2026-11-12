@@ -1,0 +1,33 @@
+{
+  "id": "unit_conversion",
+  "version": 1,
+  "description": "Two conversions with scale: °C to °F (k × in + b), and a 4–20 mA signal to 0–10 bar (the range form), held inside 0–10 with a sensor fault flag.",
+  "nodes": {
+    "temp_c": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "to_f": { "type": "scale", "k": 1.8, "b": 32 },
+    "temp_f_r": { "type": "round", "precision": 1 },
+    "temp_f": { "type": "publish", "node": "temp_f", "meta": { "type": "number", "unit": "°F" } },
+    "current": { "type": "subscribe", "key": "downstream/mock/p1" },
+    "to_bar": {
+      "type": "scale",
+      "input_min": 4,
+      "input_max": 20,
+      "output_min": 0,
+      "output_max": 10
+    },
+    "clamp": { "type": "bound", "min": 0, "max": 10 },
+    "bar_r": { "type": "round", "precision": 2 },
+    "pressure": { "type": "publish", "node": "pressure", "meta": { "type": "number", "unit": "bar" } },
+    "sensor_fault": { "type": "publish", "node": "sensor_fault", "meta": { "type": "bool" } }
+  },
+  "edges": [
+    ["temp_c.out", "to_f.in"],
+    ["to_f.out", "temp_f_r.in"],
+    ["temp_f_r.out", "temp_f.in"],
+    ["current.out", "to_bar.in"],
+    ["to_bar.out", "clamp.in"],
+    ["clamp.out", "bar_r.in"],
+    ["bar_r.out", "pressure.in"],
+    ["to_bar.input_out_of_range", "sensor_fault.in"]
+  ]
+}

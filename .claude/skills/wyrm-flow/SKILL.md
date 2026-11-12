@@ -29,5 +29,6 @@ description: Write, check, test and deploy a WYRM data flow — a `dataflows/<id
 
 ## Rules
 - `version` grows on every deploy; the engine ignores ≤ current (a failed compile keeps the old version running and shows the error in `dataflows/<id>/~val`).
+- After a deploy, check `dataflows/<id>/~val.stats` (ADR 0045): `samples_in` grows when the sources send, `dropped` stays 0, `commands.error` stays 0. The counters start from 0 at each deploy and refresh at most once per metrics interval.
 - `~def` is read-only on the wire; deploy only through the `deploy` action.
 - No secrets in a definition.

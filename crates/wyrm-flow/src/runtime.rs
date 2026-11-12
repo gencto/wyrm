@@ -1,6 +1,7 @@
 //! Flow execution (wiki "Виконання, backpressure, стан"): a task per node,
 //! one bounded inbox per node fed by its incoming edges, push model,
-//! overflow policy per flow, panics isolated to the flow.
+//! overflow policy per flow, panics isolated to the flow. Every run counts into the
+//! flow's [`FlowStats`] (ADR 0045), which the engine publishes in `~val.stats`.
 
 use crate::artifacts::Artifacts;
 use crate::def::{FlowDef, Overflow};
@@ -16,6 +17,87 @@ use tracing::warn;
 use wyrm_core::{Quality, Value};
 use wyrm_link_sdk::now_us;
 
+/// Counters of one deployed flow (ADR 0045, spec 06 0.2.31 `~val.stats`). Atomics only
+/// (`Relaxed`): a node task adds to them with no lock and no allocation. The engine makes
+/// a new one at each deploy and each `start`/`reload`, and keeps it across a restart after
+/// a node panic (that restart counts in `restarts`).
+#[derive(Default)]
+pub struct FlowStats {
+    /// Samples the nodes took in: each sample from an edge, and each sample a source
+    /// (`subscribe`, `liveliness`, `const`) received. A command's or a reader's answer, a
+    /// trigger and a node's other internal messages are not counted.
+    pub samples_in: AtomicU64,
+    /// Samples the nodes sent on an output that has at least one edge.
+    pub samples_out: AtomicU64,
+    /// Samples the inboxes dropped by the flow's overflow policy.
+    pub dropped: AtomicU64,
+    /// Restarts after a node panic.
+    pub restarts: AtomicU64,
+    /// Events `sent`, `ok` and `error` of the `invoke`/`set` blocks.
+    pub commands_sent: AtomicU64,
+    pub commands_ok: AtomicU64,
+    pub commands_error: AtomicU64,
+    /// Wall time (µs) when a node last took in a sample, 0 before the first one.
+    pub last_sample_t: AtomicU64,
+}
+
+/// A copy of [`FlowStats`] at one moment: what the engine compares and publishes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StatsSnapshot {
+    pub samples_in: u64,
+    pub samples_out: u64,
+    pub dropped: u64,
+    pub restarts: u64,
+    pub commands_sent: u64,
+    pub commands_ok: u64,
+    pub commands_error: u64,
+    pub last_sample_t: u64,
+}
+
+impl FlowStats {
+    pub fn snapshot(&self) -> StatsSnapshot {
+        let get = |a: &AtomicU64| a.load(Ordering::Relaxed);
+        StatsSnapshot {
+            samples_in: get(&self.samples_in),
+            samples_out: get(&self.samples_out),
+            dropped: get(&self.dropped),
+            restarts: get(&self.restarts),
+            commands_sent: get(&self.commands_sent),
+            commands_ok: get(&self.commands_ok),
+            commands_error: get(&self.commands_error),
+            last_sample_t: get(&self.last_sample_t),
+        }
+    }
+
+    fn took_in(&self) {
+        self.samples_in.fetch_add(1, Ordering::Relaxed);
+        self.last_sample_t.store(now_us(), Ordering::Relaxed);
+    }
+
+    /// The events of a command block in what one call sent.
+    fn command_events(&self, out: &Out) {
+        for (port, _) in &out.0 {
+            let c = match port.as_str() {
+                "sent" => &self.commands_sent,
+                "ok" => &self.commands_ok,
+                "error" => &self.commands_error,
+                _ => continue,
+            };
+            c.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// An inbox sample that counts in `samples_in`: one from an edge (no `__` port), or one a
+/// source received (`__src…` of `subscribe`, `liveliness`, `const`; `__lost…`, the owner
+/// gone). Answers (`__result…`, `__sent`), `__read` and `__trigger` are not samples.
+fn counts_in(port: &str) -> bool {
+    match port.strip_prefix("__") {
+        None => true,
+        Some(p) => p.starts_with("src") || p.starts_with("lost"),
+    }
+}
+
 /// Bounded queue of `(port, msg)` with the flow's overflow policy.
 pub struct Inbox {
     q: Mutex<VecDeque<(String, Msg)>>,
@@ -24,10 +106,11 @@ pub struct Inbox {
     cap: usize,
     overflow: Overflow,
     pub dropped: AtomicU64,
+    stats: Arc<FlowStats>,
 }
 
 impl Inbox {
-    fn new(cap: usize, overflow: Overflow) -> Arc<Self> {
+    fn new(cap: usize, overflow: Overflow, stats: Arc<FlowStats>) -> Arc<Self> {
         Arc::new(Self {
             q: Mutex::new(VecDeque::new()),
             data: Notify::new(),
@@ -35,6 +118,7 @@ impl Inbox {
             cap,
             overflow,
             dropped: AtomicU64::new(0),
+            stats,
         })
     }
 
@@ -47,6 +131,7 @@ impl Inbox {
         let mut q = self.lock();
         if q.len() >= self.cap {
             self.dropped.fetch_add(1, Ordering::Relaxed);
+            self.stats.dropped.fetch_add(1, Ordering::Relaxed);
             match self.overflow {
                 Overflow::DropOldest => {
                     q.pop_front();
@@ -155,7 +240,8 @@ impl Drop for Running {
 /// `io_for(node)` builds each node's I/O handle. A node panic is reported
 /// on `panics` and stops this run. `wasm` nodes load from `artifacts`. The node
 /// tasks record into `probe` while a watch holds it open (ADR 0038 §3). `mode`: a deployed
-/// flow, or a preview whose sinks only report (ADR 0038 §5).
+/// flow, or a preview whose sinks only report (ADR 0038 §5). The run counts into `stats`
+/// (ADR 0045).
 #[allow(clippy::too_many_arguments)]
 pub fn start(
     def: &FlowDef,
@@ -166,6 +252,7 @@ pub fn start(
     artifacts: Option<&Artifacts>,
     probe: Arc<Probe>,
     mode: &nodes::Mode,
+    stats: Arc<FlowStats>,
 ) -> Result<Running, String> {
     let inboxes: BTreeMap<String, Arc<Inbox>> = def
         .nodes
@@ -173,7 +260,7 @@ pub fn start(
         .map(|id| {
             (
                 id.clone(),
-                Inbox::new(def.policy.queue, def.policy.overflow),
+                Inbox::new(def.policy.queue, def.policy.overflow, stats.clone()),
             )
         })
         .collect();
@@ -206,7 +293,7 @@ pub fn start(
     let (flush, flush_rx) = watch::channel(0u64);
     let wired: std::collections::HashSet<&str> =
         def.edges.iter().map(|e| e.to.node.as_str()).collect();
-    let mut built: Vec<(String, u32, Box<dyn Node>)> = Vec::new();
+    let mut built: Vec<(String, u32, bool, Box<dyn Node>)> = Vec::new();
     for (id, n) in &def.nodes {
         let mut node = nodes::build_with(&n.ty, &def.id, id, &n.cfg, artifacts, mode)?;
         // no edge into it: a pure block calculates once at the start (spec 06 0.2.30)
@@ -218,10 +305,11 @@ pub fn start(
                 node.restore(st);
             }
         }
-        built.push((id.clone(), n.hash, node));
+        let command = matches!(n.ty.as_str(), "invoke" | "set");
+        built.push((id.clone(), n.hash, command, node));
     }
     let mut tasks = Vec::new();
-    for (id, hash, node) in built {
+    for (id, hash, command, node) in built {
         let inbox = inboxes[&id].clone();
         let inj_box = inbox.clone();
         let inject: nodes::Inject = Arc::new(move |port: &str, m: Msg| inj_box.push_now(port, m));
@@ -239,6 +327,10 @@ pub fn start(
             flush_rx.clone(),
             panics.clone(),
             probe.clone(),
+            Counted {
+                stats: stats.clone(),
+                command,
+            },
         )));
     }
     Ok(Running {
@@ -248,6 +340,13 @@ pub fn start(
         states,
         inboxes,
     })
+}
+
+/// Where a node task counts (ADR 0045): the flow's stats, and whether its node is a
+/// command block whose events count as commands.
+struct Counted {
+    stats: Arc<FlowStats>,
+    command: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -264,7 +363,9 @@ async fn run_node(
     mut flush: watch::Receiver<u64>,
     panics: mpsc::UnboundedSender<String>,
     probe: Arc<Probe>,
+    counted: Counted,
 ) {
+    let stats = &counted.stats;
     let save = |node: &dyn Node| {
         let state = std::panic::catch_unwind(AssertUnwindSafe(|| node.state()));
         if let Ok(Some(st)) = state {
@@ -310,7 +411,7 @@ async fn run_node(
             }
         }
         probe.record(&id, None, &out.0, None);
-        route(&routes, out).await;
+        route(&routes, out, stats).await;
     }
     let clock = |p: std::time::Duration, first: tokio::time::Instant| {
         let mut iv = tokio::time::interval_at(first, p);
@@ -344,6 +445,9 @@ async fn run_node(
             (port, m) = inbox.pop() => {
                 born_at_start = m.start;
                 of_constants = m.constant;
+                if counts_in(&port) {
+                    stats.took_in();
+                }
                 if !port.starts_with("__") {
                     // an input's echo goes out before the node handles the sample
                     if !echoes.inputs.is_empty() && echoes.inputs.contains(&port) {
@@ -369,6 +473,9 @@ async fn run_node(
             warn!(node = %id, "flow node panicked");
             let _ = panics.send(format!("nodes.{id}: panic"));
             return;
+        }
+        if counted.command && !out.0.is_empty() {
+            stats.command_events(&out);
         }
         if born_at_start {
             for (_, m) in &mut out.0 {
@@ -400,7 +507,7 @@ async fn run_node(
         if !out.0.is_empty() || live.is_some() {
             probe.record(&id, None, &out.0, live.map(|(_, m)| m));
         }
-        route(&routes, out).await;
+        route(&routes, out, stats).await;
         // a parameter on its port may change the clock (`timer.period_ms`, `delay.ms`,
         // `window.size_s`, `alarm.delay_s`): the new one starts one period from now
         let Ok((now_every, _)) = clock_of(node.as_ref()) else {
@@ -423,10 +530,12 @@ async fn run_node(
     }
 }
 
-/// Send what a node emitted to the inboxes its edges name.
-async fn route(routes: &HashMap<String, Route>, out: Out) {
+/// Send what a node emitted to the inboxes its edges name; a sample with an edge counts in
+/// `samples_out`.
+async fn route(routes: &HashMap<String, Route>, out: Out, stats: &FlowStats) {
     for (port, m) in out.0 {
         if let Some(targets) = routes.get(&port) {
+            stats.samples_out.fetch_add(1, Ordering::Relaxed);
             for (target, in_port) in targets {
                 target.push(in_port, m.clone()).await;
             }

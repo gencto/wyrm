@@ -1,0 +1,31 @@
+{
+  "id": "daily_energy",
+  "version": 1,
+  "description": "Energy of today in kWh from a power point in kW (trapezoid sum of the samples), back to 0 at local midnight; gaps over 15 min add nothing.",
+  "nodes": {
+    "power": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "day": {
+      "type": "date_range",
+      "time_zone": "Europe/Kyiv",
+      "values": { "in": "today" }
+    },
+    "integrate": {
+      "type": "expression",
+      "inputs": ["p", "day"],
+      "expr": "if (state.day ?? 0) != day.v { state.day = day.v; state.kwh = 0.0; state.t = (); state.p = (); } let last_t = state.t ?? p.t; let last_p = state.p ?? p.v; let dt_h = (p.t - last_t).to_float() / 3600000000.0; if dt_h > 0.0 && dt_h < 0.25 { state.kwh += (last_p + p.v) / 2.0 * dt_h; } state.t = p.t; state.p = p.v; state.kwh"
+    },
+    "kwh_r": { "type": "round", "precision": 3 },
+    "energy_today": {
+      "type": "publish",
+      "node": "energy_today",
+      "meta": { "type": "number", "unit": "kWh" }
+    }
+  },
+  "edges": [
+    ["power.out", "integrate.in.p"],
+    ["day.start", "integrate.in.day"],
+    ["integrate.out", "kwh_r.in"],
+    ["kwh_r.out", "energy_today.in"]
+  ],
+  "policy": { "state_flush_s": 10 }
+}

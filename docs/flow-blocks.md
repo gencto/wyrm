@@ -531,8 +531,10 @@ A table is a value (ADR 0044 §2):
   more than 128 fields (a header too: it is not cut) and a field past 64 KiB;
   a row map of more than 128 keys is no table; `table_from_json` and
   `json_parse` read at most 256 KiB and 32 levels; a list of names
-  (`columns`, `ignore_columns`) counts its first 512 items. Equal or empty
-  header names get `_2`, `_3`, … in one pass.
+  (`columns`, `ignore_columns`) counts its first 512 items. An equal header
+  name gets `_2`, `_3`, … in one pass (`a`, `a_2`); an empty header name, a
+  column past the header's last name and every column of a CSV read without a
+  header are named by their column number from 1 (`v3`).
 - A table block takes a table on `in` and gives a new one: the mutators
   (`table_add_row`, `table_edit_rows`, `table_remove_rows`) are transforms, not
   writes into a stored table. Keep a table across samples in a
@@ -826,6 +828,38 @@ nothing. The rows are those of a watch, plus `sinks`: what each of these nodes
 would write, and where. The first row already has the variables' start values.
 A preview ends after 10 minutes; the editor opens it again with its latest
 draft.
+
+## Does a deployed flow work (spec 06 0.2.31, ADR 0045)
+
+`dataflows/<id>/~val` shows the state of the flow (`state`, `error`,
+`version`, `since`, `deployed_by`) and its counters in `stats`. You need only
+read rights on the flow to see them:
+
+| Key | What it counts |
+|---|---|
+| `nodes`, `edges` | the size of the compiled flow, custom blocks expanded |
+| `samples_in` | samples the nodes took in from an edge or from their own source (`subscribe`, `liveliness`, `const`) |
+| `samples_out` | samples the nodes sent on a wired output |
+| `dropped` | samples the node queues dropped (`policy.queue`, `policy.overflow`) |
+| `restarts` | restarts after a node panic |
+| `commands.sent`, `.ok`, `.error` | the events of the `invoke` and `set` blocks; `error` also counts a run refused as `busy` |
+| `last_sample_t` | when a node last took in a sample (µs); absent before the first one |
+
+How to read them:
+- `samples_in` stands still while the flow runs: no source sends. Check the
+  source keys and the links behind them.
+- `dropped` grows: a node is slower than its input. Make `policy.queue`
+  bigger, or reduce the input with `throttle`, `deadband` or `window`.
+- `commands.error` grows: open a watch on the command block. Its `error`
+  output has the code and the message.
+
+The counters start from 0 at each deploy, `start` and `reload`, and at every
+broker start (the engine deploys its stored flows again). A restart after a
+panic keeps them and adds 1 to `restarts`. A stopped flow keeps its last
+totals. A state change publishes `~val` at once. Between state changes,
+`~val` goes out again only when a counter moved, at most once per
+`metrics_interval_ms` of `wyrmd.json5` (default 10 s, never below 5 s). For
+totals over a longer time, record `dataflows/<id>` with a historian watch.
 
 ## Example
 

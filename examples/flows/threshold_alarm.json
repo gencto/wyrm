@@ -1,0 +1,23 @@
+{
+  "id": "threshold_alarm",
+  "version": 1,
+  "description": "High alarm on a temperature: raised after 5 s above 28, cleared after 5 s below 27 (hysteresis 1).",
+  "nodes": {
+    "temp": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "high": {
+      "type": "alarm",
+      "high": 28,
+      "hysteresis": 1,
+      "delay_s": 5,
+      "return_delay_s": 5,
+      "on_bad": "hold"
+    },
+    "active": { "type": "publish", "node": "active", "meta": { "type": "bool" } },
+    "last_event": { "type": "publish", "node": "last_event" }
+  },
+  "edges": [
+    ["temp.out", "high.in"],
+    ["high.out", "active.in"],
+    ["high.event", "last_event.in"]
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "status_text",
+  "version": 1,
+  "description": "A status line from a value: \"Tank 1: 25.0 °C, OK\" — the number formatted, and a word chosen by ranges (HIGH from 30, OK from 10, else LOW).",
+  "nodes": {
+    "temp": { "type": "subscribe", "key": "downstream/mock/p0" },
+    "number": { "type": "format_number", "format": "0.0" },
+    "state": {
+      "type": "case",
+      "op": ">=",
+      "inputs": ["c1", "v1", "c2", "v2"],
+      "values": { "in.c1": 30, "in.v1": "HIGH", "in.c2": 10, "in.v2": "OK" },
+      "else": "LOW"
+    },
+    "line": {
+      "type": "concat",
+      "inputs": ["label", "value", "unit", "state"],
+      "values": { "in.label": "Tank 1: ", "in.unit": " °C, " }
+    },
+    "status": { "type": "publish", "node": "status", "meta": { "type": "string" } },
+    "level": { "type": "publish", "node": "level", "meta": { "type": "string" } }
+  },
+  "edges": [
+    ["temp.out", "number.in"],
+    ["temp.out", "state.in"],
+    ["number.out", "line.in.value"],
+    ["state.out", "line.in.state"],
+    ["line.out", "status.in"],
+    ["state.out", "level.in"]
+  ]
+}
