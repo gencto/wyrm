@@ -648,7 +648,7 @@ impl WyrmMcp {
                     None => Json::Null,
                 };
                 o.insert("state".into(), state);
-                for k in ["version", "error"] {
+                for k in ["version", "error", "stats"] {
                     if let Some(v) = m.get(k) {
                         o.insert(k.into(), value_to_json(v));
                     }

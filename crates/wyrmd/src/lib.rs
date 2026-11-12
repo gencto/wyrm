@@ -1742,6 +1742,9 @@ impl Daemon {
             &cfg.site,
             flows_anchor.as_deref().map(|a| (a, cfg.init_anchors)),
         )?;
+        // flow counters in `~val.stats` at the pace of `sys` metrics, never faster than
+        // every 5 s: gateway and historian watchers of `dataflows/**` see each one (ADR 0045)
+        flows.set_stats_every(Duration::from_millis(cfg.metrics_interval_ms.max(5_000)));
         let storage = Arc::new(wyrm_storage::Store::open(&cfg.data_dir.join("storage"))?);
         let gateway = match &cfg.gateway {
             None => None,

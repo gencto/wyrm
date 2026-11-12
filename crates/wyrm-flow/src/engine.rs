@@ -18,6 +18,11 @@
 //! Live values (ADR 0038): `<id>/~act/watch` and `<id>/~act/ports` for a deployed flow;
 //! `preview {def}` runs a draft in a sandbox whose sinks only report (`crate::preview`).
 //!
+//! Metrics (ADR 0045): `~val.stats` holds the counters of the current run
+//! ([`runtime::FlowStats`]). A state change publishes `~val` at once, as before; between
+//! state changes one engine-wide clock publishes a flow's `~val` again only when its
+//! counters moved, at most once per [`FlowHost::set_stats_every`] (default 10 s).
+//!
 //! WASM nodes (iteration 8): `put_artifact {bytes}` stores a
 //! `wyrm:flow/node` component under `<dir>/artifacts/<sha256>.wasm` and
 //! returns `{artifact: <sha256>}`; a `~def` uses it as
@@ -28,13 +33,14 @@
 use crate::artifacts::Artifacts;
 use crate::def::{self, FlowDef};
 use crate::nodes::{Io, Ports};
-use crate::runtime::{self, Running};
+use crate::runtime::{self, FlowStats, Running, StatsSnapshot};
 use crate::store::{FlowStore, NodeStateRec, Op};
 use crate::watch::{self as live, Probe, Watches};
 use ed25519_dalek::SigningKey;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
@@ -52,6 +58,9 @@ const STATE_TTL_US: u64 = 3_600_000_000;
 const STATE_RUNNING: u64 = 0;
 const STATE_STOPPED: u64 = 1;
 const STATE_ERROR: u64 = 2;
+/// How often a flow's `~val` may carry new counters when the host sets nothing (ADR 0045):
+/// `wyrmd` sets its `metrics_interval_ms`, whose default is the same 10 s.
+const STATS_EVERY_MS: u64 = 10_000;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -61,6 +70,8 @@ pub struct FlowHost {
     store: Mutex<Store<FlowStore>>,
     signer: SigningKey,
     artifacts: Artifacts,
+    /// The period of the counters' publication in `~val.stats`, in ms (ADR 0045).
+    stats_every_ms: AtomicU64,
 }
 
 impl FlowHost {
@@ -101,7 +112,20 @@ impl FlowHost {
             store: Mutex::new(store),
             signer: SigningKey::from_bytes(&seed),
             artifacts: Artifacts::new(dir.join("artifacts")),
+            stats_every_ms: AtomicU64::new(STATS_EVERY_MS),
         }))
+    }
+
+    /// A flow's `~val` carries new counters at most once per `every` (ADR 0045; default
+    /// 10 s, at least 10 ms). Read when an engine starts: `wyrmd` sets its metrics interval
+    /// (not below 5 s) before the first one; a state change is published at once anyway.
+    pub fn set_stats_every(&self, every: Duration) {
+        let ms = u64::try_from(every.as_millis()).unwrap_or(u64::MAX).max(10);
+        self.stats_every_ms.store(ms, Ordering::Relaxed);
+    }
+
+    fn stats_every(&self) -> Duration {
+        Duration::from_millis(self.stats_every_ms.load(Ordering::Relaxed))
     }
 
     /// Links must trust this key so flow commands pass their `ptok` check.
@@ -167,6 +191,45 @@ struct FlowRt {
     supervisor: Option<JoinHandle<()>>,
     /// Live values for `watch`/`ports` (ADR 0038): one per deployed version, kept across runs.
     probe: Arc<Probe>,
+    /// The counters of `~val.stats` (ADR 0045): new at each deploy, `start` and `reload`,
+    /// kept across a restart after a panic.
+    stats: Arc<FlowStats>,
+    /// The counters the last `~val` carried: the clock publishes only when they moved.
+    shown: Mutex<Option<StatsSnapshot>>,
+}
+
+impl FlowRt {
+    /// The counters moved since the last `~val` carried them.
+    fn stats_moved(&self) -> bool {
+        let now = self.stats.snapshot();
+        *self.shown.lock().unwrap_or_else(|p| p.into_inner()) != Some(now)
+    }
+}
+
+/// `~val.stats` (spec 06 0.2.31): the counters of the current run and the size of the
+/// compiled flow (custom blocks expanded).
+fn stats_value(def: &FlowDef, s: &StatsSnapshot) -> Value {
+    let u = Value::UInt;
+    let mut m = BTreeMap::from([
+        ("nodes".to_owned(), u(def.nodes.len() as u64)),
+        ("edges".to_owned(), u(def.edges.len() as u64)),
+        ("samples_in".to_owned(), u(s.samples_in)),
+        ("samples_out".to_owned(), u(s.samples_out)),
+        ("dropped".to_owned(), u(s.dropped)),
+        ("restarts".to_owned(), u(s.restarts)),
+        (
+            "commands".to_owned(),
+            Value::Map(BTreeMap::from([
+                ("sent".to_owned(), u(s.commands_sent)),
+                ("ok".to_owned(), u(s.commands_ok)),
+                ("error".to_owned(), u(s.commands_error)),
+            ])),
+        ),
+    ]);
+    if s.last_sample_t > 0 {
+        m.insert("last_sample_t".into(), u(s.last_sample_t));
+    }
+    Value::Map(m)
 }
 
 struct State {
@@ -179,6 +242,8 @@ struct State {
     previews: Arc<Watches>,
     /// The tasks of previews, watches and `ports` answers: a stop ends and awaits them.
     streams: Vec<JoinHandle<()>>,
+    /// The clock that publishes moved counters (ADR 0045): a stop cuts it first.
+    stats_clock: Option<JoinHandle<()>>,
 }
 
 type Shared = Arc<AsyncMutex<State>>;
@@ -245,6 +310,9 @@ impl State {
         if let Some(by) = self.host.store().state().deployers.get(id) {
             m.insert("deployed_by".into(), Value::Str(by.clone()));
         }
+        let stats = f.stats.snapshot();
+        m.insert("stats".into(), stats_value(&f.def, &stats));
+        *f.shown.lock().unwrap_or_else(|p| p.into_inner()) = Some(stats);
         let s = Sample {
             v: Value::Map(m),
             q: Quality::Good,
@@ -447,6 +515,7 @@ impl State {
             Some(&self.host.artifacts),
             f.probe.clone(),
             &crate::nodes::Mode::Live,
+            f.stats.clone(),
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
@@ -547,6 +616,8 @@ impl State {
                 since: now_us(),
                 supervisor: None,
                 probe,
+                stats: Arc::new(FlowStats::default()),
+                shown: Mutex::new(None),
             },
         );
         self.declare(&id).await?;
@@ -626,11 +697,38 @@ async fn supervise(
                 if let Some(f) = st.flows.get_mut(&id) {
                     f.error = None;
                     f.since = now_us();
+                    // the same counters go on: this run is a restart, not a start
+                    f.stats.restarts.fetch_add(1, Ordering::Relaxed);
                 }
                 st.launch(&id, restored, &shared);
                 st.publish_val(&id).await;
                 return;
             }
+        }
+    }
+}
+
+/// Publish the `~val` of every flow whose counters moved since its last `~val`, once per
+/// `every` (ADR 0045). An idle or stopped flow publishes nothing; a state change has
+/// already published at once (and so set what was shown).
+async fn stats_clock(shared: Weak<AsyncMutex<State>>, every: Duration) {
+    let mut iv = tokio::time::interval(every);
+    iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    iv.tick().await;
+    loop {
+        iv.tick().await;
+        let Some(shared) = shared.upgrade() else {
+            return;
+        };
+        let st = shared.lock().await;
+        let moved: Vec<String> = st
+            .flows
+            .iter()
+            .filter(|(_, f)| f.stats_moved())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in moved {
+            st.publish_val(&id).await;
         }
     }
 }
@@ -1160,6 +1258,7 @@ impl Link for Engine {
             watches: Arc::new(Watches::default()),
             previews: Arc::new(crate::preview::registry()),
             streams: Vec::new(),
+            stats_clock: None,
         }));
         let stored: Vec<Vec<u8>> = cfg.host.store().state().defs.values().cloned().collect();
         {
@@ -1174,6 +1273,8 @@ impl Link for Engine {
                     Err(e) => warn!("stored flow unreadable: {e}"),
                 }
             }
+            let every = cfg.host.stats_every();
+            st.stats_clock = Some(tokio::spawn(stats_clock(Arc::downgrade(&shared), every)));
         }
         Ok(Engine {
             shared,
@@ -1380,6 +1481,10 @@ impl Link for Engine {
                 if let Some(f) = st.flows.get_mut(id) {
                     f.stopped = !on;
                     f.since = now_us();
+                    // a start counts from zero; a stopped flow keeps the totals of its run
+                    if on {
+                        f.stats = Arc::new(FlowStats::default());
+                    }
                 }
                 if on {
                     st.launch(id, states, &shared);
@@ -1388,6 +1493,9 @@ impl Link for Engine {
             }
             (id, "reload") => {
                 let states = st.halt(id).await;
+                if let Some(f) = st.flows.get_mut(id) {
+                    f.stats = Arc::new(FlowStats::default());
+                }
                 st.launch(id, states, &shared);
                 st.publish_val(id).await;
             }
@@ -1539,6 +1647,11 @@ impl Link for Engine {
     /// store and its lock are free for the next instance at once (ADR 0038 §6).
     async fn stop(&mut self) {
         let mut st = self.shared.lock().await;
+        // the counters' clock waits only on its period or this lock: cut, it is gone at once
+        if let Some(t) = st.stats_clock.take() {
+            t.abort();
+            let _ = t.await;
+        }
         // streams end first: a preview stops its sandbox, a watch ends without a row
         st.previews.cancel_all();
         for f in st.flows.values() {

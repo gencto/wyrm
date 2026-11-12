@@ -90,6 +90,8 @@ pub fn start(
         Some(artifacts),
         probe.clone(),
         &mode,
+        // a draft has no `~val`: its counters are never published
+        Arc::new(runtime::FlowStats::default()),
     )
     .map_err(LinkError::invalid_parameter)?;
     Ok(Preview {
