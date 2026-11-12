@@ -31,12 +31,23 @@ class PickPointAction extends Action {
       final grown = now.add(key);
       next = grown.length > max ? grown.removeAt(0) : grown;
     }
+    IMap<String, V> keep<V>(IMap<String, V> m) => {
+      for (final e in m.entries)
+        if (next.contains(e.key)) e.key: e.value,
+    }.lock;
+    final d = historian.detail;
     return state.copyWith.historian(
       points: next,
-      series: {
-        for (final e in historian.series.entries)
-          if (next.contains(e.key)) e.key: e.value,
-      }.lock,
+      series: keep(historian.series),
+      low: keep(historian.low),
+      high: keep(historian.high),
+      detail: d?.copyWith(
+        points: keep(d.points),
+        low: keep(d.low),
+        high: keep(d.high),
+      ),
+      hidden: historian.hidden.where(next.contains).toISet(),
+      trendGen: historian.trendGen + 1,
     );
   }
 

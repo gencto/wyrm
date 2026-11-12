@@ -10,7 +10,9 @@ import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/grant.dart';
+import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
+import 'package:models/hist_window.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
 import 'package:models/link_info.dart';
@@ -55,6 +57,7 @@ import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
+import 'historian/actions/load_trend_window_action.dart';
 import 'historian/actions/retrieve_historian_action.dart';
 import 'historian/actions/retrieve_series_action.dart';
 import 'link_install/actions/install_link_action.dart';
@@ -932,6 +935,36 @@ extension type SelectHistorian(AppState _state) {
     '${SelectSite(_state).root}/sys/history',
     _state.live.values,
   );
+
+  /// Returns window
+  HistWindow? get window => _state.historian.window;
+
+  /// Returns detail
+  HistDetail? get detail => _state.historian.detail;
+
+  /// Returns low
+  IMap<String, IList<HistPoint>> get low => _state.historian.low;
+
+  /// Returns high
+  IMap<String, IList<HistPoint>> get high => _state.historian.high;
+
+  /// Returns hidden
+  ISet<String> get hidden => _state.historian.hidden;
+
+  /// Returns trendGen
+  int get trendGen => _state.historian.trendGen;
+
+  /// Returns seriesAt
+  DateTime? get seriesAt => _state.historian.seriesAt;
+
+  /// The trend's range is being read (spec trend.md §6: a skeleton until
+  /// it has rows).
+  bool get seriesLoading =>
+      _state.wait.isWaitingForType<RetrieveSeriesAction>();
+
+  /// The trend's window is being read finer (the bar over the plot).
+  bool get windowLoading =>
+      _state.wait.isWaitingForType<LoadTrendWindowAction>();
 }
 
 extension type SelectAccess(AppState _state) {
