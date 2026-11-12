@@ -364,7 +364,9 @@ impl GatewayMcp {
             return Err(format!(
                 "{key}: a config-level change; this connector lets them through only with its \
                  `allow_config` setting on. Nothing was sent: ask the person to make this change \
-                 in Studio, or to turn the setting on."
+                 in Studio, or to turn the setting on (Claude Desktop: Settings > Extensions > \
+                 WYRM > Allow config-level changes, then quit and reopen Claude Desktop so the \
+                 connector starts again with it; `whoami` shows the setting in force)."
             ));
         }
         Ok(())

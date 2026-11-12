@@ -25,7 +25,7 @@ Run `examples/packages/build.sh`, then `examples/demo/run.sh` (it serves
 |---|---|---|
 | responder | from Zip | Name `example`, Zip `out/example-link-<os>-<arch>.zip` |
 | requester | from Repository | Name `rec`, Package `recorder` |
-| both | from Url | Name `avg`, Url `http://127.0.0.1:8090/average-<os>-<arch>.zip` |
+| both | from Url | Name `avg`, Url `http://127.0.0.1:18070/average-<os>-<arch>.zip` |
 | WASM | from WASM | Name `reg`, Component `out/register.wasm` |
 | portable, WASM | from Repository | Name `echo`, Package `portable-echo` |
 | portable, process | from Repository | Name `echop`, Package `portable-echo-process` |

@@ -37,7 +37,7 @@ cargo build --locked --release -p wyrm-link-agent --features cli --bin wyrm-agen
 mkdir -p $W/data $W/zips $W/repo
 cd $W
 # A package repository with the PostgreSQL history sync link (a process
-# package) for the alarm sink; edge.json5 reads it from :8090.
+# package) for the alarm sink; the configs read it from :18070.
 if [[ ! -f repo/index.json ]]; then
   $BIN/wyr link pack --manifest-path $SRC/links/postgres/Cargo.toml --kind process \
     --name postgres-process --out zips
@@ -86,7 +86,7 @@ bg prometheus-sim $BIN/wyrm-prometheus-sim --listen 127.0.0.1:19101
 bg s7-sim $BIN/wyrm-s7-sim --listen 127.0.0.1:10102
 bg bacnet-sim $BIN/wyrm-bacnet-sim --listen 127.0.0.1:47809 --instance 1234 --extra 20
 bg opcua-sim $BIN/wyrm-opcua-sim --port 4840 --pki data/opcua-sim-pki
-bg packages-http python3 -m http.server 8090 --bind 127.0.0.1 --directory repo
+bg packages-http python3 -m http.server 18070 --bind 127.0.0.1 --directory repo
 export RUST_LOG=info,zenoh=warn
 bg central $BIN/wyrmd -c central.json5
 sleep 1
@@ -105,5 +105,5 @@ Demo running in $W (logs in $W/data/*.log); stop with: examples/docker/demo.sh s
   gateways: central http://127.0.0.1:8445, edge :8444, plant :8446 (admin / $WYRM_GATEWAY_ADMIN_PASSWORD)
   mqtt:     127.0.0.1:1883, user uplink / mq-pass-1
   postgres: 127.0.0.1:5432, database wyrm, user wyrm / wyrm-pg-1
-  packages: http://127.0.0.1:8090/index.json (postgres-process)
+  packages: http://127.0.0.1:18070/index.json (postgres-process)
 MSG

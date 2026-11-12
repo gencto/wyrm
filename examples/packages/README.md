@@ -11,10 +11,10 @@ repository in `out/` with `wyr repo add` (ADR 0021; not in git):
 
 | File | What it is | Install with |
 |---|---|---|
-| `out/index.json` | The repository index; urls relative to it. `examples/demo/run.sh` serves `out/` on `http://127.0.0.1:8090` (`REPO_PORT`). | `packages.repository` |
+| `out/index.json` | The repository index; urls relative to it. `examples/demo/run.sh` serves `out/` on `http://127.0.0.1:18070`. | `packages.repository` |
 | `out/example-link/1.0.0/example-link-1.0.0-<os>-<arch>.zip` | Responder: the `mockdev` framework driver as its own binary (`examples/links/responder`). | from Zip, or from Repository |
 | `out/recorder/1.0.0/recorder-1.0.0-<os>-<arch>.zip` | Requester: records `wy/{site}/downstream/mock` to CSV (`examples/links/requester`); asks for a `read` grant. | from Repository, Package `recorder` |
-| `out/average/1.0.0/average-1.0.0-<os>-<arch>.zip` | Responder and requester: statistics of `wy/{site}/downstream/mock` and Write All (`examples/links/both`); asks for a `write` grant. | from Url `http://127.0.0.1:8090/average/1.0.0/average-1.0.0-<os>-<arch>.zip` |
+| `out/average/1.0.0/average-1.0.0-<os>-<arch>.zip` | Responder and requester: statistics of `wy/{site}/downstream/mock` and Write All (`examples/links/both`); asks for a `write` grant. | from Url `http://127.0.0.1:18070/average/1.0.0/average-1.0.0-<os>-<arch>.zip` |
 | `out/probe/<version>/probe-<version>-<os>-<arch>.zip` | Test tool (`links/probe`). | from Repository, Package `probe` |
 | `out/modbus/<version>/…`, `out/mqtt/<version>/…`, `out/mockdev/<version>/…` | The protocol links of `links/` as process packages (`links/modbus`, `links/mqtt`, `links/mock`). | from Repository |
 | `out/register/1.0.0/register-1.0.0.zip` | A WASM package (no network; one writable register per point, initially 7). | from Zip, or from Repository, Package `register` |

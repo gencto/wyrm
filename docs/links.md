@@ -688,7 +688,11 @@ wyr repo add target/wyrm-link/*.zip --repo /srv/wyrm-repo
 
 The broker fetches the index in the background on every start and rebuild;
 *from Repository* lists its packages when it arrives. A broker without the
-network starts as usual: the field then says why the list is empty. Without
+network starts as usual: the field then says why the list is empty. A fetch
+that fails is tried again after 5 s, then 10, 20, … up to every 5 min, so a
+repository that comes up later is picked up without a restart; a fetched
+index is read again every hour (a new release shows by itself). A failure
+after a success keeps the index read last. Without
 `packages.repository` the item is still in the menu and says how to set it.
 
 An index may carry more fields than these (the official index does, §12a);
@@ -827,18 +831,25 @@ repository. `links-v2026.11.12` has no attestations; check it by `SHA256SUMS`.
 
 ## 16. Try it in the demo
 
-1. Run `examples/packages/build.sh`. It writes the packages to
-   `examples/packages/out/`.
-2. Run `examples/demo/run.sh`. It serves `out/` on `127.0.0.1:8090`; the
-   edge site's `packages.repository` points there.
+1. Run `examples/packages/build.sh`. It builds every link of
+   `links/official.json` from this workspace in every form it lists (WASM,
+   and a process for this host), indexes them with their titles, adds the
+   example packages, and writes all of it to `examples/packages/out/`.
+   `build.sh telegram s7` builds only those official links (and the
+   examples). Run it again after a link changes.
+2. Run `examples/demo/run.sh`. It serves `out/` on `127.0.0.1:18070`; the
+   `packages.repository` of all three sites points there, so Studio's
+   *Add a link* lists every link in development on every site. The list
+   shows them without the official mark: only the released index
+   (`repository: "official"`) carries it.
 3. Log in to the edge gateway (`http://127.0.0.1:8444`, user `admin`).
 4. Open `wy/edge/sys/links` ▸ Install Link ▸ from Zip, choose
    `example-link-<os>-<arch>.zip`, Name `example`, Invoke. Then open
    `wy/edge/downstream/example` ▸ Add Connection, Add Device, Add Point.
 5. Install Link ▸ from WASM, choose `register.wasm`, Name `reg`. Open
    `wy/edge/downstream/reg/main` ▸ Add Device, then Add Point with Writable on.
-   The point reads 7; write a number below 24 and read it back. The zips are
-   under `out/<name>/<version>/`.
+   The point reads 7; write a number below 24 and read it back. The example
+   zips are under `out/<name>/<version>/`, the official links' in `out/`.
 6. Install Link ▸ from Repository, Package `register`, Name `reg2`.
 7. Install Link ▸ from Repository, Package `portable-echo`, Name `echo` (the
    portable link as WASM), and Package `portable-echo-process`, Name `echop`
@@ -848,7 +859,7 @@ repository. `links-v2026.11.12` has no attestations; check it by `SHA256SUMS`.
    `starts` goes up by one.
 8. Install Link ▸ from Repository, Package `recorder`, Name `rec` (a
    requester), and ▸ from Url
-   `http://127.0.0.1:8090/average/1.0.0/average-1.0.0-<os>-<arch>.zip`,
+   `http://127.0.0.1:18070/average/1.0.0/average-1.0.0-<os>-<arch>.zip`,
    Name `avg` (both). See
    `examples/links/README.md` for what they do.
 

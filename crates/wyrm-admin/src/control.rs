@@ -3350,22 +3350,66 @@ async fn declare_links_node(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
 
 /// Fetch the repository index in the background, never on the start path;
 /// then list its packages in "from Repository".
+/// When the repository index is read again: after a failure 5 s, doubled up
+/// to 5 min (a repository that was down at start, or a network that came up
+/// later); after a success every hour (a new release shows without a restart).
+fn repository_retry(failures: u32) -> Duration {
+    if failures == 0 {
+        return REPO_REFRESH;
+    }
+    REPO_RETRY_FIRST
+        .saturating_mul(1 << (failures - 1).min(16))
+        .min(REPO_RETRY_MAX)
+}
+
+const REPO_RETRY_FIRST: Duration = Duration::from_secs(5);
+const REPO_RETRY_MAX: Duration = Duration::from_secs(300);
+const REPO_REFRESH: Duration = Duration::from_secs(3600);
+
+/// Reads `packages.repository` for as long as the router runs (the task ends
+/// with the build): see [`repository_retry`]. A failure after a success keeps
+/// the index read last, so the catalogue never empties on a short outage.
 async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
     let Some(url) = ctl.cfg.repository.clone() else {
         return;
     };
-    let r = crate::fetch::get(&url, packages::MAX_INDEX, Duration::from_secs(15))
-        .await
-        .and_then(|b| packages::parse_index(&b));
-    if let Err(e) = &r {
-        warn!(%url, "repository index: {e}");
-    }
-    *ctl.repo.lock().unwrap_or_else(|p| p.into_inner()) = Some(r);
-    if let Err(e) = declare_repo_action(&ctx, &ctl).await {
-        debug!("install_repo: {e}");
-    }
-    if let Err(e) = declare_links_node(&ctx, &ctl).await {
-        debug!("sys/links catalog: {e}");
+    let mut failures = 0u32;
+    loop {
+        let r = crate::fetch::get(&url, packages::MAX_INDEX, Duration::from_secs(15))
+            .await
+            .and_then(|b| packages::parse_index(&b));
+        let changed = {
+            let mut repo = ctl.repo.lock().unwrap_or_else(|p| p.into_inner());
+            match (&r, repo.as_ref()) {
+                (Err(e), Some(Ok(_))) => {
+                    warn!(%url, "repository index: {e}; the one read last stays");
+                    false
+                }
+                (r, old) if old == Some(r) => false,
+                _ => {
+                    *repo = Some(r.clone());
+                    true
+                }
+            }
+        };
+        match &r {
+            Ok(_) => failures = 0,
+            Err(e) => {
+                if failures == 0 {
+                    warn!(%url, "repository index: {e}; trying again");
+                }
+                failures = failures.saturating_add(1);
+            }
+        }
+        if changed {
+            if let Err(e) = declare_repo_action(&ctx, &ctl).await {
+                debug!("install_repo: {e}");
+            }
+            if let Err(e) = declare_links_node(&ctx, &ctl).await {
+                debug!("sys/links catalog: {e}");
+            }
+        }
+        tokio::time::sleep(repository_retry(failures)).await;
     }
 }
 
@@ -6505,7 +6549,16 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    use super::{Control, ControlConfig, ALARM_LINK, DQL_LINK, SCHEDULER_LINK};
+    #[test]
+    fn the_repository_is_read_again_after_a_failure_and_every_hour() {
+        let secs = |n| repository_retry(n).as_secs();
+        assert_eq!(secs(0), 3600);
+        assert_eq!([secs(1), secs(2), secs(3), secs(4)], [5, 10, 20, 40]);
+        assert_eq!(secs(7), 300);
+        assert_eq!(secs(u32::MAX), 300);
+    }
+
+    use super::{repository_retry, Control, ControlConfig, ALARM_LINK, DQL_LINK, SCHEDULER_LINK};
     use wyrm_core::Perm;
 
     struct NoDrivers;

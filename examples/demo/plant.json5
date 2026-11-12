@@ -19,6 +19,9 @@
     }],
   },
   gateway: { listen: "127.0.0.1:8446", admin_user: "admin" },
+  // "Install Link ▸ from Repository": every official link built from this
+  // workspace, plus the examples (examples/packages/build.sh), served by run.sh.
+  packages: { repository: "http://127.0.0.1:18070/index.json" },
   links: {
     // A production line: 8 points at 1 Hz in two folders.
     mock: { driver: "mock", params: { points: 8, rate_hz: 1, depth: 1, fanout: 2 } },

@@ -51,11 +51,18 @@ $BIN/wyrm-prometheus-sim --listen 127.0.0.1:19101 >data/prometheus-sim.log 2>&1 
 $BIN/wyrm-s7-sim --listen 127.0.0.1:10102 >data/s7-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-bacnet-sim --listen 127.0.0.1:47809 --instance 1234 --extra 20 >data/bacnet-sim.log 2>&1 & pids+=($!)
 $BIN/wyrm-opcua-sim --port 4840 --pki data/opcua-sim-pki >data/opcua-sim.log 2>&1 & pids+=($!)
-# Example link packages for "Install Link ▸ from Repository" (edge.json5
-# packages.repository); build them first with examples/packages/build.sh.
+# The link repository of all three sites (packages.repository): every
+# official link built from this workspace plus the examples; build it first
+# with examples/packages/build.sh.
+# Port 18070: 8090 is a common default of other local services.
 if [[ -f ../packages/out/index.json ]]; then
-  python3 -m http.server 8090 --bind 127.0.0.1 --directory ../packages/out \
+  if nc -z 127.0.0.1 18070 2>/dev/null; then
+    echo "run.sh: port 18070 is taken; the link repository is not served" >&2
+  fi
+  python3 -m http.server 18070 --bind 127.0.0.1 --directory ../packages/out \
     >data/packages-http.log 2>&1 & pids+=($!)
+  # the brokers read the index at start (and again 5 s after a failure)
+  for _ in 1 2 3 4 5 6 7 8 9 10; do nc -z 127.0.0.1 18070 2>/dev/null && break; sleep 0.3; done
 fi
 RUST_LOG=info,zenoh=warn $BIN/wyrmd -c central.json5 >data/central.log 2>&1 & pids+=($!)
 sleep 1

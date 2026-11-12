@@ -48,7 +48,7 @@ wyrmd -c wyrmd.json5 user add claude --roles operator
 | `TLS: invalid peer certificate: UnknownIssuer` | Set **Gateway CA certificate** to the PEM of the broker CA or of the self-signed certificate. |
 | `plain HTTP only on loopback` | Use `https://` for a gateway on another host. The gateway serves TLS when `tls_cert`/`tls_key` are set in `wyrmd.json5`. |
 | `Connection refused` | The gateway is not running, or the port is wrong (`gateway.listen` in `wyrmd.json5`). |
-| `refused_by_connector: … allow_config` | A config-level change. Turn on **Allow config-level changes** if the user's role should be used for it, or do it in Studio. |
+| `refused_by_connector: … allow_config` | A config-level change. Turn on **Allow config-level changes** if the user's role should be used for it, or do it in Studio. After the switch, quit Claude Desktop (⌘Q) and open it again: a chat keeps talking to the connector process it started with, and that process read the old setting. `whoami` shows `connector.allow_config` as it is in force. |
 | `permission_denied` | The user's role does not allow it. |
 
 Logs: in Claude Desktop, open **Settings → Developer**, or open the extension's log file (`mcp-server-WYRM.log`).

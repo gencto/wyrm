@@ -40,7 +40,7 @@ CARGO_TARGET_DIR=/target/ci cargo test --locked --workspace --all-features
 | Gateways | central `127.0.0.1:8445`, edge `:8444`, plant `:8446` | `admin` / `wyrm-demo-1` |
 | Mosquitto | `127.0.0.1:1883` | `uplink` / `mq-pass-1` |
 | PostgreSQL 15 | `127.0.0.1:5432`, database `wyrm` | `wyrm` / `wyrm-pg-1` |
-| Package repository | `http://127.0.0.1:8090/index.json` | `postgres-process` |
+| Package repository | `http://127.0.0.1:18070/index.json` | `postgres-process` |
 
 The tests that build WASM fixtures (`wyrm-link-guest`, `wyrm-link-wasm`, the `portable_app_*`
 and `wasm_app_*` e2e tests) copy `Cargo.lock` into the repository and fail on the read-only

@@ -17,6 +17,9 @@
   },
   // App login: user admin, password from WYRM_GATEWAY_ADMIN_PASSWORD.
   gateway: { listen: "127.0.0.1:8445", admin_user: "admin" },
+  // "Install Link ▸ from Repository": every official link built from this
+  // workspace, plus the examples (examples/packages/build.sh), served by run.sh.
+  packages: { repository: "http://127.0.0.1:18070/index.json" },
   links: {
     // A small mock on the central site itself.
     mock: { driver: "mock", params: { points: 6, rate_hz: 1, depth: 1, fanout: 2 } },
