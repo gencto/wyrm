@@ -15,6 +15,11 @@ abstract class LiveListsServiceListener {
 
   /// One child of [parent] is gone.
   void onRemoved(String parent, String name);
+
+  /// The list of [parent] failed with [error] (rights, a missing node, a
+  /// lost broker); it is closed, and opened again later only when the
+  /// broker was lost.
+  void onListError(String parent, Object error);
 }
 
 /// One live `list(key)` per key a shown screen lists (History's groups and
@@ -90,6 +95,7 @@ class LiveListsService extends DisposableServiceInterface {
           onError: (Object e) {
             logger.fine('list $key: $e');
             unawaited(_lists.remove(key)?.cancel());
+            _listener.onListError(key, e);
             if (_lost(e)) {
               _again(key);
             }

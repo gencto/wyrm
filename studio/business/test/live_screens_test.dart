@@ -211,6 +211,24 @@ void main() {
       expect(s.state.historian.groups.map((g) => g.name), ['ahu', 'vav']);
     });
 
+    test('a refused list is a quiet problem; one the user may not read is '
+        'just empty', () async {
+      await show();
+      api.lists['$base/ahu']!.addError(
+        WyrmException.of(Status.permissionDenied, ''),
+      );
+      await settle();
+      expect(s.state.historian.groups.first.keys, isEmpty);
+      expect(s.state.problems.items, isEmpty);
+
+      api.lists[base]!.addError(WyrmException.of(Status.notFound, 'gone'));
+      await settle();
+      expect(s.state.historian.groups, isEmpty);
+      final p = s.state.problems.items.single;
+      expect(p.key, base);
+      expect(p.quiet, isTrue);
+    });
+
     test('a site switch closes the old site and opens the new', () async {
       await show();
       s.dispatchSync(ViewSiteAction('edge'));
