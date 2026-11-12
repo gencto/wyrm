@@ -95,7 +95,7 @@ axum-server = { version = "0.8", default-features = false }
 # certificate decompression is off; ring has no post-quantum key share to strip; no
 # ECH; nothing formats session values with `Debug`. Lift the pin when Zenoh fixes the
 # TLS link, or when process links move off `tls/`.
-rustls = { version = "=0.23.45", default-features = false }
+rustls = { version = "=0.23.46", default-features = false }
 rustls-pki-types = "1.9"
 base64 = "0.22"
 tokio-tungstenite = "0.29"
