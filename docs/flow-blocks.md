@@ -531,8 +531,10 @@ A table is a value (ADR 0044 §2):
   more than 128 fields (a header too: it is not cut) and a field past 64 KiB;
   a row map of more than 128 keys is no table; `table_from_json` and
   `json_parse` read at most 256 KiB and 32 levels; a list of names
-  (`columns`, `ignore_columns`) counts its first 512 items. Equal or empty
-  header names get `_2`, `_3`, … in one pass.
+  (`columns`, `ignore_columns`) counts its first 512 items. An equal header
+  name gets `_2`, `_3`, … in one pass (`a`, `a_2`); an empty header name, a
+  column past the header's last name and every column of a CSV read without a
+  header are named by their column number from 1 (`v3`).
 - A table block takes a table on `in` and gives a new one: the mutators
   (`table_add_row`, `table_edit_rows`, `table_remove_rows`) are transforms, not
   writes into a stored table. Keep a table across samples in a

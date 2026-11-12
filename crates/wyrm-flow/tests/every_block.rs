@@ -406,6 +406,10 @@ fn sq(ty: &'static str, cfg: Vec<(&'static str, Value)>, steps: Vec<Step>) -> Ca
 }
 
 impl Case {
+    /// Marks a row that asserts the document where the code differs (none today: the two
+    /// found were settled on 2026-11-12 by fixing the documents). Its id needs an
+    /// `#[ignore]` test that calls `run_mismatch`.
+    #[allow(dead_code)]
     fn mismatch(mut self, id: &'static str) -> Self {
         self.mismatch = Some(id);
         self
@@ -602,6 +606,7 @@ fn every_documented_case_holds() {
 }
 
 /// The rows of one mismatch: they assert the document, so they fail while the code differs.
+#[allow(dead_code)]
 fn run_mismatch(id: &str) {
     let failures = run_cases(|c| c.mismatch == Some(id));
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -2404,12 +2409,11 @@ fn tables() -> Vec<Case> {
             vec![],
             vec![("in", s("a,a,\n1,2,3"))],
             "out",
-            pred("columns a, a_2 and _<n> for the empty name", |v| {
-                let c = columns(v);
-                c.len() == 3 && c[0] == "a" && c[1] == "a_2" && c[2].starts_with('_')
+            // an equal name gets `_2`; an empty one is named by its column, `v<n>`
+            pred("columns a, a_2 and v3 for the empty name", |v| {
+                columns(v) == ["a", "a_2", "v3"]
             }),
-        )
-        .mismatch("csv-empty-header-name"),
+        ),
         c(
             "table_from_csv",
             vec![],
@@ -3341,7 +3345,7 @@ fn older() -> Vec<Case> {
                 Is("out", num(50.0)),
             ],
         ),
-        // deadband: passes a value that moved by more than abs or pct
+        // deadband: passes a value that moved by abs or pct or more
         sq(
             "deadband",
             vec![("abs", n(1))],
@@ -3365,13 +3369,12 @@ fn older() -> Vec<Case> {
                 Sent("out", num(120.0)),
             ],
         ),
-        // "more than": a move of exactly abs does not pass
+        // "by abs or pct or more": a move of exactly abs passes
         sq(
             "deadband",
             vec![("abs", n(1))],
-            vec![feed("in", n(10)), feed("in", n(11)), Quiet("out")],
-        )
-        .mismatch("deadband-more-than"),
+            vec![feed("in", n(10)), feed("in", n(11)), Sent("out", num(11.0))],
+        ),
         // window: one value per window of time
         sq(
             "window",
@@ -4082,23 +4085,6 @@ fn edges() -> Vec<Case> {
 }
 
 // ---------- doc/code mismatches: the documented behaviour, ignored until one side changes ----------
-
-/// `docs/flow-blocks.md:534`: "Equal or empty header names get `_2`, `_3`, … in one pass";
-/// `src/blocks/tables.rs:937` names an empty header `v<column>` (`v3`).
-#[test]
-#[ignore = "doc/code mismatch: an empty CSV header name becomes v<n>, not _<n>"]
-fn mismatch_csv_empty_header_name() {
-    run_mismatch("csv-empty-header-name");
-}
-
-/// `src/catalog.rs:296` says `deadband` "passes a value that moved by more than abs or pct"
-/// (no normative document describes it); `src/nodes.rs:876` and `:879` pass a move of exactly
-/// `abs` or `pct` too (`>=`).
-#[test]
-#[ignore = "doc/code mismatch: deadband passes a move of exactly abs"]
-fn mismatch_deadband_more_than() {
-    run_mismatch("deadband-more-than");
-}
 
 // ---------- the types that need zenoh I/O or the engine ----------
 
