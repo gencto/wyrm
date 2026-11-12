@@ -4,7 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../alerts/read_fail.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
-import '../charts/trend_chart.dart';
+import '../charts/trend.dart';
 import '../containers/action_card.dart';
 import '../containers/fault_boundary.dart';
 import '../containers/inspector.dart';
@@ -318,9 +318,9 @@ class ExplorerPage extends StatelessWidget {
     this.ranges = const [],
     this.range = '',
     this.onHistoryRange,
-    this.trend = const [],
-    this.trendLabels = const ('', ''),
-    this.trendEmpty = '',
+    this.trend,
+    this.onTrendWindow,
+    this.onTrendReset,
     this.historyColumns = const [],
     this.historyRows = const [],
     this.historyNote,
@@ -441,9 +441,13 @@ class ExplorerPage extends StatelessWidget {
   final List<TabItemVm> ranges;
   final String range;
   final ValueChanged<String>? onHistoryRange;
-  final List<TrendSeriesVm> trend;
-  final (String, String) trendLabels;
-  final String trendEmpty;
+
+  /// The picked point's trend (one series), null without one.
+  final TrendVm? trend;
+
+  /// The trend's window (µs) and `Reset zoom`.
+  final void Function(int start, int end)? onTrendWindow;
+  final VoidCallback? onTrendReset;
   final List<ColumnVm> historyColumns;
   final List<RowVm> historyRows;
 
@@ -662,7 +666,12 @@ class ExplorerPage extends StatelessWidget {
             selected: range,
             onSelect: onHistoryRange ?? (_) {},
           ),
-          TrendChart(series: trend, empty: trendEmpty, timeLabels: trendLabels),
+          if (trend case final t?)
+            Trend(
+              vm: t,
+              onWindow: onTrendWindow ?? (_, _) {},
+              onReset: onTrendReset,
+            ),
           if (historyRows.isNotEmpty)
             RowTable(columns: historyColumns, rows: historyRows, rowHeight: 40),
         ],

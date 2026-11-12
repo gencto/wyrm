@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — trend chart</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<section aria-label="Trend" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; gap: 10px; user-select: none">
+
+<!-- Header: legend, visible range, reset -->
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px">
+<sc-for list="{{legend}}" as="s" hint-placeholder-count="2">
+<button type="button" aria-pressed="{{s.onAria}}" onClick="{{s.toggle}}" title="Show or hide {{s.name}}" style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid {{s.border}}; background: transparent; color: #ECE9E1; font: inherit; font-size: 13px; cursor: pointer; opacity: {{s.op}}"><span style="width: 16px; height: 2px; background: {{s.c}}"></span><code>{{s.name}}</code><span style="color: #8E979C">{{s.label}}</span></button>
+</sc-for>
+<span style="display: flex; align-items: center; gap: 6px; color: #E07A5F; font-size: 12px"><span style="width: 14px; height: 10px; background: rgba(224,122,95,0.18); border: 1px dashed #E07A5F; box-sizing: border-box"></span>no data</span>
+<span style="margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: #A3ABAF">
+<code style="color: #C5CBCE">{{rangeText}}</code><span style="color: #6B747A">· {{rollupText}}</span>
+<sc-if value="{{zoomed}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{reset}}" style="height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid #5A3E25; background: #2A1F16; color: #F3A766; font: inherit; font-size: 12px; cursor: pointer">Reset zoom</button></sc-if>
+</span>
+</div>
+
+<!-- Main plot -->
+<div style="display: flex; gap: 8px">
+<div style="position: relative; flex: none; width: 44px; height: 240px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C; text-align: right">
+<sc-for list="{{yTicks}}" as="t" hint-placeholder-count="4"><span style="position: absolute; right: 0; top: {{t.top}}%; transform: translateY(-50%)">{{t.label}}</span></sc-for>
+</div>
+<div onPointerMove="{{onPlotMove}}" onPointerDown="{{onPlotDown}}" onPointerUp="{{onPlotUp}}" onPointerLeave="{{onPlotLeave}}" onDoubleClick="{{reset}}" role="img" aria-label="{{aria}}" style="position: relative; flex: 1; min-width: 0; height: 240px; cursor: crosshair; touch-action: none">
+<svg viewBox="0 0 800 240" width="100%" height="240" preserveAspectRatio="none" aria-hidden="true" style="display: block; pointer-events: none">
+<sc-for list="{{yTicks}}" as="t" hint-placeholder-count="4"><path d="M0 {{t.y}}H800" stroke="#1D2226" stroke-width="1" vector-effect="non-scaling-stroke"></path></sc-for>
+<sc-for list="{{gaps}}" as="g" hint-placeholder-count="1"><rect x="{{g.x}}" y="0" width="{{g.w}}" height="240" fill="rgba(224,122,95,0.12)" stroke="#E07A5F" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"></rect></sc-for>
+<sc-for list="{{lines}}" as="l" hint-placeholder-count="4"><polyline fill="none" stroke="{{l.c}}" stroke-width="2" stroke-dasharray="{{l.dash}}" vector-effect="non-scaling-stroke" stroke-linejoin="round" points="{{l.pts}}"></polyline></sc-for>
+</svg>
+
+<!-- drag-to-zoom band -->
+<sc-if value="{{band.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 0; bottom: 0; left: {{band.l}}%; width: {{band.w}}%; background: rgba(232,137,58,0.12); border-left: 1px solid {{accent}}; border-right: 1px solid {{accent}}; pointer-events: none"></span></sc-if>
+
+<!-- pinned marker -->
+<sc-if value="{{pin.on}}" hint-placeholder-val="{{false}}">
+<span style="position: absolute; top: 0; bottom: 0; left: {{pin.x}}%; border-left: 1px dashed #A3ABAF; pointer-events: none"></span>
+<span style="position: absolute; top: 4px; left: {{pin.x}}%; transform: translateX(-50%); height: 20px; padding: 0 6px; border-radius: 4px; background: #2F373D; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 11px; display: flex; align-items: center; white-space: nowrap; pointer-events: none">A · {{pin.t}}</span>
+</sc-if>
+
+<!-- crosshair, dots, tooltip -->
+<sc-if value="{{hov.on}}" hint-placeholder-val="{{false}}">
+<span style="position: absolute; top: 0; bottom: 0; left: {{hov.x}}%; border-left: 1px solid #5A6168; pointer-events: none"></span>
+<sc-for list="{{hov.dots}}" as="d" hint-placeholder-count="2"><span style="position: absolute; left: {{hov.x}}%; top: {{d.top}}%; width: 9px; height: 9px; margin: -6px 0 0 -6px; border-radius: 50%; background: #13171A; border: 2px solid {{d.c}}; pointer-events: none"></span></sc-for>
+<div role="status" aria-live="polite" style="position: absolute; top: 12px; left: {{hov.tipL}}; right: {{hov.tipR}}; width: 232px; padding: 10px 12px; border-radius: 10px; border: 1px solid #2F373D; background: rgba(22, 26, 29, 0.97); box-shadow: 0 12px 32px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 8px; pointer-events: none">
+<div style="display: flex; align-items: baseline; gap: 8px"><code style="font-size: 13px; color: #ECE9E1">{{hov.time}}</code><span style="font-size: 11px; color: #8E979C">{{hov.day}}</span><span style="margin-left: auto; font-size: 11px; color: #6B747A">{{hov.bucket}}</span></div>
+<sc-for list="{{hov.rows}}" as="r" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 2px; background: {{r.c}}"></span><span style="color: #A3ABAF">{{r.label}}</span><code style="margin-left: auto; font-size: 14px; color: {{r.vc}}">{{r.v}}</code><span style="color: #8E979C; font-size: 11px; width: 18px">{{r.u}}</span></div>
+<sc-if value="{{r.hasSub}}" hint-placeholder-val="{{false}}"><span style="padding-left: 18px; font-size: 11px; color: {{r.subC}}">{{r.sub}}</span></sc-if>
+</div>
+</sc-for>
+<sc-if value="{{hov.hasDelta}}" hint-placeholder-val="{{false}}"><span style="padding-top: 6px; border-top: 1px solid #252B30; font-size: 11px; color: #A3ABAF">{{hov.delta}}</span></sc-if>
+<span style="font-size: 11px; color: #6B747A">{{hov.hint}}</span>
+</div>
+</sc-if>
+</div>
+</div>
+
+<!-- Time axis of the main plot -->
+<div style="position: relative; height: 14px; margin-left: 52px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">
+<sc-for list="{{xTicks}}" as="t" hint-placeholder-count="5"><span style="position: absolute; left: {{t.x}}%; transform: translateX({{t.shift}}); white-space: nowrap">{{t.label}}</span></sc-for>
+</div>
+
+<!-- Brush: the whole range, the window you look at -->
+<div style="display: flex; gap: 8px; align-items: stretch; padding-top: 4px">
+<span style="flex: none; width: 44px; font-size: 11px; color: #6B747A; text-align: right; padding-top: 4px">all</span>
+<div onPointerDown="{{onBrushDown}}" onPointerMove="{{onBrushMove}}" onPointerUp="{{onBrushUp}}" style="position: relative; flex: 1; min-width: 0; height: 56px; border-radius: 6px; background: #0E1113; border: 1px solid #22282D; cursor: crosshair; touch-action: none; overflow: hidden">
+<svg viewBox="0 0 800 56" width="100%" height="56" preserveAspectRatio="none" aria-hidden="true" style="display: block; pointer-events: none">
+<sc-for list="{{miniGaps}}" as="g" hint-placeholder-count="1"><rect x="{{g.x}}" y="0" width="{{g.w}}" height="56" fill="rgba(224,122,95,0.18)"></rect></sc-for>
+<sc-for list="{{mini}}" as="l" hint-placeholder-count="4"><polyline fill="none" stroke="{{l.c}}" stroke-width="1.2" opacity="0.8" vector-effect="non-scaling-stroke" points="{{l.pts}}"></polyline></sc-for>
+</svg>
+<span style="position: absolute; top: 0; bottom: 0; left: 0; width: {{win.l}}%; background: rgba(11, 13, 15, 0.62); pointer-events: none"></span>
+<span style="position: absolute; top: 0; bottom: 0; left: {{win.r}}%; right: 0; background: rgba(11, 13, 15, 0.62); pointer-events: none"></span>
+<span data-part="win" title="Drag to move the window" style="position: absolute; top: 0; bottom: 0; left: {{win.l}}%; width: {{win.w}}%; border-top: 2px solid {{accent}}; border-bottom: 2px solid {{accent}}; box-sizing: border-box; background: rgba(232,137,58,0.06); cursor: grab"></span>
+<span data-part="l" role="slider" tabIndex="0" aria-label="Start of the window" aria-valuetext="{{win.startText}}" onKeyDown="{{keyL}}" style="position: absolute; top: 0; bottom: 0; left: {{win.l}}%; width: 12px; margin-left: -6px; cursor: ew-resize; display: flex; align-items: center; justify-content: center"><span data-part="l" style="width: 6px; height: 28px; border-radius: 3px; background: {{accent}}"></span></span>
+<span data-part="r" role="slider" tabIndex="0" aria-label="End of the window" aria-valuetext="{{win.endText}}" onKeyDown="{{keyR}}" style="position: absolute; top: 0; bottom: 0; left: {{win.r}}%; width: 12px; margin-left: -6px; cursor: ew-resize; display: flex; align-items: center; justify-content: center"><span data-part="r" style="width: 6px; height: 28px; border-radius: 3px; background: {{accent}}"></span></span>
+</div>
+</div>
+<div style="position: relative; height: 14px; margin-left: 52px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #6B747A">
+<sc-for list="{{miniTicks}}" as="t" hint-placeholder-count="5"><span style="position: absolute; left: {{t.x}}%; transform: translateX({{t.shift}}); white-space: nowrap">{{t.label}}</span></sc-for>
+</div>
+<span style="font-size: 11px; color: #6B747A">Hover for values · drag on the chart to zoom · click to set marker A · drag or resize the window below · double-click resets · ← → move the focused handle</span>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"start":{"editor":"enum","default":"idle","options":["idle","hover","zoomed","pinned","gap"]},"accent":{"editor":"color","default":"#E8893A"},"$preview":{"width":1100,"height":460}}'>
+class Component extends DCLogic {
+  data() {
+    if (this._d) return this._d;
+    const N = 288, STEP = 5; // 24 h of 5-minute buckets from 2026-11-11 03:55
+    const start = 3 * 60 + 55;
+    const gap = [111, 119];   // 13:10–13:50 comm fail
+    const unc = [230, 234];   // t2 uncertain 23:05–23:25
+    const t1 = [], t2 = [];
+    for (let i = 0; i < N; i++) {
+      const h = (start + i * STEP) / 60;
+      const day = Math.sin((h - 8) / 24 * Math.PI * 2);
+      const n1 = Math.sin(i * 1.7) * 0.35 + Math.sin(i * 0.37) * 0.6;
+      const n2 = Math.sin(i * 1.3 + 1) * 0.3 + Math.sin(i * 0.29) * 0.5;
+      const inGap = i >= gap[0] && i <= gap[1];
+      const v1 = 81 + day * 3.2 + n1 + (i > 150 && i < 170 ? 2.4 : 0);
+      const v2 = 63 + day * 2.1 + n2;
+      t1.push(inGap ? null : { v: v1, mn: v1 - 0.4 - Math.abs(n1) * 0.3, mx: v1 + 0.5 + Math.abs(n2) * 0.3, q: 'good' });
+      t2.push(inGap ? null : { v: v2, mn: v2 - 0.3, mx: v2 + 0.4, q: i >= unc[0] && i <= unc[1] ? 'uncertain' : 'good' });
+    }
+    this._d = { N, STEP, start, gap, t1, t2 };
+    return this._d;
+  }
+  clock(i) {
+    const d = this.data();
+    const m = d.start + i * d.STEP;
+    const day = m >= 1440 ? 'Thu 12 Nov' : 'Wed 11 Nov';
+    const mm = m % 1440;
+    const hh = String(Math.floor(mm / 60)).padStart(2, '0'), mi = String(mm % 60).padStart(2, '0');
+    return { hm: `${hh}:${mi}`, day };
+  }
+  initial() {
+    const s = this.props.start ?? 'idle';
+    if (s === 'zoomed') return { a: 0.36, b: 0.5, hover: 0.55, pin: null };
+    if (s === 'pinned') return { a: 0.3, b: 0.75, hover: 0.72, pin: 0.36 };
+    if (s === 'hover') return { a: 0, b: 1, hover: 0.62, pin: null };
+    if (s === 'gap') return { a: 0.3, b: 0.5, hover: 0.43, pin: null };
+    return { a: 0, b: 1, hover: null, pin: null };
+  }
+  st() { return { ...this.initial(), hidden: {}, ...(this.state || {}) }; }
+  fracOf(e) { const r = e.currentTarget.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); }
+  renderVals() {
+    const accent = this.props.accent ?? '#E8893A';
+    const d = this.data();
+    const S = this.st();
+    const a = S.a, b = S.b;
+    const i0 = Math.floor(a * (d.N - 1)), i1 = Math.max(i0 + 2, Math.ceil(b * (d.N - 1)));
+    const span = i1 - i0;
+    const series = [
+      { id: 't1', name: 't1', label: 'Supply temp', c: accent, u: '°C', data: d.t1 },
+      { id: 't2', name: 't2', label: 'Return temp', c: '#6CC4B0', u: '°C', data: d.t2 }
+    ];
+    const shown = series.filter((s) => !S.hidden[s.id]);
+
+    // y range from what is visible
+    let lo = Infinity, hi = -Infinity;
+    shown.forEach((s) => { for (let i = i0; i <= i1; i++) { const p = s.data[i]; if (p) { lo = Math.min(lo, p.mn); hi = Math.max(hi, p.mx); } } });
+    if (!isFinite(lo)) { lo = 0; hi = 100; }
+    const raw = (hi - lo) / 3 || 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => k >= raw) || 10 * mag;
+    lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    if (hi === lo) hi = lo + step;
+    const Y = (v) => 236 - (v - lo) / (hi - lo) * 232;
+    const yTicks = [];
+    for (let v = lo; v <= hi + 1e-9; v += step) yTicks.push({ y: Y(v).toFixed(1), top: (Y(v) / 240 * 100).toFixed(2), label: (Math.round(v * 10) / 10) + (v + step > hi + 1e-9 ? ' °C' : '') });
+    const X = (i) => ((i - i0) / span) * 800;
+
+    const lines = [];
+    shown.forEach((s) => {
+      let run = [], runQ = null;
+      const flush = () => { if (run.length > 1) lines.push({ c: s.c, dash: runQ === 'uncertain' ? '5 4' : '0', pts: run.join(' ') }); run = []; };
+      for (let i = i0; i <= i1; i++) {
+        const p = s.data[i];
+        if (!p) { flush(); runQ = null; continue; }
+        if (runQ && p.q !== runQ) { const last = run[run.length - 1]; flush(); if (last) run.push(last); }
+        runQ = p.q;
+        run.push(`${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`);
+      }
+      flush();
+    });
+    const gaps = [];
+    const gl = Math.max(d.gap[0] - 1, i0), gr = Math.min(d.gap[1] + 1, i1);
+    if (gr > gl) gaps.push({ x: X(gl).toFixed(1), w: (X(gr) - X(gl)).toFixed(1) });
+
+    // x ticks
+    const nT = 5, xTicks = [];
+    for (let k = 0; k < nT; k++) {
+      const i = Math.round(i0 + span * k / (nT - 1));
+      const c = this.clock(i);
+      xTicks.push({ x: (k / (nT - 1) * 100).toFixed(2), shift: k === 0 ? '0' : k === nT - 1 ? '-100%' : '-50%', label: k === 0 || c.hm === '00:00' ? `${c.day.slice(0, 3)} ${c.hm}` : c.hm });
+    }
+    const ca = this.clock(i0), cb = this.clock(i1);
+    const rangeText = `${ca.day.slice(0, 3)} ${ca.hm} – ${cb.day === ca.day ? '' : cb.day.slice(0, 3) + ' '}${cb.hm}`;
+    const mins = span * d.STEP;
+    const rollupText = mins > 12 * 60 ? '15 min avg' : '5 min avg';
+
+    // hover
+    const hov = { on: false, dots: [], rows: [] };
+    if (S.hover != null) {
+      const i = Math.round(i0 + S.hover * span);
+      const c = this.clock(i);
+      const xp = (i - i0) / span * 100;
+      const rows = [], dots = [];
+      shown.forEach((s) => {
+        const p = s.data[i];
+        if (!p) { rows.push({ c: s.c, label: s.label, v: 'no data', vc: '#E07A5F', u: '', hasSub: true, sub: 'comm_fail · device not reachable', subC: '#E07A5F' }); return; }
+        dots.push({ c: s.c, top: (Y(p.v) / 240 * 100).toFixed(2) });
+        rows.push({ c: s.c, label: s.label, v: p.v.toFixed(1), vc: '#ECE9E1', u: s.u,
+          hasSub: true, sub: p.q === 'uncertain' ? 'uncertain · stale reads in this bucket' : `min ${p.mn.toFixed(1)} · max ${p.mx.toFixed(1)}`, subC: p.q === 'uncertain' ? '#E2C15A' : '#6B747A' });
+      });
+      let delta = '', hasDelta = false;
+      if (S.pin != null) {
+        const j = Math.round(S.pin * (d.N - 1));
+        const pa = (shown[0] || {}).data ? shown[0].data[j] : null, pb = (shown[0] || {}).data ? shown[0].data[i] : null;
+        const dm = Math.abs(i - j) * d.STEP;
+        if (pa && pb) { const dv = pb.v - pa.v; delta = `Δ from A (${this.clock(j).hm}): ${dv >= 0 ? '+' : ''}${dv.toFixed(1)} °C ${shown[0].name} over ${Math.floor(dm / 60)} h ${dm % 60} min`; hasDelta = true; }
+      }
+      const right = xp > 60;
+      Object.assign(hov, { on: true, x: xp.toFixed(2), time: c.hm, day: c.day, bucket: `${rollupText} · ${c.hm}–${this.clock(i + 1).hm}`, rows, dots, delta, hasDelta,
+        tipL: right ? 'auto' : `calc(${xp.toFixed(2)}% + 14px)`, tipR: right ? `calc(${(100 - xp).toFixed(2)}% + 14px)` : 'auto',
+        hint: S.pin == null ? 'Click to set marker A' : 'Click A again to clear it' });
+    }
+    const pin = { on: false };
+    if (S.pin != null) { const j = Math.round(S.pin * (d.N - 1)); if (j >= i0 && j <= i1) { pin.on = true; pin.x = ((j - i0) / span * 100).toFixed(2); pin.t = this.clock(j).hm; } }
+    const band = { on: false };
+    if (S.sel) { const l = Math.min(S.sel.x0, S.sel.x1), r = Math.max(S.sel.x0, S.sel.x1); Object.assign(band, { on: r - l > 0.005, l: (l * 100).toFixed(2), w: ((r - l) * 100).toFixed(2) }); }
+
+    // brush
+    const MX = (i) => i / (d.N - 1) * 800;
+    let mlo = Infinity, mhi = -Infinity;
+    series.forEach((s) => s.data.forEach((p) => { if (p) { mlo = Math.min(mlo, p.v); mhi = Math.max(mhi, p.v); } }));
+    const MY = (v) => 52 - (v - mlo) / (mhi - mlo) * 48;
+    const mini = [];
+    shown.forEach((s) => { let run = []; s.data.forEach((p, i) => { if (!p) { if (run.length) mini.push({ c: s.c, pts: run.join(' ') }); run = []; } else run.push(`${MX(i).toFixed(1)},${MY(p.v).toFixed(1)}`); }); if (run.length) mini.push({ c: s.c, pts: run.join(' ') }); });
+    const miniGaps = [{ x: MX(d.gap[0] - 1).toFixed(1), w: (MX(d.gap[1] + 1) - MX(d.gap[0] - 1)).toFixed(1) }];
+    const miniTicks = [0, 0.25, 0.5, 0.75, 1].map((f, k) => { const c = this.clock(Math.round(f * (d.N - 1))); return { x: (f * 100).toFixed(2), shift: k === 0 ? '0' : k === 4 ? '-100%' : '-50%', label: k === 4 ? 'now' : c.hm }; });
+    const win = { l: (a * 100).toFixed(2), r: (b * 100).toFixed(2), w: ((b - a) * 100).toFixed(2), startText: `${ca.day} ${ca.hm}`, endText: `${cb.day} ${cb.hm}` };
+
+    const set = (p) => this.setState({ ...this.st(), ...p });
+    const clamp = (x) => Math.max(0, Math.min(1, x));
+    const MIN = 12 / (d.N - 1); // one hour at least
+    const legend = series.map((s) => ({ ...s, onAria: S.hidden[s.id] ? 'false' : 'true', op: S.hidden[s.id] ? 0.45 : 1, border: S.hidden[s.id] ? '#252B30' : '#2F373D',
+      toggle: () => set({ hidden: { ...S.hidden, [s.id]: !S.hidden[s.id] } }) }));
+
+    return {
+      accent, legend, yTicks, lines, gaps, xTicks, rangeText, rollupText, hov, pin, band, mini, miniGaps, miniTicks, win,
+      zoomed: a > 0.001 || b < 0.999,
+      aria: `Supply and return temperature, ${rangeText}. Use the window below to choose the range.`,
+      reset: () => set({ a: 0, b: 1, sel: null }),
+      onPlotMove: (e) => { const f = this.fracOf(e); const cur = this.st(); if (cur.sel) set({ hover: f, sel: { ...cur.sel, x1: f } }); else set({ hover: f }); },
+      onPlotLeave: () => set({ hover: null, sel: null }),
+      onPlotDown: (e) => { const f = this.fracOf(e); try { e.currentTarget.setPointerCapture(e.pointerId); } catch (x) {} set({ sel: { x0: f, x1: f } }); },
+      onPlotUp: (e) => {
+        const cur = this.st(); const f = this.fracOf(e);
+        if (!cur.sel) return;
+        const l = Math.min(cur.sel.x0, f), r = Math.max(cur.sel.x0, f);
+        if (r - l > 0.01) { const na = a + l * (b - a), nb = a + r * (b - a); set({ a: na, b: Math.max(nb, na + MIN), sel: null }); }
+        else { const g = a + f * (b - a); set({ pin: cur.pin != null && Math.abs(cur.pin - g) < 0.004 ? null : g, sel: null }); }
+      },
+      onBrushDown: (e) => {
+        const f = this.fracOf(e); const part = (e.target && e.target.dataset && e.target.dataset.part) || 'new';
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (x) {}
+        if (part === 'new') set({ drag: { part: 'new', f0: f }, a: f, b: clamp(f + MIN) });
+        else set({ drag: { part, f0: f, a0: a, b0: b } });
+      },
+      onBrushMove: (e) => {
+        const cur = this.st(); if (!cur.drag) return; const f = this.fracOf(e); const g = cur.drag;
+        if (g.part === 'win') { const w = g.b0 - g.a0; const na = clamp(Math.min(g.a0 + f - g.f0, 1 - w)); set({ a: Math.max(0, na), b: Math.max(0, na) + w }); }
+        else if (g.part === 'l') set({ a: Math.min(f, cur.b - MIN) });
+        else if (g.part === 'r') set({ b: Math.max(f, cur.a + MIN) });
+        else { const l = Math.min(g.f0, f), r = Math.max(g.f0, f); set({ a: l, b: Math.max(r, l + MIN) }); }
+      },
+      onBrushUp: () => set({ drag: null }),
+      keyL: (e) => { const k = e.key; const dd = (e.shiftKey ? 12 : 1) / (d.N - 1); if (k === 'ArrowLeft') set({ a: clamp(a - dd) }); if (k === 'ArrowRight') set({ a: Math.min(a + dd, b - MIN) }); },
+      keyR: (e) => { const k = e.key; const dd = (e.shiftKey ? 12 : 1) / (d.N - 1); if (k === 'ArrowLeft') set({ b: Math.max(b - dd, a + MIN) }); if (k === 'ArrowRight') set({ b: clamp(b + dd) }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

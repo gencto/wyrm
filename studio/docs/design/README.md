@@ -21,6 +21,7 @@ The boards do not render on their own (they run inside the canvas). Read them as
 | Who controls what | `LinksRemote`, `LinksQuarantine`, `SitesChainQ`, `SitesStar`, `SitesTwoUp` | §7.2, §7.5 |
 | Assistant | `AssistantAsk`, `Assistant` (clickable), `AssistantRun`, `AssistantDone`, `AssistantFailed`, `AssistantRights`, `AssistantDrawer` | §7.8 |
 | Design system | `DesignSystem` (tokens, type, components, scrollbars), `Icons`, `PropertySheet` | §6 |
+| Trend chart | `Trend` (clickable: tooltip, zoom, marker, brush), `TrendHover`, `TrendZoomed`, `TrendPinned`, `TrendGap`; mounted by `History` | `specs/trend.md` |
 | Errors | `ErrorKit`, `ErrorDialog` (clickable) with `ErrReach`, `ErrInput`, `ErrBusy`, `ErrGone`, `ErrBroker`, `ErrStudio`; `ErrorQuiet` (clickable) with `ErrorProblems`; `ErrorPanel` with `ErrorFatal` | `specs/errors.md` |
 | GenUI views (page *GenUI views*, experiment) | `GenView` (clickable), `GenViewGenerating`, `GenViewChecks`, `GenViewRefine`, `GenViewKiosk`, `GenCatalog`; project and menu `GenProject`, `GenProjPump`, `GenProjPanel`, `GenProjPhone`, `GenProjPhonePump`, `GenProjKiosk`; style `GenStyle`, `GenStyleLight`, `GenStylePanelLight`, `GenStylePhoneLight`; samples in `genui/` | `specs/genui-views.md` |
 | App icon | `AppIcon` (variants, every platform; its images are canvas uploads, `/_blob/<id>`, copied here by name to `canvas/icon/`) | `specs/app-icon.md` |

@@ -110,25 +110,7 @@ System</a>
 <button type="button" aria-haspopup="listbox" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 13px; cursor: pointer">15 min · avg<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
 </div>
 
-<section aria-label="Trend" style="padding: 16px; border-radius: 10px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; gap: 10px">
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; font-size: 13px">
-<span style="display: flex; align-items: center; gap: 8px"><span style="width: 16px; height: 2px; background: {{accent}}"></span><code>t1</code><span style="color: #8E979C">Supply temp</span></span>
-<span style="display: flex; align-items: center; gap: 8px"><span style="width: 16px; height: 2px; background: #6CC4B0"></span><code>t2</code><span style="color: #8E979C">Return temp</span></span>
-<span style="display: flex; align-items: center; gap: 8px; margin-left: auto; color: #E07A5F"><span style="width: 14px; height: 10px; background: rgba(224,122,95,0.18); border: 1px dashed #E07A5F; box-sizing: border-box"></span>bad quality, not drawn</span>
-</div>
-<div style="display: flex; gap: 8px">
-<div style="display: flex; flex-direction: column; justify-content: space-between; height: 220px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C; text-align: right"><span>90 °C</span><span>80</span><span>70</span><span>60</span></div>
-<svg viewBox="0 0 800 220" width="100%" height="220" preserveAspectRatio="none" role="img" aria-label="t1 near 82 degrees and t2 near 64 degrees over 24 hours, with no data between 13:10 and 13:52 while the device was unreachable">
-<path d="M0 1H800M0 73H800M0 146H800M0 219H800" stroke="#1D2226" stroke-width="1"></path>
-<rect x="438" y="0" width="28" height="220" fill="rgba(224,122,95,0.14)" stroke="#E07A5F" stroke-dasharray="4 4"></rect>
-<polyline fill="none" stroke="{{accent}}" stroke-width="2" points="0,62 40,60 80,58 120,61 160,63 200,57 240,52 280,48 320,50 360,53 400,55 438,57"></polyline>
-<polyline fill="none" stroke="{{accent}}" stroke-width="2" points="466,60 500,58 540,54 580,51 620,55 660,58 700,60 740,62 780,61 800,60"></polyline>
-<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="0,192 40,190 80,189 120,191 160,193 200,188 240,183 280,180 320,181 360,184 400,186 438,187"></polyline>
-<polyline fill="none" stroke="#6CC4B0" stroke-width="2" points="466,190 500,189 540,185 580,182 620,184 660,188 700,190 740,192 780,191 800,190"></polyline>
-</svg>
-</div>
-<div style="display: flex; justify-content: space-between; padding-left: 52px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C"><span>02:00</span><span>08:00</span><span>13:10–13:52 comm fail</span><span>20:00</span><span>now</span></div>
-</section>
+<dc-import name="Trend" accent="{{accent}}" hint-size="100%,460px"></dc-import>
 
 <section aria-label="Points in this group" style="display: flex; flex-direction: column; gap: 10px">
 <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">

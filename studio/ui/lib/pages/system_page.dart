@@ -261,6 +261,9 @@ class SystemPage extends StatelessWidget {
     this.stale = false,
     this.onBanner,
     this.onGuide,
+    this.onTrafficWindow,
+    this.onTrafficFollow,
+    this.onTrafficReset,
     super.key,
   });
 
@@ -294,6 +297,11 @@ class SystemPage extends StatelessWidget {
   /// A tile with a destination was tapped; its key under `sys`.
   final ValueChanged<String> onTile;
   final ValueChanged<String> onMeasure;
+
+  /// The traffic trend's window (µs), `Follow now` and `Reset zoom`.
+  final void Function(int start, int end)? onTrafficWindow;
+  final VoidCallback? onTrafficFollow;
+  final VoidCallback? onTrafficReset;
   final VoidCallback? onBanner;
   final VoidCallback? onGuide;
   final ValueChanged<String> onSource;
@@ -488,7 +496,13 @@ class SystemPage extends StatelessWidget {
               SysTileGrid(tiles: g.tiles, onTile: onTile),
             ],
           ),
-        TrafficCard(vm: overview.traffic, onMeasure: onMeasure),
+        TrafficCard(
+          vm: overview.traffic,
+          onMeasure: onMeasure,
+          onWindow: onTrafficWindow,
+          onFollow: onTrafficFollow,
+          onReset: onTrafficReset,
+        ),
       ],
     );
   }

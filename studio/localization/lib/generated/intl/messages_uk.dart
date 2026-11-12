@@ -526,38 +526,70 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m223(site) => "Дерево · ${site}";
 
-  static String m224(unit) => "адреса ${unit}";
+  static String m224(step) => "середнє за ${step}";
 
-  static String m225(d) => "працює ${d}";
+  static String m225(rollup, from, to) => "${rollup} · ${from}–${to}";
 
-  static String m226(v) => "Версія ${v} · розгорнута";
+  static String m226(at, delta, key, over) =>
+      "Δ від A (${at}): ${delta} ${key} за ${over}";
 
-  static String m227(site) => "через ${site}";
+  static String m227(what, range) =>
+      "${what}, ${range}. Виберіть діапазон вікном нижче.";
 
-  static String m228(delimiter, header) =>
+  static String m228(h, m) => "${h} год ${m} хв";
+
+  static String m229(key) => "Ви не можете читати ${key}";
+
+  static String m230(t) => "A · ${t}";
+
+  static String m231(min, max) => "мін ${min} · макс ${max}";
+
+  static String m232(m) => "${m} хв";
+
+  static String m233(t) => "сирі · ${t}";
+
+  static String m234(s) => "${s} с";
+
+  static String m235(name) => "Показати або сховати ${name}";
+
+  static String m236(n) => "${n} д";
+
+  static String m237(n) => "${n} год";
+
+  static String m238(n) => "${n} хв";
+
+  static String m239(unit) => "адреса ${unit}";
+
+  static String m240(d) => "працює ${d}";
+
+  static String m241(v) => "Версія ${v} · розгорнута";
+
+  static String m242(site) => "через ${site}";
+
+  static String m243(delimiter, header) =>
       "Так, як його читає блок: роздільник ${delimiter}, ${header}";
 
-  static String m229(keys) => "${keys} зберігає · Esc скасовує";
+  static String m244(keys) => "${keys} зберігає · Esc скасовує";
 
-  static String m230(keys) => "${keys} зберігає · Esc відкидає зміни";
+  static String m245(keys) => "${keys} зберігає · Esc відкидає зміни";
 
-  static String m231(n, who) => "${n} чекають на допуск: ${who}";
+  static String m246(n, who) => "${n} чекають на допуск: ${who}";
 
-  static String m232(value) => "було ${value}";
+  static String m247(value) => "було ${value}";
 
-  static String m233(n) => "Групи спостереження · ${n}";
+  static String m248(n) => "Групи спостереження · ${n}";
 
-  static String m234(user) => "Вітаємо, ${user}";
+  static String m249(user) => "Вітаємо, ${user}";
 
-  static String m235(value) => "запустив би на ${value}";
+  static String m250(value) => "запустив би на ${value}";
 
-  static String m236(value) => "надіслав би ${value}";
+  static String m251(value) => "надіслав би ${value}";
 
-  static String m237(value) => "записав би ${value}";
+  static String m252(value) => "записав би ${value}";
 
-  static String m238(level) => "Щоб увімкнути, потрібен рівень ${level}";
+  static String m253(level) => "Щоб увімкнути, потрібен рівень ${level}";
 
-  static String m239(site) => "wyrmd на ${site}";
+  static String m254(site) => "wyrmd на ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2486,10 +2518,64 @@ class MessageLookup extends MessageLookupByLibrary {
     "treePointNote2": MessageLookupByLibrary.simpleMessage(
       "на полотні: блок, що її читає (записувана точка питає «Читати» чи «Писати»; Alt пише). На полі: прив\'язується до нього.",
     ),
+    "trendAll": MessageLookupByLibrary.simpleMessage("усе"),
+    "trendAllHidden": MessageLookupByLibrary.simpleMessage("Усі ряди сховано."),
+    "trendAvg": m224,
+    "trendBadRecorded": MessageLookupByLibrary.simpleMessage(
+      "записано погану якість",
+    ),
+    "trendBucket": m225,
+    "trendClearMarker": MessageLookupByLibrary.simpleMessage(
+      "Клацніть A ще раз, щоб прибрати її",
+    ),
+    "trendDelta": m226,
+    "trendDescribe": m227,
+    "trendFollowNow": MessageLookupByLibrary.simpleMessage("До поточного часу"),
+    "trendHint": MessageLookupByLibrary.simpleMessage(
+      "Наведіть для значень · тягніть по графіку, щоб наблизити · клацніть, щоб поставити мітку A · тягніть або змінюйте вікно внизу · подвійне клацання скидає · ← → рухають вибрану ручку",
+    ),
+    "trendHoursMinutes": m228,
+    "trendLocked": m229,
+    "trendMarker": m230,
+    "trendMinMax": m231,
+    "trendMinutes": m232,
+    "trendMonths": MessageLookupByLibrary.simpleMessage(
+      "січ,лют,бер,кві,тра,чер,лип,сер,вер,жов,лис,гру",
+    ),
+    "trendMoveWindow": MessageLookupByLibrary.simpleMessage(
+      "Тягніть, щоб посунути вікно",
+    ),
+    "trendNoData": MessageLookupByLibrary.simpleMessage("немає даних"),
+    "trendNoDataRecorded": MessageLookupByLibrary.simpleMessage(
+      "даних не записано",
+    ),
+    "trendNothing": MessageLookupByLibrary.simpleMessage(
+      "У цьому діапазоні немає записаних значень.",
+    ),
+    "trendNow": MessageLookupByLibrary.simpleMessage("зараз"),
+    "trendRaw": MessageLookupByLibrary.simpleMessage("сирі"),
+    "trendRawAt": m233,
+    "trendResetZoom": MessageLookupByLibrary.simpleMessage("Скинути масштаб"),
+    "trendSeconds": m234,
+    "trendSetMarker": MessageLookupByLibrary.simpleMessage(
+      "Клацніть, щоб поставити мітку A",
+    ),
+    "trendShowHide": m235,
+    "trendStepDays": m236,
+    "trendStepHours": m237,
+    "trendStepMinutes": m238,
+    "trendUncertain": MessageLookupByLibrary.simpleMessage(
+      "uncertain · застарілі читання в цьому інтервалі",
+    ),
+    "trendWeekdays": MessageLookupByLibrary.simpleMessage(
+      "Пн,Вт,Ср,Чт,Пт,Сб,Нд",
+    ),
+    "trendWindowEnd": MessageLookupByLibrary.simpleMessage("Кінець вікна"),
+    "trendWindowStart": MessageLookupByLibrary.simpleMessage("Початок вікна"),
     "tryAgain": MessageLookupByLibrary.simpleMessage("Спробувати ще"),
     "turnOn": MessageLookupByLibrary.simpleMessage("Увімкнути"),
     "unbind": MessageLookupByLibrary.simpleMessage("Розв’язати"),
-    "unitNumber": m224,
+    "unitNumber": m239,
     "unpinField": MessageLookupByLibrary.simpleMessage("Відкріпити від блока"),
     "unreachableAdvice": MessageLookupByLibrary.simpleMessage(
       "Брокер, можливо, перезапускається, або цей комп’ютер в іншій мережі.",
@@ -2497,7 +2583,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "Точка більше не записується; рядки лишаються.",
     ),
-    "upFor": m225,
+    "upFor": m240,
     "updating": MessageLookupByLibrary.simpleMessage("Оновлення…"),
     "upstream": MessageLookupByLibrary.simpleMessage("вище"),
     "upstreamBroker": MessageLookupByLibrary.simpleMessage("Верхній брокер"),
@@ -2514,8 +2600,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "перегляд чернетки; нічого не записано",
     ),
-    "versionDeployed": m226,
-    "viaSite": m227,
+    "versionDeployed": m241,
+    "viaSite": m242,
     "viewValue": MessageLookupByLibrary.simpleMessage("Переглянути значення"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true або false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -2533,7 +2619,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerCsvRefused": MessageLookupByLibrary.simpleMessage(
       "Блок відмовляє цьому тексту (parse_error): у ньому немає рядка, або він перевищує межу таблиці.",
     ),
-    "viewerCsvRules": m228,
+    "viewerCsvRules": m243,
     "viewerCsvWired": MessageLookupByLibrary.simpleMessage(
       "Роздільник або заголовок надходить дротом: таблиця бере їхні поточні значення.",
     ),
@@ -2555,19 +2641,19 @@ class MessageLookup extends MessageLookupByLibrary {
       "Лише читання: цей вихід обчислює блок.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Зберегти"),
-    "viewerSaveHint": m229,
+    "viewerSaveHint": m244,
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("Як таблиця"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Текст"),
-    "viewerTableHint": m230,
+    "viewerTableHint": m245,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Чекає в карантині",
     ),
-    "waitingToBeLetIn": m231,
-    "wasValue": m232,
+    "waitingToBeLetIn": m246,
+    "wasValue": m247,
     "wasWord": MessageLookupByLibrary.simpleMessage("було"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Група спостереження"),
-    "watchGroups": m233,
-    "welcomeUser": m234,
+    "watchGroups": m248,
+    "welcomeUser": m249,
     "whatItRead": MessageLookupByLibrary.simpleMessage("Що прочитано"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Приносьте власний пакет лише тоді, коли його немає в офіційному списку. Zip, URL або Git-репозиторій зі зібраним пакетом, або один компонент.",
@@ -2603,10 +2689,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Задається типом даних: суфіксом _wswap, _bswap або _wbswap.",
     ),
-    "wouldRun": m235,
-    "wouldSend": m236,
-    "wouldWrite": m237,
-    "writableNeeds": m238,
+    "wouldRun": m250,
+    "wouldSend": m251,
+    "wouldWrite": m252,
+    "writableNeeds": m253,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "Неправильний користувач або пароль. Попросіть адміністратора скинути пароль; gateway ніколи не надсилає його поштою.",
     ),
@@ -2618,7 +2704,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Лінки"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Сайти"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("Система"),
-    "wyrmdOn": m239,
+    "wyrmdOn": m254,
     "yes": MessageLookupByLibrary.simpleMessage("так"),
     "youTag": MessageLookupByLibrary.simpleMessage("ВИ"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Ваші відповіді"),

@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
+import 'package:models/hist_window.dart';
 import 'package:models/live_set.dart';
 import 'package:models/watch_group.dart';
 
@@ -16,5 +18,12 @@ abstract class HistorianState with _$HistorianState {
     @Default(IMapConst({})) IMap<String, String> stats,
     @Default(IListConst([])) IList<String> points,
     LiveSet? follow,
+    HistWindow? window,
+    HistDetail? detail,
+    @Default(IMapConst({})) IMap<String, IList<HistPoint>> low,
+    @Default(IMapConst({})) IMap<String, IList<HistPoint>> high,
+    @Default(ISetConst({})) ISet<String> hidden,
+    @Default(0) int trendGen,
+    DateTime? seriesAt,
   }) = _HistorianState;
 }

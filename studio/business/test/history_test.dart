@@ -27,9 +27,16 @@ void main() {
   const c = 'wy/central/downstream/m/c';
   const d = 'wy/central/downstream/m/d';
 
+  // The reads of the line, not the buckets' min and max that follow.
   List<String> historyReads() => [
     for (final x in api.calls)
-      if (x.op == 'history') x.key,
+      if (x.op == 'history' &&
+          switch (x.args) {
+            VMap(:final v) =>
+              v['agg'] != const VStr('min') && v['agg'] != const VStr('max'),
+            _ => true,
+          })
+        x.key,
   ];
 
   setUp(() async {
