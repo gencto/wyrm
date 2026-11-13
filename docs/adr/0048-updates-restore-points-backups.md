@@ -116,6 +116,13 @@ Guide: `docs/backups.md`. Code: `wyrm_admin::backup` (format), `wyrm_admin::cont
 11. **Limits.** `backups.max_mb` defaults to 2048; the newest backup and a pinned one are never pruned; a failed job is forgotten after a day; a job needs about twice its estimate free on the disk of `data_dir`.
 12. **Audit.** `backup_create`, `link_backup` (one record at the start, one more if it fails), `backup_download` (once per download, at offset 0), `backup_remove`, `restore_point`, `link_restore`. The admin writes its own journal (no hash of the arguments), so the passphrase is in no record.
 
+## Decided after the review of PR 72 (2026-11-13)
+
+1. **A rollback applies the restore points its update took.** The update stores `(link, point id)` of each point in the kept version's record (`PreviousDef.points`), and reads the time of the update after the last point. A rollback applies exactly those points. A link without one gets none, never an older point. A record without names (made by the first build) keeps the old rule: the newest point at or before `replaced`.
+2. **One operation on a package or a link at a time (§1.9).** An update (to the end of its health check), a rollback, an install, a package removal and a restore of a link take the package from their first step (`Control::claim_package`); a restore of a link also takes the link (`claim_link`). The claim is given back when its holder ends, whatever way. While a claim is held, `start`, `stop`, `remove`, `update` and `rollback` of the link, a backup that copies its data, and a restore with `mode: replace` answer `busy`. While a backup copies a link's data, or a `replace` is staged, no claim is given. Each side shows itself first and then looks, so one of the two always sees the other.
+3. **A rollback is recorded before it changes anything.** `data_dir/restore/.rollback/<package>.cbor` names the version, the kept record and each link's point. A broker that ends in the middle finishes it at its next start, before any link runs (`Control::complete_rollbacks`); every step may run again.
+4. **A link whose data did not come back is held.** When the update changed the store format and a link's restore point does not apply, the link is not started: `data_dir/links/<id>/hold` holds the reason, `start` answers it, `last_update.reason` and the audit name the link. A start of the broker skips a held link. A restore of the link's data lifts the hold; `start {force: true}` lifts it by hand. Without a change of the store format the data stays and the link starts, as before.
+
 ## Not decided here
 
 - Scheduled backups (a scheduler target can call `sys/backups/~act/create` once this exists; ADR 0022).

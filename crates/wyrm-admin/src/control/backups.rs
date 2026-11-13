@@ -181,6 +181,9 @@ pub struct Job {
 pub struct Backups {
     jobs: Mutex<BTreeMap<String, Job>>,
     running: AtomicBool,
+    /// The links whose private data the running job copies: no update,
+    /// rollback or restore changes such a link meanwhile (ADR 0048 §1.9).
+    copying: Mutex<BTreeSet<String>>,
     /// A backup is being sent to a file store (one at a time).
     sending: AtomicBool,
     /// Bumped on every change of a job: [`watch_backups`] publishes.
@@ -225,6 +228,7 @@ impl Backups {
         Self {
             jobs: Mutex::new(jobs),
             running: AtomicBool::new(false),
+            copying: Mutex::default(),
             sending: AtomicBool::new(false),
             changed: tokio::sync::watch::channel(0).0,
             uploads: Mutex::default(),
@@ -266,6 +270,31 @@ impl Backups {
             self.sending.store(false, Ordering::SeqCst);
             true
         }
+    }
+}
+
+/// The one running job: given back when it is dropped, whatever way the job
+/// ends (a panic too), and a job left `running` is then `failed`.
+struct RunningJob {
+    ctl: Arc<Control>,
+    id: Option<String>,
+}
+
+impl Drop for RunningJob {
+    fn drop(&mut self) {
+        let b = &self.ctl.backups;
+        b.copying.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        if let Some(id) = &self.id {
+            b.update(id, |j| {
+                if j.status == "running" {
+                    j.status = "failed".into();
+                    j.step.clear();
+                    j.error = "the backup stopped unexpectedly".into();
+                }
+            });
+        }
+        b.running.store(false, Ordering::SeqCst);
+        b.notify();
     }
 }
 
@@ -1255,6 +1284,21 @@ impl Control {
         Some(job)
     }
 
+    /// The `busy` of an operation that would change one of `links` while
+    /// the running backup copies its private data.
+    pub(super) fn backup_copies(&self, links: &[String]) -> Option<LinkError> {
+        let copying = self
+            .backups
+            .copying
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let l = links.iter().find(|l| copying.contains(*l))?;
+        Some(LinkError::new(
+            Status::Busy,
+            format!("a backup is copying the data of link {l}; try again when it is made"),
+        ))
+    }
+
     /// Start the job of `req`; `Err(busy)` while another runs. The id of
     /// the new job is returned at once.
     pub fn backup_start(
@@ -1312,6 +1356,30 @@ impl Control {
                 "a backup is being made; one at a time",
             ));
         }
+        let mut running = RunningJob {
+            ctl: self.clone(),
+            id: None,
+        };
+        // The links whose private data this job copies: shown first, then
+        // looked, so either this job sees an operation on one of them or
+        // the operation sees this job.
+        let has_section = |s: &str| chosen.iter().any(|c| c == s);
+        let copies: BTreeSet<String> = match req.kind {
+            Kind::Link if has_section("data") => req.link.iter().cloned().collect(),
+            Kind::Broker if has_section("links") => match &req.links {
+                Some(l) => l.iter().cloned().collect(),
+                None => self.registry().links.keys().cloned().collect(),
+            },
+            _ => BTreeSet::new(),
+        };
+        *self
+            .backups
+            .copying
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = copies.clone();
+        if let Some(e) = copies.iter().find_map(|l| self.link_busy(l)) {
+            return Err(e);
+        }
         let now = now_s();
         let (id, file) = {
             let mut jobs = self.backups.lock();
@@ -1358,6 +1426,7 @@ impl Control {
             );
             (id, file)
         };
+        running.id = Some(id.clone());
         self.backups.notify();
         let (op, key) = match &req.link {
             Some(l) => ("link_backup", l.clone()),
@@ -1430,7 +1499,7 @@ impl Control {
                     });
                 }
             }
-            ctl.backups.running.store(false, Ordering::SeqCst);
+            drop(running);
             ctl.prune_backups();
             ctl.backups.notify();
         };

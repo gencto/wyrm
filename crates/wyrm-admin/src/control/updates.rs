@@ -577,12 +577,53 @@ impl Control {
             ctl: self.clone(),
             name: name.to_owned(),
         };
-        // claimed first, then looked: a backup that starts now sees the claim
+        // claimed first, then looked: a backup or a restore that starts now
+        // sees the claim
         let links: Vec<String> = links_of(self, name).into_iter().map(|l| l.id).collect();
-        match self.backup_copies(&links) {
+        match self.replace_runs().or_else(|| self.backup_copies(&links)) {
             Some(e) => Err(e),
             None => Ok(claim),
         }
+    }
+
+    /// The `busy` of an operation while a restore with `mode: replace` is
+    /// staged.
+    fn replace_runs(&self) -> Option<LinkError> {
+        self.replacing
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .then(|| {
+                LinkError::new(
+                    Status::Busy,
+                    "a restore is replacing this broker's state; try again after its restart",
+                )
+            })
+    }
+
+    /// Take the broker for a restore with `mode: replace`: `busy` while an
+    /// operation holds a package or a link, or another replace is staged.
+    /// `false` gives it back (the restore was refused).
+    pub(super) fn replacing(&self, on: bool) -> Result<(), LinkError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if !on {
+            self.replacing.store(false, SeqCst);
+            return Ok(());
+        }
+        if self.replacing.swap(true, SeqCst) {
+            return Err(LinkError::new(
+                Status::Busy,
+                "a restore is being staged; one at a time",
+            ));
+        }
+        // flagged first, then looked: a claim that starts now sees the flag
+        if self.any_claim() {
+            self.replacing.store(false, SeqCst);
+            return Err(LinkError::new(
+                Status::Busy,
+                "a package or a link is being installed, updated, rolled back or restored; \
+                 try again when it ends",
+            ));
+        }
+        Ok(())
     }
 
     /// Take link `id` for a restore that replaces it; `busy` while another
@@ -603,14 +644,17 @@ impl Control {
             ctl: self.clone(),
             id: id.to_owned(),
         };
-        match self.backup_copies(&[id.to_owned()]) {
+        match self
+            .replace_runs()
+            .or_else(|| self.backup_copies(&[id.to_owned()]))
+        {
             Some(e) => Err(e),
             None => Ok(claim),
         }
     }
 
     /// Is any package or link held by an operation now?
-    pub(super) fn any_claim(&self) -> bool {
+    fn any_claim(&self) -> bool {
         !self
             .updating
             .lock()
@@ -757,6 +801,16 @@ impl Control {
                         .push(format!("{id}: {e}; the link is held, not started"));
                 }
                 Err(e) => out.problems.push(format!("{id}: {e}, its data stays")),
+            }
+        }
+        if !out.problems.is_empty() {
+            // what did not come back is said where people look
+            let mut told = p.to.clone();
+            if let Some(r) = told.last_update.as_mut() {
+                r.reason = format!("{}; {}", r.reason, out.problems.join("; "));
+            }
+            if let Err(e) = self.apply(Op::PutPackage(told)) {
+                warn!(package = %p.name, "last_update: {e}");
             }
         }
         if p.from != p.to.version {
@@ -982,7 +1036,7 @@ pub(super) struct UpdatePlan {
     left: Duration,
     /// The package is this update's until the check ends, also while the
     /// check waits for a rebuild of the router.
-    claim: PackageClaim,
+    _claim: PackageClaim,
 }
 
 impl UpdatePlan {
@@ -1457,7 +1511,7 @@ impl Admin {
             hot,
             sub: sub.to_owned(),
             left: Duration::ZERO,
-            claim,
+            _claim: claim,
         };
         plan.left = Duration::from_secs(plan.wait_s().into());
         let worker = self.worker();
@@ -1558,7 +1612,7 @@ impl Admin {
                 self.finish(&name, report, &plan.sub).await;
             }
         }
-        // the package is free again: `plan.claim` goes with the plan
+        // the package is free again: its claim goes with the plan
         drop(plan);
     }
 
@@ -2065,6 +2119,213 @@ mod tests {
         assert_eq!((now.version, now.last_update), (p.version, p.last_update));
         // 7 days by default, within 1 to 365
         assert_eq!(ctl.keep_previous_s(), 7 * 86_400);
+    }
+
+    fn link(ctl: &Control, id: &str) {
+        ctl.apply(Op::Install(LinkDef {
+            id: id.into(),
+            driver: "pkg:pkg".into(),
+            mode: crate::registry::Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+    }
+
+    /// Review of PR 72, item 1: the restore points of an update are taken
+    /// while its links still run, which takes time, so a point is later
+    /// than any time read before it. A rollback applies the points the
+    /// update names, whatever their second.
+    #[test]
+    fn a_rollback_finds_the_points_of_its_update_across_a_second() {
+        let d = std::env::temp_dir().join(format!("wyrm-upd-points-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let mk = |link: &str, version: &str, at: u64| {
+            restore::make(&d, link, "pkg", version, None, at, |path| {
+                std::fs::write(path, b"x").map_err(|e| e.to_string())?;
+                Ok((1, 0))
+            })
+            .unwrap()
+        };
+        // an older point of the same version, then the update's own, taken
+        // 2 s and 40 s after the update began (a slow link)
+        let old = mk("l1", "1.0.0", 900);
+        let a = mk("l1", "1.0.0", 1_002);
+        let b = mk("l2", "1.0.0", 1_040);
+        let mut prev = PreviousDef {
+            def: package("1.0.0"),
+            keep_until: u64::MAX,
+            // what the first build stored: the time before the points
+            replaced: 1_000,
+            changes_state: true,
+            points: vec![("l1".into(), a.id.clone()), ("l2".into(), b.id.clone())],
+        };
+        assert_eq!(point_for(&d, "l1", "pkg", &prev).unwrap().id, a.id);
+        assert_eq!(point_for(&d, "l2", "pkg", &prev).unwrap().id, b.id);
+        // a link the update took no point of gets none (never an older one)
+        mk("l3", "1.0.0", 500);
+        assert!(point_for(&d, "l3", "pkg", &prev).is_none());
+        // a named point that is gone is not replaced by another
+        std::fs::remove_file(d.join(format!("l1/{}.wyrm-link", a.id))).unwrap();
+        assert!(point_for(&d, "l1", "pkg", &prev).is_none());
+        // a record of the first build (no names): the newest at or before
+        // `replaced`, as it was
+        prev.points.clear();
+        assert_eq!(point_for(&d, "l1", "pkg", &prev).unwrap().id, old.id);
+        assert!(point_for(&d, "l2", "pkg", &prev).is_none());
+    }
+
+    /// Review of PR 72, item 2: one operation on a package or a link at a
+    /// time, from its first step; a claim goes with its holder.
+    #[test]
+    fn one_operation_on_a_package_or_a_link_at_a_time() {
+        let ctl = super::super::tests::control("upd-claims", false, |_| {});
+        updated(&ctl, u64::MAX);
+        link(&ctl, "l1");
+        let claim = ctl.claim_package("pkg").unwrap();
+        // a second update, an install, a rollback, a removal
+        let e = ctl.claim_package("pkg").err().unwrap();
+        assert_eq!(e.status, Status::Busy);
+        assert!(e.message.contains("try again"), "{}", e.message);
+        assert!(ctl.not_updating("pkg").is_err());
+        // its links are not stopped, started, removed or backed up
+        assert_eq!(ctl.link_busy("l1").unwrap().status, Status::Busy);
+        // rollback stops only a check, not the first steps of an update
+        assert!(!ctl.request_update_stop("pkg", "user:a"));
+        claim.checking();
+        assert!(ctl.request_update_stop("pkg", "user:a"));
+        assert_eq!(ctl.update_stop_requested("pkg").as_deref(), Some("user:a"));
+        // another package is free
+        drop(ctl.claim_package("other").unwrap());
+        // a restore that replaces the broker's state waits for it
+        assert_eq!(ctl.replacing(true).unwrap_err().status, Status::Busy);
+        drop(claim);
+        assert!(ctl.not_updating("pkg").is_ok() && ctl.link_busy("l1").is_none());
+
+        // a restore of a link
+        let l = ctl.claim_link("l1").unwrap();
+        assert_eq!(ctl.claim_link("l1").err().unwrap().status, Status::Busy);
+        assert_eq!(ctl.link_busy("l1").unwrap().status, Status::Busy);
+        drop(l);
+        assert!(ctl.link_busy("l1").is_none());
+
+        // while a replace is staged nothing is taken
+        ctl.replacing(true).unwrap();
+        assert_eq!(ctl.replacing(true).unwrap_err().status, Status::Busy);
+        assert_eq!(ctl.claim_package("pkg").err().unwrap().status, Status::Busy);
+        assert_eq!(ctl.claim_link("l1").err().unwrap().status, Status::Busy);
+        assert!(!ctl.any_claim(), "a refused claim leaves nothing");
+        ctl.replacing(false).unwrap();
+        drop(ctl.claim_package("pkg").unwrap());
+    }
+
+    /// Review of PR 72, item 4: a rollback is recorded before it changes
+    /// anything, and a broker that ended in the middle finishes it at its
+    /// next start, from whichever step it reached.
+    #[test]
+    fn an_interrupted_rollback_is_finished_at_the_next_start() {
+        let ctl = super::super::tests::control("upd-pending", false, |_| {});
+        let new = updated(&ctl, u64::MAX);
+        link(&ctl, "l1");
+        let data = ctl.cfg.data_dir.join("links/l1/data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("store"), b"format-1").unwrap();
+        let point = ctl.restore_point_now("l1", "pkg", "1.0.0", None).unwrap();
+        let mut back = new.previous.clone().unwrap().def;
+        back.last_update = Some(UpdateReport {
+            from: "1.0.0".into(),
+            to: "1.1.0".into(),
+            result: UPDATE_ROLLED_BACK.into(),
+            reason: "test".into(),
+            ..UpdateReport::default()
+        });
+        let pending = |point: &str| PendingRollback {
+            name: "pkg".into(),
+            from: "1.1.0".into(),
+            to: back.clone(),
+            points: vec![("l1".into(), Some(point.to_owned()))],
+            changes_state: true,
+            sub: "user:a".into(),
+            reason: "test".into(),
+        };
+        let rollbacks = |ctl: &Control| {
+            ctl.audit_tail(20)
+                .into_iter()
+                .filter(|a| a.op == "update_rollback")
+                .collect::<Vec<_>>()
+        };
+
+        // 1. ended right after the record: nothing was changed yet
+        std::fs::write(data.join("store"), b"format-2").unwrap();
+        ctl.write_rollback(&pending(&point.id)).unwrap();
+        ctl.complete_rollbacks();
+        let p = ctl.registry().packages["pkg"].clone();
+        assert_eq!(p.version, "1.0.0");
+        assert!(p.previous.is_none());
+        assert_eq!(p.last_update.unwrap().result, UPDATE_ROLLED_BACK);
+        assert_eq!(std::fs::read(data.join("store")).unwrap(), b"format-1");
+        assert!(!ctl.packages_root().join("pkg/1.1.0").exists());
+        assert!(ctl.pending_rollbacks().is_empty() && !ctl.rollback_dir().exists());
+        let audit = rollbacks(&ctl);
+        assert_eq!(audit.len(), 1);
+        assert!(audit[0].detail.contains("finished at the start"));
+        assert!(audit[0].detail.contains(&point.id), "{}", audit[0].detail);
+        // nothing is left to do: a second start changes nothing
+        ctl.complete_rollbacks();
+        assert_eq!(rollbacks(&ctl).len(), 1);
+
+        // 2. ended between the registry and the data: the registry names
+        // the old version already, the data is still the new format's
+        std::fs::write(data.join("store"), b"format-2").unwrap();
+        ctl.write_rollback(&pending(&point.id)).unwrap();
+        ctl.complete_rollbacks();
+        assert_eq!(std::fs::read(data.join("store")).unwrap(), b"format-1");
+        assert!(ctl.link_hold("l1").is_none());
+
+        // 3. the data does not come back and the format changed: the link
+        // is held, never started on data it cannot read, and it is said
+        std::fs::write(data.join("store"), b"format-2").unwrap();
+        ctl.write_rollback(&pending("19700101T000000Z")).unwrap();
+        ctl.complete_rollbacks();
+        let why = ctl.link_hold("l1").expect("held");
+        assert!(
+            why.contains("did not restore") && why.contains("force"),
+            "{why}"
+        );
+        assert_eq!(std::fs::read(data.join("store")).unwrap(), b"format-2");
+        let p = ctl.registry().packages["pkg"].clone();
+        let reason = p.last_update.unwrap().reason;
+        assert!(reason.contains("l1") && reason.contains("held"), "{reason}");
+        let last = rollbacks(&ctl).pop().unwrap();
+        assert_eq!(last.status, Status::InternalError.code());
+        // without a change of the format the data stays and the link runs
+        let mut soft = pending("19700101T000000Z");
+        soft.changes_state = false;
+        assert!(ctl.release_hold("l1") && ctl.link_hold("l1").is_none());
+        ctl.write_rollback(&soft).unwrap();
+        ctl.complete_rollbacks();
+        assert!(ctl.link_hold("l1").is_none());
+        // a restore of the data lifts a hold
+        ctl.hold_link("l1", "held");
+        ctl.write_rollback(&pending(&point.id)).unwrap();
+        ctl.complete_rollbacks();
+        assert!(ctl.link_hold("l1").is_none());
+
+        // a record of a package that moved on is dropped, nothing changes
+        let mut other = package("2.0.0");
+        other.last_update = None;
+        ctl.apply(Op::PutPackage(other)).unwrap();
+        ctl.write_rollback(&pending(&point.id)).unwrap();
+        ctl.complete_rollbacks();
+        assert_eq!(ctl.registry().packages["pkg"].version, "2.0.0");
+        assert!(ctl.pending_rollbacks().is_empty());
     }
 
     /// What the new version asks for and a link lacks.

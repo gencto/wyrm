@@ -606,6 +606,14 @@ impl Admin {
     ) -> Result<String, String> {
         let ctl = &self.ctl;
         crate::registry::validate_link_id(&id)?;
+        // The link and its package are this restore's from here to its end
+        // (ADR 0048 §1.9): no update, rollback, backup or other restore of
+        // them runs meanwhile.
+        let _link = ctl.claim_link(&id).map_err(|e| e.message)?;
+        let _package = match r.def.driver.strip_prefix(packages::DRIVER_PREFIX) {
+            Some(name) => Some(ctl.claim_package(name).map_err(|e| e.message)?),
+            None => None,
+        };
         let existing = ctl.registry().links.get(&id).cloned();
         if existing.is_none() {
             // a new link: the ids a broker keeps for itself are refused

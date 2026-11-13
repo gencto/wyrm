@@ -986,9 +986,12 @@ impl Admin {
             })?;
         }
         let _busy = ctl.busy().map_err(|e| e.message)?;
+        // nothing else changes a package or a link while this is staged
+        // (ADR 0048 §1.9); the flag stays until the broker stops
+        ctl.replacing(true).map_err(|e| e.message)?;
         let (ctl2, path2, sub2, chosen2) =
             (ctl.clone(), path.to_owned(), sub.to_owned(), chosen.clone());
-        let plan = tokio::task::spawn_blocking(move || -> Result<Plan, String> {
+        let staged = tokio::task::spawn_blocking(move || -> Result<Plan, String> {
             let ctl = ctl2;
             let has = |s: &str| chosen2.iter().any(|x| x == s);
             let pass = passphrase.as_deref().map(|p| &p[..]);
@@ -1061,7 +1064,15 @@ impl Admin {
             ctl.stage_replace(&mut r, &c, &chosen2, accept, &sub2)
         })
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+        let plan = match staged {
+            Ok(plan) => plan,
+            Err(e) => {
+                let _ = ctl.replacing(false);
+                return Err(e);
+            }
+        };
         ctl.record(
             sub,
             "restore_apply",
