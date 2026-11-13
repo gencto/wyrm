@@ -392,6 +392,76 @@ as String?,
 /// @nodoc
 
 
+class InstallSourceBackup implements InstallSource {
+  const InstallSourceBackup({required this.bytes, required this.fileName});
+  
+
+ final  Uint8List bytes;
+ final  String fileName;
+
+/// Create a copy of InstallSource
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$InstallSourceBackupCopyWith<InstallSourceBackup> get copyWith => _$InstallSourceBackupCopyWithImpl<InstallSourceBackup>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceBackup&&const DeepCollectionEquality().equals(other.bytes, bytes)&&(identical(other.fileName, fileName) || other.fileName == fileName));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(bytes),fileName);
+}
+
+@override
+String toString() {
+    return 'InstallSource.backup(bytes: $bytes, fileName: $fileName)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $InstallSourceBackupCopyWith<$Res> implements $InstallSourceCopyWith<$Res> {
+  factory $InstallSourceBackupCopyWith(InstallSourceBackup value, $Res Function(InstallSourceBackup) _then) = _$InstallSourceBackupCopyWithImpl;
+@useResult
+$Res call({
+ Uint8List bytes, String fileName
+});
+
+
+
+
+}
+/// @nodoc
+class _$InstallSourceBackupCopyWithImpl<$Res>
+    implements $InstallSourceBackupCopyWith<$Res> {
+  _$InstallSourceBackupCopyWithImpl(this._self, this._then);
+
+  final InstallSourceBackup _self;
+  final $Res Function(InstallSourceBackup) _then;
+
+/// Create a copy of InstallSource
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? bytes = null,Object? fileName = null,}) {
+  return _then(InstallSourceBackup(
+bytes: null == bytes ? _self.bytes : bytes // ignore: cast_nullable_to_non_nullable
+as Uint8List,fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
 class InstallSourceWasm implements InstallSource {
   const InstallSourceWasm({required this.bytes, required this.fileName});
   

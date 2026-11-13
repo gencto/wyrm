@@ -4,6 +4,7 @@ import 'package:models/agent_task.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
+import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_draft.dart';
@@ -33,7 +34,9 @@ import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/restore_check.dart';
 import 'package:models/role_grant.dart';
+import 'package:models/send_link.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/standby_state.dart';
@@ -53,6 +56,8 @@ import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
 import 'assistant/actions/retrieve_agent_action.dart';
+import 'backups/actions/retrieve_backups_action.dart';
+import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
@@ -122,6 +127,8 @@ mixin Selectors {
   SelectWindow get window => SelectWindow(state);
   SelectProblems get problems => SelectProblems(state);
   SelectUpdates get updates => SelectUpdates(state);
+  SelectBackups get backups => SelectBackups(state);
+  SelectBrokerUpdate get brokerUpdate => SelectBrokerUpdate(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -695,6 +702,12 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns refusedSaid
   String? get refusedSaid => _state.linkInstall.refusedSaid;
+
+  /// Returns backupSize
+  int get backupSize => _state.linkInstall.backupSize;
+
+  /// Returns uploaded
+  int get uploaded => _state.linkInstall.uploaded;
 }
 
 extension type SelectPeers(AppState _state) {
@@ -1154,4 +1167,110 @@ extension type SelectUpdates(AppState _state) {
   /// Returns isRollingBack
   bool get isRollingBack =>
       _state.wait.isWaitingForType<RollbackPackageAction>();
+}
+
+extension type SelectBackups(AppState _state) {
+  /// Returns table
+  IMap<String, BackupJob> get table => _state.backups.table;
+
+  /// Returns view
+  IList<String> get view => _state.backups.view;
+
+  /// Returns exportSecrets
+  bool get exportSecrets => _state.backups.exportSecrets;
+
+  /// Returns sendLinks
+  IList<SendLink> get sendLinks => _state.backups.sendLinks;
+
+  /// Returns sections
+  IList<String> get sections => _state.backups.sections;
+
+  /// Returns keepDays
+  int get keepDays => _state.backups.keepDays;
+
+  /// Returns stage
+  String? get stage => _state.backups.stage;
+
+  /// Returns link
+  String? get link => _state.backups.link;
+
+  /// Returns chosen
+  ISet<String> get chosen => _state.backups.chosen;
+
+  /// Returns historyDays
+  int? get historyDays => _state.backups.historyDays;
+
+  /// Returns offLinks
+  ISet<String> get offLinks => _state.backups.offLinks;
+
+  /// Returns where
+  String get where => _state.backups.where;
+
+  /// Returns sendLink
+  String? get sendLink => _state.backups.sendLink;
+
+  /// Returns sendConnection
+  String? get sendConnection => _state.backups.sendConnection;
+
+  /// Returns sendPath
+  String? get sendPath => _state.backups.sendPath;
+
+  /// Returns connections
+  IList<String> get connections => _state.backups.connections;
+
+  /// Returns estimate
+  IMap<String, int> get estimate => _state.backups.estimate;
+
+  /// Returns job
+  String? get job => _state.backups.job;
+
+  /// Returns downloading
+  String? get downloading => _state.backups.downloading;
+
+  /// Returns downloaded
+  int get downloaded => _state.backups.downloaded;
+
+  /// Returns savedTo
+  String? get savedTo => _state.backups.savedTo;
+
+  /// Returns upload
+  String? get upload => _state.backups.upload;
+
+  /// Returns uploadName
+  String? get uploadName => _state.backups.uploadName;
+
+  /// Returns uploadSize
+  int get uploadSize => _state.backups.uploadSize;
+
+  /// Returns uploaded
+  int get uploaded => _state.backups.uploaded;
+
+  /// Returns check
+  RestoreCheck? get check => _state.backups.check;
+
+  /// Returns mode
+  String get mode => _state.backups.mode;
+
+  /// Returns replaceKeys
+  bool get replaceKeys => _state.backups.replaceKeys;
+
+  /// Returns acceptRights
+  bool get acceptRights => _state.backups.acceptRights;
+
+  /// Returns result
+  String? get result => _state.backups.result;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<RetrieveBackupsAction>();
+}
+
+extension type SelectBrokerUpdate(AppState _state) {
+  /// Returns stage
+  String? get stage => _state.brokerUpdate.stage;
+
+  /// Returns confirm
+  String get confirm => _state.brokerUpdate.confirm;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<UpdateBrokerAction>();
 }

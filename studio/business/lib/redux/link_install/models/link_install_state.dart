@@ -31,5 +31,7 @@ abstract class LinkInstallState with _$LinkInstallState {
     @Default('zip') String method,
     String? refusedField,
     String? refusedSaid,
+    @Default(0) int backupSize,
+    @Default(0) int uploaded,
   }) = _LinkInstallState;
 }

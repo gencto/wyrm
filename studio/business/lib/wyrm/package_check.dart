@@ -265,6 +265,112 @@ PackageReport checkWasm(Uint8List bytes) => (
   rights: null,
 );
 
+/// What Studio reads of a link backup (`.wyrm-link`, ADR 0048 §3.1)
+/// before the broker checks all of it: the zip, its `manifest.json`, that
+/// it is a link backup, its link (id, driver, mode, package), how its
+/// secrets are sealed, and its sections. The grants and the network of the
+/// link are in a sealed part: the broker lists them when the install needs
+/// `accept`. `name` is the link's id, `kind` its mode.
+PackageReport checkBackup(Uint8List bytes) {
+  PackageReport stop(List<PackageCheck> checks) =>
+      (checks: checks, manifest: null, name: null, kind: null, rights: null);
+  if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
+    return stop([_bad('Archive', 'not a zip')]);
+  }
+  final Archive archive;
+  try {
+    archive = ZipDecoder().decodeBytes(bytes);
+  } on Object catch (e) {
+    return stop([_bad('Archive', '$e')]);
+  }
+  final checks = <PackageCheck>[
+    _ok('Archive', '${archive.files.length} entries'),
+  ];
+  final entry = archive.findFile('manifest.json');
+  if (entry == null) {
+    return stop([...checks, _bad('Manifest', 'no manifest.json')]);
+  }
+  final Map<String, Object?> m;
+  try {
+    m = jsonDecode(
+      utf8.decode(entry.content as List<int>),
+    ) as Map<String, Object?>;
+  } on Object catch (e) {
+    return stop([...checks, _bad('Manifest', '$e')]);
+  }
+  final link = m['link'];
+  if (m['kind'] != 'link' || link is! Map<String, Object?>) {
+    checks.add(
+      _bad(
+        'Kind',
+        'a backup of kind ${m['kind']}: Add a link takes a link backup '
+            '(.wyrm-link); a broker backup is restored in System',
+      ),
+    );
+    return stop(checks);
+  }
+  checks.add(
+    _ok(
+      'Link',
+      '${link['id']} · ${link['mode']} · ${link['driver']} · from '
+          '${m['site']} (wyrmd ${m['broker']}, ${m['created']})',
+    ),
+  );
+  final package = link['package'] as String? ?? '';
+  final sections = [
+    if (m['sections'] case final List<Object?> l)
+      for (final s in l)
+        if (s is Map<String, Object?>) s['name'] as String? ?? '',
+  ];
+  if (package.isNotEmpty) {
+    checks.add(
+      sections.contains('package')
+          ? _ok('Package', '$package ${link['version']}, in the file')
+          : _skip(
+              'Package',
+              '$package ${link['version']} is not in the file: the broker '
+                  'must have it installed',
+            ),
+    );
+  }
+  final how = switch (m['sealed']) {
+    final Map<String, Object?> s => s['how'] as String? ?? 'none',
+    _ => 'none',
+  };
+  checks
+    ..add(
+      switch (how) {
+        'passphrase' => _ok('Secrets', 'sealed with a passphrase'),
+        'broker' => _skip(
+          'Secrets',
+          'sealed for ${m['site']}: the file opens only on a broker with '
+              'the keys of that site',
+        ),
+        _ => _ok('Secrets', 'none in the file'),
+      },
+    )
+    ..add(_ok('Sections', sections.join(', ')))
+    ..add(
+      _skip(
+        'Definition, grants, package files',
+        'checked by the broker as a new link',
+      ),
+    );
+  return (
+    checks: checks,
+    manifest: const JsonEncoder.withIndent('  ').convert({
+      for (final k in ['wyrm_backup', 'kind', 'site', 'broker', 'created'])
+        k: m[k],
+      'sealed': how,
+      'link': link,
+      'sections': sections,
+    }),
+    name: link['id'] as String?,
+    kind: link['mode'] as String?,
+    rights: null,
+  );
+}
+
 /// A URL or a Git repository: fetched and checked by the broker only.
 PackageReport checkRemote(String what) => (
   checks: [

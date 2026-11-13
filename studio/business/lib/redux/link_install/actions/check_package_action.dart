@@ -23,11 +23,14 @@ class CheckPackageAction extends Action {
     final report = switch (source) {
       InstallSourceZip(:final bytes) => checkZip(bytes, host: host),
       InstallSourceWasm(:final bytes) => checkWasm(bytes),
+      InstallSourceBackup(:final bytes) => checkBackup(bytes),
       InstallSourceUrl(:final url) => checkRemote(url),
       InstallSourceGit(:final url) => checkRemote(url),
       _ => checkRemote('it'),
     };
     final fileName = switch (source) {
+      // A backup names its link; its file name says nothing.
+      InstallSourceBackup() => null,
       InstallSourceZip(:final fileName) ||
       InstallSourceWasm(:final fileName) => fileName.split('.').first,
       _ => null,
@@ -37,7 +40,12 @@ class CheckPackageAction extends Action {
       manifest: report.manifest,
       rights: report.rights,
       name: linkInstall.name ?? report.name ?? fileName,
-      mode: report.kind == 'wasm' ? LinkMode.wasm : LinkMode.process,
+      mode: switch (report.kind) {
+        'wasm' => LinkMode.wasm,
+        'embedded' when source is InstallSourceBackup => LinkMode.embedded,
+        'external' when source is InstallSourceBackup => LinkMode.external,
+        _ => LinkMode.process,
+      },
     );
   }
 }

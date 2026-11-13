@@ -1089,37 +1089,45 @@ class TaskSheet extends StatelessWidget {
                   textBaseline: .alphabetic,
                   spacing: 8,
                   children: [
-                    Flexible(
-                      child: Text(
-                        b.name,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: .w600,
-                          color: c.text1,
-                        ),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: .baseline,
+                        textBaseline: .alphabetic,
+                        spacing: 8,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              b.name,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: .w600,
+                                color: c.text1,
+                              ),
+                            ),
+                          ),
+                          if (b.tag case final t?)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: toneTint(c, b.tagTone),
+                                borderRadius: Radii.chip,
+                              ),
+                              child: Text(
+                                t,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: b.tagTone == .neutral
+                                      ? c.text3
+                                      : toneColor(c, b.tagTone),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    if (b.tag case final t?)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: toneTint(c, b.tagTone),
-                          borderRadius: Radii.chip,
-                        ),
-                        child: Text(
-                          t,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: b.tagTone == .neutral
-                                ? c.text3
-                                : toneColor(c, b.tagTone),
-                          ),
-                        ),
-                      ),
-                    const Spacer(),
                     if (b.size case final s?)
                       Text(s, style: mono(size: 12, color: c.text3)),
                   ],
@@ -1312,7 +1320,7 @@ class _Box extends StatelessWidget {
         borderRadius: const BorderRadius.all(Radius.circular(3)),
         border: on ? null : .all(color: c.line3),
       ),
-      child: on ? Icon(Icons.check, size: 13, color: c.onEmber) : null,
+      child: on ? AppIcon('ui_check', size: 12, color: c.onEmber) : null,
     );
   }
 }
@@ -1357,7 +1365,7 @@ class _Chip extends StatelessWidget {
                       border: on ? null : .all(color: c.line3),
                     ),
                     child: on
-                        ? Icon(Icons.check, size: 11, color: c.onEmber)
+                        ? AppIcon('ui_check', size: 10, color: c.onEmber)
                         : null,
                   ),
                 Text(
@@ -1443,7 +1451,10 @@ class _SheetInputState extends State<_SheetInput> {
               fillColor: widget.ground,
               hintText: f.hint,
               hintStyle: TextStyle(fontSize: 14, color: c.muted),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 11,
+              ),
               border: border(c.line2),
               enabledBorder: border(f.error == null ? c.line2 : c.bad),
               disabledBorder: border(c.line1),

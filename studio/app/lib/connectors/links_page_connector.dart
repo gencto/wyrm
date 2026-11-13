@@ -52,6 +52,7 @@ import 'package:ui/tables/row_table.dart';
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
 import '../common/update_sheets.dart';
+import '../dialogs/backup_dialogs.dart';
 import '../dialogs/link_dialogs.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -697,6 +698,18 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           ],
         ),
         ActionGroupVm(
+          label: S.current.groupBackup,
+          actions: [
+            row(
+              'backup',
+              'action_hist',
+              S.current.actBackUp,
+              S.current.actBackUpNote,
+              'backup',
+            ),
+          ],
+        ),
+        ActionGroupVm(
           label: S.current.groupRemove,
           actions: [
             row(
@@ -863,6 +876,8 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         await showLinkSecrets(context, '$_root/sys/links/$id');
       case 'grant' when id != null:
         await showLinkGrant(context, id, _root);
+      case 'backup' when id != null:
+        await showBackupDialog(context, link: id);
       case 'update' when id != null:
         if (_packageOf(links.table[id]!) case final name?) {
           dispatchSync(OpenUpdateAction(name));

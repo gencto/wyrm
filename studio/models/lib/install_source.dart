@@ -30,6 +30,13 @@ sealed class InstallSource with _$InstallSource {
   const factory InstallSource.git({required String url, String? ref}) =
       InstallSourceGit;
 
+  /// A link backup picked from disk (`.wyrm-link`, ADR 0048 §3.5):
+  /// uploaded in parts, then `install_backup {upload}`.
+  const factory InstallSource.backup({
+    required Uint8List bytes,
+    required String fileName,
+  }) = InstallSourceBackup;
+
   /// One WASM component: `install_wasm {wasm}`.
   const factory InstallSource.wasm({
     required Uint8List bytes,

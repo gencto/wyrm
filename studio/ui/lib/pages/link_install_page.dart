@@ -89,6 +89,9 @@ final class TargetPartVm extends Equatable {
     this.accept,
     this.rightsTitle,
     this.rightsNote,
+    this.secretLabel,
+    this.secretNote,
+    this.nameWarning,
   });
 
   final ChoiceCardVm? summary;
@@ -104,6 +107,15 @@ final class TargetPartVm extends Equatable {
   final String? rightsTitle;
   final String? rightsNote;
 
+  /// A passphrase field under the name (a link backup sealed with one);
+  /// what is typed goes to [LinkInstallPage.onSecret] and is not kept here.
+  final String? secretLabel;
+  final String? secretNote;
+
+  /// Said under the name in warn (a link of that id exists and is
+  /// replaced).
+  final String? nameWarning;
+
   @override
   List<Object?> get props => [
     summary,
@@ -116,6 +128,9 @@ final class TargetPartVm extends Equatable {
     accept,
     rightsTitle,
     rightsNote,
+    secretLabel,
+    secretNote,
+    nameWarning,
   ];
 }
 
@@ -215,6 +230,7 @@ class LinkInstallPage extends StatelessWidget {
     this.onNext,
     this.nextReason,
     this.nextIsInstall = false,
+    this.onSecret,
     this.window = const WindowBarVm(),
     super.key,
   });
@@ -247,6 +263,9 @@ class LinkInstallPage extends StatelessWidget {
   final VoidCallback? onNext;
   final String? nextReason;
   final bool nextIsInstall;
+
+  /// The passphrase of the target step, as it is typed.
+  final ValueChanged<String>? onSecret;
 
   /// The frameless window's side of the top bar (docs/studio.md §7.1).
   final WindowBarVm window;
@@ -561,6 +580,28 @@ class _Center extends StatelessWidget {
           ),
         ),
         Text(t.nameRule, style: TextStyle(fontSize: 12, color: c.text4)),
+        if (t.nameWarning case final w?) ...[
+          const SizedBox(height: 6),
+          Text(w, style: TextStyle(fontSize: 12, color: c.warn)),
+        ],
+        if (t.secretLabel case final label?) ...[
+          const SizedBox(height: 18),
+          Align(
+            alignment: .centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: ParamField(
+                vm: ParamFieldVm(
+                  id: 'passphrase',
+                  label: label,
+                  kind: .secret,
+                  description: t.secretNote,
+                  onChanged: (v) => p.onSecret?.call(v as String? ?? ''),
+                ),
+              ),
+            ),
+          ),
+        ],
         if (t.accept case final a?) ...[
           const SizedBox(height: 18),
           Container(

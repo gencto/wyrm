@@ -16,10 +16,11 @@ sequenceDiagram
     participant A2 as WatchKeysAction
     participant A3 as RetrieveSysAboutAction
     participant A4 as RetrieveProfilesAction
-    participant A5 as RetrieveQuarantineAction
-    participant A6 as RetrieveSystemLogAction
-    participant A7 as RetrieveLinksAction
-    participant A8 as RetrievePeersAction
+    participant A5 as RetrieveBackupsAction
+    participant A6 as RetrieveQuarantineAction
+    participant A7 as RetrieveSystemLogAction
+    participant A8 as RetrieveLinksAction
+    participant A9 as RetrievePeersAction
     participant ST as AppState
 
     User->>UI: onShow
@@ -38,22 +39,26 @@ sequenceDiagram
     A4-->>-VM: ActionStatus
     VM->>+A5: dispatchAndWait
     Note over A5: WaitingAction · async
-    A5->>ST: copyWith(quarantine.table, quarantine.view, quarantine.forms)
+    A5->>ST: copyWith(backups.table, backups.view, backups.sections)
     A5-->>-VM: ActionStatus
+    VM->>+A6: dispatchAndWait
+    Note over A6: WaitingAction · async
+    A6->>ST: copyWith(quarantine.table, quarantine.view, quarantine.forms)
+    A6-->>-VM: ActionStatus
     alt site.needs('config', _sys) == null
-        VM->>+A6: dispatchAndWait
-        Note over A6: WaitingAction
-        A6-->>-VM: ActionStatus
+        VM->>+A7: dispatchAndWait
+        Note over A7: WaitingAction
+        A7-->>-VM: ActionStatus
     end
-    VM->>+A7: dispatchAndWait
-    Note over A7: WaitingAction · async
-    A7->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
-    A7-->>-VM: ActionStatus
+    VM->>+A8: dispatchAndWait
+    Note over A8: WaitingAction · async
+    A8->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
+    A8-->>-VM: ActionStatus
     alt state.peers.table.isEmpty
-        VM->>+A8: dispatchAndWait
-        Note over A8: WaitingAction · async
-        A8->>ST: copyWith(peers.table, peers.view)
-        A8-->>-VM: ActionStatus
+        VM->>+A9: dispatchAndWait
+        Note over A9: WaitingAction · async
+        A9->>ST: copyWith(peers.table, peers.view)
+        A9-->>-VM: ActionStatus
     end
 ```
 
@@ -565,7 +570,7 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `SetShownAction`, `WatchKeysAction`, `RetrieveSysAboutAction`, `RetrieveProfilesAction`, `RetrieveQuarantineAction`, `RetrieveSystemLogAction` ?, `RetrieveLinksAction`, `RetrievePeersAction` ? | `system.shown`, `live.watched`, `system.about, system.units`, `system.profiles, system.profilesNote`, `quarantine.table, quarantine.view, quarantine.forms`, `links.version, links.table, links.view, links.updatesAvailable`, `peers.table, peers.view` |
+| `onShow` | `SetShownAction`, `WatchKeysAction`, `RetrieveSysAboutAction`, `RetrieveProfilesAction`, `RetrieveBackupsAction`, `RetrieveQuarantineAction`, `RetrieveSystemLogAction` ?, `RetrieveLinksAction`, `RetrievePeersAction` ? | `system.shown`, `live.watched`, `system.about, system.units`, `system.profiles, system.profilesNote`, `backups.table, backups.view, backups.sections`, `quarantine.table, quarantine.view, quarantine.forms`, `links.version, links.table, links.view, links.updatesAvailable`, `peers.table, peers.view` |
 | `onHide` | `SetShownAction`, `UnwatchKeysAction`, `SetAclSeenAction` ? | `system.shown`, `live.watched`, `system.aclSeen` |
 | `onPoll` | `PollSystemLogAction` | — |
 | `onTab` | `SetTabAction`, `RetrieveSystemLogAction` ? | `system.tab` |

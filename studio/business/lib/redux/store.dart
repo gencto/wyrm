@@ -261,6 +261,8 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.window != next.window) 'window',
       if (prev.problems != next.problems) 'problems',
       if (prev.updates != next.updates) 'updates',
+      if (prev.backups != next.backups) 'backups',
+      if (prev.brokerUpdate != next.brokerUpdate) 'brokerUpdate',
     ];
   }
 }

@@ -11620,6 +11620,2251 @@ class S {
       args: [],
     );
   }
+
+  /// `This session reaches the site through an upstream broker: its keys and a passphrase-sealed file never travel up. Sign in at the site's own gateway.`
+  String get bakSecretsUpstream {
+    return Intl.message(
+      'This session reaches the site through an upstream broker: its keys and a passphrase-sealed file never travel up. Sign in at the site\'s own gateway.',
+      name: 'bakSecretsUpstream',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The host does not let secrets leave this broker (backups.export_secrets is false in wyrmd.json5). Secrets are sealed for this site.`
+  String get bakSecretsHost {
+    return Intl.message(
+      'The host does not let secrets leave this broker (backups.export_secrets is false in wyrmd.json5). Secrets are sealed for this site.',
+      name: 'bakSecretsHost',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Control plane`
+  String get bakSecControl {
+    return Intl.message(
+      'Control plane',
+      name: 'bakSecControl',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Keys and secrets`
+  String get bakSecKeys {
+    return Intl.message(
+      'Keys and secrets',
+      name: 'bakSecKeys',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Dataflows`
+  String get bakSecDataflows {
+    return Intl.message(
+      'Dataflows',
+      name: 'bakSecDataflows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Broker storage`
+  String get bakSecStorage {
+    return Intl.message(
+      'Broker storage',
+      name: 'bakSecStorage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `History`
+  String get bakSecHistory {
+    return Intl.message('History', name: 'bakSecHistory', desc: '', args: []);
+  }
+
+  /// `Links`
+  String get bakSecLinks {
+    return Intl.message('Links', name: 'bakSecLinks', desc: '', args: []);
+  }
+
+  /// `Installed packages`
+  String get bakSecPackages {
+    return Intl.message(
+      'Installed packages',
+      name: 'bakSecPackages',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `wyrmd.json5 (read only)`
+  String get bakSecConfig {
+    return Intl.message(
+      'wyrmd.json5 (read only)',
+      name: 'bakSecConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Settings`
+  String get bakSecSettings {
+    return Intl.message('Settings', name: 'bakSecSettings', desc: '', args: []);
+  }
+
+  /// `Private data`
+  String get bakSecData {
+    return Intl.message('Private data', name: 'bakSecData', desc: '', args: []);
+  }
+
+  /// `Package`
+  String get bakSecPackage {
+    return Intl.message('Package', name: 'bakSecPackage', desc: '', args: []);
+  }
+
+  /// `Registry (links, grants, peers, tokens), users and roles, flow store, audit. Needed to restore anything else.`
+  String get bakSecControlNote {
+    return Intl.message(
+      'Registry (links, grants, peers, tokens), users and roles, flow store, audit. Needed to restore anything else.',
+      name: 'bakSecControlNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Site CA, state and secrets keys, gateway keys, link tokens and sealed secrets. Sealed with the passphrase below.`
+  String get bakSecKeysNote {
+    return Intl.message(
+      'Site CA, state and secrets keys, gateway keys, link tokens and sealed secrets. Sealed with the passphrase below.',
+      name: 'bakSecKeysNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The artifacts of the flow engine; the flows themselves are in the control plane.`
+  String get bakSecDataflowsNote {
+    return Intl.message(
+      'The artifacts of the flow engine; the flows themselves are in the control plane.',
+      name: 'bakSecDataflowsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The storage tree and its values, with a JSON export for people.`
+  String get bakSecStorageNote {
+    return Intl.message(
+      'The storage tree and its values, with a JSON export for people.',
+      name: 'bakSecStorageNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The recorded days of the historian and its index.`
+  String get bakSecHistoryNote {
+    return Intl.message(
+      'The recorded days of the historian and its index.',
+      name: 'bakSecHistoryNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The recorded rows of its points.`
+  String get bakSecLinkHistoryNote {
+    return Intl.message(
+      'The recorded rows of its points.',
+      name: 'bakSecLinkHistoryNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Per link: its definition, its secrets and its private data, sealed. Their packages go in too.`
+  String get bakSecLinksNote {
+    return Intl.message(
+      'Per link: its definition, its secrets and its private data, sealed. Their packages go in too.',
+      name: 'bakSecLinksNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every installed package as its files, so a restore needs no repository.`
+  String get bakSecPackagesNote {
+    return Intl.message(
+      'Every installed package as its files, so a restore needs no repository.',
+      name: 'bakSecPackagesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The configuration with secrets masked, for reference; a restore never writes it.`
+  String get bakSecConfigNote {
+    return Intl.message(
+      'The configuration with secrets masked, for reference; a restore never writes it.',
+      name: 'bakSecConfigNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The link's definition: driver, mode, params, grants.`
+  String get bakSecSettingsNote {
+    return Intl.message(
+      'The link\'s definition: driver, mode, params, grants.',
+      name: 'bakSecSettingsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Its secrets and its private directory: the runtime edits of a driver (connections, devices, points), a portable app's store.`
+  String get bakSecDataNote {
+    return Intl.message(
+      'Its secrets and its private directory: the runtime edits of a driver (connections, devices, points), a portable app\'s store.',
+      name: 'bakSecDataNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The package it runs, as its files, so it restores where the repository cannot be reached.`
+  String get bakSecPackageNote {
+    return Intl.message(
+      'The package it runs, as its files, so it restores where the repository cannot be reached.',
+      name: 'bakSecPackageNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Last 7 days`
+  String get bakLast7 {
+    return Intl.message('Last 7 days', name: 'bakLast7', desc: '', args: []);
+  }
+
+  /// `Last 30 days`
+  String get bakLast30 {
+    return Intl.message('Last 30 days', name: 'bakLast30', desc: '', args: []);
+  }
+
+  /// `Last 90 days`
+  String get bakLast90 {
+    return Intl.message('Last 90 days', name: 'bakLast90', desc: '', args: []);
+  }
+
+  /// `All`
+  String get bakAll {
+    return Intl.message('All', name: 'bakAll', desc: '', args: []);
+  }
+
+  /// `Give a passphrase of at least 12 characters below: the keys are sealed with it.`
+  String get bakKeysNeedPassphrase {
+    return Intl.message(
+      'Give a passphrase of at least 12 characters below: the keys are sealed with it.',
+      name: 'bakKeysNeedPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The host lists no file-store link for backups (backups.send_links in wyrmd.json5).`
+  String get bakNoSendLinks {
+    return Intl.message(
+      'The host lists no file-store link for backups (backups.send_links in wyrmd.json5).',
+      name: 'bakNoSendLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A backup with Keys and secrets is never sent: download it at the site's own gateway.`
+  String get bakKeysNeverSent {
+    return Intl.message(
+      'A backup with Keys and secrets is never sent: download it at the site\'s own gateway.',
+      name: 'bakKeysNeverSent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back up {site}`
+  String bakTitle(Object site) {
+    return Intl.message(
+      'Back up $site',
+      name: 'bakTitle',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Back up the link {link}`
+  String bakTitleLink(Object link) {
+    return Intl.message(
+      'Back up the link $link',
+      name: 'bakTitleLink',
+      desc: '',
+      args: [link],
+    );
+  }
+
+  /// `Pick what goes in. One .wyrm-backup file (a zip with a manifest); the broker keeps running while it is made.`
+  String get bakSub {
+    return Intl.message(
+      'Pick what goes in. One .wyrm-backup file (a zip with a manifest); the broker keeps running while it is made.',
+      name: 'bakSub',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `One .wyrm-link file with what {link} needs to come back, here or on another broker.`
+  String bakSubLink(Object link) {
+    return Intl.message(
+      'One .wyrm-link file with what $link needs to come back, here or on another broker.',
+      name: 'bakSubLink',
+      desc: '',
+      args: [link],
+    );
+  }
+
+  /// `What goes in`
+  String get bakWhatGoesIn {
+    return Intl.message(
+      'What goes in',
+      name: 'bakWhatGoesIn',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `always`
+  String get bakTagAlways {
+    return Intl.message('always', name: 'bakTagAlways', desc: '', args: []);
+  }
+
+  /// `passphrase`
+  String get bakTagPassphrase {
+    return Intl.message(
+      'passphrase',
+      name: 'bakTagPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `sealed for this site`
+  String get bakTagSite {
+    return Intl.message(
+      'sealed for this site',
+      name: 'bakTagSite',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Link`
+  String get bakFactLink {
+    return Intl.message('Link', name: 'bakFactLink', desc: '', args: []);
+  }
+
+  /// `Restore it with Links › Add a link › From backup: on this broker (it replaces the link, after a restore point) or on another one as a new link.`
+  String get bakLinkRestoreNote {
+    return Intl.message(
+      'Restore it with Links › Add a link › From backup: on this broker (it replaces the link, after a restore point) or on another one as a new link.',
+      name: 'bakLinkRestoreNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Passphrase for the keys and secrets`
+  String get bakPassphrase {
+    return Intl.message(
+      'Passphrase for the keys and secrets',
+      name: 'bakPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Passphrase for its private data`
+  String get bakPassphraseLink {
+    return Intl.message(
+      'Passphrase for its private data',
+      name: 'bakPassphraseLink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `At least {n} characters`
+  String bakPassphraseShort(Object n) {
+    return Intl.message(
+      'At least $n characters',
+      name: 'bakPassphraseShort',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Seals Keys and secrets and the links' secrets (Argon2id). Without it the keys stay out and link secrets are sealed for this site. Studio never stores it.`
+  String get bakPassphraseNote {
+    return Intl.message(
+      'Seals Keys and secrets and the links\' secrets (Argon2id). Without it the keys stay out and link secrets are sealed for this site. Studio never stores it.',
+      name: 'bakPassphraseNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `With it the file opens on any broker. Without it Private data is sealed for this site and opens only on a broker with its keys. Studio never stores it.`
+  String get bakPassphraseLinkNote {
+    return Intl.message(
+      'With it the file opens on any broker. Without it Private data is sealed for this site and opens only on a broker with its keys. Studio never stores it.',
+      name: 'bakPassphraseLinkNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Where`
+  String get bakWhere {
+    return Intl.message('Where', name: 'bakWhere', desc: '', args: []);
+  }
+
+  /// `This computer`
+  String get bakWhereComputer {
+    return Intl.message(
+      'This computer',
+      name: 'bakWhereComputer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `File store link…`
+  String get bakWhereStore {
+    return Intl.message(
+      'File store link…',
+      name: 'bakWhereStore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Keep on the broker`
+  String get bakWhereBroker {
+    return Intl.message(
+      'Keep on the broker',
+      name: 'bakWhereBroker',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Downloaded in parts when it is ready; also kept on the broker for {days} days.`
+  String bakWhereComputerNote(Object days) {
+    return Intl.message(
+      'Downloaded in parts when it is ready; also kept on the broker for $days days.',
+      name: 'bakWhereComputerNote',
+      desc: '',
+      args: [days],
+    );
+  }
+
+  /// `A file-store link (S3, WebDAV, a disk) takes it from the broker without passing through this computer.`
+  String get bakWhereStoreNote {
+    return Intl.message(
+      'A file-store link (S3, WebDAV, a disk) takes it from the broker without passing through this computer.',
+      name: 'bakWhereStoreNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Kept in Backups for {days} days.`
+  String bakWhereBrokerNote(Object days) {
+    return Intl.message(
+      'Kept in Backups for $days days.',
+      name: 'bakWhereBrokerNote',
+      desc: '',
+      args: [days],
+    );
+  }
+
+  /// `File-store link`
+  String get bakSendLink {
+    return Intl.message(
+      'File-store link',
+      name: 'bakSendLink',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Connection`
+  String get bakSendConnection {
+    return Intl.message(
+      'Connection',
+      name: 'bakSendConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This link has no connection.`
+  String get bakNoConnections {
+    return Intl.message(
+      'This link has no connection.',
+      name: 'bakNoConnections',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Folder (set on the host)`
+  String get bakSendFolder {
+    return Intl.message(
+      'Folder (set on the host)',
+      name: 'bakSendFolder',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `File name or sub-path`
+  String get bakSendPath {
+    return Intl.message(
+      'File name or sub-path',
+      name: 'bakSendPath',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Empty: the backup's own file name. A sub-folder must exist; a name that exists is refused, never replaced.`
+  String get bakSendPathNote {
+    return Intl.message(
+      'Empty: the backup\'s own file name. A sub-folder must exist; a name that exists is refused, never replaced.',
+      name: 'bakSendPathNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `config on sys`
+  String get bakNeedsConfig {
+    return Intl.message(
+      'config on sys',
+      name: 'bakNeedsConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `config on sys/links`
+  String get bakNeedsConfigLinks {
+    return Intl.message(
+      'config on sys/links',
+      name: 'bakNeedsConfigLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `About {size} · {rights}`
+  String bakAbout(Object size, Object rights) {
+    return Intl.message(
+      'About $size · $rights',
+      name: 'bakAbout',
+      desc: '',
+      args: [size, rights],
+    );
+  }
+
+  /// `Back up`
+  String get bakDo {
+    return Intl.message('Back up', name: 'bakDo', desc: '', args: []);
+  }
+
+  /// `Back up {link}`
+  String bakDoLink(Object link) {
+    return Intl.message(
+      'Back up $link',
+      name: 'bakDoLink',
+      desc: '',
+      args: [link],
+    );
+  }
+
+  /// `Choose a link and a connection`
+  String get bakChooseConnection {
+    return Intl.message(
+      'Choose a link and a connection',
+      name: 'bakChooseConnection',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Backup of {what} failed`
+  String bakFailedTitle(Object what) {
+    return Intl.message(
+      'Backup of $what failed',
+      name: 'bakFailedTitle',
+      desc: '',
+      args: [what],
+    );
+  }
+
+  /// `The broker did not make the backup`
+  String get bakFailed {
+    return Intl.message(
+      'The broker did not make the backup',
+      name: 'bakFailed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Backing up {what}`
+  String bakProgressTitle(Object what) {
+    return Intl.message(
+      'Backing up $what',
+      name: 'bakProgressTitle',
+      desc: '',
+      args: [what],
+    );
+  }
+
+  /// `You can close this; the broker finishes it and keeps it under Backups.`
+  String get bakProgressSub {
+    return Intl.message(
+      'You can close this; the broker finishes it and keeps it under Backups.',
+      name: 'bakProgressSub',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Each store is read at one consistent moment, inside its own read transaction; the broker keeps running and writing.`
+  String get bakConsistent {
+    return Intl.message(
+      'Each store is read at one consistent moment, inside its own read transaction; the broker keeps running and writing.',
+      name: 'bakConsistent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Backing up…`
+  String get bakWorking {
+    return Intl.message('Backing up…', name: 'bakWorking', desc: '', args: []);
+  }
+
+  /// `Backup ready`
+  String get bakDoneTitle {
+    return Intl.message(
+      'Backup ready',
+      name: 'bakDoneTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Kept on the broker until {when} (Backups).`
+  String bakDoneSub(Object when) {
+    return Intl.message(
+      'Kept on the broker until $when (Backups).',
+      name: 'bakDoneSub',
+      desc: '',
+      args: [when],
+    );
+  }
+
+  /// `Saved {name}`
+  String bakSaved(Object name) {
+    return Intl.message(
+      'Saved $name',
+      name: 'bakSaved',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{size} · sections: {n}`
+  String bakSavedNote(Object size, Object n) {
+    return Intl.message(
+      '$size · sections: $n',
+      name: 'bakSavedNote',
+      desc: '',
+      args: [size, n],
+    );
+  }
+
+  /// `Contents`
+  String get bakFactContents {
+    return Intl.message(
+      'Contents',
+      name: 'bakFactContents',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Secrets`
+  String get bakFactSealed {
+    return Intl.message('Secrets', name: 'bakFactSealed', desc: '', args: []);
+  }
+
+  /// `Made by`
+  String get bakFactBy {
+    return Intl.message('Made by', name: 'bakFactBy', desc: '', args: []);
+  }
+
+  /// `Sent to`
+  String get bakFactSent {
+    return Intl.message('Sent to', name: 'bakFactSent', desc: '', args: []);
+  }
+
+  /// `sealed with the passphrase`
+  String get bakSealedPassphrase {
+    return Intl.message(
+      'sealed with the passphrase',
+      name: 'bakSealedPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `sealed for {site}: opens only on a broker with its keys`
+  String bakSealedBroker(Object site) {
+    return Intl.message(
+      'sealed for $site: opens only on a broker with its keys',
+      name: 'bakSealedBroker',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `none in it`
+  String get bakSealedNone {
+    return Intl.message(
+      'none in it',
+      name: 'bakSealedNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It holds the site's keys: whoever has the file and the passphrase is an administrator of {site}.`
+  String bakKeysWarning(Object site) {
+    return Intl.message(
+      'It holds the site\'s keys: whoever has the file and the passphrase is an administrator of $site.',
+      name: 'bakKeysWarning',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `A backup is as sensitive as the broker's data directory: keep it where only administrators reach it.`
+  String get bakSensitive {
+    return Intl.message(
+      'A backup is as sensitive as the broker\'s data directory: keep it where only administrators reach it.',
+      name: 'bakSensitive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Downloading: {done} of {size}`
+  String bakDownloading(Object done, Object size) {
+    return Intl.message(
+      'Downloading: $done of $size',
+      name: 'bakDownloading',
+      desc: '',
+      args: [done, size],
+    );
+  }
+
+  /// `Saved to {path}; SHA-256 checked.`
+  String bakSavedTo(Object path) {
+    return Intl.message(
+      'Saved to $path; SHA-256 checked.',
+      name: 'bakSavedTo',
+      desc: '',
+      args: [path],
+    );
+  }
+
+  /// `Sending to {to}`
+  String bakSending(Object to) {
+    return Intl.message(
+      'Sending to $to',
+      name: 'bakSending',
+      desc: '',
+      args: [to],
+    );
+  }
+
+  /// `Not sent: {error}`
+  String bakSendFailed(Object error) {
+    return Intl.message(
+      'Not sent: $error',
+      name: 'bakSendFailed',
+      desc: '',
+      args: [error],
+    );
+  }
+
+  /// `Download…`
+  String get bakDownload {
+    return Intl.message('Download…', name: 'bakDownload', desc: '', args: []);
+  }
+
+  /// `Cancel the download`
+  String get bakCancelDownload {
+    return Intl.message(
+      'Cancel the download',
+      name: 'bakCancelDownload',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Send`
+  String get bakSend {
+    return Intl.message('Send', name: 'bakSend', desc: '', args: []);
+  }
+
+  /// `Show in Backups`
+  String get bakShow {
+    return Intl.message('Show in Backups', name: 'bakShow', desc: '', args: []);
+  }
+
+  /// `Choose the folder for {name}`
+  String bakChooseFolder(Object name) {
+    return Intl.message(
+      'Choose the folder for $name',
+      name: 'bakChooseFolder',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Give the passphrase of the backup: the keys are restored only with it.`
+  String get rstKeysNeedPassphrase {
+    return Intl.message(
+      'Give the passphrase of the backup: the keys are restored only with it.',
+      name: 'rstKeysNeedPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This session reaches the site through an upstream broker: the broker refuses a replace from above. Add is open.`
+  String get rstReplaceUpstream {
+    return Intl.message(
+      'This session reaches the site through an upstream broker: the broker refuses a replace from above. Add is open.',
+      name: 'rstReplaceUpstream',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The check found problems that block a replace.`
+  String get rstReplaceProblems {
+    return Intl.message(
+      'The check found problems that block a replace.',
+      name: 'rstReplaceProblems',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Restore {site} from a backup`
+  String rstTitle(Object site) {
+    return Intl.message(
+      'Restore $site from a backup',
+      name: 'rstTitle',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `{site} restarts and applies the backup`
+  String rstRestarting(Object site) {
+    return Intl.message(
+      '$site restarts and applies the backup',
+      name: 'rstRestarting',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Studio reconnects by itself.`
+  String get rstRestartingNote {
+    return Intl.message(
+      'Studio reconnects by itself.',
+      name: 'rstRestartingNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A backup of what is replaced was made first (pre-restore, in Backups). The broker stops, and its next start applies the staged sections before any store opens.`
+  String get rstRestartingMore {
+    return Intl.message(
+      'A backup of what is replaced was made first (pre-restore, in Backups). The broker stops, and its next start applies the staged sections before any store opens.',
+      name: 'rstRestartingMore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Added; nothing was replaced, no restart`
+  String get rstAdded {
+    return Intl.message(
+      'Added; nothing was replaced, no restart',
+      name: 'rstAdded',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sections`
+  String get rstFactSections {
+    return Intl.message(
+      'Sections',
+      name: 'rstFactSections',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Pick a .wyrm-backup file.`
+  String get rstPick {
+    return Intl.message(
+      'Pick a .wyrm-backup file.',
+      name: 'rstPick',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The file goes to the broker in parts. Nothing changes until you have seen what the broker found in it.`
+  String get rstPickNote {
+    return Intl.message(
+      'The file goes to the broker in parts. Nothing changes until you have seen what the broker found in it.',
+      name: 'rstPickNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Uploading: {done} of {size}`
+  String rstUploading(Object done, Object size) {
+    return Intl.message(
+      'Uploading: $done of $size',
+      name: 'rstUploading',
+      desc: '',
+      args: [done, size],
+    );
+  }
+
+  /// `The file is on the broker`
+  String get rstUploaded {
+    return Intl.message(
+      'The file is on the broker',
+      name: 'rstUploaded',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing was changed yet. The check reads its manifest and compares it with this broker.`
+  String get rstUploadedNote {
+    return Intl.message(
+      'Nothing was changed yet. The check reads its manifest and compares it with this broker.',
+      name: 'rstUploadedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Passphrase of the backup`
+  String get rstPassphrase {
+    return Intl.message(
+      'Passphrase of the backup',
+      name: 'rstPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Only for a backup sealed with one. Studio never stores it.`
+  String get rstPassphraseNote {
+    return Intl.message(
+      'Only for a backup sealed with one. Studio never stores it.',
+      name: 'rstPassphraseNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sent again with the restore. Studio never stores it.`
+  String get rstPassphraseKept {
+    return Intl.message(
+      'Sent again with the restore. Studio never stores it.',
+      name: 'rstPassphraseKept',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose the file…`
+  String get rstChoose {
+    return Intl.message(
+      'Choose the file…',
+      name: 'rstChoose',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Check the file`
+  String get rstCheck {
+    return Intl.message('Check the file', name: 'rstCheck', desc: '', args: []);
+  }
+
+  /// `Uploading…`
+  String get rstUploadingButton {
+    return Intl.message(
+      'Uploading…',
+      name: 'rstUploadingButton',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `tick what to bring back`
+  String get rstTick {
+    return Intl.message(
+      'tick what to bring back',
+      name: 'rstTick',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checked`
+  String get rstChecked {
+    return Intl.message('Checked', name: 'rstChecked', desc: '', args: []);
+  }
+
+  /// `From {site} · wyrmd {broker}`
+  String rstFile(Object site, Object broker) {
+    return Intl.message(
+      'From $site · wyrmd $broker',
+      name: 'rstFile',
+      desc: '',
+      args: [site, broker],
+    );
+  }
+
+  /// `Made {when} · sections: {n} · secrets: {sealed}`
+  String rstFileNote(Object when, Object n, Object sealed) {
+    return Intl.message(
+      'Made $when · sections: $n · secrets: $sealed',
+      name: 'rstFileNote',
+      desc: '',
+      args: [when, n, sealed],
+    );
+  }
+
+  /// `A backup of another site: {site}`
+  String rstOtherSite(Object site) {
+    return Intl.message(
+      'A backup of another site: $site',
+      name: 'rstOtherSite',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `The broker refuses a backup of another site name. Set site in wyrmd.json5 to the backup's first.`
+  String get rstOtherSiteNote {
+    return Intl.message(
+      'The broker refuses a backup of another site name. Set site in wyrmd.json5 to the backup\'s first.',
+      name: 'rstOtherSiteNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The same keys`
+  String get rstKeysSame {
+    return Intl.message(
+      'The same keys',
+      name: 'rstKeysSame',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every key file of the backup is this broker's; tokens and certificates stay valid.`
+  String get rstKeysSameNote {
+    return Intl.message(
+      'Every key file of the backup is this broker\'s; tokens and certificates stay valid.',
+      name: 'rstKeysSameNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This site's CA, other key files`
+  String get rstKeysDiffer {
+    return Intl.message(
+      'This site\'s CA, other key files',
+      name: 'rstKeysDiffer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Another CA`
+  String get rstKeysOther {
+    return Intl.message('Another CA', name: 'rstKeysOther', desc: '', args: []);
+  }
+
+  /// `Restoring the keys changes the site's identity: links, operators and peer brokers enrol again.`
+  String get rstKeysOtherNote {
+    return Intl.message(
+      'Restoring the keys changes the site\'s identity: links, operators and peer brokers enrol again.',
+      name: 'rstKeysOtherNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No keys in the file`
+  String get rstKeysNone {
+    return Intl.message(
+      'No keys in the file',
+      name: 'rstKeysNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker keeps its own keys.`
+  String get rstKeysNoneNote {
+    return Intl.message(
+      'This broker keeps its own keys.',
+      name: 'rstKeysNoneNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The control plane does not open with this broker's keys`
+  String get rstControlOther {
+    return Intl.message(
+      'The control plane does not open with this broker\'s keys',
+      name: 'rstControlOther',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It is restored only together with Keys and secrets.`
+  String get rstControlOtherNote {
+    return Intl.message(
+      'It is restored only together with Keys and secrets.',
+      name: 'rstControlOtherNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Store formats differ (backup → here)`
+  String get rstSchemas {
+    return Intl.message(
+      'Store formats differ (backup → here)',
+      name: 'rstSchemas',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Links: {fresh} new, {exists} exist here`
+  String rstLinks(Object fresh, Object exists) {
+    return Intl.message(
+      'Links: $fresh new, $exists exist here',
+      name: 'rstLinks',
+      desc: '',
+      args: [fresh, exists],
+    );
+  }
+
+  /// `In the file`
+  String get rstInTheFile {
+    return Intl.message(
+      'In the file',
+      name: 'rstInTheFile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A copy for reference; a restore never writes it.`
+  String get rstConfigNever {
+    return Intl.message(
+      'A copy for reference; a restore never writes it.',
+      name: 'rstConfigNever',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add takes links and storage only.`
+  String get rstNotInAdd {
+    return Intl.message(
+      'Add takes links and storage only.',
+      name: 'rstNotInAdd',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `How`
+  String get rstHow {
+    return Intl.message('How', name: 'rstHow', desc: '', args: []);
+  }
+
+  /// `Replace what is ticked and restart the broker once (a backup of what it replaces is made first)`
+  String get rstReplace {
+    return Intl.message(
+      'Replace what is ticked and restart the broker once (a backup of what it replaces is made first)',
+      name: 'rstReplace',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add only: links and storage nodes that do not exist yet; nothing replaced, no restart`
+  String get rstAdd {
+    return Intl.message(
+      'Add only: links and storage nodes that do not exist yet; nothing replaced, no restart',
+      name: 'rstAdd',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Replace the site's keys: {files}`
+  String rstReplaceKeys(Object files) {
+    return Intl.message(
+      'Replace the site\'s keys: $files',
+      name: 'rstReplaceKeys',
+      desc: '',
+      args: [files],
+    );
+  }
+
+  /// `Replace the site's keys with another CA: links, operators and peer brokers enrol again`
+  String get rstReplaceKeysOther {
+    return Intl.message(
+      'Replace the site\'s keys with another CA: links, operators and peer brokers enrol again',
+      name: 'rstReplaceKeysOther',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Accept the rights and network the packages of the file ask for`
+  String get rstAcceptPackages {
+    return Intl.message(
+      'Accept the rights and network the packages of the file ask for',
+      name: 'rstAcceptPackages',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Accept the rights and network the links of the file ask for`
+  String get rstAcceptLinks {
+    return Intl.message(
+      'Accept the rights and network the links of the file ask for',
+      name: 'rstAcceptLinks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A backup of what it replaces is made first`
+  String get rstReplaceNote {
+    return Intl.message(
+      'A backup of what it replaces is made first',
+      name: 'rstReplaceNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Nothing is replaced`
+  String get rstAddNote {
+    return Intl.message(
+      'Nothing is replaced',
+      name: 'rstAddNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Restore and restart`
+  String get rstDoReplace {
+    return Intl.message(
+      'Restore and restart',
+      name: 'rstDoReplace',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add`
+  String get rstDoAdd {
+    return Intl.message('Add', name: 'rstDoAdd', desc: '', args: []);
+  }
+
+  /// `Tick a section this mode takes`
+  String get rstNothingTicked {
+    return Intl.message(
+      'Tick a section this mode takes',
+      name: 'rstNothingTicked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Tick Replace the site's keys first`
+  String get rstConfirmKeys {
+    return Intl.message(
+      'Tick Replace the site\'s keys first',
+      name: 'rstConfirmKeys',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Backups`
+  String get bakCard {
+    return Intl.message('Backups', name: 'bakCard', desc: '', args: []);
+  }
+
+  /// `Made while the broker runs, kept on it for {days} days. Download one or send it to a file store.`
+  String bakCardNote(Object days) {
+    return Intl.message(
+      'Made while the broker runs, kept on it for $days days. Download one or send it to a file store.',
+      name: 'bakCardNote',
+      desc: '',
+      args: [days],
+    );
+  }
+
+  /// `This broker has no backups from Studio (it runs a wyrmd before ADR 0048). Use the commands below.`
+  String get bakCardOld {
+    return Intl.message(
+      'This broker has no backups from Studio (it runs a wyrmd before ADR 0048). Use the commands below.',
+      name: 'bakCardOld',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No backup is kept on the broker.`
+  String get bakCardEmpty {
+    return Intl.message(
+      'No backup is kept on the broker.',
+      name: 'bakCardEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Restore…`
+  String get bakRestore {
+    return Intl.message('Restore…', name: 'bakRestore', desc: '', args: []);
+  }
+
+  /// `Back up…`
+  String get bakBackUp {
+    return Intl.message('Back up…', name: 'bakBackUp', desc: '', args: []);
+  }
+
+  /// `being made · {percent} %`
+  String bakRowRunning(Object percent) {
+    return Intl.message(
+      'being made · $percent %',
+      name: 'bakRowRunning',
+      desc: '',
+      args: [percent],
+    );
+  }
+
+  /// `failed`
+  String get bakRowFailed {
+    return Intl.message('failed', name: 'bakRowFailed', desc: '', args: []);
+  }
+
+  /// `sending · {percent} %`
+  String bakRowSending(Object percent) {
+    return Intl.message(
+      'sending · $percent %',
+      name: 'bakRowSending',
+      desc: '',
+      args: [percent],
+    );
+  }
+
+  /// `broker`
+  String get bakKindFull {
+    return Intl.message('broker', name: 'bakKindFull', desc: '', args: []);
+  }
+
+  /// `link {link}`
+  String bakKindLink(Object link) {
+    return Intl.message(
+      'link $link',
+      name: 'bakKindLink',
+      desc: '',
+      args: [link],
+    );
+  }
+
+  /// `before an update`
+  String get bakKindPreUpdate {
+    return Intl.message(
+      'before an update',
+      name: 'bakKindPreUpdate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `before a restore`
+  String get bakKindPreRestore {
+    return Intl.message(
+      'before a restore',
+      name: 'bakKindPreRestore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open`
+  String get bakOpen {
+    return Intl.message('Open', name: 'bakOpen', desc: '', args: []);
+  }
+
+  /// `Remove {name}?`
+  String bakRemoveTitle(Object name) {
+    return Intl.message(
+      'Remove $name?',
+      name: 'bakRemoveTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The file is deleted from the broker. A copy you downloaded or sent stays.`
+  String get bakRemoveNote {
+    return Intl.message(
+      'The file is deleted from the broker. A copy you downloaded or sent stays.',
+      name: 'bakRemoveNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `When the broker does not start`
+  String get bakOffline {
+    return Intl.message(
+      'When the broker does not start',
+      name: 'bakOffline',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back up…`
+  String get actBackUp {
+    return Intl.message('Back up…', name: 'actBackUp', desc: '', args: []);
+  }
+
+  /// `One file with its settings, private data and package; restore it here or on another broker.`
+  String get actBackUpNote {
+    return Intl.message(
+      'One file with its settings, private data and package; restore it here or on another broker.',
+      name: 'actBackUpNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Backup`
+  String get groupBackup {
+    return Intl.message('Backup', name: 'groupBackup', desc: '', args: []);
+  }
+
+  /// `Remove it from the broker`
+  String get bakRemoveRow {
+    return Intl.message(
+      'Remove it from the broker',
+      name: 'bakRemoveRow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `From a backup`
+  String get fromBackup {
+    return Intl.message(
+      'From a backup',
+      name: 'fromBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A link backup (.wyrm-link) made by Back up… on a link: its settings, private data and package. It comes back under its own id or a new one.`
+  String get fromBackupNote {
+    return Intl.message(
+      'A link backup (.wyrm-link) made by Back up… on a link: its settings, private data and package. It comes back under its own id or a new one.',
+      name: 'fromBackupNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Choose a .wyrm-link file`
+  String get chooseBackupFile {
+    return Intl.message(
+      'Choose a .wyrm-link file',
+      name: 'chooseBackupFile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A link {id} exists on this broker: it is replaced in place (same driver and mode), and a restore point of it is taken first.`
+  String backupReplaces(Object id) {
+    return Intl.message(
+      'A link $id exists on this broker: it is replaced in place (same driver and mode), and a restore point of it is taken first.',
+      name: 'backupReplaces',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `Passphrase of the backup`
+  String get backupPassphrase {
+    return Intl.message(
+      'Passphrase of the backup',
+      name: 'backupPassphrase',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Only for a backup sealed with one. One sealed for its site needs none and opens only on a broker with that site's keys. Studio never stores it.`
+  String get backupPassphraseNote {
+    return Intl.message(
+      'Only for a backup sealed with one. One sealed for its site needs none and opens only on a broker with that site\'s keys. Studio never stores it.',
+      name: 'backupPassphraseNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Needed when the link has grants or a network allowlist: without it the broker lists them and installs nothing. Its token, certificate and requester key are new.`
+  String get backupRightsNote {
+    return Intl.message(
+      'Needed when the link has grants or a network allowlist: without it the broker lists them and installs nothing. Its token, certificate and requester key are new.',
+      name: 'backupRightsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the broker asks if needed`
+  String get backupRightsAsk {
+    return Intl.message(
+      'the broker asks if needed',
+      name: 'backupRightsAsk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A link backup is one file with what a link needs to come back. Studio reads its manifest here; the broker checks all of it as a new link.`
+  String get whyBringBackup {
+    return Intl.message(
+      'A link backup is one file with what a link needs to come back. Studio reads its manifest here; the broker checks all of it as a new link.',
+      name: 'whyBringBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Keep its id to restore it, or give a new one to make a second link. The mode is the one it ran in.`
+  String get whyRunBackup {
+    return Intl.message(
+      'Keep its id to restore it, or give a new one to make a second link. The mode is the one it ran in.',
+      name: 'whyRunBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Update {site} to wyrmd {version}`
+  String bupTitle(Object site, Object version) {
+    return Intl.message(
+      'Update $site to wyrmd $version',
+      name: 'bupTitle',
+      desc: '',
+      args: [site, version],
+    );
+  }
+
+  /// `From the release channel of this broker · the broker restarts once`
+  String get bupSub {
+    return Intl.message(
+      'From the release channel of this broker · the broker restarts once',
+      name: 'bupSub',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checked before anything changes`
+  String get bupChecked {
+    return Intl.message(
+      'Checked before anything changes',
+      name: 'bupChecked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The release is signed`
+  String get bupCheckSigned {
+    return Intl.message(
+      'The release is signed',
+      name: 'bupCheckSigned',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The Ed25519 signature of the release key and the SHA-256 of the archive.`
+  String get bupCheckSignedNote {
+    return Intl.message(
+      'The Ed25519 signature of the release key and the SHA-256 of the archive.',
+      name: 'bupCheckSignedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The new binary accepts this configuration`
+  String get bupCheckConfig {
+    return Intl.message(
+      'The new binary accepts this configuration',
+      name: 'bupCheckConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The new wyrmd runs its check on the configuration of this broker.`
+  String get bupCheckConfigNote {
+    return Intl.message(
+      'The new wyrmd runs its check on the configuration of this broker.',
+      name: 'bupCheckConfigNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Room for it`
+  String get bupCheckRoom {
+    return Intl.message(
+      'Room for it',
+      name: 'bupCheckRoom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The binary and the pre-update backup fit the disk.`
+  String get bupCheckRoomNote {
+    return Intl.message(
+      'The binary and the pre-update backup fit the disk.',
+      name: 'bupCheckRoomNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A store format may move`
+  String get bupCheckSchema {
+    return Intl.message(
+      'A store format may move',
+      name: 'bupCheckSchema',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `If the new version writes a newer SCHEMA, {version} cannot read it afterwards: a rollback restores the pre-update backup of the control plane, so changes made after the update are lost on rollback.`
+  String bupCheckSchemaNote(Object version) {
+    return Intl.message(
+      'If the new version writes a newer SCHEMA, $version cannot read it afterwards: a rollback restores the pre-update backup of the control plane, so changes made after the update are lost on rollback.',
+      name: 'bupCheckSchemaNote',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `A standby is updated first`
+  String get bupCheckStandby {
+    return Intl.message(
+      'A standby is updated first',
+      name: 'bupCheckStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `When a standby follows this broker and the release changes the replication protocol, the broker refuses until the standby runs the new version.`
+  String get bupCheckStandbyNote {
+    return Intl.message(
+      'When a standby follows this broker and the release changes the replication protocol, the broker refuses until the standby runs the new version.',
+      name: 'bupCheckStandbyNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `How it goes`
+  String get bupHow {
+    return Intl.message('How it goes', name: 'bupHow', desc: '', args: []);
+  }
+
+  /// `Pre-update backup of the control plane, secrets sealed (kept until the update is confirmed).`
+  String get bupStep1 {
+    return Intl.message(
+      'Pre-update backup of the control plane, secrets sealed (kept until the update is confirmed).',
+      name: 'bupStep1',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The new binary is staged beside the current one; {version} stays on disk.`
+  String bupStep2(Object version) {
+    return Intl.message(
+      'The new binary is staged beside the current one; $version stays on disk.',
+      name: 'bupStep2',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `The broker stops cleanly and the service manager starts {version} (about 5–15 s without the broker).`
+  String bupStep3(Object version) {
+    return Intl.message(
+      'The broker stops cleanly and the service manager starts $version (about 5–15 s without the broker).',
+      name: 'bupStep3',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `{version} runs on trial: it must have the router, the gateway and its links back within 3 min.`
+  String bupStep4(Object version) {
+    return Intl.message(
+      '$version runs on trial: it must have the router, the gateway and its links back within 3 min.',
+      name: 'bupStep4',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Then it confirms itself. If it does not, the next start goes back to {version} with the backup of step 1.`
+  String bupStep5(Object version) {
+    return Intl.message(
+      'Then it confirms itself. If it does not, the next start goes back to $version with the backup of step 1.',
+      name: 'bupStep5',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Type {site} to confirm`
+  String bupType(Object site) {
+    return Intl.message(
+      'Type $site to confirm',
+      name: 'bupType',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Needs config on sys · audited`
+  String get bupNeedsConfig {
+    return Intl.message(
+      'Needs config on sys · audited',
+      name: 'bupNeedsConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back up and update`
+  String get bupDo {
+    return Intl.message(
+      'Back up and update',
+      name: 'bupDo',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Updating {site}`
+  String bupUpdating(Object site) {
+    return Intl.message(
+      'Updating $site',
+      name: 'bupUpdating',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `restarting`
+  String get bupPillRestarting {
+    return Intl.message(
+      'restarting',
+      name: 'bupPillRestarting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This screen reconnects by itself.`
+  String get bupUpdatingSub {
+    return Intl.message(
+      'This screen reconnects by itself.',
+      name: 'bupUpdatingSub',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} is restarting on {version}`
+  String bupRestarting(Object site, Object version) {
+    return Intl.message(
+      '$site is restarting on $version',
+      name: 'bupRestarting',
+      desc: '',
+      args: [site, version],
+    );
+  }
+
+  /// `The gateway is back; the new version is on trial.`
+  String get bupOnTrial {
+    return Intl.message(
+      'The gateway is back; the new version is on trial.',
+      name: 'bupOnTrial',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio lost the gateway and tries again by itself · {time}`
+  String bupLost(Object time) {
+    return Intl.message(
+      'Studio lost the gateway and tries again by itself · $time',
+      name: 'bupLost',
+      desc: '',
+      args: [time],
+    );
+  }
+
+  /// `Pre-update backup`
+  String get bupDonePreBackup {
+    return Intl.message(
+      'Pre-update backup',
+      name: 'bupDonePreBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{version} staged`
+  String bupDoneStaged(Object version) {
+    return Intl.message(
+      '$version staged',
+      name: 'bupDoneStaged',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Stopped on {from}, started on {to}`
+  String bupDoneRestart(Object from, Object to) {
+    return Intl.message(
+      'Stopped on $from, started on $to',
+      name: 'bupDoneRestart',
+      desc: '',
+      args: [from, to],
+    );
+  }
+
+  /// `Router, gateway, links back`
+  String get bupDoneBack {
+    return Intl.message(
+      'Router, gateway, links back',
+      name: 'bupDoneBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Confirmed`
+  String get bupDoneConfirmed {
+    return Intl.message(
+      'Confirmed',
+      name: 'bupDoneConfirmed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Links on other machines walk to their next endpoint or wait; devices keep their last outputs. Values recorded by links during the restart are not lost if the link buffers them.`
+  String get bupMeanwhile {
+    return Intl.message(
+      'Links on other machines walk to their next endpoint or wait; devices keep their last outputs. Values recorded by links during the restart are not lost if the link buffers them.',
+      name: 'bupMeanwhile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Closing Studio does not stop it.`
+  String get bupClosing {
+    return Intl.message(
+      'Closing Studio does not stop it.',
+      name: 'bupClosing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Hide`
+  String get bupHide {
+    return Intl.message('Hide', name: 'bupHide', desc: '', args: []);
+  }
+
+  /// `Reconnecting…`
+  String get bupReconnecting {
+    return Intl.message(
+      'Reconnecting…',
+      name: 'bupReconnecting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} updated`
+  String bupUpdated(Object site) {
+    return Intl.message(
+      '$site updated',
+      name: 'bupUpdated',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `{site} runs {version}`
+  String bupRuns(Object site, Object version) {
+    return Intl.message(
+      '$site runs $version',
+      name: 'bupRuns',
+      desc: '',
+      args: [site, version],
+    );
+  }
+
+  /// `The update is confirmed; {version} and the pre-update backup are kept for a rollback.`
+  String bupRunsNote(Object version) {
+    return Intl.message(
+      'The update is confirmed; $version and the pre-update backup are kept for a rollback.',
+      name: 'bupRunsNote',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Version`
+  String get bupFactVersion {
+    return Intl.message('Version', name: 'bupFactVersion', desc: '', args: []);
+  }
+
+  /// `Without the broker`
+  String get bupFactDown {
+    return Intl.message(
+      'Without the broker',
+      name: 'bupFactDown',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} s`
+  String bupSeconds(Object n) {
+    return Intl.message('$n s', name: 'bupSeconds', desc: '', args: [n]);
+  }
+
+  /// `Links back`
+  String get bupFactLinks {
+    return Intl.message('Links back', name: 'bupFactLinks', desc: '', args: []);
+  }
+
+  /// `{back} of {all} in {seconds} s`
+  String bupLinksBack(Object back, Object all, Object seconds) {
+    return Intl.message(
+      '$back of $all in $seconds s',
+      name: 'bupLinksBack',
+      desc: '',
+      args: [back, all, seconds],
+    );
+  }
+
+  /// `Roll back`
+  String get bupFactRollBack {
+    return Intl.message(
+      'Roll back',
+      name: 'bupFactRollBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `possible until {when}`
+  String bupRollBackUntil(Object when) {
+    return Intl.message(
+      'possible until $when',
+      name: 'bupRollBackUntil',
+      desc: '',
+      args: [when],
+    );
+  }
+
+  /// `Audit`
+  String get bupFactAudit {
+    return Intl.message('Audit', name: 'bupFactAudit', desc: '', args: []);
+  }
+
+  /// `Update rolled back`
+  String get bupRolledBack {
+    return Intl.message(
+      'Update rolled back',
+      name: 'bupRolledBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back on {version}`
+  String bupBackOn(Object version) {
+    return Intl.message(
+      'Back on $version',
+      name: 'bupBackOn',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `{tried} did not pass its trial start. The next start went back to {version} and restored the control plane from the pre-update backup.`
+  String bupBackOnNote(Object tried, Object version) {
+    return Intl.message(
+      '$tried did not pass its trial start. The next start went back to $version and restored the control plane from the pre-update backup.',
+      name: 'bupBackOnNote',
+      desc: '',
+      args: [tried, version],
+    );
+  }
+
+  /// `Tried`
+  String get bupFactTried {
+    return Intl.message('Tried', name: 'bupFactTried', desc: '', args: []);
+  }
+
+  /// `Reason`
+  String get bupFactReason {
+    return Intl.message('Reason', name: 'bupFactReason', desc: '', args: []);
+  }
+
+  /// `Now`
+  String get bupFactNow {
+    return Intl.message('Now', name: 'bupFactNow', desc: '', args: []);
+  }
+
+  /// `Open the log of {version}`
+  String bupOpenLog(Object version) {
+    return Intl.message(
+      'Open the log of $version',
+      name: 'bupOpenLog',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `container`
+  String get bupPillContainer {
+    return Intl.message(
+      'container',
+      name: 'bupPillContainer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker does not replace itself (updates.mode: "external": a container or a distribution package). The image is changed where the container is defined, and the data volume carries the state across.`
+  String get bupExternal {
+    return Intl.message(
+      'This broker does not replace itself (updates.mode: "external": a container or a distribution package). The image is changed where the container is defined, and the data volume carries the state across.',
+      name: 'bupExternal',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio still makes the backup for you before you do it.`
+  String get bupExternalBackup {
+    return Intl.message(
+      'Studio still makes the backup for you before you do it.',
+      name: 'bupExternalBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Make the backup`
+  String get bupMakeBackup {
+    return Intl.message(
+      'Make the backup',
+      name: 'bupMakeBackup',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Roll back {site} to {version}?`
+  String bupRollBackTitle(Object site, Object version) {
+    return Intl.message(
+      'Roll back $site to $version?',
+      name: 'bupRollBackTitle',
+      desc: '',
+      args: [site, version],
+    );
+  }
+
+  /// `The broker restarts on the version before and restores the pre-update backup of its control plane. Changes made after the update are lost.`
+  String get bupRollBackNote {
+    return Intl.message(
+      'The broker restarts on the version before and restores the pre-update backup of its control plane. Changes made after the update are lost.',
+      name: 'bupRollBackNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Broker version`
+  String get bupCard {
+    return Intl.message('Broker version', name: 'bupCard', desc: '', args: []);
+  }
+
+  /// `{version} · {latest} is available`
+  String bupCardAvailable(Object version, Object latest) {
+    return Intl.message(
+      '$version · $latest is available',
+      name: 'bupCardAvailable',
+      desc: '',
+      args: [version, latest],
+    );
+  }
+
+  /// `{version} · up to date`
+  String bupCardCurrent(Object version) {
+    return Intl.message(
+      '$version · up to date',
+      name: 'bupCardCurrent',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `{version} is on trial`
+  String bupCardTrial(Object version) {
+    return Intl.message(
+      '$version is on trial',
+      name: 'bupCardTrial',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `{version} · the update was rolled back`
+  String bupCardRolledBack(Object version) {
+    return Intl.message(
+      '$version · the update was rolled back',
+      name: 'bupCardRolledBack',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Update…`
+  String get bupUpdate {
+    return Intl.message('Update…', name: 'bupUpdate', desc: '', args: []);
+  }
+
+  /// `Show…`
+  String get bupShow {
+    return Intl.message('Show…', name: 'bupShow', desc: '', args: []);
+  }
+
+  /// `The offline way, for a broker that does not start or a host without Studio: a copy of data_dir made on the host. The steps, ready to copy:`
+  String get bakOfflineNote {
+    return Intl.message(
+      'The offline way, for a broker that does not start or a host without Studio: a copy of data_dir made on the host. The steps, ready to copy:',
+      name: 'bakOfflineNote',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
