@@ -63,6 +63,26 @@ void main() {
     expect(s.state.brokerUpdate.stage, 'review');
   });
 
+  test('the gateway going away during the call is the expected end', () async {
+    // Review point 13: the broker stops to start the other version.
+    api.errors['$_sys ▸ update'] = WyrmException.of(Status.closed, 'closed');
+    s
+      ..dispatchSync(OpenBrokerUpdateAction())
+      ..dispatchSync(SetConfirmAction('central'));
+
+    final status = await s.dispatchAndWait(UpdateBrokerAction('0.2.0'));
+
+    expect(status.isCompletedOk, isTrue);
+    expect(s.state.brokerUpdate.stage, 'follow');
+
+    api.errors['$_sys ▸ rollback_update'] = WyrmException.of(
+      Status.timeout,
+      'no answer',
+    );
+    final back = await s.dispatchAndWait(RollbackBrokerUpdateAction());
+    expect(back.isCompletedOk, isTrue);
+  });
+
   test('roll back calls rollback_update and follows', () async {
     api.invokes['$_sys ▸ rollback_update'] = [];
     s.dispatchSync(OpenBrokerUpdateAction(follow: true));

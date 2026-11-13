@@ -1,6 +1,8 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/error_kind.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -16,7 +18,16 @@ class RollbackBrokerUpdateAction extends Action
     if (root == null) {
       return null;
     }
-    await invokeOne(deps.wyrm, '$root/sys', 'rollback_update');
+    try {
+      await invokeOne(deps.wyrm, '$root/sys', 'rollback_update');
+    } on StudioException catch (e) {
+      // The broker stops to start the other version: a call that ends
+      // because the gateway went away is the expected end, not a
+      // refusal. Anything else leaves as an error.
+      if (e.error.kind != ErrorKind.reach) {
+        rethrow;
+      }
+    }
     return state.copyWith.brokerUpdate(stage: 'follow');
   }
 }

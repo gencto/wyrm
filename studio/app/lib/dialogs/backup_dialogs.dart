@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/backups/actions/apply_restore_action.dart';
 import 'package:business/redux/backups/actions/cancel_download_action.dart';
@@ -9,6 +10,7 @@ import 'package:business/redux/backups/actions/close_backup_action.dart';
 import 'package:business/redux/backups/actions/create_backup_action.dart';
 import 'package:business/redux/backups/actions/download_backup_action.dart';
 import 'package:business/redux/backups/actions/estimate_backup_action.dart';
+import 'package:business/redux/backups/actions/follow_restore_action.dart';
 import 'package:business/redux/backups/actions/open_backup_action.dart';
 import 'package:business/redux/backups/actions/remove_backup_action.dart';
 import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
@@ -18,6 +20,7 @@ import 'package:business/redux/backups/actions/set_backup_form_action.dart';
 import 'package:business/redux/backups/actions/upload_restore_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
+import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/wyrm/mappers/backup_mapper.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -28,6 +31,7 @@ import 'package:ui/overlays/task_sheet.dart';
 import '../common/app_store.dart';
 import '../common/backup_sheets.dart';
 import '../common/files.dart';
+import '../navigation/app_router.dart';
 
 /// The selectors over a state, for a dialog's converter.
 class _Sel with Selectors {
@@ -73,6 +77,8 @@ Future<void> showBackupDialog(
   // The attributes of sys/backups decide what the dialog offers.
   await store.dispatchAndWait(RetrieveBackupsAction());
   if (!context.mounted || store.state.backups.sections.isEmpty) {
+    // A broker without `sys/backups`: the callers lock their buttons with
+    // the reason, so this is only a broker that lost it meanwhile.
     return;
   }
   store.dispatchSync(OpenBackupAction(link: link, job: job, restore: restore));
@@ -179,7 +185,7 @@ class _BackupDialogState extends State<_BackupDialog> {
             keepDays: b.keepDays,
             downloading: b.downloading == j.id,
             downloaded: b.downloaded,
-            savedTo: b.savedTo,
+            savedTo: b.saved[j.id],
             sending: state.wait.isWaitingForType<SendBackupAction>(),
             reason: s.site.needs('config', '${s.site.root}/sys/backups'),
           );
@@ -234,6 +240,14 @@ class _BackupDialogState extends State<_BackupDialog> {
 
   void _close() => Navigator.of(context).pop();
 
+  /// The passphrase was sent: it is kept no longer than the step that
+  /// needs it.
+  void _forget() {
+    if (mounted) {
+      setState(() => _passphrase = '');
+    }
+  }
+
   Future<void> _primary() async {
     final state = _store.state;
     switch (state.backups.stage) {
@@ -243,7 +257,12 @@ class _BackupDialogState extends State<_BackupDialog> {
         if (d.chosen.contains('keys') && !d.withKeys) {
           _store.dispatchSync(SetBackupFormAction(toggle: 'keys'));
         }
-        await _store.dispatchAndWait(CreateBackupAction(passphrase: _secret));
+        final status = await _store.dispatchAndWait(
+          CreateBackupAction(passphrase: _secret),
+        );
+        if (status.isCompletedOk) {
+          _forget();
+        }
       case 'job':
         final d = _job(state);
         switch (d?.primary) {
@@ -271,10 +290,23 @@ class _BackupDialogState extends State<_BackupDialog> {
           for (final s in d.chosen.difference(d.sent)) {
             _store.dispatchSync(SetBackupFormAction(toggle: s));
           }
-          await _store.dispatchAndWait(
+          final status = await _store.dispatchAndWait(
             ApplyRestoreAction(passphrase: _passphrase),
           );
+          if (status.isCompletedOk) {
+            // Sent; it is needed no more.
+            _forget();
+            if (_store.state.backups.stage == 'restarting') {
+              unawaited(_store.dispatchAndWait(FollowRestoreAction()));
+            }
+          }
         }
+      case 'lost':
+        // The session is no longer the site's: log in again.
+        final router = AutoRouter.of(context);
+        _close();
+        await _store.dispatchAndWait(LogOutAction());
+        await router.replaceAll([const LogInRoute()]);
     }
   }
 
@@ -295,6 +327,7 @@ class _BackupDialogState extends State<_BackupDialog> {
   Future<void> _download(BackupJob job) async {
     final file = await saveInto(
       job.name,
+      fallback: job.kind == 'link' ? 'backup.wyrm-link' : 'backup.wyrm-backup',
       dialogTitle: S.current.bakChooseFolder(job.name),
     );
     if (file == null) {
@@ -306,8 +339,8 @@ class _BackupDialogState extends State<_BackupDialog> {
         path: file.path,
         sha256: job.sha256,
         write: file.write,
-        onDone: file.close,
-        onCancel: file.discard,
+        onDone: file.commit,
+        onDiscard: file.discard,
       ),
     );
   }

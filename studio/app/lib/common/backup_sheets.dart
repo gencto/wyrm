@@ -580,7 +580,10 @@ final class RestoreData {
   /// A check or an apply is in flight.
   final bool busy;
 
-  /// `restore`, `restored` (added live) or `restarting` (replace).
+  /// `restore`; `restored` (added live); after a replace `restarting`,
+  /// then `applied`, `not-applied` (the broker put its state back),
+  /// `unknown` (it is back and says neither) or `lost` (it did not come
+  /// back for this session).
   final String stage;
   final String? result;
   final String? reason;
@@ -634,26 +637,35 @@ TaskSheetVm restoreSheet(RestoreData d) {
   final l = S.current;
   final title = l.rstTitle(d.site);
   if (d.stage != 'restore') {
-    final restart = d.stage == 'restarting';
     return TaskSheetVm(
       title: title,
       sub: d.fileName,
-      blocks: [
-        if (restart)
+      blocks: switch (d.stage) {
+        'restarting' => [
           SheetSpinner(
             title: l.rstRestarting(d.site),
             text: l.rstRestartingNote,
-          )
-        else
-          SheetBanner(title: l.rstAdded, text: d.result),
-        if (restart) ...[
+          ),
           SheetFacts([
             FactVm(label: l.rstFactSections, value: d.result ?? ''),
           ]),
           SheetText(l.rstRestartingMore, small: true),
         ],
-      ],
+        'applied' => [SheetBanner(title: l.rstApplied, text: d.result)],
+        'not-applied' => [
+          SheetBanner(tone: .bad, title: l.rstNotApplied, text: d.result),
+          SheetText(l.rstNotAppliedNote, small: true),
+        ],
+        'unknown' => [
+          SheetBanner(tone: .warn, title: l.rstUnknown, text: l.rstUnknownNote),
+        ],
+        'lost' => [
+          SheetBanner(tone: .warn, title: l.rstLost, text: l.rstLostNote),
+        ],
+        _ => [SheetBanner(title: l.rstAdded, text: d.result)],
+      },
       secondary: l.updClose,
+      primary: d.stage == 'lost' ? l.rstLogIn : null,
     );
   }
   final c = d.check;

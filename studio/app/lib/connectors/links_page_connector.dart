@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
 import 'package:business/redux/links/actions/deauthorize_link_action.dart';
 import 'package:business/redux/links/actions/remove_link_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
@@ -316,6 +317,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         unawaited(dispatchAndWait(RetrieveLinksAction()));
         unawaited(dispatchAndWait(RetrieveQuarantineAction()));
         unawaited(dispatchAndWait(RetrievePackagesAction()));
+        unawaited(dispatchAndWait(RetrieveBackupsAction(quiet: true)));
       },
       onHide: () => dispatch(UnwatchKeysAction(_watch)),
       onTapLinkInstall: () => dispatch(GoAction.push(const LinkInstallRoute())),
@@ -709,6 +711,10 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
               S.current.actBackUp,
               S.current.actBackUpNote,
               'backup',
+              // A wyrmd before ADR 0048 has no `sys/backups`.
+              off:
+                  reason ??
+                  (backups.sections.isEmpty ? S.current.bakNoBackups : null),
             ),
           ],
         ),
@@ -901,7 +907,8 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       case 'sheet-rollback':
         await _rollBack(context);
       case 'sheet-secondary':
-        if (_sheetData?.stage == UpdateStage.progress) {
+        if (_sheetData?.stage == UpdateStage.progress &&
+            _sheetData?.package.previous != null) {
           await _rollBack(context);
         } else {
           dispatchSync(CloseUpdateAction());

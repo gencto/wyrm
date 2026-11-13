@@ -393,11 +393,11 @@ as String?,
 
 
 class InstallSourceBackup implements InstallSource {
-  const InstallSourceBackup({required this.bytes, required this.fileName});
+  const InstallSourceBackup({required this.fileName, required this.size});
   
 
- final  Uint8List bytes;
  final  String fileName;
+ final  int size;
 
 /// Create a copy of InstallSource
 /// with the given fields replaced by the non-null parameter values.
@@ -409,18 +409,18 @@ $InstallSourceBackupCopyWith<InstallSourceBackup> get copyWith => _$InstallSourc
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceBackup&&const DeepCollectionEquality().equals(other.bytes, bytes)&&(identical(other.fileName, fileName) || other.fileName == fileName));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceBackup&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.size, size) || other.size == size));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,const DeepCollectionEquality().hash(bytes),fileName);
+    return Object.hash(runtimeType,fileName,size);
 }
 
 @override
 String toString() {
-    return 'InstallSource.backup(bytes: $bytes, fileName: $fileName)';
+    return 'InstallSource.backup(fileName: $fileName, size: $size)';
 }
 
 
@@ -431,7 +431,7 @@ abstract mixin class $InstallSourceBackupCopyWith<$Res> implements $InstallSourc
   factory $InstallSourceBackupCopyWith(InstallSourceBackup value, $Res Function(InstallSourceBackup) _then) = _$InstallSourceBackupCopyWithImpl;
 @useResult
 $Res call({
- Uint8List bytes, String fileName
+ String fileName, int size
 });
 
 
@@ -448,11 +448,11 @@ class _$InstallSourceBackupCopyWithImpl<$Res>
 
 /// Create a copy of InstallSource
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? bytes = null,Object? fileName = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? fileName = null,Object? size = null,}) {
   return _then(InstallSourceBackup(
-bytes: null == bytes ? _self.bytes : bytes // ignore: cast_nullable_to_non_nullable
-as Uint8List,fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
-as String,
+fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
+as String,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 

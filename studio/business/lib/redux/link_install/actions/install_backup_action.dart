@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:models/install_source.dart';
@@ -20,10 +18,15 @@ import '../../links/actions/retrieve_links_action.dart';
 /// `failed`. Without `accept`, a link with grants or a network allowlist is
 /// not installed and the message lists them.
 ///
-/// [passphrase] comes from the wizard's own state and goes nowhere else.
+/// The file is read through [read], one part at a time, from the handle
+/// the wizard holds: its bytes are in no state. [passphrase] comes from the
+/// wizard's own state and goes nowhere else. An install the broker did not
+/// make drops its upload (`restore_abort`), so a second try leaves none
+/// hanging (the broker keeps two at once).
 class InstallBackupAction extends Action with NonReentrant, WaitingAction {
-  InstallBackupAction({this.passphrase});
+  InstallBackupAction({required this.read, this.passphrase});
 
+  final PartReader read;
   final String? passphrase;
 
   @override
@@ -38,21 +41,17 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
         source is! InstallSourceBackup) {
       return null;
     }
-    final bytes = source.bytes;
-    dispatchSync(_Phase(bytes.length, 0));
+    dispatchSync(_Phase());
+    final backups = 'wy/$broker/sys/backups';
     String? message;
+    String? upload;
     var success = false;
     try {
-      final upload = await uploadParts(
+      upload = await uploadParts(
         deps.wyrm,
-        'wy/$broker/sys/backups',
-        size: bytes.length,
-        read: (offset, length) async => Uint8List.sublistView(
-          bytes,
-          offset,
-          math.min(bytes.length, offset + length),
-        ),
-        onProgress: (sent) => dispatchSync(_Phase(bytes.length, sent)),
+        backups,
+        size: source.size,
+        read: read,
       );
       final rows = await deps.wyrm
           .invoke(
@@ -77,6 +76,8 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
     }
     if (success) {
       unawaited(dispatchAndWait(RetrieveLinksAction()));
+    } else if (upload != null) {
+      await abortUpload(deps.wyrm, backups, upload);
     }
     return state.copyWith.linkInstall(
       phase: success ? 'done' : 'failed',
@@ -87,18 +88,11 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
 }
 
 class _Phase extends Action {
-  _Phase(this.size, this.sent);
-
-  final int size;
-  final int sent;
-
   @override
   AppState reduce() => state.copyWith.linkInstall(
     phase: 'installing',
     message: null,
     refusedField: null,
     refusedSaid: null,
-    backupSize: size,
-    uploaded: sent,
   );
 }

@@ -236,6 +236,115 @@ void main() {
     expect(s.state.updates.queue, isEmpty);
   });
 
+  test('each package of a queue decides its own restore point', () async {
+    // Review point 8: the second package changes the store format, so it
+    // takes a restore point though the review unticked it.
+    const other = 'wy/central/sys/packages/telegram';
+    for (final key in [_pkg, other]) {
+      api
+        ..initial['$key/last_update'] = [
+          ValSample('$key/last_update', Sample(_report('ok', at: 7), t: 1)),
+        ]
+        ..invokes['$key ▸ update'] = [
+          const VMap({'success': VBool(true), 'message': VStr('ok')}),
+        ];
+    }
+    api.initial['$other/changes_state'] = [
+      const ValSample('$other/changes_state', Sample(VBool(true), t: 1)),
+    ];
+    s
+      ..dispatchSync(OpenUpdateAction('modbus', queue: const ['telegram']))
+      ..dispatchSync(SetTakePointAction(false));
+
+    final run = s.dispatchAndWait(
+      UpdatePackageAction(settle: const Duration(milliseconds: 5)),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    api.initial['$_pkg/last_update'] = [
+      ValSample('$_pkg/last_update', Sample(_report('ok', at: 8), t: 2)),
+    ];
+    api.subs.remove('$_pkg/last_update');
+    await run;
+
+    final points = {
+      for (final c in api.calls)
+        if (c.action == 'update') c.key: c.args!['restore_point'],
+    };
+    expect(points, {_pkg: const VBool(false), other: const VBool(true)});
+  });
+
+  test(
+    'a sheet closed during a queue stays closed; the queue goes on',
+    () async {
+      // Review point 10.
+      const other = 'wy/central/sys/packages/telegram';
+      for (final key in [_pkg, other]) {
+        api
+          ..initial['$key/last_update'] = [
+            ValSample('$key/last_update', Sample(_report('ok', at: 7), t: 1)),
+          ]
+          ..invokes['$key ▸ update'] = [
+            const VMap({'success': VBool(true), 'message': VStr('ok')}),
+          ];
+      }
+      s.dispatchSync(OpenUpdateAction('modbus', queue: const ['telegram']));
+
+      final run = s.dispatchAndWait(
+        UpdatePackageAction(settle: const Duration(milliseconds: 5)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      s.dispatchSync(CloseUpdateAction());
+      api.initial['$_pkg/last_update'] = [
+        ValSample('$_pkg/last_update', Sample(_report('ok', at: 8), t: 2)),
+      ];
+      api.subs.remove('$_pkg/last_update');
+      final status = await run;
+
+      expect(status.isCompletedOk, isTrue);
+      expect(
+        [
+          for (final c in api.calls)
+            if (c.action == 'update') c.key,
+        ],
+        [_pkg, other],
+      );
+      expect(s.state.updates.package, isNull);
+    },
+  );
+
+  test('a closed queue that the broker refuses says so as an error', () async {
+    const other = 'wy/central/sys/packages/telegram';
+    api
+      ..initial['$_pkg/last_update'] = [
+        ValSample('$_pkg/last_update', Sample(_report('ok', at: 7), t: 1)),
+      ]
+      ..invokes['$_pkg ▸ update'] = [
+        const VMap({'success': VBool(true), 'message': VStr('ok')}),
+      ]
+      ..invokes['$other ▸ update'] = [
+        const VMap({
+          'success': VBool(false),
+          'message': VStr('telegram asks for more: net 10.0.0.0/8'),
+        }),
+      ];
+    s.dispatchSync(OpenUpdateAction('modbus', queue: const ['telegram']));
+
+    final run = s.dispatchAndWait(
+      UpdatePackageAction(settle: const Duration(milliseconds: 5)),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    s.dispatchSync(CloseUpdateAction());
+    api.initial['$_pkg/last_update'] = [
+      ValSample('$_pkg/last_update', Sample(_report('ok', at: 8), t: 2)),
+    ];
+    api.subs.remove('$_pkg/last_update');
+    final status = await run;
+
+    expect(status.isCompletedFailed, isTrue);
+    expect('${status.originalError}', contains('10.0.0.0/8'));
+    expect(s.state.updates.package, isNull);
+  });
+
   test(
     'a custom package is updated by install_zip on one of its links',
     () async {

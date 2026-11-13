@@ -44,18 +44,29 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
       return null;
     }
     final names = [first, ...updates.queue];
-    final args = <String, Object?>{
-      if (updates.acceptNew) 'accept': true,
-      'restore_point': updates.takePoint,
-      'auto_rollback_s': updates.autoRollback ? 120 : 0,
-    };
+    // The answers of the review, taken once: the queue goes on with them
+    // when the sheet is closed.
+    final accept = updates.acceptNew;
+    final takePoint = updates.takePoint;
+    final autoRollback = updates.autoRollback;
     String? message;
     for (final (i, name) in names.indexed) {
       final key = '$root/sys/packages/$name';
       final before = updateReportOf(
         toDart(await readValue(deps.wyrm, '$key/last_update')),
       );
-      dispatchSync(_Show(name, names.sublist(i + 1), before?.at ?? 0));
+      final seen = before?.at ?? 0;
+      // The restore point is decided for each package: one that changes
+      // the store format always takes it (the broker refuses it without).
+      final changes =
+          zip == null &&
+          (boolean(await readValue(deps.wyrm, '$key/changes_state')) ?? false);
+      final args = <String, Object?>{
+        if (accept) 'accept': true,
+        'restore_point': takePoint || changes,
+        'auto_rollback_s': autoRollback ? 120 : 0,
+      };
+      dispatchSync(_Show(names, name, names.sublist(i + 1), seen));
       final Value answer;
       try {
         if (zip case final bytes?) {
@@ -76,29 +87,36 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
           answer = await invokeOne(deps.wyrm, key, 'update', valueOf(args));
         }
       } on Object {
-        dispatchSync(_Review(null));
+        dispatchSync(_Review(name));
         rethrow;
       }
       message = str(answer['message']);
       if (boolean(answer['success']) == false) {
+        if (updates.package != name) {
+          // The sheet was closed: the queue stops here, and the broker's
+          // words are said as an error instead of in a review nobody sees.
+          requireSuccess(answer, key, 'update', thing: name);
+        }
         // Nothing was installed: the broker's words stay in the review.
         return state.copyWith.updates(view: 'review', asks: message);
       }
       unawaited(dispatchAndWait(RetrievePackagesAction()));
       if (i + 1 < names.length) {
-        await _settled('$key/last_update');
+        await _settled('$key/last_update', seen);
       }
     }
-    return state.copyWith.updates(message: message);
+    return updates.package == names.last
+        ? state.copyWith.updates(message: message)
+        : null;
   }
 
   /// Waits for the health check of the package to end (at most the longest
   /// check, 600 s, and the restart before it).
-  Future<void> _settled(String key) async {
+  Future<void> _settled(String key, int seen) async {
     final until = DateTime.now().add(const Duration(seconds: 700));
     while (DateTime.now().isBefore(until)) {
       final r = updateReportOf(toDart(await readValue(deps.wyrm, key)));
-      if (r != null && r.result != 'checking' && r.at != updates.seenAt) {
+      if (r != null && r.result != 'checking' && r.at != seen) {
         return;
       }
       await Future<void>.delayed(settle);
@@ -106,29 +124,41 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
   }
 }
 
+/// Moves the sheet to the next package of the queue. A sheet the user
+/// closed stays closed (the queue goes on; the Updates tab shows each
+/// package as it is checked), and a sheet opened on another package is not
+/// taken over.
 class _Show extends Action {
-  _Show(this.package, this.queue, this.seenAt);
+  _Show(this.all, this.package, this.queue, this.seenAt);
 
+  /// Every package of this run.
+  final List<String> all;
   final String package;
   final List<String> queue;
   final int seenAt;
 
   @override
-  AppState reduce() => state.copyWith.updates(
-    package: package,
-    queue: queue.lock,
-    view: 'follow',
-    seenAt: seenAt,
-    asks: null,
-    message: null,
-  );
+  AppState? reduce() => !all.contains(updates.package)
+      ? null
+      : state.copyWith.updates(
+          package: package,
+          queue: queue.lock,
+          view: 'follow',
+          seenAt: seenAt,
+          asks: null,
+          message: null,
+        );
 }
 
+/// Back to the review of [package] after a refusal, when its sheet is
+/// still the one shown.
 class _Review extends Action {
-  _Review(this.asks);
+  _Review(this.package);
 
-  final String? asks;
+  final String package;
 
   @override
-  AppState reduce() => state.copyWith.updates(view: 'review', asks: asks);
+  AppState? reduce() => updates.package != package
+      ? null
+      : state.copyWith.updates(view: 'review', asks: null);
 }

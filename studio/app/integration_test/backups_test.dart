@@ -31,6 +31,9 @@ const gateway = String.fromEnvironment('WYRM_GATEWAY');
 const link = String.fromEnvironment('WYRM_LINK', defaultValue: 'mock');
 
 // ignore: do_not_use_environment, a test parameter.
+const onlyBroker = bool.fromEnvironment('WYRM_ONLY_BROKER');
+
+// ignore: do_not_use_environment, a test parameter.
 const withPackages = bool.fromEnvironment('WYRM_PACKAGES');
 
 void main() {
@@ -141,6 +144,19 @@ void main() {
     );
     debugPrint('downloaded ${broker.path} ${broker.lengthSync()} bytes');
     expect(broker.lengthSync(), greaterThan(0));
+    // No `.part` is left beside the file.
+    expect(out.listSync().where((f) => f.path.endsWith('.part')), isEmpty);
+    if (onlyBroker) {
+      // A demo that is not this test's: its own backup is removed again
+      // and nothing else is touched.
+      await tap(tester, find.text('Remove'));
+      await settle(tester, 800);
+      await tester.tap(find.text('Remove').last);
+      await settle(tester, 3000);
+      await shot(tester, '35_backup_removed');
+      expect(find.text('Backup ready'), findsNothing);
+      return;
+    }
     await tap(tester, find.text('Show in Backups'));
     await settle(tester);
     await shot(tester, '35_backups_list');

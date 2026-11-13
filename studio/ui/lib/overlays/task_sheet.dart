@@ -531,6 +531,10 @@ class TaskSheet extends StatelessWidget {
         children: [
           for (final (i, b) in vm.blocks.indexed)
             Padding(
+              // A field is found again by its id when the blocks before it
+              // change (a check adds cards above the passphrase), so what
+              // was typed stays in it.
+              key: b is SheetField ? ValueKey('block-field-${b.id}') : null,
               padding: EdgeInsets.only(top: i == 0 ? 0 : _gap(vm.blocks, i)),
               child: _block(context, b, card),
             ),

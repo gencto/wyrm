@@ -49,6 +49,45 @@ void main() {
   testWidgets('restore', (t) => shoot(t, 'backup_restore', backupRestore()));
   testWidgets('link', (t) => shoot(t, 'link_backup', linkBackup()));
 
+  testWidgets('the passphrase stays typed when the check adds blocks', (
+    t,
+  ) async {
+    // Not reviewed, checked: the restore dialog before and after the check.
+    Widget sheet(List<SheetBlock> before) => frame(
+      TaskSheet(
+        dialog: true,
+        vm: TaskSheetVm(
+          title: 'Restore',
+          blocks: [
+            ...before,
+            const SheetField(
+              id: 'passphrase',
+              label: 'Passphrase',
+              secret: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    await t.pumpWidget(
+      sheet(const [SheetCard(title: 'The file is on the broker')]),
+    );
+    await t.enterText(find.byType(TextField), 'correct-horse-battery');
+    await t.pumpWidget(
+      sheet(const [
+        SheetLabel('Checked'),
+        SheetCard(title: 'From plant'),
+        SheetCard(title: 'The same keys'),
+        SheetSection(id: 'control', name: 'Control plane', on: true),
+        SheetOption(id: 'accept', label: 'Accept', value: false),
+      ]),
+    );
+    expect(
+      t.widget<TextField>(find.byType(TextField)).controller!.text,
+      'correct-horse-battery',
+    );
+  });
+
   testWidgets('sections, chips, choices and fields report', (t) async {
     final got = <String>[];
     await t.pumpWidget(

@@ -371,6 +371,21 @@ PackageReport checkBackup(Uint8List bytes) {
   );
 }
 
+/// A link backup too large to read here: the broker alone checks it.
+PackageReport checkLargeBackup(int size) => (
+  checks: [
+    _skip(
+      'Archive, manifest, link',
+      '${size >> 20} MiB: not read by Studio; checked by the broker after '
+          'the upload. Give the link its name on the next step',
+    ),
+  ],
+  manifest: null,
+  name: null,
+  kind: null,
+  rights: null,
+);
+
 /// A URL or a Git repository: fetched and checked by the broker only.
 PackageReport checkRemote(String what) => (
   checks: [

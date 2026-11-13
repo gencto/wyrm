@@ -38,6 +38,7 @@ import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/link_install_page.dart';
 import 'package:ui/shell/window_bar.dart';
 
+import '../common/app_store.dart';
 import '../common/files.dart';
 import '../common/window.dart';
 import '../navigation/go_action.dart';
@@ -58,6 +59,29 @@ class _LinkInstallPageConnectorState extends State<LinkInstallPageConnector> {
   /// The passphrase of a link backup: typed in the wizard, handed to the
   /// install action, kept nowhere else.
   var _passphrase = '';
+
+  /// The link backup the user picked, open for reading in parts. Only its
+  /// name and size are in the store; its bytes are read from here when the
+  /// check and the upload need them.
+  PickedFile? _file;
+
+  @override
+  void dispose() {
+    unawaited(_file?.close());
+    super.dispose();
+  }
+
+  Future<void> _pickBackup(Store<AppState> store) async {
+    final f = await pickFile(extensions: const ['wyrm-link']);
+    if (f == null) {
+      return;
+    }
+    await _file?.close();
+    _file = f;
+    store.dispatchSync(
+      SetSourceAction(InstallSource.backup(fileName: f.name, size: f.size)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
@@ -81,7 +105,9 @@ class _LinkInstallPageConnectorState extends State<LinkInstallPageConnector> {
       onItem: vm.onItem,
       bring: vm.bring,
       onMethod: vm.onMethod,
-      onPickFile: vm.onPickFile,
+      onPickFile: vm.fromBackup
+          ? () => unawaited(_pickBackup(AppStore.of(context)))
+          : vm.onPickFile,
       checks: vm.checks,
       manifest: vm.manifest,
       target: vm.target,
@@ -93,7 +119,7 @@ class _LinkInstallPageConnectorState extends State<LinkInstallPageConnector> {
       installing: vm.installing,
       onStep: vm.onStep,
       onBack: vm.onBack,
-      onNext: vm.onNext == null ? null : () => vm.onNext!(_passphrase),
+      onNext: vm.onNext == null ? null : () => vm.onNext!(_passphrase, _file),
       nextReason: vm.nextReason,
       onSecret: (v) => _passphrase = v,
     ),
@@ -295,6 +321,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
                   ]
                 : const []),
       installing: installing,
+      fromBackup: _backup,
       nextReason: last ? null : nextReason,
       onClose: () => dispatch(GoAction.pop()),
       onSource: (p) => dispatch(ChooseInstallSourceAction(p)),
@@ -321,17 +348,34 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
                   )),
       onNext: last
           ? null
-          : (passphrase) async {
+          : (passphrase, file) async {
               if (key == 'run') {
+                if (_backup && file == null) {
+                  return;
+                }
                 dispatchSync(SetStepAction(step + 1));
                 await dispatchAndWait(
                   _backup
-                      ? InstallBackupAction(passphrase: passphrase)
+                      ? InstallBackupAction(
+                          read: file!.read,
+                          passphrase: passphrase,
+                        )
                       : InstallLinkAction(),
                 );
                 return;
               }
-              if (!_official && key == 'choose') {
+              if (_backup && key == 'choose') {
+                // A file Studio can hold is read once for its manifest;
+                // the bytes go to the check and are kept nowhere.
+                final small =
+                    file != null &&
+                    file.size <= CheckPackageAction.backupReadMax;
+                await dispatchAndWait(
+                  CheckPackageAction(
+                    backup: small ? await file.read(0, file.size) : null,
+                  ),
+                );
+              } else if (!_official && key == 'choose') {
                 await dispatchAndWait(CheckPackageAction());
               }
               dispatchSync(SetStepAction(step + 1));
@@ -585,24 +629,6 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
   }
 
   Future<void> _pick() async {
-    if (_backup) {
-      final f = await pickFile(extensions: const ['wyrm-link']);
-      if (f != null) {
-        try {
-          dispatchSync(
-            SetSourceAction(
-              InstallSource.backup(
-                bytes: await f.read(0, f.size),
-                fileName: f.name,
-              ),
-            ),
-          );
-        } finally {
-          await f.close();
-        }
-      }
-      return;
-    }
     final wasm = linkInstall.method == 'wasm';
     final f = await FilePicker.pickFile(
       type: FileType.custom,
@@ -710,6 +736,7 @@ class _Vm extends Vm {
     required this.result,
     required this.resultActions,
     required this.installing,
+    required this.fromBackup,
     required this.nextReason,
     required this.onClose,
     required this.onSource,
@@ -739,6 +766,7 @@ class _Vm extends Vm {
            result,
            resultActions,
            installing,
+           fromBackup,
            nextReason,
            onBack != null,
            onNext != null,
@@ -773,6 +801,10 @@ class _Vm extends Vm {
   final ValueChanged<String> onMode;
   final ValueChanged<int>? onStep;
   final VoidCallback? onBack;
-  final Future<void> Function(String passphrase)? onNext;
+  final Future<void> Function(String passphrase, PickedFile? file)? onNext;
+
+  /// The source is a link backup: the wizard's own state picks and holds
+  /// the file.
+  final bool fromBackup;
   final ValueChanged<String> onResultAction;
 }

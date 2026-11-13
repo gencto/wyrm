@@ -1744,5 +1744,16 @@
     "bupCardRolledBack": "{version} · the update was rolled back",
     "bupUpdate": "Update…",
     "bupShow": "Show…",
-    "bakOfflineNote": "The offline way, for a broker that does not start or a host without Studio: a copy of data_dir made on the host. The steps, ready to copy:"
+    "bakOfflineNote": "The offline way, for a broker that does not start or a host without Studio: a copy of data_dir made on the host. The steps, ready to copy:",
+    "rstApplied": "The backup was applied; the broker runs on it",
+    "rstNotApplied": "The restore was not applied",
+    "rstNotAppliedNote": "The broker put everything back and runs on the state it had. The plan and the reason are kept on the host in data_dir/restore.failed.",
+    "rstUnknown": "The broker is back",
+    "rstUnknownNote": "Its audit shows neither restore_applied nor restore_failed yet. Look at System › Log before you rely on the restore.",
+    "rstLost": "The broker did not come back for this session",
+    "rstLostNote": "It may still be starting, or it runs with other keys: after a restore of Keys and secrets this session is no longer the site's. Log in again; if the gateway does not answer, look at the broker on its host.",
+    "rstLogIn": "Log in again",
+    "updVersionsOf": "Versions of {package}",
+    "updNeverUpdated": "This package was not updated on this broker yet.",
+    "bakNoBackups": "This broker makes no backups for Studio (a wyrmd before ADR 0048)."
 }

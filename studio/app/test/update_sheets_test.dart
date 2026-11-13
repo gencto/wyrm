@@ -206,6 +206,22 @@ void main() {
     expect(updatePrimary(d), 'rollback');
   });
 
+  test('restore points without any update: no progress, no rollback', () {
+    // Review point 9.
+    final d = _data(_pkg(), follow: true);
+    expect(d.stage, UpdateStage.points);
+    final vm = updateSheet(d);
+    expect(vm.title, 'Versions of modbus');
+    expect(vm.primary, isNull);
+    expect(vm.secondary, 'Close');
+    expect(vm.blocks.whereType<SheetSteps>(), isEmpty);
+    expect(vm.blocks.whereType<SheetRow>().single.action, isNull);
+    expect(updatePrimary(d), '');
+
+    // The first update of a package, started from this sheet: progress.
+    expect(_data(_pkg(), follow: true, seenAt: 0).stage, UpdateStage.progress);
+  });
+
   test('sizes read in binary units', () {
     expect(bytesText(812), '812 B');
     expect(bytesText(48 * 1024), '48 KiB');

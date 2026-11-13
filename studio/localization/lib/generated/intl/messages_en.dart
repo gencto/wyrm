@@ -759,36 +759,38 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m327(package) => "Updating ${package}";
 
-  static String m328(version) => "What is new in ${version}";
+  static String m328(package) => "Versions of ${package}";
 
-  static String m329(v) => "Version ${v} · deployed";
+  static String m329(version) => "What is new in ${version}";
 
-  static String m330(site) => "via ${site}";
+  static String m330(v) => "Version ${v} · deployed";
 
-  static String m331(delimiter, header) =>
+  static String m331(site) => "via ${site}";
+
+  static String m332(delimiter, header) =>
       "Read as the block reads it: delimiter ${delimiter}, ${header}";
 
-  static String m332(keys) => "${keys} saves · Esc cancels";
+  static String m333(keys) => "${keys} saves · Esc cancels";
 
-  static String m333(keys) => "${keys} saves · Esc discards the changes";
+  static String m334(keys) => "${keys} saves · Esc discards the changes";
 
-  static String m334(n, who) => "${n} waiting to be let in: ${who}";
+  static String m335(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m335(value) => "was ${value}";
+  static String m336(value) => "was ${value}";
 
-  static String m336(n) => "Watch groups · ${n}";
+  static String m337(n) => "Watch groups · ${n}";
 
-  static String m337(user) => "Welcome, ${user}";
+  static String m338(user) => "Welcome, ${user}";
 
-  static String m338(value) => "would run on ${value}";
+  static String m339(value) => "would run on ${value}";
 
-  static String m339(value) => "would send ${value}";
+  static String m340(value) => "would send ${value}";
 
-  static String m340(value) => "would write ${value}";
+  static String m341(value) => "would write ${value}";
 
-  static String m341(level) => "Turning this on needs ${level} level";
+  static String m342(level) => "Turning this on needs ${level} level";
 
-  static String m342(site) => "wyrmd on ${site}";
+  static String m343(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -1023,6 +1025,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "bakNeedsConfig": MessageLookupByLibrary.simpleMessage("config on sys"),
     "bakNeedsConfigLinks": MessageLookupByLibrary.simpleMessage(
       "config on sys/links",
+    ),
+    "bakNoBackups": MessageLookupByLibrary.simpleMessage(
+      "This broker makes no backups for Studio (a wyrmd before ADR 0048).",
     ),
     "bakNoConnections": MessageLookupByLibrary.simpleMessage(
       "This link has no connection.",
@@ -2409,6 +2414,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstAdded": MessageLookupByLibrary.simpleMessage(
       "Added; nothing was replaced, no restart",
     ),
+    "rstApplied": MessageLookupByLibrary.simpleMessage(
+      "The backup was applied; the broker runs on it",
+    ),
     "rstCheck": MessageLookupByLibrary.simpleMessage("Check the file"),
     "rstChecked": MessageLookupByLibrary.simpleMessage("Checked"),
     "rstChoose": MessageLookupByLibrary.simpleMessage("Choose the file…"),
@@ -2450,6 +2458,19 @@ class MessageLookup extends MessageLookupByLibrary {
       "Every key file of the backup is this broker\'s; tokens and certificates stay valid.",
     ),
     "rstLinks": m209,
+    "rstLogIn": MessageLookupByLibrary.simpleMessage("Log in again"),
+    "rstLost": MessageLookupByLibrary.simpleMessage(
+      "The broker did not come back for this session",
+    ),
+    "rstLostNote": MessageLookupByLibrary.simpleMessage(
+      "It may still be starting, or it runs with other keys: after a restore of Keys and secrets this session is no longer the site\'s. Log in again; if the gateway does not answer, look at the broker on its host.",
+    ),
+    "rstNotApplied": MessageLookupByLibrary.simpleMessage(
+      "The restore was not applied",
+    ),
+    "rstNotAppliedNote": MessageLookupByLibrary.simpleMessage(
+      "The broker put everything back and runs on the state it had. The plan and the reason are kept on the host in data_dir/restore.failed.",
+    ),
     "rstNotInAdd": MessageLookupByLibrary.simpleMessage(
       "Add takes links and storage only.",
     ),
@@ -2503,6 +2524,10 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "rstTick": MessageLookupByLibrary.simpleMessage("tick what to bring back"),
     "rstTitle": m213,
+    "rstUnknown": MessageLookupByLibrary.simpleMessage("The broker is back"),
+    "rstUnknownNote": MessageLookupByLibrary.simpleMessage(
+      "Its audit shows neither restore_applied nor restore_failed yet. Look at System › Log before you rely on the restore.",
+    ),
     "rstUploaded": MessageLookupByLibrary.simpleMessage(
       "The file is on the broker",
     ),
@@ -3268,6 +3293,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "updNeedsConfig": MessageLookupByLibrary.simpleMessage(
       "Needs config on sys/links",
     ),
+    "updNeverUpdated": MessageLookupByLibrary.simpleMessage(
+      "This package was not updated on this broker yet.",
+    ),
     "updNewTile": MessageLookupByLibrary.simpleMessage("new"),
     "updNoNotes": MessageLookupByLibrary.simpleMessage(
       "The repository gives no notes for this version.",
@@ -3363,10 +3391,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "updUpdatingSub": MessageLookupByLibrary.simpleMessage(
       "Values of its links pause while each restarts.",
     ),
+    "updVersionsOf": m328,
     "updWhatChanges": MessageLookupByLibrary.simpleMessage(
       "What changes for the broker",
     ),
-    "updWhatIsNew": m328,
+    "updWhatIsNew": m329,
     "updWorking": MessageLookupByLibrary.simpleMessage("installing"),
     "updating": MessageLookupByLibrary.simpleMessage("Updating…"),
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
@@ -3386,8 +3415,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "a preview of the draft; nothing is written",
     ),
-    "versionDeployed": m329,
-    "viaSite": m330,
+    "versionDeployed": m330,
+    "viaSite": m331,
     "viewValue": MessageLookupByLibrary.simpleMessage("View value"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true or false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -3403,7 +3432,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerCsvRefused": MessageLookupByLibrary.simpleMessage(
       "The block refuses this text (parse_error): it has no row, or it passes a bound of a table.",
     ),
-    "viewerCsvRules": m331,
+    "viewerCsvRules": m332,
     "viewerCsvWired": MessageLookupByLibrary.simpleMessage(
       "A wire feeds the delimiter or the header: the table uses the values they hold now.",
     ),
@@ -3423,19 +3452,19 @@ class MessageLookup extends MessageLookupByLibrary {
       "Read only: the block computes this output.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Save"),
-    "viewerSaveHint": m332,
+    "viewerSaveHint": m333,
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("As table"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Text"),
-    "viewerTableHint": m333,
+    "viewerTableHint": m334,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m334,
-    "wasValue": m335,
+    "waitingToBeLetIn": m335,
+    "wasValue": m336,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m336,
-    "welcomeUser": m337,
+    "watchGroups": m337,
+    "welcomeUser": m338,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
@@ -3477,10 +3506,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "wouldRun": m338,
-    "wouldSend": m339,
-    "wouldWrite": m340,
-    "writableNeeds": m341,
+    "wouldRun": m339,
+    "wouldSend": m340,
+    "wouldWrite": m341,
+    "writableNeeds": m342,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.",
     ),
@@ -3492,7 +3521,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m342,
+    "wyrmdOn": m343,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

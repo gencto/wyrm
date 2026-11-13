@@ -56,8 +56,5 @@ class OpenBackupAction extends Action {
     replaceKeys: false,
     acceptRights: false,
     result: null,
-    // What an earlier dialog downloaded is not this one's.
-    savedTo: null,
-    downloaded: backups.downloading == null ? 0 : backups.downloaded,
   );
 }

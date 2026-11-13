@@ -60,6 +60,7 @@ sequenceDiagram
     participant A2 as RetrieveLinksAction
     participant A3 as RetrieveQuarantineAction
     participant A4 as RetrievePackagesAction
+    participant A5 as RetrieveBackupsAction
     participant ST as AppState
 
     User->>UI: onShow
@@ -79,6 +80,10 @@ sequenceDiagram
     Note over A4: WaitingAction · async
     A4->>ST: copyWith(packages.table, packages.view)
     A4-->>-VM: ActionStatus
+    VM->>+A5: dispatchAndWait
+    Note over A5: WaitingAction · async
+    A5->>ST: copyWith(backups.table, backups.view, backups.sections)
+    A5-->>-VM: ActionStatus
 ```
 
 ## onHide
@@ -207,7 +212,7 @@ sequenceDiagram
         A5->>ST: dispatchAndWait(RetrievePackagesAction)
         A5-->>-VM: ActionStatus
     end
-    alt _sheetData?.stage == UpdateStage.progress
+    alt _sheetData?.stage == UpdateStage.progress && _sheetData?.package.previous != null
         VM->>A4: dispatchSync
         A4->>ST: copyWith(updates)
     end
@@ -275,7 +280,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `settings.onChanged` | `SetAdmissionOptionsAction`, `SetAdmissionOptionsAction` | — |
 | `onSheetToggle` | `SetTakePointAction`, `SetAutoRollbackAction`, `SetAcceptNewAction` | `updates.takePoint`, `updates.autoRollback`, `updates.acceptNew` |
-| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePackagesAction` | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `quarantine.table, quarantine.view, quarantine.forms`, `packages.table, packages.view` |
+| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePackagesAction`, `RetrieveBackupsAction` | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `quarantine.table, quarantine.view, quarantine.forms`, `packages.table, packages.view`, `backups.table, backups.view, backups.sections` |
 | `onHide` | `UnwatchKeysAction` | `live.watched` |
 | `onTapLinkInstall` | `GoAction.push` | — |
 | `onTab` | `SetTabAction` | `links.tab` |

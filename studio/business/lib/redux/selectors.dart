@@ -702,12 +702,6 @@ extension type SelectLinkInstall(AppState _state) {
 
   /// Returns refusedSaid
   String? get refusedSaid => _state.linkInstall.refusedSaid;
-
-  /// Returns backupSize
-  int get backupSize => _state.linkInstall.backupSize;
-
-  /// Returns uploaded
-  int get uploaded => _state.linkInstall.uploaded;
 }
 
 extension type SelectPeers(AppState _state) {
@@ -1230,9 +1224,6 @@ extension type SelectBackups(AppState _state) {
   /// Returns downloaded
   int get downloaded => _state.backups.downloaded;
 
-  /// Returns savedTo
-  String? get savedTo => _state.backups.savedTo;
-
   /// Returns upload
   String? get upload => _state.backups.upload;
 
@@ -1262,6 +1253,9 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveBackupsAction>();
+
+  /// Returns saved
+  IMap<String, String> get saved => _state.backups.saved;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

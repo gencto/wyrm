@@ -139,8 +139,10 @@ class _BrokerUpdateDialogState extends State<_BrokerUpdateDialog> {
         _store.dispatchSync(SetTabAction(SystemPage.logTab));
         _close();
       case .external:
+        // The navigator's own context outlives this dialog.
+        final below = Navigator.of(context).context;
         _close();
-        await showBackupDialog(context);
+        await showBackupDialog(below);
       case .restarting:
         break;
     }

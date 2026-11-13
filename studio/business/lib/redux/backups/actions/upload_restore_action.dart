@@ -33,9 +33,24 @@ class UploadRestoreAction extends Action with NonReentrant, WaitingAction {
       );
     } on TransferCancelled {
       return null;
+    } on Object {
+      // The dialog goes back to *Choose the file…*: another file, or the
+      // same one again. The error leaves as every refusal does.
+      dispatchSync(_Failed());
+      rethrow;
     }
     return state.copyWith.backups(upload: upload, uploaded: size);
   }
+}
+
+class _Failed extends Action {
+  @override
+  AppState reduce() => state.copyWith.backups(
+    upload: null,
+    uploadName: null,
+    uploadSize: 0,
+    uploaded: 0,
+  );
 }
 
 class _Progress extends Action {

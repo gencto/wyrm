@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
@@ -10,6 +12,16 @@ import '../../common/action.dart';
 /// here on a zip or a component the user picked (the broker runs them again
 /// on install); a URL or a Git repository is checked by the broker alone.
 class CheckPackageAction extends Action {
+  CheckPackageAction({this.backup});
+
+  /// The bytes of a link backup small enough to read here ([backupReadMax]);
+  /// null for a larger one, which the broker alone checks. They are an
+  /// argument of this run and are kept nowhere.
+  final Uint8List? backup;
+
+  /// The largest link backup whose manifest Studio reads itself.
+  static const int backupReadMax = 64 << 20;
+
   @override
   Future<AppState?> reduce() async {
     final source = linkInstall.source;
@@ -23,7 +35,10 @@ class CheckPackageAction extends Action {
     final report = switch (source) {
       InstallSourceZip(:final bytes) => checkZip(bytes, host: host),
       InstallSourceWasm(:final bytes) => checkWasm(bytes),
-      InstallSourceBackup(:final bytes) => checkBackup(bytes),
+      InstallSourceBackup(:final size) => switch (backup) {
+        final bytes? => checkBackup(bytes),
+        null => checkLargeBackup(size),
+      },
       InstallSourceUrl(:final url) => checkRemote(url),
       InstallSourceGit(:final url) => checkRemote(url),
       _ => checkRemote('it'),

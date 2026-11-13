@@ -13865,6 +13865,111 @@ class S {
       args: [],
     );
   }
+
+  /// `The backup was applied; the broker runs on it`
+  String get rstApplied {
+    return Intl.message(
+      'The backup was applied; the broker runs on it',
+      name: 'rstApplied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The restore was not applied`
+  String get rstNotApplied {
+    return Intl.message(
+      'The restore was not applied',
+      name: 'rstNotApplied',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker put everything back and runs on the state it had. The plan and the reason are kept on the host in data_dir/restore.failed.`
+  String get rstNotAppliedNote {
+    return Intl.message(
+      'The broker put everything back and runs on the state it had. The plan and the reason are kept on the host in data_dir/restore.failed.',
+      name: 'rstNotAppliedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker is back`
+  String get rstUnknown {
+    return Intl.message(
+      'The broker is back',
+      name: 'rstUnknown',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Its audit shows neither restore_applied nor restore_failed yet. Look at System › Log before you rely on the restore.`
+  String get rstUnknownNote {
+    return Intl.message(
+      'Its audit shows neither restore_applied nor restore_failed yet. Look at System › Log before you rely on the restore.',
+      name: 'rstUnknownNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker did not come back for this session`
+  String get rstLost {
+    return Intl.message(
+      'The broker did not come back for this session',
+      name: 'rstLost',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It may still be starting, or it runs with other keys: after a restore of Keys and secrets this session is no longer the site's. Log in again; if the gateway does not answer, look at the broker on its host.`
+  String get rstLostNote {
+    return Intl.message(
+      'It may still be starting, or it runs with other keys: after a restore of Keys and secrets this session is no longer the site\'s. Log in again; if the gateway does not answer, look at the broker on its host.',
+      name: 'rstLostNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Log in again`
+  String get rstLogIn {
+    return Intl.message('Log in again', name: 'rstLogIn', desc: '', args: []);
+  }
+
+  /// `Versions of {package}`
+  String updVersionsOf(Object package) {
+    return Intl.message(
+      'Versions of $package',
+      name: 'updVersionsOf',
+      desc: '',
+      args: [package],
+    );
+  }
+
+  /// `This package was not updated on this broker yet.`
+  String get updNeverUpdated {
+    return Intl.message(
+      'This package was not updated on this broker yet.',
+      name: 'updNeverUpdated',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This broker makes no backups for Studio (a wyrmd before ADR 0048).`
+  String get bakNoBackups {
+    return Intl.message(
+      'This broker makes no backups for Studio (a wyrmd before ADR 0048).',
+      name: 'bakNoBackups',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

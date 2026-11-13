@@ -29,7 +29,6 @@ abstract class BackupsState with _$BackupsState {
     String? job,
     String? downloading,
     @Default(0) int downloaded,
-    String? savedTo,
     String? upload,
     String? uploadName,
     @Default(0) int uploadSize,
@@ -39,5 +38,6 @@ abstract class BackupsState with _$BackupsState {
     @Default(false) bool replaceKeys,
     @Default(false) bool acceptRights,
     String? result,
+    @Default(IMapConst({})) IMap<String, String> saved,
   }) = _BackupsState;
 }

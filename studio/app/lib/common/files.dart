@@ -21,7 +21,17 @@ final class PickedFile {
     }
     final f = _file!;
     await f.setPosition(offset);
-    return f.read(length);
+    // One read may return fewer bytes than asked for (a large file, a
+    // network volume): read on until the part is whole or the file ends.
+    final out = BytesBuilder(copy: false);
+    while (out.length < length) {
+      final chunk = await f.read(length - out.length);
+      if (chunk.isEmpty) {
+        break;
+      }
+      out.add(chunk);
+    }
+    return out.takeBytes();
   }
 
   Future<void> close() async => _file?.close();
@@ -67,12 +77,16 @@ Future<PickedFile?> pickFile({List<String> extensions = const []}) async {
   return PickedFile._(f.name, bytes.length, null, bytes);
 }
 
-/// A file being written in parts into a folder the user chose.
+/// A file being written in parts into a folder the user chose. The parts
+/// go into `<path>.part`; the file gets its name only by [commit], so a
+/// download that stops half way (an error, a crash) never leaves a file
+/// that looks whole.
 final class SavingFile {
-  SavingFile._(this.path, this._file, this._sink);
+  SavingFile._(this.path, this._part, this._sink);
 
+  /// The name the file gets when it is whole.
   final String path;
-  final File _file;
+  final File _part;
   final IOSink _sink;
 
   Future<void> write(Uint8List part) async {
@@ -80,21 +94,87 @@ final class SavingFile {
     await _sink.flush();
   }
 
-  Future<void> close() => _sink.close();
-
-  /// Closes it and removes what was written.
-  Future<void> discard() async {
+  /// Closes the file and gives it its name. Called once what arrived was
+  /// checked.
+  Future<void> commit() async {
     await _sink.close();
-    if (_file.existsSync()) {
-      await _file.delete();
+    await _part.rename(path);
+  }
+
+  /// Closes it and removes what was written. It never throws: after a
+  /// write error the close fails again, and the partial file must still
+  /// go.
+  Future<void> discard() async {
+    try {
+      await _sink.close();
+    } on Object {
+      // The error that ended the write; said by the caller.
+    }
+    try {
+      if (_part.existsSync()) {
+        await _part.delete();
+      }
+    } on Object {
+      // Left behind; the next download of this name removes it.
     }
   }
 }
 
-/// Asks for a folder and opens `<folder>/<name>` in it for writing. A file
-/// of that name is never replaced: the new one gets ` (2)`, ` (3)`, …
-/// before its extension. Null when the user chose nothing.
-Future<SavingFile?> saveInto(String name, {String? dialogTitle}) async {
+/// The names Windows keeps for devices, whatever their extension.
+const _reserved = {
+  'con',
+  'prn',
+  'aux',
+  'nul',
+  'com1',
+  'com2',
+  'com3',
+  'com4',
+  'com5',
+  'com6',
+  'com7',
+  'com8',
+  'com9',
+  'lpt1',
+  'lpt2',
+  'lpt3',
+  'lpt4',
+  'lpt5',
+  'lpt6',
+  'lpt7',
+  'lpt8',
+  'lpt9',
+};
+
+/// [name] as a file name that stays in the folder it is written into, or
+/// null when it cannot be one. A name that comes from a broker is data:
+/// only its last path segment counts, and `.`, `..`, an empty name, a
+/// control character, a character a file system refuses, or a device name
+/// is refused.
+String? safeFileName(String name) {
+  final last = name.split(RegExp(r'[/\\]')).last.trim();
+  if (last.isEmpty ||
+      last == '.' ||
+      last == '..' ||
+      last.length > 200 ||
+      last.endsWith('.') ||
+      RegExp(r'[\x00-\x1f<>:"|?*]').hasMatch(last) ||
+      _reserved.contains(last.split('.').first.toLowerCase())) {
+    return null;
+  }
+  return last;
+}
+
+/// Asks for a folder and opens a file for `<folder>/<name>` in it. [name]
+/// goes through [safeFileName]; one that is refused becomes [fallback]. A
+/// file of that name is never replaced: the new one gets ` (2)`, ` (3)`, …
+/// before its extension. A `.part` file left by an earlier download of the
+/// name is removed. Null when the user chose nothing.
+Future<SavingFile?> saveInto(
+  String name, {
+  required String fallback,
+  String? dialogTitle,
+}) async {
   final dir = await switch (directoryPicker) {
     final pick? => pick(dialogTitle),
     null => FilePicker.getDirectoryPath(dialogTitle: dialogTitle),
@@ -102,8 +182,16 @@ Future<SavingFile?> saveInto(String name, {String? dialogTitle}) async {
   if (dir == null) {
     return null;
   }
-  final file = File(freeName(dir, name, (p) => File(p).existsSync()));
-  return SavingFile._(file.path, file, file.openWrite());
+  final path = freeName(
+    dir,
+    safeFileName(name) ?? fallback,
+    (p) => File(p).existsSync(),
+  );
+  final part = File('$path.part');
+  if (part.existsSync()) {
+    await part.delete();
+  }
+  return SavingFile._(path, part, part.openWrite());
 }
 
 /// `<dir>/<name>`, or the first `<dir>/<stem> (n)<ext>` that is not

@@ -7,7 +7,7 @@ import 'package:ui/overlays/task_sheet.dart';
 import 'sizes.dart';
 
 /// Which screen of an update the sheet shows.
-enum UpdateStage { review, progress, result }
+enum UpdateStage { review, progress, result, points }
 
 /// What the update sheet of one package is built from (boards
 /// `LinkUpdate*`, spec `docs/design/specs/updates-backups.md` §1).
@@ -81,9 +81,15 @@ final class UpdateSheetData {
       return .review;
     }
     final r = package.lastUpdate;
-    return busy || r == null || r.at == seenAt || r.result == 'checking'
-        ? .progress
-        : .result;
+    if (busy) {
+      return .progress;
+    }
+    if (r == null) {
+      // No update was ever made and none was started from this sheet
+      // (`seenAt` is -1 then): only the restore points are there to show.
+      return seenAt == -1 ? .points : .progress;
+    }
+    return r.at == seenAt || r.result == 'checking' ? .progress : .result;
   }
 }
 
@@ -102,7 +108,33 @@ TaskSheetVm updateSheet(UpdateSheetData d) => switch (d.stage) {
   .review => _review(d),
   .progress => _progress(d),
   .result => _result(d),
+  .points => _points(d),
 };
+
+/// A package that was never updated here: its version and the restore
+/// points of its links (a link replaced from a backup has one).
+TaskSheetVm _points(UpdateSheetData d) {
+  final l = S.current;
+  final p = d.package;
+  return TaskSheetVm(
+    title: l.updVersionsOf(p.name),
+    sub: '${p.version} · ${l.updLinksCount(d.links.length)}',
+    blocks: [
+      SheetText(l.updNeverUpdated),
+      SheetLabel(l.updPoints),
+      if (d.points.isEmpty) SheetText(l.updNoPoints, small: true),
+      for (final (link, point) in d.points)
+        SheetRow(
+          divider: true,
+          text: point.version.isEmpty
+              ? l.updPointBeforeRestore(link)
+              : l.updPointBeforeUpdate(link, point.version),
+          note: '${_when(point.at)} · ${bytesText(point.size)}',
+        ),
+    ],
+    secondary: l.updClose,
+  );
+}
 
 TaskSheetVm _review(UpdateSheetData d) {
   final l = S.current;
@@ -327,7 +359,7 @@ String updatePrimary(UpdateSheetData d) {
   switch (d.stage) {
     case .review:
       return d.official ? 'update' : 'file';
-    case .progress:
+    case .progress || .points:
       return '';
     case .result:
       final r = d.package.lastUpdate!;

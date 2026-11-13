@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:app/common/backup_sheets.dart';
 import 'package:app/common/files.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -475,6 +478,132 @@ void main() {
         ),
       );
       expect(restart.blocks.whereType<SheetSpinner>(), hasLength(1));
+    });
+  });
+
+  group('after a replace (review point 5)', () {
+    TaskSheetVm at(String stage, [String? result]) => restoreSheet(
+      RestoreData(site: 'plant', stage: stage, result: result),
+    );
+
+    test('applied, not applied, unknown', () {
+      expect(
+        at('applied').blocks.whereType<SheetBanner>().single.tone,
+        Tone.good,
+      );
+      final failed = at('not-applied', 'registry: bad chain');
+      expect(failed.blocks.whereType<SheetBanner>().single.tone, Tone.bad);
+      expect(
+        failed.blocks.whereType<SheetBanner>().single.text,
+        'registry: bad chain',
+      );
+      expect(
+        at('unknown').blocks.whereType<SheetBanner>().single.tone,
+        Tone.warn,
+      );
+      expect(at('applied').primary, isNull);
+    });
+
+    test('lost: the user is sent to log in', () {
+      final vm = at('lost');
+      expect(
+        vm.blocks.whereType<SheetBanner>().single.text,
+        contains('Log in'),
+      );
+      expect(vm.primary, 'Log in again');
+      expect(vm.blocks.whereType<SheetSpinner>(), isEmpty);
+    });
+  });
+
+  group('a file name from the broker (review point 12)', () {
+    test('only the last segment, and only a plain name', () {
+      expect(safeFileName('plant-1.wyrm-backup'), 'plant-1.wyrm-backup');
+      expect(safeFileName('../../etc/passwd'), 'passwd');
+      expect(safeFileName(r'..\..\x.wyrm-backup'), 'x.wyrm-backup');
+      expect(safeFileName('/abs/a.wyrm-link'), 'a.wyrm-link');
+      for (final bad in [
+        '',
+        '..',
+        '.',
+        'a/..',
+        'x/',
+        'con',
+        'NUL.txt',
+        'a:b',
+        'a\x00b',
+        'q?',
+        'dot.',
+      ]) {
+        expect(safeFileName(bad), isNull, reason: bad);
+      }
+    });
+  });
+
+  group('a download on disk (review point 1)', () {
+    late Directory dir;
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('wyrm-save');
+      directoryPicker = (_) async => dir.path;
+    });
+    tearDown(() {
+      directoryPicker = null;
+      dir.deleteSync(recursive: true);
+    });
+
+    List<String> names() => [
+      for (final f in dir.listSync()) f.path.split(Platform.pathSeparator).last,
+    ]..sort();
+
+    test('the file has its name only after commit', () async {
+      final f = (await saveInto('a.wyrm-backup', fallback: 'b'))!;
+      await f.write(Uint8List.fromList([1, 2, 3]));
+      expect(names(), ['a.wyrm-backup.part']);
+      await f.commit();
+      expect(names(), ['a.wyrm-backup']);
+      expect(File(f.path).readAsBytesSync(), [1, 2, 3]);
+    });
+
+    test('discard removes the part and never throws, also twice', () async {
+      final f = (await saveInto('a.wyrm-backup', fallback: 'b'))!;
+      await f.write(Uint8List.fromList([1]));
+      await f.discard();
+      await f.discard();
+      expect(names(), isEmpty);
+    });
+
+    test('a stale part goes; a file that exists is never replaced', () async {
+      File('${dir.path}/a.wyrm-backup').writeAsStringSync('old');
+      File('${dir.path}/a (2).wyrm-backup.part').writeAsStringSync('stale');
+      final f = (await saveInto('a.wyrm-backup', fallback: 'b'))!;
+      await f.write(Uint8List.fromList([9]));
+      await f.commit();
+      expect(names(), ['a (2).wyrm-backup', 'a.wyrm-backup']);
+      expect(File('${dir.path}/a.wyrm-backup').readAsStringSync(), 'old');
+      expect(File(f.path).readAsBytesSync(), [9]);
+    });
+
+    test('a name that cannot be a file name becomes the fallback', () async {
+      final f = (await saveInto('..', fallback: 'backup.wyrm-backup'))!;
+      await f.commit();
+      expect(names(), ['backup.wyrm-backup']);
+    });
+
+    test('a picked file is read in whole parts', () async {
+      final path = '${dir.path}/in.wyrm-link';
+      File(path).writeAsBytesSync([for (var i = 0; i < 1000; i++) i % 251]);
+      filePathPicker = (_) async => path;
+      addTearDown(() => filePathPicker = null);
+      final f = (await pickFile())!;
+      expect(f.size, 1000);
+      expect((await f.read(0, 400)).length, 400);
+      expect((await f.read(900, 400)).length, 100);
+      expect(await f.read(990, 4), [
+        990 % 251,
+        991 % 251,
+        992 % 251,
+        993 % 251,
+      ]);
+      await f.close();
     });
   });
 

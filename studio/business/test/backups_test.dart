@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -11,6 +12,7 @@ import 'package:business/redux/backups/actions/close_backup_action.dart';
 import 'package:business/redux/backups/actions/create_backup_action.dart';
 import 'package:business/redux/backups/actions/download_backup_action.dart';
 import 'package:business/redux/backups/actions/estimate_backup_action.dart';
+import 'package:business/redux/backups/actions/follow_restore_action.dart';
 import 'package:business/redux/backups/actions/open_backup_action.dart';
 import 'package:business/redux/backups/actions/remove_backup_action.dart';
 import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
@@ -18,6 +20,7 @@ import 'package:business/redux/backups/actions/retrieve_send_connections_action.
 import 'package:business/redux/backups/actions/send_backup_action.dart';
 import 'package:business/redux/backups/actions/set_backup_form_action.dart';
 import 'package:business/redux/backups/actions/upload_restore_action.dart';
+import 'package:business/redux/broker_update/actions/open_broker_update_action.dart';
 import 'package:business/redux/link_install/actions/check_package_action.dart';
 import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
 import 'package:business/redux/link_install/actions/install_backup_action.dart';
@@ -25,10 +28,16 @@ import 'package:business/redux/link_install/actions/set_accept_rights_action.dar
 import 'package:business/redux/link_install/actions/set_name_action.dart';
 import 'package:business/redux/link_install/actions/set_source_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
+import 'package:business/redux/live/actions/unwatch_keys_action.dart';
+import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/redux/session/actions/log_out_action.dart';
+import 'package:business/redux/site/actions/set_connected_action.dart';
+import 'package:business/redux/site/actions/view_site_action.dart';
+import 'package:business/redux/updates/actions/open_update_action.dart';
 import 'package:business/wyrm/mappers/backup_mapper.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:business/wyrm/transfer.dart';
@@ -492,20 +501,101 @@ void main() {
       expect(closed, isTrue);
       expect(s.state.backups.downloading, isNull);
       expect(s.state.backups.downloaded, 250);
-      expect(s.state.backups.savedTo, '/tmp/b1.wyrm-backup');
+      expect(s.state.backups.saved['b1'], '/tmp/b1.wyrm-backup');
     });
 
-    test('another dialog does not show the last download as its own', () async {
-      api.answers['$_b/b1 ▸ download_part'] = _serve(_bytes(10));
+    test('a saved path belongs to its backup, not to the dialog', () async {
+      // Review point 3: A's download ending while B's dialog is open must
+      // not read as B's.
+      final data = _bytes(10);
+      api.answers['$_b/b1 ▸ download_part'] = _serve(data);
+      s.dispatchSync(OpenBackupAction(job: 'b2'));
       await s.dispatchAndWait(
+        DownloadBackupAction(
+          'b1',
+          path: '/tmp/b1',
+          sha256: sha256.convert(data).toString(),
+          write: (_) async {},
+        ),
+      );
+
+      expect(s.state.backups.saved['b1'], '/tmp/b1');
+      expect(s.state.backups.saved['b2'], isNull);
+      // Opening another dialog forgets nothing of b1.
+      s.dispatchSync(OpenBackupAction(job: 'b1'));
+      expect(s.state.backups.saved['b1'], '/tmp/b1');
+    });
+
+    test('no hash to compare with: an error, nothing saved', () async {
+      // Review point 2.
+      api.answers['$_b/b1 ▸ download_part'] = _serve(_bytes(10));
+      var done = false;
+      var discarded = false;
+
+      final status = await s.dispatchAndWait(
+        DownloadBackupAction(
+          'b1',
+          path: '/tmp/b1',
+          write: (_) async {},
+          onDone: () async => done = true,
+          onDiscard: () async => discarded = true,
+        ),
+      );
+
+      expect(status.isCompletedFailed, isTrue);
+      expect(done, isFalse);
+      expect(discarded, isTrue);
+      expect(s.state.backups.saved, isEmpty);
+      expect(s.state.backups.downloading, isNull);
+      // Not one part was asked for.
+      expect(invokes('download_part'), isEmpty);
+    });
+
+    test('an empty hash in the dialog is read from the broker', () async {
+      final data = _bytes(10);
+      api
+        ..answers['$_b/b1 ▸ download_part'] = _serve(data)
+        ..initial['$_b/b1/sha256'] = [
+          ValSample(
+            '$_b/b1/sha256',
+            Sample(VStr(sha256.convert(data).toString()), t: 1),
+          ),
+        ];
+
+      final status = await s.dispatchAndWait(
         DownloadBackupAction('b1', path: '/tmp/b1', write: (_) async {}),
       );
-      expect(s.state.backups.savedTo, '/tmp/b1');
 
-      s.dispatchSync(OpenBackupAction(job: 'b1'));
+      expect(status.isCompletedOk, isTrue);
+      expect(s.state.backups.saved['b1'], '/tmp/b1');
+    });
 
-      expect(s.state.backups.savedTo, isNull);
+    test('a write error discards the file and ends the download', () async {
+      // Review point 1: the partial file goes, the state is not left
+      // "downloading", and the error leaves.
+      final data = _bytes(300);
+      api.answers['$_b/b1 ▸ download_part'] = _serve(data);
+      var discarded = 0;
+      var done = false;
+
+      final status = await s.dispatchAndWait(
+        DownloadBackupAction(
+          'b1',
+          part: 100,
+          path: '/tmp/b1',
+          sha256: sha256.convert(data).toString(),
+          write: (_) async => throw const FileSystemException('disk full'),
+          onDone: () async => done = true,
+          onDiscard: () async => discarded++,
+        ),
+      );
+
+      expect(status.isCompletedFailed, isTrue);
+      expect(discarded, 1);
+      expect(done, isFalse);
+      expect(s.state.backups.downloading, isNull);
       expect(s.state.backups.downloaded, 0);
+      expect(s.state.backups.saved, isEmpty);
     });
 
     test('a file that is not the backup is an error and is removed', () async {
@@ -518,13 +608,14 @@ void main() {
           path: '/tmp/x',
           sha256: 'ab' * 32,
           write: (_) async {},
-          onCancel: () async => removed = true,
+          onDone: () async => fail('a wrong file must not get its name'),
+          onDiscard: () async => removed = true,
         ),
       );
 
       expect(status.isCompletedFailed, isTrue);
       expect(removed, isTrue);
-      expect(s.state.backups.savedTo, isNull);
+      expect(s.state.backups.saved, isEmpty);
     });
 
     test('Cancel stops a download before its next part', () async {
@@ -538,19 +629,20 @@ void main() {
           'b1',
           part: 100,
           path: '/tmp/x',
+          sha256: sha256.convert(data).toString(),
           write: (_) async {
             if (++parts == 1) {
               s.dispatchSync(CancelDownloadAction());
             }
           },
-          onCancel: () async => removed = true,
+          onDiscard: () async => removed = true,
         ),
       );
 
       expect(status.isCompletedOk, isTrue);
       expect(parts, 1);
       expect(removed, isTrue);
-      expect(s.state.backups.savedTo, isNull);
+      expect(s.state.backups.saved, isEmpty);
     });
 
     test('remove and send call the backup', () async {
@@ -652,6 +744,143 @@ void main() {
       expect('${s.state}', isNot(contains(_secret)));
     });
 
+    test('a failed upload gives the dialog back for another file', () async {
+      // Review point 4.
+      api
+        ..invokes['$_b ▸ restore_begin'] = [
+          const VMap({'upload': VStr('u9'), 'part_size': VInt(64)}),
+        ]
+        ..errors['$_b ▸ restore_part'] = WyrmException.of(
+          Status.resourceExhausted,
+          'no room for the upload',
+        )
+        ..invokes['$_b ▸ restore_abort'] = [];
+      final data = _bytes(100);
+      s.dispatchSync(OpenBackupAction(restore: true));
+
+      final status = await s.dispatchAndWait(
+        UploadRestoreAction(
+          name: 'plant.wyrm-backup',
+          size: 100,
+          read: (o, n) async => data.sublist(o, o + n),
+        ),
+      );
+
+      expect(status.isCompletedFailed, isTrue);
+      expect('${status.originalError}', contains('no room for the upload'));
+      expect(s.state.backups.uploadName, isNull);
+      expect(s.state.backups.upload, isNull);
+      expect(s.state.backups.uploaded, 0);
+      expect(s.state.backups.stage, 'restore');
+    });
+
+    group('after a replace', () {
+      // Review point 5.
+      Future<void> restarting() async {
+        await uploaded();
+        api
+          ..invokes['$_b ▸ restore_check'] = [check]
+          ..invokes['$_b ▸ restore_apply'] = [
+            const VMap({
+              'sections': VArray([VStr('control')]),
+              'restart': VBool(true),
+            }),
+          ];
+        await s.dispatchAndWait(CheckRestoreAction());
+        s.dispatchSync(SetBackupFormAction(mode: 'replace'));
+        await s.dispatchAndWait(ApplyRestoreAction());
+        expect(s.state.backups.stage, 'restarting');
+      }
+
+      FollowRestoreAction follow() => FollowRestoreAction(
+        lose: const Duration(milliseconds: 60),
+        back: const Duration(milliseconds: 200),
+        step: const Duration(milliseconds: 10),
+      );
+
+      List<Value> audit(String op, String detail) => [
+        VArray([
+          VMap({
+            't': VInt(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+            'op': VStr(op),
+            'detail': VStr(detail),
+          }),
+        ]),
+      ];
+
+      Future<void> bounce() async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        s.dispatchSync(SetConnectedAction(false));
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        s.dispatchSync(SetConnectedAction(true));
+      }
+
+      test('the broker comes back and applied it', () async {
+        await restarting();
+        api.invokes['wy/central/sys/audit ▸ tail'] = audit(
+          'restore_applied',
+          'sections control',
+        );
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        await run;
+
+        expect(s.state.backups.stage, 'applied');
+        expect(s.state.backups.result, 'sections control');
+      });
+
+      test('the broker comes back and did not apply it', () async {
+        await restarting();
+        api.invokes['wy/central/sys/audit ▸ tail'] = audit(
+          'restore_failed',
+          'not applied, the state before it is in place: registry: bad chain',
+        );
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        await run;
+
+        expect(s.state.backups.stage, 'not-applied');
+        expect(s.state.backups.result, contains('bad chain'));
+      });
+
+      test('an old record of another restore is not this one', () async {
+        await restarting();
+        api.invokes['wy/central/sys/audit ▸ tail'] = [
+          const VArray([
+            VMap({
+              't': VInt(1700000000),
+              'op': VStr('restore_applied'),
+              'detail': VStr('long ago'),
+            }),
+          ]),
+        ];
+        final run = s.dispatchAndWait(follow());
+        await bounce();
+        await run;
+
+        expect(s.state.backups.stage, 'unknown');
+      });
+
+      test('the broker does not come back: the session is lost', () async {
+        await restarting();
+        final run = s.dispatchAndWait(follow());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        s.dispatchSync(SetConnectedAction(false));
+        await run;
+
+        expect(s.state.backups.stage, 'lost');
+      });
+
+      test('closing the dialog ends the watch', () async {
+        await restarting();
+        final run = s.dispatchAndWait(follow());
+        await s.dispatchAndWait(CloseBackupAction());
+        await run;
+
+        expect(s.state.backups.stage, isNull);
+      });
+    });
+
     test('add sends only what add takes and reports what it did', () async {
       await uploaded();
       api
@@ -721,6 +950,60 @@ void main() {
     });
   });
 
+  test('another site starts with none of this site (review point 6)', () async {
+    s
+      ..dispatchSync(OpenBackupAction())
+      ..dispatchSync(OpenUpdateAction('modbus'))
+      ..dispatchSync(OpenBrokerUpdateAction());
+    expect(s.state.backups.exportSecrets, isTrue);
+
+    await s.dispatchAndWait(ViewSiteAction('edge'));
+
+    expect(s.state.updates.package, isNull);
+    expect(s.state.brokerUpdate.stage, isNull);
+    expect(s.state.backups.stage, isNull);
+    expect(s.state.backups.exportSecrets, isFalse);
+    expect(s.state.backups.sendLinks, isEmpty);
+    expect(s.state.backups.sections, isEmpty);
+    expect(s.state.backups.view, isEmpty);
+  });
+
+  test('the keys a shown screen watches move to the other site', () async {
+    // Not reviewed, checked: `sys/backups/*/*` across a site switch.
+    s.dispatchSync(
+      WatchKeysAction(const ['wy/central/sys/backups/*/*', 'wy/central/sys/*']),
+    );
+
+    await s.dispatchAndWait(ViewSiteAction('edge'));
+
+    expect(s.state.live.watched.keys.toSet(), {
+      'wy/edge/sys/backups/*/*',
+      'wy/edge/sys/*',
+    });
+    expect(
+      api.calls.where((c) => c.op == 'subscribe').map((c) => c.key),
+      contains('wy/edge/sys/backups/*/*'),
+    );
+    // The screen's onHide unwatches the keys of the site it is on now.
+    s.dispatchSync(
+      UnwatchKeysAction(const ['wy/edge/sys/backups/*/*', 'wy/edge/sys/*']),
+    );
+    expect(s.state.live.watched, isEmpty);
+  });
+
+  test('a log out forgets the three slices', () async {
+    s
+      ..dispatchSync(OpenBackupAction())
+      ..dispatchSync(OpenUpdateAction('modbus'))
+      ..dispatchSync(OpenBrokerUpdateAction());
+
+    await s.dispatchAndWait(LogOutAction());
+
+    expect(s.state.updates.package, isNull);
+    expect(s.state.brokerUpdate.stage, isNull);
+    expect(s.state.backups.sections, isEmpty);
+  });
+
   group('Add a link ▸ From backup', () {
     test('the manifest of a link backup is read here', () {
       final r = checkBackup(_linkBackup());
@@ -745,19 +1028,49 @@ void main() {
       );
     });
 
+    final file = _linkBackup(how: 'passphrase');
+    Future<Uint8List> read(int o, int n) async =>
+        file.sublist(o, (o + n).clamp(0, file.length));
+
     Future<void> picked() async {
       s
         ..dispatchSync(ChooseInstallSourceAction('backup'))
         ..dispatchSync(
           SetSourceAction(
             InstallSource.backup(
-              bytes: _linkBackup(how: 'passphrase'),
               fileName: 'modbus.wyrm-link',
+              size: file.length,
+            ),
+          ),
+        );
+      await s.dispatchAndWait(CheckPackageAction(backup: file));
+    }
+
+    test('the bytes of the file are in no state', () async {
+      // Review point 7.
+      await picked();
+      final source = s.state.linkInstall.source! as InstallSourceBackup;
+      expect(source.size, file.length);
+      expect('${s.state.linkInstall}', isNot(contains('[80, 75')));
+      expect('${s.state.linkInstall}'.length, lessThan(4000));
+    });
+
+    test('a file too large to read here is checked by the broker', () async {
+      s
+        ..dispatchSync(ChooseInstallSourceAction('backup'))
+        ..dispatchSync(
+          SetSourceAction(
+            const InstallSource.backup(
+              fileName: 'big.wyrm-link',
+              size: 1 << 31,
             ),
           ),
         );
       await s.dispatchAndWait(CheckPackageAction());
-    }
+
+      expect(s.state.linkInstall.checks.single.result, 'skipped');
+      expect(s.state.linkInstall.name, isNull);
+    });
 
     test('the check names the link and its mode', () async {
       await picked();
@@ -783,7 +1096,9 @@ void main() {
         ..dispatchSync(SetNameAction('modbus2'))
         ..dispatchSync(SetAcceptRightsAction(true));
 
-      await s.dispatchAndWait(InstallBackupAction(passphrase: _secret));
+      await s.dispatchAndWait(
+        InstallBackupAction(read: read, passphrase: _secret),
+      );
 
       expect(invokes('restore_part').length, greaterThan(1));
       final args = invokes('install_backup').single.args!;
@@ -812,12 +1127,17 @@ void main() {
             }),
           ];
 
-        await s.dispatchAndWait(InstallBackupAction());
+        await s.dispatchAndWait(InstallBackupAction(read: read));
 
         expect(invokes('install_backup').single.args!['accept'], isNull);
         expect(invokes('install_backup').single.args!['passphrase'], isNull);
         expect(s.state.linkInstall.phase, 'failed');
         expect(s.state.linkInstall.message, contains('10.0.4.0/24'));
+        // The upload of an install that was not made is dropped.
+        expect(
+          invokes('restore_abort').single.args!['upload'],
+          const VStr('u5'),
+        );
       },
     );
 
@@ -828,7 +1148,7 @@ void main() {
         'two uploads are open',
       );
 
-      await s.dispatchAndWait(InstallBackupAction());
+      await s.dispatchAndWait(InstallBackupAction(read: read));
 
       expect(s.state.linkInstall.phase, 'failed');
       expect(s.state.linkInstall.message, contains('two uploads are open'));
