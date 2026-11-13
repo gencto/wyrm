@@ -193,6 +193,8 @@ const CONFIG_SHOWN: &[&str] = &[
 /// The text fields of `wyrmd.json5` that are masked on purpose: where a
 /// private key is (a path, and a name that says secret), and what a link
 /// or a platform upstream is given (free maps: any text may be a secret).
+/// Masked is the default; this list is what the test checks a choice by.
+#[cfg(test)]
 const CONFIG_MASKED: &[&str] = &[
     "gateway.tls_key",
     "peers.upstream.key",
@@ -2417,7 +2419,9 @@ mod tests {
             &file,
             r#"{
                 site: "plant", data_dir: "/var/lib/wyrm", profile: "prod",
-                listen: ["tls/0.0.0.0:7447"], admin_keys: ["00ff00ff"],
+                listen: ["tls/0.0.0.0:7447", "quic/0.0.0.0:7448#key=/etc/k.key;tok=hunter2x"],
+                connect: ["tls/central.example:7447?token=hunter2y"],
+                admin_keys: ["00ff00ff"],
                 metrics_interval_ms: 5000,
                 links: {
                     plc: { driver: "snmp", params: {
@@ -2451,6 +2455,8 @@ mod tests {
         let mask = wyrm_admin::secrets::MASK;
         assert_eq!(v["site"], "plant");
         assert_eq!(v["listen"][0], "tls/0.0.0.0:7447");
+        assert_eq!(v["listen"][1], "quic/0.0.0.0:7448#***");
+        assert_eq!(v["connect"][0], "tls/central.example:7447?***");
         assert_eq!(v["admin_keys"][0], "00ff00ff");
         assert_eq!(v["metrics_interval_ms"], 5000);
         assert_eq!(v["links"]["plc"]["driver"], "snmp");

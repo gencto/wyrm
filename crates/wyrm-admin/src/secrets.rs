@@ -338,24 +338,41 @@ pub fn masked_name(name: &str) -> bool {
     })
 }
 
-/// A URL (`scheme://…`) with what may hold a secret masked whole: its
-/// userinfo (`scheme://***@host…`: a user and password, or a user or token
-/// alone) and all of its query and fragment (`?***`, `#***`). The userinfo
-/// ends at the last `@` of the authority; a password with `/`, `?`, `#` or
-/// `@` in it (not escaped) hides where the authority ends, so when a `:`
-/// stands before the last `@` of the whole text, that `@` is taken. `None`
-/// when nothing was masked.
-fn mask_url(s: &str) -> Option<String> {
-    let scheme = s.find("://")? + 3;
-    let rest = &s[scheme..];
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+/// A shown text with what may hold a secret inside it masked whole,
+/// whether it is a URL (`scheme://…`), a Zenoh locator (`tls/host:7447`) or
+/// anything else:
+///
+/// * everything after the first `?` or `#` (a query, a fragment, the
+///   config of a locator: it may name key files or carry tokens) becomes
+///   `?***` or `#***`;
+/// * the userinfo before an `@` in the address part becomes `***`: after
+///   `://` in a URL (`scheme://***@host…`), after the protocol in a locator
+///   (`tls/***@host:7447`). It ends at the last `@` of the address; a
+///   password with `/`, `?`, `#` or `@` in it (not escaped) hides where the
+///   address ends, so when a `:` stands before the last `@` of the whole
+///   text, that `@` is taken.
+///
+/// `None` when nothing was masked.
+fn mask_shown(s: &str) -> Option<String> {
+    let scheme = s.find("://").map(|i| i + 3);
+    let rest = &s[scheme.unwrap_or(0)..];
+    let end = rest.find(['?', '#']).unwrap_or(rest.len());
+    let authority = match scheme {
+        Some(_) => rest.find(['/', '?', '#']).unwrap_or(rest.len()),
+        None => end,
+    };
     let at = match rest.rfind('@') {
         Some(last) if rest[..last].contains(':') => Some(last),
-        _ => rest[..end].rfind('@'),
+        _ => rest[..authority].rfind('@'),
     };
-    let (user, tail) = match at {
-        Some(at) => (MASK, &rest[at..]),
-        None => ("", rest),
+    // where the userinfo starts: at the address, after a locator's protocol
+    let from = match (scheme, at) {
+        (None, Some(at)) => rest[..at].find('/').map_or(0, |i| i + 1),
+        _ => 0,
+    };
+    let tail = match at {
+        Some(at) => &rest[at..],
+        None => rest,
     };
     let (kept, cut) = match tail.find(['?', '#']) {
         Some(q) => (&tail[..q], Some(&tail[q..q + 1])),
@@ -364,7 +381,12 @@ fn mask_url(s: &str) -> Option<String> {
     if at.is_none() && cut.is_none() {
         return None;
     }
-    let mut out = format!("{}{user}{kept}", &s[..scheme]);
+    let mut out = s[..scheme.unwrap_or(0)].to_owned();
+    if at.is_some() {
+        out.push_str(&rest[..from]);
+        out.push_str(MASK);
+    }
+    out.push_str(kept);
     if let Some(mark) = cut {
         out.push_str(mark);
         out.push_str(MASK);
@@ -393,9 +415,9 @@ fn path_matches(path: &[&str], pattern: &str) -> bool {
 /// text under a link's `params`, under a section this broker does not know,
 /// free text. Nothing is parsed for `name=value` pieces.
 ///
-/// A second net under the list, never the only guard: a shown text that is a
-/// URL has its userinfo and its whole query and fragment masked
-/// ([`mask_url`]); a PEM private key is masked wherever it is; and a value
+/// A second net under the list, never the only guard: a shown text, URL or
+/// not, has everything after its first `?` or `#` and the userinfo before an
+/// `@` masked ([`mask_shown`]); a PEM private key is masked wherever it is; and a value
 /// that is a number or a shown text under a name that says secret
 /// ([`masked_name`]) is masked. Other numbers, and every flag, are kept.
 pub fn mask_config(v: &mut serde_json::Value, shown: &[&str]) {
@@ -414,7 +436,7 @@ pub fn mask_config(v: &mut serde_json::Value, shown: &[&str]) {
                 let listed = shown.iter().any(|p| path_matches(path, p));
                 if !listed || named_secret || s.contains("PRIVATE KEY-----") {
                     *s = MASK.into();
-                } else if let Some(masked) = mask_url(s) {
+                } else if let Some(masked) = mask_shown(s) {
                     *s = masked;
                 }
             }
@@ -702,6 +724,46 @@ mod tests {
         }
         // a PEM key in a shown field
         assert_eq!(masked("-----BEGIN PRIVATE KEY-----\nabc"), MASK);
+    }
+
+    /// Automated review of the list: an endpoint is a Zenoh locator, with
+    /// no `://`. Its config after `#` or `?` may name key files or carry
+    /// tokens, so it is masked in every shown text, URL or not, and so is a
+    /// userinfo before an `@`.
+    #[test]
+    fn a_shown_locator_has_no_config_and_no_userinfo() {
+        let masked = |text: &str| {
+            let mut v = serde_json::json!({ "listen": [text] });
+            mask_config(&mut v, SHOWN);
+            v["listen"][0].as_str().unwrap().to_owned()
+        };
+        assert_eq!(
+            masked("quic/central.example:7448#key=/etc/wyrm/b.key;token=hunter2"),
+            "quic/central.example:7448#***"
+        );
+        assert_eq!(
+            masked("tls/0.0.0.0:7447?root_ca_certificate_file=/etc/ca.pem;private_key=hunter2"),
+            "tls/0.0.0.0:7447?***"
+        );
+        assert_eq!(
+            masked("tls/h:7447?rel=1#iface=eth0;pass=hunter2"),
+            "tls/h:7447?***"
+        );
+        // a userinfo in a locator, a password with `/` in it
+        assert_eq!(masked("tls/user:hunter2@h:7447"), "tls/***@h:7447");
+        assert_eq!(masked("tls/tok3n@h:7447#x=1"), "tls/***@h:7447#***");
+        assert_eq!(masked("tls/u:hun/ter2@h:7447"), "tls/***@h:7447");
+        assert_eq!(masked("u:hunter2@h"), "***@h");
+        // nothing to mask: as it is
+        for plain in [
+            "tcp/127.0.0.1:7447",
+            "tls/0.0.0.0:7447",
+            "quic/[::1]:7448",
+            "/var/lib/wyrm",
+            "plant",
+        ] {
+            assert_eq!(masked(plain), plain);
+        }
     }
 
     /// Review ADM-7: only a missing file is an empty store.
