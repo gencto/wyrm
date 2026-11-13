@@ -30,6 +30,9 @@ const gateway = String.fromEnvironment('WYRM_GATEWAY');
 // ignore: do_not_use_environment, a test parameter.
 const link = String.fromEnvironment('WYRM_LINK', defaultValue: 'mock');
 
+// ignore: do_not_use_environment, a test parameter.
+const withPackages = bool.fromEnvironment('WYRM_PACKAGES');
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -115,7 +118,8 @@ void main() {
       'Dataflows',
       'History',
       'Links',
-      'Installed packages',
+      // Kept in with WYRM_PACKAGES=true: a file of several parts.
+      if (!withPackages) 'Installed packages',
       'wyrmd.json5 (read only)',
     ]) {
       // The section of the dialog, not the workspace of that name.

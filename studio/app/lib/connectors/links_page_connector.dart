@@ -219,8 +219,9 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     // values of the packages arrive.
     final showUpdates =
         updateCount > 0 ||
-        links.updatesAvailable > 0 ||
+        (packages.view.isEmpty && links.updatesAvailable > 0) ||
         links.tab == LinksTab.updates;
+    final unread = links.updatesAvailable;
     final tab = links.tab;
     final sheet = _sheetData;
     final configReason = site.needs('config', '$_root/sys/links');
@@ -238,7 +239,9 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           TabItemVm(
             id: LinksTab.updates.name,
             label: S.current.updTab,
-            count: '${updateCount > 0 ? updateCount : links.updatesAvailable}',
+            // The live values of the packages, once they are read; the
+            // attribute of `sys/links` until then.
+            count: '${packages.view.isEmpty ? unread : updateCount}',
             countTone: Tone.ember,
           ),
         TabItemVm(

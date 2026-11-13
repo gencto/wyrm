@@ -242,7 +242,9 @@ TaskSheetVm _result(UpdateSheetData d) {
   final (Tone tone, String title, String text) = switch (r.result) {
     'rolled_back' => (
       Tone.warn,
-      l.updRolledBackTo(r.to),
+      // A rollback keeps the update's `from` and `to`: the links are
+      // back on `from`.
+      l.updRolledBackTo(r.from),
       r.reason.isEmpty ? l.updRolledBackNote : r.reason,
     ),
     'failed' => (

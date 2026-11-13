@@ -187,6 +187,11 @@ void main() {
     final d = _data(_pkg(last: _report('rolled_back')), follow: true);
     final vm = updateSheet(d);
     expect(vm.pill, 'rolled back');
+    // The report keeps the update's from and to: the links run `from`.
+    expect(
+      vm.blocks.whereType<SheetBanner>().single.title,
+      'Rolled back to 0.4.2',
+    );
     expect(vm.blocks.whereType<SheetBanner>().single.tone, Tone.warn);
     expect(_one<SheetRow>(vm, (r) => r.divider).action, isNull);
     expect(updatePrimary(d), 'log');
