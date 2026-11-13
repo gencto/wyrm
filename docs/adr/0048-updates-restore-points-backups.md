@@ -74,6 +74,23 @@ Every action here is `config` on `sys` (or on `sys/links` / `sys/packages`), onl
 - Backups no longer need the broker stopped; `docs/operations.md` §3 keeps the offline copy as the way for a dead broker.
 - New tests: e2e update of a package with a link that loses keys (rolls back), an update that changes `state`, a broker update whose trial fails (guard rolls back, SCHEMA restored), backup while writing and restore into a fresh `data_dir`, a link backup restored on a second broker under a new id.
 
+## Decided during the build of §3 (2026-11-13)
+
+Guide: `docs/backups.md`. Code: `wyrm_admin::backup` (format), `wyrm_admin::control::{backups, restore}`.
+
+1. **Order.** Link backup and `install_backup` (§3.5) and the job plumbing of `sys/backups` (`create`, `download_part`, `remove`) come first; the broker restore (§3.6) and `send` follow.
+2. **`control` holds every WAL once.** Registry, flow store, gateway users and audit are `control/<store>/wal.…wyw`, each copied as of one sequence number and checked against its HMAC chain (`wyrm_state::replicate::copy_to`, beside the standby's `records_after`). The `dataflows` section adds only the flow artifacts and names `control/flows` as its store, so no WAL is in a file twice.
+3. **Storage is a tree, not a redb file.** `storage/tree.cbor` is the standby's full page at one revision (`Store::changes_since`), with `storage/export.json` for people. The redb file is rebuilt from it on restore; a raw copy of an open redb file is never taken.
+4. **History, today included, is copied inside one read transaction per file** (`Store::copy_day`, then `copy_index`), not through `Store::changes`: the days first and the index last, so the index knows every series and journal number the days hold.
+5. **Packages are files, not archives.** The original zip is not kept after an install, so a package goes into a backup as `package.cbor` (its `PackageDef`, with the SHA-256 of the zip it came from) and its unpacked files with their execute bits. A restore installs it only when the broker has no version of that package; the same version is reused; another version is refused (§1.8, one version per package).
+6. **A link's `settings` is its definition.** The framework's runtime edits are in `data` (`framework.tree`, sealed); the framework `export` JSON is not added, because the admin holds no key that may call a link's `export`. `link.cbor` carries no token hash.
+7. **Restored under another id**, a framework tree is sealed again for the new id with the store key that came with it (`wyrm_link_sdk::driver::persist::rebind`): the tree is bound to its link's id. Secrets a broker makes for a link's identity (requester key, agent key) and its token are never carried over.
+8. **An existing link is replaced in place** (stop, restore point, params, data, start), never removed and installed again: the id of a removed remote link is retired (ADR 0006). It must run the same driver in the same mode and not come from `wyrmd.json5`.
+9. **Without a passphrase** a backup holds no secret: `keys` and a link's `data` are refused, `links` holds definitions only.
+10. **Uploads** (`restore_begin`, `restore_part`, `restore_abort`) are sequential parts of at most 16 MiB, two open at once, removed after an hour without a part. `install_backup` also takes the file itself (`file`).
+11. **Limits.** `backups.max_mb` defaults to 2048; the newest backup and a pinned one are never pruned; a failed job is forgotten after a day; a job needs about twice its estimate free on the disk of `data_dir`.
+12. **Audit.** `backup_create`, `link_backup` (one record at the start, one more if it fails), `backup_download` (once per download, at offset 0), `backup_remove`, `restore_point`, `link_restore`. The admin writes its own journal (no hash of the arguments), so the passphrase is in no record.
+
 ## Not decided here
 
 - Scheduled backups (a scheduler target can call `sys/backups/~act/create` once this exists; ADR 0022).

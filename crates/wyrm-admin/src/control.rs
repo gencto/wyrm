@@ -41,7 +41,9 @@ use wyrm_link_sdk::{
 use wyrm_state::{StateError, Store};
 use zenoh::Session;
 
+pub mod backups;
 pub mod replication;
+pub mod restore;
 mod signers;
 
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -123,6 +125,8 @@ pub struct ControlConfig {
     pub alarm: bool,
     /// The embedded uplink runs ([`UPLINK_LINK`], ADR 0035): platform upstreams.
     pub uplink: bool,
+    /// Backups kept on the broker (`backups` in `wyrmd.json5`, ADR 0048).
+    pub backups: backups::BackupConfig,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -388,6 +392,8 @@ pub struct Control {
     standby_forks: Mutex<(u64, std::collections::VecDeque<(u64, String)>)>,
     /// Until when the arbiters' lease is held (ADR 0036; set by `wyrmd`).
     arbiter_lease: Mutex<Option<std::time::Instant>>,
+    /// Backup jobs and the files kept in `data_dir/backups` (ADR 0048).
+    backups: backups::Backups,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -696,6 +702,7 @@ impl Control {
         let history = wyrm_history::Historian::open(&cfg.data_dir.join("history"))
             .map_err(|e| e.to_string())?;
         let (reload, rx) = mpsc::unbounded_channel();
+        let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
         Ok((
             Arc::new(Self {
                 cfg,
@@ -725,6 +732,7 @@ impl Control {
                 standby_hold: std::sync::atomic::AtomicU64::new(0),
                 standby_forks: Mutex::default(),
                 arbiter_lease: Mutex::default(),
+                backups: kept,
             }),
             rx,
         ))
@@ -1929,6 +1937,7 @@ impl Control {
                 self.clone(),
                 session.clone(),
             )),
+            tokio::spawn(backups::watch_backups(self.clone(), ctx.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -2115,6 +2124,8 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
             .result(ActionResult::Type(TypeCode::Number)),
     )
     .await?;
+    ctx.declare_action(&p, "backup", backups::link_backup_action())
+        .await?;
     ctx.declare_action(
         &p,
         "history",
@@ -3718,6 +3729,7 @@ impl Link for Admin {
         )
         .await?;
         crate::history::declare(&ctx, &cfg.ctl).await?;
+        backups::declare(&ctx, &cfg.ctl).await?;
         // `wy/<site>/sys/broker` liveliness (no node): process links
         // re-publish when it returns, peers show `connected` from it.
         let broker = ctx
@@ -4063,6 +4075,25 @@ impl Link for Admin {
                         .collect(),
                 )))
             }
+            (["backups", rest @ ..], _) => {
+                backups::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await
+            }
+            (["links"], "install_backup") => {
+                let _busy = self.ctl.busy()?;
+                Ok(Some(outcome(self.install_backup(&args, &sub).await)))
+            }
+            (["links", id], "backup") => {
+                // the link must exist before anything is said about it
+                self.def(id)?;
+                let job = self
+                    .ctl
+                    .backup_start(backups::request_of(&args, Some(id))?, &sub)?;
+                backups::show_job(&self.ctx, &self.ctl, &job).await;
+                Ok(Some(Value::Map(BTreeMap::from([(
+                    "id".to_owned(),
+                    Value::Str(job),
+                )]))))
+            }
             (["history", rest @ ..], _) => {
                 let r =
                     crate::history::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await;
@@ -4081,6 +4112,7 @@ impl Link for Admin {
             && matches!(
                 action,
                 "install"
+                    | "install_backup"
                     | "remove"
                     | "approve"
                     | "reject"
@@ -6665,6 +6697,7 @@ mod tests {
             dql: scheduler,
             alarm: scheduler,
             uplink: scheduler,
+            backups: Default::default(),
         };
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
     }

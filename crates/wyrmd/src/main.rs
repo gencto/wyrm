@@ -188,7 +188,8 @@ async fn run(args: Args) -> Result<(), Error> {
     }
     let text = std::fs::read_to_string(&args.config)
         .map_err(|e| format!("{}: {e}", args.config.display()))?;
-    let cfg = Config::from_json5(&text)?;
+    let mut cfg = Config::from_json5(&text)?;
+    cfg.config_file = Some(args.config.clone());
     match args.cmd {
         Some(Cmd::Check) => {
             println!("ok");

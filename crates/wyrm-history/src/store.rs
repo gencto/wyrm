@@ -282,6 +282,20 @@ impl Store {
         Ok(Some(id))
     }
 
+    /// The series whose point key starts with `prefix`, sorted by key.
+    pub fn series_under(&self, prefix: &str) -> Vec<(String, u32)> {
+        let mut out: Vec<(String, u32)> = self
+            .series
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        out.sort();
+        out
+    }
+
     pub fn series_count(&self) -> usize {
         self.series.lock().unwrap_or_else(|p| p.into_inner()).len()
     }

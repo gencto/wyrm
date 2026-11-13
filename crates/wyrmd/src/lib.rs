@@ -135,6 +135,44 @@ pub struct Config {
     /// the daemon on the followed `data_dir`.
     #[serde(default)]
     pub standby: Option<standby::StandbySection>,
+    /// Backups made from `sys/backups` and kept in `data_dir/backups`
+    /// (ADR 0048).
+    #[serde(default)]
+    pub backups: BackupsSection,
+    /// The file this configuration was read from (set by `wyrmd`): the
+    /// `config` section of a backup copies it.
+    #[serde(skip)]
+    pub config_file: Option<PathBuf>,
+}
+
+/// `backups` in `wyrmd.json5`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BackupsSection {
+    /// Days a backup stays on the broker (1 to 3650).
+    #[serde(default = "default_backup_days")]
+    pub keep_days: u32,
+    /// Most MiB of backups kept; the oldest are removed first, the newest
+    /// one never.
+    #[serde(default = "default_backup_mb")]
+    pub max_mb: u64,
+}
+
+fn default_backup_days() -> u32 {
+    7
+}
+
+fn default_backup_mb() -> u64 {
+    2048
+}
+
+impl Default for BackupsSection {
+    fn default() -> Self {
+        Self {
+            keep_days: default_backup_days(),
+            max_mb: default_backup_mb(),
+        }
+    }
 }
 
 /// `alarm` in `wyrmd.json5`: on by default.
@@ -1799,6 +1837,21 @@ impl Daemon {
             dql: cfg.dql.enabled,
             alarm: cfg.alarm.enabled,
             uplink: cfg.uplink.enabled,
+            backups: wyrm_admin::BackupConfig {
+                keep_days: cfg.backups.keep_days.clamp(1, 3650),
+                max_mb: cfg.backups.max_mb,
+                config_file: cfg.config_file.clone(),
+                schemas: BTreeMap::from([
+                    (
+                        "users".to_owned(),
+                        <wyrm_gateway::users::UserDb as wyrm_state::State>::SCHEMA,
+                    ),
+                    (
+                        "flows".to_owned(),
+                        <wyrm_flow::store::FlowStore as wyrm_state::State>::SCHEMA,
+                    ),
+                ]),
+            },
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());

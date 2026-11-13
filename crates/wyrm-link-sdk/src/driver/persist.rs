@@ -26,6 +26,24 @@ use wyrm_core::Value;
 pub const STORE_KEY: &str = ".store_key";
 const MAGIC: &[u8; 4] = b"WYT1";
 const FILE: &str = "framework.tree";
+/// Name of the stored tree in a link's private directory.
+pub const TREE_FILE: &str = FILE;
+
+/// The stored tree `file` of the link `from`, sealed again for the link
+/// `to` under the same store key: a tree is bound to its link's id, so a
+/// link restored from a backup under another id (ADR 0048 §3.5) needs its
+/// tree bound to the new one. `None` when `file` does not open with `key`
+/// as the tree of `from`.
+pub fn rebind(file: &[u8], key: &[u8; 32], from: &str, to: &str) -> Option<Vec<u8>> {
+    let plain = zeroize::Zeroizing::new(open_aad(
+        key,
+        format!("wyrm-tree:{from}").as_bytes(),
+        file.strip_prefix(MAGIC.as_slice())?,
+    )?);
+    let mut out = MAGIC.to_vec();
+    out.extend(seal_aad(key, format!("wyrm-tree:{to}").as_bytes(), &plain));
+    Some(out)
+}
 
 pub(crate) struct Persist {
     path: PathBuf,

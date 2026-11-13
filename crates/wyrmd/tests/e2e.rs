@@ -10860,3 +10860,572 @@ async fn every_action_has_a_name_people_read() {
     assert!(actions > 300, "only {actions} actions walked");
     env.stop().await;
 }
+
+const BACKUP_PASS: &str = "backup passphrase 2026";
+
+/// The job `id` of `sys/backups` once it has ended; panics when it failed.
+async fn backup_done(env: &Env, id: &str) -> wyrm_admin::control::backups::Job {
+    eventually("backup done", 60, || async {
+        let j = env.ctl.backups().get(id)?;
+        assert_ne!(j.status, "failed", "backup {id}: {}", j.error);
+        (j.status == "done").then_some(j)
+    })
+    .await
+}
+
+/// The file of the backup `id`, read in parts through `download_part`.
+async fn download_backup(c: &WyrmClient, id: &str, part: u64) -> Vec<u8> {
+    let node = format!("wy/{SITE}/sys/backups/{id}");
+    let mut out = Vec::new();
+    loop {
+        let args = args_map(&[
+            ("offset", Value::UInt(out.len() as u64)),
+            ("len", Value::UInt(part)),
+        ]);
+        let Some(Value::Map(m)) = c.invoke_one(&node, "download_part", args).await.unwrap() else {
+            panic!("download_part: a map");
+        };
+        let Some(Value::Bytes(data)) = m.get("data") else {
+            panic!("download_part: data");
+        };
+        out.extend_from_slice(data);
+        if m.get("eof") == Some(&Value::Bool(true)) {
+            return out;
+        }
+        assert!(!data.is_empty(), "a part without data before the end");
+    }
+}
+
+fn backup_id(v: Option<Value>) -> String {
+    match v {
+        Some(Value::Map(m)) => match m.get("id") {
+            Some(Value::Str(id)) => id.clone(),
+            other => panic!("id: {other:?}"),
+        },
+        other => panic!("create: {other:?}"),
+    }
+}
+
+fn names(list: &[&str]) -> Value {
+    Value::Array(list.iter().map(|s| Value::from(*s)).collect())
+}
+
+/// ADR 0048 §3: a backup made while the broker writes holds every section
+/// as of one moment, its secrets sealed, and is read back in parts.
+#[tokio::test(flavor = "multi_thread")]
+async fn backup_while_writing() {
+    let dir = temp_dir("backup-live");
+    let env = Env::start_in(&dir, MOCK).await;
+    let c = env.client().await;
+    let storage = format!("wy/{SITE}/storage");
+    c.invoke_one(&storage, "add_node", args_map(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    for i in 0..20u64 {
+        let publish = args_map(&[
+            ("path", format!("plant/v{i}").into()),
+            ("value", Value::UInt(i)),
+        ]);
+        c.invoke_one(&storage, "publish", publish).await.unwrap();
+    }
+    // a writer that goes on while the backup is made
+    let writer = {
+        let c = env.client().await;
+        let storage = storage.clone();
+        tokio::spawn(async move {
+            let mut n = 100u64;
+            loop {
+                let publish = args_map(&[("path", "plant/live".into()), ("value", Value::UInt(n))]);
+                if c.invoke_one(&storage, "publish", publish).await.is_err() {
+                    return;
+                }
+                n += 1;
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+    };
+    eventually("the writer writes", 10, || async {
+        last_val(&c, &format!("{storage}/plant/live")).await
+    })
+    .await;
+    let backups = format!("wy/{SITE}/sys/backups");
+
+    // refusals before any job: an unknown section, keys without a passphrase,
+    // a short passphrase, an unknown link
+    for (what, args) in [
+        ("section", args_map(&[("sections", names(&["nope"]))])),
+        ("keys", args_map(&[("sections", names(&["keys"]))])),
+        (
+            "short",
+            args_map(&[
+                ("sections", names(&["keys"])),
+                ("passphrase", "short".into()),
+            ]),
+        ),
+        (
+            "link",
+            args_map(&[
+                ("sections", names(&["links"])),
+                ("links", names(&["nolink"])),
+            ]),
+        ),
+    ] {
+        let e = c.invoke_one(&backups, "create", args).await.unwrap_err();
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{what}: {e}");
+    }
+    assert!(env.ctl.backups().list().is_empty());
+
+    let est = c
+        .invoke_one(
+            &backups,
+            "estimate",
+            args_map(&[("sections", names(&["keys", "storage", "history", "links"]))]),
+        )
+        .await
+        .unwrap();
+    let Some(Value::Map(est)) = est else {
+        panic!("estimate: {est:?}")
+    };
+    let Some(Value::Map(by)) = est.get("sections") else {
+        panic!("estimate sections")
+    };
+    assert!(by.contains_key("control") && by.contains_key("keys") && by.contains_key("links"));
+
+    let sections = [
+        "keys",
+        "dataflows",
+        "storage",
+        "history",
+        "links",
+        "packages",
+    ];
+    let id = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[
+                ("sections", names(&sections)),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&env, &id).await;
+    writer.abort();
+    assert_eq!(job.progress, 100);
+    assert_eq!(job.kind, "full");
+    assert!(job.sections.contains(&"control".to_owned()), "always made");
+    assert!(job.expires > job.created + 6 * 86_400);
+
+    // the tree shows it
+    let node = format!("{backups}/{id}");
+    let status = eventually("status in the tree", 10, || async {
+        last_val(&c, &format!("{node}/status"))
+            .await
+            .filter(|v| *v == Value::from("done"))
+    })
+    .await;
+    assert_eq!(status, Value::from("done"));
+    assert_eq!(
+        last_val(&c, &format!("{node}/sha256")).await,
+        Some(Value::from(job.sha256.clone()))
+    );
+    assert_eq!(
+        last_val(&c, &format!("{node}/size")).await,
+        Some(Value::UInt(job.size))
+    );
+
+    // read back in small parts: the same bytes as the file, its SHA-256
+    let bytes = download_backup(&c, &id, 4096).await;
+    assert_eq!(bytes.len() as u64, job.size);
+    use sha2::Digest;
+    assert_eq!(hex::encode(sha2::Sha256::digest(&bytes)), job.sha256);
+    let too_long = args_map(&[
+        ("offset", Value::UInt(0)),
+        ("len", Value::UInt((16 << 20) + 1)),
+    ]);
+    assert!(c
+        .invoke_one(&node, "download_part", too_long)
+        .await
+        .is_err());
+
+    // the file: every section, checked; secrets sealed, opened by the passphrase
+    let mut r =
+        wyrm_admin::backup::Reader::new(std::io::Cursor::new(bytes.clone()), 1 << 30).unwrap();
+    r.verify(|_, _| {}).unwrap();
+    let m = r.manifest().clone();
+    assert_eq!(m.site, SITE);
+    assert_eq!(m.kind, wyrm_admin::backup::Kind::Broker);
+    assert_eq!(m.sealed.how, "passphrase");
+    assert!(m.schemas.contains_key("registry") && m.schemas.contains_key("flows"));
+    for s in [
+        "control",
+        "keys",
+        "dataflows",
+        "storage",
+        "history",
+        "links",
+    ] {
+        assert!(m.section(s).is_some(), "section {s}");
+    }
+    assert!(m.section("config").is_none());
+    let keys = m.section("keys").unwrap();
+    assert!(keys.files.iter().all(|f| f.sealed));
+    assert!(keys.files.iter().any(|f| f.path == "keys/pki/ca.key"));
+    assert!(m.key(Some(b"another passphrase!"), None).is_err());
+    let key = m.key(Some(BACKUP_PASS.as_bytes()), None).unwrap();
+    let ca = r.read_plain("keys/pki/ca.key", Some(&key)).unwrap();
+    assert_eq!(&*ca, &std::fs::read(dir.join("pki/ca.key")).unwrap());
+    // nothing of the CA key or the passphrase is in the file in clear
+    let needle = &ca[ca.len() / 2..ca.len() / 2 + 24];
+    assert!(!bytes.windows(needle.len()).any(|w| w == needle));
+    assert!(!bytes
+        .windows(BACKUP_PASS.len())
+        .any(|w| w == BACKUP_PASS.as_bytes()));
+
+    // the registry WAL of the backup opens with the site's key at its LSN
+    let out = temp_dir("backup-live-out");
+    for f in &m.section("control").unwrap().files {
+        r.extract(&f.path, &out.join(&f.path), None).unwrap();
+    }
+    let state_key = wyrm_admin::secret::load_or_create_key(&dir.join("state.key")).unwrap();
+    let reg: wyrm_state::Store<wyrm_admin::registry::Registry> =
+        wyrm_state::Store::open(out.join("control/state"), &state_key).unwrap();
+    assert!(reg.state().links.contains_key("mock"));
+    let lsn = m.section("control").unwrap().info["state"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(reg.lsn(), lsn);
+
+    // the storage tree at one revision: the 20 values, and `live` at one
+    // value the writer gave it
+    let tree = r.read("storage/tree.cbor").unwrap();
+    let tree = wyrm_admin::control::replication::parse_changes(
+        wyrm_core::codec::from_slice(&tree).unwrap(),
+    )
+    .unwrap();
+    assert!(tree.full);
+    assert_eq!(
+        tree.put
+            .iter()
+            .filter(|(p, _)| p.starts_with("plant/v"))
+            .count(),
+        20
+    );
+    let live = tree.put.iter().find(|(p, _)| p == "plant/live").unwrap();
+    assert!(matches!(live.1.value, Some(Value::UInt(n)) if n >= 100));
+
+    // the link: its definition without a token hash, its secrets sealed
+    let def: wyrm_admin::registry::LinkDef =
+        minicbor::decode(&r.read("links/mock/link.cbor").unwrap()).unwrap();
+    assert_eq!(def.driver, "mock");
+    assert!(def.token_hash.is_empty());
+    assert!(m
+        .section("links")
+        .unwrap()
+        .files
+        .iter()
+        .any(|f| f.path == "links/mock/secrets" && f.sealed));
+
+    // the audit names the backup and the download, never the passphrase
+    let audit = env.ctl.audit_tail(200);
+    let created = audit.iter().find(|r| r.op == "backup_create").unwrap();
+    assert_eq!(created.key, id);
+    assert!(created.detail.contains("sealed passphrase"));
+    assert!(audit
+        .iter()
+        .any(|r| r.op == "backup_download" && r.key == id));
+    assert!(audit.iter().all(|r| !r.detail.contains(BACKUP_PASS)));
+
+    // without a passphrase: no secrets in it, links as their settings
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let id2 = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[("sections", names(&["links", "storage"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job2 = backup_done(&env, &id2).await;
+    assert_ne!(id2, id);
+    let m2 = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job2.file)).unwrap();
+    assert_eq!(m2.sealed.how, "none");
+    assert!(m2
+        .sections
+        .iter()
+        .all(|s| s.files.iter().all(|f| !f.sealed)));
+    assert!(m2.section("keys").is_none());
+
+    // kept across a restart, then removed
+    drop(c);
+    env.stop().await;
+    let env = Env::start_in(&dir, MOCK).await;
+    let c = env.client().await;
+    assert_eq!(env.ctl.backups().get(&id), Some(job.clone()));
+    assert_eq!(download_backup(&c, &id, 16 << 20).await, bytes);
+    c.invoke_one(&node, "remove", args_map(&[])).await.unwrap();
+    assert!(env.ctl.backups().get(&id).is_none());
+    assert!(!dir.join("backups").join(&job.file).exists());
+    assert!(c.invoke_one(&node, "remove", args_map(&[])).await.is_err());
+    env.stop().await;
+}
+
+/// `(success, message)` of an install action's answer.
+fn install_outcome(v: Option<Value>) -> (bool, String) {
+    let Some(Value::Map(m)) = v else {
+        panic!("result map: {v:?}")
+    };
+    let msg = match m.get("message") {
+        Some(Value::Str(s)) => s.clone(),
+        other => panic!("message: {other:?}"),
+    };
+    (m.get("success") == Some(&Value::Bool(true)), msg)
+}
+
+/// Upload `bytes` to the broker of `c` in parts of `part`; the upload id.
+async fn upload_backup(c: &WyrmClient, bytes: &[u8], part: usize) -> String {
+    let backups = format!("wy/{SITE}/sys/backups");
+    let begin = args_map(&[("size", Value::UInt(bytes.len() as u64))]);
+    let Some(Value::Map(m)) = c
+        .invoke_one(&backups, "restore_begin", begin)
+        .await
+        .unwrap()
+    else {
+        panic!("restore_begin: a map");
+    };
+    let Some(Value::Str(upload)) = m.get("upload").cloned() else {
+        panic!("restore_begin: upload");
+    };
+    let mut offset = 0;
+    for chunk in bytes.chunks(part) {
+        let args = args_map(&[
+            ("upload", upload.clone().into()),
+            ("offset", Value::UInt(offset)),
+            ("data", Value::Bytes(chunk.to_vec())),
+        ]);
+        c.invoke_one(&backups, "restore_part", args).await.unwrap();
+        offset += chunk.len() as u64;
+    }
+    upload
+}
+
+/// ADR 0048 §3.5: a link backed up on one broker is installed on a second
+/// broker under a new id with its settings, its sealed private data and
+/// secrets, and its package; on its own broker it replaces the link after a
+/// restore point.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_backup_restores_on_a_second_broker() {
+    let dir_a = temp_dir("linkbak-a");
+    let a = Env::start_in(&dir_a, "").await;
+    let ca = slow_client(&a).await;
+    let links = format!("wy/{SITE}/sys/links");
+
+    // a framework link with a runtime edit that holds a secret
+    let install = args_map(&[
+        ("id", "dev1".into()),
+        ("driver", "mockdev".into()),
+        ("mode", "embedded".into()),
+        (
+            "params",
+            args_map(&[("connections", Value::Map(BTreeMap::new()))]),
+        ),
+    ]);
+    ca.invoke_one(&links, "install", install).await.unwrap();
+    let root = format!("wy/{SITE}/downstream/dev1");
+    eventually("dev1 up", 15, || async { ca.meta(&root).await.ok() }).await;
+    let conn = args_map(&[
+        ("name", "c2".into()),
+        ("need_token", Value::Bool(true)),
+        ("token", "pw-123456".into()),
+    ]);
+    ca.invoke_one(&root, "add_connection", conn).await.unwrap();
+    let connected = |c: WyrmClient, id: &'static str| async move {
+        let status = format!("wy/{SITE}/downstream/{id}/c2/status");
+        eventually("c2 connected", 20, || async {
+            // `status` is an enum leaf; 2 = Connected
+            let v = last_val(&c, &status).await;
+            (v == Some(Value::UInt(2))).then_some(())
+        })
+        .await
+    };
+    connected(ca.clone(), "dev1").await;
+
+    // refused: private data without a passphrase, a package it does not run
+    let link = format!("{links}/dev1");
+    for sections in [&["data"][..], &["package"][..]] {
+        let e = ca
+            .invoke_one(&link, "backup", args_map(&[("sections", names(sections))]))
+            .await
+            .unwrap_err();
+        assert!(
+            e.is(wyrm_core::Status::InvalidParameter),
+            "{sections:?}: {e}"
+        );
+    }
+    let id = backup_id(
+        ca.invoke_one(
+            &link,
+            "backup",
+            args_map(&[
+                ("sections", names(&["data"])),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&a, &id).await;
+    assert_eq!((job.kind.as_str(), job.link.as_str()), ("link", "dev1"));
+    assert!(job.file.ends_with(".wyrm-link"));
+    assert_eq!(job.sections, ["settings", "data"]);
+    let bytes = download_backup(&ca, &id, 16 << 20).await;
+    assert!(!bytes.windows(9).any(|w| w == b"pw-123456"));
+    let m = wyrm_admin::backup::Reader::new(std::io::Cursor::new(bytes.clone()), 1 << 30)
+        .unwrap()
+        .manifest()
+        .clone();
+    assert_eq!(m.kind, wyrm_admin::backup::Kind::Link);
+    assert_eq!(m.link.as_ref().unwrap().id, "dev1");
+    assert!(m.section("data").unwrap().files.iter().all(|f| f.sealed));
+    assert!(a
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "link_backup" && r.key == "dev1" && !r.detail.contains(BACKUP_PASS)));
+
+    // the second broker: other keys, nothing of dev1
+    let dir_b = temp_dir("linkbak-b");
+    let b = Env::start_in(&dir_b, "").await;
+    let cb = slow_client(&b).await;
+    let upload = upload_backup(&cb, &bytes, 1000).await;
+    let restore = |pass: &str, id: &str| {
+        args_map(&[
+            ("upload", upload.clone().into()),
+            ("id", id.into()),
+            ("passphrase", pass.into()),
+        ])
+    };
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(
+            &links,
+            "install_backup",
+            restore("not the passphrase", "dev9"),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(!ok && msg.contains("wrong passphrase"), "{msg}");
+    assert!(!b.ctl.registry().links.contains_key("dev9"));
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(&links, "install_backup", restore(BACKUP_PASS, "dev9"))
+            .await
+            .unwrap(),
+    );
+    assert!(ok, "{msg}");
+    assert!(msg.contains("link dev9 installed"), "{msg}");
+    // its connection is back and connects: the sealed tree opened with the
+    // store key of the backup, the token came with it
+    connected(cb.clone(), "dev9").await;
+    let def = b.ctl.registry().links.get("dev9").cloned().unwrap();
+    assert_eq!(def.driver, "mockdev");
+    assert!(b
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "link_restore" && r.key == "dev9"));
+    // the upload is used up
+    let (ok, _) = install_outcome(
+        cb.invoke_one(&links, "install_backup", restore(BACKUP_PASS, "dev10"))
+            .await
+            .unwrap(),
+    );
+    assert!(!ok);
+
+    // on its own broker, under its own id: replaced in place, a restore
+    // point of what it was is kept
+    let conn = args_map(&[("name", "c3".into())]);
+    ca.invoke_one(&root, "add_connection", conn).await.unwrap();
+    eventually("c3 there", 10, || async {
+        ca.meta(&format!("{root}/c3")).await.ok()
+    })
+    .await;
+    let same = args_map(&[
+        ("file", Value::Bytes(bytes.clone())),
+        ("passphrase", BACKUP_PASS.into()),
+    ]);
+    let (ok, msg) = install_outcome(ca.invoke_one(&links, "install_backup", same).await.unwrap());
+    assert!(
+        ok && msg.contains("link dev1 replaced") && msg.contains("restore point"),
+        "{msg}"
+    );
+    connected(ca.clone(), "dev1").await;
+    eventually("c3 gone: the state of the backup", 10, || async {
+        ca.meta(&format!("{root}/c3")).await.is_err().then_some(())
+    })
+    .await;
+    let points: Vec<_> = std::fs::read_dir(dir_a.join("restore/dev1"))
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(points.len(), 1);
+    // the restore point is sealed for this broker: it opens here without a
+    // passphrase and holds c3; the other broker cannot open it
+    let point = points[0].path();
+    let pm = wyrm_admin::backup::read_manifest(&point).unwrap();
+    assert_eq!(pm.sealed.how, "broker");
+    let secrets_b = wyrm_admin::secret::load_or_create_key(&dir_b.join("secrets.key")).unwrap();
+    assert!(pm.key(None, Some(&secrets_b)).is_err());
+    let secrets_a = wyrm_admin::secret::load_or_create_key(&dir_a.join("secrets.key")).unwrap();
+    pm.key(None, Some(&secrets_a)).unwrap();
+
+    // a package link: the backup carries the package to a broker without it
+    let (ok, msg) = install_zip(&ca, "m1", mock_package("1.0.0")).await;
+    assert!(ok, "{msg}");
+    let ca = eventually("a back after the rebuild", 20, || async {
+        let c = client_now(&a).await?;
+        c.meta(&format!("wy/{SITE}/downstream/m1")).await.ok()?;
+        Some(c)
+    })
+    .await;
+    let id = backup_id(
+        ca.invoke_one(
+            &format!("{links}/m1"),
+            "backup",
+            args_map(&[("sections", names(&["package"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&a, &id).await;
+    let pkg = download_backup(&ca, &id, 16 << 20).await;
+    assert_eq!(job.sealed, "none");
+    assert!(!b.ctl.registry().packages.contains_key("mockpkg"));
+    let from_file = args_map(&[("file", Value::Bytes(pkg)), ("id", "m2".into())]);
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(&links, "install_backup", from_file)
+            .await
+            .unwrap(),
+    );
+    assert!(ok, "{msg}");
+    assert!(
+        msg.contains("package mockpkg 1.0.0 installed from the backup"),
+        "{msg}"
+    );
+    let pdef = b.ctl.registry().packages.get("mockpkg").cloned().unwrap();
+    assert_eq!(pdef.version, "1.0.0");
+    assert_eq!(
+        pdef.sha256,
+        a.ctl.registry().packages.get("mockpkg").unwrap().sha256
+    );
+    eventually("m2 runs on the second broker", 30, || async {
+        let c = client_now(&b).await?;
+        c.meta(&format!("wy/{SITE}/downstream/m2")).await.ok()
+    })
+    .await;
+
+    a.stop().await;
+    b.stop().await;
+}

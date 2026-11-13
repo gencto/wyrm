@@ -348,6 +348,14 @@ Everything the broker owns is under `data_dir`. What cannot be regenerated:
 | `packages/`, `peers/`, `operators/` | installed link packages, certificates issued for downstream brokers, operator certificates | reinstall, reissue |
 
 How to take a backup:
+- **Online, from the broker itself (ADR 0048).** `sys/backups/~act/create
+  {sections, passphrase}` makes a `.wyrm-backup` while the broker runs: the
+  WALs as of one sequence number, the storage at one revision, each history
+  file inside one read transaction, keys and secrets sealed with the
+  passphrase. Read it with `download_part`. One link goes with
+  `sys/links/<id>/~act/backup`. Sections, limits and the restore of a link
+  are in [backups.md](backups.md). This is the way for a broker that runs;
+  the two ways below stay for a broker that does not start.
 - **Stopped broker (simplest, consistent).** `systemctl stop wyrmd`, copy
   `data_dir` whole, keep its modes (`cp -a`, `tar --same-permissions`), start
   again. `wyrmd -c … verify` on the copy checks the WALs (CRC, HMAC chain,
