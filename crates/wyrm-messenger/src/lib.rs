@@ -443,7 +443,9 @@ impl Bot {
                         // the id of what went out (an unchanged edit keeps the one it had)
                         let id = (self.def.kind.message_id)(&reply).or_else(|| m.edit.clone());
                         if let Some(id) = id {
-                            if let Some(slot) = &m.slot {
+                            if let Some(slot) =
+                                m.slot.as_ref().filter(|k| store::slot_live(host, k))
+                            {
                                 if let Err(e) = store::put(host, slot, &Value::Str(id.clone())) {
                                     host.log(Level::Warn, &format!("{slot}: {}", e.msg));
                                 }
@@ -1203,23 +1205,6 @@ impl<C: Chat> Messenger<C> {
         if to.is_empty() {
             return Err(invalid("to: no recipients"));
         }
-        if let Some(u) = update {
-            let key = store::updates_key(bot_name);
-            let mut names = store::index(host, &key);
-            if !names.iter().any(|n| n == u) {
-                if names.len() >= model::MAX_UPDATES {
-                    return Err(AppError::new(
-                        Status::ResourceExhausted,
-                        format!(
-                            "update: at most {} edited messages per bot",
-                            model::MAX_UPDATES
-                        ),
-                    ));
-                }
-                names.push(u.to_owned());
-                store::put_index(host, &key, names.iter())?;
-            }
-        }
         let editable = Outgoing {
             body: rendered.body.clone(),
             ..Outgoing::text("", "", origin)
@@ -1256,6 +1241,10 @@ impl<C: Chat> Messenger<C> {
                 });
             }
         }
+        // the name only once every recipient resolved: a refused send keeps nothing
+        if let Some(u) = update {
+            Self::use_update(host, bot_name, u)?;
+        }
         let bot = self.bot_mut(bot_name)?;
         let n = out.len() as u64;
         for m in out {
@@ -1269,6 +1258,36 @@ impl<C: Chat> Messenger<C> {
                 Value::Array(to.iter().cloned().map(Value::Str).collect()),
             ),
         ])))
+    }
+
+    /// Marks `update` the most recently used name of the bot's edited messages. Past
+    /// [`model::MAX_UPDATES`] the least recently used one is forgotten with its ids (its message
+    /// is posted anew the next time), so writers can never use the names up for good.
+    fn use_update(host: &mut dyn Host, bot: &str, update: &str) -> Result<(), AppError> {
+        let key = store::updates_key(bot);
+        let mut names = store::index(host, &key);
+        names.retain(|n| n != update);
+        names.push(update.to_owned());
+        while names.len() > model::MAX_UPDATES {
+            let old = names.remove(0);
+            store::forget_update(host, bot, &old);
+        }
+        store::put_index(host, &key, names.iter())
+    }
+
+    /// `forget_update {update}`: the next send with that name posts a new message.
+    fn forget_update(host: &mut dyn Host, bot: &str, m: &Map) -> Result<Value, AppError> {
+        let u = Form(m).required("update").map_err(invalid)?;
+        let key = store::updates_key(bot);
+        let mut names = store::index(host, &key);
+        let before = names.len();
+        names.retain(|n| *n != u);
+        if names.len() == before {
+            return Err(AppError::new(Status::NotFound, format!("update: {u}")));
+        }
+        store::forget_update(host, bot, &u);
+        store::put_index(host, &key, names.iter())?;
+        Ok(Value::Null)
     }
 
     /// `to` of a send: a list, or the default.
@@ -1828,6 +1847,7 @@ impl<C: Chat> Messenger<C> {
         let now = host.now_us();
         match action {
             "send" => self.send_ad_hoc(host, bot, m, None),
+            "forget_update" => Self::forget_update(host, bot, &m),
             "send_raw" => self.send_raw(host, bot, &m),
             "set_token" => {
                 let token = Form(&m).required("token").map_err(invalid)?;

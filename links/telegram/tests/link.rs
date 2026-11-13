@@ -680,3 +680,53 @@ fn a_template_keeps_one_message_up_to_date() {
     h.until("new", |h| h.num("ops/sent") == 6);
     assert_eq!(api.calls("sendMessage").len(), 3);
 }
+
+/// The names of updated messages never run out: past 64 the least recently used is forgotten
+/// (its message is posted anew next time), and `forget_update` drops one by hand; a send that
+/// is refused keeps no name (security review of a4600bc).
+#[test]
+fn update_names_never_run_out() {
+    let api = Api::start();
+    let mut h = telegram(&api);
+    h.invoke(
+        "ops",
+        "add_template",
+        map(&[("name", s("p")), ("text", s("x")), ("to", s("team"))]),
+    )
+    .expect("template");
+    let send = |h: &mut SimHost, u: &str| {
+        h.invoke("ops/templates/p", "send", map(&[("update", s(u))]))
+            .expect("send");
+    };
+    for i in 0..65 {
+        send(&mut h, &format!("u{i}"));
+    }
+    h.until("all posted", |h| h.num("ops/sent") == 65);
+    assert_eq!(api.calls("sendMessage").len(), 65);
+    // u0 was the least recently used: forgotten, so posted anew; u64 is edited
+    send(&mut h, "u0");
+    send(&mut h, "u64");
+    h.until("both", |h| h.num("ops/sent") == 67);
+    assert_eq!(api.calls("sendMessage").len(), 66);
+    assert_eq!(api.calls("editMessageText").len(), 1);
+    // forget one by hand
+    h.invoke("ops", "forget_update", map(&[("update", s("u64"))]))
+        .expect("forget");
+    send(&mut h, "u64");
+    h.until("posted again", |h| h.num("ops/sent") == 68);
+    assert_eq!(api.calls("sendMessage").len(), 67);
+    assert!(h
+        .invoke("ops", "forget_update", map(&[("update", s("nope"))]))
+        .is_err());
+    // a refused send (unknown recipient) keeps no name
+    assert!(h
+        .invoke(
+            "ops/templates/p",
+            "send",
+            map(&[("update", s("fresh")), ("to", s("nobody"))])
+        )
+        .is_err());
+    assert!(h
+        .invoke("ops", "forget_update", map(&[("update", s("fresh"))]))
+        .is_err());
+}

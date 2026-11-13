@@ -324,6 +324,20 @@ pub fn bot_actions(kind: Kind) -> Vec<(&'static str, ActionMeta)> {
     let mut out = vec![
         ("send", ad_hoc_send(kind)),
         (
+            "forget_update",
+            ActionMeta::new()
+                .display("Forget updated message")
+                .level(Perm::Write)
+                .param(
+                    "update",
+                    text(
+                        "Update",
+                        "The name a template's send kept a message up to date with: its next send posts a new message.",
+                    )
+                    .required(true),
+                ),
+        ),
+        (
             "send_raw",
             ActionMeta::new()
                 .display("Send raw request")

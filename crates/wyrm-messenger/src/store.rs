@@ -125,11 +125,30 @@ pub fn slot_key(bot: &str, update: &str, r: &str) -> String {
     format!("m/{bot}/{update}/{r}")
 }
 
+/// Slot `key` (from [`slot_key`]) still belongs to a name the bot keeps: a name forgotten
+/// while its message waited in the queue gets no id back.
+pub fn slot_live(host: &dyn Host, key: &str) -> bool {
+    let mut parts = key.splitn(4, '/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("m"), Some(bot), Some(update)) => {
+            index(host, &updates_key(bot)).iter().any(|n| n == update)
+        }
+        _ => false,
+    }
+}
+
 /// The id of edited message `update` at `r`, when it was sent.
 pub fn slot(host: &dyn Host, bot: &str, update: &str, r: &str) -> Option<String> {
     match get(host, &slot_key(bot, update, r))? {
         Value::Str(s) => Some(s),
         _ => None,
+    }
+}
+
+/// The ids of edited message `update` at every recipient.
+pub fn forget_update(host: &mut dyn Host, bot: &str, update: &str) {
+    for r in index(host, &coll('r', bot)) {
+        host.store_delete(&slot_key(bot, update, &r));
     }
 }
 
