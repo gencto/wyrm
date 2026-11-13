@@ -795,7 +795,15 @@ impl Control {
 
 /// A caller's `update` arguments checked against this broker: the release
 /// under the pinned keys, and whether this broker may go to it.
-async fn plan_of(ctl: &Arc<Control>, args: &Value, sub: &str) -> Result<Plan, LinkError> {
+///
+/// `fresh`: read the releases index now; else the one read last is enough
+/// (a dry run answers within the admin's own time limit).
+async fn plan_of(
+    ctl: &Arc<Control>,
+    args: &Value,
+    sub: &str,
+    fresh: bool,
+) -> Result<Plan, LinkError> {
     let u = &ctl.cfg.updates;
     let for_standby = match arg_str(args, "target").unwrap_or("active") {
         "" | "active" => false,
@@ -815,7 +823,10 @@ async fn plan_of(ctl: &Arc<Control>, args: &Value, sub: &str) -> Result<Plan, Li
                 "no updates.channel: bring the archive (upload) with its release and signature",
             )
         })?;
-        if let Err(e) = ctl.poll_index().await {
+        let cached = matches!(&*lock(&ctl.update.index), Some(Ok(_)));
+        if !fresh && cached {
+            // nothing to read
+        } else if let Err(e) = ctl.poll_index().await {
             return Err(LinkError::new(
                 Status::InternalError,
                 format!("releases index: {e}"),
@@ -906,7 +917,7 @@ fn gate_now(ctl: &Control, args: &Value) -> Result<(), LinkError> {
 /// before it fetches the archive.
 pub(super) async fn check(ctl: &Arc<Control>, args: &Value, sub: &str) -> Result<(), LinkError> {
     gate_now(ctl, args)?;
-    let plan = plan_of(ctl, args, sub).await?;
+    let plan = plan_of(ctl, args, sub, false).await?;
     if !plan.for_standby {
         let without = matches!(arg(args, "without_standby"), Some(Value::Bool(true)));
         ctl.standby_first(&plan.release, without)?;
@@ -922,7 +933,7 @@ pub(super) async fn update(
     sub: &str,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
     gate_now(ctl, args)?;
-    let plan = plan_of(ctl, args, sub).await?;
+    let plan = plan_of(ctl, args, sub, true).await?;
     let without = matches!(arg(args, "without_standby"), Some(Value::Bool(true)));
     if !plan.for_standby {
         ctl.standby_first(&plan.release, without)?;
@@ -1099,7 +1110,9 @@ async fn run(
         to: plan.release.version.clone(),
         state: "trial".into(),
         attempts: 0,
-        deadline: now + ctl.cfg.updates.trial_s,
+        // the trial begins when the new version starts
+        trial_s: ctl.cfg.updates.trial_s,
+        deadline: 0,
         backup_id: job.id.clone(),
         backup: job.file.clone(),
         backup_sha256: job.sha256.clone(),
@@ -1122,6 +1135,8 @@ async fn run(
             let _ = std::fs::remove_file(d2.join(release::STATE_FILE));
             return Err(e);
         }
+        // the version before the one that runs can no longer be gone back to
+        layout2.prune(&[u2.from.as_str(), u2.to.as_str()]);
         Ok(())
     })
     .await
@@ -1450,6 +1465,8 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
                     .description("A standby pair whose standby is down: update this broker alone"),
             )
             .result(ActionResult::Type(TypeCode::Map))
+            // the releases index is read before the answer
+            .timeout_ms(150_000)
             .level(Perm::Config),
     )
     .await?;
@@ -1577,11 +1594,16 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
         }
         ctl.update.notify();
     }
+    // set by `wyrmd` at the start of the process; never open-ended
+    let deadline = match u.deadline {
+        0 => now_s() + ctl.cfg.updates.trial_s,
+        d => d,
+    };
     info!(
-        from = %u.from, deadline_in_s = u.deadline.saturating_sub(now_s()),
+        from = %u.from, deadline_in_s = deadline.saturating_sub(now_s()),
         "broker update: wyrmd {me} is in its trial"
     );
-    tokio::time::sleep(Duration::from_secs(u.deadline.saturating_sub(now_s()))).await;
+    tokio::time::sleep(Duration::from_secs(deadline.saturating_sub(now_s()))).await;
     let until = tokio::time::Instant::now() + TRIAL_GRACE;
     let verdict = loop {
         match healthy(ctl, session, &u).await {

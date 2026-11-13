@@ -34,6 +34,10 @@ enum Cmd {
     /// from this binary: versions/<version>/wyrmd, current, bin/wyrmd-guard
     /// (no wyrmd.json5).
     InstallLayout { prefix: std::path::PathBuf },
+    /// Release tooling: pack, describe, index and sign a wyrmd release
+    /// (ADR 0048; `packaging/wyrmd`). No wyrmd.json5.
+    #[command(subcommand)]
+    Release(crate::update::ReleaseCmd),
     /// Create the site CA if it does not exist, issue the certificates of
     /// the sites in `peers.downstream` (`data_dir/peers/<site>/broker.{pem,key}`,
     /// ADR 0015) and print the path of the CA certificate: the files to
@@ -182,7 +186,13 @@ fn user_cmd(cfg: &Config, cmd: UserCmd) -> Result<(), Error> {
 /// passes `None`.
 pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
     wyrm_admin::release::set_identity(crate::update::identity(test.as_ref()));
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if matches!(args.cmd, Some(Cmd::Release(_))) {
+        let Some(Cmd::Release(cmd)) = args.cmd.take() else {
+            return Ok(());
+        };
+        return crate::update::release_cmd(cmd);
+    }
     match &args.cmd {
         Some(Cmd::ReleaseInfo) => {
             println!(
@@ -306,12 +316,12 @@ async fn run(args: Args) -> Result<(), Error> {
     if cfg.admin_keys.is_empty() {
         tracing::warn!("no admin_keys: every set/invoke will be denied");
     }
-    // a version in its trial counts this start (ADR 0048 §2.5)
-    crate::update::trial_start(&cfg.data_dir);
+    // the trial of a new version begins with its first start (ADR 0048 §2.5)
+    crate::update::trial_start(&cfg.data_dir, cfg.updates.trial_s);
     if cfg.standby.is_some() {
         return run_with_standby(cfg).await;
     }
-    let daemon = Daemon::open(cfg, std::env::current_exe()?)?;
+    let daemon = Daemon::open(cfg, own_exe()?)?;
     let ctl = daemon.control();
     daemon
         .run_until(async {
@@ -321,6 +331,14 @@ async fn run(args: Args) -> Result<(), Error> {
         .await?;
     exit_if_asked(&ctl);
     Ok(())
+}
+
+/// This binary's own file, not a link to it: a broker started as
+/// `<prefix>/current/wyrmd` hosts its process links with the version it is,
+/// also after `current` moved to the next one (ADR 0048 §2).
+fn own_exe() -> Result<std::path::PathBuf, Error> {
+    let exe = std::env::current_exe()?;
+    Ok(exe.canonicalize().unwrap_or(exe))
 }
 
 /// A new version that gave its trial up ends with the code the guard and
@@ -337,7 +355,7 @@ fn exit_if_asked(ctl: &wyrm_admin::Control) {
 async fn run_with_standby(cfg: Config) -> Result<(), Error> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use crate::standby::{follow_with, isolated, lease_lost, primary_is_back, Outcome};
-    let exe = std::env::current_exe()?;
+    let exe = own_exe()?;
     let arbiters = crate::arbiter::Arbiters::of(&cfg)?;
     if arbiters.is_none() {
         tracing::warn!("standby: no standby.arbiter: a split where both hosts reach a witness but not each other makes both brokers active (ADR 0036)");

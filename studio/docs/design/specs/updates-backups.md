@@ -2,7 +2,7 @@
 
 Boards (canvas row *Updates, restore points, backups*): `LinkUpdate` with `LinkUpdateProgress`, `LinkUpdateDone`, `LinkUpdateRolledBack`; `LinkBackup`; `BrokerUpdate` with `BrokerUpdateRestart`, `BrokerUpdateDone`, `BrokerUpdateRolledBack`, `BrokerUpdateExternal`; `Backup` (clickable checkboxes) with `BackupProgress`, `BackupDone`, `BackupRestore`. Broker side: **ADR 0048** (proposed). The boards win for what is visible; this spec says where each screen sits, what it reads and calls, and its states.
 
-**Order of work.** The broker parts come first. ADR 0048 §1 (package updates) and §3 (backups, link backup, broker restore, `send`) are built: §1, §2 and §4 below name the broker's values and actions as they are in the code (guides `docs/links.md` §5a and `docs/backups.md`). ADR 0048 §2 (broker self-update) is not built: §3 below is the plan, and its entry points stay hidden, never shown disabled with a promise.
+**Order of work.** The broker parts come first. ADR 0048 §1 (package updates) and §3 (backups, link backup, broker restore, `send`) are built: §1, §2 and §4 below name the broker's values and actions as they are in the code (guides `docs/links.md` §5a and `docs/backups.md`). ADR 0048 §2 (broker self-update) is built too: §3 below names its values and actions as they are in the code (guide `docs/operations.md` §2 "A broker that updates itself"). It is opt-in on the host (`updates.mode`); with `off` the card is not shown.
 
 ## 1. Updating links (`LinkUpdate*`)
 
@@ -38,22 +38,24 @@ The action answers once the links restarted; there is no progress stream. The st
 ## 3. Updating the broker (`BrokerUpdate*`)
 
 ### Where
-System › Maintenance: a card `Broker version` (first on the tab): `0.1.0 · 0.2.0 is available` (from `sys` `latest`, `update_available`) with `Update…`; when `update_state` is `trial` or a rollback is still possible, the card shows that state and `Roll back to <v>…` until `keep_days`. The System attention panel adds `Broker update available` (info) and `Update rolled back` (warn).
+System › Maintenance: a card `Broker version` (first on the tab), by `sys/update_mode` (`off`, `external`, `self`): hidden for `off`. `0.1.0 · 0.2.0 is available` (from `sys` `version`, `latest`, `update_available`) with `Update…` (`self`) or `How to update…` (`external`); `Check now` → `sys/~act/check_updates` → `{latest, update_available}`. When `sys/update_hint` is not empty in `self` mode (the layout or the guard is missing, the index cannot be read, no channel), the card shows that text and `Update…` opens the file path below (no channel) or is disabled (layout, guard). When `update_state` is `trial`, or `confirmed` with `update_last.keep_until` in the future, the card shows that state and `Roll back to <update_last.from>…`. The System attention panel adds `Broker update available` (info) and `Update rolled back` (warn; `failed`: the new version stays).
 
 ### Review (dialog 640, board `BrokerUpdate`)
-- Title `Update <site> to wyrmd <v>`, pill `<from> → <to>`, sub-line: release date, channel, `the broker restarts once`.
-- `Checked before anything changes` (from a dry run: `sys/~act/update?check` with ADR 0047): signature and SHA-256, the new binary's `check` of the configuration, room on disk, SCHEMA moves (warn: rollback restores the pre-update backup, later changes lost), links built for this broker (`wyrm_link`), standby (warn: update the standby first, with a link to it).
-- `How it goes`: the five steps of ADR 0048 §2.4–2.6 in plain words.
-- `Type <site> to confirm` (input; the primary stays disabled until it matches) → `sys/~act/update {version, confirm_site}`.
-- Downstream sites: the same dialog from Sites › site ▸ `Update broker…` when the upstream has `allow_config` (else not shown).
+- Title `Update <site> to wyrmd <v>`, pill `<from> → <to>`, sub-line: release date (`update_last.latest_date`), channel, `the broker restarts once`.
+- `Checked before anything changes`: a dry run `sys/~act/update?check` with the same arguments (ADR 0047). It answers `ok` or one refusal (its message is shown as the failed check): mode, site name, layout and guard, another job, the release's signature, version and SCHEMA rules, the standby. It does not fetch the archive; the archive's hash, the new binary's `check` of the configuration and state, and the room on disk are checked by `update` itself and show in the progress. The broker returns no list of checks.
+- `How it goes`: the steps of `docs/operations.md` in plain words.
+- `Type <site> to confirm` (input; the primary stays disabled until it matches) → `sys/~act/update {version, confirm_site}` → `{success, message, version, restart}` at once.
+- Without a channel (`update_hint` says so; today's way): `Update from file…` picks the archive, its `.release.json` and `.sig`; the archive goes up in parts (`sys/backups/~act/restore_begin {size}`, `restore_part {upload, offset, data}`), then `update {upload, release, signature, confirm_site}` (`release` and `signature` as text).
+- A standby pair (`sys/standby_version` exists): two steps. `Update the standby` → `update {target: "standby", upload, release, signature, confirm_site}`, then `sys/standby_update` (`ordered <v>`, `<v> trial`, `<v> confirmed`, `<v> rolled_back`, `<v> failed`); `Update this broker` is enabled when `standby_version` is the target and `standby_update` is `<v> confirmed`. `without_standby: true` only behind its own confirm, when the standby is not connected. The standby step needs the file path.
+- Downstream sites: the same dialog from Sites › site ▸ `Update broker…` when the upstream has `allow_config` (else not shown). `Roll back` is not offered there (the broker refuses it for such a session).
 
 ### Restarting (`BrokerUpdateRestart`)
-Studio loses the gateway on purpose. The dialog stays, with a spinner card `<site> is restarting on <v>` and a counter, and the steps as they are known (before the restart from the action; after, from `sys` `update_state` once the socket is back). `WyrmGateway.loginAny` logs in again by itself (ADR 0036 option 2); the shell's offline banner says `Updating <site>` instead of `Connection lost`. The text under the steps says what links and devices do meanwhile.
+Before the restart the steps come from `update_last.step` (`fetching`, `checking`, `staged`, `backup`) while `update_state` is `none` or `staged`; an update that ends there shows `update_last.result: failed` with `reason` and nothing changed. Then Studio loses the gateway on purpose. The dialog stays, with a spinner card `<site> is restarting on <v>` and a counter. `WyrmGateway.loginAny` logs in again by itself (ADR 0036 option 2); the shell's offline banner says `Updating <site>` instead of `Connection lost`. After the socket is back: `update_state` `trial` (a countdown to `update_last.deadline`, `attempts`), then `confirmed`, or `rolled_back` on the old version. The text under the steps says what links and devices do meanwhile.
 
 ### Result (`BrokerUpdateDone`, `BrokerUpdateRolledBack`, `BrokerUpdateExternal`)
-- Confirmed: banner (good), facts `Version`, `Without the broker`, `Links back`, `Roll back` (until), `Audit`; buttons `Close`, `Roll back to <from>…` (neutral; its own confirm with `Changes made after the update are lost`).
-- Rolled back: banner (warn) with the reason from `update_last`, facts `Tried`, `Reason`, `Now`, `Log of <v>`, `Audit`; `Open the log of <v>`.
-- External (`updates.mode: "external"`): no update button; the dialog says the image is changed where the container is defined, shows the two commands, and offers `Make the backup` (§4 with `control` + `keys`).
+- Confirmed: banner (good), facts `Version` (`to`), `Without the broker` (`without_s`), `Links back` (`links`), `Roll back` (until `keep_until`), `Audit` (`update_start`, `update_confirmed`); buttons `Close`, `Roll back to <from>…` (neutral; its own confirm with the site name and `Changes made after the update are lost` when `schemas_moved` is not empty) → `sys/~act/rollback_update {confirm_site}`.
+- Rolled back: banner (warn) with `update_last.reason`, facts `Tried` (`to`), `Reason`, `Now` (`from`), `Control plane restored` (`restored`), `Audit` (`update_rollback`); `Open the log`.
+- External (`update_mode: external`): no update button; the dialog shows `sys/update_hint` (what to run outside the broker) and offers `Make the backup` (§4 with `control`).
 
 ## 4. Backing up and restoring the broker (`Backup*`)
 
@@ -83,7 +85,7 @@ System › Maintenance: the card `Back up and restore` (today the copyable comma
 | Links › Updates | `sys/links` attributes `updates_available`, `catalog`; `sys/packages/<name>` values `version`, `latest`, `update_available`, `state`, `changes_state`, `previous`, `last_update` (`result`: `checking`, `ok`, `rolled_back`, `failed`) | `sys/packages/<name>` `update`, `rollback`; `sys/links` `install_zip`, `install_url`, `install_git` (custom) |
 | Link inspector | `sys/links/<id>/restore_points` | `sys/links/<id>` `backup`; `sys/packages/<name>` `rollback` |
 | Add a link ▸ From backup | the uploaded file's manifest | `sys/backups` `restore_begin`, `restore_part`, `restore_abort`; `sys/links` `install_backup` |
-| System › Broker version | `sys` `version`, `latest`, `update_available`, `update_state`, `update_last` | `update` (`?check` first), `rollback_update` |
+| System › Broker version | `sys` `version`, `latest`, `update_available`, `update_state` (`none`, `staged`, `trial`, `confirmed`, `rolled_back`, `failed`), `update_last`, `update_mode`, `update_hint`, `standby_version`, `standby_update` | `sys` `update` (`?check` first), `rollback_update`, `check_updates`; `sys/backups` `restore_begin`, `restore_part` (the archive) |
 | System › Backups | `sys/backups` attributes `export_secrets`, `send_links`, `sections`, `keep_days`, `max_mb`; `sys/backups/<id>` attributes `kind`, `name`, `sections`, `sealed`, `link`, values `status`, `progress`, `step`, `size`, `sha256`, `created`, `expires`, `error`, `sent_to`, `send_status`, `send_progress`, `send_error` | `sys/backups` `estimate`, `create`, `restore_begin`, `restore_part`, `restore_abort`, `restore_check`, `restore_apply`; `sys/backups/<id>` `download_part`, `send`, `remove` |
 
 All are config; the views check `site.needs('config', …)` and hide the buttons for others (Studio's rule). Every long call shows its progress and survives closing the screen; errors follow `errors.md` (a timeout on `update` says the update may be running: Studio re-reads `update_state` before offering anything).

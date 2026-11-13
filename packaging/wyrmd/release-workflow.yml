@@ -1,0 +1,116 @@
+# Copy to .github/workflows/wyrmd-release.yml (a session without the GitHub `workflow` scope cannot add it).
+# NOT ENABLED: it does nothing until it is copied there and the secret WYRMD_RELEASE_KEY exists
+# (packaging/wyrmd/README.md says how the key is made, kept and pinned).
+#
+# The wyrmd release (ADR 0048 §2.3): one archive per target, each packed by the binary itself
+# (`wyrmd release pack`), one release document for all of them, the releases index with that
+# release added, and an Ed25519 signature of the document and of the index. Published as the
+# assets of release <tag>; the index and its signature also replace the two assets of release
+# `wyrmd-index`, the URL brokers read (`updates.channel`).
+#
+#   git tag wyrmd-v0.2.0 && git push origin wyrmd-v0.2.0   # build, sign and publish
+#   Actions ▸ wyrmd-release ▸ Run workflow                  # build only: unsigned artifacts
+name: wyrmd-release
+on:
+  push:
+    tags: ["wyrmd-v*"]
+  workflow_dispatch: {}
+permissions: {}
+concurrency:
+  group: wyrmd-release
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  build:
+    # One binary per host. Linux builds are static (musl), so they run on any board. The target
+    # names of the archives come from the binaries (`<arch>-<os>[-musl]`), not from this file.
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { targets: "${{ matrix.target }}" }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with: { key: "wyrmd-${{ matrix.target }}" }
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --locked --release -p wyrmd --target "${{ matrix.target }}"
+      # the tag names the version the binary says it is
+      - if: startsWith(github.ref, 'refs/tags/wyrmd-v')
+        env:
+          TAG: ${{ github.ref_name }}
+          BIN: target/${{ matrix.target }}/release/wyrmd
+        run: |
+          said="$("$BIN" release-info | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+          test "wyrmd-v$said" = "$TAG" || { echo "tag $TAG, binary $said"; exit 1; }
+      - env:
+          BIN: target/${{ matrix.target }}/release/wyrmd
+        run: '"$BIN" release pack dist'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: "wyrmd-${{ matrix.target }}", path: dist/*, if-no-files-found: error }
+
+  publish:
+    # The release document, the index and their signatures; only for a tag. The signing key is
+    # read from the environment of the one step that signs and reaches no other step or job.
+    if: startsWith(github.ref, 'refs/tags/wyrmd-v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: wyrmd-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { path: dist, merge-multiple: true }
+      # the Linux x86_64 binary of this very release is the tool (it runs on this runner)
+      - run: |
+          mkdir tool
+          tar -xzf dist/wyrmd-*-x86_64-linux-musl.tar.gz -C tool wyrmd
+          chmod +x tool/wyrmd
+      - env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          tool/wyrmd release doc dist \
+            --date "$(date -u +%F)" \
+            --notes "https://github.com/$REPO/releases/tag/$TAG" \
+            --base-url "https://github.com/$REPO/releases/download/$TAG"
+      # the index so far (none before the first release), with this release added
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release download wyrmd-index --repo "$REPO" --pattern releases.json --dir . || true
+          tool/wyrmd release index dist/wyrmd-*.release.json releases.json
+      - env:
+          WYRMD_RELEASE_KEY: ${{ secrets.WYRMD_RELEASE_KEY }}
+        run: |
+          tool/wyrmd release sign dist/wyrmd-*.release.json
+          tool/wyrmd release sign --index releases.json
+      # what was signed is what the built-in key (or WYRMD_RELEASE_PUBLIC) checks
+      - env:
+          PUBLIC: ${{ vars.WYRMD_RELEASE_PUBLIC }}
+        run: |
+          tool/wyrmd release verify dist/wyrmd-*.release.json ${PUBLIC:+--key "$PUBLIC"}
+          tool/wyrmd release verify --index releases.json ${PUBLIC:+--key "$PUBLIC"}
+          (cd dist && sha256sum *.tar.gz) > SHA256SUMS
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" dist/*.tar.gz dist/*.release.json dist/*.release.json.sig SHA256SUMS \
+            --repo "$REPO" --title "$TAG" --notes "wyrmd ${TAG#wyrmd-v}. Signed: see docs/operations.md."
+          gh release view wyrmd-index --repo "$REPO" >/dev/null 2>&1 \
+            || gh release create wyrmd-index --repo "$REPO" --title "wyrmd releases index" \
+                 --notes "The signed index brokers read (updates.channel). Replaced by every wyrmd release."
+          gh release upload wyrmd-index releases.json releases.json.sig --repo "$REPO" --clobber

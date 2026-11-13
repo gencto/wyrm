@@ -322,6 +322,152 @@ Rules of thumb:
   at its head; a history that forked (a record the standby never got) is
   moved aside as `state.stale.<n>` and copied again from the active.
 
+### A broker that updates itself (ADR 0048 §2)
+
+By default a broker is updated by hand: replace the binary, restart
+(`updates.mode: "off"`). Two other modes are set on the host, in
+`wyrmd.json5`:
+
+```json5
+updates: {
+  mode: "self",                       // "off" (default), "external", "self"
+  channel: "https://…/releases.json", // the signed releases index; optional for "self"
+  keys: ["<Ed25519 public key, hex>"],// release keys trusted besides the built-in ones
+  trial_s: 180,                       // 10 to 3600: how long a new version has to prove itself
+  keep_days: 7,                       // 1 to 90: how long a confirmed update can be rolled back
+}
+```
+
+- `external` (a container, a distribution package): the broker reads the
+  index and shows `sys/latest`, `sys/update_available` and, in
+  `sys/update_hint`, what to run. It never replaces itself: `update` is
+  refused with that text. Change the image tag where the container is
+  defined and run `docker compose pull && docker compose up -d`, or install
+  the new package and `systemctl restart wyrmd`. Make a backup first
+  (section 3).
+- `self`: `sys/~act/update` replaces the broker and takes the new version
+  back when it does not prove itself. It needs the layout and the unit
+  below. Linux and macOS only.
+
+The release key: this version of `wyrmd` has **no built-in release key**.
+A broker trusts only the keys in `updates.keys`; with none, every update
+is refused. `packaging/wyrmd/README.md` says how a key is made.
+
+#### Layout and unit
+
+```
+/opt/wyrm/versions/0.1.0/wyrmd     one directory per version
+/opt/wyrm/current -> versions/0.1.0  a symbolic link, switched by one rename
+/opt/wyrm/bin/wyrmd-guard          a copy of the previous version's binary
+```
+
+1. Make the layout from the binary you have:
+   `wyrmd install-layout /opt/wyrm`. It prints the two unit lines.
+2. Give the directory to the broker's user: `chown -R wyrm:wyrm /opt/wyrm`.
+   The broker writes new versions there.
+3. Change the unit of section 2:
+   ```ini
+   ExecStartPre=/opt/wyrm/bin/wyrmd-guard -c /etc/wyrm/wyrmd.json5 update-guard
+   ExecStart=/opt/wyrm/current/wyrmd -c /etc/wyrm/wyrmd.json5
+   ReadWritePaths=/var/lib/wyrm /opt/wyrm
+   Restart=always
+   ```
+4. `systemctl daemon-reload && systemctl restart wyrmd`. `sys/update_hint`
+   is empty when the layout and the guard are in place; else it says what
+   is missing, and `update` is refused with the same text.
+
+CAUTION: without `ExecStartPre` a failed update is not taken back. The
+broker checks that the guard ran before it started and refuses `update`
+when it did not.
+
+#### What `update` does
+
+`sys/~act/update {version, confirm_site}` (config; `confirm_site` is the
+site name). It answers at once; follow `sys/update_state` and
+`sys/update_last`.
+
+1. The release document is checked against the pinned keys. A version
+   that is not newer, that needs a newer starting version (`min_from`),
+   that has no build for this host or that writes an older SCHEMA than
+   `data_dir` holds is refused.
+2. The archive is fetched (https only; plain http only to loopback) and
+   its size and SHA-256 are compared with the signed document. Then it is
+   unpacked into `versions/<v>`: plain files only, the broker's own modes.
+3. The new binary is asked what it is (`wyrmd release-info`) and run
+   against a copy of the control plane
+   (`wyrmd -c <config> check --state <copy>`). It runs with an empty
+   environment. The live `data_dir` is not touched.
+4. A backup of the control plane is made (`sys/backups`, kind
+   `pre-update`, kept while a rollback is possible).
+5. `data_dir/update.json` is written, `current` is switched, the broker
+   stops with code 0, and systemd starts the new version.
+6. The trial begins at the first start of the new version and lasts
+   `trial_s`. At its end the version is confirmed when the admin answers,
+   the gateway listens and every link that was connected before is
+   connected again. `sys/update_state` is then `confirmed` and the guard
+   becomes the new binary.
+7. Else the new version ends with code 76 and the guard, at the next
+   start, points `current` back, restores the control plane from the
+   pre-update backup where the update moved a SCHEMA, and the old version
+   serves: `sys/update_state` is `rolled_back`, `sys/update_last.reason`
+   says why. The same happens after three starts that did not end the
+   trial.
+
+CAUTION: where an update moved a SCHEMA, a rollback restores the control
+plane of the moment before the update. Changes made under the new version
+(links, users, flows, tokens) are lost; the directories it replaced stay
+in `data_dir/update.aside` until the next rollback.
+
+`sys/~act/rollback_update {confirm_site}` goes back on purpose, for
+`keep_days` after a confirmed update. It is refused for a session that
+reaches the site through an upstream. `update` itself is allowed through
+an upstream with `allow_config`: what may run is decided by the keys this
+host pinned.
+
+An update is refused with `busy` while a backup is made or sent, a
+restore is staged, a package is updated or another update runs. With
+`state_anchor_dir` set, a release that moves a SCHEMA is refused: update
+that broker by hand, then run `wyrmd init-anchors`.
+
+#### Without a releases index
+
+There is no published index yet. Bring a signed archive:
+
+1. Upload `wyrmd-<v>-<target>.tar.gz` in parts:
+   `sys/backups/~act/restore_begin {size}`, then `restore_part {upload,
+   offset, data}`.
+2. Call `sys/~act/update {upload, release, signature, confirm_site}` with
+   the text of `wyrmd-<v>.release.json` and of its `.sig` file.
+
+#### A standby pair
+
+The standby goes first. It runs no router, so the active carries the
+order:
+
+1. Set `updates.mode: "self"`, the same `updates.keys`, the layout and
+   the unit on both hosts.
+2. On the active, call `update {target: "standby", upload, release,
+   signature, confirm_site}`. The standby fetches the archive from the
+   active, checks the signature with its own keys, proves the binary and
+   restarts on it. `sys/standby_update` shows `ordered <v>`, then
+   `<v> trial`, then `<v> confirmed` (or `rolled_back` / `failed`), and
+   `sys/standby_version` the version it runs.
+3. When the standby is confirmed, call `update` for the active (the same
+   arguments without `target`). It is refused while the standby runs
+   another version or is not confirmed. `without_standby: true` updates
+   the active alone when the standby is not connected.
+
+While the active restarts, the standby waits up to 120 s. If the new
+version does not come up in that time the standby, already on it, takes
+over. A release that changes the replication protocol cannot be done this
+way: stop the standby, update both hosts by hand, start the active first.
+
+When the guard cannot roll back (the old version's directory or a needed
+pre-update backup is gone), `sys/update_state` is `failed` and the new
+version stays. When a restore fails, the guard ends with code 1, the
+broker is not started and systemd runs the guard again: read its message
+in the journal (`journalctl -u wyrmd`).
+
 ### Several sites
 
 A site does not depend on its upstream: it keeps polling, recording and
@@ -346,6 +492,7 @@ Everything the broker owns is under `data_dir`. What cannot be regenerated:
 | `history/`, `storage/` | the historian's day files and index, broker storage | history and stored values gone |
 | `audit/` | the audit journal | the record of who did what |
 | `packages/`, `peers/`, `operators/` | installed link packages (and the previous version of an updated one), certificates issued for downstream brokers, operator certificates | reinstall, reissue |
+| `update.json`, `update.guard`, `update.aside/` | the state of the broker's own update (ADR 0048 §2), when the guard ran last, and the control-plane directories a rollback replaced | a rollback of a confirmed update is not possible |
 | `restore/<link>/` | restore points of links taken before a package update or a restore from a backup (docs/links.md §5a): link backups (`.wyrm-link`) sealed with a key derived from `secrets.key`, and their `.meta` | a rollback of an update restores no private data |
 
 How to take a backup:
@@ -422,7 +569,12 @@ it does for the official one.
 ## 4. Checks
 
 - `wyrmd -c … check`: the configuration parses and validates; exit code 1
-  otherwise. Run it before a restart with a changed file.
+  otherwise. Run it before a restart with a changed file. With
+  `--state <dir>` it also opens every control-plane store of a copy of a
+  `data_dir` with this binary (what a broker does with a newer version
+  before it updates to it); it never opens the live `data_dir`.
+- `wyrmd release-info`: what this binary is (version, target, the SCHEMA
+  of each store, the replication protocol).
 - `wyrmd -c … verify`: every control-plane store offline (broker stopped).
 - Running: `wy/<site>/sys/uptime`, `links_total`, `links_connected`,
   `quarantined`, `acl_denied`, `cpu`, `memory`, `disk_free`, `data_size`

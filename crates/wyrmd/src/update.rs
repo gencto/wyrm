@@ -190,21 +190,25 @@ static STARTED: AtomicU64 = AtomicU64::new(0);
 /// The standby made one complete sync since it started.
 static SYNCED: AtomicBool = AtomicBool::new(false);
 
-/// First thing at a start of the broker: a version in its trial counts
-/// this start (ADR 0048 §2.5).
-pub fn trial_start(data_dir: &Path) {
+/// First thing at a start of the broker: the trial of a new version
+/// begins with its first start (ADR 0048 §2.5). The starts are counted by
+/// the guard.
+pub fn trial_start(data_dir: &Path, trial_s: u64) {
     STARTED.store(release::now_s(), Ordering::SeqCst);
     let me = &release::identity().version;
     if let Some(mut u) = UpdateFile::load(data_dir).filter(|u| u.in_trial() && &u.to == me) {
-        u.attempts += 1;
+        if u.deadline == 0 {
+            let s = if u.trial_s == 0 { trial_s } else { u.trial_s };
+            u.deadline = release::now_s() + s;
+            if let Err(e) = u.save(data_dir) {
+                tracing::warn!("update.json: {e}");
+            }
+        }
         tracing::info!(
             attempt = u.attempts,
             from = %u.from,
             "broker update: wyrmd {me} starts in its trial"
         );
-        if let Err(e) = u.save(data_dir) {
-            tracing::warn!("update.json: {e}");
-        }
     }
 }
 
@@ -405,7 +409,7 @@ async fn standby_apply(
         from: me.version.clone(),
         to: rel.version.clone(),
         state: "trial".into(),
-        deadline: now + cfg.updates.trial_s,
+        trial_s: cfg.updates.trial_s,
         from_schemas: me.schemas.clone(),
         to_schemas: rel.schemas.clone(),
         by: "the active broker".into(),
@@ -448,4 +452,226 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
         release::Guarded::Stuck(why) => eprintln!("update-guard: {why}"),
     }
     Ok(())
+}
+
+/// `wyrmd release …`: what the release workflow runs (`packaging/wyrmd`),
+/// and what makes a signed archive to bring to a broker by hand. None of
+/// them reads `wyrmd.json5`.
+#[derive(clap::Subcommand, Debug)]
+pub enum ReleaseCmd {
+    /// Print a new release key: the secret seed (for the signer alone) and
+    /// the public key (for `updates.keys`, or to build into wyrmd).
+    Keygen,
+    /// Pack this binary as wyrmd-<version>-<target>.tar.gz in DIR, with
+    /// what it is beside it (<archive>.json).
+    Pack { dir: PathBuf },
+    /// Write wyrmd-<version>.release.json in DIR from the archives packed
+    /// there (one per target, all of one version).
+    Doc {
+        dir: PathBuf,
+        /// YYYY-MM-DD.
+        #[arg(long, default_value = "")]
+        date: String,
+        /// URL of the release notes (https).
+        #[arg(long, default_value = "")]
+        notes: String,
+        /// The oldest version that may update to this one.
+        #[arg(long, default_value = "")]
+        min_from: String,
+        /// Where the archives will be: <base-url>/<file> (https); without
+        /// it a broker looks beside the index.
+        #[arg(long, default_value = "")]
+        base_url: String,
+    },
+    /// Put the release document RELEASE into the index INDEX (made new when
+    /// it does not exist; a release of the same version is replaced).
+    Index { release: PathBuf, index: PathBuf },
+    /// Sign FILE (a release document, or an index with --index) with the
+    /// seed in WYRMD_RELEASE_KEY; writes FILE.sig.
+    Sign {
+        file: PathBuf,
+        #[arg(long)]
+        index: bool,
+    },
+    /// Check FILE against FILE.sig with the keys built into this binary and
+    /// the ones given.
+    Verify {
+        file: PathBuf,
+        #[arg(long)]
+        index: bool,
+        #[arg(long)]
+        key: Vec<String>,
+    },
+}
+
+/// The environment variable `release sign` reads the seed from (hex).
+pub const RELEASE_KEY_ENV: &str = "WYRMD_RELEASE_KEY";
+
+#[derive(serde::Serialize, Deserialize)]
+struct Packed {
+    identity: Identity,
+    asset: release::Asset,
+}
+
+fn sig_path(file: &Path) -> PathBuf {
+    let mut s = file.as_os_str().to_owned();
+    s.push(".sig");
+    PathBuf::from(s)
+}
+
+pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
+    use ed25519_dalek::SigningKey;
+    let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+    match cmd {
+        ReleaseCmd::Keygen => {
+            let mut seed = zeroize::Zeroizing::new([0u8; 32]);
+            getrandom::fill(seed.as_mut()).map_err(|e| format!("no randomness: {e}"))?;
+            let key = SigningKey::from_bytes(&seed);
+            println!(
+                "secret seed ({RELEASE_KEY_ENV}): {}",
+                hex::encode(seed.as_ref())
+            );
+            println!(
+                "public key: {}",
+                hex::encode(key.verifying_key().to_bytes())
+            );
+        }
+        ReleaseCmd::Pack { dir } => {
+            let me = release::identity().clone();
+            std::fs::create_dir_all(&dir)?;
+            let out = dir.join(format!("wyrmd-{}-{}.tar.gz", me.version, me.target));
+            let asset = release::pack(
+                &std::env::current_exe()?,
+                &[],
+                &out,
+                flate2::Compression::best(),
+            )?;
+            let packed = Packed {
+                identity: me,
+                asset,
+            };
+            let mut side = out.clone().into_os_string();
+            side.push(".json");
+            std::fs::write(&side, pretty(&packed)?)?;
+            println!("{}", out.display());
+        }
+        ReleaseCmd::Doc {
+            dir,
+            date,
+            notes,
+            min_from,
+            base_url,
+        } => {
+            let mut packed: Vec<Packed> = Vec::new();
+            for e in std::fs::read_dir(&dir)? {
+                let path = e?.path();
+                if path.to_string_lossy().ends_with(".tar.gz.json") {
+                    packed.push(
+                        serde_json::from_slice(&read(&path)?)
+                            .map_err(|e| format!("{}: {e}", path.display()))?,
+                    );
+                }
+            }
+            let first = packed.first().ok_or("no packed archive in the directory")?;
+            let id = first.identity.clone();
+            let mut targets = BTreeMap::new();
+            for p in &packed {
+                if p.identity.version != id.version
+                    || p.identity.schemas != id.schemas
+                    || p.identity.replication != id.replication
+                {
+                    return Err(format!(
+                        "{}: not the same version, schemas and replication as {}",
+                        p.asset.file, first.asset.file
+                    )
+                    .into());
+                }
+                let mut asset = p.asset.clone();
+                if !base_url.is_empty() {
+                    asset.url = format!("{}/{}", base_url.trim_end_matches('/'), asset.file);
+                }
+                if targets.insert(p.identity.target.clone(), asset).is_some() {
+                    return Err(format!("target {} twice", p.identity.target).into());
+                }
+            }
+            let rel = release::Release {
+                wyrmd_release: release::FORMAT,
+                version: id.version.clone(),
+                date,
+                notes,
+                min_from,
+                schemas: id.schemas,
+                replication: id.replication,
+                targets,
+            };
+            rel.check()?;
+            let out = dir.join(format!("wyrmd-{}.release.json", rel.version));
+            std::fs::write(&out, pretty(&rel)?)?;
+            println!("{}", out.display());
+        }
+        ReleaseCmd::Index {
+            release: doc,
+            index,
+        } => {
+            let rel: release::Release = serde_json::from_slice(&read(&doc)?)
+                .map_err(|e| format!("{}: {e}", doc.display()))?;
+            rel.check()?;
+            let mut idx = match std::fs::read(&index) {
+                Ok(b) => serde_json::from_slice::<release::Index>(&b)
+                    .map_err(|e| format!("{}: {e}", index.display()))?,
+                Err(_) => release::Index {
+                    wyrmd_releases: release::FORMAT,
+                    releases: Vec::new(),
+                },
+            };
+            idx.releases.retain(|r| r.version != rel.version);
+            idx.releases.push(rel);
+            std::fs::write(&index, pretty(&idx)?)?;
+            println!("{}: {} releases", index.display(), idx.releases.len());
+        }
+        ReleaseCmd::Sign { file, index } => {
+            let seed = zeroize::Zeroizing::new(
+                std::env::var(RELEASE_KEY_ENV)
+                    .map_err(|_| format!("{RELEASE_KEY_ENV} is not set"))?,
+            );
+            let raw: zeroize::Zeroizing<[u8; 32]> = zeroize::Zeroizing::new(
+                hex::decode(seed.trim())
+                    .ok()
+                    .and_then(|b| b.try_into().ok())
+                    .ok_or_else(|| format!("{RELEASE_KEY_ENV}: 64 hex digits"))?,
+            );
+            let key = SigningKey::from_bytes(&raw);
+            let bytes = read(&file)?;
+            let sig = if index {
+                release::sign_index(&bytes, &key)
+            } else {
+                release::sign_release(&bytes, &key)
+            };
+            let out = sig_path(&file);
+            std::fs::write(&out, format!("{sig}\n"))?;
+            println!(
+                "{} (public key {})",
+                out.display(),
+                hex::encode(key.verifying_key().to_bytes())
+            );
+        }
+        ReleaseCmd::Verify { file, index, key } => {
+            let keys = release::pinned_keys(&key)?;
+            let bytes = read(&file)?;
+            let sig =
+                String::from_utf8(read(&sig_path(&file))?).map_err(|_| "signature: not text")?;
+            if index {
+                let i = release::read_index(&bytes, &sig, &keys)?;
+                println!("ok: {} releases", i.releases.len());
+            } else {
+                let r = release::read_release(&bytes, &sig, &keys)?;
+                println!("ok: wyrmd {}", r.version);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn pretty<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, String> {
+    serde_json::to_vec_pretty(v).map_err(|e| e.to_string())
 }

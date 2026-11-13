@@ -963,10 +963,15 @@ pub struct UpdateFile {
     /// `trial`, `confirmed`, `rolled_back`, `failed` (it could not be rolled
     /// back; the new version runs unproven).
     pub state: String,
-    /// Starts of the new version in its trial.
+    /// Starts of the new version in its trial, counted by the guard that
+    /// lets each one go on (a binary that cannot start is counted too).
     #[serde(default)]
     pub attempts: u32,
-    /// Unix seconds: the trial ends; the new version is judged then.
+    /// Seconds the new version has to prove itself, from its first start.
+    #[serde(default)]
+    pub trial_s: u64,
+    /// Unix seconds: the trial ends; the new version is judged then. 0
+    /// until the new version started for the first time.
     #[serde(default)]
     pub deadline: u64,
     /// The pre-update backup: its job id, file name in `data_dir/backups`
@@ -1062,7 +1067,8 @@ pub fn now_s() -> u64 {
 /// Note that the guard ran (`data_dir/update.guard`): a broker in
 /// `updates.mode: "self"` updates only when the guard ran before it started.
 pub fn stamp_guard(data_dir: &Path, version: &str) {
-    if !data_dir.is_dir() {
+    // the first start of a broker: the guard runs before it made the directory
+    if std::fs::create_dir_all(data_dir).is_err() {
         return;
     }
     let v = serde_json::json!({ "at": now_s(), "version": version });
@@ -1088,9 +1094,10 @@ pub enum Guarded {
 }
 
 /// `wyrmd update-guard`: run before every start of the broker, by the
-/// previous version's binary (`<prefix>/bin/wyrmd-guard`). With an update
-/// in its trial that failed (the new version said so, started
-/// [`MAX_ATTEMPTS`] times, or its time is over), or with a rollback asked
+/// previous version's binary (`<prefix>/bin/wyrmd-guard`). It counts each
+/// start of a version in its trial. With an update in its trial that
+/// failed (the new version said so, was started [`MAX_ATTEMPTS`] times
+/// without ending its trial, or its time is over), or with a rollback asked
 /// for on purpose, it restores the control plane from the pre-update backup
 /// where the update moved a SCHEMA, points `current` back at the old
 /// version and writes `rolled_back`. `Err`: a step failed and the next run
@@ -1122,7 +1129,7 @@ pub fn guard(layout: &Layout, data_dir: &Path, version: &str) -> Result<Guarded,
                 "wyrmd {} started {} times and never ended its trial",
                 u.to, u.attempts
             ))
-        } else if now > u.deadline {
+        } else if u.deadline != 0 && now > u.deadline {
             Some(format!(
                 "wyrmd {} did not end its trial in time (it was not running at the end)",
                 u.to
@@ -1136,6 +1143,11 @@ pub fn guard(layout: &Layout, data_dir: &Path, version: &str) -> Result<Guarded,
         None
     };
     let Some(why) = why else {
+        if u.state == "trial" {
+            // this start of the new version is let through, and counted
+            u.attempts += 1;
+            u.save(data_dir)?;
+        }
         return Ok(Guarded::Nothing);
     };
     let stuck = |u: &mut UpdateFile, what: String| -> Result<Guarded, String> {
@@ -1305,26 +1317,82 @@ pub async fn run_binary(
     }
 }
 
-/// Test helpers: archives and keys, also for the e2e tests of `wyrmd`.
+/// The header of one tar entry.
+fn tar_header(name: &str, kind: u8, mode: u32, size: u64) -> [u8; 512] {
+    let mut h = [0u8; 512];
+    h[..name.len().min(100)].copy_from_slice(&name.as_bytes()[..name.len().min(100)]);
+    h[100..108].copy_from_slice(format!("{mode:07o}\0").as_bytes());
+    h[108..116].copy_from_slice(b"0000000\0");
+    h[116..124].copy_from_slice(b"0000000\0");
+    h[124..136].copy_from_slice(format!("{size:011o}\0").as_bytes());
+    h[136..148].copy_from_slice(b"00000000000\0");
+    h[148..156].copy_from_slice(b"        ");
+    h[156] = kind;
+    h[257..263].copy_from_slice(b"ustar\0");
+    h[263..265].copy_from_slice(b"00");
+    let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
+    h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+    h
+}
+
+/// Write the archive of the binary at `bin` and the small files `extras`
+/// to `out` (the release tooling; streamed); its asset (file name, SHA-256,
+/// size). No owner, time or mode of the build host goes into it.
+pub fn pack(
+    bin: &Path,
+    extras: &[(&str, &[u8])],
+    out: &Path,
+    level: flate2::Compression,
+) -> Result<Asset, String> {
+    let size = std::fs::metadata(bin).map_err(|e| io(bin, e))?.len();
+    if size == 0 || size > MAX_BINARY {
+        return Err(format!("{}: 1 to {MAX_BINARY} bytes", bin.display()));
+    }
+    for (name, data) in extras {
+        if !plain_name(name, 64) || *name == BIN || data.len() as u64 > MAX_EXTRA {
+            return Err(format!("{name}: not a small file with a plain name"));
+        }
+    }
+    let f = std::fs::File::create(out).map_err(|e| io(out, e))?;
+    let mut gz = flate2::GzBuilder::new().mtime(0).write(f, level);
+    let werr = |e: std::io::Error| io(out, e);
+    gz.write_all(&tar_header(BIN, b'0', 0o755, size))
+        .map_err(werr)?;
+    let mut src = std::fs::File::open(bin).map_err(|e| io(bin, e))?;
+    std::io::copy(&mut src, &mut gz).map_err(werr)?;
+    gz.write_all(&vec![0u8; ((512 - size % 512) % 512) as usize])
+        .map_err(werr)?;
+    for (name, data) in extras {
+        gz.write_all(&tar_header(name, b'0', 0o644, data.len() as u64))
+            .map_err(werr)?;
+        gz.write_all(data).map_err(werr)?;
+        gz.write_all(&vec![0u8; (512 - data.len() % 512) % 512])
+            .map_err(werr)?;
+    }
+    gz.write_all(&[0u8; 1024]).map_err(werr)?;
+    gz.finish().map_err(werr)?.sync_all().map_err(werr)?;
+    let (sha256, size) = sha256_file(out)?;
+    if size > MAX_ARCHIVE {
+        return Err(format!("the archive has more than {MAX_ARCHIVE} bytes"));
+    }
+    Ok(Asset {
+        file: out
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        sha256,
+        size,
+        url: String::new(),
+    })
+}
+
+/// Test helpers: archives of any shape, also for the e2e tests of `wyrmd`.
 pub mod testkit {
     use super::*;
 
     /// One tar entry: a header and the padded data.
     pub fn tar_entry(name: &str, kind: u8, mode: u32, data: &[u8]) -> Vec<u8> {
-        let mut h = [0u8; 512];
-        h[..name.len().min(100)].copy_from_slice(&name.as_bytes()[..name.len().min(100)]);
-        h[100..108].copy_from_slice(format!("{mode:07o}\0").as_bytes());
-        h[108..116].copy_from_slice(b"0000000\0");
-        h[116..124].copy_from_slice(b"0000000\0");
-        h[124..136].copy_from_slice(format!("{:011o}\0", data.len()).as_bytes());
-        h[136..148].copy_from_slice(b"00000000000\0");
-        h[148..156].copy_from_slice(b"        ");
-        h[156] = kind;
-        h[257..263].copy_from_slice(b"ustar\0");
-        h[263..265].copy_from_slice(b"00");
-        let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
-        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
-        let mut out = h.to_vec();
+        let mut out = tar_header(name, kind, mode, data.len() as u64).to_vec();
         out.extend_from_slice(data);
         out.resize(out.len() + (512 - data.len() % 512) % 512, 0);
         out
@@ -1340,36 +1408,9 @@ pub mod testkit {
         gz.finish().expect("gzip in memory")
     }
 
-    /// Write the archive of the binary at `bin` to `out`, streamed; its
-    /// asset (file name, SHA-256, size).
-    pub fn archive_of(bin: &Path, out: &Path) -> Result<Asset, String> {
-        let size = std::fs::metadata(bin).map_err(|e| io(bin, e))?.len();
-        let header = &tar_entry(BIN, b'0', 0o755, &[])[..512];
-        // the header of an empty file, with the real size and a new checksum
-        let mut h = header.to_vec();
-        h[124..136].copy_from_slice(format!("{size:011o}\0").as_bytes());
-        h[148..156].copy_from_slice(b"        ");
-        let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
-        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
-        let f = std::fs::File::create(out).map_err(|e| io(out, e))?;
-        let mut gz = flate2::write::GzEncoder::new(f, flate2::Compression::fast());
-        let werr = |e: std::io::Error| io(out, e);
-        gz.write_all(&h).map_err(werr)?;
-        let mut src = std::fs::File::open(bin).map_err(|e| io(bin, e))?;
-        std::io::copy(&mut src, &mut gz).map_err(werr)?;
-        let pad = (512 - size % 512) % 512;
-        gz.write_all(&vec![0u8; pad as usize + 1024]).map_err(werr)?;
-        gz.finish().map_err(werr)?.sync_all().map_err(werr)?;
-        let (sha256, size) = sha256_file(out)?;
-        Ok(Asset {
-            file: out
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            sha256,
-            size,
-            url: String::new(),
-        })
+    /// [`pack`] without compression (a debug binary is large).
+    pub fn archive_of(bin: &Path, extras: &[(&str, &[u8])], out: &Path) -> Result<Asset, String> {
+        pack(bin, extras, out, flate2::Compression::none())
     }
 }
 
@@ -1735,6 +1776,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    #[test]
+    fn a_packed_archive_unpacks_to_the_same_binary() {
+        let d = scratch("pack");
+        let bin = d.join("built");
+        let bytes: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&bin, &bytes).unwrap();
+        let out = d.join("wyrmd-0.2.0-x86_64-linux.tar.gz");
+        let level = flate2::Compression::default();
+        let asset = pack(&bin, &[("LICENSE", b"Apache-2.0")], &out, level).unwrap();
+        assert_eq!(asset.file, "wyrmd-0.2.0-x86_64-linux.tar.gz");
+        // the same input gives the same archive (no time, no owner in it)
+        let again = pack(
+            &bin,
+            &[("LICENSE", b"Apache-2.0")],
+            &d.join("again.tar.gz"),
+            level,
+        )
+        .unwrap();
+        assert_eq!(again.sha256, asset.sha256);
+        let unpacked = unpack(&out, &asset, &d.join("versions"), "0.2.0").unwrap();
+        assert_eq!(std::fs::read(unpacked).unwrap(), bytes);
+        assert!(pack(&bin, &[("../x", b"")], &out, level).is_err());
+        assert!(pack(&bin, &[("wyrmd", b"")], &out, level).is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[cfg(unix)]
     #[test]
     fn the_layout_is_checked_and_switched_by_one_rename() {
@@ -1811,10 +1878,19 @@ mod tests {
             f(&mut u);
             u.save(&data).unwrap();
         };
-        // a trial that goes on is left alone
-        trial(&|u| u.attempts = 2);
-        assert_eq!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Nothing);
-        assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
+        // a trial that goes on is left alone, and its starts are counted:
+        // the new version gets three, also when it cannot even start
+        trial(&|u| u.deadline = 0);
+        for n in 1..=MAX_ATTEMPTS {
+            assert_eq!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Nothing);
+            assert_eq!(UpdateFile::load(&data).unwrap().attempts, n);
+            assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
+        }
+        assert!(matches!(
+            guard(&l, &data, "0.1.0").unwrap(),
+            Guarded::RolledBack { .. }
+        ));
+        assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
         // the three reasons
         for (name, f) in [
             ("attempts", (&|u: &mut UpdateFile| u.attempts = 3) as &dyn Fn(&mut UpdateFile)),
