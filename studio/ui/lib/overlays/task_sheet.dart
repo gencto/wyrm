@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../containers/fact_grid.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/arc_spinner.dart';
 import '../indicators/quality_mark.dart';
 import '../inputs/check_row.dart';
@@ -433,6 +434,7 @@ class TaskSheet extends StatelessWidget {
     this.onPick,
     this.onText,
     this.onAction,
+    this.onClose,
     super.key,
   });
 
@@ -455,6 +457,9 @@ class TaskSheet extends StatelessWidget {
 
   /// The link of a [SheetRow].
   final ValueChanged<String>? onAction;
+
+  /// Closes the sheet from its head (a drawer has no barrier to tap).
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -498,6 +503,15 @@ class TaskSheet extends StatelessWidget {
                           ? c.text3
                           : toneColor(c, vm.pillTone),
                     ),
+                  ),
+                ),
+              if (onClose != null)
+                InkWell(
+                  onTap: onClose,
+                  borderRadius: Radii.chip,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: AppIcon('ui_close', size: 16, color: c.text3),
                   ),
                 ),
             ],
@@ -994,14 +1008,27 @@ class TaskSheet extends StatelessWidget {
             ),
           ),
         Expanded(
-          child: Text(
-            b.text,
-            style: b.mono
-                ? mono(size: 12, color: c.text2)
-                : TextStyle(fontSize: 13, color: c.text2),
+          // A row of a list with a line above it (a restore point) keeps
+          // its note under the text; a plain line has it at the right.
+          child: Column(
+            crossAxisAlignment: .start,
+            spacing: 2,
+            children: [
+              Text(
+                b.text,
+                style: b.mono
+                    ? mono(size: 12, color: c.text2)
+                    : TextStyle(fontSize: 13, color: c.text2),
+              ),
+              if (b.divider && (b.note ?? '').isNotEmpty)
+                Text(
+                  b.note!,
+                  style: TextStyle(fontSize: 12, color: c.text4),
+                ),
+            ],
           ),
         ),
-        if (b.note case final n? when n.isNotEmpty)
+        if (b.note case final n? when n.isNotEmpty && !b.divider)
           Flexible(
             child: Text(
               n,

@@ -10760,6 +10760,866 @@ class S {
       args: [],
     );
   }
+
+  /// `Updates`
+  String get updTab {
+    return Intl.message('Updates', name: 'updTab', desc: '', args: []);
+  }
+
+  /// `Links whose package has a newer version. Every link of a package is updated together, and the broker keeps what it needs to go back.`
+  String get updTabNote {
+    return Intl.message(
+      'Links whose package has a newer version. Every link of a package is updated together, and the broker keeps what it needs to go back.',
+      name: 'updTabNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Update all official…`
+  String get updAllOfficial {
+    return Intl.message(
+      'Update all official…',
+      name: 'updAllOfficial',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Package`
+  String get updColPackage {
+    return Intl.message('Package', name: 'updColPackage', desc: '', args: []);
+  }
+
+  /// `Version`
+  String get updColVersion {
+    return Intl.message('Version', name: 'updColVersion', desc: '', args: []);
+  }
+
+  /// `Update from file…`
+  String get updFromFileRow {
+    return Intl.message(
+      'Update from file…',
+      name: 'updFromFileRow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `updated together`
+  String get updTogether {
+    return Intl.message(
+      'updated together',
+      name: 'updTogether',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every package is up to date.`
+  String get updNothing {
+    return Intl.message(
+      'Every package is up to date.',
+      name: 'updNothing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `being checked`
+  String get updRowChecking {
+    return Intl.message(
+      'being checked',
+      name: 'updRowChecking',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Update {package} {from} → {to}`
+  String updTitle(Object package, Object from, Object to) {
+    return Intl.message(
+      'Update $package $from → $to',
+      name: 'updTitle',
+      desc: '',
+      args: [package, from, to],
+    );
+  }
+
+  /// `Update {package} {from} from a file`
+  String updTitleCustom(Object package, Object from) {
+    return Intl.message(
+      'Update $package $from from a file',
+      name: 'updTitleCustom',
+      desc: '',
+      args: [package, from],
+    );
+  }
+
+  /// `official`
+  String get updOfficial {
+    return Intl.message('official', name: 'updOfficial', desc: '', args: []);
+  }
+
+  /// `custom`
+  String get updCustom {
+    return Intl.message('custom', name: 'updCustom', desc: '', args: []);
+  }
+
+  /// `Package of the repository · links that run it: {n}`
+  String updSubOfficial(Object n) {
+    return Intl.message(
+      'Package of the repository · links that run it: $n',
+      name: 'updSubOfficial',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Custom package · links that run it: {n}`
+  String updSubCustom(Object n) {
+    return Intl.message(
+      'Custom package · links that run it: $n',
+      name: 'updSubCustom',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `What is new in {version}`
+  String updWhatIsNew(Object version) {
+    return Intl.message(
+      'What is new in $version',
+      name: 'updWhatIsNew',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `The repository gives no notes for this version.`
+  String get updNoNotes {
+    return Intl.message(
+      'The repository gives no notes for this version.',
+      name: 'updNoNotes',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A newer archive`
+  String get updFromFile {
+    return Intl.message(
+      'A newer archive',
+      name: 'updFromFile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Bring a zip of the package {package} with a higher version. The broker checks it as any install and updates every link of the package.`
+  String updFromFileNote(Object package) {
+    return Intl.message(
+      'Bring a zip of the package $package with a higher version. The broker checks it as any install and updates every link of the package.',
+      name: 'updFromFileNote',
+      desc: '',
+      args: [package],
+    );
+  }
+
+  /// `What changes for the broker`
+  String get updWhatChanges {
+    return Intl.message(
+      'What changes for the broker',
+      name: 'updWhatChanges',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Links that restart ({n}): {links}`
+  String updLinksRestart(Object n, Object links) {
+    return Intl.message(
+      'Links that restart ($n): $links',
+      name: 'updLinksRestart',
+      desc: '',
+      args: [n, links],
+    );
+  }
+
+  /// `Their values pause while each restarts; their nodes are declared again from the settings they keep.`
+  String get updLinksRestartNote {
+    return Intl.message(
+      'Their values pause while each restarts; their nodes are declared again from the settings they keep.',
+      name: 'updLinksRestartNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Hot start, no restart: {links}`
+  String updHotStart(Object links) {
+    return Intl.message(
+      'Hot start, no restart: $links',
+      name: 'updHotStart',
+      desc: '',
+      args: [links],
+    );
+  }
+
+  /// `The running app gets the new code in place.`
+  String get updHotStartNote {
+    return Intl.message(
+      'The running app gets the new code in place.',
+      name: 'updHotStartNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Settings and nodes are kept`
+  String get updKept {
+    return Intl.message(
+      'Settings and nodes are kept',
+      name: 'updKept',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Each link keeps its private data; the new version reads it.`
+  String get updKeptNote {
+    return Intl.message(
+      'Each link keeps its private data; the new version reads it.',
+      name: 'updKeptNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It asks for more rights`
+  String get updAsksMore {
+    return Intl.message(
+      'It asks for more rights',
+      name: 'updAsksMore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rights and network`
+  String get updRights {
+    return Intl.message(
+      'Rights and network',
+      name: 'updRights',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `If the new version asks for more than the links have, the broker installs nothing and lists them here for you to accept.`
+  String get updRightsNote {
+    return Intl.message(
+      'If the new version asks for more than the links have, the broker installs nothing and lists them here for you to accept.',
+      name: 'updRightsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Store format: same (state {state})`
+  String updStateSame(Object state) {
+    return Intl.message(
+      'Store format: same (state $state)',
+      name: 'updStateSame',
+      desc: '',
+      args: [state],
+    );
+  }
+
+  /// `The new version reads the store of the installed one.`
+  String get updStateSameNote {
+    return Intl.message(
+      'The new version reads the store of the installed one.',
+      name: 'updStateSameNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It changes the store format (from state {state})`
+  String updStateChanges(Object state) {
+    return Intl.message(
+      'It changes the store format (from state $state)',
+      name: 'updStateChanges',
+      desc: '',
+      args: [state],
+    );
+  }
+
+  /// `The old version cannot read the new store: a rollback restores the store of the restore point.`
+  String get updStateChangesNote {
+    return Intl.message(
+      'The old version cannot read the new store: a rollback restores the store of the restore point.',
+      name: 'updStateChangesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Store format: the archive says`
+  String get updStateCustom {
+    return Intl.message(
+      'Store format: the archive says',
+      name: 'updStateCustom',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `If the archive does not read the installed store format, the broker refuses an update without a restore point.`
+  String get updStateCustomNote {
+    return Intl.message(
+      'If the archive does not read the installed store format, the broker refuses an update without a restore point.',
+      name: 'updStateCustomNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Before it starts`
+  String get updBefore {
+    return Intl.message(
+      'Before it starts',
+      name: 'updBefore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Save a restore point of each link (settings, secrets, private data)`
+  String get updOptPoint {
+    return Intl.message(
+      'Save a restore point of each link (settings, secrets, private data)',
+      name: 'updOptPoint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The store format changes: a rollback needs the restore point`
+  String get updOptPointLocked {
+    return Intl.message(
+      'The store format changes: a rollback needs the restore point',
+      name: 'updOptPointLocked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Roll back by itself if a link does not come back with all its nodes in 2 min`
+  String get updOptAuto {
+    return Intl.message(
+      'Roll back by itself if a link does not come back with all its nodes in 2 min',
+      name: 'updOptAuto',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Accept the new rights it asks for`
+  String get updOptAccept {
+    return Intl.message(
+      'Accept the new rights it asks for',
+      name: 'updOptAccept',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Then`
+  String get updThen {
+    return Intl.message('Then', name: 'updThen', desc: '', args: []);
+  }
+
+  /// `Needs config on sys/links`
+  String get updNeedsConfig {
+    return Intl.message(
+      'Needs config on sys/links',
+      name: 'updNeedsConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Update links: {n}`
+  String updDo(Object n) {
+    return Intl.message('Update links: $n', name: 'updDo', desc: '', args: [n]);
+  }
+
+  /// `Choose the archive…`
+  String get updChooseArchive {
+    return Intl.message(
+      'Choose the archive…',
+      name: 'updChooseArchive',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Updating {package}`
+  String updUpdating(Object package) {
+    return Intl.message(
+      'Updating $package',
+      name: 'updUpdating',
+      desc: '',
+      args: [package],
+    );
+  }
+
+  /// `Values of its links pause while each restarts.`
+  String get updUpdatingSub {
+    return Intl.message(
+      'Values of its links pause while each restarts.',
+      name: 'updUpdatingSub',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `health check`
+  String get updChecking {
+    return Intl.message(
+      'health check',
+      name: 'updChecking',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `installing`
+  String get updWorking {
+    return Intl.message('installing', name: 'updWorking', desc: '', args: []);
+  }
+
+  /// `Restore points saved`
+  String get updStepPoint {
+    return Intl.message(
+      'Restore points saved',
+      name: 'updStepPoint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `one for each link`
+  String get updStepPointSaved {
+    return Intl.message(
+      'one for each link',
+      name: 'updStepPointSaved',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Package fetched, checked and unpacked beside the old version`
+  String get updStepPackage {
+    return Intl.message(
+      'Package fetched, checked and unpacked beside the old version',
+      name: 'updStepPackage',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Links restarted`
+  String get updStepRestart {
+    return Intl.message(
+      'Links restarted',
+      name: 'updStepRestart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Health: every link back with its nodes`
+  String get updStepNodes {
+    return Intl.message(
+      'Health: every link back with its nodes',
+      name: 'updStepNodes',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `declared again: {back} · not back yet or gone: {gone}`
+  String updStepNodesCount(Object back, Object gone) {
+    return Intl.message(
+      'declared again: $back · not back yet or gone: $gone',
+      name: 'updStepNodesCount',
+      desc: '',
+      args: [back, gone],
+    );
+  }
+
+  /// `You can leave this screen; it goes on.`
+  String get updLeave {
+    return Intl.message(
+      'You can leave this screen; it goes on.',
+      name: 'updLeave',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Stop and roll back`
+  String get updStopAndRollBack {
+    return Intl.message(
+      'Stop and roll back',
+      name: 'updStopAndRollBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Updating…`
+  String get updUpdatingButton {
+    return Intl.message(
+      'Updating…',
+      name: 'updUpdatingButton',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Rolled back to {version}`
+  String updRolledBackTo(Object version) {
+    return Intl.message(
+      'Rolled back to $version',
+      name: 'updRolledBackTo',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `The links run the kept version again with the data of their restore points.`
+  String get updRolledBackNote {
+    return Intl.message(
+      'The links run the kept version again with the data of their restore points.',
+      name: 'updRolledBackNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{version} stays, a link did not answer`
+  String updFailed(Object version) {
+    return Intl.message(
+      '$version stays, a link did not answer',
+      name: 'updFailed',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `The health check ended without an answer from every link.`
+  String get updFailedNote {
+    return Intl.message(
+      'The health check ended without an answer from every link.',
+      name: 'updFailedNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The links run {version}`
+  String updRuns(Object version) {
+    return Intl.message(
+      'The links run $version',
+      name: 'updRuns',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `{links}: back with all their nodes.`
+  String updRunsNote(Object links) {
+    return Intl.message(
+      '$links: back with all their nodes.',
+      name: 'updRunsNote',
+      desc: '',
+      args: [links],
+    );
+  }
+
+  /// `{package} update rolled back`
+  String updTitleRolledBack(Object package) {
+    return Intl.message(
+      '$package update rolled back',
+      name: 'updTitleRolledBack',
+      desc: '',
+      args: [package],
+    );
+  }
+
+  /// `{package} updated`
+  String updTitleDone(Object package) {
+    return Intl.message(
+      '$package updated',
+      name: 'updTitleDone',
+      desc: '',
+      args: [package],
+    );
+  }
+
+  /// `links: {n}`
+  String updLinksCount(Object n) {
+    return Intl.message(
+      'links: $n',
+      name: 'updLinksCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `rolled back`
+  String get updPillRolledBack {
+    return Intl.message(
+      'rolled back',
+      name: 'updPillRolledBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `failed`
+  String get updPillFailed {
+    return Intl.message('failed', name: 'updPillFailed', desc: '', args: []);
+  }
+
+  /// `done`
+  String get updPillDone {
+    return Intl.message('done', name: 'updPillDone', desc: '', args: []);
+  }
+
+  /// `Nodes before and after`
+  String get updNodes {
+    return Intl.message(
+      'Nodes before and after',
+      name: 'updNodes',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `kept`
+  String get updKeptTile {
+    return Intl.message('kept', name: 'updKeptTile', desc: '', args: []);
+  }
+
+  /// `new`
+  String get updNewTile {
+    return Intl.message('new', name: 'updNewTile', desc: '', args: []);
+  }
+
+  /// `gone`
+  String get updGoneTile {
+    return Intl.message('gone', name: 'updGoneTile', desc: '', args: []);
+  }
+
+  /// `Restore points`
+  String get updPoints {
+    return Intl.message(
+      'Restore points',
+      name: 'updPoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No restore point is kept for its links.`
+  String get updNoPoints {
+    return Intl.message(
+      'No restore point is kept for its links.',
+      name: 'updNoPoints',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{link} · {version} · before update`
+  String updPointBeforeUpdate(Object link, Object version) {
+    return Intl.message(
+      '$link · $version · before update',
+      name: 'updPointBeforeUpdate',
+      desc: '',
+      args: [link, version],
+    );
+  }
+
+  /// `{link} · before a restore from a backup`
+  String updPointBeforeRestore(Object link) {
+    return Intl.message(
+      '$link · before a restore from a backup',
+      name: 'updPointBeforeRestore',
+      desc: '',
+      args: [link],
+    );
+  }
+
+  /// `Roll back to {version}…`
+  String updRollBackTo(Object version) {
+    return Intl.message(
+      'Roll back to $version…',
+      name: 'updRollBackTo',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `{version} stays installed until {when}. A restore point is sealed for this broker and stays on it.`
+  String updKeptUntil(Object version, Object when) {
+    return Intl.message(
+      '$version stays installed until $when. A restore point is sealed for this broker and stays on it.',
+      name: 'updKeptUntil',
+      desc: '',
+      args: [version, when],
+    );
+  }
+
+  /// `Audit: update_rollback`
+  String get updAuditRollback {
+    return Intl.message(
+      'Audit: update_rollback',
+      name: 'updAuditRollback',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Audit: package_update, restore_point`
+  String get updAuditUpdate {
+    return Intl.message(
+      'Audit: package_update, restore_point',
+      name: 'updAuditUpdate',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Close`
+  String get updClose {
+    return Intl.message('Close', name: 'updClose', desc: '', args: []);
+  }
+
+  /// `Open the log`
+  String get updOpenLog {
+    return Intl.message('Open the log', name: 'updOpenLog', desc: '', args: []);
+  }
+
+  /// `Open {link}`
+  String updOpenLink(Object link) {
+    return Intl.message(
+      'Open $link',
+      name: 'updOpenLink',
+      desc: '',
+      args: [link],
+    );
+  }
+
+  /// `Roll back {package} to {version}?`
+  String updRollBackTitle(Object package, Object version) {
+    return Intl.message(
+      'Roll back $package to $version?',
+      name: 'updRollBackTitle',
+      desc: '',
+      args: [package, version],
+    );
+  }
+
+  /// `These links stop and start on {version} with the data of their restore points: {links}. After it no version is kept: there is no second rollback.`
+  String updRollBackNote(Object version, Object links) {
+    return Intl.message(
+      'These links stop and start on $version with the data of their restore points: $links. After it no version is kept: there is no second rollback.',
+      name: 'updRollBackNote',
+      desc: '',
+      args: [version, links],
+    );
+  }
+
+  /// `Roll back`
+  String get updRollBack {
+    return Intl.message('Roll back', name: 'updRollBack', desc: '', args: []);
+  }
+
+  /// `Update to {version}`
+  String actUpdateTo(Object version) {
+    return Intl.message(
+      'Update to $version',
+      name: 'actUpdateTo',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `A newer version of its package is in the repository. Review what changes first.`
+  String get actUpdateToNote {
+    return Intl.message(
+      'A newer version of its package is in the repository. Review what changes first.',
+      name: 'actUpdateToNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Versions and restore points`
+  String get actVersions {
+    return Intl.message(
+      'Versions and restore points',
+      name: 'actVersions',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The last update, the restore points of this link, roll back to the kept version.`
+  String get actVersionsNote {
+    return Intl.message(
+      'The last update, the restore points of this link, roll back to the kept version.',
+      name: 'actVersionsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Update from file…`
+  String get actUpdateFromFile {
+    return Intl.message(
+      'Update from file…',
+      name: 'actUpdateFromFile',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A custom package: bring a newer archive of it.`
+  String get actUpdateFromFileNote {
+    return Intl.message(
+      'A custom package: bring a newer archive of it.',
+      name: 'actUpdateFromFileNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Restore points`
+  String get factRestorePoints {
+    return Intl.message(
+      'Restore points',
+      name: 'factRestorePoints',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

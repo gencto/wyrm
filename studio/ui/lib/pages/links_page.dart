@@ -8,6 +8,7 @@ import '../containers/page_header.dart';
 import '../forms/action_form.dart';
 import '../inputs/switch_row.dart';
 import '../models/value_changed.dart';
+import '../overlays/task_sheet.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -62,6 +63,15 @@ class LinksPage extends StatelessWidget {
     this.onSubmit,
     this.onSecondary,
     this.busy = false,
+    this.secondLabel,
+    this.onSecond,
+    this.secondReason,
+    this.sheet,
+    this.onSheetPrimary,
+    this.onSheetSecondary,
+    this.onSheetToggle,
+    this.onSheetAction,
+    this.onSheetClose,
     super.key,
   });
 
@@ -87,6 +97,21 @@ class LinksPage extends StatelessWidget {
   final VoidCallback? onSecondary;
   final bool busy;
 
+  /// A second button of the header (`Update all official…`); not shown
+  /// when null.
+  final String? secondLabel;
+  final VoidCallback? onSecond;
+  final String? secondReason;
+
+  /// The update of a package as a drawer (boards `LinkUpdate*`); it stands
+  /// where the inspector does.
+  final TaskSheetVm? sheet;
+  final VoidCallback? onSheetPrimary;
+  final VoidCallback? onSheetSecondary;
+  final void Function(String id, {required bool value})? onSheetToggle;
+  final ValueChanged<String>? onSheetAction;
+  final VoidCallback? onSheetClose;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -96,11 +121,23 @@ class LinksPage extends StatelessWidget {
         PageHeader(
           title: title,
           subtitle: subtitle,
-          trailing: Button.primary(
-            label: addLabel,
-            icon: 'ui_add',
-            disabledReason: addReason,
-            onPressed: onTapLinkInstall,
+          trailing: Row(
+            mainAxisSize: .min,
+            spacing: 10,
+            children: [
+              if (secondLabel case final label?)
+                Button.secondary(
+                  label: label,
+                  disabledReason: secondReason,
+                  onPressed: secondReason == null ? onSecond : null,
+                ),
+              Button.primary(
+                label: addLabel,
+                icon: 'ui_add',
+                disabledReason: addReason,
+                onPressed: onTapLinkInstall,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 22),
@@ -150,17 +187,28 @@ class LinksPage extends StatelessWidget {
       builder: (context, box) {
         final wide = box.maxWidth >= 1000;
         final ins = inspector;
-        if (ins == null) {
+        final task = sheet;
+        if (ins == null && task == null) {
           return body;
         }
-        final panel = DetailInspector(
-          vm: ins,
-          onAction: onAction,
-          onSubmit: onSubmit,
-          onSecondary: onSecondary,
-          busy: busy,
-          width: wide ? 340 : box.maxWidth,
-        );
+        final Widget panel = task != null
+            ? TaskSheet(
+                vm: task,
+                width: wide ? 460 : box.maxWidth,
+                onPrimary: onSheetPrimary,
+                onSecondary: onSheetSecondary,
+                onToggle: onSheetToggle,
+                onAction: onSheetAction,
+                onClose: onSheetClose,
+              )
+            : DetailInspector(
+                vm: ins!,
+                onAction: onAction,
+                onSubmit: onSubmit,
+                onSecondary: onSecondary,
+                busy: busy,
+                width: wide ? 340 : box.maxWidth,
+              );
         if (wide) {
           return Row(
             crossAxisAlignment: .stretch,

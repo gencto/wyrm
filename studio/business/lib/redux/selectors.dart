@@ -86,6 +86,7 @@ import 'system/actions/remove_profile_action.dart';
 import 'system/actions/retrieve_profiles_action.dart';
 import 'system/actions/retrieve_system_log_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
+import 'updates/actions/rollback_package_action.dart';
 import 'updates/actions/update_package_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
@@ -1144,15 +1145,13 @@ extension type SelectUpdates(AppState _state) {
   /// Returns seenAt
   int get seenAt => _state.updates.seenAt;
 
-  /// Returns seenResult
-  String? get seenResult => _state.updates.seenResult;
-
   /// Returns queue
   IList<String> get queue => _state.updates.queue;
 
-  /// Returns fileName
-  String? get fileName => _state.updates.fileName;
-
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<UpdatePackageAction>();
+
+  /// Returns isRollingBack
+  bool get isRollingBack =>
+      _state.wait.isWaitingForType<RollbackPackageAction>();
 }

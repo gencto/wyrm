@@ -18,13 +18,24 @@ import 'package:business/redux/quarantine/actions/reject_quarantine_action.dart'
 import 'package:business/redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'package:business/redux/quarantine/actions/set_admission_options_action.dart';
 import 'package:business/redux/quarantine/actions/set_selected_entry_action.dart';
+import 'package:business/redux/updates/actions/close_update_action.dart';
+import 'package:business/redux/updates/actions/open_update_action.dart';
+import 'package:business/redux/updates/actions/rollback_package_action.dart';
+import 'package:business/redux/updates/actions/set_accept_new_action.dart';
+import 'package:business/redux/updates/actions/set_auto_rollback_action.dart';
+import 'package:business/redux/updates/actions/set_take_point_action.dart';
+import 'package:business/redux/updates/actions/update_package_action.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
+import 'package:business/wyrm/mappers/package_info_mapper.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
+import 'package:models/package_info.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/restore_point.dart';
 import 'package:ui/buttons/action_row.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/detail_inspector.dart';
@@ -34,11 +45,13 @@ import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
+import 'package:ui/overlays/task_sheet.dart';
 import 'package:ui/pages/links_page.dart';
 import 'package:ui/tables/row_table.dart';
 
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
+import '../common/update_sheets.dart';
 import '../dialogs/link_dialogs.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -74,6 +87,15 @@ class LinksPageConnector extends StatelessWidget {
         onAction: (a) => vm.onAction(context, a),
         onSubmit: vm.onSubmit,
         onSecondary: () => vm.onAction(context, 'reject'),
+        secondLabel: vm.updateAll ? S.current.updAllOfficial : null,
+        secondReason: vm.addReason,
+        onSecond: () => vm.onAction(context, 'update-all'),
+        sheet: vm.sheet,
+        onSheetPrimary: () => vm.onAction(context, 'sheet-primary'),
+        onSheetSecondary: () => vm.onAction(context, 'sheet-secondary'),
+        onSheetToggle: vm.onSheetToggle,
+        onSheetAction: (a) => vm.onAction(context, 'sheet-$a'),
+        onSheetClose: () => vm.onAction(context, 'sheet-close'),
       ),
     ),
   );
@@ -90,7 +112,79 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     '$_root/sys/links/*/state',
     '$_root/sys/enable_quarantine',
     '$_root/sys/allow_all_links',
+    // What moves while a package is updated (ADR 0048 §1).
+    '$_root/sys/packages/*/*',
+    '$_root/sys/links/*/restore_points',
   ];
+
+  /// The package [name] with its live values, or null when not installed.
+  PackageInfo? _pkg(String? name) {
+    final p = name == null ? null : packages.table[name];
+    return p == null
+        ? null
+        : packageLive(
+            p,
+            (leaf) => live.values['$_root/sys/packages/$name/$leaf']?.value,
+          );
+  }
+
+  /// The package a link runs, or null for a built-in driver.
+  static String? _packageOf(LinkInfo l) =>
+      l.driver.startsWith('pkg:') ? l.driver.substring(4) : null;
+
+  /// The links that run the package [name], by id.
+  List<String> _linksOf(String name) => [
+    for (final id in links.view)
+      if (links.table[id]?.driver == 'pkg:$name') id,
+  ];
+
+  /// The repository lists it: `latest` is empty for a custom package.
+  static bool _isOfficial(PackageInfo p) => p.latest.isNotEmpty;
+
+  List<RestorePoint> _points(String link) => restorePointsOf(
+    live.values['$_root/sys/links/$link/restore_points']?.value,
+  );
+
+  /// The official packages with a newer version, in the order of the links.
+  List<String> get _updatable => {
+    for (final id in links.view)
+      if (_pkg(_packageOf(links.table[id]!)) case final p?
+          when p.updateAvailable)
+        p.name,
+  }.toList();
+
+  UpdateSheetData? get _sheetData {
+    final p = _pkg(updates.package);
+    if (p == null) {
+      return null;
+    }
+    final ids = _linksOf(p.name);
+    final row = linkInstall.catalog
+        .where((c) => c.id == 'package:${p.name}')
+        .firstOrNull;
+    return UpdateSheetData(
+      package: p,
+      links: ids,
+      follow: updates.view != 'review',
+      official: _isOfficial(p),
+      title: row?.name,
+      summary: row?.description,
+      takePoint: updates.takePoint,
+      autoRollback: updates.autoRollback,
+      acceptNew: updates.acceptNew,
+      asks: updates.asks,
+      said: updates.message,
+      busy: updates.isWaiting,
+      rollingBack: updates.isRollingBack,
+      seenAt: updates.seenAt,
+      points: [
+        for (final id in ids)
+          for (final point in _points(id)) (id, point),
+      ]..sort((a, b) => b.$2.at.compareTo(a.$2.at)),
+      queue: updates.queue.unlock,
+      reason: site.needs('config', '$_root/sys/links'),
+    );
+  }
 
   /// A link's state: its live value, else the table's.
   String _state(LinkInfo l) =>
@@ -108,7 +202,26 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     final local = all.where((l) => !_external(l)).toList();
     final remote = all.where(_external).toList();
     final waiting = [for (final n in quarantine.view) ?quarantine.table[n]];
+    final updatable = _updatable;
+    // The rows of Updates: the links of a package with a newer version,
+    // and the links of a custom package (updated from a file).
+    final toUpdate = [
+      for (final l in local)
+        if (_pkg(_packageOf(l)) case final p?
+            when p.updateAvailable || !_isOfficial(p))
+          l,
+    ];
+    final updateCount = toUpdate
+        .where((l) => _pkg(_packageOf(l))!.updateAvailable)
+        .length;
+    // Hidden at 0 (spec §1): the attribute of `sys/links` until the live
+    // values of the packages arrive.
+    final showUpdates =
+        updateCount > 0 ||
+        links.updatesAvailable > 0 ||
+        links.tab == LinksTab.updates;
     final tab = links.tab;
+    final sheet = _sheetData;
     final configReason = site.needs('config', '$_root/sys/links');
     return _Vm(
       site: viewed,
@@ -120,6 +233,13 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           label: S.current.onThisBroker,
           count: '${local.length}',
         ),
+        if (showUpdates)
+          TabItemVm(
+            id: LinksTab.updates.name,
+            label: S.current.updTab,
+            count: '${updateCount > 0 ? updateCount : links.updatesAvailable}',
+            countTone: Tone.ember,
+          ),
         TabItemVm(
           id: LinksTab.remote.name,
           label: S.current.onOtherDevices,
@@ -134,6 +254,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       ],
       description: switch (tab) {
         LinksTab.local => S.current.linksLocalNote(viewed),
+        LinksTab.updates => S.current.updTabNote,
         LinksTab.remote => S.current.linksRemoteNote,
         LinksTab.quarantine => S.current.linksQuarantineNote,
       },
@@ -143,6 +264,12 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           ColumnVm(S.current.colLink, flex: 3),
           ColumnVm(S.current.colVersionSource, flex: 3),
           ColumnVm(S.current.colRunsAs, flex: 2),
+          ColumnVm(S.current.colState, flex: 3),
+        ],
+        LinksTab.updates => [
+          ColumnVm(S.current.colLink, flex: 3),
+          ColumnVm(S.current.updColPackage, flex: 3),
+          ColumnVm(S.current.updColVersion, flex: 2),
           ColumnVm(S.current.colState, flex: 3),
         ],
         LinksTab.remote => [
@@ -160,16 +287,25 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       },
       rows: switch (tab) {
         LinksTab.local => [for (final l in local) _localRow(l)],
+        LinksTab.updates => [for (final l in toUpdate) _updateRow(l)],
         LinksTab.remote => [for (final l in remote) _remoteRow(l)],
         LinksTab.quarantine => [for (final q in waiting) _quarantineRow(q)],
       },
       empty: switch (tab) {
         _ when links.isWaiting && all.isEmpty => S.current.loading,
         LinksTab.local => S.current.noLocalLinks,
+        LinksTab.updates => S.current.updNothing,
         LinksTab.remote => S.current.noRemoteLinks,
         LinksTab.quarantine => S.current.nothingInQuarantine,
       },
       inspector: _inspector(tab),
+      updateAll: tab == LinksTab.updates && updatable.isNotEmpty,
+      sheet: sheet == null ? null : updateSheet(sheet),
+      onSheetToggle: (id, {required value}) => switch (id) {
+        'point' => dispatchSync(SetTakePointAction(value)),
+        'auto' => dispatchSync(SetAutoRollbackAction(value)),
+        _ => dispatchSync(SetAcceptNewAction(value)),
+      },
       busy: links.isActing || quarantine.isWaiting,
       onShow: () {
         unawaited(dispatchAndWait(WatchKeysAction(_watch)));
@@ -180,9 +316,23 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       onHide: () => dispatch(UnwatchKeysAction(_watch)),
       onTapLinkInstall: () => dispatch(GoAction.push(const LinkInstallRoute())),
       onTab: (t) => dispatch(SetTabAction(LinksTab.values.byName(t))),
-      onRow: (id) => tab == LinksTab.quarantine
-          ? dispatch(SetSelectedEntryAction(id))
-          : dispatch(SetSelectedLinkAction(id)),
+      onRow: (id) {
+        if (tab == LinksTab.quarantine) {
+          dispatchSync(SetSelectedEntryAction(id));
+        } else if (tab == LinksTab.updates) {
+          final p = _pkg(_packageOf(links.table[id]!));
+          if (p != null) {
+            dispatchSync(
+              OpenUpdateAction(
+                p.name,
+                follow: p.lastUpdate?.result == 'checking',
+              ),
+            );
+          }
+        } else {
+          dispatchSync(SetSelectedLinkAction(id));
+        }
+      },
       onAction: _onAction,
       onSubmit: (args) {
         final node = quarantine.selectedEntry;
@@ -280,6 +430,39 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
+  RowVm _updateRow(LinkInfo l) {
+    final p = _pkg(_packageOf(l))!;
+    final official = _isOfficial(p);
+    final checking = p.lastUpdate?.result == 'checking';
+    final peers = _linksOf(p.name);
+    return RowVm(
+      id: l.id,
+      selected: updates.package == p.name,
+      cells: [
+        CellVm(title: l.id, subtitle: _modeLabel(l), strong: true),
+        CellVm(
+          title: S.current.packageNamed(p.name),
+          subtitle: official ? S.current.updOfficial : S.current.updCustom,
+        ),
+        CellVm(
+          title: official ? '${p.version} → ${p.latest}' : p.version,
+          monospace: true,
+          tone: official ? Tone.ember : null,
+          mark: .none,
+        ),
+        CellVm(
+          title: checking
+              ? S.current.updRowChecking
+              : (official
+                    ? (peers.length > 1 ? S.current.updTogether : '')
+                    : S.current.updFromFileRow),
+          tone: checking ? Tone.warn : (official ? null : Tone.ember),
+          mark: checking ? .ring : .none,
+        ),
+      ],
+    );
+  }
+
   RowVm _remoteRow(LinkInfo l) {
     final s = _state(l);
     final on = s == 'connected';
@@ -345,6 +528,10 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       final q = sel == null ? null : quarantine.table[sel];
       return q == null ? null : _quarantineInspector(q);
     }
+    if (tab == LinksTab.updates) {
+      // A row of Updates opens the update sheet, not the inspector.
+      return null;
+    }
     final sel = links.selectedLink;
     final l = sel == null ? null : links.table[sel];
     if (l == null || _external(l) != (tab == LinksTab.remote)) {
@@ -359,9 +546,8 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     final state = _state(l);
     final (tone, word) = _stateWord(state);
     final running = state == 'connected' || state == 'starting';
-    final pkg = l.driver.startsWith('pkg:')
-        ? packages.table[l.driver.substring(4)]
-        : null;
+    final pkg = _pkg(_packageOf(l));
+    final points = _points(l.id);
     ActionRowVm row(
       String id,
       String icon,
@@ -377,7 +563,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       description: desc,
       code: code,
       tone: tone,
-      disabledReason: off ?? reason,
+      disabledReason: off == '' ? null : off ?? reason,
     );
     return DetailInspectorVm(
       eyebrow: S.current.runsOn(site.viewed ?? ''),
@@ -400,6 +586,11 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
           value: '$_root/downstream/${l.id}',
           mono: true,
         ),
+        if (points.isNotEmpty)
+          FactVm(
+            label: S.current.factRestorePoints,
+            value: '${points.length}',
+          ),
       ],
       groups: [
         ActionGroupVm(
@@ -474,14 +665,35 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
                 description: S.current.actComesWithWyrmdNote,
                 disabledReason: S.current.actComesWithWyrmdNote,
               )
-            else
-              row(
-                'upgrade',
-                'action_up',
-                S.current.actUpgrade,
-                S.current.actUpgradeNote,
-                'install_repo',
-              ),
+            else ...[
+              if (pkg.updateAvailable)
+                row(
+                  'update',
+                  'action_up',
+                  S.current.actUpdateTo(pkg.latest),
+                  S.current.actUpdateToNote,
+                  'update',
+                  tone: Tone.ember,
+                )
+              else if (!_isOfficial(pkg))
+                row(
+                  'update',
+                  'action_up',
+                  S.current.actUpdateFromFile,
+                  S.current.actUpdateFromFileNote,
+                  'install_zip',
+                ),
+              if (pkg.lastUpdate != null || points.isNotEmpty)
+                row(
+                  'versions',
+                  'action_hist',
+                  S.current.actVersions,
+                  S.current.actVersionsNote,
+                  'rollback',
+                  // Reading it needs no right; Roll back inside does.
+                  off: '',
+                ),
+            ],
           ],
         ),
         ActionGroupVm(
@@ -651,8 +863,55 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         await showLinkSecrets(context, '$_root/sys/links/$id');
       case 'grant' when id != null:
         await showLinkGrant(context, id, _root);
-      case 'upgrade':
-        dispatchSync(GoAction.push(const LinkInstallRoute()));
+      case 'update' when id != null:
+        if (_packageOf(links.table[id]!) case final name?) {
+          dispatchSync(OpenUpdateAction(name));
+        }
+      case 'versions' when id != null:
+        if (_packageOf(links.table[id]!) case final name?) {
+          dispatchSync(OpenUpdateAction(name, follow: true));
+        }
+      case 'update-all':
+        final names = _updatable;
+        if (names.isNotEmpty) {
+          dispatchSync(
+            OpenUpdateAction(names.first, queue: names.sublist(1)),
+          );
+        }
+      case 'sheet-close':
+        dispatchSync(CloseUpdateAction());
+      case 'sheet-rollback':
+        await _rollBack(context);
+      case 'sheet-secondary':
+        if (_sheetData?.stage == UpdateStage.progress) {
+          await _rollBack(context);
+        } else {
+          dispatchSync(CloseUpdateAction());
+        }
+      case 'sheet-primary':
+        final d = _sheetData;
+        switch (d == null ? '' : updatePrimary(d)) {
+          case 'update':
+            await dispatchAndWait(UpdatePackageAction());
+          case 'file':
+            final f = await FilePicker.pickFile(
+              type: FileType.custom,
+              allowedExtensions: ['zip'],
+            );
+            if (f != null) {
+              await dispatchAndWait(
+                UpdatePackageAction(zip: await f.readAsBytes()),
+              );
+            }
+          case 'rollback':
+            await _rollBack(context);
+          case 'log' when d!.links.isNotEmpty:
+            await showLinkLog(context, d.links.first);
+          case 'open' when d!.links.isNotEmpty:
+            dispatchSync(CloseUpdateAction());
+            dispatchSync(SetTabAction(LinksTab.local));
+            dispatchSync(SetSelectedLinkAction(d.links.first));
+        }
       case 'remove' when id != null:
         final external = links.table[id]?.mode == LinkMode.external;
         if (await ConfirmDialog.ask(
@@ -686,6 +945,24 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
         )) {
           await dispatchAndWait(RejectQuarantineAction(node));
         }
+    }
+  }
+
+  /// *Roll back to `<v>`…*: the confirm names the links that restart.
+  Future<void> _rollBack(BuildContext context) async {
+    final d = _sheetData;
+    final to = d?.package.previous;
+    if (d == null || to == null) {
+      return;
+    }
+    if (await ConfirmDialog.ask(
+      context,
+      title: S.current.updRollBackTitle(d.package.name, to),
+      message: S.current.updRollBackNote(to, d.links.join(', ')),
+      confirm: S.current.updRollBack,
+      cancel: S.current.cancel,
+    )) {
+      await dispatchAndWait(RollbackPackageAction(d.package.name));
     }
   }
 
@@ -723,6 +1000,9 @@ class _Vm extends Vm {
     required this.rows,
     required this.empty,
     required this.inspector,
+    required this.updateAll,
+    required this.sheet,
+    required this.onSheetToggle,
     required this.busy,
     required this.onShow,
     required this.onHide,
@@ -743,6 +1023,8 @@ class _Vm extends Vm {
            rows,
            empty,
            inspector,
+           updateAll,
+           sheet,
            busy,
          ],
        );
@@ -757,6 +1039,13 @@ class _Vm extends Vm {
   final List<RowVm> rows;
   final String? empty;
   final DetailInspectorVm? inspector;
+
+  /// `Update all official…` is offered.
+  final bool updateAll;
+
+  /// The update of a package, as a drawer.
+  final TaskSheetVm? sheet;
+  final void Function(String id, {required bool value}) onSheetToggle;
   final bool busy;
   final VoidCallback onShow;
   final VoidCallback onHide;

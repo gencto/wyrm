@@ -14,8 +14,6 @@ abstract class UpdatesState with _$UpdatesState {
     String? asks,
     String? message,
     @Default(0) int seenAt,
-    String? seenResult,
     @Default(IListConst([])) IList<String> queue,
-    String? fileName,
   }) = _UpdatesState;
 }

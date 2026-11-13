@@ -24,7 +24,7 @@ sequenceDiagram
     A1->>ST: copyWith(live.watched)
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(links.version, links.table, links.view)
+    A2->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
     A2-->>-VM: ActionStatus
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
@@ -219,7 +219,7 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePeersAction` | `live.watched`, `links.version, links.table, links.view`, `quarantine.table, quarantine.view, quarantine.forms`, `peers.table, peers.view` |
+| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePeersAction` | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `quarantine.table, quarantine.view, quarantine.forms`, `peers.table, peers.view` |
 | `onHide` | `UnwatchKeysAction` | `live.watched` |
 | `onNode` | `SetSelectedPeerAction` | `peers.selectedPeer` |
 | `onReview` | `SetTabAction` | `links.tab` |
