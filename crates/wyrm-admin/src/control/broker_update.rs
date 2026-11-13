@@ -500,7 +500,9 @@ impl Control {
 
     fn latest_release(&self) -> Option<Release> {
         match &*lock(&self.update.index) {
-            Some(Ok(i)) => i.latest(&release::identity().target).cloned(),
+            Some(Ok(i)) => i
+                .latest(&release::identity().target)
+                .map(|s| s.release.clone()),
             _ => None,
         }
     }
@@ -836,7 +838,9 @@ async fn plan_of(
             Some(Ok(i)) => i.clone(),
             _ => return Err(LinkError::internal("releases index: not read")),
         };
-        let r = if version.is_empty() {
+        // an entry of the index is a release document under its own
+        // signature (checked when the index was read): those bytes go on
+        let signed = if version.is_empty() {
             index.latest(&release::identity().target).cloned()
         } else {
             index.get(&version).cloned()
@@ -848,13 +852,18 @@ async fn plan_of(
                 release::identity().target
             ))
         })?;
-        let asset = r
+        let asset = signed
+            .release
             .targets
             .get(&release::identity().target)
             .ok_or_else(|| LinkError::not_found("no build for this host"))?;
         let url = asset_url(&channel, asset).map_err(LinkError::invalid_parameter)?;
-        let bytes = serde_json::to_vec(&r).map_err(|e| LinkError::internal(e.to_string()))?;
-        (r, bytes, String::new(), Source::Url(url))
+        (
+            signed.release,
+            signed.document,
+            signed.signature,
+            Source::Url(url),
+        )
     } else {
         let text = match arg(args, "release") {
             Some(Value::Str(s)) => s.clone().into_bytes(),
@@ -1197,15 +1206,6 @@ async fn stage_for_standby(ctl: &Arc<Control>, plan: &Plan, archive: &Path) -> R
     let dir = ctl.cfg.data_dir.join(ORDER_DIR);
     let (archive, asset, dir2) = (archive.to_owned(), plan.asset.clone(), dir.clone());
     let (release_bytes, signature) = (plan.release_bytes.clone(), plan.signature.clone());
-    if signature.is_empty() {
-        // from the index: the standby would need the index and its
-        // signature; the release alone is signed only in the upload path
-        return Err(
-            "an update for the standby is brought as an archive with its release and \
-             signature (upload); the standby checks that signature itself"
-                .into(),
-        );
-    }
     let order = Order {
         version: plan.release.version.clone(),
         signature,

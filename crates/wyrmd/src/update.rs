@@ -483,9 +483,22 @@ pub enum ReleaseCmd {
         #[arg(long, default_value = "")]
         base_url: String,
     },
-    /// Put the release document RELEASE into the index INDEX (made new when
-    /// it does not exist; a release of the same version is replaced).
-    Index { release: PathBuf, index: PathBuf },
+    /// Put the release document RELEASE into the index INDEX (a release of
+    /// the same version is replaced). Nothing is taken on trust: RELEASE
+    /// must verify against RELEASE.sig, the index that is there against
+    /// INDEX.sig, and every entry of it against its own signature, all with
+    /// the keys built into this binary and the ones given. The new index is
+    /// then to be signed (`release sign --index`); its old signature file is
+    /// removed. An index that does not exist is started only with --new.
+    Index {
+        release: PathBuf,
+        index: PathBuf,
+        #[arg(long)]
+        key: Vec<String>,
+        /// Start an empty index; refused when INDEX exists.
+        #[arg(long)]
+        new: bool,
+    },
     /// Sign FILE (a release document, or an index with --index) with the
     /// seed in WYRMD_RELEASE_KEY; writes FILE.sig.
     Sign {
@@ -612,21 +625,41 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
         ReleaseCmd::Index {
             release: doc,
             index,
+            key,
+            new,
         } => {
-            let rel: release::Release = serde_json::from_slice(&read(&doc)?)
-                .map_err(|e| format!("{}: {e}", doc.display()))?;
-            rel.check()?;
-            let mut idx = match std::fs::read(&index) {
-                Ok(b) => serde_json::from_slice::<release::Index>(&b)
-                    .map_err(|e| format!("{}: {e}", index.display()))?,
-                Err(_) => release::Index {
-                    wyrmd_releases: release::FORMAT,
-                    releases: Vec::new(),
-                },
+            let keys = release::pinned_keys(&key)?;
+            let text = |p: &Path| {
+                String::from_utf8(read(p)?).map_err(|_| format!("{}: not text", p.display()))
             };
-            idx.releases.retain(|r| r.version != rel.version);
-            idx.releases.push(rel);
-            std::fs::write(&index, pretty(&idx)?)?;
+            let old = match (index.exists(), new) {
+                (true, true) => {
+                    return Err(format!(
+                        "{} exists: --new starts an empty index and replaces none",
+                        index.display()
+                    )
+                    .into())
+                }
+                (false, false) => {
+                    return Err(format!(
+                        "{}: no such index (--new starts an empty one)",
+                        index.display()
+                    )
+                    .into())
+                }
+                (false, true) => release::Index::default(),
+                // the index that is there is checked before anything is
+                // added to it: what is signed next is only what verified
+                (true, false) => {
+                    release::read_index(&read(&index)?, &text(&sig_path(&index))?, &keys).map_err(
+                        |e| format!("{}: not added to: {e}", index.display()),
+                    )?
+                }
+            };
+            let idx = old.with(&read(&doc)?, &text(&sig_path(&doc))?, &keys)?;
+            // not signed yet: the old signature does not cover it
+            let _ = std::fs::remove_file(sig_path(&index));
+            std::fs::write(&index, pretty(&idx.to_file()?)?)?;
             println!("{}: {} releases", index.display(), idx.releases.len());
         }
         ReleaseCmd::Sign { file, index } => {

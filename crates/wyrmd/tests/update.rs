@@ -11,7 +11,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use wyrm_admin::release::{self, testkit, Asset, Identity, Index, Release, UpdateFile};
+use wyrm_admin::release::{
+    self, testkit, Asset, Identity, IndexEntry, IndexFile, Release, UpdateFile,
+};
 use wyrm_client::{SigningTokens, WyrmClient};
 use wyrm_core::Value;
 
@@ -280,8 +282,8 @@ impl Unit {
     }
 }
 
-impl Drop for Unit {
-    fn drop(&mut self) {
+impl Unit {
+    fn stop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
@@ -289,9 +291,16 @@ impl Drop for Unit {
     }
 }
 
+impl Drop for Unit {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// A site in the install layout, on the `wyrmd` of this build (0.1.0 of
 /// the workspace), with an embedded and a process link.
 struct Site {
+    cfg: PathBuf,
     root: PathBuf,
     prefix: PathBuf,
     data: PathBuf,
@@ -355,6 +364,7 @@ impl Site {
                     metrics_interval_ms: 200,
                     updates: {{ mode: "self", keys: ["{pinned}"], trial_s: 25, {updates} }},
                     {extra}
+                    /*more*/
                 }}"#,
                 data.display()
             ),
@@ -363,12 +373,22 @@ impl Site {
         before(&data);
         let unit = Unit::start(&prefix, &cfg);
         Self {
+            cfg,
             root,
             prefix,
             data,
             port,
             unit,
         }
+    }
+
+    /// Stop the broker, add `more` top-level fields to its configuration
+    /// and start it again.
+    fn restart_with(&mut self, more: &str) {
+        self.unit.stop();
+        let text = std::fs::read_to_string(&self.cfg).unwrap();
+        std::fs::write(&self.cfg, text.replace("/*more*/", more)).unwrap();
+        self.unit = Unit::start(&self.prefix, &self.cfg);
     }
 
     async fn wait_version(&self, v: &str) {
@@ -487,13 +507,27 @@ fn serve(files: BTreeMap<String, Arc<Vec<u8>>>) -> u16 {
     port
 }
 
+/// The bytes of an index of `releases`, every entry signed by `signer`.
+fn index_bytes(releases: &[Release], signer: &ed25519_dalek::SigningKey) -> Vec<u8> {
+    let file = IndexFile {
+        wyrmd_releases: release::FORMAT,
+        releases: releases
+            .iter()
+            .map(|r| {
+                let doc = serde_json::to_string(r).unwrap();
+                IndexEntry {
+                    signature: release::sign_release(doc.as_bytes(), signer),
+                    release: doc,
+                }
+            })
+            .collect(),
+    };
+    serde_json::to_vec(&file).unwrap()
+}
+
 /// A signed index of `releases` as the files of a channel.
 fn channel_files(releases: Vec<Release>) -> BTreeMap<String, Arc<Vec<u8>>> {
-    let index = serde_json::to_vec(&Index {
-        wyrmd_releases: release::FORMAT,
-        releases,
-    })
-    .unwrap();
+    let index = index_bytes(&releases, &release_key());
     let sig = release::sign_index(&index, &release_key());
     BTreeMap::from([
         ("/releases.json".to_owned(), Arc::new(index)),
@@ -858,24 +892,31 @@ async fn a_standby_is_updated_before_the_active() {
     let wport = witness.local_addr().unwrap().port();
     std::thread::spawn(move || for _ in witness.incoming() {});
     let (a_quic, b_quic) = (free_port(), free_port());
-    let pair = |own: u16, peer: u16, primary: bool| {
+    let peers = |own: u16| format!(r#"peers: {{ listen: "quic/127.0.0.1:{own}" }},"#);
+    let standby = |peer: u16, primary: bool| {
         format!(
-            r#"peers: {{ listen: "quic/127.0.0.1:{own}" }},
-               standby: {{ peer: "quic/127.0.0.1:{peer}", takeover_s: 3, primary: {primary},
+            r#"standby: {{ peer: "quic/127.0.0.1:{peer}", takeover_s: 3, primary: {primary},
                           witness: ["127.0.0.1:{wport}"] }},"#
         )
     };
-    // the active: it starts alone and takes the role
-    let a = Site::launch("pair-a", "", &pair(a_quic, b_quic, true), |_| {});
+    // the active: a broker that has run (it has the site's keys), then one
+    // of a pair; it starts alone and takes the role
+    let mut a = Site::launch("pair-a", "", &peers(a_quic), |_| {});
     a.wait_version("0.1.0").await;
+    a.restart_with(&standby(b_quic, true));
+    let port = a.port;
+    eventually("the active is one of a pair", 120, || async move {
+        sys(port, "standby_version").await.map(|_| ())
+    })
+    .await;
     // the standby: the site's keys, then it follows
     const PASS: &[u8] = b"a passphrase for the pair";
     let bundle = wyrm_admin::keys::export(&a.data, PASS).unwrap();
-    let b = Site::launch("pair-b", "", &pair(b_quic, a_quic, false), |data| {
+    let pair_b = format!("{} {}", peers(b_quic), standby(a_quic, false));
+    let b = Site::launch("pair-b", "", &pair_b, |data| {
         std::fs::create_dir_all(data).unwrap();
         wyrm_admin::keys::import(data, &bundle, PASS).unwrap();
     });
-    let port = a.port;
     eventually("the standby follows and says what it runs", 120, || async move {
         (sys_str(port, "standby_version").await.as_deref() == Some("0.1.0")).then_some(())
     })
@@ -923,7 +964,7 @@ async fn a_standby_is_updated_before_the_active() {
     let u = b.update_file();
     assert_eq!((u.state.as_str(), u.role.as_str()), ("confirmed", "standby"));
     assert_eq!(b.unit.exits(), [0], "the standby stopped once, for its update");
-    assert!(a.unit.exits().is_empty(), "the active never stopped");
+    assert!(a.unit.exits().is_empty(), "the active did not stop for it");
     let ops = audit_ops(a.port).await;
     assert!(
         ops.iter()
@@ -1017,7 +1058,7 @@ async fn external_mode_reports_only() {
         size: 1000,
         url: String::new(),
     };
-    let http = serve(channel_files(vec![release_of(&newer, asset)]));
+    let http = serve(channel_files(vec![release_of(&newer, asset.clone())]));
     let pinned = hex::encode(release_key().verifying_key().to_bytes());
     let node = format!("wy/{SITE}/sys");
     let go = args(&[("confirm_site", SITE.into())]);
@@ -1056,18 +1097,45 @@ async fn external_mode_reports_only() {
     drop(c);
     ext.stop().await;
 
+    // an index that another key signed
     let forged = {
-        let index = serde_json::to_vec(&Index {
-            wyrmd_releases: release::FORMAT,
-            releases: Vec::new(),
-        })
-        .unwrap();
-        let sig = release::sign_index(&index, &ed25519_dalek::SigningKey::from_bytes(&[3; 32]));
+        let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
+        let index = index_bytes(&[release_of(&newer, asset.clone())], &other);
+        let sig = release::sign_index(&index, &other);
         serve(BTreeMap::from([
             ("/releases.json".to_owned(), Arc::new(index)),
             ("/releases.json.sig".to_owned(), Arc::new(sig.into_bytes())),
         ]))
     };
+    // an index the pinned key signed as a whole, with an entry it did not
+    // sign: the entry is not trusted because the list is
+    let planted = {
+        let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
+        let index = index_bytes(&[release_of(&newer, asset.clone())], &other);
+        let sig = release::sign_index(&index, &release_key());
+        serve(BTreeMap::from([
+            ("/releases.json".to_owned(), Arc::new(index)),
+            ("/releases.json.sig".to_owned(), Arc::new(sig.into_bytes())),
+        ]))
+    };
+    let ext = Local::start(
+        "external-planted",
+        &format!(
+            r#"updates: {{ mode: "external", keys: ["{pinned}"],
+                 channel: "http://127.0.0.1:{planted}/releases.json" }}"#
+        ),
+    )
+    .await;
+    let c = client_on(ext.port).await.unwrap();
+    let e = c
+        .invoke_one(&node, "check_updates", args(&[]))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("an entry is refused"), "{}", e.message);
+    assert_eq!(sys(ext.port, "update_available").await, Some(Value::Bool(false)));
+    assert_eq!(sys_str(ext.port, "latest").await.as_deref(), Some(""));
+    drop(c);
+    ext.stop().await;
     let ext = Local::start(
         "external-forged",
         &format!(
@@ -1110,6 +1178,132 @@ async fn external_mode_reports_only() {
     assert!(hint.contains("install-layout"), "{hint}");
     drop(c);
     bare.stop().await;
+}
+
+/// The release tooling (`wyrmd release …`) makes what a broker reads, and
+/// signs nothing it did not check: `release index` adds to an index only
+/// when that index, every entry of it and the new release verify.
+#[test]
+fn release_index_refuses_what_does_not_verify() {
+    let d = temp_dir("tooling");
+    let seed = hex::encode(RELEASE_SEED);
+    let public = hex::encode(release_key().verifying_key().to_bytes());
+    let tool = |args: &[&str], key: Option<&str>| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_wyrmd"));
+        c.arg("release").args(args).current_dir(&d).env_clear();
+        if let Some(k) = key {
+            c.env("WYRMD_RELEASE_KEY", k);
+        }
+        let out = c.output().unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stderr).into_owned()
+                + String::from_utf8_lossy(&out.stdout).as_ref(),
+        )
+    };
+    let ok = |args: &[&str], key: Option<&str>| {
+        let (success, said) = tool(args, key);
+        assert!(success, "{args:?}: {said}");
+        said
+    };
+    let refused = |args: &[&str], want: &str| {
+        let (success, said) = tool(args, None);
+        assert!(!success, "{args:?} must be refused: {said}");
+        assert!(said.contains(want), "{args:?}: {said}");
+    };
+    // what `release pack` leaves beside an archive, for two versions
+    let me = wyrmd::update::identity(None);
+    let packed = |version: &str| {
+        let dir = d.join(version);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = format!("wyrmd-{version}-{}.tar.gz", me.target);
+        let side = serde_json::json!({
+            "identity": Identity { version: version.into(), ..me.clone() },
+            "asset": Asset { file: file.clone(), sha256: "b".repeat(64), size: 4096, url: String::new() },
+        });
+        std::fs::write(dir.join(format!("{file}.json")), side.to_string()).unwrap();
+        ok(&["doc", version, "--date", "2026-11-13"], None);
+        format!("{version}/wyrmd-{version}.release.json")
+    };
+    let (r2, r3) = (packed("0.2.0"), packed("0.3.0"));
+
+    // a release that is not signed, or signed by another key, starts no index
+    refused(&["index", "--new", "--key", &public, &r2, "releases.json"], "");
+    ok(&["sign", &r2], Some(&"03".repeat(32)));
+    refused(
+        &["index", "--new", "--key", &public, &r2, "releases.json"],
+        "pinned release key",
+    );
+    assert!(!d.join("releases.json").exists());
+    ok(&["sign", &r2], Some(&seed));
+    ok(&["verify", &r2, "--key", &public], None);
+    refused(&["verify", &r2], "no release key is pinned");
+    // no index there: only --new starts one
+    refused(&["index", "--key", &public, &r2, "releases.json"], "--new");
+    ok(&["index", "--new", "--key", &public, &r2, "releases.json"], None);
+    refused(&["index", "--new", "--key", &public, &r2, "releases.json"], "exists");
+    ok(&["sign", "--index", "releases.json"], Some(&seed));
+    ok(&["verify", "--index", "releases.json", "--key", &public], None);
+    let good = std::fs::read(d.join("releases.json")).unwrap();
+    let good_sig = std::fs::read(d.join("releases.json.sig")).unwrap();
+    ok(&["sign", &r3], Some(&seed));
+
+    // the old index without its signature
+    std::fs::remove_file(d.join("releases.json.sig")).unwrap();
+    refused(&["index", "--key", &public, &r3, "releases.json"], "releases.json.sig");
+    assert_eq!(std::fs::read(d.join("releases.json")).unwrap(), good);
+    // changed after it was signed: an entry planted in it
+    let mut file: IndexFile = serde_json::from_slice(&good).unwrap();
+    let evil = serde_json::to_string(&release_of(
+        &Identity { version: "9.9.9".into(), ..me.clone() },
+        Asset { file: format!("wyrmd-9.9.9-{}.tar.gz", me.target), sha256: "c".repeat(64), size: 1, url: String::new() },
+    ))
+    .unwrap();
+    file.releases.push(IndexEntry {
+        signature: release::sign_release(evil.as_bytes(), &ed25519_dalek::SigningKey::from_bytes(&[3; 32])),
+        release: evil,
+    });
+    let planted = serde_json::to_vec(&file).unwrap();
+    std::fs::write(d.join("releases.json"), &planted).unwrap();
+    std::fs::write(d.join("releases.json.sig"), &good_sig).unwrap();
+    refused(&["index", "--key", &public, &r3, "releases.json"], "not added to");
+    assert_eq!(std::fs::read(d.join("releases.json")).unwrap(), planted, "left as it was");
+    // signed as a whole by the real key all the same (a signer that did
+    // not look): the planted entry still refuses it
+    std::fs::write(
+        d.join("releases.json.sig"),
+        release::sign_index(&planted, &release_key()),
+    )
+    .unwrap();
+    refused(&["index", "--key", &public, &r3, "releases.json"], "an entry is refused");
+    // signed by another key
+    std::fs::write(d.join("releases.json"), &good).unwrap();
+    std::fs::write(
+        d.join("releases.json.sig"),
+        release::sign_index(&good, &ed25519_dalek::SigningKey::from_bytes(&[3; 32])),
+    )
+    .unwrap();
+    refused(&["index", "--key", &public, &r3, "releases.json"], "pinned release key");
+
+    // the index as it was signed takes the next release; its old signature
+    // goes, so an index that was not signed again is not served as signed
+    std::fs::write(d.join("releases.json.sig"), &good_sig).unwrap();
+    let said = ok(&["index", "--key", &public, &r3, "releases.json"], None);
+    assert!(said.contains("2 releases"), "{said}");
+    assert!(!d.join("releases.json.sig").exists());
+    ok(&["sign", "--index", "releases.json"], Some(&seed));
+    // and a broker reads it
+    let index = release::read_index(
+        &std::fs::read(d.join("releases.json")).unwrap(),
+        &std::fs::read_to_string(d.join("releases.json.sig")).unwrap(),
+        &[release_key().verifying_key()],
+    )
+    .unwrap();
+    assert_eq!(
+        index.latest(&me.target).map(|s| s.release.version.as_str()),
+        Some("0.3.0")
+    );
+    let _ = std::fs::remove_dir_all(&d);
 }
 
 /// The configuration is checked when it is read.

@@ -44,7 +44,9 @@ jobs:
         with: { key: "wyrmd-${{ matrix.target }}" }
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --locked --release -p wyrmd --target "${{ matrix.target }}"
+      - env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --locked --release -p wyrmd --target "$TARGET"
       # the tag names the version the binary says it is
       - if: startsWith(github.ref, 'refs/tags/wyrmd-v')
         env:
@@ -73,6 +75,7 @@ jobs:
         with: { path: dist, merge-multiple: true }
       # the Linux x86_64 binary of this very release is the tool (it runs on this runner)
       - run: |
+          set -euo pipefail
           mkdir tool
           tar -xzf dist/wyrmd-*-x86_64-linux-musl.tar.gz -C tool wyrmd
           chmod +x tool/wyrmd
@@ -84,22 +87,37 @@ jobs:
             --date "$(date -u +%F)" \
             --notes "https://github.com/$REPO/releases/tag/$TAG" \
             --base-url "https://github.com/$REPO/releases/download/$TAG"
-      # the index so far (none before the first release), with this release added
+      # The release document is signed first. This is the only step that sees the key.
+      - env:
+          WYRMD_RELEASE_KEY: ${{ secrets.WYRMD_RELEASE_KEY }}
+        run: tool/wyrmd release sign dist/wyrmd-*.release.json
+      # The index so far. `wyrmd-index` is a release anyone with write access can change, so
+      # nothing of it is taken on trust: `release index` adds to it only when its signature
+      # and the own signature of every entry in it verify with the pinned key; else the job
+      # fails and nothing is signed. A missing asset of an existing `wyrmd-index` release also
+      # fails; only a release that does not exist at all starts an empty index.
       - env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          PUBLIC: ${{ vars.WYRMD_RELEASE_PUBLIC }}
         run: |
-          gh release download wyrmd-index --repo "$REPO" --pattern releases.json --dir . || true
-          tool/wyrmd release index dist/wyrmd-*.release.json releases.json
+          set -euo pipefail
+          if gh release view wyrmd-index --repo "$REPO" >/dev/null 2>&1; then
+            gh release download wyrmd-index --repo "$REPO" \
+              --pattern releases.json --pattern releases.json.sig --dir .
+            test -s releases.json && test -s releases.json.sig
+            tool/wyrmd release index dist/wyrmd-*.release.json releases.json ${PUBLIC:+--key "$PUBLIC"}
+          else
+            tool/wyrmd release index --new dist/wyrmd-*.release.json releases.json ${PUBLIC:+--key "$PUBLIC"}
+          fi
       - env:
           WYRMD_RELEASE_KEY: ${{ secrets.WYRMD_RELEASE_KEY }}
-        run: |
-          tool/wyrmd release sign dist/wyrmd-*.release.json
-          tool/wyrmd release sign --index releases.json
-      # what was signed is what the built-in key (or WYRMD_RELEASE_PUBLIC) checks
+        run: tool/wyrmd release sign --index releases.json
+      # what was signed is what a broker with the pinned key reads
       - env:
           PUBLIC: ${{ vars.WYRMD_RELEASE_PUBLIC }}
         run: |
+          set -euo pipefail
           tool/wyrmd release verify dist/wyrmd-*.release.json ${PUBLIC:+--key "$PUBLIC"}
           tool/wyrmd release verify --index releases.json ${PUBLIC:+--key "$PUBLIC"}
           (cd dist && sha256sum *.tar.gz) > SHA256SUMS

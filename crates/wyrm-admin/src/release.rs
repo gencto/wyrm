@@ -201,12 +201,40 @@ pub struct Release {
     pub targets: BTreeMap<String, Asset>,
 }
 
-/// `releases.json`.
+/// One entry of `releases.json`: a release document exactly as it was
+/// signed, and its own signature. Nothing of an entry is used but what
+/// that signature covers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Index {
+pub struct IndexEntry {
+    /// The text of `wyrmd-<version>.release.json`.
+    pub release: String,
+    /// The text of its `.sig` file.
+    pub signature: String,
+}
+
+/// `releases.json` as it is written: signed as a whole, and every entry
+/// signed by itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexFile {
     /// [`FORMAT`].
     pub wyrmd_releases: u32,
-    pub releases: Vec<Release>,
+    pub releases: Vec<IndexEntry>,
+}
+
+/// A release whose own signature was checked against the pinned keys, with
+/// the signed bytes (they are what is passed on, to a standby for one).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signed {
+    pub release: Release,
+    pub document: Vec<u8>,
+    pub signature: String,
+}
+
+/// A releases index that was checked ([`read_index`]): its own signature
+/// and the signature of every entry.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Index {
+    pub releases: Vec<Signed>,
 }
 
 fn plain_name(s: &str, max: usize) -> bool {
@@ -421,42 +449,99 @@ pub fn read_release(
     Ok(r)
 }
 
-/// An index: the signature first, then the bounds of every release.
+/// Most releases in an index.
+pub const MAX_RELEASES: usize = 256;
+
+/// An index: its own signature first, then the signature and the bounds of
+/// every entry. An entry whose own signature does not verify refuses the
+/// whole index: no release is trusted because the list around it is signed.
 pub fn read_index(bytes: &[u8], signature: &str, keys: &[VerifyingKey]) -> Result<Index, String> {
     if bytes.len() > MAX_RELEASE * 4 {
         return Err(format!("index: more than {} bytes", MAX_RELEASE * 4));
     }
     verify(DOMAIN_INDEX, bytes, signature, keys)?;
-    let i: Index = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
-    if i.wyrmd_releases != FORMAT {
+    let file: IndexFile = serde_json::from_slice(bytes).map_err(|e| format!("index: {e}"))?;
+    if file.wyrmd_releases != FORMAT {
         return Err(format!(
             "index format {}: this broker reads format {FORMAT}",
-            i.wyrmd_releases
+            file.wyrmd_releases
         ));
     }
-    if i.releases.len() > 256 {
-        return Err("index: more than 256 releases".into());
+    if file.releases.len() > MAX_RELEASES {
+        return Err(format!("index: more than {MAX_RELEASES} releases"));
     }
-    for r in &i.releases {
-        r.check()?;
+    let mut out = Index::default();
+    for e in file.releases {
+        let release = read_release(e.release.as_bytes(), &e.signature, keys)
+            .map_err(|why| format!("index: an entry is refused: {why}"))?;
+        if out.get(&release.version).is_some() {
+            return Err(format!("index: wyrmd {} twice", release.version));
+        }
+        out.releases.push(Signed {
+            release,
+            document: e.release.into_bytes(),
+            signature: e.signature,
+        });
     }
-    Ok(i)
+    Ok(out)
 }
 
 impl Index {
     /// The newest release with a build for `target`.
-    pub fn latest(&self, target: &str) -> Option<&Release> {
+    pub fn latest(&self, target: &str) -> Option<&Signed> {
         self.releases
             .iter()
-            .filter(|r| r.targets.contains_key(target))
-            .fold(None, |best: Option<&Release>, r| match best {
-                Some(b) if !newer(&r.version, &b.version) => Some(b),
-                _ => Some(r),
+            .filter(|s| s.release.targets.contains_key(target))
+            .fold(None, |best: Option<&Signed>, s| match best {
+                Some(b) if !newer(&s.release.version, &b.release.version) => Some(b),
+                _ => Some(s),
             })
     }
 
-    pub fn get(&self, version: &str) -> Option<&Release> {
-        self.releases.iter().find(|r| r.version == version)
+    pub fn get(&self, version: &str) -> Option<&Signed> {
+        self.releases.iter().find(|s| s.release.version == version)
+    }
+
+    /// The index with the release document `document` added (a release of
+    /// the same version is replaced): the document must carry its own good
+    /// signature. The result is to be signed as a whole ([`sign_index`]).
+    pub fn with(
+        mut self,
+        document: &[u8],
+        signature: &str,
+        keys: &[VerifyingKey],
+    ) -> Result<Self, String> {
+        let release = read_release(document, signature, keys)?;
+        self.releases
+            .retain(|s| s.release.version != release.version);
+        if self.releases.len() >= MAX_RELEASES {
+            return Err(format!("index: more than {MAX_RELEASES} releases"));
+        }
+        self.releases.push(Signed {
+            release,
+            document: document.to_vec(),
+            signature: signature.trim().to_owned(),
+        });
+        Ok(self)
+    }
+
+    /// As it is written to `releases.json`.
+    pub fn to_file(&self) -> Result<IndexFile, String> {
+        let releases = self
+            .releases
+            .iter()
+            .map(|s| {
+                Ok(IndexEntry {
+                    release: String::from_utf8(s.document.clone())
+                        .map_err(|_| "a release document is not text".to_owned())?,
+                    signature: s.signature.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(IndexFile {
+            wyrmd_releases: FORMAT,
+            releases,
+        })
     }
 }
 
@@ -1509,6 +1594,24 @@ mod tests {
             .contains("more than"));
     }
 
+    /// The bytes of an index of `releases`, each signed by `signer`.
+    fn index_bytes(releases: &[Release], signer: &SigningKey) -> Vec<u8> {
+        let file = IndexFile {
+            wyrmd_releases: FORMAT,
+            releases: releases
+                .iter()
+                .map(|r| {
+                    let doc = serde_json::to_string(r).unwrap();
+                    IndexEntry {
+                        signature: sign_release(doc.as_bytes(), signer),
+                        release: doc,
+                    }
+                })
+                .collect(),
+        };
+        serde_json::to_vec(&file).unwrap()
+    }
+
     #[test]
     fn an_index_names_the_latest_build_of_a_target() {
         let mut other = release("0.9.0");
@@ -1516,17 +1619,66 @@ mod tests {
             "aarch64-linux".to_owned(),
             other.targets["x86_64-linux"].clone(),
         )]);
-        let index = Index {
-            wyrmd_releases: FORMAT,
-            releases: vec![release("0.2.0"), release("0.10.0"), release("0.3.0"), other],
-        };
-        let bytes = serde_json::to_vec(&index).unwrap();
+        let all = [release("0.2.0"), release("0.10.0"), release("0.3.0"), other];
+        let bytes = index_bytes(&all, &key(1));
         let pinned = [key(1).verifying_key()];
         let read = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap();
-        assert_eq!(read.latest("x86_64-linux").unwrap().version, "0.10.0");
-        assert_eq!(read.latest("aarch64-linux").unwrap().version, "0.9.0");
+        let version = |t: &str| read.latest(t).map(|s| s.release.version.clone());
+        assert_eq!(version("x86_64-linux").as_deref(), Some("0.10.0"));
+        assert_eq!(version("aarch64-linux").as_deref(), Some("0.9.0"));
         assert!(read.latest("riscv64-linux").is_none());
         assert!(read_index(&bytes, &sign_release(&bytes, &key(1)), &pinned).is_err());
+        // written again it is the same file
+        assert_eq!(serde_json::to_vec(&read.to_file().unwrap()).unwrap(), bytes);
+    }
+
+    /// A signature of the list does not make its entries trusted: each
+    /// entry is a release document under its own signature.
+    #[test]
+    fn an_index_entry_is_trusted_only_by_its_own_signature() {
+        let pinned = [key(1).verifying_key()];
+        // the list is signed by the pinned key, one entry by another key:
+        // what a signer does who signs an index it did not check
+        let mut file: IndexFile =
+            serde_json::from_slice(&index_bytes(&[release("0.2.0")], &key(1))).unwrap();
+        let planted = serde_json::to_string(&release("9.9.9")).unwrap();
+        file.releases.push(IndexEntry {
+            signature: sign_release(planted.as_bytes(), &key(2)),
+            release: planted.clone(),
+        });
+        let bytes = serde_json::to_vec(&file).unwrap();
+        let err = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
+        assert!(err.contains("an entry is refused"), "{err}");
+        // an entry without a signature, and one whose text was changed
+        file.releases[1].signature = String::new();
+        let bytes = serde_json::to_vec(&file).unwrap();
+        assert!(read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).is_err());
+        file.releases.pop();
+        file.releases[0].release = file.releases[0].release.replace("0.2.0", "0.2.1");
+        let bytes = serde_json::to_vec(&file).unwrap();
+        assert!(read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).is_err());
+        // the same version twice
+        let bytes = index_bytes(&[release("0.2.0"), release("0.2.0")], &key(1));
+        let err = read_index(&bytes, &sign_index(&bytes, &key(1)), &pinned).unwrap_err();
+        assert!(err.contains("twice"), "{err}");
+        // adding a release needs that release's own signature
+        let good = index_bytes(&[release("0.2.0")], &key(1));
+        let index = read_index(&good, &sign_index(&good, &key(1)), &pinned).unwrap();
+        let doc = serde_json::to_vec(&release("0.3.0")).unwrap();
+        let err = index
+            .clone()
+            .with(&doc, &sign_release(&doc, &key(2)), &pinned)
+            .unwrap_err();
+        assert!(err.contains("pinned release key"), "{err}");
+        let more = index
+            .with(&doc, &sign_release(&doc, &key(1)), &pinned)
+            .unwrap();
+        assert_eq!(more.releases.len(), 2);
+        // a release of the same version replaces the entry
+        let again = more
+            .with(&doc, &sign_release(&doc, &key(1)), &pinned)
+            .unwrap();
+        assert_eq!(again.releases.len(), 2);
     }
 
     #[test]
