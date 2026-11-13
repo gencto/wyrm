@@ -4,6 +4,7 @@
 
 pub mod acl;
 pub mod audit;
+pub mod backup;
 pub mod control;
 pub mod fetch;
 pub mod git;
