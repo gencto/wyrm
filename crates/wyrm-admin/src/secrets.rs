@@ -250,58 +250,165 @@ pub fn secret_name(name: &str) -> bool {
 /// What stands for a masked secret.
 pub const MASK: &str = "***";
 
-/// Words of a field name (split at what is no letter or digit) that say its
-/// value is a secret in a configuration copy, beyond [`secret_name`]. Wider
-/// than the lint of an install on purpose: a name masked for nothing costs
-/// a reader one value of a copy that is never restored; a name missed
-/// leaves a secret in a file that travels.
-const MASK_WORDS: &[&str] = &[
+/// Parts of a word of a field name that say its value is a secret in a
+/// configuration copy: a word that starts or ends with one is masked
+/// (`authpass`, `passwd`, `dbpassword`, `apitoken`), unless it is one of
+/// [`MASK_NOT`]. Wider than the lint of an install on purpose: a name masked
+/// for nothing costs a reader one value of a copy that is never restored; a
+/// name missed leaves a secret in a file that travels.
+const MASK_PARTS: &[&str] = &[
     "pass",
     "pwd",
-    "community",
-    "sas",
     "psk",
     "pin",
+    "sas",
+    "secret",
+    "token",
+    "credential",
+    "community",
     "signature",
     "bearer",
     "cookie",
     "authorization",
-    "dsn",
 ];
+
+/// Whole words that are masked.
+const MASK_WORDS: &[&str] = &["key", "sig", "dsn", "auth", "cert", "jwt", "otp"];
+
+/// Words that start or end with a part of [`MASK_PARTS`] and name no
+/// secret. Everything else that matches is masked.
+const MASK_NOT: &[&str] = &[
+    "passes",
+    "passed",
+    "passing",
+    "passive",
+    "passthrough",
+    "bypass",
+    "compass",
+    "ping",
+    "pings",
+    "pinned",
+    "pinning",
+    "pinout",
+    "spin",
+];
+
+/// The words of a field name, lower case: split at what is no letter or
+/// digit and where a lower case letter or a digit is followed by an upper
+/// case one (`authPass`, `apiKey`, `dbPassword`).
+fn name_words(name: &str) -> Vec<String> {
+    let mut words = vec![String::new()];
+    let mut prev_lower = false;
+    for c in name.chars() {
+        if !c.is_ascii_alphanumeric() {
+            words.push(String::new());
+            prev_lower = false;
+            continue;
+        }
+        if c.is_ascii_uppercase() && prev_lower {
+            words.push(String::new());
+        }
+        prev_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        if let Some(w) = words.last_mut() {
+            w.push(c.to_ascii_lowercase());
+        }
+    }
+    words.retain(|w| !w.is_empty());
+    words
+}
 
 /// `true` for a field name whose value [`mask_config`] masks.
 pub fn masked_name(name: &str) -> bool {
-    if secret_name(name) {
+    let words = name_words(name);
+    // the lint's names, also for a name written in camel case
+    if secret_name(name) || secret_name(&words.join("_")) {
         return true;
     }
-    let lk = name.to_ascii_lowercase();
-    lk.split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|w| MASK_WORDS.contains(&w))
-        || lk.contains("connection_string")
-        || lk.contains("connectionstring")
+    let joined = words.concat();
+    if joined.contains("connectionstring") || joined.contains("connstr") {
+        return true;
+    }
+    words.iter().any(|w| {
+        MASK_WORDS.contains(&w.as_str())
+            || (!MASK_NOT.contains(&w.as_str())
+                && MASK_PARTS
+                    .iter()
+                    .any(|p| w.starts_with(p) || w.ends_with(p)))
+    })
 }
 
-/// `scheme://user:password@host…` with the password masked; `None` when the
-/// text carries none.
+/// A URL with its whole userinfo masked (`scheme://***@host…`): a user and
+/// password, or a user or token alone. The userinfo ends at the last `@`
+/// of the authority. A password with `/`, `?`, `#` or `@` in it (not
+/// escaped) hides where the authority ends, so when a `:` stands before
+/// the last `@` of the whole text, that `@` is taken. This may mask a host
+/// and a path with an `@` further on: the copy is for people, and what is
+/// masked for nothing costs nothing. `None` when the text has no userinfo.
 fn mask_userinfo(s: &str) -> Option<String> {
     let scheme = s.find("://")? + 3;
     let rest = &s[scheme..];
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let at = rest[..end].rfind('@')?;
-    let colon = rest[..at].find(':')?;
-    Some(format!(
-        "{}{}:{MASK}{}",
-        &s[..scheme],
-        &rest[..colon],
-        &rest[at..]
-    ))
+    let at = match rest.rfind('@') {
+        // `user:password@`: the password may hold `/`, `?`, `#` or `@`
+        Some(last) if rest[..last].contains(':') => last,
+        _ => rest[..end].rfind('@')?,
+    };
+    Some(format!("{}{MASK}{}", &s[..scheme], &rest[at..]))
+}
+
+/// `name=value` pairs of a text (a URL's query and fragment, a SAS token, a
+/// connection string: pairs parted by `&`, `;`, `?` or `#`; the name is the
+/// last word before the `=`, the value goes to the next of them, spaces too)
+/// with the value masked where the name says it is a secret
+/// ([`masked_name`]: `sig`, `token`, `password`, `key`, `Pwd`,
+/// `SharedAccessKey`, …). `None` when nothing was masked.
+fn mask_pairs(s: &str) -> Option<String> {
+    let sep = |c: char| matches!(c, '&' | ';' | '?' | '#');
+    let mut out = String::with_capacity(s.len());
+    let mut changed = false;
+    let mut rest = s;
+    loop {
+        let end = rest.find(sep).unwrap_or(rest.len());
+        let piece = &rest[..end];
+        match piece.split_once('=') {
+            Some((name, value))
+                if !value.is_empty()
+                    && value != MASK
+                    && masked_name(name.rsplit(char::is_whitespace).next().unwrap_or(name)) =>
+            {
+                out.push_str(name);
+                out.push('=');
+                out.push_str(MASK);
+                changed = true;
+            }
+            _ => out.push_str(piece),
+        }
+        match rest[end..].chars().next() {
+            Some(c) => {
+                out.push(c);
+                rest = &rest[end + c.len_utf8()..];
+            }
+            None => break,
+        }
+    }
+    changed.then_some(out)
+}
+
+/// A text of a configuration with the secrets inside it masked: the
+/// userinfo of a URL and the secret pairs of a query, a SAS token or a
+/// connection string.
+fn mask_text(s: &str) -> Option<String> {
+    let url = mask_userinfo(s);
+    let pairs = mask_pairs(url.as_deref().unwrap_or(s));
+    pairs.or(url)
 }
 
 /// A configuration as JSON with every secret masked, for the `config`
 /// section of a backup (ADR 0048 §3.2): the value of a field named like a
 /// secret ([`masked_name`]; whatever its type), a PEM private key, the
-/// password of a URL, and a long hex string wherever it is, except under
-/// `admin_keys` (public keys). The names are the only guide here: the
+/// userinfo of a URL, the secret pairs of a query, SAS token or connection
+/// string, and a long hex string wherever it is, except under `admin_keys`
+/// (public keys). The names are the only guide here: the
 /// configuration holds bootstrap params, and what a driver declares as
 /// `secret` is entered at runtime and sealed, never written to this file.
 pub fn mask_config(v: &mut serde_json::Value) {
@@ -321,7 +428,7 @@ pub fn mask_config(v: &mut serde_json::Value) {
                 let hex = s.len() >= 32 && s.chars().all(|c| c.is_ascii_hexdigit());
                 if s.contains("PRIVATE KEY-----") || (hex && !public) {
                     *s = MASK.into();
-                } else if let Some(masked) = mask_userinfo(s) {
+                } else if let Some(masked) = mask_text(s) {
                     *s = masked;
                 }
             }
@@ -457,11 +564,129 @@ mod tests {
         let db = &v["links"]["db"]["params"];
         assert_eq!(
             db["url"],
-            "postgres://wyrm:***@db.example:5432/hist?sslmode=require"
+            "postgres://***@db.example:5432/hist?sslmode=require"
         );
         assert_eq!(db["plain_url"], "https://broker.example:8445/mcp");
         // the lint of an install keeps its own, narrower list
         assert!(!secret_name("community") && masked_name("community"));
+    }
+
+    /// Automated review of the mask: names in camel case or written as one
+    /// word, a URL with a token alone or a password with `/` and `#` in it,
+    /// and the secret parts of a query or a SAS token.
+    #[test]
+    fn a_config_copy_masks_joined_names_and_what_is_inside_a_text() {
+        for name in [
+            "authPass",
+            "apiKey",
+            "privpass",
+            "dbPassword",
+            "AuthPass",
+            "authpass",
+            "privPass",
+            "clientSecret",
+            "accessToken",
+            "apitoken",
+            "SharedAccessKey",
+            "AccountKey",
+            "tlsKey",
+            "sasToken",
+            "pinCode",
+            "userPwd",
+            "sig",
+            "x-api-key",
+            "connStr",
+            "connectionString",
+            "mqttPassword",
+            "PSK",
+            "passwd2",
+        ] {
+            assert!(masked_name(name), "{name}");
+        }
+        for name in [
+            "passes",
+            "pinned",
+            "ping_s",
+            "pingMs",
+            "bypass",
+            "keep_days",
+            "port",
+            "host",
+            "site",
+            "listen",
+            "url",
+            "rate_hz",
+            "admin_keys",
+            "max_mb",
+            "points",
+        ] {
+            assert!(!masked_name(name), "{name}");
+        }
+        assert_eq!(name_words("dbPassword2Hash"), ["db", "password2", "hash"]);
+        assert_eq!(name_words("x-API_key"), ["x", "api", "key"]);
+
+        let masked = |text: &str| {
+            let mut v = serde_json::json!({ "v": text });
+            mask_config(&mut v);
+            v["v"].as_str().unwrap().to_owned()
+        };
+        // a token alone, a user alone, a user and a password
+        assert_eq!(
+            masked("https://t0ken123@host/path"),
+            "https://***@host/path"
+        );
+        assert_eq!(
+            masked("mqtts://user@broker:8883"),
+            "mqtts://***@broker:8883"
+        );
+        assert_eq!(masked("amqp://u:pw@h:5672/vh"), "amqp://***@h:5672/vh");
+        // a password with `/`, `?`, `#` and `@` in it
+        for url in [
+            "postgres://wyrm:pa/ss#1@db.example:5432/hist",
+            "postgres://wyrm:pa?ss@db.example:5432/hist",
+            "postgres://wyrm:p@ss/w#rd@db.example:5432/hist",
+        ] {
+            assert_eq!(masked(url), "postgres://***@db.example:5432/hist", "{url}");
+        }
+        // no userinfo: as it is
+        for url in [
+            "https://broker.example:8445/mcp",
+            "https://host/users/list",
+            "tcp/127.0.0.1:7447",
+            "quic/central.example:7448",
+        ] {
+            assert_eq!(masked(url), url);
+        }
+        // the secret parts of a query, of a fragment and of a SAS token
+        assert_eq!(
+            masked("https://acct.blob.core.windows.net/c?sv=2022-11-02&se=2027-01-01&sr=c&sp=rw&sig=AbC%2Fd%3D"),
+            "https://acct.blob.core.windows.net/c?sv=2022-11-02&se=2027-01-01&sr=c&sp=rw&sig=***"
+        );
+        assert_eq!(
+            masked("https://api.example/v1?token=t0k&page=2&api_key=k3y#access_token=zzz"),
+            "https://api.example/v1?token=***&page=2&api_key=***#access_token=***"
+        );
+        assert_eq!(
+            masked("SharedAccessSignature sr=hub.example&sig=s1g&se=1790000000&skn=owner"),
+            "SharedAccessSignature sr=hub.example&sig=***&se=1790000000&skn=owner"
+        );
+        assert_eq!(
+            masked("HostName=h.example;SharedAccessKeyName=owner;SharedAccessKey=abc="),
+            "HostName=h.example;SharedAccessKeyName=***;SharedAccessKey=***"
+        );
+        assert_eq!(
+            masked("Server=db;User Id=wyrm;Password=p w;Pwd=x"),
+            "Server=db;User Id=wyrm;Password=***;Pwd=***"
+        );
+        // both in one text
+        assert_eq!(
+            masked("https://u:p@h/x?password=pw&q=1"),
+            "https://***@h/x?password=***&q=1"
+        );
+        assert_eq!(
+            masked("a plain note, no secret = none"),
+            "a plain note, no secret = none"
+        );
     }
 
     /// Review ADM-7: only a missing file is an empty store.
