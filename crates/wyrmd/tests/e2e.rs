@@ -2734,6 +2734,13 @@ async fn link_grant_on_a_storage_folder() {
     c.invoke_one(&sys, "grant", grant("wy/{site}/storage/dvpsm", "write"))
         .await
         .unwrap();
+    // what the link reaches shows under sys/links/<id> (administrators only)
+    eventually("grants in the link's sys node", 15, || async {
+        let m = c.meta(&sys).await.ok()?;
+        let g = format!("{:?}", m.attr_value("grants")?);
+        (g.contains("wy/{site}/storage/dvpsm") && g.contains("write")).then_some(())
+    })
+    .await;
     let as_rec = |key: ed25519_dalek::SigningKey| {
         let env = &env;
         async move {

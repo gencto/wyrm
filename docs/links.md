@@ -587,8 +587,11 @@ do both. Give it **grants**, as a role has them:
   6); every link installed from it gets these grants, and the install
   message lists them (`…; grant wy/{site}/downstream/mock read`). Change them with
   `sys/links/<id>` ▸ **Grant Access** `{path, level}` (`none` removes).
-  `sys` ▸ Get Permissions lists them (source `link`). Each change is in the
-  audit journal (`link_grant`) and rebuilds the router.
+  `sys` ▸ Get Permissions lists them (source `link`), and `sys/links/<id>`
+  shows them as attr `grants` (`{path, level}`) beside `net`, the hosts a
+  portable link may reach (administrators read `sys`; the link's own `~meta`
+  never shows them). Each change is in the audit journal (`link_grant`) and
+  rebuilds the router.
 - **How the link uses them:** with its own session, `ctx.client()`, and
   `wyrm_client::WyrmClient` over it. The router ACL lets the link's
   certificate reach the granted paths. For `set` and actions the client

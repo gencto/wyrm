@@ -2028,7 +2028,8 @@ fn link_node(def: &LinkDef) -> NodeMeta {
     if let Some(role) = &def.granted {
         node = node.attr("group", role.as_str());
     }
-    node.is("wy:link-def")
+    let node = node
+        .is("wy:link-def")
         .attr("driver", def.driver.as_str())
         .attr("mode", def.mode.name())
         .attr("rev", u64::from(def.rev))
@@ -2038,7 +2039,37 @@ fn link_node(def: &LinkDef) -> NodeMeta {
                 Origin::Config => "config",
                 Origin::Runtime => "runtime",
             },
-        )
+        );
+    link_reach(node, def)
+}
+
+/// What the link reaches, for whoever reads `sys/links/<id>` (administrators; never in the
+/// link's own `~meta`, which operators read): `grants`, one `{path, level}` per grant
+/// (`{site}` as stored), and `net`, the network allowlist of a portable or WASM link, as its
+/// params give it. Absent when empty.
+fn link_reach(mut node: NodeMeta, def: &LinkDef) -> NodeMeta {
+    if !def.grants.is_empty() {
+        let rows = def
+            .grants
+            .iter()
+            .map(|(path, code)| {
+                let level = Perm::try_from(*code).map_or("unknown", |p| p.name());
+                Value::Map(BTreeMap::from([
+                    ("path".to_owned(), Value::Str(path.clone())),
+                    ("level".to_owned(), Value::Str(level.to_owned())),
+                ]))
+            })
+            .collect();
+        node = node.attr("grants", Value::Array(rows));
+    }
+    if let Value::Map(m) = decode_params(&def.params) {
+        if let Some(Value::Str(net)) = m.get("net").filter(|v| !matches!(v, Value::Null)) {
+            if !net.trim().is_empty() {
+                node = node.attr("net", net.as_str());
+            }
+        }
+    }
+    node
 }
 
 fn secret_name(args: &Value) -> Result<&str, LinkError> {

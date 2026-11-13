@@ -669,7 +669,7 @@ impl GatewayMcp {
     }
 
     #[tool(
-        description = "Full ~meta of a node: type, unit, enum, writable level, cfg (min/max…), attributes, history mark, actions with parameter schemas and levels.",
+        description = "Full ~meta of a node: type, unit, enum, writable level, cfg (min/max…), attributes, history mark, actions with parameter schemas and levels. For a link, `sys/links/<id>` (administrators) has attr `grants` ({path, level}: what it may read and write) and `net` (the hosts a portable link may reach): read it when a link is refused a key or a host.",
         annotations(read_only_hint = true)
     )]
     async fn node_meta(
