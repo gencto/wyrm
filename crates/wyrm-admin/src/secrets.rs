@@ -250,16 +250,66 @@ pub fn secret_name(name: &str) -> bool {
 /// What stands for a masked secret.
 pub const MASK: &str = "***";
 
+/// Words of a field name (split at what is no letter or digit) that say its
+/// value is a secret in a configuration copy, beyond [`secret_name`]. Wider
+/// than the lint of an install on purpose: a name masked for nothing costs
+/// a reader one value of a copy that is never restored; a name missed
+/// leaves a secret in a file that travels.
+const MASK_WORDS: &[&str] = &[
+    "pass",
+    "pwd",
+    "community",
+    "sas",
+    "psk",
+    "pin",
+    "signature",
+    "bearer",
+    "cookie",
+    "authorization",
+    "dsn",
+];
+
+/// `true` for a field name whose value [`mask_config`] masks.
+pub fn masked_name(name: &str) -> bool {
+    if secret_name(name) {
+        return true;
+    }
+    let lk = name.to_ascii_lowercase();
+    lk.split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| MASK_WORDS.contains(&w))
+        || lk.contains("connection_string")
+        || lk.contains("connectionstring")
+}
+
+/// `scheme://user:password@host…` with the password masked; `None` when the
+/// text carries none.
+fn mask_userinfo(s: &str) -> Option<String> {
+    let scheme = s.find("://")? + 3;
+    let rest = &s[scheme..];
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let at = rest[..end].rfind('@')?;
+    let colon = rest[..at].find(':')?;
+    Some(format!(
+        "{}{}:{MASK}{}",
+        &s[..scheme],
+        &rest[..colon],
+        &rest[at..]
+    ))
+}
+
 /// A configuration as JSON with every secret masked, for the `config`
 /// section of a backup (ADR 0048 §3.2): the value of a field named like a
-/// secret ([`secret_name`]; whatever its type), a PEM private key, and a
-/// long hex string wherever it is, except under `admin_keys` (public keys).
+/// secret ([`masked_name`]; whatever its type), a PEM private key, the
+/// password of a URL, and a long hex string wherever it is, except under
+/// `admin_keys` (public keys). The names are the only guide here: the
+/// configuration holds bootstrap params, and what a driver declares as
+/// `secret` is entered at runtime and sealed, never written to this file.
 pub fn mask_config(v: &mut serde_json::Value) {
     fn walk(v: &mut serde_json::Value, public: bool) {
         match v {
             serde_json::Value::Object(m) => {
                 for (k, v) in m.iter_mut() {
-                    if secret_name(k) {
+                    if masked_name(k) {
                         *v = serde_json::Value::String(MASK.into());
                     } else {
                         walk(v, k == "admin_keys");
@@ -271,6 +321,8 @@ pub fn mask_config(v: &mut serde_json::Value) {
                 let hex = s.len() >= 32 && s.chars().all(|c| c.is_ascii_hexdigit());
                 if s.contains("PRIVATE KEY-----") || (hex && !public) {
                     *s = MASK.into();
+                } else if let Some(masked) = mask_userinfo(s) {
+                    *s = masked;
                 }
             }
             _ => {}
@@ -353,6 +405,63 @@ mod tests {
         assert_eq!(v["admin_keys"][0], "aa".repeat(32));
         assert_eq!(v["uplink"]["upstreams"][0]["password"], MASK);
         assert!(secret_name("Passphrase") && secret_name("state_key") && !secret_name("keep_days"));
+    }
+
+    /// Review of PR 72: names a link's params use for secrets that the lint
+    /// of an install does not know, and a password inside a URL.
+    #[test]
+    fn a_config_copy_masks_the_names_links_use_for_secrets() {
+        let mut v = serde_json::json!({
+            "links": {
+                "snmp": { "params": {
+                    "community": "c0mmunity",
+                    "auth_pass": "authpass1",
+                    "priv_pass": "privpass1",
+                    "port": 161,
+                    "pinned": true,
+                    "ping_s": 5,
+                    "passes": 3,
+                } },
+                "azure": { "params": { "sas": "SharedAccessSignature sr=x", "hub": "h" } },
+                "s3": { "params": { "secret_key": "s3cr3tkey", "access_key": "AKIAEXAMPLE" } },
+                "db": { "params": {
+                    "url": "postgres://wyrm:pgpass1@db.example:5432/hist?sslmode=require",
+                    "plain_url": "https://broker.example:8445/mcp",
+                    "connection_string": "Server=x;Pwd=cs-pass",
+                    "pin": "4711",
+                } },
+            },
+        });
+        mask_config(&mut v);
+        let text = v.to_string();
+        for secret in [
+            "c0mmunity",
+            "authpass1",
+            "privpass1",
+            "SharedAccessSignature",
+            "s3cr3tkey",
+            "AKIAEXAMPLE",
+            "pgpass1",
+            "cs-pass",
+            "4711",
+        ] {
+            assert!(!text.contains(secret), "{secret} in {text}");
+        }
+        let p = &v["links"]["snmp"]["params"];
+        assert_eq!(
+            (&p["port"], &p["pinned"], &p["ping_s"]),
+            (&161.into(), &true.into(), &5.into())
+        );
+        assert_eq!(p["passes"], 3, "a word, not a part of one");
+        assert_eq!(v["links"]["azure"]["params"]["hub"], "h");
+        let db = &v["links"]["db"]["params"];
+        assert_eq!(
+            db["url"],
+            "postgres://wyrm:***@db.example:5432/hist?sslmode=require"
+        );
+        assert_eq!(db["plain_url"], "https://broker.example:8445/mcp");
+        // the lint of an install keeps its own, narrower list
+        assert!(!secret_name("community") && masked_name("community"));
     }
 
     /// Review ADM-7: only a missing file is an empty store.
