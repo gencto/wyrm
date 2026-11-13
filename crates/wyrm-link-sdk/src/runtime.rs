@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::keyspace::{self, SUFFIX_META, SUFFIX_SET, SUFFIX_VAL};
 use wyrm_core::meta::{is_code, ActionResult, ParamMeta, Profile, TypeCode, Writable};
@@ -662,8 +662,19 @@ fn param<'a>(q: &'a Query, name: &str) -> Option<&'a str> {
         })
 }
 
-fn denied() -> LinkError {
-    LinkError::new(Status::PermissionDenied, "")
+/// A refusal for want of rights, saying what was needed (spec 04: a refusal
+/// names its reason). `what` is the node or `node ▸ action`; the caller's
+/// level is that of its token (or `none` without one), capped by the key
+/// that signed it.
+fn denied(need: Perm, have: Perm, what: &str) -> LinkError {
+    LinkError::quiet(
+        Status::PermissionDenied,
+        format!(
+            "{what}: needs {} (the caller has {})",
+            need.name(),
+            have.name()
+        ),
+    )
 }
 
 fn status_att(status: Status) -> Attachment {
@@ -686,9 +697,13 @@ fn refusal(e: &LinkError) -> Status {
     }
 }
 
+/// The status and, unless it is the SDK's own refusal of the token or the
+/// level (spec 04, [`LinkError::is_quiet`]), the message: a driver that
+/// refuses by its own rule says why (`values: <key> is outside the link's
+/// grants`), so the person who asked can act on it.
 fn err_att(e: &LinkError) -> Attachment {
     let mut a = status_att(refusal(e));
-    if !e.message.is_empty() && e.status != Status::PermissionDenied {
+    if !e.message.is_empty() && !e.is_quiet() {
         a.err = Some(e.message.clone());
     }
     a
@@ -834,6 +849,8 @@ impl<C: Send + 'static> Shared<C> {
     fn fail(&self, e: LinkError) -> Attachment {
         if e.status == Status::PermissionDenied {
             Metrics::inc(&self.ctx.0.metrics.denied);
+            // in the link's own log (get_log), whether or not the caller hears why
+            info!("refused: {}", e.message);
         } else {
             Metrics::inc(&self.ctx.0.metrics.errors);
         }
@@ -895,16 +912,20 @@ impl<C: Send + 'static> Shared<C> {
         };
         match self
             .verifier
-            .verify(tok, q.key_expr(), att.maxperm, now_s())
+            .verify_signed(tok, q.key_expr(), att.maxperm, now_s())
         {
-            Ok((claims, perm)) => Ok(Caller {
+            Ok((claims, perm, signer)) => Ok(Caller {
                 origin: Some(bound_origin(att.origin.as_deref(), &claims.sub)),
                 perm,
                 claims: Some(claims),
+                signer,
             }),
             Err(reason) => {
                 debug!(?reason, key = %q.key_expr(), "ptok rejected");
-                Err(denied())
+                Err(LinkError::quiet(
+                    Status::PermissionDenied,
+                    format!("{}: {}", q.key_expr(), reason.reason()),
+                ))
             }
         }
     }
@@ -922,8 +943,9 @@ impl<C: Send + 'static> Shared<C> {
         let doc = doc.ok_or_else(|| LinkError::not_supported(format!("suffix {suffix}")))?;
         if restricted {
             let att = self.attachment(q)?;
-            if self.authorize(q, &att)?.perm < Perm::List {
-                return Err(denied());
+            let have = self.authorize(q, &att)?.perm;
+            if have < Perm::List {
+                return Err(denied(Perm::List, have, path));
             }
         }
         Ok(doc)
@@ -948,9 +970,10 @@ impl<C: Send + 'static> Shared<C> {
         // token only reveals restricted children.
         let att = self.attachment(q)?;
         let authorized = if restricted || att.ptok.is_some() {
-            let ok = self.authorize(q, &att)?.perm >= Perm::List;
+            let have = self.authorize(q, &att)?.perm;
+            let ok = have >= Perm::List;
             if restricted && !ok {
-                return Err(denied());
+                return Err(denied(Perm::List, have, path));
             }
             ok
         } else {
@@ -1122,7 +1145,7 @@ impl<C: Send + 'static> Shared<C> {
             .ok_or_else(|| LinkError::not_found(path.to_owned()))?;
         if param(q, "field").is_some() {
             if caller.perm < Perm::Config {
-                return Err(denied());
+                return Err(denied(Perm::Config, caller.perm, path));
             }
             // TODO: cfg/attr overrides need broker-owned persistence (ADR 0003).
             return Err(LinkError::not_supported("field writes"));
@@ -1136,7 +1159,7 @@ impl<C: Send + 'static> Shared<C> {
             Writable::Write => Perm::Write,
         };
         if caller.perm < required {
-            return Err(denied());
+            return Err(denied(required, caller.perm, path));
         }
         let bytes = q.payload().map(|p| p.to_bytes()).unwrap_or_default();
         let req: SetRequest = from_slice(&bytes)
@@ -1223,7 +1246,7 @@ impl<C: Send + 'static> Shared<C> {
                 .filter(|p| *p != Perm::None)
                 .ok_or_else(|| LinkError::not_supported("not invokable"))?;
             if caller.perm < required {
-                return Err(denied());
+                return Err(denied(required, caller.perm, &format!("{path} ▸ {action}")));
             }
         }
         let args = match q.payload().map(|p| p.to_bytes()) {
@@ -1431,7 +1454,7 @@ fn validate_value(meta: &NodeMeta, v: &Value) -> Result<()> {
 fn bound_args(caller: &Caller, payload: &[u8]) -> Result<()> {
     use sha2::Digest;
     match caller.claims.as_ref().and_then(|c| c.args) {
-        Some(h) if h[..] != sha2::Sha256::digest(payload)[..] => Err(LinkError::new(
+        Some(h) if h[..] != sha2::Sha256::digest(payload)[..] => Err(LinkError::quiet(
             Status::PermissionDenied,
             "the token is bound to other arguments",
         )),

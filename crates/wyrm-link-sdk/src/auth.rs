@@ -76,6 +76,55 @@ pub struct Caller {
     /// Effective permission for this request.
     pub perm: Perm,
     pub claims: Option<PtokClaims>,
+    /// What the key that signed the token is trusted with: `None` for an
+    /// admin key (everywhere, up to `config`); for limited keys their scopes
+    /// with their caps (ADR 0046). Read only through [`Caller::perm_on`].
+    pub signer: Option<SignerScopes>,
+}
+
+/// The scopes of the limited keys that signed a token, each with its cap.
+pub type SignerScopes = Vec<(String, Perm)>;
+
+impl Caller {
+    /// The caller's effective permission on `key`, another key than the
+    /// request's (an action that writes outside its own node: a storage
+    /// `rename` or `duplicate` makes a sibling under the parent): the token's
+    /// `max`, the signer's cap where its scope covers `key`, and, when the
+    /// token carries the rights of a person (`auth`, spec 04), their grant
+    /// there. The token's own `grants` are left out: a client narrows them to
+    /// the request key. No token, nothing.
+    pub fn perm_on(&self, key: &str) -> Perm {
+        let Some(c) = &self.claims else {
+            return Perm::None;
+        };
+        let Ok(ke) = keyexpr::new(key) else {
+            return Perm::None;
+        };
+        let cap = match &self.signer {
+            None => Perm::Config,
+            Some(scopes) => scopes
+                .iter()
+                .filter(|(s, _)| covers(s, key))
+                .map(|(_, p)| *p)
+                .max()
+                .unwrap_or(Perm::None),
+        };
+        let person = match &c.auth {
+            None => Perm::Config,
+            Some(auth) => auth
+                .iter()
+                .filter(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(ke)))
+                .map(|g| g.p)
+                .max()
+                .unwrap_or(Perm::None),
+        };
+        c.max.min(cap).min(person)
+    }
+}
+
+/// `key` is `scope` or below it.
+fn covers(scope: &str, key: &str) -> bool {
+    key == scope || key.strip_prefix(scope).is_some_and(|r| r.starts_with('/'))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +138,22 @@ pub enum Denied {
     ReplayCacheFull,
     /// `exp` further ahead than [`MAX_TOKEN_TTL_S`].
     TooLong,
+}
+
+impl Denied {
+    /// Why, in words a refusal can carry (never the token itself).
+    pub fn reason(self) -> &'static str {
+        match self {
+            Denied::Malformed => "the token is malformed",
+            Denied::Signature => "the token's signer is not trusted here",
+            Denied::Expired => "the token has expired",
+            Denied::WrongSite => "the token is for another site",
+            Denied::Replayed => "the token was used already",
+            Denied::NoGrant => "the token grants nothing on this key",
+            Denied::ReplayCacheFull => "too many tokens of this subject at once; try again",
+            Denied::TooLong => "the token lives longer than 15 min",
+        }
+    }
 }
 
 /// Longest token lifetime a responder accepts (seconds).
@@ -110,12 +175,7 @@ pub struct LimitedKey {
 
 impl LimitedKey {
     fn covers(&self, key: &str) -> bool {
-        self.scopes.iter().any(|s| {
-            key == s
-                || key
-                    .strip_prefix(s.as_str())
-                    .is_some_and(|r| r.starts_with('/'))
-        })
+        self.scopes.iter().any(|s| covers(s, key))
     }
 }
 
@@ -161,6 +221,19 @@ impl Verifier {
         maxperm: Option<Perm>,
         now: u64,
     ) -> Result<(PtokClaims, Perm), Denied> {
+        self.verify_signed(token, key, maxperm, now)
+            .map(|(c, p, _)| (c, p))
+    }
+
+    /// [`Self::verify`], and what the signer is trusted with (`None` for an
+    /// admin key; [`Caller::signer`]).
+    pub fn verify_signed(
+        &self,
+        token: &[u8],
+        key: &keyexpr,
+        maxperm: Option<Perm>,
+        now: u64,
+    ) -> Result<(PtokClaims, Perm, Option<SignerScopes>), Denied> {
         let parts = ptok::split(token).ok_or(Denied::Malformed)?;
         let sig = Signature::from_bytes(parts.sig);
         let trust = self.trust.read().unwrap_or_else(|p| p.into_inner());
@@ -194,6 +267,13 @@ impl Verifier {
                 .max()
                 .ok_or(Denied::NoGrant)?
         };
+        let signer: Option<SignerScopes> = (!admin).then(|| {
+            signers
+                .iter()
+                .filter(|l| l.subject.as_ref().is_none_or(|s| *s == claims.sub))
+                .flat_map(|l| l.scopes.iter().map(|s| (s.clone(), l.cap)))
+                .collect()
+        });
         // the caller's rights for acting on its behalf: capped as the effective level, and to
         // what each signer is trusted with (a limited key's scopes)
         if let Some(auth) = claims.auth.take() {
@@ -236,7 +316,7 @@ impl Verifier {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remember(&claims.sub, claims.jti, claims.exp, now)?;
-        Ok((claims, perm))
+        Ok((claims, perm, signer))
     }
 }
 
@@ -274,6 +354,72 @@ pub fn cap_auth(auth: Vec<Grant>, top: Perm, trusted: &[(Option<&str>, Perm)]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0046: the caller's level on another key than the request's, as
+    /// the verifier would compute it there: grant, max and the signer's scope.
+    #[test]
+    fn perm_on_another_key() {
+        use wyrm_core::ptok::Grant;
+        let claims = |grants: Vec<Grant>, max: Perm| PtokClaims {
+            sub: "link:rec".into(),
+            roles: Vec::new(),
+            grants,
+            max,
+            iat: 0,
+            exp: 0,
+            jti: [0; 16],
+            site: "s".into(),
+            auth: None,
+            args: None,
+        };
+        let all = vec![Grant {
+            k: "wy/s/**".into(),
+            p: Perm::Config,
+        }];
+        let folder = Caller {
+            claims: Some(claims(all.clone(), Perm::Write)),
+            signer: Some(vec![("wy/s/storage/dvpsm".into(), Perm::Write)]),
+            ..Caller::default()
+        };
+        assert_eq!(folder.perm_on("wy/s/storage/dvpsm"), Perm::Write);
+        assert_eq!(folder.perm_on("wy/s/storage/dvpsm/cmd"), Perm::Write);
+        assert_eq!(folder.perm_on("wy/s/storage"), Perm::None, "the parent");
+        assert_eq!(folder.perm_on("wy/s/storage/dvpsm2"), Perm::None);
+        let admin = Caller {
+            claims: Some(claims(all, Perm::Config)),
+            signer: None,
+            ..Caller::default()
+        };
+        assert_eq!(admin.perm_on("wy/s/storage"), Perm::Config);
+        // a request-scoped token: its grant names only the request key
+        let narrow = Caller {
+            claims: Some(claims(
+                vec![Grant {
+                    k: "wy/s/storage/dvpsm/cmd/~act/duplicate".into(),
+                    p: Perm::Config,
+                }],
+                Perm::Config,
+            )),
+            signer: Some(vec![("wy/s/storage/dvpsm".into(), Perm::Write)]),
+            ..Caller::default()
+        };
+        assert_eq!(narrow.perm_on("wy/s/storage/dvpsm"), Perm::Write);
+        assert_eq!(narrow.perm_on("wy/s/storage"), Perm::None);
+        // a person's rights (`auth`) through the gateway's key
+        let mut c = claims(Vec::new(), Perm::Config);
+        c.auth = Some(vec![Grant {
+            k: "wy/s/storage/dvpsm/**".into(),
+            p: Perm::Write,
+        }]);
+        let user = Caller {
+            claims: Some(c),
+            signer: Some(vec![("wy/s/storage".into(), Perm::Config)]),
+            ..Caller::default()
+        };
+        assert_eq!(user.perm_on("wy/s/storage/dvpsm/cmd"), Perm::Write);
+        assert_eq!(user.perm_on("wy/s/storage"), Perm::None, "the user's grant");
+        assert_eq!(Caller::default().perm_on("wy/s/storage"), Perm::None);
+    }
 
     fn g(k: &str, p: Perm) -> Grant {
         Grant { k: k.into(), p }

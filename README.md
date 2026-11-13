@@ -16,7 +16,7 @@ Flutter app, is the desktop window onto one broker or a chain of them.
 *Wyrm*: a wingless serpent-dragon. Its long body of segments is like a tree of
 nodes, and it is kin to the dragon on Zenoh's logo.
 
-> **Status: before 1.0 (version 0.1.0).** The protocol (`spec/` 0.2.31) and the
+> **Status: before 1.0 (version 0.1.0).** The protocol (`spec/` 0.2.32) and the
 > broker are tested on every commit (unit, fixture and end-to-end tests). Every
 > protocol link is tested against its own simulator. No link has been checked
 > against a real device yet ([ADR 0029](docs/adr/0029-delegated-decisions.md),

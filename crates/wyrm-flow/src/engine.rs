@@ -1700,6 +1700,7 @@ mod tests {
                 auth,
                 args: None,
             }),
+            signer: None,
         }
     }
 

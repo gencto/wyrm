@@ -2770,6 +2770,24 @@ async fn link_grant_on_a_storage_folder() {
         rec.meta(&format!("{root}/other/cmd")).await.is_err(),
         "not even read outside its grant"
     );
+    // rename and duplicate write under the parent: not out of the folder,
+    // within it as usual
+    let name = |n: &str| args(&[("name", Value::from(n))]);
+    for action in ["rename", "duplicate"] {
+        let e = rec
+            .invoke_one(&format!("{root}/dvpsm"), action, name("copy"))
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{e}").contains("needs write on"),
+            "{action} of the granted folder: {e}"
+        );
+    }
+    rec.invoke_one(&format!("{root}/dvpsm/cmd"), "duplicate", name("cmd2"))
+        .await
+        .unwrap();
+    assert!(c.meta(&format!("{root}/dvpsm/cmd2")).await.is_ok());
+    assert!(c.meta(&format!("{root}/copy")).await.is_err());
     drop(c);
     env.stop().await;
 }

@@ -565,7 +565,7 @@ impl Link for Storage {
         path: &str,
         action: &str,
         args: Value,
-        _who: &Caller,
+        who: &Caller,
         out: ReplySink,
     ) -> Result<()> {
         match (path, action) {
@@ -575,8 +575,24 @@ impl Link for Storage {
             (_, "export") => out.reply(self.export(path)?).await,
             (_, "import") => self.import(path, &args).await,
             (p, "delete") if !p.is_empty() => self.delete(path, &args).await,
-            (p, "rename") if !p.is_empty() => self.rename(path, &args, false).await,
-            (p, "duplicate") if !p.is_empty() => self.rename(path, &args, true).await,
+            (p, "rename" | "duplicate") if !p.is_empty() => {
+                // Both write a sibling under the parent, outside `path`: the caller needs
+                // write there too, or a grant on a folder could copy it out (ADR 0046).
+                let (parent, _) =
+                    split_parent(path).ok_or_else(|| LinkError::invalid_parameter("root"))?;
+                let parent_key = self.ctx.key(parent, "");
+                let have = who.perm_on(&parent_key);
+                if have < Perm::Write {
+                    return Err(LinkError::new(
+                        Status::PermissionDenied,
+                        format!(
+                            "{action}: needs write on {parent_key}, where the new name goes (the caller has {})",
+                            have.name()
+                        ),
+                    ));
+                }
+                self.rename(path, &args, action == "duplicate").await
+            }
             _ => Err(LinkError::not_supported(action.to_owned())),
         }
     }
