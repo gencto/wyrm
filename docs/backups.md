@@ -27,7 +27,7 @@ A `.wyrm-backup` (broker) or `.wyrm-link` (one link) is a zip. Its first entry i
 - The audit record `backup_create` carries `keys: true|false` and `secrets: true|false`, and the broker logs a warning for a passphrase-sealed backup.
 - `sys/backups` has the attribute `export_secrets` for UIs.
 - Secrets a broker makes for a link's identity (its requester key, an agent's signing key) are in no link data of any backup. A link's token is only in `keys`.
-- The `config` section is `wyrmd.json` with every secret masked (`***`): fields named like a secret, PEM private keys and long hex strings, except `admin_keys`.
+- The `config` section is `wyrmd.json`, a copy for people to read. It is never restored. It is masked by default: a text is in clear only when its field is on the list of fields known to hold no secret (the site, the profile, endpoints, paths of certificates, link ids and drivers, the options of `backups`, and the like; `CONFIG_SHOWN` in `wyrmd`). Every other text is `***`, whole: every text under a link's `params`, under `uplink.upstreams`, under a section this broker does not know. Numbers and flags stay. On a shown field, a URL loses its userinfo and its whole query, and a name that says secret is masked all the same. Field names stay, so you see which params a link had and enter the values again.
 
 ## 2. Back up the broker
 
@@ -51,7 +51,7 @@ Sections:
 | `history` | the day files of the last `history_days` days (all without it) and the index | each file is copied inside one read transaction; days first, the index last |
 | `links` | per link of `links` (all without it): `link.cbor` (its definition, without the token hash), its secrets and private data, sealed | files as the standby copies them |
 | `packages` | every installed package as its files (`wyrm-link.json` among them). Without this section, the packages of the chosen links still go in | versions are immutable |
-| `config` | `wyrmd.json`, the configuration with secrets masked; never restored | |
+| `config` | `wyrmd.json`, the configuration masked by default (only fields known to hold no secret are in clear); never restored | |
 
 The job stages its files in `data_dir/backups/.stage-*`, then writes the zip. It needs about twice the estimate on the disk of `data_dir` and is refused (`resource_exhausted`) when that is not free. Links, flows and the historian go on while it runs.
 
