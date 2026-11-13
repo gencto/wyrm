@@ -117,6 +117,33 @@ fn open_entry(
     Ok(Some(Entry { file, meta }))
 }
 
+/// Open the regular file `rel` (`/` separators, plain segments) under the
+/// directory `root` for reading, following no symlink in any part of the
+/// path below `root`: every directory on the way and the file itself are
+/// opened once with `O_NOFOLLOW` and checked against the held handle of
+/// their parent. `Ok(None)`: it is not there. For a file whose name came
+/// from a listing made earlier (the standby asks for it by name).
+pub fn open_under(root: &Path, rel: &str) -> Result<Option<File>, String> {
+    let mut dir = open_nofollow(root, true).map_err(|e| format!("{}: {e}", root.display()))?;
+    let mut path = root.to_owned();
+    let segs: Vec<&str> = rel.split('/').collect();
+    for (i, seg) in segs.iter().enumerate() {
+        if seg.is_empty() || *seg == "." || *seg == ".." {
+            return Err(format!("{rel}: not a plain path"));
+        }
+        let last = i + 1 == segs.len();
+        let Some(e) = open_entry(&dir, &path, std::ffi::OsStr::new(seg), !last)? else {
+            return Ok(None);
+        };
+        if last {
+            return Ok(Some(e.file));
+        }
+        dir = e.file;
+        path.push(seg);
+    }
+    Err(format!("{rel}: not a plain path"))
+}
+
 /// What a walk found beside what it handed out.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Walked {
@@ -281,6 +308,50 @@ pub fn remove_any(path: &Path) {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    /// A file asked for by name (replication to a standby): a symlink
+    /// anywhere below the root is refused, never read through.
+    #[test]
+    #[cfg(unix)]
+    fn a_file_by_name_is_opened_through_no_symlink() {
+        use std::os::unix::fs::symlink;
+        let d = tmp("open-under");
+        let root = d.join("root");
+        write(&root.join("links/l1/data/store/p0"), b"page");
+        write(&d.join("outside/secret"), b"BROKER-SECRET");
+        let read = |rel: &str| -> Result<Option<Vec<u8>>, String> {
+            Ok(match open_under(&root, rel)? {
+                Some(mut f) => {
+                    let mut b = Vec::new();
+                    f.read_to_end(&mut b).unwrap();
+                    Some(b)
+                }
+                None => None,
+            })
+        };
+        assert_eq!(read("links/l1/data/store/p0").unwrap().unwrap(), b"page");
+        assert_eq!(read("links/l1/data/store/none").unwrap(), None);
+        assert_eq!(read("links/l2/data/x").unwrap(), None);
+        assert!(read("links/l1/data/../../../outside/secret").is_err());
+        assert!(
+            read("links/l1/data/store").is_err(),
+            "a directory is no file"
+        );
+        // the file is a symlink
+        symlink(d.join("outside/secret"), root.join("links/l1/data/leak")).unwrap();
+        assert!(read("links/l1/data/leak").is_err());
+        // a directory on the way is one
+        symlink(d.join("outside"), root.join("links/l1/data/dir")).unwrap();
+        assert!(read("links/l1/data/dir/secret").is_err());
+        // the listed directory was swapped for one
+        std::fs::rename(
+            root.join("links/l1/data/store"),
+            root.join("links/l1/data/store.real"),
+        )
+        .unwrap();
+        symlink(d.join("outside"), root.join("links/l1/data/store")).unwrap();
+        assert!(read("links/l1/data/store/secret").is_err());
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("wyrm-nofollow-{name}-{}", std::process::id()));

@@ -145,12 +145,70 @@ pub struct Config {
     pub config_file: Option<PathBuf>,
 }
 
-/// The configuration file `path` as JSON with its secrets masked, for the
-/// `config` section of a backup; `None` when it cannot be read.
+/// The text fields of `wyrmd.json5` that the `config` section of a backup
+/// shows (ADR 0048 §3.2), by key path (`*`: any one key): the ones known to
+/// hold no secret. Every other text of the file is masked
+/// (`wyrm_admin::secrets::mask_config`), so a field that is not here, or a
+/// section this list does not know, is never in a backup in clear. A new
+/// text field of [`Config`] goes here or into [`CONFIG_MASKED`]: the test
+/// `every_text_field_of_the_config_is_shown_or_masked_on_purpose` fails
+/// until it is in one of them.
+const CONFIG_SHOWN: &[&str] = &[
+    "site",
+    "profile",
+    "data_dir",
+    "listen",
+    "connect",
+    "tls_names",
+    // public keys
+    "admin_keys",
+    "operators",
+    "rest",
+    "state_anchor_dir",
+    "links.*.driver",
+    "links.*.mode",
+    "peers.listen",
+    "peers.enroll",
+    "peers.upstream.site",
+    "peers.upstream.endpoint",
+    "peers.upstream.ca",
+    "peers.upstream.cert",
+    "peers.downstream.site",
+    "peers.downstream.via",
+    "packages.repository",
+    "gateway.listen",
+    "gateway.tls_cert",
+    "gateway.admin_user",
+    "gateway.mcp.public_url",
+    "gateway.mcp.redirect_uris",
+    "uplink.net",
+    "standby.peer",
+    "standby.witness",
+    "standby.arbiter",
+    "backups.send_links",
+    "backups.send_links.link",
+    "backups.send_links.folder",
+];
+
+/// The text fields of `wyrmd.json5` that are masked on purpose: where a
+/// private key is (a path, and a name that says secret), and what a link
+/// or a platform upstream is given (free maps: any text may be a secret).
+/// Masked is the default; this list is what the test checks a choice by.
+#[cfg(test)]
+const CONFIG_MASKED: &[&str] = &[
+    "gateway.tls_key",
+    "peers.upstream.key",
+    "links.*.params",
+    "uplink.upstreams",
+];
+
+/// The configuration file `path` as JSON, for the `config` section of a
+/// backup: masked by default, [`CONFIG_SHOWN`] in clear. `None` when it
+/// cannot be read.
 fn masked_config(path: &std::path::Path) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut v: serde_json::Value = json5::from_str(&text).ok()?;
-    wyrm_admin::secrets::mask_config(&mut v);
+    wyrm_admin::secrets::mask_config(&mut v, CONFIG_SHOWN);
     serde_json::to_string_pretty(&v).ok()
 }
 
@@ -1857,11 +1915,49 @@ impl Daemon {
     /// Open state and CA, apply `wyrmd.json5` links. `link_exe` hosts
     /// process links (`<link_exe> link <driver>`), normally this binary.
     pub fn open(cfg: Config, link_exe: PathBuf) -> Result<Self, Error> {
+        use wyrm_admin::control::restore_broker as restore;
         std::fs::create_dir_all(&cfg.data_dir)?;
         // A restore staged by `sys/backups/~act/restore_apply {mode: replace}`
-        // (ADR 0048 §3.6): put in place before any store opens.
-        let restored = wyrm_admin::control::restore_broker::apply_pending(&cfg.data_dir)
-            .map_err(|e| format!("restore.pending: {e}"))?;
+        // (ADR 0048 §3.6): put in place before any store opens, all of it or
+        // nothing. A plan that cannot be applied leaves the state as it was
+        // (`Ok(None)`) and this start goes on with it.
+        let data_dir = cfg.data_dir.clone();
+        let restored = restore::apply_pending(&data_dir).map_err(|e| {
+            format!("restore.pending: {e}. The state before the restore could not be put back")
+        })?;
+        let applied = restored.is_some();
+        match Self::open_stores(cfg, link_exe, restored) {
+            Ok(d) => {
+                // the stores opened on it: what the restore replaced goes
+                if applied {
+                    restore::commit_pending(&data_dir);
+                }
+                Ok(d)
+            }
+            // The stores did not open on what the restore put in place:
+            // everything goes back, and the next start (the supervisor's)
+            // runs on the state before it and reports the failure.
+            Err(e) if applied => match restore::undo_pending(&data_dir, &e.to_string()) {
+                Ok(()) => Err(format!(
+                    "the restore was not applied ({e}): the state before it is back in place, \
+                     start again"
+                )
+                .into()),
+                Err(u) => Err(format!(
+                    "the restore was not applied ({e}) and the state before it could not be \
+                     put back ({u}): see restore.pending"
+                )
+                .into()),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    fn open_stores(
+        cfg: Config,
+        link_exe: PathBuf,
+        restored: Option<wyrm_admin::control::restore_broker::Applied>,
+    ) -> Result<Self, Error> {
         let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
         let anchor = |name: &str| cfg.state_anchor_dir.as_ref().map(|d| d.join(name));
         if let Some(d) = &cfg.state_anchor_dir {
@@ -2045,6 +2141,24 @@ impl Daemon {
                 &format!("sections {}", r.sections.join(", ")),
             );
         }
+        // a restore that was not applied: said once, where people look
+        if let Some(f) = wyrm_admin::control::restore_broker::take_failure(&cfg.data_dir) {
+            tracing::error!(
+                by = %f.by, backup = %f.backup,
+                "the restore was not applied, the state before it is in place: {}", f.error
+            );
+            ctl.record(
+                &f.by,
+                "restore_failed",
+                &f.backup,
+                wyrm_core::Status::InternalError,
+                &format!(
+                    "sections {}; not applied, the state before it is in place: {}",
+                    f.sections.join(", "),
+                    f.error
+                ),
+            );
+        }
         Ok(Self {
             cfg,
             ctl,
@@ -2172,6 +2286,209 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The structs `wyrmd.json5` is read into, each with the key path of
+    /// its fields.
+    const CONFIG_STRUCTS: &[(&str, &str)] = &[
+        ("Config", ""),
+        ("BackupsSection", "backups"),
+        ("AlarmSection", "alarm"),
+        ("UplinkSection", "uplink"),
+        ("DqlSection", "dql"),
+        ("SchedulerSection", "scheduler"),
+        ("GatewaySection", "gateway"),
+        ("GatewayMcpSection", "gateway.mcp"),
+        ("PeersSection", "peers"),
+        ("PackagesSection", "packages"),
+        ("UpstreamPeer", "peers.upstream"),
+        ("DownstreamPeer", "peers.downstream"),
+        ("LinkSection", "links.*"),
+        ("LinkLimits", "link_limits"),
+        ("StandbySection", "standby"),
+    ];
+
+    /// `(field, type)` of every `pub` field of `pub struct <name>` in `src`.
+    fn fields_of(src: &str, name: &str) -> Option<Vec<(String, String)>> {
+        let start = src.find(&format!("pub struct {name} {{"))?;
+        let body = &src[start..];
+        let body = &body[..body.find("\n}")?];
+        Some(
+            body.lines()
+                .filter_map(|l| {
+                    let l = l.trim().strip_prefix("pub ")?.strip_suffix(',')?;
+                    let (field, ty) = l.split_once(": ")?;
+                    Some((field.to_owned(), ty.to_owned()))
+                })
+                .collect(),
+        )
+    }
+
+    /// The choice is made on purpose (ADR 0048 §3.2): every field of the
+    /// configuration that holds text is on the list of fields a backup
+    /// shows or on the list of fields it masks. A new field that is on
+    /// neither fails here (it would be masked: masked is the default, but
+    /// nobody chose). Read from the sources: the structs are `Deserialize`
+    /// only.
+    #[test]
+    fn every_text_field_of_the_config_is_shown_or_masked_on_purpose() {
+        let sources = [include_str!("lib.rs"), include_str!("standby.rs")];
+        let listed = |path: &str| CONFIG_SHOWN.contains(&path) || CONFIG_MASKED.contains(&path);
+        let mut found = std::collections::BTreeSet::new();
+        for (name, prefix) in CONFIG_STRUCTS {
+            let fields = sources
+                .iter()
+                .find_map(|s| fields_of(s, name))
+                .unwrap_or_else(|| panic!("struct {name} is not in the sources"));
+            assert!(!fields.is_empty(), "{name}: no fields read");
+            for (field, ty) in fields {
+                // not read from the file
+                if *name == "Config" && field == "config_file" {
+                    continue;
+                }
+                let path = match prefix {
+                    &"" => field.clone(),
+                    p => format!("{p}.{field}"),
+                };
+                // a struct of its own: its fields are checked under its name
+                let idents: Vec<&str> = ty
+                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .filter(|w| !w.is_empty())
+                    .collect();
+                let nested: Vec<&&str> = idents
+                    .iter()
+                    .filter(|w| {
+                        w.ends_with("Section") || w.ends_with("Peer") || w.ends_with("Limits")
+                    })
+                    .collect();
+                if !nested.is_empty() {
+                    for n in nested {
+                        assert!(
+                            CONFIG_STRUCTS.iter().any(|(s, _)| **s == **n),
+                            "{path}: struct {n} is not in CONFIG_STRUCTS"
+                        );
+                    }
+                    continue;
+                }
+                // numbers and flags are always shown
+                let plain = idents
+                    .iter()
+                    .all(|w| matches!(*w, "Option" | "bool" | "u16" | "u32" | "u64" | "f64"));
+                if plain {
+                    continue;
+                }
+                assert!(
+                    listed(&path),
+                    "{path} ({ty}) holds text: add it to CONFIG_SHOWN (it never holds a secret) \
+                     or to CONFIG_MASKED"
+                );
+                found.insert(path);
+            }
+        }
+        // the one enum with fields: an entry of `backups.send_links`
+        let lib = sources[0];
+        let entry = &lib[lib.find("pub enum SendLinkEntry {").unwrap()..];
+        let entry = &entry[..entry.find("\n}").unwrap()];
+        let inner: Vec<&str> = entry
+            .lines()
+            .filter_map(|l| l.trim().strip_suffix(": String,"))
+            .collect();
+        assert_eq!(inner, ["link", "folder"], "SendLinkEntry changed");
+        for f in inner {
+            let path = format!("backups.send_links.{f}");
+            assert!(listed(&path), "{path}");
+            found.insert(path);
+        }
+        // and no entry of the lists names a field that is gone
+        for path in CONFIG_SHOWN.iter().chain(CONFIG_MASKED) {
+            assert!(found.contains(*path), "{path}: no such field of the config");
+        }
+        assert!(
+            !CONFIG_SHOWN.iter().any(|p| CONFIG_MASKED.contains(p)),
+            "a field is on both lists"
+        );
+    }
+
+    /// The `config` section of a backup, from a real file: what is on the
+    /// list is shown, every other text is the mask.
+    #[test]
+    fn the_config_copy_of_a_backup_is_masked_by_default() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-mask-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("wyrmd.json5");
+        std::fs::write(
+            &file,
+            r#"{
+                site: "plant", data_dir: "/var/lib/wyrm", profile: "prod",
+                listen: ["tls/0.0.0.0:7447", "quic/0.0.0.0:7448#key=/etc/k.key;tok=hunter2x"],
+                connect: ["tls/central.example:7447?token=hunter2y"],
+                admin_keys: ["00ff00ff"],
+                metrics_interval_ms: 5000,
+                links: {
+                    plc: { driver: "snmp", params: {
+                        community: "hunter2a", conninfo: "host=h password=hunter2b",
+                        note: "Password = hunter2c", privkey: "hunter2d", port: 161,
+                        connections: { c1: { url: "http://u:hunter2e@h/x", poll_ms: 500 } },
+                    } },
+                },
+                gateway: { listen: "0.0.0.0:8445", tls_cert: "/etc/wyrm/gw.pem",
+                           tls_key: "/etc/wyrm/gw.key",
+                           mcp: { public_url: "https://broker.example:8445" } },
+                packages: { repository: "https://ci:hunter2f@repo.example/index.json?sig=hunter2g" },
+                uplink: { net: "broker.example:8883",
+                          upstreams: [{ kind: "mqtt", name: "main", host: "broker.example" }] },
+                peers: { upstream: [{ site: "central", endpoint: "quic/central.example:7448",
+                                      ca: "/etc/wyrm/ca.pem", cert: "/etc/wyrm/b.pem",
+                                      key: "/etc/wyrm/b.key" }] },
+                backups: { export_secrets: false, send_links: ["s3", { link: "dav", folder: "wyrm" }] },
+            }"#,
+        )
+        .unwrap();
+        // the file is a configuration this broker reads
+        Config::from_json5(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let text = masked_config(&file).unwrap();
+        assert!(!text.contains("hunter2"), "{text}");
+        assert!(
+            !text.contains("gw.key") && !text.contains("b.key"),
+            "{text}"
+        );
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mask = wyrm_admin::secrets::MASK;
+        assert_eq!(v["site"], "plant");
+        assert_eq!(v["listen"][0], "tls/0.0.0.0:7447");
+        assert_eq!(v["listen"][1], "quic/0.0.0.0:7448#***");
+        assert_eq!(v["connect"][0], "tls/central.example:7447?***");
+        assert_eq!(v["admin_keys"][0], "00ff00ff");
+        assert_eq!(v["metrics_interval_ms"], 5000);
+        assert_eq!(v["links"]["plc"]["driver"], "snmp");
+        let params = &v["links"]["plc"]["params"];
+        for name in ["community", "conninfo", "note", "privkey"] {
+            assert_eq!(params[name], mask, "{name}");
+        }
+        assert_eq!(params["port"], 161);
+        assert_eq!(params["connections"]["c1"]["url"], mask);
+        assert_eq!(params["connections"]["c1"]["poll_ms"], 500);
+        assert_eq!(v["gateway"]["tls_cert"], "/etc/wyrm/gw.pem");
+        assert_eq!(v["gateway"]["tls_key"], mask);
+        assert_eq!(
+            v["gateway"]["mcp"]["public_url"],
+            "https://broker.example:8445"
+        );
+        assert_eq!(
+            v["packages"]["repository"],
+            "https://***@repo.example/index.json?***"
+        );
+        assert_eq!(v["uplink"]["net"], "broker.example:8883");
+        assert_eq!(v["uplink"]["upstreams"][0]["host"], mask);
+        assert_eq!(
+            v["peers"]["upstream"][0]["endpoint"],
+            "quic/central.example:7448"
+        );
+        assert_eq!(v["peers"]["upstream"][0]["key"], mask);
+        assert_eq!(v["backups"]["export_secrets"], false);
+        assert_eq!(v["backups"]["send_links"][0], "s3");
+        assert_eq!(v["backups"]["send_links"][1]["folder"], "wyrm");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// ADR 0048 §3.4: the host names where backups may be sent; a folder
     /// that is no plain relative path is refused when the file is read.

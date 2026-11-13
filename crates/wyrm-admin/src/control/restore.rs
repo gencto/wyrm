@@ -30,6 +30,21 @@ const MAX_UPLOADS: usize = 2;
 /// An upload nobody added to for this long is removed.
 const UPLOAD_STALE_S: u64 = 3600;
 
+/// Names beside a link's `data` directory while a restore replaces it.
+const RESTORING: &str = "data.restoring";
+const REPLACED: &str = "data.replaced";
+const DONE: &str = "data.done";
+
+/// The steps of the swap of a restore ([`Control::swap_link_data`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Swap {
+    Aside,
+    InPlace,
+    Secrets,
+    Committed,
+    Done,
+}
+
 /// A file being uploaded in parts into `data_dir/backups/.upload-<id>`.
 pub struct Upload {
     pub size: u64,
@@ -39,6 +54,36 @@ pub struct Upload {
     pub touched: u64,
     /// Used by a restore that runs now: not removed as stale.
     pub busy: bool,
+}
+
+/// Room kept free on the disk of `data_dir` beyond what a restore opens.
+const KEEP_FREE: u64 = 64 << 20;
+
+/// The disk room `files` of a backup need to be opened: their bytes, and
+/// once more the largest sealed one (it is checked whole before it is
+/// opened), plus [`KEEP_FREE`].
+pub(super) fn extract_need<'a>(files: impl Iterator<Item = &'a format::FileEntry>) -> u64 {
+    let (mut sum, mut sealed) = (0u64, 0u64);
+    for f in files {
+        sum = sum.saturating_add(f.size);
+        if f.sealed {
+            sealed = sealed.max(f.size);
+        }
+    }
+    sum.saturating_add(sealed).saturating_add(KEEP_FREE)
+}
+
+/// `Err` when `need` bytes do not fit into `free_mib` (`None`: unknown on
+/// this host, nothing is refused).
+fn room(free_mib: Option<f64>, need: u64) -> Result<(), String> {
+    let want = need as f64 / f64::from(1 << 20);
+    match free_mib {
+        Some(free) if free < want => Err(format!(
+            "the backup opens into about {want:.0} MiB on the disk of data_dir, {free:.0} MiB \
+             are free: nothing of it is opened"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// What a `.wyrm-link` holds, read and checked, its files opened into a
@@ -250,6 +295,13 @@ impl Control {
         }
     }
 
+    /// Before any file of a backup is opened: `need` bytes
+    /// ([`extract_need`]) must fit on the disk of `data_dir`. The upload
+    /// was checked against its own size only, and its content is larger.
+    pub(super) fn room_for(&self, need: u64) -> Result<(), String> {
+        room(disk_free_mib(&self.cfg.data_dir), need)
+    }
+
     /// The key of a backup read here: `None` for one without sealed files.
     pub(super) fn backup_key(
         &self,
@@ -300,6 +352,20 @@ impl Control {
         let def: LinkDef = minicbor::decode(&r.read(&lay.settings)?)
             .map_err(|e| format!("{}: {e}", lay.settings))?;
         crate::registry::validate_link_id(&def.id)?;
+        // what this link's parts open into must fit, before any of it is
+        let prefixes: Vec<String> = [&lay.data, &lay.package]
+            .into_iter()
+            .flatten()
+            .map(|b| format!("{b}/files/"))
+            .chain(lay.history.clone())
+            .collect();
+        self.room_for(extract_need(
+            manifest
+                .sections
+                .iter()
+                .flat_map(|s| &s.files)
+                .filter(|f| prefixes.iter().any(|p| f.path.starts_with(p))),
+        ))?;
         let backups = self.backups_dir();
         make_private_dir(&backups)?;
         let stage = StageDir::new(&backups)?;
@@ -364,29 +430,30 @@ impl Control {
     }
 
     /// Put the secrets and the private files of a link backup in place for
-    /// the link `id`, which must be stopped: its secrets are set (the
-    /// broker-made ones stay as they are), its `data` directory is replaced.
+    /// the link `id`, which must be stopped: its `data` directory is
+    /// replaced, then its secrets are set (the broker-made ones stay as they
+    /// are). All of it or nothing: on an error, and after a broker that
+    /// ended in the middle ([`Self::recover_link`]), the link has the data
+    /// and the secrets it had before.
     fn place_link_data(&self, id: &str, r: &LinkRestore) -> Result<(), String> {
+        self.place_link_data_upto(id, r, Swap::Done)
+    }
+
+    fn place_link_data_upto(&self, id: &str, r: &LinkRestore, upto: Swap) -> Result<(), String> {
         if !r.has_data {
             return Ok(());
         }
-        for (name, v) in &r.secrets {
-            self.secrets
-                .set(id, name, v)
-                .map_err(|e| format!("secret {name}: {e}"))?;
-        }
-        // The new directory is built beside the old one and swapped in with
-        // two renames: on a failure the link's data stays as it was. Every
-        // directory and file is made new and no symlink is followed
+        // what an earlier restore that did not end left
+        self.recover_link(id);
+        // The new directory is built beside the old one. Every directory
+        // and file is made new and no symlink is followed
         // (`crate::nofollow`): what the link left under these names is
         // removed as what it is, never written through.
         let data = self.link_data_dir(id).map_err(|e| e.message)?;
         let parent = data
             .parent()
             .ok_or_else(|| format!("{}: no parent", data.display()))?;
-        let (fresh, old) = (parent.join("data.restoring"), parent.join("data.replaced"));
-        crate::nofollow::remove_any(&fresh);
-        crate::nofollow::remove_any(&old);
+        let fresh = parent.join(RESTORING);
         crate::nofollow::new_private_dir(&fresh)?;
         let filled = (|| {
             for rel in &r.files {
@@ -406,35 +473,125 @@ impl Control {
                     dst.sync_all().map_err(|e| io_err(&to, e))?;
                 }
             }
+            // the framework tree is bound to its link's id: under a new id
+            // it is sealed again for it, with the store key that came with
+            // it. Done in the new directory, before anything is swapped.
+            let tree = fresh.join(wyrm_link_sdk::driver::persist::TREE_FILE);
+            if id != r.def.id && tree.is_file() {
+                let key = r
+                    .secrets
+                    .get(wyrm_link_sdk::driver::persist::STORE_KEY)
+                    .and_then(|k| <[u8; 32]>::try_from(&k[..]).ok())
+                    .map(Zeroizing::new)
+                    .ok_or("the backup holds a framework tree without its store key")?;
+                let sealed = std::fs::read(&tree).map_err(|e| io_err(&tree, e))?;
+                let bound = wyrm_link_sdk::driver::persist::rebind(&sealed, &key, &r.def.id, id)
+                    .ok_or("the framework tree of the backup does not open with its store key")?;
+                secret::write_private(&tree, &bound).map_err(|e| io_err(&tree, e))?;
+            }
             Ok::<(), String>(())
         })();
         if let Err(e) = filled {
             let _ = std::fs::remove_dir_all(&fresh);
             return Err(e);
         }
+        let swapped = self.swap_link_data(id, parent, &r.secrets, upto);
+        if swapped.is_err() {
+            self.recover_link(id);
+        }
+        swapped
+    }
+
+    /// The swap of a restore, in steps that [`Self::recover_link`] can undo
+    /// or finish from wherever a broker ended:
+    ///
+    /// 1. `data` → `data.replaced` (the old data, kept);
+    /// 2. `data.restoring` → `data`;
+    /// 3. the new secrets, with the old ones kept beside them in the same
+    ///    save of the store;
+    /// 4. `data.replaced` → `data.done`: the restore is committed;
+    /// 5. the kept secrets are forgotten, `data.done` is removed.
+    ///
+    /// Until step 4 the old data and the old secrets are both there and a
+    /// recovery puts them back; after it the new ones stay. `upto` ends it
+    /// early (tests: a broker that ended after that step).
+    fn swap_link_data(
+        &self,
+        id: &str,
+        parent: &Path,
+        secrets: &BTreeMap<String, Zeroizing<Vec<u8>>>,
+        upto: Swap,
+    ) -> Result<(), String> {
+        let (data, fresh) = (parent.join("data"), parent.join(RESTORING));
+        let (old, done) = (parent.join(REPLACED), parent.join(DONE));
         std::fs::rename(&data, &old).map_err(|e| io_err(&data, e))?;
-        if let Err(e) = std::fs::rename(&fresh, &data) {
-            let _ = std::fs::rename(&old, &data);
-            let _ = std::fs::remove_dir_all(&fresh);
-            return Err(io_err(&data, e));
+        if upto == Swap::Aside {
+            return Ok(());
         }
-        let _ = std::fs::remove_dir_all(&old);
-        // the framework tree is bound to its link's id: under a new id it
-        // is sealed again for it, with the store key that came with it
-        let tree = data.join(wyrm_link_sdk::driver::persist::TREE_FILE);
-        if id != r.def.id && tree.is_file() {
-            let key = r
-                .secrets
-                .get(wyrm_link_sdk::driver::persist::STORE_KEY)
-                .and_then(|k| <[u8; 32]>::try_from(&k[..]).ok())
-                .map(Zeroizing::new)
-                .ok_or("the backup holds a framework tree without its store key")?;
-            let sealed = std::fs::read(&tree).map_err(|e| io_err(&tree, e))?;
-            let bound = wyrm_link_sdk::driver::persist::rebind(&sealed, &key, &r.def.id, id)
-                .ok_or("the framework tree of the backup does not open with its store key")?;
-            secret::write_private(&tree, &bound).map_err(|e| io_err(&tree, e))?;
+        std::fs::rename(&fresh, &data).map_err(|e| io_err(&data, e))?;
+        if upto == Swap::InPlace {
+            return Ok(());
         }
+        self.secrets
+            .replace_stashed(id, secrets)
+            .map_err(|e| format!("secrets: {e}"))?;
+        if upto == Swap::Secrets {
+            return Ok(());
+        }
+        std::fs::rename(&old, &done).map_err(|e| io_err(&old, e))?;
+        if upto == Swap::Committed {
+            return Ok(());
+        }
+        if let Err(e) = self.secrets.unstash(id, false) {
+            warn!(link = id, "kept secrets of the restore: {e}");
+        }
+        let _ = std::fs::remove_dir_all(&done);
         Ok(())
+    }
+
+    /// Undo or finish a restore of the private data of link `id` that did
+    /// not reach its end (an error, a broker that ended): while
+    /// `data.replaced` is there the restore was not committed, and the old
+    /// data and the old secrets come back; else what it left is removed.
+    /// Nothing to do is the common case. A name that is a symlink is removed
+    /// as one, never followed or moved into place.
+    pub(super) fn recover_link(&self, id: &str) {
+        let Ok(dir) = self.link_dir(id) else {
+            return;
+        };
+        let (data, fresh) = (dir.join("data"), dir.join(RESTORING));
+        let (old, done) = (dir.join(REPLACED), dir.join(DONE));
+        let real_dir = std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
+        if real_dir {
+            crate::nofollow::remove_any(&data);
+            match std::fs::rename(&old, &data) {
+                Ok(()) => info!(
+                    link = id,
+                    "a restore did not end: the link's data is as before"
+                ),
+                Err(e) => warn!(link = id, "{}: {e}", old.display()),
+            }
+        } else {
+            crate::nofollow::remove_any(&old);
+        }
+        match self.secrets.unstash(id, real_dir) {
+            Ok(_) => {}
+            Err(e) => warn!(link = id, "kept secrets of a restore: {e}"),
+        }
+        crate::nofollow::remove_any(&fresh);
+        crate::nofollow::remove_any(&done);
+    }
+
+    /// [`Self::recover_link`] for every link directory, at a start of the
+    /// broker, before any link runs.
+    pub(super) fn recover_link_data(&self) {
+        let links = self.cfg.data_dir.join("links");
+        for e in std::fs::read_dir(links).into_iter().flatten().flatten() {
+            let id = e.file_name().to_string_lossy().into_owned();
+            if crate::registry::validate_link_id(&id).is_ok() {
+                self.recover_link(&id);
+            }
+        }
     }
 
     /// Give the stopped link `id` the private data and secrets of the link
@@ -606,6 +763,14 @@ impl Admin {
     ) -> Result<String, String> {
         let ctl = &self.ctl;
         crate::registry::validate_link_id(&id)?;
+        // The link and its package are this restore's from here to its end
+        // (ADR 0048 §1.9): no update, rollback, backup or other restore of
+        // them runs meanwhile.
+        let _link = ctl.claim_link(&id).map_err(|e| e.message)?;
+        let _package = match r.def.driver.strip_prefix(packages::DRIVER_PREFIX) {
+            Some(name) => Some(ctl.claim_package(name).map_err(|e| e.message)?),
+            None => None,
+        };
         let existing = ctl.registry().links.get(&id).cloned();
         if existing.is_none() {
             // a new link: the ids a broker keeps for itself are refused
@@ -698,14 +863,6 @@ impl Admin {
                 if old.mode != Mode::External {
                     self.stop_link(&id, sub).await.map_err(|e| e.message)?;
                 }
-                if old.params != r.def.params {
-                    ctl.apply(Op::Update {
-                        id: id.clone(),
-                        mode: old.mode,
-                        params: r.def.params.clone(),
-                    })
-                    .map_err(|e| e.to_string())?;
-                }
             }
             None => {
                 let install = Value::Map(BTreeMap::from([
@@ -740,7 +897,26 @@ impl Admin {
             .await
             .map_err(|e| e.to_string())?
         };
-        let r = placed?;
+        let r = match placed {
+            Ok(r) => r,
+            Err(e) => {
+                // nothing was replaced: the link runs again as it was
+                if existing.as_ref().is_some_and(|o| o.mode != Mode::External) {
+                    let _ = self.start_link(&id, sub).await;
+                }
+                return Err(e);
+            }
+        };
+        // The params last, when the data and the secrets they go with are
+        // in place: a failure before this leaves the link whole as it was.
+        if let Some(old) = existing.as_ref().filter(|o| o.params != r.def.params) {
+            ctl.apply(Op::Update {
+                id: id.clone(),
+                mode: old.mode,
+                params: r.def.params.clone(),
+            })
+            .map_err(|e| e.to_string())?;
+        }
         let mut grants = false;
         for (path, code) in &r.def.grants {
             let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
@@ -1137,6 +1313,138 @@ mod tests {
         // a point of another link or a name that leaves the directory
         assert!(ctl.restore_point_apply("l1", "../x").is_err());
         assert!(ctl.restore_point_apply("nolink", &p.id).is_err());
+    }
+
+    /// Review of PR 72, item 3: a restore of a link's data that ends at any
+    /// step (a broker that stopped, a power loss) leaves the link whole:
+    /// before the commit its old data with its old secrets, after it the
+    /// new ones. Never old data sealed with a key that is gone, never no
+    /// data.
+    #[test]
+    fn a_restore_of_link_data_that_ends_in_the_middle_is_undone_or_finished() {
+        let ctl = super::super::tests::control("swap-steps", false, |_| {});
+        let d = ctl.cfg.data_dir.clone();
+        ctl.apply(Op::Install(LinkDef {
+            id: "l1".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        let store_key = wyrm_link_sdk::driver::persist::STORE_KEY;
+        let data = d.join("links/l1/data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("framework.tree"), b"TREE-backup").unwrap();
+        ctl.secrets.set("l1", store_key, &[1u8; 32]).unwrap();
+        ctl.secrets.set("l1", "password", b"pw-backup").unwrap();
+        let p = ctl.restore_point_now("l1", "", "", None).unwrap();
+        let file = crate::restore_point::file(&ctl.restore_root(), "l1", &p.id).unwrap();
+
+        // the link went on: other data under another store key, one more secret
+        std::fs::write(data.join("framework.tree"), b"TREE-now").unwrap();
+        ctl.secrets.set("l1", store_key, &[2u8; 32]).unwrap();
+        ctl.secrets.set("l1", "password", b"pw-now").unwrap();
+        ctl.secrets.set("l1", "added", b"later").unwrap();
+        let tree = || std::fs::read(data.join("framework.tree")).unwrap();
+        let secret = |name: &str| ctl.secrets.for_link("l1").get(name).map(|v| v.to_vec());
+        let clean = || {
+            ["data.restoring", "data.replaced", "data.done"]
+                .iter()
+                .all(|n| !d.join("links/l1").join(n).exists())
+                && !ctl.secrets.unstash("l1", false).unwrap()
+        };
+
+        for step in [Swap::Aside, Swap::InPlace, Swap::Secrets] {
+            let r = ctl.read_link_backup(&file, None).unwrap();
+            ctl.place_link_data_upto("l1", &r, step).unwrap();
+            if step == Swap::Aside {
+                assert!(!data.exists(), "the window without a data directory");
+            }
+            // the next start of the broker
+            ctl.recover_link_data();
+            assert_eq!(tree(), b"TREE-now", "{step:?}: the data is as before");
+            assert_eq!(
+                secret(store_key).unwrap(),
+                [2u8; 32],
+                "{step:?}: its key too"
+            );
+            assert_eq!(secret("password").unwrap(), b"pw-now", "{step:?}");
+            assert_eq!(secret("added").unwrap(), b"later", "{step:?}");
+            assert!(clean(), "{step:?}: nothing is left");
+        }
+
+        // ended after the commit: the new data and secrets stay
+        let r = ctl.read_link_backup(&file, None).unwrap();
+        ctl.place_link_data_upto("l1", &r, Swap::Committed).unwrap();
+        ctl.recover_link_data();
+        assert_eq!(tree(), b"TREE-backup");
+        assert_eq!(secret(store_key).unwrap(), [1u8; 32]);
+        assert_eq!(secret("password").unwrap(), b"pw-backup");
+        assert_eq!(
+            secret("added").unwrap(),
+            b"later",
+            "not in the backup: kept"
+        );
+        assert!(clean());
+
+        // a step that fails (the new directory cannot go into place): the
+        // call itself puts everything back
+        std::fs::write(data.join("framework.tree"), b"TREE-now").unwrap();
+        ctl.secrets.set("l1", "password", b"pw-now").unwrap();
+        let r = ctl.read_link_backup(&file, None).unwrap();
+        let parent = d.join("links/l1");
+        std::fs::create_dir_all(parent.join("data.restoring")).unwrap();
+        std::fs::rename(parent.join("data.restoring"), parent.join("gone")).unwrap();
+        let e = ctl
+            .swap_link_data("l1", &parent, &r.secrets, Swap::Done)
+            .unwrap_err();
+        assert!(e.contains("data"), "{e}");
+        ctl.recover_link("l1");
+        assert_eq!(tree(), b"TREE-now");
+        assert_eq!(secret("password").unwrap(), b"pw-now");
+        assert!(clean());
+        // and the whole restore still works after all of that
+        ctl.restore_point_apply("l1", &p.id).unwrap();
+        assert_eq!(tree(), b"TREE-backup");
+        assert_eq!(secret("password").unwrap(), b"pw-backup");
+        assert!(clean());
+    }
+
+    /// Review of PR 72, item 5: a restore opens nothing when what the
+    /// manifest declares does not fit on the disk.
+    #[test]
+    fn a_backup_that_does_not_fit_on_the_disk_is_not_opened() {
+        let f = |size: u64, sealed: bool| format::FileEntry {
+            path: "x/y".into(),
+            size,
+            sha256: String::new(),
+            sealed,
+            exec: false,
+        };
+        let files = [f(10 << 20, false), f(30 << 20, true), f(20 << 20, true)];
+        // every byte, the largest sealed file once more, and the reserve
+        assert_eq!(extract_need(files.iter()), (90 << 20) + KEEP_FREE);
+        assert_eq!(extract_need([].iter()), KEEP_FREE);
+        let huge = [f(u64::MAX, true), f(5, false)];
+        assert_eq!(extract_need(huge.iter()), u64::MAX, "no overflow");
+
+        assert!(room(Some(200.0), 150 << 20).is_ok());
+        let e = room(Some(100.0), 150 << 20).unwrap_err();
+        assert!(e.contains("150 MiB") && e.contains("100 MiB"), "{e}");
+        assert!(room(Some(1e9), u64::MAX).is_err());
+        assert!(room(None, u64::MAX).is_ok(), "unknown on this host");
+        // the real disk: a declared size no disk has
+        let ctl = super::super::tests::control("room", false, |_| {});
+        assert!(ctl.room_for(1 << 20).is_ok());
+        assert!(ctl.room_for(u64::MAX / 2).is_err());
     }
 
     #[test]

@@ -181,6 +181,9 @@ pub struct Job {
 pub struct Backups {
     jobs: Mutex<BTreeMap<String, Job>>,
     running: AtomicBool,
+    /// The links whose private data the running job copies: no update,
+    /// rollback or restore changes such a link meanwhile (ADR 0048 §1.9).
+    copying: Mutex<BTreeSet<String>>,
     /// A backup is being sent to a file store (one at a time).
     sending: AtomicBool,
     /// Bumped on every change of a job: [`watch_backups`] publishes.
@@ -225,6 +228,7 @@ impl Backups {
         Self {
             jobs: Mutex::new(jobs),
             running: AtomicBool::new(false),
+            copying: Mutex::default(),
             sending: AtomicBool::new(false),
             changed: tokio::sync::watch::channel(0).0,
             uploads: Mutex::default(),
@@ -266,6 +270,31 @@ impl Backups {
             self.sending.store(false, Ordering::SeqCst);
             true
         }
+    }
+}
+
+/// The one running job: given back when it is dropped, whatever way the job
+/// ends (a panic too), and a job left `running` is then `failed`.
+struct RunningJob {
+    ctl: Arc<Control>,
+    id: Option<String>,
+}
+
+impl Drop for RunningJob {
+    fn drop(&mut self) {
+        let b = &self.ctl.backups;
+        b.copying.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        if let Some(id) = &self.id {
+            b.update(id, |j| {
+                if j.status == "running" {
+                    j.status = "failed".into();
+                    j.step.clear();
+                    j.error = "the backup stopped unexpectedly".into();
+                }
+            });
+        }
+        b.running.store(false, Ordering::SeqCst);
+        b.notify();
     }
 }
 
@@ -1255,6 +1284,21 @@ impl Control {
         Some(job)
     }
 
+    /// The `busy` of an operation that would change one of `links` while
+    /// the running backup copies its private data.
+    pub(super) fn backup_copies(&self, links: &[String]) -> Option<LinkError> {
+        let copying = self
+            .backups
+            .copying
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let l = links.iter().find(|l| copying.contains(*l))?;
+        Some(LinkError::new(
+            Status::Busy,
+            format!("a backup is copying the data of link {l}; try again when it is made"),
+        ))
+    }
+
     /// Start the job of `req`; `Err(busy)` while another runs. The id of
     /// the new job is returned at once.
     pub fn backup_start(
@@ -1312,6 +1356,30 @@ impl Control {
                 "a backup is being made; one at a time",
             ));
         }
+        let mut running = RunningJob {
+            ctl: self.clone(),
+            id: None,
+        };
+        // The links whose private data this job copies: shown first, then
+        // looked, so either this job sees an operation on one of them or
+        // the operation sees this job.
+        let has_section = |s: &str| chosen.iter().any(|c| c == s);
+        let copies: BTreeSet<String> = match req.kind {
+            Kind::Link if has_section("data") => req.link.iter().cloned().collect(),
+            Kind::Broker if has_section("links") => match &req.links {
+                Some(l) => l.iter().cloned().collect(),
+                None => self.registry().links.keys().cloned().collect(),
+            },
+            _ => BTreeSet::new(),
+        };
+        *self
+            .backups
+            .copying
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = copies.clone();
+        if let Some(e) = copies.iter().find_map(|l| self.link_busy(l)) {
+            return Err(e);
+        }
         let now = now_s();
         let (id, file) = {
             let mut jobs = self.backups.lock();
@@ -1358,6 +1426,7 @@ impl Control {
             );
             (id, file)
         };
+        running.id = Some(id.clone());
         self.backups.notify();
         let (op, key) = match &req.link {
             Some(l) => ("link_backup", l.clone()),
@@ -1430,7 +1499,7 @@ impl Control {
                     });
                 }
             }
-            ctl.backups.running.store(false, Ordering::SeqCst);
+            drop(running);
             ctl.prune_backups();
             ctl.backups.notify();
         };
@@ -1871,6 +1940,32 @@ pub(super) async fn show_job(ctx: &LinkCtx, ctl: &Control, id: &str) {
     }
 }
 
+/// May the caller have the bytes of the backup `job`? A backup that holds
+/// this site's keys, or secrets sealed with a passphrase (it opens anywhere
+/// with it), never travels to another site, whoever made it: a caller whose
+/// authority comes from an upstream (`remote`) is refused (ADR 0048 §3.4,
+/// §4). One sealed for this broker, or without secrets, opens nowhere else
+/// and may go.
+fn may_download(job: &Job, remote: bool) -> Result<(), LinkError> {
+    let keys = job.sections.iter().any(|s| s == "keys");
+    if remote && (keys || job.sealed == "passphrase") {
+        return Err(LinkError::new(
+            Status::PermissionDenied,
+            format!(
+                "backup {} holds {}: it never travels to another site. Download it on the \
+                 broker's own gateway, not through its upstream",
+                job.id,
+                if keys {
+                    "this site's keys"
+                } else {
+                    "secrets sealed with a passphrase"
+                }
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Actions under `sys/backups` (`rest`: the path below it).
 pub(super) async fn invoke(
     ctl: &Arc<Control>,
@@ -1916,6 +2011,9 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "download_part") => {
+            if let Some(job) = ctl.backups.get(id) {
+                may_download(&job, remote)?;
+            }
             let offset = uint_arg(args, "offset")?
                 .ok_or_else(|| LinkError::invalid_parameter("offset: required"))?;
             let len = match uint_arg(args, "len")? {
@@ -2115,6 +2213,151 @@ mod tests {
             Value::Float(1.5),
         )]));
         assert!(request_of(&bad, None, false).is_err());
+    }
+
+    /// Review of PR 72, item 7: the rule of `create` (a site's keys and
+    /// passphrase-sealed secrets never travel up) holds for a backup that
+    /// was made locally and is then asked for from above.
+    #[test]
+    fn keys_and_exported_secrets_are_not_downloaded_through_an_upstream() {
+        let job = |sections: &[&str], sealed: &str| Job {
+            id: "20261113T100000Z".into(),
+            kind: "full".into(),
+            link: String::new(),
+            sections: sections.iter().map(|s| (*s).to_owned()).collect(),
+            status: "done".into(),
+            progress: 100,
+            step: String::new(),
+            size: 1,
+            sha256: String::new(),
+            created: 1,
+            expires: 2,
+            error: String::new(),
+            file: "f".into(),
+            sealed: sealed.into(),
+            by: "user:admin".into(),
+            pinned: false,
+            sent_to: String::new(),
+            send_status: String::new(),
+            send_progress: 0,
+            send_error: String::new(),
+        };
+        let with_keys = job(&["control", "keys"], "passphrase");
+        let exported = job(&["control", "links"], "passphrase");
+        let for_site = job(&["control", "links"], "broker");
+        let plain = job(&["control", "storage"], "none");
+        for j in [&with_keys, &exported, &for_site, &plain] {
+            may_download(j, false).unwrap();
+        }
+        for j in [&with_keys, &exported] {
+            let e = may_download(j, true).unwrap_err();
+            assert_eq!(e.status, Status::PermissionDenied);
+            assert!(e.message.contains("never travels"), "{}", e.message);
+        }
+        may_download(&for_site, true).unwrap();
+        may_download(&plain, true).unwrap();
+    }
+
+    /// Review of PR 72: a job that panics gives its slot back (the next
+    /// backup is not `busy` for ever), is shown `failed`, and the links it
+    /// copied are free again. And a backup does not copy a link that an
+    /// update or a restore holds.
+    #[test]
+    fn a_job_that_panics_gives_its_slot_back() {
+        let ctl = super::super::tests::control("backup-panic", false, |_| {});
+        let id = "20261113T100000Z".to_owned();
+        ctl.backups.lock().insert(
+            id.clone(),
+            Job {
+                id: id.clone(),
+                kind: "full".into(),
+                link: String::new(),
+                sections: vec!["control".into(), "links".into()],
+                status: "running".into(),
+                progress: 10,
+                step: "links".into(),
+                size: 0,
+                sha256: String::new(),
+                created: 1,
+                expires: 2,
+                error: String::new(),
+                file: "f".into(),
+                sealed: "broker".into(),
+                by: "user:a".into(),
+                pinned: false,
+                sent_to: String::new(),
+                send_status: String::new(),
+                send_progress: 0,
+                send_error: String::new(),
+            },
+        );
+        ctl.backups.running.store(true, Ordering::SeqCst);
+        ctl.backups.copying.lock().unwrap().insert("l1".to_owned());
+        // while it runs: the link it copies is not replaced or updated
+        let e = ctl.backup_copies(&["l0".into(), "l1".into()]).unwrap();
+        assert_eq!(e.status, Status::Busy);
+        assert_eq!(ctl.claim_link("l1").err().unwrap().status, Status::Busy);
+        assert!(
+            ctl.link_busy("l1").is_none(),
+            "a refused claim leaves nothing"
+        );
+        assert!(ctl.backup_copies(&["l0".into()]).is_none());
+
+        let running = RunningJob {
+            ctl: ctl.clone(),
+            id: Some(id.clone()),
+        };
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _held = running;
+            panic!("a section could not be read");
+        }));
+        assert!(r.is_err());
+        assert!(!ctl.backups.running.load(Ordering::SeqCst));
+        let j = ctl.backups.get(&id).unwrap();
+        assert_eq!(j.status, "failed");
+        assert!(j.error.contains("unexpectedly"), "{}", j.error);
+        assert!(ctl.backup_copies(&["l1".into()]).is_none());
+        drop(ctl.claim_link("l1").unwrap());
+
+        // the other way round: a link that a restore holds is not copied
+        let held = ctl.claim_link("l1").unwrap();
+        ctl.apply(Op::Install(LinkDef {
+            id: "l1".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        let req = || BackupRequest {
+            kind: Kind::Link,
+            sections: vec!["data".into()],
+            links: None,
+            link: Some("l1".into()),
+            history_days: None,
+            seal: SealWith::None,
+            label: "link".into(),
+            pinned: false,
+            remote: false,
+            estimate: false,
+        };
+        let e = ctl.backup_launch(req(), "user:a", true).unwrap_err();
+        assert_eq!(e.status, Status::Busy);
+        assert!(e.message.contains("being restored"), "{}", e.message);
+        assert!(
+            !ctl.backups.running.load(Ordering::SeqCst),
+            "the slot is free"
+        );
+        drop(held);
+        let made = ctl.backup_launch(req(), "user:a", true).unwrap();
+        assert_eq!(ctl.backups.get(&made).unwrap().status, "done");
     }
 
     #[test]

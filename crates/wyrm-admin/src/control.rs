@@ -414,6 +414,9 @@ pub struct Control {
     /// Links a restore replaces now ([`updates::LinkClaim`]): nothing else
     /// stops, starts, backs up or replaces such a link meanwhile.
     link_ops: Mutex<BTreeSet<String>>,
+    /// A restore with `mode: replace` is being staged (the broker stops
+    /// after it): no package or link is taken meanwhile.
+    replacing: std::sync::atomic::AtomicBool,
     /// Checks that stepped aside for a rebuild of the router; the next
     /// router starts them again ([`updates::resume`]).
     paused_checks: Mutex<Vec<updates::UpdatePlan>>,
@@ -739,43 +742,54 @@ impl Control {
             .map_err(|e| e.to_string())?;
         let (reload, rx) = mpsc::unbounded_channel();
         let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
-        Ok((
-            Arc::new(Self {
-                cfg,
-                store: Mutex::new(store),
-                audit: Mutex::new(audit),
-                pki,
-                secrets,
-                supervisor: Supervisor::new(),
-                host,
-                reload,
-                peers: Mutex::new(PeerConfig::default()),
-                started: now_s(),
-                role_grants: Mutex::new(None),
-                repo: Mutex::new(None),
-                inflight: Default::default(),
-                closing: Default::default(),
-                scheduler_keys: Default::default(),
-                dql_keys: Default::default(),
-                alarm_keys: Default::default(),
-                uplink_keys: Default::default(),
-                history,
-                enroll_wake: tokio::sync::Notify::new(),
-                enroll_seen: Mutex::default(),
-                overlays_shown: Mutex::default(),
-                standby_seen: Mutex::new(None),
-                storage: Mutex::new(std::sync::Weak::new()),
-                standby_hold: std::sync::atomic::AtomicU64::new(0),
-                standby_forks: Mutex::default(),
-                arbiter_lease: Mutex::default(),
-                backups: kept,
-                stop: tokio::sync::Notify::new(),
-                updating: Mutex::default(),
-                link_ops: Mutex::default(),
-                paused_checks: Mutex::default(),
-            }),
-            rx,
-        ))
+        let ctl = Arc::new(Self {
+            cfg,
+            store: Mutex::new(store),
+            audit: Mutex::new(audit),
+            pki,
+            secrets,
+            supervisor: Supervisor::new(),
+            host,
+            reload,
+            peers: Mutex::new(PeerConfig::default()),
+            started: now_s(),
+            role_grants: Mutex::new(None),
+            repo: Mutex::new(None),
+            inflight: Default::default(),
+            closing: Default::default(),
+            scheduler_keys: Default::default(),
+            dql_keys: Default::default(),
+            alarm_keys: Default::default(),
+            uplink_keys: Default::default(),
+            history,
+            enroll_wake: tokio::sync::Notify::new(),
+            enroll_seen: Mutex::default(),
+            overlays_shown: Mutex::default(),
+            standby_seen: Mutex::new(None),
+            storage: Mutex::new(std::sync::Weak::new()),
+            standby_hold: std::sync::atomic::AtomicU64::new(0),
+            standby_forks: Mutex::default(),
+            arbiter_lease: Mutex::default(),
+            backups: kept,
+            stop: tokio::sync::Notify::new(),
+            updating: Mutex::default(),
+            link_ops: Mutex::default(),
+            replacing: Default::default(),
+            paused_checks: Mutex::default(),
+        });
+        // before any link runs: what a broker that ended in the middle of a
+        // restore of a link's data or of a rollback left (ADR 0048 §1.6, §3.5)
+        ctl.recover_link_data();
+        ctl.complete_rollbacks();
+        // and what an install that ended before its registry record left
+        let orphans = packages::clean_orphans(&ctl.packages_root(), &ctl.registry().packages);
+        if !orphans.is_empty() {
+            info!(
+                "packages: removed what no record names: {}",
+                orphans.join(", ")
+            );
+        }
+        Ok((ctl, rx))
     }
 
     /// One more poll of the waiting request of `site` (in memory; only for
@@ -1945,6 +1959,10 @@ impl Control {
         .await?;
         let ctx = admin.ctx().clone();
         for def in self.registry().links.values() {
+            if let Some(why) = self.link_hold(&def.id) {
+                warn!(link = %def.id, "not started: {why}");
+                continue;
+            }
             match def.mode {
                 Mode::Embedded => {
                     if let Err(e) = start_embedded(self, &ctx, &embedded, def).await {
@@ -2166,6 +2184,17 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
         ("remove", "Remove", Some(GROUP_EDIT)),
     ] {
         let mut m = ActionMeta::new().level(Perm::Config).display(d);
+        if a == "start" {
+            m = m.param(
+                "force",
+                ParamMeta::of(TypeCode::Bool)
+                    .display("Start a held link")
+                    .description(
+                        "A link is held when a rollback over a change of the store format \
+                         did not restore its data: true starts it as it is",
+                    ),
+            );
+        }
         m.group = g.map(str::to_owned);
         ctx.declare_action(&p, a, m).await?;
     }
@@ -4012,23 +4041,34 @@ impl Link for Admin {
                         .await,
                 )))
             }
-            (["packages", name], "remove") => match self.ctl.not_updating(name) {
-                Ok(()) => self.remove_package(name, &sub).await,
+            (["packages", name], "remove") => match self.ctl.claim_package(name) {
+                Ok(_claim) => self.remove_package(name, &sub).await,
                 Err(e) => Err(e),
             },
             (["packages", name], "update") => self.update_action(name, &args, &sub).await,
             (["packages", name], "rollback") => self.rollback_action(name, &args, &sub).await,
             (["links", id], "hello") => self.hello(id, &args).await,
-            // a link whose package update is being checked is the check's to
-            // stop and start (ADR 0048): `busy` until it ends
-            (["links", id], "start" | "stop" | "remove")
-                if self.ctl.link_updating(id).is_some() =>
+            // a link that an operation holds (an update of its package with
+            // its check, a rollback, a restore of the link) is that
+            // operation's to stop and start (ADR 0048 §1.9): `busy` until it ends
+            (["links", id], "start" | "stop" | "remove" | "update" | "rollback")
+                if self.ctl.link_busy(id).is_some() =>
             {
-                Err(self.ctl.link_updating(id).unwrap_or_else(|| {
-                    LinkError::new(Status::Busy, "the link's package is being updated")
+                Err(self.ctl.link_busy(id).unwrap_or_else(|| {
+                    LinkError::new(Status::Busy, "the link is being updated or restored")
                 }))
             }
-            (["links", id], "start") => self.start_link(id, &sub).await.map(|_| None),
+            (["links", id], "start") => {
+                // a link held after a rollback that did not restore its data
+                // starts only when the operator says so (ADR 0048 §1.6)
+                if matches!(arg(&args, "force"), Some(Value::Bool(true)))
+                    && self.ctl.release_hold(id)
+                {
+                    self.ctl
+                        .record(&sub, "start", id, Status::Ok, "forced: the hold is lifted");
+                }
+                self.start_link(id, &sub).await.map(|_| None)
+            }
             (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
             (["links", id], "remove") => self.remove(id, &sub).await.map(|_| None),
             (["links", id], "update") => {
@@ -4406,8 +4446,9 @@ impl Admin {
         if def.kind == PackageKind::Process && self.ctl.cfg.link_endpoint.is_none() {
             return Err("process links need a tls/ listener on the broker".into());
         }
-        // one update of a package at a time: its links are the check's
-        self.ctl.not_updating(&def.name).map_err(|e| e.message)?;
+        // one operation on a package at a time, from here to the end of this
+        // install or, for an update, of its health check (ADR 0048 §1.9)
+        let claim = self.ctl.claim_package(&def.name).map_err(|e| e.message)?;
         let reg = self.ctl.registry();
         let driver = format!("{}{}", packages::DRIVER_PREFIX, def.name);
         if let Some(l) = reg.links.get(link) {
@@ -4452,10 +4493,14 @@ impl Admin {
             }
             // another version is installed: an update (ADR 0048)
             Some(old) => {
-                self.update_package(old, unpacked, app.as_ref(), opts, sub, accept)
+                let opts = updates::UpdateOpts { accept, ..opts };
+                self.update_package(old, unpacked, app.as_ref(), opts, sub, claim)
                     .await?
             }
             None => {
+                // no version is installed: a directory of this one is what
+                // an install that ended before its registry record left
+                let _ = std::fs::remove_dir_all(packages::dir(&root, &def));
                 unpacked.commit(&root)?;
                 if def.kind == PackageKind::Wasm {
                     self.ctl.publish_component(&def)?;
@@ -4951,6 +4996,9 @@ impl Admin {
 
     async fn start_link(&self, id: &str, sub: &str) -> wyrm_link_sdk::Result<()> {
         let def = self.def(id)?;
+        if let Some(why) = self.ctl.link_hold(id) {
+            return Err(LinkError::invalid_parameter(why));
+        }
         match def.mode {
             Mode::Embedded => start_embedded(&self.ctl, &self.ctx, &self.embedded, &def).await?,
             Mode::Process => {

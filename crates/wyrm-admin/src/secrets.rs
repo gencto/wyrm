@@ -155,6 +155,64 @@ impl SecretStore {
         Ok(())
     }
 
+    /// Where the secrets a restore replaces are kept until it is committed.
+    /// No link has this name (an id never starts with `.`).
+    fn stash_name(link: &str) -> String {
+        format!(".restoring/{link}")
+    }
+
+    /// Set the secrets `new` of `link` and keep what the link had before
+    /// beside them, in one save: a restore that does not reach its end
+    /// takes them back with [`Self::unstash`] (ADR 0048 §3.5). The store is
+    /// as before when it cannot be saved.
+    pub fn replace_stashed(
+        &self,
+        link: &str,
+        new: &BTreeMap<String, Zeroizing<Vec<u8>>>,
+    ) -> Result<(), Error> {
+        let mut db = self.lock();
+        let before = db.clone();
+        let old = db.get(link).cloned().unwrap_or_default();
+        db.insert(Self::stash_name(link), old);
+        let entry = db.entry(link.to_owned()).or_default();
+        for (name, v) in new {
+            entry.insert(name.clone(), v.clone());
+        }
+        if entry.is_empty() {
+            db.remove(link);
+        }
+        let saved = self.save(&db);
+        if saved.is_err() {
+            *db = before;
+        }
+        saved
+    }
+
+    /// End a [`Self::replace_stashed`] of `link`: `restore` puts the
+    /// secrets it had before back, else they are forgotten. `false`: nothing
+    /// was kept.
+    pub fn unstash(&self, link: &str, restore: bool) -> Result<bool, Error> {
+        let mut db = self.lock();
+        let before = db.clone();
+        let Some(old) = db.remove(&Self::stash_name(link)) else {
+            return Ok(false);
+        };
+        if restore {
+            if old.is_empty() {
+                db.remove(link);
+            } else {
+                db.insert(link.to_owned(), old);
+            }
+        }
+        match self.save(&db) {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                *db = before;
+                Err(e)
+            }
+        }
+    }
+
     /// Names only (shown in the tree).
     pub fn names(&self, link: &str) -> Vec<String> {
         self.lock()
@@ -192,33 +250,227 @@ pub fn secret_name(name: &str) -> bool {
 /// What stands for a masked secret.
 pub const MASK: &str = "***";
 
-/// A configuration as JSON with every secret masked, for the `config`
-/// section of a backup (ADR 0048 §3.2): the value of a field named like a
-/// secret ([`secret_name`]; whatever its type), a PEM private key, and a
-/// long hex string wherever it is, except under `admin_keys` (public keys).
-pub fn mask_config(v: &mut serde_json::Value) {
-    fn walk(v: &mut serde_json::Value, public: bool) {
+/// Parts of a word of a field name that say its value is a secret: a word
+/// that starts or ends with one (`authpass`, `privkey`, `accesskey`,
+/// `apitoken`), unless it is one of [`MASK_NOT`]. This is the second net of
+/// [`mask_config`], never its only guard: there, what is not on the list of
+/// fields to show is masked whatever its name.
+const MASK_PARTS: &[&str] = &[
+    "pass",
+    "pwd",
+    "psk",
+    "pin",
+    "sas",
+    "key",
+    "secret",
+    "token",
+    "credential",
+    "community",
+    "signature",
+    "bearer",
+    "cookie",
+    "authorization",
+];
+
+/// Whole words that are masked.
+const MASK_WORDS: &[&str] = &["sig", "dsn", "auth", "jwt", "otp"];
+
+/// Words that start or end with a part of [`MASK_PARTS`] and name no
+/// secret. Everything else that matches is masked.
+const MASK_NOT: &[&str] = &[
+    "passes",
+    "passed",
+    "passing",
+    "passive",
+    "passthrough",
+    "bypass",
+    "compass",
+    "ping",
+    "pings",
+    "pinned",
+    "pinning",
+    "pinout",
+    "spin",
+    "keys",
+];
+
+/// The words of a field name, lower case: split at what is no letter or
+/// digit and where a lower case letter or a digit is followed by an upper
+/// case one (`authPass`, `apiKey`, `dbPassword`).
+fn name_words(name: &str) -> Vec<String> {
+    let mut words = vec![String::new()];
+    let mut prev_lower = false;
+    for c in name.chars() {
+        if !c.is_ascii_alphanumeric() {
+            words.push(String::new());
+            prev_lower = false;
+            continue;
+        }
+        if c.is_ascii_uppercase() && prev_lower {
+            words.push(String::new());
+        }
+        prev_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+        if let Some(w) = words.last_mut() {
+            w.push(c.to_ascii_lowercase());
+        }
+    }
+    words.retain(|w| !w.is_empty());
+    words
+}
+
+/// `true` for a field name that says its value is a secret.
+pub fn masked_name(name: &str) -> bool {
+    let words = name_words(name);
+    // the lint's names, also for a name written in camel case
+    if secret_name(name) || secret_name(&words.join("_")) {
+        return true;
+    }
+    let joined = words.concat();
+    if joined.contains("connectionstring") || joined.contains("connstr") {
+        return true;
+    }
+    words.iter().any(|w| {
+        MASK_WORDS.contains(&w.as_str())
+            || (!MASK_NOT.contains(&w.as_str())
+                && MASK_PARTS
+                    .iter()
+                    .any(|p| w.starts_with(p) || w.ends_with(p)))
+    })
+}
+
+/// The length of the protocol prefix of a Zenoh locator (`tls/`, `quic/`):
+/// the text starts with `[a-z][a-z0-9+.-]*` and a `/`. Anything else before
+/// the first `/` (a `:`, `@`, `?`, `#`, an upper case letter, nothing) is
+/// no protocol: 0, and nothing before the `@` is kept.
+fn locator_protocol(s: &str) -> usize {
+    let Some(slash) = s.find('/') else {
+        return 0;
+    };
+    let name = &s[..slash];
+    let ok = name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '.' | '-'));
+    if ok {
+        slash + 1
+    } else {
+        0
+    }
+}
+
+/// A shown text with what may hold a secret inside it masked whole,
+/// whether it is a URL (`scheme://…`), a Zenoh locator (`tls/host:7447`) or
+/// anything else:
+///
+/// * everything after the first `?` or `#` (a query, a fragment, the
+///   config of a locator: it may name key files or carry tokens) becomes
+///   `?***` or `#***`;
+/// * the userinfo before an `@` in the address part becomes `***`: after
+///   `://` in a URL (`scheme://***@host…`), after the protocol in a locator
+///   (`tls/***@host:7447`; a prefix is kept only when it is one,
+///   [`locator_protocol`]). It ends at the last `@` of the address; a
+///   password with `/`, `?`, `#` or `@` in it (not escaped) hides where the
+///   address ends, so when a `:` stands before the last `@` of the whole
+///   text, that `@` is taken.
+///
+/// `None` when nothing was masked.
+fn mask_shown(s: &str) -> Option<String> {
+    let scheme = s.find("://").map(|i| i + 3);
+    let rest = &s[scheme.unwrap_or(0)..];
+    let end = rest.find(['?', '#']).unwrap_or(rest.len());
+    let authority = match scheme {
+        Some(_) => rest.find(['/', '?', '#']).unwrap_or(rest.len()),
+        None => end,
+    };
+    let at = match rest.rfind('@') {
+        Some(last) if rest[..last].contains(':') => Some(last),
+        _ => rest[..authority].rfind('@'),
+    };
+    // where the userinfo starts: at the address, after a locator's protocol
+    let from = match (scheme, at) {
+        (None, Some(at)) => locator_protocol(&rest[..at]),
+        _ => 0,
+    };
+    let tail = match at {
+        Some(at) => &rest[at..],
+        None => rest,
+    };
+    let (kept, cut) = match tail.find(['?', '#']) {
+        Some(q) => (&tail[..q], Some(&tail[q..q + 1])),
+        None => (tail, None),
+    };
+    if at.is_none() && cut.is_none() {
+        return None;
+    }
+    let mut out = s[..scheme.unwrap_or(0)].to_owned();
+    if at.is_some() {
+        out.push_str(&rest[..from]);
+        out.push_str(MASK);
+    }
+    out.push_str(kept);
+    if let Some(mark) = cut {
+        out.push_str(mark);
+        out.push_str(MASK);
+    }
+    Some(out)
+}
+
+/// Does the key path `path` match `pattern` (`a.b.c`, `*` for any one key)?
+fn path_matches(path: &[&str], pattern: &str) -> bool {
+    let mut n = 0;
+    for part in pattern.split('.') {
+        match path.get(n) {
+            Some(key) if part == "*" || part == *key => n += 1,
+            _ => return false,
+        }
+    }
+    n == path.len()
+}
+
+/// A configuration as JSON for the `config` section of a backup (ADR 0048
+/// §3.2): a copy for people to read, never restored. **Masked by default,
+/// shown by list.** A text is kept only when its key path (map keys from
+/// the top, joined by `.`; the entries of an array have the array's path)
+/// matches an entry of `shown` (`*` for any one key): the fields known to
+/// hold no secret. Every other text is replaced by the mask, whole: every
+/// text under a link's `params`, under a section this broker does not know,
+/// free text. Nothing is parsed for `name=value` pieces.
+///
+/// A second net under the list, never the only guard: a shown text, URL or
+/// not, has everything after its first `?` or `#` and the userinfo before an
+/// `@` masked ([`mask_shown`]); a PEM private key is masked wherever it is; and a value
+/// that is a number or a shown text under a name that says secret
+/// ([`masked_name`]) is masked. Other numbers, and every flag, are kept.
+pub fn mask_config(v: &mut serde_json::Value, shown: &[&str]) {
+    fn walk<'a>(v: &'a mut serde_json::Value, path: &mut Vec<&'a str>, shown: &[&str]) {
+        let named_secret = path.last().is_some_and(|k| masked_name(k));
         match v {
             serde_json::Value::Object(m) => {
                 for (k, v) in m.iter_mut() {
-                    if secret_name(k) {
-                        *v = serde_json::Value::String(MASK.into());
-                    } else {
-                        walk(v, k == "admin_keys");
-                    }
+                    path.push(k.as_str());
+                    walk(v, path, shown);
+                    path.pop();
                 }
             }
-            serde_json::Value::Array(a) => a.iter_mut().for_each(|v| walk(v, public)),
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|v| walk(v, path, shown)),
             serde_json::Value::String(s) => {
-                let hex = s.len() >= 32 && s.chars().all(|c| c.is_ascii_hexdigit());
-                if s.contains("PRIVATE KEY-----") || (hex && !public) {
+                let listed = shown.iter().any(|p| path_matches(path, p));
+                if !listed || named_secret || s.contains("PRIVATE KEY-----") {
                     *s = MASK.into();
+                } else if let Some(masked) = mask_shown(s) {
+                    *s = masked;
                 }
             }
-            _ => {}
+            // a flag is no secret, whatever its name (`export_secrets`)
+            serde_json::Value::Null | serde_json::Value::Bool(_) => {}
+            other => {
+                if named_secret {
+                    *other = serde_json::Value::String(MASK.into());
+                }
+            }
         }
     }
-    walk(v, false);
+    walk(v, &mut Vec::new(), shown);
 }
 
 /// Lint at install (wiki: "params ... looks like a password/key → move to
@@ -267,6 +519,20 @@ mod tests {
         d
     }
 
+    /// The fields a test configuration shows.
+    const SHOWN: &[&str] = &[
+        "site",
+        "admin_keys",
+        "listen",
+        "gateway.listen",
+        "gateway.mcp.public_url",
+        "packages.repository",
+        "links.*.driver",
+        "peers.upstream.site",
+        "peers.upstream.endpoint",
+        "peers.upstream.key",
+    ];
+
     #[test]
     fn a_config_copy_has_no_secret_in_clear() {
         let mut v = serde_json::json!({
@@ -274,11 +540,13 @@ mod tests {
             "admin_keys": ["aa".repeat(32)],
             "gateway": { "tls_key": "/etc/wyrm/gw.key", "listen": "0.0.0.0:8445" },
             "uplink": { "upstreams": [{ "name": "x", "password": "hunter2", "url": "mqtts://b" }] },
-            "links": { "plc": { "params": { "api_token": { "v": "t0k" }, "psk": "bb".repeat(16) } } },
+            "links": { "plc": { "driver": "modbus", "params": {
+                "api_token": { "v": "t0k" }, "psk": "bb".repeat(16), "points": 8, "pin": 4711,
+            } } },
             "peers": { "upstream": [{ "site": "c", "key": "-----BEGIN PRIVATE KEY-----x" }] },
             "note": "-----BEGIN EC PRIVATE KEY-----\nabc",
         });
-        mask_config(&mut v);
+        mask_config(&mut v, SHOWN);
         let text = v.to_string();
         for secret in [
             "hunter2",
@@ -286,15 +554,251 @@ mod tests {
             "/etc/wyrm/gw.key",
             "PRIVATE KEY",
             &"bb".repeat(16),
+            "mqtts",
+            "4711",
         ] {
             assert!(!text.contains(secret), "{secret} in {text}");
         }
-        // what is not a secret stays: the site, the listener, the public keys
+        // what is on the list stays: the site, the listener, the public keys
         assert_eq!(v["site"], "plant");
         assert_eq!(v["gateway"]["listen"], "0.0.0.0:8445");
         assert_eq!(v["admin_keys"][0], "aa".repeat(32));
+        assert_eq!(v["links"]["plc"]["driver"], "modbus");
+        assert_eq!(v["peers"]["upstream"][0]["site"], "c");
+        // names stay (they are the map's keys), numbers too
+        assert_eq!(v["uplink"]["upstreams"][0]["name"], MASK);
         assert_eq!(v["uplink"]["upstreams"][0]["password"], MASK);
+        assert_eq!(v["links"]["plc"]["params"]["points"], 8);
+        // a number under a name that says secret; a listed field under one
+        assert_eq!(v["links"]["plc"]["params"]["pin"], MASK);
+        assert_eq!(v["peers"]["upstream"][0]["key"], MASK);
         assert!(secret_name("Passphrase") && secret_name("state_key") && !secret_name("keep_days"));
+    }
+
+    /// Automated review of the first two masks (a list of names to hide
+    /// keeps leaking): the copy is masked by default. Whatever a text
+    /// outside the list of fields to show holds, in whatever form, it is
+    /// not in the copy.
+    #[test]
+    fn a_config_copy_shows_only_what_is_on_the_list() {
+        let secrets = [
+            ("note", "Password = hunter2a"),
+            ("conninfo", "host=db.example user=wyrm password=hunter2b"),
+            ("privkey", "hunter2c"),
+            ("accesskey", "hunter2d"),
+            ("PRIVKEY", "hunter2e"),
+            ("unknown_field", "hunter2f"),
+            ("community", "hunter2g"),
+            ("url", "postgres://wyrm:hunter2h@db.example/hist"),
+            ("sasText", "SharedAccessSignature sr=x&sig=hunter2i"),
+            ("x", "Server=db;Pwd=hunter2j"),
+        ];
+        let params: serde_json::Map<String, serde_json::Value> = secrets
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+            .collect();
+        let mut v = serde_json::json!({
+            "site": "plant",
+            "links": { "l1": { "driver": "snmp", "params": params.clone() } },
+            // a section this broker does not know, a secret list, nested maps
+            "future_section": { "a": { "b": ["hunter2k", { "c": "hunter2l" }] } },
+            "secrets": { "l1": { "password": "hunter2m" } },
+            "uplink": { "upstreams": [params] },
+        });
+        mask_config(&mut v, SHOWN);
+        let text = v.to_string();
+        assert!(!text.contains("hunter2"), "{text}");
+        assert!(!text.contains("db.example"), "{text}");
+        // every text of the params is the mask, whole; its names stay
+        let p = v["links"]["l1"]["params"].as_object().unwrap();
+        assert_eq!(p.len(), secrets.len());
+        assert!(p.values().all(|v| v == MASK), "{p:?}");
+        assert_eq!(v["site"], "plant");
+        assert_eq!(v["links"]["l1"]["driver"], "snmp");
+        // nothing is shown without a list
+        let mut all = serde_json::json!({ "site": "plant", "n": 1, "on": true, "none": null });
+        mask_config(&mut all, &[]);
+        assert_eq!(
+            all,
+            serde_json::json!({ "site": MASK, "n": 1, "on": true, "none": null })
+        );
+        // a path is matched whole: no prefix, no suffix
+        assert!(path_matches(&["links", "l1", "driver"], "links.*.driver"));
+        assert!(!path_matches(
+            &["links", "l1", "params", "driver"],
+            "links.*.driver"
+        ));
+        assert!(!path_matches(&["links", "l1"], "links.*.driver"));
+        assert!(!path_matches(&["x", "site"], "site"));
+    }
+
+    /// The second net: names that say secret, in camel case or written as
+    /// one word, and the short list of words that only look like one.
+    #[test]
+    fn names_that_say_secret() {
+        for name in [
+            "authPass",
+            "apiKey",
+            "privpass",
+            "dbPassword",
+            "AuthPass",
+            "authpass",
+            "privPass",
+            "clientSecret",
+            "accessToken",
+            "apitoken",
+            "SharedAccessKey",
+            "AccountKey",
+            "tlsKey",
+            "sasToken",
+            "pinCode",
+            "userPwd",
+            "sig",
+            "x-api-key",
+            "connStr",
+            "connectionString",
+            "mqttPassword",
+            "PSK",
+            "passwd2",
+            "privkey",
+            "accesskey",
+            "PRIVKEY",
+            "community",
+            "auth_pass",
+            "sas",
+        ] {
+            assert!(masked_name(name), "{name}");
+        }
+        for name in [
+            "passes",
+            "pinned",
+            "ping_s",
+            "pingMs",
+            "bypass",
+            "keep_days",
+            "port",
+            "host",
+            "site",
+            "listen",
+            "url",
+            "rate_hz",
+            "admin_keys",
+            "max_mb",
+            "points",
+        ] {
+            assert!(!masked_name(name), "{name}");
+        }
+        assert_eq!(name_words("dbPassword2Hash"), ["db", "password2", "hash"]);
+        assert_eq!(name_words("x-API_key"), ["x", "api", "key"]);
+        // the lint of an install keeps its own, narrower list
+        assert!(!secret_name("community"));
+    }
+
+    /// A shown text that is a URL: the userinfo and the whole query and
+    /// fragment are masked.
+    #[test]
+    fn a_shown_url_has_no_userinfo_and_no_query() {
+        let masked = |text: &str| {
+            let mut v = serde_json::json!({ "packages": { "repository": text } });
+            mask_config(&mut v, SHOWN);
+            v["packages"]["repository"].as_str().unwrap().to_owned()
+        };
+        // a token alone, a user alone, a user and a password
+        assert_eq!(
+            masked("https://t0ken123@host/path"),
+            "https://***@host/path"
+        );
+        assert_eq!(
+            masked("mqtts://user@broker:8883"),
+            "mqtts://***@broker:8883"
+        );
+        assert_eq!(masked("amqp://u:pw@h:5672/vh"), "amqp://***@h:5672/vh");
+        // a password with `/`, `?`, `#` and `@` in it
+        for url in [
+            "postgres://wyrm:pa/ss#1@db.example:5432/hist",
+            "postgres://wyrm:pa?ss@db.example:5432/hist",
+            "postgres://wyrm:p@ss/w#rd@db.example:5432/hist",
+        ] {
+            assert_eq!(masked(url), "postgres://***@db.example:5432/hist", "{url}");
+        }
+        // the query and the fragment go whole, whatever their names are
+        assert_eq!(
+            masked("https://acct.blob.core.windows.net/c?sv=2022-11-02&sr=c&sig=AbC%2Fd%3D"),
+            "https://acct.blob.core.windows.net/c?***"
+        );
+        assert_eq!(
+            masked("https://api.example/v1?page=2#access_token=zzz"),
+            "https://api.example/v1?***"
+        );
+        assert_eq!(masked("https://h/x#frag"), "https://h/x#***");
+        assert_eq!(
+            masked("https://u:p@h/x?password=pw&q=1"),
+            "https://***@h/x?***"
+        );
+        // nothing to mask: as it is
+        for url in [
+            "https://repo.example/index.json",
+            "https://host:8445/links/index.json",
+            "official",
+        ] {
+            assert_eq!(masked(url), url);
+        }
+        // a PEM key in a shown field
+        assert_eq!(masked("-----BEGIN PRIVATE KEY-----\nabc"), MASK);
+    }
+
+    /// Automated review of the list: an endpoint is a Zenoh locator, with
+    /// no `://`. Its config after `#` or `?` may name key files or carry
+    /// tokens, so it is masked in every shown text, URL or not, and so is a
+    /// userinfo before an `@`.
+    #[test]
+    fn a_shown_locator_has_no_config_and_no_userinfo() {
+        let masked = |text: &str| {
+            let mut v = serde_json::json!({ "listen": [text] });
+            mask_config(&mut v, SHOWN);
+            v["listen"][0].as_str().unwrap().to_owned()
+        };
+        assert_eq!(
+            masked("quic/central.example:7448#key=/etc/wyrm/b.key;token=hunter2"),
+            "quic/central.example:7448#***"
+        );
+        assert_eq!(
+            masked("tls/0.0.0.0:7447?root_ca_certificate_file=/etc/ca.pem;private_key=hunter2"),
+            "tls/0.0.0.0:7447?***"
+        );
+        assert_eq!(
+            masked("tls/h:7447?rel=1#iface=eth0;pass=hunter2"),
+            "tls/h:7447?***"
+        );
+        // a userinfo in a locator, a password with `/` in it
+        assert_eq!(masked("tls/user:hunter2@h:7447"), "tls/***@h:7447");
+        assert_eq!(masked("tls/tok3n@h:7447#x=1"), "tls/***@h:7447#***");
+        assert_eq!(masked("tls/u:hun/ter2@h:7447"), "tls/***@h:7447");
+        assert_eq!(masked("u:hunter2@h"), "***@h");
+        // what stands before the first `/` is kept only when it is a
+        // locator's protocol
+        assert_eq!(masked("user:pa/ss@host"), "***@host");
+        assert_eq!(masked("user:hunter2/x@host:1#c=1"), "***@host:1#***");
+        assert_eq!(masked("tls/user:pw@host:7447"), "tls/***@host:7447");
+        assert_eq!(masked("quic/host:7447"), "quic/host:7447");
+        assert_eq!(masked("/var/u:hunter2@h/x"), "***@h/x");
+        assert_eq!(masked("TLS/u:hunter2@h"), "***@h");
+        assert_eq!(masked("a@b/u:hunter2@h"), "***@h");
+        assert_eq!(locator_protocol("tls/x"), 4);
+        assert_eq!(locator_protocol("unixsock-stream/x"), 16);
+        for no in ["u:p/x", "/x", "x", "1tls/x", "a?b/x", "a#b/x", "a@b/x"] {
+            assert_eq!(locator_protocol(no), 0, "{no}");
+        }
+        // nothing to mask: as it is
+        for plain in [
+            "tcp/127.0.0.1:7447",
+            "tls/0.0.0.0:7447",
+            "quic/[::1]:7448",
+            "/var/lib/wyrm",
+            "plant",
+        ] {
+            assert_eq!(masked(plain), plain);
+        }
     }
 
     /// Review ADM-7: only a missing file is an empty store.

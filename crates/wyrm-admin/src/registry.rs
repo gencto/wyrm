@@ -1974,6 +1974,7 @@ mod tests {
             keep_until: 700,
             replaced: 100,
             changes_state: true,
+            points: vec![("l1".into(), "20261113T101502Z".into())],
         }));
         new.last_update = Some(UpdateReport {
             from: "1.2.0".into(),
