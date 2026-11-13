@@ -275,21 +275,22 @@ What the broker does, in this order:
    `restore_point: false` it is refused.
 4. **Restore points**, before anything stops. For every link of the
    package: its key list (`~meta?view=keys` of its root, as a reader without
-   a token sees it) and, with `restore_point`, a copy of its private data
+   a token sees it) and, with `restore_point`, a link backup without
+   history and without the package ([backups.md](backups.md) §3): the
+   link's definition, its secrets and its private data
    (`<data_dir>/links/<id>/data`: runtime edits of a driver, a portable
-   app's store) as `<data_dir>/restore/<id>/<UTC>.restore`, with
-   `<UTC>.meta` beside it. The copy is sealed with a key derived from
-   `secrets.key`: what a link sealed stays sealed, and the file opens only
-   on this broker (or one with its key bundle). Scratch (`uploads/`, `tmp`,
-   `*.tmp`) is left out. The link still runs and owns that directory, so the
-   broker follows no symlink in it: every entry is opened once without
-   following links and read from that handle; symlinks, sockets and FIFOs
-   are skipped and counted in the audit record, and an entry swapped for a
-   symlink while it is copied ends the update with nothing changed. A
-   rollback writes into a new directory and swaps it in, never through a
-   symlink. Private data over 128 MiB is refused (update
-   without a restore point, if the store format allows it). A failure here
-   ends the update with nothing changed.
+   app's store) as `<data_dir>/restore/<id>/<UTC>.wyrm-link`, with
+   `<UTC>.meta` (the key list) beside it. The file is sealed for this
+   broker with a key from `secrets.key`: it needs no passphrase and no
+   `backups.export_secrets`, and opens only on this broker (or one with its
+   key bundle). Scratch (`uploads/`, `tmp`, `*.tmp`) is left out. The link
+   still runs and owns that directory, so the broker follows no symlink in
+   it: every entry is opened once without following links and sealed from
+   that handle; symlinks, sockets and FIFOs are skipped and counted in the
+   audit record, and an entry swapped for a symlink while it is copied ends
+   the update with nothing changed. A rollback builds a new directory and
+   swaps it in, never through a symlink. A failure here ends the update
+   with nothing changed.
 5. **Install.** The new version goes to
    `<data_dir>/packages/<name>/<version>/`; the old directory **stays**, and
    the registry keeps it as `previous` until `keep_until`
@@ -336,7 +337,8 @@ such nodes, update with `auto_rollback_s: 0` and read the report.
 1. Every link of the package stops.
 2. The registry names the kept version again (from its kept directory).
 3. Each link's private data is replaced, as a whole, by its newest restore
-   point taken at or before that update. A link without one keeps its data
+   point taken at or before that update, and the link's secrets are set as
+   they were then (the ones the broker makes for a link stay). A link without one keeps its data
    and the message says so; when the update changed the store format, a
    link without one refuses the rollback (the old version could not read
    the data).
@@ -357,12 +359,15 @@ whose data was restored), beside `package_install`.
 
 - Restore points are pruned after `packages.keep_previous_days`, with the
   previous version. A removed link loses its restore points.
-- A restore point holds the link's private data, not its params, grants or
-  secrets (`sys/links/<id>` ▸ History and Rollback keep the params).
+- A rollback takes the link's private data and secrets from a restore
+  point, not its params or grants (`sys/links/<id>` ▸ History and Rollback
+  keep the params). The file holds the link's definition too: **Install
+  Link ▸** *from Backup* on this broker takes a restore point as any link
+  backup ([backups.md](backups.md) §3).
 - A warm standby (docs/operations.md) does not copy `<data_dir>/restore`:
   after a takeover a rollback has the kept version and no data to restore.
-- The format of a restore point is provisional: the link backup of ADR
-  0048 §3.5 (`.wyrm-link`) replaces it.
+- A link replaced by *from Backup* gets a restore point first, listed and
+  pruned with the ones of updates.
 
 ## 6. Package format
 
@@ -982,7 +987,7 @@ link root with `attr.check`, and clients ask only links that have it. A WASM com
 | Repository index | 4 MiB, 1000 packages |
 | Install action | 120 s |
 | Update: health check (`auto_rollback_s`) | default 120 s, 0 (report only) to 600 s |
-| Restore point | 128 MiB of private data, 10 000 files; kept `packages.keep_previous_days` (7, 1 to 365) |
+| Restore point | 8 GiB of private data, 50 000 files; kept `packages.keep_previous_days` (7, 1 to 365) |
 | `last_update` | 200 keys of `new` and of `gone` |
 | `git clone` | 120 s, depth 1, HTTPS only, needs `git` on the broker host |
 | WASM component | 16 MiB |

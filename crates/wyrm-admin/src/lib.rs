@@ -11,6 +11,7 @@ pub mod git;
 pub mod history;
 pub mod keys;
 pub mod logs;
+pub mod nofollow;
 pub mod official;
 pub mod packages;
 pub mod peers;

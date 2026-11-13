@@ -142,7 +142,7 @@ fn mtime_ns(m: &std::fs::Metadata) -> u64 {
 }
 
 /// A directory entry name that is being written or is scratch: left out.
-fn skipped(name: &str) -> bool {
+pub(super) fn skipped(name: &str) -> bool {
     name.ends_with(".tmp")
         || name.starts_with(".tmp")
         || name == "tmp"

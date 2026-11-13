@@ -82,7 +82,7 @@ Restore: `sys/links/~act/install_backup {file | upload, id?, accept, passphrase?
 3. `accept: true` is needed when the link has requester grants or a network allowlist. Without it, the answer lists them and nothing is installed.
 4. The whole file is checked first. The link's definition passes the checks of a new link: its id (reserved ids refused), its driver, its params, every grant. The package's files pass the validator of every install (`packages::unpack`): the entry inside the package, requester grants, WASM world and capabilities. Its registry record is built from the files, never read from the backup. `accept` covers what the link and a package this install brings ask for. Then the package is installed when this broker does not have it. A broker that has it in the same version must hold the same files; another version is refused: one version per package.
 5. A new link is installed, stopped, given its secrets and private data, and started. Its token, certificate and requester key are new: they belong to the broker.
-6. An existing link of that `id` must run the same driver in the same mode. A restore point of it is written to `data_dir/restore/<id>/<UTC>.wyrm-link` first, then it is stopped, replaced in place and started.
+6. An existing link of that `id` must run the same driver in the same mode. A restore point of it is taken first (`data_dir/restore/<id>/<UTC>.wyrm-link`, as before a package update: [links.md](links.md) §5a), shown in `sys/links/<id>/restore_points` and pruned after `packages.keep_previous_days`. Then the link is stopped, replaced in place and started. To go back, install that file with `install_backup` on this broker: it is sealed for it and needs no passphrase.
 
 Not carried over: the link's display name and log level, the history watches (only the rows), and the secrets a broker makes for a link's identity.
 
@@ -117,6 +117,7 @@ To move a site to a new host: install `wyrmd` with the same `site` and `backups.
 
 ## 5. For code
 
-- `Control::link_backup_to(id, path)` writes a link backup without history to `path`, sealed for this broker. Package updates use it for restore points.
-- `Control::link_restore_data(id, path)` gives a stopped link the secrets and private data of such a file.
-- `Control::restore_point_path(link)` is the path of the next restore point.
+- `Control::link_backup_to(id, path)` writes a link backup without history to `path`, sealed for this broker (no passphrase, no `export_secrets`). The link keeps running.
+- `Control::link_restore_data(id, path)` gives a stopped link the secrets and private data of such a file. The data directory is built new and swapped in.
+- Restore points (`wyrm_admin::restore_point`, `Control::restore_point_now`) are such files without the package, with a `.meta` beside them.
+- A link's private data is read only through `wyrm_admin::nofollow`: the link may run and owns the directory, so no symlink is followed and every file is sealed from the handle the walk opened. Entries that are not files or directories are skipped; the section's `info.skipped` counts them.

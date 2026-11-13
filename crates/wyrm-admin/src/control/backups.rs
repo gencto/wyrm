@@ -342,13 +342,22 @@ impl Stager<'_> {
         })
     }
 
-    /// The file `src` as the sealed file `path`.
+    /// The file `src` as the sealed file `path`. For files the broker owns
+    /// (its keys); a link's private data is read through
+    /// [`Self::sealed_from`], from a handle that followed no symlink.
     fn sealed_file(&self, path: &str, src: &Path) -> Result<Staged, String> {
+        let from = std::fs::File::open(src).map_err(|e| io_err(src, e))?;
+        self.sealed_from(path, from)
+            .map_err(|e| format!("{}: {e}", src.display()))
+    }
+
+    /// What the open file `from` holds as the sealed file `path`.
+    fn sealed_from(&self, path: &str, from: std::fs::File) -> Result<Staged, String> {
         let key = self.key(path)?;
         let p = self.place(path)?;
-        let from = std::io::BufReader::new(std::fs::File::open(src).map_err(|e| io_err(src, e))?);
+        let from = std::io::BufReader::new(from);
         let to = std::io::BufWriter::new(std::fs::File::create(&p).map_err(|e| io_err(&p, e))?);
-        format::seal_stream(key, path, from, to).map_err(|e| io_err(src, e))?;
+        format::seal_stream(key, path, from, to).map_err(|e| format!("{path}: {e}"))?;
         Ok(Staged {
             path: path.to_owned(),
             source: p,
@@ -402,6 +411,9 @@ pub struct LinkBackup {
     /// SHA-256 (hex) of the file.
     pub sha256: String,
     pub sections: Vec<String>,
+    /// Entries of the link's private directory that were not copied:
+    /// neither a regular file nor a directory (a symlink, a socket, a FIFO).
+    pub skipped: u32,
 }
 
 impl Control {
@@ -651,15 +663,18 @@ impl Control {
                         s.files.extend(self.stage_link_settings(&st, def, &base)?);
                         // an external link keeps its data on its own host
                         let data = def.mode != Mode::External;
+                        let mut skipped = 0;
                         if data {
-                            s.files.extend(self.stage_link_data(&st, def, &base)?);
+                            let (files, n) = self.stage_link_data(&st, def, &base)?;
+                            s.files.extend(files);
+                            skipped = n;
                         }
                         if let Some(p) = self.package_of(def) {
                             link_packages.insert(p.name);
                         }
                         s.info.insert(
                             id.clone(),
-                            serde_json::json!({"driver": def.driver, "mode": def.mode.name(), "data": data}),
+                            serde_json::json!({"driver": def.driver, "mode": def.mode.name(), "data": data, "skipped": skipped}),
                         );
                     }
                     s
@@ -706,10 +721,14 @@ impl Control {
                             files: self.stage_link_settings(&st, def, "settings")?,
                         },
                         "data" => {
-                            let files = self.stage_link_data(&st, def, "data")?;
+                            let (files, skipped) = self.stage_link_data(&st, def, "data")?;
                             StagedSection {
                                 name: "data".into(),
-                                info: json_map([("files", (files.len().saturating_sub(1)).into())]),
+                                info: json_map([
+                                    ("files", (files.len().saturating_sub(1)).into()),
+                                    // entries that are not files: not copied
+                                    ("skipped", skipped.into()),
+                                ]),
                                 files,
                             }
                         }
@@ -910,13 +929,20 @@ impl Control {
     }
 
     /// A link's secrets as `<base>/secrets` and the files of its private
-    /// directory as `<base>/files/**`, all sealed.
+    /// directory as `<base>/files/**`, all sealed; and how many entries of
+    /// the directory were skipped (symlinks, sockets, FIFOs: not files).
+    ///
+    /// The link may be running and owns that directory, so nothing is read
+    /// through a path: every file is sealed from the handle the walk opened
+    /// without following a symlink ([`crate::nofollow`]). No file of the
+    /// broker's can be drawn into a backup by a link that plants a symlink
+    /// or swaps a directory while it is copied.
     fn stage_link_data(
         &self,
         st: &Stager,
         def: &LinkDef,
         base: &str,
-    ) -> Result<Vec<Staged>, String> {
+    ) -> Result<(Vec<Staged>, u32), String> {
         let secrets = Zeroizing::new(
             wyrm_core::codec::to_vec(&Value::Map(
                 exported_secrets(self.secrets.for_link(&def.id))
@@ -927,20 +953,17 @@ impl Control {
             .map_err(|e| format!("{}: {e}", def.id))?,
         );
         let mut out = vec![st.sealed_bytes(&format!("{base}/secrets"), &secrets)?];
-        let prefix = format!("links/{}/data/", def.id);
-        for f in replication::files_of(&self.cfg.data_dir) {
-            let Some(rel) = f.name.strip_prefix(&prefix) else {
-                continue;
-            };
-            let src = self.cfg.data_dir.join(&f.name);
-            match st.sealed_file(&format!("{base}/files/{rel}"), &src) {
-                Ok(s) => out.push(s),
-                // a file the link removed since the list was made
-                Err(_) if !src.exists() => {}
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(out)
+        let data = self.cfg.data_dir.join("links").join(&def.id).join("data");
+        let rules = crate::nofollow::Rules {
+            scratch: &replication::skipped,
+            max_files: replication::MAX_FILES,
+        };
+        let seen = crate::nofollow::walk_files(&data, &rules, &mut |rel, file, _| {
+            out.push(st.sealed_from(&format!("{base}/files/{rel}"), file)?);
+            Ok(())
+        })
+        .map_err(|e| format!("link {}: {e}", def.id))?;
+        Ok((out, seen.skipped))
     }
 
     /// Packages as `packages/<name>/files/**`, or the one of a link backup
@@ -1055,11 +1078,28 @@ impl Control {
     /// A backup of the link `id` **without history** at `path`: its
     /// settings, its private data and secrets, and its package when it runs
     /// one. Sealed for this broker (a key from `secrets.key`), so it needs
-    /// no passphrase and only this broker opens it: the restore point of a
-    /// package update (ADR 0048 §1.3). Blocking: call it off the async
-    /// runtime. The link is not stopped. `path` is written whole or not at
-    /// all (`<path>.part` meanwhile); its directory must exist.
+    /// no passphrase and no `backups.export_secrets`, and only this broker
+    /// opens it. Blocking: call it off the async runtime. The link is not
+    /// stopped. `path` is written whole or not at all (`<path>.part`
+    /// meanwhile); its directory must exist.
     pub fn link_backup_to(&self, id: &str, path: &Path) -> Result<LinkBackup, String> {
+        self.link_backup_with(id, path, true)
+    }
+
+    /// A restore point of the link `id` at `path` (ADR 0048 §1.3, §3.5):
+    /// [`Self::link_backup_to`] without the package. A restore point gives
+    /// a link its private data and secrets back; the package it ran is kept
+    /// as the package's `previous` version (§1.4), not once more per link.
+    pub fn link_restore_point_to(&self, id: &str, path: &Path) -> Result<LinkBackup, String> {
+        self.link_backup_with(id, path, false)
+    }
+
+    fn link_backup_with(
+        &self,
+        id: &str,
+        path: &Path,
+        with_package: bool,
+    ) -> Result<LinkBackup, String> {
         let def = self
             .registry()
             .links
@@ -1071,7 +1111,7 @@ impl Control {
             sections.push("data".into());
         }
         let package = self.package_of(&def);
-        if package.is_some() {
+        if package.is_some() && with_package {
             sections.push("package".into());
         }
         let req = BackupRequest {
@@ -1087,12 +1127,28 @@ impl Control {
             estimate: false,
         };
         let w = self.write_backup(&req, path, &|_, _| {})?;
+        // what the reader of a link backup takes: a larger one would be a
+        // restore point that cannot be applied
+        if w.manifest.size() > super::restore::MAX_LINK_BACKUP {
+            let _ = std::fs::remove_file(path);
+            return Err(format!(
+                "the link's private data is over {} GiB",
+                super::restore::MAX_LINK_BACKUP >> 30
+            ));
+        }
+        let skipped = w
+            .manifest
+            .section("data")
+            .and_then(|s| s.info.get("skipped"))
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32;
         Ok(LinkBackup {
             link: id.to_owned(),
             version: package.map(|p| p.version).unwrap_or_default(),
             size: w.size,
             sha256: w.sha256,
             sections,
+            skipped,
         })
     }
 

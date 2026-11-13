@@ -11591,16 +11591,38 @@ async fn link_backup_restores_on_a_second_broker() {
         ca.meta(&format!("{root}/c3")).await.is_err().then_some(())
     })
     .await;
-    let points: Vec<_> = std::fs::read_dir(dir_a.join("restore/dev1"))
-        .unwrap()
-        .flatten()
-        .collect();
+    // one restore point, as a package update takes them: listed in the tree
+    // (`at`, `version`, `size`) and pruned with them
+    let points = wyrm_admin::restore_point::list(&dir_a.join("restore"), "dev1");
     assert_eq!(points.len(), 1);
+    let point = dir_a
+        .join("restore/dev1")
+        .join(format!("{}.wyrm-link", points[0].id));
+    assert_eq!(points[0].size, std::fs::metadata(&point).unwrap().len());
+    assert!(!points[0].keys_known, "a restore has no health check");
+    let rows = eventually("the restore point in the tree", 10, || async {
+        match last_val(&ca, &format!("{links}/dev1/restore_points")).await {
+            Some(Value::Array(rows)) if !rows.is_empty() => Some(rows),
+            _ => None,
+        }
+    })
+    .await;
+    let Value::Map(row) = &rows[0] else {
+        panic!("a row: {rows:?}")
+    };
+    assert_eq!(row.get("at"), Some(&Value::UInt(points[0].at)));
+    assert_eq!(row.get("size"), Some(&Value::UInt(points[0].size)));
+    assert_eq!(row.get("version"), Some(&Value::from("")), "a built-in");
+    assert!(a
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "restore_point" && r.key == "dev1"));
     // the restore point is sealed for this broker: it opens here without a
     // passphrase and holds c3; the other broker cannot open it
-    let point = points[0].path();
     let pm = wyrm_admin::backup::read_manifest(&point).unwrap();
     assert_eq!(pm.sealed.how, "broker");
+    assert!(pm.section("data").is_some() && pm.section("package").is_none());
     let secrets_b = wyrm_admin::secret::load_or_create_key(&dir_b.join("secrets.key")).unwrap();
     assert!(pm.key(None, Some(&secrets_b)).is_err());
     let secrets_a = wyrm_admin::secret::load_or_create_key(&dir_a.join("secrets.key")).unwrap();
@@ -12155,16 +12177,30 @@ async fn package_update_that_loses_keys_rolls_back() {
     assert_eq!(points.len(), 1, "{points:?}");
     assert_eq!(upd_text(&points[0], "version"), "1.0.0");
     assert!(upd_count(&points[0], "size") > 0 && upd_count(&points[0], "at") > 0);
-    // sealed: the connection's name is not readable in the file
+    // it is a link backup sealed for this broker (no passphrase, and the
+    // host's `backups.export_secrets` is off): settings and private data,
+    // every data file sealed, no package and no history in it
     let point_dir = dir.join("restore/u1");
     let sealed: Vec<_> = std::fs::read_dir(&point_dir)
         .unwrap()
         .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "restore"))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "wyrm-link"))
         .collect();
     assert_eq!(sealed.len(), 1);
-    let bytes = std::fs::read(sealed[0].path()).unwrap();
-    assert!(!bytes.windows(14).any(|w| w == b"framework.tree"));
+    let pm = wyrm_admin::backup::read_manifest(&sealed[0].path()).unwrap();
+    assert_eq!(pm.kind, wyrm_admin::backup::Kind::Link);
+    assert_eq!(pm.sealed.how, "broker");
+    let data = pm.section("data").expect("the private data");
+    assert!(data.files.iter().all(|f| f.sealed));
+    assert!(data
+        .files
+        .iter()
+        .any(|f| f.path == "data/files/framework.tree"));
+    assert!(pm.section("package").is_none() && pm.section("history").is_none());
+    // the key list of the health check is kept beside it
+    let kept = wyrm_admin::restore_point::list(&dir.join("restore"), "u1");
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].keys_known && kept[0].keys.iter().any(|k| k.contains("c2")));
 
     let audit = env.ctl.audit_tail(200);
     for op in ["restore_point", "package_update", "update_rollback"] {

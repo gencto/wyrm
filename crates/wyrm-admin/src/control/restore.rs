@@ -375,19 +375,50 @@ impl Control {
                 .set(id, name, v)
                 .map_err(|e| format!("secret {name}: {e}"))?;
         }
+        // The new directory is built beside the old one and swapped in with
+        // two renames: on a failure the link's data stays as it was. Every
+        // directory and file is made new and no symlink is followed
+        // (`crate::nofollow`): what the link left under these names is
+        // removed as what it is, never written through.
         let data = self.link_data_dir(id).map_err(|e| e.message)?;
-        std::fs::remove_dir_all(&data).map_err(|e| io_err(&data, e))?;
-        self.link_data_dir(id).map_err(|e| e.message)?;
-        for rel in &r.files {
-            let (from, to) = (r.files_dir().join(rel), data.join(rel));
-            if let Some(d) = to.parent() {
-                std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
+        let parent = data
+            .parent()
+            .ok_or_else(|| format!("{}: no parent", data.display()))?;
+        let (fresh, old) = (parent.join("data.restoring"), parent.join("data.replaced"));
+        crate::nofollow::remove_any(&fresh);
+        crate::nofollow::remove_any(&old);
+        crate::nofollow::new_private_dir(&fresh)?;
+        let filled = (|| {
+            for rel in &r.files {
+                let rel_path = Path::new(rel);
+                let name = rel_path
+                    .file_name()
+                    .ok_or_else(|| format!("unsafe path {rel}"))?;
+                let dir =
+                    crate::nofollow::make_dirs(&fresh, rel_path.parent().unwrap_or(Path::new("")))?;
+                let (from, to) = (r.files_dir().join(rel), dir.join(name));
+                // the stage is on the same disk; a copy when it is not
+                if std::fs::rename(&from, &to).is_err() {
+                    let mut src = std::fs::File::open(&from).map_err(|e| io_err(&from, e))?;
+                    let mut dst =
+                        crate::nofollow::create_new(&to, None).map_err(|e| io_err(&to, e))?;
+                    std::io::copy(&mut src, &mut dst).map_err(|e| io_err(&to, e))?;
+                    dst.sync_all().map_err(|e| io_err(&to, e))?;
+                }
             }
-            // the stage is on the same disk; a copy when it is not
-            if std::fs::rename(&from, &to).is_err() {
-                std::fs::copy(&from, &to).map_err(|e| io_err(&to, e))?;
-            }
+            Ok::<(), String>(())
+        })();
+        if let Err(e) = filled {
+            let _ = std::fs::remove_dir_all(&fresh);
+            return Err(e);
         }
+        std::fs::rename(&data, &old).map_err(|e| io_err(&data, e))?;
+        if let Err(e) = std::fs::rename(&fresh, &data) {
+            let _ = std::fs::rename(&old, &data);
+            let _ = std::fs::remove_dir_all(&fresh);
+            return Err(io_err(&data, e));
+        }
+        let _ = std::fs::remove_dir_all(&old);
         // the framework tree is bound to its link's id: under a new id it
         // is sealed again for it, with the store key that came with it
         let tree = data.join(wyrm_link_sdk::driver::persist::TREE_FILE);
@@ -420,19 +451,6 @@ impl Control {
             return Err(format!("{}: no private data in it", path.display()));
         }
         self.place_link_data(id, &r)
-    }
-
-    /// `data_dir/restore/<link>/<UTC>.wyrm-link`: where the next restore
-    /// point of `link` goes (ADR 0048 §1.3); its directory is made.
-    pub fn restore_point_path(&self, link: &str) -> Result<PathBuf, String> {
-        crate::registry::validate_link_id(link)?;
-        let dir = self.cfg.data_dir.join("restore").join(link);
-        make_private_dir(&dir)?;
-        let stamp: String = iso_utc(now_s())
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric())
-            .collect();
-        Ok(dir.join(format!("{stamp}.{}", format::EXT_LINK)))
     }
 
     /// Write the history rows of a link backup under the link `id`. Returns
@@ -658,22 +676,25 @@ impl Admin {
         };
         match &existing {
             Some(old) => {
-                // a way back first (ADR 0048 §3.5)
-                let point = ctl.restore_point_path(&id)?;
-                let made = {
-                    let (ctl, id, point) = (ctl.clone(), id.clone(), point.clone());
-                    tokio::task::spawn_blocking(move || ctl.link_backup_to(&id, &point))
-                        .await
-                        .map_err(|e| e.to_string())??
+                // a way back first (ADR 0048 §3.5): a restore point like the
+                // one of a package update, listed and pruned with them. The
+                // link was not asked for its keys: a restore has no health
+                // check.
+                let (package, version) = match old.driver.strip_prefix(packages::DRIVER_PREFIX) {
+                    Some(name) => (
+                        name.to_owned(),
+                        ctl.registry()
+                            .packages
+                            .get(name)
+                            .map(|p| p.version.clone())
+                            .unwrap_or_default(),
+                    ),
+                    None => (String::new(), String::new()),
                 };
-                ctl.record(
-                    sub,
-                    "restore_point",
-                    &id,
-                    Status::Ok,
-                    &format!("{} ({} bytes) before a restore", point.display(), made.size),
-                );
-                message.push_str(&format!("restore point {}; ", point.display()));
+                let point = self
+                    .take_restore_point(&id, &package, &version, None, sub)
+                    .await?;
+                message.push_str(&format!("restore point {}; ", point.id));
                 if old.mode != Mode::External {
                     self.stop_link(&id, sub).await.map_err(|e| e.message)?;
                 }
@@ -1005,6 +1026,123 @@ pub(super) async fn invoke(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0048 §1.3 with the security review of the restore point (commit
+    /// 0784257): a restore point is a link backup made while the link runs.
+    /// A symlink the link planted in its data is never followed (no file of
+    /// the broker's goes into the point), it needs no `export_secrets`, and
+    /// applying it replaces the data as a whole without writing through a
+    /// symlink.
+    #[cfg(unix)]
+    #[test]
+    fn a_restore_point_is_a_link_backup_that_follows_no_symlink() {
+        use std::os::unix::fs::symlink;
+        let ctl = super::super::tests::control("point-nofollow", false, |_| {});
+        assert!(!ctl.cfg.backups.export_secrets);
+        let d = ctl.cfg.data_dir.clone();
+        ctl.apply(Op::Install(LinkDef {
+            id: "l1".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        ctl.secrets.set("l1", "password", b"pw-123456").unwrap();
+        let data = d.join("links/l1/data");
+        let put = |rel: &str, bytes: &[u8]| {
+            let p = data.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, bytes).unwrap();
+        };
+        put("framework.tree", b"TREE-v1");
+        put("store/p/0", b"page0");
+        put("uploads/c1/spool", b"scratch");
+        let outside = d.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret"), b"BROKER-SECRET-0123456789").unwrap();
+        symlink(outside.join("secret"), data.join("leak")).unwrap();
+        symlink(&outside, data.join("leakdir")).unwrap();
+        symlink(d.join("state.key"), data.join("store/leak2")).unwrap();
+
+        let keys = vec!["a".to_owned()];
+        let p = ctl
+            .restore_point_now("l1", "", "", Some(keys.clone()))
+            .unwrap();
+        assert_eq!(p.skipped, 3, "the symlinks are counted, not copied");
+        assert_eq!(p.keys, keys);
+        let file = crate::restore_point::file(&ctl.restore_root(), "l1", &p.id).unwrap();
+        assert_eq!(p.size, std::fs::metadata(&file).unwrap().len());
+        let m = format::read_manifest(&file).unwrap();
+        assert_eq!((m.kind, m.sealed.how.as_str()), (Kind::Link, "broker"));
+        let mut names: Vec<&str> = m
+            .section("data")
+            .unwrap()
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "data/files/framework.tree",
+                "data/files/store/p/0",
+                "data/secrets"
+            ]
+        );
+        let bytes = std::fs::read(&file).unwrap();
+        assert!(!bytes.windows(13).any(|w| w == b"BROKER-SECRET"));
+        assert!(!bytes.windows(9).any(|w| w == b"pw-123456"), "sealed");
+
+        // the new version wrote over the data and left symlinks under the
+        // names the swap uses; the point puts everything back as it was
+        std::fs::write(data.join("framework.tree"), b"TREE-v2").unwrap();
+        std::fs::remove_dir_all(data.join("store")).unwrap();
+        put("v2-only", b"x");
+        ctl.secrets.set("l1", "password", b"changed").unwrap();
+        symlink(&outside, d.join("links/l1/data.restoring")).unwrap();
+        symlink(&outside, d.join("links/l1/data.replaced")).unwrap();
+        ctl.restore_point_apply("l1", &p.id).unwrap();
+        assert_eq!(
+            std::fs::read(data.join("framework.tree")).unwrap(),
+            b"TREE-v1"
+        );
+        assert_eq!(std::fs::read(data.join("store/p/0")).unwrap(), b"page0");
+        assert!(!data.join("v2-only").exists(), "replaced as a whole");
+        assert!(!data.join("leak").exists() && !data.join("uploads").exists());
+        assert_eq!(&ctl.secrets.for_link("l1")["password"][..], b"pw-123456");
+        assert!(!d.join("links/l1/data.restoring").exists());
+        assert!(!d.join("links/l1/data.replaced").exists());
+        let left: Vec<_> = std::fs::read_dir(&outside)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(left, ["secret"], "nothing was written outside");
+        assert_eq!(
+            std::fs::read(outside.join("secret")).unwrap(),
+            b"BROKER-SECRET-0123456789"
+        );
+        // a data directory that is itself a symlink: no point is made
+        std::fs::remove_dir_all(&data).unwrap();
+        symlink(&outside, &data).unwrap();
+        assert!(ctl.restore_point_now("l1", "", "", None).is_err());
+        assert_eq!(
+            crate::restore_point::list(&ctl.restore_root(), "l1").len(),
+            1
+        );
+        // a point of another link or a name that leaves the directory
+        assert!(ctl.restore_point_apply("l1", "../x").is_err());
+        assert!(ctl.restore_point_apply("nolink", &p.id).is_err());
+    }
 
     #[test]
     fn identity_secrets_stay_with_their_broker() {

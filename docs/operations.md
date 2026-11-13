@@ -346,7 +346,7 @@ Everything the broker owns is under `data_dir`. What cannot be regenerated:
 | `history/`, `storage/` | the historian's day files and index, broker storage | history and stored values gone |
 | `audit/` | the audit journal | the record of who did what |
 | `packages/`, `peers/`, `operators/` | installed link packages (and the previous version of an updated one), certificates issued for downstream brokers, operator certificates | reinstall, reissue |
-| `restore/<link>/` | restore points of links taken before a package update (docs/links.md §5a), sealed with a key derived from `secrets.key` | a rollback of an update restores no private data |
+| `restore/<link>/` | restore points of links taken before a package update or a restore from a backup (docs/links.md §5a): link backups (`.wyrm-link`) sealed with a key derived from `secrets.key`, and their `.meta` | a rollback of an update restores no private data |
 
 How to take a backup:
 - **Online, from the broker itself (ADR 0048).** `sys/backups/~act/create

@@ -449,10 +449,36 @@ impl Control {
         self.cfg.data_dir.join("restore")
     }
 
-    fn restore_key(&self) -> Result<[u8; 32], String> {
-        crate::secret::load_or_create_key(&self.cfg.data_dir.join("secrets.key"))
-            .map(|k| restore::key(&k))
-            .map_err(|e| format!("secrets.key: {e}"))
+    /// Take a restore point of `link` now (ADR 0048 §1.3, §3.5): a link
+    /// backup without history and without the package, sealed for this
+    /// broker, with the link's key list `keys` beside it. The link keeps
+    /// running. Blocking: call it off the async runtime.
+    pub(super) fn restore_point_now(
+        &self,
+        link: &str,
+        package: &str,
+        version: &str,
+        keys: Option<Vec<String>>,
+    ) -> Result<restore::Point, String> {
+        restore::make(
+            &self.restore_root(),
+            link,
+            package,
+            version,
+            keys,
+            now_s(),
+            |path| {
+                let made = self.link_restore_point_to(link, path)?;
+                Ok((made.size, made.skipped))
+            },
+        )
+    }
+
+    /// Give the stopped link `link` the private data and secrets of its
+    /// restore point `id` back. Blocking.
+    pub(super) fn restore_point_apply(&self, link: &str, id: &str) -> Result<(), String> {
+        let file = restore::file(&self.restore_root(), link, id)?;
+        self.link_restore_data(link, &file)
     }
 
     /// `packages.keep_previous_days` in seconds (1 to 365 days).
@@ -724,8 +750,9 @@ impl Admin {
         compare(links, &now)
     }
 
-    /// A restore point of `link` (ADR 0048 §1.3), audited.
-    async fn take_restore_point(
+    /// A restore point of `link` (ADR 0048 §1.3, §3.5), audited and shown
+    /// in `sys/links/<id>/restore_points`.
+    pub(super) async fn take_restore_point(
         &self,
         link: &str,
         package: &str,
@@ -733,16 +760,11 @@ impl Admin {
         keys: Option<Vec<String>>,
         sub: &str,
     ) -> Result<restore::Point, String> {
-        let root = self.ctl.restore_root();
-        let key = self.ctl.restore_key()?;
-        let data = self.ctl.link_data_dir(link).map_err(|e| e.message)?;
+        let ctl = self.ctl.clone();
         let (l, p, v) = (link.to_owned(), package.to_owned(), version.to_owned());
-        let now = now_s();
-        let made = tokio::task::spawn_blocking(move || {
-            restore::make(&root, &l, &data, &key, &p, &v, keys, now)
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+        let made = tokio::task::spawn_blocking(move || ctl.restore_point_now(&l, &p, &v, keys))
+            .await
+            .map_err(|e| e.to_string())?;
         match &made {
             Ok(p) => self.ctl.record(
                 sub,
@@ -1223,8 +1245,6 @@ impl Admin {
             }
             points.push((l.id.clone(), p));
         }
-        let key = ctl.restore_key()?;
-
         for l in &links {
             if let Err(e) = self.stop_link(&l.id, sub).await {
                 debug!(link = %l.id, "stop for rollback: {e}");
@@ -1259,19 +1279,11 @@ impl Admin {
                 problems.push(format!("{id}: no restore point, its data stays"));
                 continue;
             };
-            let data = match ctl.link_data_dir(&id) {
-                Ok(d) => d,
-                Err(e) => {
-                    problems.push(format!("{id}: {}", e.message));
-                    continue;
-                }
-            };
-            let (r, l, pid) = (restore_root.clone(), id.clone(), point.id.clone());
-            let applied =
-                tokio::task::spawn_blocking(move || restore::apply(&r, &l, &pid, &data, &key))
-                    .await
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r);
+            let (c, l, pid) = (ctl.clone(), id.clone(), point.id.clone());
+            let applied = tokio::task::spawn_blocking(move || c.restore_point_apply(&l, &pid))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
             match applied {
                 Ok(()) => restored.push(format!("{id} ({})", point.id)),
                 Err(e) => problems.push(format!("{id}: {e}")),
