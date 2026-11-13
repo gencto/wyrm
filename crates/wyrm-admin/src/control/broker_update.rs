@@ -594,18 +594,6 @@ impl Control {
         let Some(mut u) = UpdateFile::load(d) else {
             return;
         };
-        let me = &release::identity().version;
-        if u.in_trial() && &u.from == me && &u.to != me {
-            // started without the guard, or outside the layout
-            u.state = "rolled_back".into();
-            u.reason = format!(
-                "wyrmd {me} was started during the trial of {} (the unit does not run \
-                 <prefix>/current/wyrmd?)",
-                u.to
-            );
-            u.ended = now_s();
-            u.audited = false;
-        }
         if matches!(u.state.as_str(), "rolled_back" | "failed") && !u.audited {
             let status = if u.state == "failed" {
                 Status::InternalError
