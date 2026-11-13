@@ -51,6 +51,29 @@ pub struct Manifest {
     /// install as link params (ADR 0023).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Capabilities>,
+    /// The format of the link's private data (its store, `framework.tree`) that this version
+    /// writes (ADR 0048): an integer from 1, raised when an older version could not read what
+    /// this one writes. Absent: 1. See [`Manifest::state`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<u32>,
+    /// The formats this version reads (and moves to `state`). Absent: `[state]`. An update
+    /// whose `reads_state` lacks the installed `state` changes the store format: the broker
+    /// then takes a restore point whatever the caller says. See [`Manifest::reads_state`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_state: Option<Vec<u32>>,
+}
+
+/// The store format of a package that names none (ADR 0048).
+pub const DEFAULT_STATE: u32 = 1;
+/// Most entries of `reads_state`.
+pub const MAX_READS_STATE: usize = 32;
+
+/// `reads_state` as it counts: the list, or `[state]` when the package names none.
+pub fn reads_state_of(state: u32, reads: Option<&[u32]>) -> Vec<u32> {
+    match reads {
+        Some(r) => r.to_vec(),
+        None => vec![state.max(DEFAULT_STATE)],
+    }
 }
 
 /// Default store of an app link, MiB (ADR 0023).
@@ -155,6 +178,16 @@ pub struct Grant {
 }
 
 impl Manifest {
+    /// The store format this version writes (default 1).
+    pub fn state(&self) -> u32 {
+        self.state.unwrap_or(DEFAULT_STATE)
+    }
+
+    /// The store formats this version reads (default `[state]`).
+    pub fn reads_state(&self) -> Vec<u32> {
+        reads_state_of(self.state(), self.reads_state.as_deref())
+    }
+
     /// What every package must hold, wherever it is checked: a valid name
     /// and version, this link protocol, and an entry for its kind.
     pub fn check(&self) -> Result<(), String> {
@@ -200,6 +233,23 @@ impl Manifest {
                 ));
             }
             c.check()?;
+        }
+        if self.state == Some(0) {
+            return Err("state: an integer from 1".into());
+        }
+        if let Some(r) = &self.reads_state {
+            if r.is_empty() || r.len() > MAX_READS_STATE || r.contains(&0) {
+                return Err(format!(
+                    "reads_state: 1 to {MAX_READS_STATE} integers from 1"
+                ));
+            }
+            // a version reads what it writes itself: a restart must work
+            if !r.contains(&self.state()) {
+                return Err(format!(
+                    "reads_state {r:?}: must hold the package's own state {}",
+                    self.state()
+                ));
+            }
         }
         Ok(())
     }
@@ -299,6 +349,12 @@ pub struct RepoEntry {
     /// The oldest broker that runs it, `major.minor.patch`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_broker: Option<String>,
+    /// The package's `state` and `reads_state` (ADR 0048), from its manifest, when it names
+    /// them: a broker tells from the index alone whether an update changes the store format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads_state: Option<Vec<u32>>,
 }
 
 /// One file of a package: where it is and its SHA-256.
@@ -309,6 +365,12 @@ pub struct Asset {
 }
 
 impl RepoEntry {
+    /// Does this version read a store of format `installed` (ADR 0048)?
+    pub fn reads(&self, installed: u32) -> bool {
+        let state = self.state.unwrap_or(DEFAULT_STATE);
+        reads_state_of(state, self.reads_state.as_deref()).contains(&installed.max(DEFAULT_STATE))
+    }
+
     /// The file for `host`: its own asset, else the entry's `url`.
     pub fn asset(&self, host: &str) -> Option<Asset> {
         if let Some(a) = self.assets.get(host) {
@@ -450,6 +512,8 @@ mod tests {
 
     fn process(name: &str) -> Manifest {
         Manifest {
+            state: None,
+            reads_state: None,
             name: name.into(),
             version: "1.2.0".into(),
             description: "a link".into(),
@@ -469,6 +533,8 @@ mod tests {
 
     fn app(caps: Capabilities) -> Manifest {
         Manifest {
+            state: None,
+            reads_state: None,
             name: "acme".into(),
             version: "1.0.0".into(),
             description: String::new(),
@@ -606,6 +672,43 @@ mod tests {
         // unknown fields are refused
         let text = r#"{"name":"a","version":"1","wyrm_link":1,"kind":"wasm","entry":"a.wasm","entyr":"x"}"#;
         assert!(serde_json::from_str::<Manifest>(text).is_err());
+    }
+
+    /// ADR 0048: `state` (default 1) and `reads_state` (default `[state]`).
+    #[test]
+    fn store_format() {
+        let m = process("acme");
+        assert_eq!((m.state(), m.reads_state()), (1, vec![1]));
+        // a package that names neither packs as before
+        assert!(!serde_json::to_string(&m).unwrap().contains("state"));
+        let mut m = process("acme");
+        m.state = Some(3);
+        assert_eq!(m.reads_state(), vec![3]);
+        assert!(m.check().is_ok());
+        m.reads_state = Some(vec![2, 3]);
+        assert!(m.check().is_ok());
+        let text = serde_json::to_string(&m).unwrap();
+        assert_eq!(serde_json::from_str::<Manifest>(&text).unwrap(), m);
+        for (state, reads, what) in [
+            (Some(0), None, "state"),
+            (Some(3), Some(vec![]), "reads_state"),
+            (Some(3), Some(vec![0, 3]), "reads_state"),
+            (Some(3), Some(vec![1, 2]), "own state"),
+            (None, Some(vec![2]), "own state"),
+            (Some(2), Some((1..=33).collect()), "reads_state"),
+        ] {
+            let mut m = process("acme");
+            (m.state, m.reads_state) = (state, reads);
+            let e = m.check().unwrap_err();
+            assert!(e.contains(what), "{what}: {e}");
+        }
+        // the index says the same for a broker that has not fetched the zip
+        let mut e = RepoEntry::default();
+        assert!(e.reads(1) && e.reads(0) && !e.reads(2));
+        e.state = Some(3);
+        assert!(e.reads(3) && !e.reads(1));
+        e.reads_state = Some(vec![1, 2, 3]);
+        assert!(e.reads(1) && e.reads(2));
     }
 
     #[test]

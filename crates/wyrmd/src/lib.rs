@@ -333,7 +333,7 @@ pub struct PeersSection {
 }
 
 /// Link packages (ADR 0011).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackagesSection {
     /// Index for "Install Link ▸ from Repository", JSON
@@ -343,6 +343,23 @@ pub struct PackagesSection {
     /// broker never fetches one.
     #[serde(default)]
     pub repository: Option<String>,
+    /// Days a replaced package version and the restore points of its links
+    /// are kept for a rollback (ADR 0048); 1 to 365.
+    #[serde(default = "default_keep_previous_days")]
+    pub keep_previous_days: u32,
+}
+
+fn default_keep_previous_days() -> u32 {
+    7
+}
+
+impl Default for PackagesSection {
+    fn default() -> Self {
+        Self {
+            repository: None,
+            keep_previous_days: default_keep_previous_days(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1799,6 +1816,7 @@ impl Daemon {
             dql: cfg.dql.enabled,
             alarm: cfg.alarm.enabled,
             uplink: cfg.uplink.enabled,
+            keep_previous_days: cfg.packages.keep_previous_days,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -2022,6 +2040,18 @@ mod tests {
             wyrm_admin::official::repository_url(cfg.packages.repository.as_deref()),
             Some(wyrm_admin::official::embedded().index_url())
         );
+        // ADR 0048: how long an updated package's previous version is kept
+        assert_eq!(cfg.packages.keep_previous_days, 7);
+        assert_eq!(
+            Config::from_json5(r#"{ site: "s" }"#)
+                .unwrap()
+                .packages
+                .keep_previous_days,
+            7
+        );
+        let cfg =
+            Config::from_json5(r#"{ site: "s", packages: { keep_previous_days: 30 } }"#).unwrap();
+        assert_eq!(cfg.packages.keep_previous_days, 30);
     }
 
     #[test]

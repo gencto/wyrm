@@ -282,6 +282,18 @@ impl Official {
                             m.wyrm_link, l.wyrm_link
                         )));
                     }
+                    // one entry per form: its hosts write and read the same store format
+                    let first = &zips[0].manifest;
+                    if (m.state(), m.reads_state()) != (first.state(), first.reads_state()) {
+                        return Err(bad(format!(
+                            "state {} reads {:?}, {} says state {} reads {:?}",
+                            m.state(),
+                            m.reads_state(),
+                            zips[0].file,
+                            first.state(),
+                            first.reads_state()
+                        )));
+                    }
                 }
                 let mut e = RepoEntry {
                     name: name.clone(),
@@ -293,6 +305,9 @@ impl Official {
                     kind: Some(form.to_owned()),
                     wyrm_link: Some(l.wyrm_link),
                     min_broker: Some(l.min_broker.clone()),
+                    // ADR 0048: what the zips' manifests name
+                    state: zips.first().and_then(|b| b.manifest.state),
+                    reads_state: zips.first().and_then(|b| b.manifest.reads_state.clone()),
                     ..RepoEntry::default()
                 };
                 if form == "wasm" {
@@ -371,6 +386,8 @@ mod tests {
                 None => format!("{name}-{version}.zip"),
             },
             manifest: Manifest {
+                state: None,
+                reads_state: None,
                 name: name.into(),
                 version: version.into(),
                 description: String::new(),

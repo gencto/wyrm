@@ -43,6 +43,7 @@ use zenoh::Session;
 
 pub mod replication;
 mod signers;
+mod updates;
 
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -123,6 +124,9 @@ pub struct ControlConfig {
     pub alarm: bool,
     /// The embedded uplink runs ([`UPLINK_LINK`], ADR 0035): platform upstreams.
     pub uplink: bool,
+    /// Days a replaced package version and the restore points of its links
+    /// are kept for a rollback (`packages.keep_previous_days`, ADR 0048).
+    pub keep_previous_days: u32,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -388,6 +392,27 @@ pub struct Control {
     standby_forks: Mutex<(u64, std::collections::VecDeque<(u64, String)>)>,
     /// Until when the arbiters' lease is held (ADR 0036; set by `wyrmd`).
     arbiter_lease: Mutex<Option<std::time::Instant>>,
+    /// Packages whose update is being checked (ADR 0048 §1.5), each with who
+    /// asked to stop it and roll back, if anyone did. Not persisted: a
+    /// report left `checking` by a broker that ended is closed at the next
+    /// start ([`updates::keep`]).
+    updating: Mutex<BTreeMap<String, Option<String>>>,
+    /// Checks that stepped aside for a rebuild of the router; the next
+    /// router starts them again ([`updates::resume`]).
+    paused_checks: Mutex<Vec<updates::UpdatePlan>>,
+}
+
+/// A long step that is not inside a request (the end of the health check of
+/// a package update and its rollback, ADR 0048): counted like [`Busy`], so
+/// a rebuild waits for it.
+struct BusyOwned(Arc<Control>);
+
+impl Drop for BusyOwned {
+    fn drop(&mut self) {
+        self.0
+            .inflight
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -725,6 +750,8 @@ impl Control {
                 standby_hold: std::sync::atomic::AtomicU64::new(0),
                 standby_forks: Mutex::default(),
                 arbiter_lease: Mutex::default(),
+                updating: Mutex::default(),
+                paused_checks: Mutex::default(),
             }),
             rx,
         ))
@@ -1921,6 +1948,8 @@ impl Control {
             tokio::spawn(watch_audit(self.clone(), ctx.clone())),
             tokio::spawn(serve_profiles(self.clone(), session.clone())),
             tokio::spawn(load_repository(self.clone(), ctx.clone())),
+            tokio::spawn(updates::keep(self.clone(), ctx.clone())),
+            tokio::spawn(updates::resume(self.clone(), ctx.clone(), embedded.clone())),
             tokio::spawn(enroll_upstreams(self.clone(), ctx.clone())),
             tokio::spawn(expire_enrollments(self.clone(), ctx.clone())),
             tokio::spawn(signers::follow_signers(self.clone(), ctx.clone())),
@@ -2013,7 +2042,8 @@ pub struct Admin {
     ctl: Arc<Control>,
     embedded: Running,
     /// `wy/<site>/sys/broker` liveliness, undeclared when the admin stops.
-    _broker: zenoh::liveliness::LivelinessToken,
+    /// `None` in a worker ([`Admin::worker`]).
+    _broker: Option<zenoh::liveliness::LivelinessToken>,
 }
 
 fn str_param() -> ParamMeta {
@@ -3315,6 +3345,8 @@ fn install_meta(display: &str) -> ActionMeta {
                      shows them and installs nothing",
                 ),
         )
+        .param("restore_point", updates::restore_point_param())
+        .param("auto_rollback_s", updates::auto_rollback_param())
 }
 
 /// `accept: true` in an install's arguments (review WASM-1).
@@ -3376,8 +3408,10 @@ async fn declare_repo_action(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Res
 
 /// `sys/links` with `attr.catalog` (ADR 0043): the built-in drivers and,
 /// once the index is fetched, the repository packages this host can install,
-/// each with its title, category, version and form. Declared again when the
-/// index arrives; the node's actions stay.
+/// each with its title, category, version and form; and
+/// `attr.updates_available` (ADR 0048): how many links run a package the
+/// repository has a newer version of. Declared again when the index arrives
+/// and when a package or a link of one changes; the node's actions stay.
 async fn declare_links_node(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     let repo = match &*ctl.repo.lock().unwrap_or_else(|p| p.into_inner()) {
         Some(Ok(list)) => list.clone(),
@@ -3389,8 +3423,13 @@ async fn declare_links_node(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         crate::official::is_official_index(ctl.cfg.repository.as_deref()),
         env!("CARGO_PKG_VERSION"),
     );
-    ctx.declare_node("links", NodeMeta::folder().attr("catalog", catalog))
-        .await
+    ctx.declare_node(
+        "links",
+        NodeMeta::folder()
+            .attr("catalog", catalog)
+            .attr("updates_available", updates::updates_available(ctl)),
+    )
+    .await
 }
 
 /// Fetch the repository index in the background, never on the start path;
@@ -3453,6 +3492,8 @@ async fn load_repository(ctl: Arc<Control>, ctx: LinkCtx) {
             if let Err(e) = declare_links_node(&ctx, &ctl).await {
                 debug!("sys/links catalog: {e}");
             }
+            // `latest` and `update_available` follow the index
+            updates::publish_all(&ctx, &ctl).await;
         }
         tokio::time::sleep(repository_retry(failures)).await;
     }
@@ -3493,7 +3534,11 @@ fn install_detail(def: &PackageDef, caps: Option<&wyrm_link_sdk::package::Capabi
     d
 }
 
-async fn declare_package(ctx: &LinkCtx, p: &PackageDef) -> wyrm_link_sdk::Result<()> {
+async fn declare_package(
+    ctx: &LinkCtx,
+    ctl: &Control,
+    p: &PackageDef,
+) -> wyrm_link_sdk::Result<()> {
     let path = format!("packages/{}", p.name);
     let mut node = NodeMeta::folder()
         .is("wy:package")
@@ -3514,7 +3559,8 @@ async fn declare_package(ctx: &LinkCtx, p: &PackageDef) -> wyrm_link_sdk::Result
             .group(GROUP_EDIT)
             .level(Perm::Config),
     )
-    .await
+    .await?;
+    updates::declare_values(ctx, ctl, p).await
 }
 
 /// Unix milliseconds as ISO 8601 UTC with milliseconds.
@@ -3653,6 +3699,7 @@ impl Link for Admin {
         let reg = cfg.ctl.registry();
         for def in reg.links.values() {
             declare_link(&ctx, def).await?;
+            updates::declare_restore_points(&ctx, &cfg.ctl, &def.id).await?;
         }
         // Downstream brokers ask for a certificate and come in as DSA links
         // do: token, allow_all_links or quarantine (ADR 0015).
@@ -3674,7 +3721,7 @@ impl Link for Admin {
         }
         ctx.declare_node("packages", NodeMeta::folder()).await?;
         for p in reg.packages.values() {
-            declare_package(&ctx, p).await?;
+            declare_package(&ctx, &cfg.ctl, p).await?;
         }
         ctx.declare_node("profiles", NodeMeta::folder()).await?;
         ctx.declare_action(
@@ -3730,7 +3777,7 @@ impl Link for Admin {
             ctx,
             ctl: cfg.ctl,
             embedded: cfg.embedded,
-            _broker: broker,
+            _broker: Some(broker),
         })
     }
 
@@ -3836,6 +3883,7 @@ impl Link for Admin {
             (["tokens"], "add") => self.add_token(&args, &sub).await,
             (["tokens", id], "remove") => self.remove_token(id, &sub).await,
             (["links"], "install_zip") => {
+                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let r = match arg(&args, "zip") {
@@ -3846,6 +3894,7 @@ impl Link for Admin {
                             "zip".into(),
                             &sub,
                             accepted(&args),
+                            opts,
                         )
                         .await
                     }
@@ -3854,13 +3903,21 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_wasm") => {
+                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let r = match arg(&args, "wasm") {
                     Some(Value::Bytes(wasm)) => match packages::wrap_component(&name, wasm) {
                         Ok(zip) => {
-                            self.install_package(&name, zip, "wasm".into(), &sub, accepted(&args))
-                                .await
+                            self.install_package(
+                                &name,
+                                zip,
+                                "wasm".into(),
+                                &sub,
+                                accepted(&args),
+                                opts,
+                            )
+                            .await
                         }
                         Err(e) => Err(e),
                     },
@@ -3869,6 +3926,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_url") => {
+                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
@@ -3880,6 +3938,7 @@ impl Link for Admin {
                             format!("url {url}"),
                             &sub,
                             accepted(&args),
+                            opts,
                         )
                         .await
                     }
@@ -3888,6 +3947,7 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_git") => {
+                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let url = arg_str(&args, "url").unwrap_or_default().trim().to_owned();
@@ -3897,7 +3957,7 @@ impl Link for Admin {
                 let r = match crate::git::clone_zip(&url, &git_ref, self.ctl.cfg.dev, &root).await {
                     Ok((zip, commit)) => {
                         let source = format!("git {url} {git_ref} {commit}");
-                        self.install_package(&name, zip, source, &sub, accepted(&args))
+                        self.install_package(&name, zip, source, &sub, accepted(&args), opts)
                             .await
                     }
                     Err(e) => Err(e),
@@ -3905,16 +3965,31 @@ impl Link for Admin {
                 Ok(Some(outcome(r)))
             }
             (["links"], "install_repo") => {
+                let opts = updates::UpdateOpts::from_args(&args)?;
                 let _busy = self.ctl.busy()?;
                 let name = arg_str(&args, "name").unwrap_or_default().trim().to_owned();
                 let package = arg_str(&args, "package").unwrap_or_default().to_owned();
                 Ok(Some(outcome(
-                    self.install_from_repo(&name, &package, &sub, accepted(&args))
+                    self.install_from_repo(&name, &package, &sub, accepted(&args), opts)
                         .await,
                 )))
             }
-            (["packages", name], "remove") => self.remove_package(name, &sub).await,
+            (["packages", name], "remove") => match self.ctl.not_updating(name) {
+                Ok(()) => self.remove_package(name, &sub).await,
+                Err(e) => Err(e),
+            },
+            (["packages", name], "update") => self.update_action(name, &args, &sub).await,
+            (["packages", name], "rollback") => self.rollback_action(name, &args, &sub).await,
             (["links", id], "hello") => self.hello(id, &args).await,
+            // a link whose package update is being checked is the check's to
+            // stop and start (ADR 0048): `busy` until it ends
+            (["links", id], "start" | "stop" | "remove")
+                if self.ctl.link_updating(id).is_some() =>
+            {
+                Err(self.ctl.link_updating(id).unwrap_or_else(|| {
+                    LinkError::new(Status::Busy, "the link's package is being updated")
+                }))
+            }
             (["links", id], "start") => self.start_link(id, &sub).await.map(|_| None),
             (["links", id], "stop") => self.stop_link(id, &sub).await.map(|_| None),
             (["links", id], "remove") => self.remove(id, &sub).await.map(|_| None),
@@ -4209,6 +4284,8 @@ impl Admin {
             ctl.schedule_reload();
         }
         declare_link(&self.ctx, &def).await?;
+        updates::declare_restore_points(&self.ctx, ctl, &id).await?;
+        updates::publish_count(&self.ctx, ctl).await;
         let mut reply = BTreeMap::new();
         if mode.is_remote() {
             let cert = ctl
@@ -4233,8 +4310,10 @@ impl Admin {
 
     /// Install a package from `zip` and run it as the link `link`
     /// (ADR 0011). The same version with the same bytes is reused (another
-    /// link of the package); a new version replaces the old one and restarts
-    /// the links that run it. `Err` is the message of `success: false`.
+    /// link of the package); a new version is an update (ADR 0048,
+    /// [`Admin::update_package`]): the old one is kept for a rollback, every
+    /// link that runs the package starts on the new one, and a health check
+    /// follows in the background. `Err` is the message of `success: false`.
     async fn install_package(
         &self,
         link: &str,
@@ -4242,6 +4321,7 @@ impl Admin {
         source: String,
         sub: &str,
         accept: bool,
+        opts: updates::UpdateOpts,
     ) -> Result<String, String> {
         crate::registry::validate_link_id(link)?;
         let root = self.ctl.packages_root();
@@ -4257,6 +4337,8 @@ impl Admin {
         if def.kind == PackageKind::Process && self.ctl.cfg.link_endpoint.is_none() {
             return Err("process links need a tls/ listener on the broker".into());
         }
+        // one update of a package at a time: its links are the check's
+        self.ctl.not_updating(&def.name).map_err(|e| e.message)?;
         let reg = self.ctl.registry();
         let driver = format!("{}{}", packages::DRIVER_PREFIX, def.name);
         if let Some(l) = reg.links.get(link) {
@@ -4299,7 +4381,12 @@ impl Admin {
                 }
                 format!("package {} {} is installed", def.name, def.version)
             }
-            old => {
+            // another version is installed: an update (ADR 0048)
+            Some(old) => {
+                self.update_package(old, unpacked, app.as_ref(), opts, sub, accept)
+                    .await?
+            }
+            None => {
                 unpacked.commit(&root)?;
                 if def.kind == PackageKind::Wasm {
                     self.ctl.publish_component(&def)?;
@@ -4314,20 +4401,10 @@ impl Admin {
                     Status::Ok,
                     &install_detail(&def, app.as_ref()),
                 );
-                declare_package(&self.ctx, &def)
+                declare_package(&self.ctx, &self.ctl, &def)
                     .await
                     .map_err(|e| e.to_string())?;
-                if let Some(old) = old {
-                    let failed = self.upgrade_links(&def, app.is_some(), sub).await;
-                    let _ = std::fs::remove_dir_all(packages::dir(&root, old));
-                    let mut m = format!("package {} {} → {}", def.name, old.version, def.version);
-                    if !failed.is_empty() {
-                        m.push_str(&format!("; not restarted: {}", failed.join(", ")));
-                    }
-                    m
-                } else {
-                    format!("package {} {} installed", def.name, def.version)
-                }
+                format!("package {} {} installed", def.name, def.version)
             }
         };
         if !reg.links.contains_key(link) {
@@ -4392,8 +4469,8 @@ impl Admin {
     /// 0023: the tree stays, the store carries over); every other link of the
     /// package stops and starts from the new files. One link that fails does
     /// not stop the others; returns `<id> (<error>)` of each that failed, each
-    /// also audited.
-    async fn upgrade_links(&self, def: &PackageDef, app: bool, sub: &str) -> Vec<String> {
+    /// also audited, and whether any link was hot started.
+    async fn upgrade_links(&self, def: &PackageDef, app: bool, sub: &str) -> (Vec<String>, bool) {
         let driver = format!("{}{}", packages::DRIVER_PREFIX, def.name);
         let mut failed = Vec::new();
         let swapped = if def.kind == PackageKind::Wasm && app {
@@ -4426,7 +4503,7 @@ impl Admin {
                 failed.push(format!("{} ({})", l.id, e.message));
             }
         }
-        failed
+        (failed, !swapped.is_empty())
     }
 
     /// "from Repository": the index entry's zip, which must match its
@@ -4437,6 +4514,7 @@ impl Admin {
         package: &str,
         sub: &str,
         accept: bool,
+        opts: updates::UpdateOpts,
     ) -> Result<String, String> {
         let index = self
             .ctl
@@ -4470,7 +4548,7 @@ impl Admin {
         if !got.eq_ignore_ascii_case(&a.sha256) {
             return Err(format!("{package}: sha256 {got} does not match the index"));
         }
-        self.install_package(link, zip, format!("repository {index}"), sub, accept)
+        self.install_package(link, zip, format!("repository {index}"), sub, accept, opts)
             .await
     }
 
@@ -4903,7 +4981,9 @@ impl Admin {
         if let Ok(dir) = self.ctl.link_dir(id) {
             let _ = std::fs::remove_dir_all(dir);
         }
+        crate::restore::remove_link(&self.ctl.restore_root(), id);
         self.ctx.remove_node(&format!("links/{id}")).await?;
+        updates::publish_count(&self.ctx, &self.ctl).await;
         self.ctl.supervisor.forget_log(id);
         if let Some(lc) = crate::logs::global() {
             let _ = lc.set_link_level(id, None);
@@ -5821,6 +5901,7 @@ async fn admit(
         ctx.remove_node(&format!("quarantine/{cn}")).await?;
     }
     declare_link(ctx, &def).await?;
+    updates::declare_restore_points(ctx, ctl, &def.id).await?;
     ctl.schedule_reload();
     Ok(token)
 }
@@ -6628,7 +6709,11 @@ mod tests {
     }
 
     /// A control plane in a fresh directory; `prep` runs on it before it opens.
-    fn control(name: &str, scheduler: bool, prep: impl FnOnce(&std::path::Path)) -> Arc<Control> {
+    pub(super) fn control(
+        name: &str,
+        scheduler: bool,
+        prep: impl FnOnce(&std::path::Path),
+    ) -> Arc<Control> {
         control_with(name, scheduler, prep, Vec::new(), Vec::new())
     }
 
@@ -6665,6 +6750,7 @@ mod tests {
             dql: scheduler,
             alarm: scheduler,
             uplink: scheduler,
+            keep_previous_days: 7,
         };
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
     }

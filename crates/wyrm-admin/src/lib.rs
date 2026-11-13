@@ -14,6 +14,7 @@ pub mod official;
 pub mod packages;
 pub mod peers;
 pub mod registry;
+pub mod restore;
 pub mod secret;
 pub mod secrets;
 pub mod supervisor;

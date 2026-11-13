@@ -178,8 +178,9 @@ operator certificate.
    **Accept Requested Rights** (`accept: true`) such an install answers
    `success: false` with the list (`… asks for: network 10.0.5.0/24:502; read
    on wy/plant/downstream/mock`) and installs nothing. Read the list, then
-   install again with it on (security review WASM-1, ADR 0031). An upgrade of
-   a package keeps the rights its links already have.
+   install again with it on (security review WASM-1, ADR 0031). An update of
+   a package keeps the rights its links already have; rights the new version
+   asks for beyond them need **Accept Requested Rights** again (section 5a).
 4. **Move into place** with one rename:
    `<data_dir>/packages/<name>/<version>/`. A failed install leaves nothing.
 5. **Record.** The registry (`<data_dir>/state`, a write-ahead log) stores
@@ -217,12 +218,145 @@ written.
 |---|---|
 | Install the same package (same version, same bytes) under another *Name* | A second link of the same package. The files are reused. |
 | Install the same version with other bytes | Refused: `… is installed with other content`. Raise the version. |
-| Install a new version (any *Name* that runs the package, or a new one) | The new version replaces the old one. Every link of the package restarts on it; a running link of an app component gets the new code in place instead (hot start, section 9). The old files are deleted. Links keep their devices and points. A link that does not start is named in the result (`not restarted: <id> (<error>)`); the others run the new version. |
+| Install a new version (any *Name* that runs the package, or a new one) | An **update** (section 5a). Every link of the package restarts on the new version; a running link of an app component gets the new code in place instead (hot start, section 9). The old files are kept for a rollback. Links keep their devices and points. A link that does not start is named in the result (`not restarted: <id> (<error>)`); the health check then decides. |
 | `sys/links/<id>` ▸ Remove | The link stops and goes away. A process or external link's id is **retired**: its certificate stays valid until it expires, so the id cannot be used again (ADR 0006). |
 | `sys/packages/<name>` ▸ Remove | Refused while a link runs the package. Otherwise the package files and its WASM component are deleted. |
 
 `sys/packages/<name>` shows the version, kind, source and SHA-256 of each
-installed package.
+installed package, and what section 5a adds.
+
+## 5a. Update a package, roll back, restore points (ADR 0048)
+
+One version of a package is installed, and every link that runs the package
+is updated together. An update is safe to try: the broker keeps what it
+needs to go back.
+
+### What `sys/packages/<name>` shows
+
+| Value | Meaning |
+|---|---|
+| `version` | The installed version. |
+| `latest` | The version in the repository index (section 12). Empty for a **custom** package: one the index does not list. |
+| `update_available` | `latest` is newer than `version`. Dotted numbers compare as numbers (`1.10.0` over `1.9.2`); a release is newer than its pre-release (`1.0.0` over `1.0.0-rc1`); build metadata (`+…`) does not count. |
+| `changes_state` | The update to `latest` changes the store format (below). |
+| `state` | The store format the installed version writes. |
+| `previous` | The version kept for a rollback: `{version, keep_until, changes_state}`; an empty map when none is kept. `keep_until` is unix seconds. |
+| `last_update` | The last update or rollback: `{from, to, at, result, kept, new, gone, new_keys, gone_keys, reason, links, changes_state, restore_point}`; an empty map before the first one. |
+
+`sys/links` has the attribute `updates_available` beside `catalog`: the
+number of links whose package has `update_available`.
+`sys/links/<id>/restore_points` lists the link's restore points, newest
+first: `[{at, version, size}]` (`at` in unix seconds, `size` in bytes).
+
+### Update
+
+| Package | Action |
+|---|---|
+| In the repository | `sys/packages/<name>` ▸ **Update** `{version, accept, restore_point, auto_rollback_s}`. `version` defaults to `latest`; an index names one version of a package, so no other can be asked for. Same download and SHA-256 check as *from Repository*. |
+| Custom | **Install Link ▸** *from Zip*, *from Url* or *from Git* with a package of the same name (any *Name* that runs it). They take `accept`, `restore_point` and `auto_rollback_s` too. |
+
+`restore_point` (default true) and `auto_rollback_s` (default 120, 0 to
+600) mean nothing for a package that is not installed yet. The action
+answers **success** and **message** like an install; a wrong argument
+(`auto_rollback_s: 900`) and an unknown package are errors.
+
+What the broker does, in this order:
+
+1. **Unpack and check** the new version beside the old one (section 4,
+   steps 1–2). Nothing runs it yet.
+2. **Rights.** Grants and network entries the new version asks for and a
+   link does not have are listed, and nothing is installed, unless
+   `accept: true`. With it, each link gets them: grants as *Grant access*
+   does, network entries added to the link's `net` param (a link then
+   starts again instead of a hot start). They stay with the link after a
+   rollback: remove them by hand if you do not want them.
+3. **Store format.** If the new version does not read the installed
+   `state` (section 6), the update changes the store format: with
+   `restore_point: false` it is refused.
+4. **Restore points**, before anything stops. For every link of the
+   package: its key list (`~meta?view=keys` of its root, as a reader without
+   a token sees it) and, with `restore_point`, a copy of its private data
+   (`<data_dir>/links/<id>/data`: runtime edits of a driver, a portable
+   app's store) as `<data_dir>/restore/<id>/<UTC>.restore`, with
+   `<UTC>.meta` beside it. The copy is sealed with a key derived from
+   `secrets.key`: what a link sealed stays sealed, and the file opens only
+   on this broker (or one with its key bundle). Scratch (`uploads/`, `tmp`,
+   `*.tmp`) is left out; private data over 128 MiB is refused (update
+   without a restore point, if the store format allows it). A failure here
+   ends the update with nothing changed.
+5. **Install.** The new version goes to
+   `<data_dir>/packages/<name>/<version>/`; the old directory **stays**, and
+   the registry keeps it as `previous` until `keep_until`
+   (`packages.keep_previous_days`, default 7, 1 to 365). One previous
+   version is kept: the one before it is deleted.
+6. **Restart** every link of the package (hot start for an app component),
+   and answer. The message ends with `the links are being checked …`.
+7. **Health check**, in the background; `last_update.result` is `checking`
+   and its counts move while it runs. Every link must answer and have every
+   key it had. `kept`, `new` and `gone` count the keys (as `<link>/<path>`;
+   `new_keys` and `gone_keys` hold the first 200 of each). It ends when:
+   - every link is back with every key and that has not changed for 3 s
+     (12 s after a hot start, whose old nodes are swept after 10 s):
+     `result: ok`;
+   - `auto_rollback_s` is over and a key is `gone` or a link did not come
+     back: the broker **rolls back by itself** (`result: rolled_back`,
+     `reason` says which link and how many nodes; audit `update_rollback`);
+   - `auto_rollback_s: 0`: nothing is rolled back. The report is made when
+     every link answers and its keys have not changed for 3 s: `ok`, with
+     `gone` and a `reason` when keys are missing. A link that does not
+     answer in 120 s makes it `failed`; the new version stays.
+
+While the check runs, the package and its links are the check's: another
+install of the package, `sys/packages/<name>` ▸ Remove and a link's Start,
+Stop and Remove answer `busy`. A rebuild of the router (another link was
+installed, a grant changed) does not wait for the check and is not held up
+by it: the check steps aside and goes on with the new router, with the time
+it had left (at least 30 s). The rebuild does wait for steps 1–6 and for a
+rollback. If the broker process ends during the check, the next start closes
+the report as `failed` and the new version stays; roll back by hand if needed.
+
+A link that was stopped before the update, or has more keys than one read
+returns (10 000), has no key list: the check only waits for it to answer.
+Nodes a reader without a token cannot see (restricted subtrees) are not
+counted. The rule is strict: a node that goes away by itself during the
+check (an ad hoc query whose time is up) counts as `gone`. For a link with
+such nodes, update with `auto_rollback_s: 0` and read the report.
+
+### Roll back
+
+`sys/packages/<name>` ▸ **Roll back** `{to}` brings `previous` back, until
+`keep_until`. `to` defaults to the kept version; no other can be named.
+
+1. Every link of the package stops.
+2. The registry names the kept version again (from its kept directory).
+3. Each link's private data is replaced, as a whole, by its newest restore
+   point taken at or before that update. A link without one keeps its data
+   and the message says so; when the update changed the store format, a
+   link without one refuses the rollback (the old version could not read
+   the data).
+4. The links start; the directory of the version that was rolled back is
+   deleted.
+5. `last_update` becomes `{from, to}` of the update that was undone, with
+   `result: rolled_back`, `reason` (`rolled back by <who>`) and its counts.
+   Nothing is kept after a rollback: `previous` is empty.
+
+During the health check, Roll back stops the check, which then rolls back
+(`reason: stopped by <who>`).
+
+Audit records: `package_update` (start, and the end with the counts),
+`restore_point` (per link), `update_rollback` (with the reason and the links
+whose data was restored), beside `package_install`.
+
+### What is not kept
+
+- Restore points are pruned after `packages.keep_previous_days`, with the
+  previous version. A removed link loses its restore points.
+- A restore point holds the link's private data, not its params, grants or
+  secrets (`sys/links/<id>` ▸ History and Rollback keep the params).
+- A warm standby (docs/operations.md) does not copy `<data_dir>/restore`:
+  after a takeover a rollback has the kept version and no data to restore.
+- The format of a restore point is provisional: the link backup of ADR
+  0048 §3.5 (`.wyrm-link`) replaces it.
 
 ## 6. Package format
 
@@ -267,6 +401,16 @@ A package is a zip with `wyrm-link.json` at its root.
 | `entry` | `wasm` | The component file. |
 | `world` | no | `wasm`: `app`, `driver` or `point`, or an app world with its version: `wyrm:app@0.1.0`, `wyrm:app@0.2.0` or `wyrm:app@0.3.0` (`wyr link pack` writes the version). Informational: the broker reads the world (and an app's version) from the component and refuses a package whose `world` says otherwise; plain `app` takes any version. |
 | `capabilities` | no | A portable app (`wasm` app component or `process`): `{"net": ["10.0.5.0/24:502"], "store_mb": 4, "memory_mb": 64, "call_ms": 2000}` (section 9). |
+| `state` | no | The format of the link's private data (its store, its saved tree) that this version writes: an integer from 1, default 1. Raise it when an older version could not read what this one writes. |
+| `reads_state` | no | The formats this version reads (and moves to `state`): 1 to 32 integers, default `[state]`. It must hold the package's own `state`. |
+
+`state` and `reads_state` tell the broker whether an update changes the
+store format (section 5a): it does when the new version's `reads_state`
+does not hold the installed version's `state`. A version that writes format
+3 and migrates from 2 says `"state": 3, "reads_state": [2, 3]`; updating
+from a version of state 1 to it changes the format, from state 2 it does
+not. A package that names neither is state 1 and reads 1. The broker never
+reads a link's data: the numbers are the package author's word.
 
 Unknown fields are refused, so a typo does not pass silently.
 
@@ -319,6 +463,8 @@ features = ["bin"]                # Cargo features to build with
 bin = "wyrm-example-recorder"     # default: the crate's only binary
 args = []
 requester = [{ path = "wy/{site}/downstream/mock", level = "read" }]
+state = 2                         # default 1 (section 6)
+reads_state = [1, 2]              # default [state]
 ```
 
 ```sh
@@ -707,7 +853,10 @@ after a success keeps the index read last. Without
 `packages.repository` the item is still in the menu and says how to set it.
 
 An index may carry more fields than these (the official index does, §12a);
-the broker ignores fields it does not know.
+the broker ignores fields it does not know. `wyr repo add` and the official
+index copy `state` and `reads_state` from a manifest that names them, so
+`sys/packages/<name>/changes_state` is known before the zip is fetched (the
+manifest in the zip decides at the update).
 
 ## 12a. Official links
 
@@ -826,6 +975,9 @@ link root with `attr.check`, and clients ask only links that have it. A WASM com
 | Download (*from Url*, *from Repository*) | 64 MiB, 90 s, 3 redirects, HTTPS (HTTP to loopback only) |
 | Repository index | 4 MiB, 1000 packages |
 | Install action | 120 s |
+| Update: health check (`auto_rollback_s`) | default 120 s, 0 (report only) to 600 s |
+| Restore point | 128 MiB of private data, 10 000 files; kept `packages.keep_previous_days` (7, 1 to 365) |
+| `last_update` | 200 keys of `new` and of `gone` |
 | `git clone` | 120 s, depth 1, HTTPS only, needs `git` on the broker host |
 | WASM component | 16 MiB |
 | WASM call, `driver`/`point` component (section 8) | `call_ms` (2 s, at most 10 s), 100 M fuel, 16 MiB memory |
@@ -849,6 +1001,10 @@ link root with `attr.check`, and clients ask only links that have it. A WASM com
 | `… plain http only to a loopback address` | Use HTTPS. |
 | `repository unreachable: …` | The index could not be fetched; check `packages.repository`. |
 | `the broker is restarting; try again` | Another install rebuilt the router; repeat the action. |
+| `the update of … is being checked` | The health check of an update of this package runs (section 5a): wait for `last_update`, or stop it with Roll back. |
+| `… changes the store format …` | The new version does not read the installed `state`: update with `restore_point: true`. |
+| `… asks for more than its links have: …` | The new version needs new grants or network entries: read them, then update with Accept Requested Rights. |
+| `… is on disk with other content` | The version is the kept previous one with other bytes: raise the version. |
 | `… is not in the link's net list` (point error) | Add the device address and port to the connection's Network. |
 
 ## 16. Try it in the demo
