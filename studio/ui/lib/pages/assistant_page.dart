@@ -38,15 +38,20 @@ final class TaskCardVm extends Equatable {
   const TaskCardVm({
     required this.title,
     required this.note,
+    this.caution = false,
     this.buttons = const [],
   });
 
   final String title;
   final String note;
+
+  /// The note asks for attention (a plan that waits, a task that failed):
+  /// it is drawn on the warning tint. Else it is plain grey text.
+  final bool caution;
   final List<TaskButtonVm> buttons;
 
   @override
-  List<Object?> get props => [title, note, buttons];
+  List<Object?> get props => [title, note, caution, buttons];
 }
 
 /// One `kind  key` row of WHAT IT READ.
@@ -290,6 +295,8 @@ class _Card extends StatelessWidget {
     final c = context.colors;
     return Container(
       margin: const EdgeInsets.only(left: 42),
+      // the note's band ends at the card's rounded corners
+      clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.line2),
@@ -303,11 +310,17 @@ class _Card extends StatelessWidget {
             child: SectionLabel(vm.title),
           ),
           Container(
-            color: c.warnTint,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            color: vm.caution ? c.warnTint : null,
+            padding: vm.caution
+                ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
+                : const EdgeInsets.fromLTRB(14, 0, 14, 12),
             child: Text(
               vm.note,
-              style: TextStyle(fontSize: 13, height: 1.45, color: c.warn),
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.45,
+                color: vm.caution ? c.warn : c.text3,
+              ),
             ),
           ),
           if (vm.buttons.isNotEmpty)

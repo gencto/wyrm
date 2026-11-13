@@ -284,7 +284,7 @@ pub fn definitions() -> Json {
          "input_schema": {"type": "object", "properties": {"path": path, "match": {"type": "string"}, "depth": {"type": "integer"}}, "required": ["path"]}},
         {"name": "node_meta", "description": "Full ~meta of a node: type, unit, enum, writable level, cfg (min/max), attr, actions with parameter schemas and levels, children. expand=true folds in the profile chain.",
          "input_schema": {"type": "object", "properties": {"path": path, "expand": {"type": "boolean"}}, "required": ["path"]}},
-        {"name": "value_get", "description": "Current values (~val) of up to 200 nodes: {path: {v, q, t}} or {error}.",
+        {"name": "value_get", "description": "Current values (~val) of up to 200 nodes: {path: {v, q, t}} or {error}. An enum value has `v` = its index and `name` = its name; report the name.",
          "input_schema": {"type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string"}}}, "required": ["paths"]}},
         {"name": "profiles", "description": "Node profiles under wy/<site>/pub/<name>/~meta. This is also the device-model catalog: a profile named `<vendor>:<model>` describes one device model, and its `attr` carries the model data (e.g. `registers`, point profiles, typical cfg, documentation links). Filter by a name substring.",
          "input_schema": {"type": "object", "properties": {"filter": {"type": "string"}}}},
@@ -446,11 +446,22 @@ impl Reader<'_> {
             let Some(path) = p.as_str() else { continue };
             let r =
                 match node_key(self.site, path).and_then(|n| self.policy.may_read(&n).map(|_| n)) {
-                    Ok(node) => self
-                        .read_val(&node)
-                        .await
-                        .map(|s| sample_to_json(&s))
-                        .unwrap_or_else(|e| json!({ "error": e })),
+                    Ok(node) => match self.read_val(&node).await {
+                        Ok(s) => {
+                            let mut j = sample_to_json(&s);
+                            // An enum travels as its index: the model gets the
+                            // name beside it, so it never reports a bare code.
+                            if let Some(i) = enum_index(&s.v) {
+                                if let Ok(m) = self.client.meta(&node).await {
+                                    if let Some(name) = enum_name(m.enum_values.as_deref(), i) {
+                                        j["name"] = name.into();
+                                    }
+                                }
+                            }
+                            j
+                        }
+                        Err(e) => json!({ "error": e }),
+                    },
                     Err(e) => json!({ "error": e }),
                 };
             out.insert(path.to_owned(), r);
@@ -546,9 +557,36 @@ fn spec(input: &Json) -> Json {
     }
 }
 
+/// The index an enum value would have: a whole number that is not negative.
+fn enum_index(v: &Value) -> Option<usize> {
+    match v {
+        Value::UInt(u) => usize::try_from(*u).ok(),
+        Value::Int(i) => usize::try_from(*i).ok(),
+        _ => None,
+    }
+}
+
+/// The name of index `i` in a node's enum, when the node has one.
+fn enum_name(values: Option<&[String]>, i: usize) -> Option<&str> {
+    values?.get(i).map(String::as_str)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_enum_value_has_a_name() {
+        let names = ["new".to_owned(), "connecting".into(), "connected".into()];
+        assert_eq!(enum_index(&Value::UInt(2)), Some(2));
+        assert_eq!(enum_index(&Value::Int(2)), Some(2));
+        assert_eq!(enum_index(&Value::Int(-1)), None);
+        assert_eq!(enum_index(&Value::Float(2.0)), None);
+        assert_eq!(enum_name(Some(&names), 2), Some("connected"));
+        // past the list, or a node with no enum: the number stays alone
+        assert_eq!(enum_name(Some(&names), 9), None);
+        assert_eq!(enum_name(None, 2), None);
+    }
 
     #[test]
     fn approval_bar_never_drops_after_planning() {
