@@ -114,7 +114,7 @@ fn choice(display: &str, values: &[&str], about: &str) -> ParamMeta {
 }
 
 fn formats(kind: Kind) -> Vec<&'static str> {
-    kind.formats().iter().map(|f| f.name()).collect()
+    kind.format_names()
 }
 
 fn bot_form(kind: Kind, add: bool) -> ActionMeta {
@@ -274,7 +274,7 @@ fn user_form(add: bool) -> ActionMeta {
         "level",
         choice(
             "Level",
-            &["read", "write"],
+            &crate::model::LEVELS,
             "read: /get; write: also /set and /do.",
         ),
     )

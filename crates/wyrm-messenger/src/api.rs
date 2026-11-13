@@ -241,6 +241,12 @@ impl Platform {
         self.default_api
     }
 
+    /// The names of [`Self::formats`], in the order the forms declare them
+    /// (a typed enum's index counts in this list).
+    pub fn format_names(&self) -> Vec<&'static str> {
+        self.formats().iter().map(|f| f.name()).collect()
+    }
+
     pub fn formats(&self) -> &'static [Format] {
         self.formats
     }

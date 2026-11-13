@@ -70,19 +70,9 @@ pub fn get_f64(m: &Map, k: &str) -> Result<Option<f64>, AppError> {
 /// An enum argument: through an action its index (the SDK checks `enum` params that way, as
 /// the scheduler's `confirm`), in an import or a stored map its name; `None` when absent.
 pub fn enum_arg(m: &Map, k: &str, names: &[&str]) -> Result<Option<String>, AppError> {
-    let bad = || invalid(k, format!("one of {} (by index)", names.join(", ")));
-    let at = |i: usize| names.get(i).map(|n| (*n).to_owned()).ok_or_else(bad);
-    match m.get(k) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Str(s)) if names.contains(&s.as_str()) => Ok(Some(s.clone())),
-        Some(Value::UInt(i)) => at(*i as usize).map(Some),
-        Some(Value::Int(i)) => usize::try_from(*i)
-            .map_err(|_| bad())
-            .and_then(at)
-            .map(Some),
-        Some(Value::Float(f)) if f.fract() == 0.0 && *f >= 0.0 => at(*f as usize).map(Some),
-        Some(_) => Err(bad()),
-    }
+    wyrm_link_api::args::enum_name(m.get(k), names)
+        .map(|n| n.map(str::to_owned))
+        .map_err(|e| invalid(k, format!("{e} (by index)")))
 }
 
 /// An instant stored as a number (CBOR gives a positive integer back as unsigned).

@@ -115,6 +115,15 @@ impl Form<'_> {
         }
     }
 
+    /// A typed enum (spec 02): its index in [names], the list the action's
+    /// meta declares in that order, or the name itself (a store, an import,
+    /// a hand-written plan). `None` when absent, null or empty.
+    pub fn choice(&self, k: &str, names: &[&str]) -> Result<Option<String>, String> {
+        wyrm_link_api::args::enum_name(self.0.get(k), names)
+            .map(|n| n.map(str::to_owned))
+            .map_err(|e| format!("{k}: {e}"))
+    }
+
     pub fn required(&self, k: &str) -> Result<String, String> {
         self.text(k)?.ok_or_else(|| format!("{k}: required"))
     }
@@ -339,7 +348,7 @@ impl BotDef {
         if let Some(net) = net {
             check_net(net, &endpoint)?;
         }
-        let format = match f.text("format")? {
+        let format = match f.choice("format", &kind.format_names())? {
             None => kind.default_format(),
             Some(s) => Format::from_name(&s)
                 .filter(|x| kind.formats().contains(x))
@@ -550,11 +559,11 @@ impl Template {
         check_name(name, "name")?;
         let f = Form(m);
         f.reject_unknown(&TEMPLATE_FIELDS)?;
-        let msg = match f.text("kind")? {
+        let msg = match f.choice("kind", &MsgKind::ALL.map(MsgKind::name))? {
             None => MsgKind::Text,
             Some(s) => MsgKind::from_name(&s).ok_or("kind: text, photo, document or location")?,
         };
-        let format = match f.text("format")? {
+        let format = match f.choice("format", &kind.format_names())? {
             None => kind.default_format(),
             Some(s) => Format::from_name(&s)
                 .filter(|x| kind.formats().contains(x))
@@ -819,12 +828,15 @@ pub struct User {
 
 pub const USER_FIELDS: [&str; 2] = ["level", "select"];
 
+/// The levels a chat user may have, in the order the forms declare them.
+pub const LEVELS: [&str; 2] = ["read", "write"];
+
 impl User {
     /// The level and selection of an Invite or Edit form.
     pub fn parse_rights(m: &Map, site: Option<&str>) -> Result<(Perm, Vec<String>), String> {
         let f = Form(m);
         f.reject_unknown(&USER_FIELDS)?;
-        let level = match f.text("level")?.as_deref() {
+        let level = match f.choice("level", &LEVELS)?.as_deref() {
             None | Some("read") => Perm::Read,
             Some("write") => Perm::Write,
             Some(_) => return Err("level: read or write".into()),
@@ -915,6 +927,45 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), Value::Str((*v).to_owned())))
             .collect()
+    }
+
+    /// A typed enum arrives as its index in the list the form declares
+    /// (spec 02; the MCP connector and Studio send it so), or as its name.
+    #[test]
+    fn typed_enums_are_read_by_index_or_name() {
+        let with = |k: &str, v: Value| -> Map { [(k.to_owned(), v)].into_iter().collect() };
+        // CHATTY declares html, markdown, plain
+        let b = BotDef::parse("ops", &CHATTY, &with("format", Value::UInt(0)), None).unwrap();
+        assert_eq!(b.format, Format::Html);
+        let b = BotDef::parse("ops", &CHATTY, &with("format", Value::UInt(2)), None).unwrap();
+        assert_eq!(b.format, Format::Plain);
+        let e = BotDef::parse("ops", &CHATTY, &with("format", Value::UInt(3)), None);
+        assert_eq!(e.unwrap_err(), "format: one of html, markdown, plain");
+        let e = BotDef::parse("ops", &CHATTY, &with("format", Value::Int(-1)), None);
+        assert!(e.unwrap_err().starts_with("format: one of"));
+        // QUIET declares mrkdwn, plain: index 0 is mrkdwn there
+        let b = BotDef::parse("ops", &QUIET, &with("format", Value::UInt(0)), None).unwrap();
+        assert_eq!(b.format, Format::Mrkdwn);
+
+        let (level, _) = User::parse_rights(&with("level", Value::UInt(1)), Some("s")).unwrap();
+        assert_eq!(level, Perm::Write);
+        let (level, _) = User::parse_rights(&with("level", Value::UInt(0)), Some("s")).unwrap();
+        assert_eq!(level, Perm::Read);
+        let (level, _) =
+            User::parse_rights(&with("level", Value::Str("write".into())), Some("s")).unwrap();
+        assert_eq!(level, Perm::Write);
+        assert!(User::parse_rights(&with("level", Value::UInt(2)), Some("s")).is_err());
+
+        let mut t = with("kind", Value::UInt(1));
+        t.insert("format".into(), Value::UInt(0));
+        t.insert("text".into(), Value::Str("hi".into()));
+        t.insert(
+            "media".into(),
+            Value::Str("https://example.com/a.png".into()),
+        );
+        let tpl = Template::parse("t", &CHATTY, &t).unwrap();
+        assert_eq!(tpl.kind, MsgKind::Photo);
+        assert_eq!(tpl.format, Format::Html);
     }
 
     #[test]

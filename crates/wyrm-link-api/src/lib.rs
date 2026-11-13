@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod args;
 pub mod buffer;
 pub mod net;
 mod rights;
