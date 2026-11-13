@@ -261,3 +261,19 @@ class SystemRoute extends PageRouteInfo<void> {
     },
   );
 }
+
+/// generated route for
+/// [ViewsLabPageConnector]
+class ViewsLabRoute extends PageRouteInfo<void> {
+  const ViewsLabRoute({List<PageRouteInfo>? children})
+    : super(ViewsLabRoute.name, initialChildren: children);
+
+  static const String name = 'ViewsLabRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const ViewsLabPageConnector();
+    },
+  );
+}

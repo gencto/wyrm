@@ -10760,6 +10760,296 @@ class S {
       args: [],
     );
   }
+
+  /// `Views lab`
+  String get viewsLab {
+    return Intl.message('Views lab', name: 'viewsLab', desc: '', args: []);
+  }
+
+  /// `GenUI prototype: a stored A2UI document drawn with live values.`
+  String get viewsLabNote {
+    return Intl.message(
+      'GenUI prototype: a stored A2UI document drawn with live values.',
+      name: 'viewsLabNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sample`
+  String get viewsSample {
+    return Intl.message('Sample', name: 'viewsSample', desc: '', args: []);
+  }
+
+  /// `Pasted`
+  String get viewsPasted {
+    return Intl.message('Pasted', name: 'viewsPasted', desc: '', args: []);
+  }
+
+  /// `Paste JSONL`
+  String get viewsPaste {
+    return Intl.message('Paste JSONL', name: 'viewsPaste', desc: '', args: []);
+  }
+
+  /// `Show`
+  String get viewsShow {
+    return Intl.message('Show', name: 'viewsShow', desc: '', args: []);
+  }
+
+  /// `Apply the refine turn`
+  String get viewsRefine {
+    return Intl.message(
+      'Apply the refine turn',
+      name: 'viewsRefine',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Project`
+  String get viewsProject {
+    return Intl.message('Project', name: 'viewsProject', desc: '', args: []);
+  }
+
+  /// `Last action`
+  String get viewsResult {
+    return Intl.message('Last action', name: 'viewsResult', desc: '', args: []);
+  }
+
+  /// `Desktop`
+  String get viewsWidthDesktop {
+    return Intl.message(
+      'Desktop',
+      name: 'viewsWidthDesktop',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Panel 10"`
+  String get viewsWidthPanel {
+    return Intl.message(
+      'Panel 10"',
+      name: 'viewsWidthPanel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Phone`
+  String get viewsWidthPhone {
+    return Intl.message('Phone', name: 'viewsWidthPhone', desc: '', args: []);
+  }
+
+  /// `Density`
+  String get viewsDensity {
+    return Intl.message('Density', name: 'viewsDensity', desc: '', args: []);
+  }
+
+  /// `By width`
+  String get viewsDensityAuto {
+    return Intl.message(
+      'By width',
+      name: 'viewsDensityAuto',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Panel`
+  String get viewsDensityPanel {
+    return Intl.message('Panel', name: 'viewsDensityPanel', desc: '', args: []);
+  }
+
+  /// `Kiosk`
+  String get viewsDensityKiosk {
+    return Intl.message('Kiosk', name: 'viewsDensityKiosk', desc: '', args: []);
+  }
+
+  /// `Checks`
+  String get viewsTabChecks {
+    return Intl.message('Checks', name: 'viewsTabChecks', desc: '', args: []);
+  }
+
+  /// `A2UI`
+  String get viewsTabMessages {
+    return Intl.message('A2UI', name: 'viewsTabMessages', desc: '', args: []);
+  }
+
+  /// `Data`
+  String get viewsTabData {
+    return Intl.message('Data', name: 'viewsTabData', desc: '', args: []);
+  }
+
+  /// `Nothing is checked yet.`
+  String get viewsNoChecks {
+    return Intl.message(
+      'Nothing is checked yet.',
+      name: 'viewsNoChecks',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The document draws nothing.`
+  String get viewsEmpty {
+    return Intl.message(
+      'The document draws nothing.',
+      name: 'viewsEmpty',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Write this value?`
+  String get viewsConfirmSetTitle {
+    return Intl.message(
+      'Write this value?',
+      name: 'viewsConfirmSetTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Run this action?`
+  String get viewsConfirmRunTitle {
+    return Intl.message(
+      'Run this action?',
+      name: 'viewsConfirmRunTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Write {value} to {key}?`
+  String viewsConfirmSet(String value, String key) {
+    return Intl.message(
+      'Write $value to $key?',
+      name: 'viewsConfirmSet',
+      desc: '',
+      args: [value, key],
+    );
+  }
+
+  /// `Run {action} on {key}?`
+  String viewsConfirmRun(String action, String key) {
+    return Intl.message(
+      'Run $action on $key?',
+      name: 'viewsConfirmRun',
+      desc: '',
+      args: [action, key],
+    );
+  }
+
+  /// `Write`
+  String get viewsWrite {
+    return Intl.message('Write', name: 'viewsWrite', desc: '', args: []);
+  }
+
+  /// `Run`
+  String get viewsRun {
+    return Intl.message('Run', name: 'viewsRun', desc: '', args: []);
+  }
+
+  /// `Cancel`
+  String get viewsCancel {
+    return Intl.message('Cancel', name: 'viewsCancel', desc: '', args: []);
+  }
+
+  /// `{part} is not in the catalog`
+  String viewsUnknownPart(String part) {
+    return Intl.message(
+      '$part is not in the catalog',
+      name: 'viewsUnknownPart',
+      desc: '',
+      args: [part],
+    );
+  }
+
+  /// `no data`
+  String get viewsNoData {
+    return Intl.message('no data', name: 'viewsNoData', desc: '', args: []);
+  }
+
+  /// `bad quality`
+  String get viewsBadQuality {
+    return Intl.message(
+      'bad quality',
+      name: 'viewsBadQuality',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `uncertain`
+  String get viewsUncertain {
+    return Intl.message(
+      'uncertain',
+      name: 'viewsUncertain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `running`
+  String get viewsRunning {
+    return Intl.message('running', name: 'viewsRunning', desc: '', args: []);
+  }
+
+  /// `stopped`
+  String get viewsStopped {
+    return Intl.message('stopped', name: 'viewsStopped', desc: '', args: []);
+  }
+
+  /// `fault`
+  String get viewsFault {
+    return Intl.message('fault', name: 'viewsFault', desc: '', args: []);
+  }
+
+  /// `live`
+  String get viewsLive {
+    return Intl.message('live', name: 'viewsLive', desc: '', args: []);
+  }
+
+  /// `No active alarms`
+  String get viewsAlarmsNone {
+    return Intl.message(
+      'No active alarms',
+      name: 'viewsAlarmsNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} active`
+  String viewsAlarmsActive(int n) {
+    return Intl.message(
+      '$n active',
+      name: 'viewsAlarmsActive',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Acknowledge`
+  String get viewsAcknowledge {
+    return Intl.message(
+      'Acknowledge',
+      name: 'viewsAcknowledge',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Back`
+  String get viewsBack {
+    return Intl.message('Back', name: 'viewsBack', desc: '', args: []);
+  }
+
+  /// `More`
+  String get viewsMore {
+    return Intl.message('More', name: 'viewsMore', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

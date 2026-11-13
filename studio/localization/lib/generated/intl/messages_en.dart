@@ -574,23 +574,31 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m245(keys) => "${keys} saves · Esc discards the changes";
 
-  static String m246(n, who) => "${n} waiting to be let in: ${who}";
+  static String m246(n) => "${n} active";
 
-  static String m247(value) => "was ${value}";
+  static String m247(action, key) => "Run ${action} on ${key}?";
 
-  static String m248(n) => "Watch groups · ${n}";
+  static String m248(value, key) => "Write ${value} to ${key}?";
 
-  static String m249(user) => "Welcome, ${user}";
+  static String m249(part) => "${part} is not in the catalog";
 
-  static String m250(value) => "would run on ${value}";
+  static String m250(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m251(value) => "would send ${value}";
+  static String m251(value) => "was ${value}";
 
-  static String m252(value) => "would write ${value}";
+  static String m252(n) => "Watch groups · ${n}";
 
-  static String m253(level) => "Turning this on needs ${level} level";
+  static String m253(user) => "Welcome, ${user}";
 
-  static String m254(site) => "wyrmd on ${site}";
+  static String m254(value) => "would run on ${value}";
+
+  static String m255(value) => "would send ${value}";
+
+  static String m256(value) => "would write ${value}";
+
+  static String m257(level) => "Turning this on needs ${level} level";
+
+  static String m258(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2602,15 +2610,68 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("As table"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Text"),
     "viewerTableHint": m245,
+    "viewsAcknowledge": MessageLookupByLibrary.simpleMessage("Acknowledge"),
+    "viewsAlarmsActive": m246,
+    "viewsAlarmsNone": MessageLookupByLibrary.simpleMessage("No active alarms"),
+    "viewsBack": MessageLookupByLibrary.simpleMessage("Back"),
+    "viewsBadQuality": MessageLookupByLibrary.simpleMessage("bad quality"),
+    "viewsCancel": MessageLookupByLibrary.simpleMessage("Cancel"),
+    "viewsConfirmRun": m247,
+    "viewsConfirmRunTitle": MessageLookupByLibrary.simpleMessage(
+      "Run this action?",
+    ),
+    "viewsConfirmSet": m248,
+    "viewsConfirmSetTitle": MessageLookupByLibrary.simpleMessage(
+      "Write this value?",
+    ),
+    "viewsDensity": MessageLookupByLibrary.simpleMessage("Density"),
+    "viewsDensityAuto": MessageLookupByLibrary.simpleMessage("By width"),
+    "viewsDensityKiosk": MessageLookupByLibrary.simpleMessage("Kiosk"),
+    "viewsDensityPanel": MessageLookupByLibrary.simpleMessage("Panel"),
+    "viewsEmpty": MessageLookupByLibrary.simpleMessage(
+      "The document draws nothing.",
+    ),
+    "viewsFault": MessageLookupByLibrary.simpleMessage("fault"),
+    "viewsLab": MessageLookupByLibrary.simpleMessage("Views lab"),
+    "viewsLabNote": MessageLookupByLibrary.simpleMessage(
+      "GenUI prototype: a stored A2UI document drawn with live values.",
+    ),
+    "viewsLive": MessageLookupByLibrary.simpleMessage("live"),
+    "viewsMore": MessageLookupByLibrary.simpleMessage("More"),
+    "viewsNoChecks": MessageLookupByLibrary.simpleMessage(
+      "Nothing is checked yet.",
+    ),
+    "viewsNoData": MessageLookupByLibrary.simpleMessage("no data"),
+    "viewsPaste": MessageLookupByLibrary.simpleMessage("Paste JSONL"),
+    "viewsPasted": MessageLookupByLibrary.simpleMessage("Pasted"),
+    "viewsProject": MessageLookupByLibrary.simpleMessage("Project"),
+    "viewsRefine": MessageLookupByLibrary.simpleMessage(
+      "Apply the refine turn",
+    ),
+    "viewsResult": MessageLookupByLibrary.simpleMessage("Last action"),
+    "viewsRun": MessageLookupByLibrary.simpleMessage("Run"),
+    "viewsRunning": MessageLookupByLibrary.simpleMessage("running"),
+    "viewsSample": MessageLookupByLibrary.simpleMessage("Sample"),
+    "viewsShow": MessageLookupByLibrary.simpleMessage("Show"),
+    "viewsStopped": MessageLookupByLibrary.simpleMessage("stopped"),
+    "viewsTabChecks": MessageLookupByLibrary.simpleMessage("Checks"),
+    "viewsTabData": MessageLookupByLibrary.simpleMessage("Data"),
+    "viewsTabMessages": MessageLookupByLibrary.simpleMessage("A2UI"),
+    "viewsUncertain": MessageLookupByLibrary.simpleMessage("uncertain"),
+    "viewsUnknownPart": m249,
+    "viewsWidthDesktop": MessageLookupByLibrary.simpleMessage("Desktop"),
+    "viewsWidthPanel": MessageLookupByLibrary.simpleMessage("Panel 10\""),
+    "viewsWidthPhone": MessageLookupByLibrary.simpleMessage("Phone"),
+    "viewsWrite": MessageLookupByLibrary.simpleMessage("Write"),
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m246,
-    "wasValue": m247,
+    "waitingToBeLetIn": m250,
+    "wasValue": m251,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m248,
-    "welcomeUser": m249,
+    "watchGroups": m252,
+    "welcomeUser": m253,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Bring your own package only when it is not in the official list. A zip, a URL or a Git repository with a built package, or one component.",
@@ -2646,10 +2707,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "wouldRun": m250,
-    "wouldSend": m251,
-    "wouldWrite": m252,
-    "writableNeeds": m253,
+    "wouldRun": m254,
+    "wouldSend": m255,
+    "wouldWrite": m256,
+    "writableNeeds": m257,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.",
     ),
@@ -2661,7 +2722,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m254,
+    "wyrmdOn": m258,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

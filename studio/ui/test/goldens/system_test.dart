@@ -85,6 +85,7 @@ void main() {
     await tester.pumpWidget(
       frame(
         SystemPage(
+          onTapViewsLab: page.onTapViewsLab,
           title: page.title,
           meta: page.meta,
           tabs: page.tabs,

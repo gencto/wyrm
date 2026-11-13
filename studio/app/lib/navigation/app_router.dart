@@ -17,6 +17,7 @@ import '../connectors/sites_page_connector.dart';
 import '../connectors/splash_page_connector.dart';
 import '../connectors/studio_page_connector.dart';
 import '../connectors/system_page_connector.dart';
+import '../connectors/views_lab_page_connector.dart';
 
 part 'app_router.gr.dart';
 
@@ -64,6 +65,7 @@ class AppRouter extends RootStackRouter {
     ),
     AutoRoute(page: LinkInstallRoute.page, path: '/link-install'),
     AutoRoute(page: FlowEditorRoute.page, path: '/flow-editor/:id'),
+    AutoRoute(page: ViewsLabRoute.page, path: '/views-lab'),
   ];
 }
 

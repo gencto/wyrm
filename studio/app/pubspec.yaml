@@ -51,6 +51,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  # The samples of the views lab (copies of docs/design/genui).
+  assets:
+    - assets/views/
+
   # assets:
     # BASE_URL="http://localhost:8080"
     # - .env

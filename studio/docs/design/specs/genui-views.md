@@ -91,8 +91,8 @@ Studio does not build for the browser today: `dart/wyrm_client/lib/src/gateway.d
 
 ## 8. Findings
 _(filled in by the prototype)_
-- genui version and API used:
-- Q1 messages without a model:
+- genui version and API used: `genui` 0.10.4 with `a2ui_core` 0.1.1 and `json_schema_builder` 0.1.7 (Flutter 3.50.0).
+- Q1 messages without a model: yes. `SurfaceController(catalogs: [wyrmCatalog()])`, then `controller.handleMessage(A2uiMessage.fromJson(map))` per stored line, and `Surface(surfaceContext: controller.contextFor(surfaceId))` draws it; no `Conversation`, no `Transport`, no model. `A2uiMessage` is a class of `a2ui_core`, which `genui` does not export, so `ui` depends on `a2ui_core` itself. `A2uiMessage.fromJson` refuses every `version` but the exact text `v0.9` (the samples say `v0.9.1`), so Studio rewrites the field before it hands a line over.
 - Q2 live data model writes, rate, rebuild scope:
 - Q3 action interception:
 - Q4 templates over `~children`:

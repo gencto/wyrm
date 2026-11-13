@@ -563,6 +563,21 @@ sequenceDiagram
     A1->>ST: copyWith(problems.notices)
 ```
 
+## onTapViewsLab
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant NAV as Router
+
+    User->>UI: onTapViewsLab
+    UI->>VM: onTapViewsLab()
+    VM->>NAV: GoAction.push ViewsLabRoute
+```
+
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onShow` | `SetShownAction`, `WatchKeysAction`, `RetrieveSysAboutAction`, `RetrieveProfilesAction`, `RetrieveQuarantineAction`, `RetrieveSystemLogAction` ?, `RetrieveLinksAction`, `RetrievePeersAction` ? | `system.shown`, `live.watched`, `system.about, system.units`, `system.profiles, system.profilesNote`, `quarantine.table, quarantine.view, quarantine.forms`, `links.version, links.table, links.view`, `peers.table, peers.view` |
@@ -591,6 +606,7 @@ sequenceDiagram
 | `onAttention` | `SetTabAction`, `links_slice.SetTabAction`, `SetSelectedLinkAction`, `links_slice.SetTabAction`, `SetSelectedEntryAction`, `SetSelectedPeerAction`, `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | `system.tab`, `links.selectedLink`, `quarantine.selectedEntry`, `peers.selectedPeer` |
 | `onElsewhere` | `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | — |
 | `onGuide` | `ShowNoticeAction` | `problems.notices` |
+| `onTapViewsLab` | `GoAction.push` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

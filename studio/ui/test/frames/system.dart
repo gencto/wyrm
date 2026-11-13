@@ -151,6 +151,7 @@ SystemPage _page({
       ),
   ];
   return SystemPage(
+    onTapViewsLab: () {},
     title: 'wyrmd on plant',
     pill: const StatusPillVm(label: 'Running · active', tone: Tone.good),
     meta: loading ? '—' : '0.1.0 · Zenoh 1.10.1 · rust (prod) · started 2026-11-04 21:58 UTC · up 6 d 4 h',

@@ -152,6 +152,7 @@ class SystemPageConnector extends StatelessWidget {
           onRemoveProfile: (name) => vm.onRemoveProfile(context, name),
           onCopyCommand: (id) => vm.onCopyCommand(context, id),
           onElsewhere: (id) => vm.onElsewhere(context, id),
+          onTapViewsLab: vm.onTapViewsLab,
         ),
       ),
     ),
@@ -353,6 +354,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         unawaited(Clipboard.setData(const ClipboardData(text: _guideUrl)));
         _say(context, S.current.sysGuideCopied(_guideUrl));
       },
+      onTapViewsLab: () => dispatch(GoAction.push(const ViewsLabRoute())),
     );
   }
 
@@ -1048,6 +1050,8 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         ElsewhereVm(id: 'sites', label: S.current.sysElsewhereSites),
         ElsewhereVm(id: 'access', label: S.current.sysElsewhereAccess),
         ElsewhereVm(id: 'history', label: S.current.sysElsewhereHistory),
+        // The GenUI views prototype (docs/design/specs/genui-views.md).
+        ElsewhereVm(id: SystemPage.viewsLabId, label: S.current.viewsLab),
         // The gallery of the design system, in development builds only.
         if (kDebugMode)
           ElsewhereVm(id: 'gallery', label: S.current.designGallery),
@@ -1396,6 +1400,7 @@ class _Vm extends Vm {
     required this.onAttention,
     required this.onElsewhere,
     required this.onGuide,
+    required this.onTapViewsLab,
   }) : super(
          equals: [
            site,
@@ -1454,4 +1459,6 @@ class _Vm extends Vm {
   final void Function(BuildContext context, String id) onAttention;
   final void Function(BuildContext context, String id) onElsewhere;
   final void Function(BuildContext context) onGuide;
+
+  final void Function() onTapViewsLab;
 }

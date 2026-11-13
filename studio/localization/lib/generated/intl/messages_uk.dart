@@ -573,23 +573,31 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m245(keys) => "${keys} зберігає · Esc відкидає зміни";
 
-  static String m246(n, who) => "${n} чекають на допуск: ${who}";
+  static String m246(n) => "${n} активних";
 
-  static String m247(value) => "було ${value}";
+  static String m247(action, key) => "Виконати ${action} на ${key}?";
 
-  static String m248(n) => "Групи спостереження · ${n}";
+  static String m248(value, key) => "Записати ${value} у ${key}?";
 
-  static String m249(user) => "Вітаємо, ${user}";
+  static String m249(part) => "${part} немає в каталозі";
 
-  static String m250(value) => "запустив би на ${value}";
+  static String m250(n, who) => "${n} чекають на допуск: ${who}";
 
-  static String m251(value) => "надіслав би ${value}";
+  static String m251(value) => "було ${value}";
 
-  static String m252(value) => "записав би ${value}";
+  static String m252(n) => "Групи спостереження · ${n}";
 
-  static String m253(level) => "Щоб увімкнути, потрібен рівень ${level}";
+  static String m253(user) => "Вітаємо, ${user}";
 
-  static String m254(site) => "wyrmd на ${site}";
+  static String m254(value) => "запустив би на ${value}";
+
+  static String m255(value) => "надіслав би ${value}";
+
+  static String m256(value) => "записав би ${value}";
+
+  static String m257(level) => "Щоб увімкнути, потрібен рівень ${level}";
+
+  static String m258(site) => "wyrmd на ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2645,15 +2653,70 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("Як таблиця"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Текст"),
     "viewerTableHint": m245,
+    "viewsAcknowledge": MessageLookupByLibrary.simpleMessage("Підтвердити"),
+    "viewsAlarmsActive": m246,
+    "viewsAlarmsNone": MessageLookupByLibrary.simpleMessage(
+      "Немає активних тривог",
+    ),
+    "viewsBack": MessageLookupByLibrary.simpleMessage("Назад"),
+    "viewsBadQuality": MessageLookupByLibrary.simpleMessage("погана якість"),
+    "viewsCancel": MessageLookupByLibrary.simpleMessage("Скасувати"),
+    "viewsConfirmRun": m247,
+    "viewsConfirmRunTitle": MessageLookupByLibrary.simpleMessage(
+      "Виконати цю дію?",
+    ),
+    "viewsConfirmSet": m248,
+    "viewsConfirmSetTitle": MessageLookupByLibrary.simpleMessage(
+      "Записати це значення?",
+    ),
+    "viewsDensity": MessageLookupByLibrary.simpleMessage("Щільність"),
+    "viewsDensityAuto": MessageLookupByLibrary.simpleMessage("За шириною"),
+    "viewsDensityKiosk": MessageLookupByLibrary.simpleMessage("Кіоск"),
+    "viewsDensityPanel": MessageLookupByLibrary.simpleMessage("Панель"),
+    "viewsEmpty": MessageLookupByLibrary.simpleMessage(
+      "Документ нічого не малює.",
+    ),
+    "viewsFault": MessageLookupByLibrary.simpleMessage("несправність"),
+    "viewsLab": MessageLookupByLibrary.simpleMessage("Лабораторія виглядів"),
+    "viewsLabNote": MessageLookupByLibrary.simpleMessage(
+      "Прототип GenUI: збережений документ A2UI з живими значеннями.",
+    ),
+    "viewsLive": MessageLookupByLibrary.simpleMessage("наживо"),
+    "viewsMore": MessageLookupByLibrary.simpleMessage("Ще"),
+    "viewsNoChecks": MessageLookupByLibrary.simpleMessage(
+      "Ще нічого не перевірено.",
+    ),
+    "viewsNoData": MessageLookupByLibrary.simpleMessage("немає даних"),
+    "viewsPaste": MessageLookupByLibrary.simpleMessage("Вставити JSONL"),
+    "viewsPasted": MessageLookupByLibrary.simpleMessage("Вставлене"),
+    "viewsProject": MessageLookupByLibrary.simpleMessage("Проєкт"),
+    "viewsRefine": MessageLookupByLibrary.simpleMessage(
+      "Застосувати уточнення",
+    ),
+    "viewsResult": MessageLookupByLibrary.simpleMessage("Остання дія"),
+    "viewsRun": MessageLookupByLibrary.simpleMessage("Виконати"),
+    "viewsRunning": MessageLookupByLibrary.simpleMessage("працює"),
+    "viewsSample": MessageLookupByLibrary.simpleMessage("Зразок"),
+    "viewsShow": MessageLookupByLibrary.simpleMessage("Показати"),
+    "viewsStopped": MessageLookupByLibrary.simpleMessage("зупинено"),
+    "viewsTabChecks": MessageLookupByLibrary.simpleMessage("Перевірки"),
+    "viewsTabData": MessageLookupByLibrary.simpleMessage("Дані"),
+    "viewsTabMessages": MessageLookupByLibrary.simpleMessage("A2UI"),
+    "viewsUncertain": MessageLookupByLibrary.simpleMessage("непевне"),
+    "viewsUnknownPart": m249,
+    "viewsWidthDesktop": MessageLookupByLibrary.simpleMessage("Стіл"),
+    "viewsWidthPanel": MessageLookupByLibrary.simpleMessage("Панель 10\""),
+    "viewsWidthPhone": MessageLookupByLibrary.simpleMessage("Телефон"),
+    "viewsWrite": MessageLookupByLibrary.simpleMessage("Записати"),
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Чекає в карантині",
     ),
-    "waitingToBeLetIn": m246,
-    "wasValue": m247,
+    "waitingToBeLetIn": m250,
+    "wasValue": m251,
     "wasWord": MessageLookupByLibrary.simpleMessage("було"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Група спостереження"),
-    "watchGroups": m248,
-    "welcomeUser": m249,
+    "watchGroups": m252,
+    "welcomeUser": m253,
     "whatItRead": MessageLookupByLibrary.simpleMessage("Що прочитано"),
     "whyBring": MessageLookupByLibrary.simpleMessage(
       "Приносьте власний пакет лише тоді, коли його немає в офіційному списку. Zip, URL або Git-репозиторій зі зібраним пакетом, або один компонент.",
@@ -2689,10 +2752,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Задається типом даних: суфіксом _wswap, _bswap або _wbswap.",
     ),
-    "wouldRun": m250,
-    "wouldSend": m251,
-    "wouldWrite": m252,
-    "writableNeeds": m253,
+    "wouldRun": m254,
+    "wouldSend": m255,
+    "wouldWrite": m256,
+    "writableNeeds": m257,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "Неправильний користувач або пароль. Попросіть адміністратора скинути пароль; gateway ніколи не надсилає його поштою.",
     ),
@@ -2704,7 +2767,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Лінки"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Сайти"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("Система"),
-    "wyrmdOn": m254,
+    "wyrmdOn": m258,
     "yes": MessageLookupByLibrary.simpleMessage("так"),
     "youTag": MessageLookupByLibrary.simpleMessage("ВИ"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Ваші відповіді"),

@@ -256,6 +256,7 @@ class SystemPage extends StatelessWidget {
     required this.onRemoveProfile,
     required this.onCopyCommand,
     required this.onElsewhere,
+    required this.onTapViewsLab,
     this.pill,
     this.tabsLabel,
     this.stale = false,
@@ -801,7 +802,8 @@ class SystemPage extends StatelessWidget {
               ),
               for (final e in m.elsewhere)
                 InkWell(
-                  onTap: () => onElsewhere(e.id),
+                  onTap: () =>
+                      e.id == viewsLabId ? onTapViewsLab() : onElsewhere(e.id),
                   child: Text(
                     e.label,
                     style: TextStyle(fontSize: 13, color: c.text2),
@@ -813,6 +815,12 @@ class SystemPage extends StatelessWidget {
       ),
     );
   }
+
+  /// The id of the *Elsewhere* entry that opens the views lab
+  /// (docs/design/specs/genui-views.md).
+  static const viewsLabId = 'views-lab';
+
+  final void Function() onTapViewsLab;
 }
 
 /// The dot of the Availability tab: amber while the standby is behind or a
