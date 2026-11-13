@@ -17,7 +17,8 @@ pub const MAX_BOTS: usize = 8;
 pub const MAX_RECIPIENTS: usize = 64;
 pub const MAX_TEMPLATES: usize = 64;
 pub const MAX_USERS: usize = 100;
-pub const MAX_VALUES: usize = 16;
+/// Live values of one template (a state card of 3 sources and 3 transfer switches needs 20).
+pub const MAX_VALUES: usize = 32;
 pub const MAX_SELECT: usize = 16;
 pub const MAX_TEMPLATE_TEXT: usize = 4096;
 pub const MAX_BLOCKS: usize = 16 << 10;

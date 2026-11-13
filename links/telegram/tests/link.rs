@@ -125,6 +125,15 @@ fn a_template_fills_values_and_escapes_them() {
     let Value::Map(p) = p else { panic!() };
     assert!(matches!(p.get("body"), Some(Value::Str(b)) if b.contains("99.0 °C")));
     assert_eq!(p.get("method"), Some(&s("sendMessage")));
+    // a variable the send leaves out shows as n/a, as a value with none yet
+    let p = h
+        .invoke("ops/templates/high_temp", "preview", map(&[]))
+        .expect("preview");
+    let Value::Map(p) = p else { panic!() };
+    assert!(
+        matches!(p.get("body"), Some(Value::Str(b)) if b.contains("limit n/a")),
+        "{p:?}"
+    );
     assert_eq!(h.num("stats/sent"), 1);
 }
 
@@ -573,4 +582,29 @@ fn send_raw_names_only_listed_methods_and_known_chats() {
     }
     assert!(api.calls("forwardMessage").is_empty() && api.calls("sendMessage").is_empty());
     assert!(api.calls("deleteWebhook").is_empty() && api.calls("editMessageText").is_empty());
+}
+
+/// A failed `getUpdates` holds the reading of updates only: the bot stays `ready` and goes on
+/// sending, `error` says what failed (DVPSM demo, 2026-11-13: a bot that sent fine showed
+/// `waiting`).
+#[test]
+fn updates_that_fail_do_not_stop_sending() {
+    let api = Api::start();
+    let mut h = telegram(&api);
+    for _ in 0..3 {
+        api.script_updates(
+            502,
+            r#"{"ok":false,"error_code":502,"description":"Bad Gateway"}"#,
+        );
+    }
+    h.until("updates failed", |h| {
+        h.text("ops/error").starts_with("updates: ")
+    });
+    assert_eq!(h.text("ops/status"), "ready");
+    h.invoke("ops/recipients/team", "send", map(&[("text", s("still"))]))
+        .expect("send");
+    h.until("sent", |h| h.num("ops/sent") == 1);
+    assert_eq!(h.text("ops/status"), "ready");
+    // the reading comes back by itself, and the error goes
+    h.until("updates read again", |h| h.text("ops/error").is_empty());
 }

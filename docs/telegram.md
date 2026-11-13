@@ -15,6 +15,11 @@ Privacy* off in @BotFather only if paired users should command it in groups.
 chat, once paired). `thread`: a forum topic id. `commands: true` lets paired users command the
 bot in that group.
 
+A person can also get messages without pairing: a recipient whose `chat` is their numeric
+Telegram id (`123456789`). They must have written to the bot first (Telegram lets a bot open no
+chat); until they are a recipient, the link's log names them (`rejected account 123456789: not
+paired`). They can receive only: commands need pairing (Chat users, below).
+
 To find a group's id: add the bot to the group; it is no recipient yet, so it leaves and the
 link's log names the chat (`rejected chat -100… (supergroup)`). Add the recipient, add the bot
 again.
@@ -60,14 +65,21 @@ NAT; the next offset is kept in the link's store, so a restart never runs a comm
 `commands: false` makes a send-only bot (no polling). A webhook set on the same token by
 another client makes Telegram answer 409, shown as the bot's `error`.
 
+A failed `getUpdates` holds only the reading: `status` stays `ready` while messages go out,
+`error` says `updates: <why>`, and the reading tries again after 1 s, doubled up to a minute.
+`status` is `waiting` only when sending waits (a 429, a network error on a send).
+
 ## Chat users
 
 Nobody, until an operator invites them. Telegram bots are public: anyone can write to one or add
 it to a group, so the messenger ignores everyone it does not know.
 
 1. ▸ **Invite User** {name, level, select} (config). `level`: `read` (`/get`) or `write` (also
-   `/set`, `/do`). `select`: the keys their commands may name, one per line. You cannot invite
-   anyone beyond your own rights.
+   `/set`, `/do`). `select`: the keys their commands may name, one per line, each a full node
+   key without wildcards (`wy/plant/downstream/plc1`, `wy/plant/storage/dvpsm/cmd`); a key
+   covers its whole subtree. Empty: `wy/<site>/downstream`. You cannot invite anyone beyond
+   your own rights, and a command works only where the link's grants reach too (`sys/links/<id>`
+   ▸ Grant Access; storage since ADR 0046), so give the link the same keys.
 2. The answer shows a **pairing code** once, valid 15 minutes, single use. Give it to that person
    only (not in a group chat).
 3. They open a private chat with the bot and send `/start ABCDE-FGHJK`. The bot binds their

@@ -52,6 +52,8 @@ const SENDS_PER_TICK: usize = 4;
 const FLUSH_MS: u64 = 200;
 const FIRST_BACKOFF_MS: u64 = 1_000;
 const MAX_BACKOFF_MS: u64 = 60_000;
+/// The start of `error` while reading updates fails and sending does not.
+const UPDATES_FAILED: &str = "updates: ";
 /// A message that failed this often on the network is dropped.
 const MAX_ATTEMPTS: u32 = 5;
 /// `/get` waits this long for the value.
@@ -166,6 +168,9 @@ struct Bot {
     hold_until: u64,
     backoff_ms: u64,
     next_poll: u64,
+    /// Back-off of reading updates alone (ms): a failed `getUpdates` holds the reading, not
+    /// the sending (DVPSM demo, 2026-11-13: a bot that sent fine showed `waiting`).
+    poll_backoff_ms: u64,
     timer: Option<TimerId>,
     last_chat: HashMap<String, u64>,
     /// Wrong pairing codes per account: `(count, first)`.
@@ -204,6 +209,7 @@ impl Bot {
             hold_until: 0,
             backoff_ms: 0,
             next_poll: 0,
+            poll_backoff_ms: 0,
             timer: None,
             last_chat: HashMap::new(),
             bad_codes: HashMap::new(),
@@ -482,9 +488,30 @@ impl Bot {
             return Vec::new();
         };
         let result = match self.call(host, &method, &body) {
-            Ok(r) => r,
-            Err(f) => {
+            Ok(r) => {
+                self.poll_backoff_ms = 0;
+                if self.error.starts_with(UPDATES_FAILED) {
+                    self.error.clear();
+                }
+                r
+            }
+            // a token the platform refuses ends the bot, sending included
+            Err(f @ Fail::Auth(_)) => {
                 self.failed_call(host, now, f);
+                return Vec::new();
+            }
+            // anything else holds the reading of updates only: sending goes on, `status` says
+            // what sending does and `error` what failed (`updates: …`)
+            Err(Fail::Retry { after_ms, msg }) => {
+                self.next_poll = self.next_poll.max(now + after_ms * 1000);
+                self.error = format!("{UPDATES_FAILED}{msg}");
+                return Vec::new();
+            }
+            Err(Fail::Transient(m) | Fail::Rejected(m) | Fail::Markup(m)) => {
+                self.poll_backoff_ms =
+                    (self.poll_backoff_ms * 2).clamp(FIRST_BACKOFF_MS, MAX_BACKOFF_MS);
+                self.next_poll = self.next_poll.max(now + self.poll_backoff_ms * 1000);
+                self.error = format!("{UPDATES_FAILED}{m}");
                 return Vec::new();
             }
         };
@@ -1038,7 +1065,11 @@ impl<C: Chat> Messenger<C> {
                     (Some(s), M::None) => render::value_text(&s.v, None),
                 });
             }
-            let v = vars.get(name)?;
+            // a variable of the send that was not given shows as `n/a`, as a value with none
+            // yet: the message says something is missing instead of leaving a gap
+            let Some(v) = vars.get(name) else {
+                return Some("n/a".into());
+            };
             Some(match m {
                 render::Modifier::Decimals(d) => render::value_text(v, Some(*d)),
                 _ => render::value_text(v, None),

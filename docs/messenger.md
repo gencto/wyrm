@@ -54,9 +54,12 @@ to       ops_group
 silent   false   protect false   preview false
 ```
 
-- `{{name}}` — a variable of the send (`limit` above): the Send form has a field for it.
+- `{{name}}` — a variable of the send (`limit` above): the Send form has a field for it; one
+  the send leaves out shows as `n/a` (Preview shows it so too).
 - `{{alias}}` — a live value from `values` (`{{alias:.1}}` decimals, `{{alias.q}}` quality,
-  `{{alias.t}}` time); `n/a` until it has one.
+  `{{alias.t}}` time); `n/a` until it has one, and for a key the template's author may not read
+  (`.q` then says `bad`). Up to 32 values per template; the link watches each distinct key once,
+  at most 1000 keys in all.
 - `{{site}}`, `{{bot}}`, `{{now}}`.
 - Values are **escaped for the format**: a device named `<Boiler & Co>` shows as such and never
   breaks the HTML. MarkdownV2 is strict: if Telegram cannot parse a message it is sent once more
@@ -94,6 +97,8 @@ Nobody, until an operator invites them, on platforms that read updates (Telegram
 ## Status and limits
 
 `<bot>/{status, error, sent, failed, dropped, queued, rejected, last_sent}`, totals in `stats/`.
+`sent`, `failed` and `dropped` count the queue (templates, `send`); `send_raw` goes out at once,
+outside it: its answer is the action's result, and the audit names it.
 `429 Too Many Requests` holds the bot as long as the platform asks; network errors back off up to
 a minute and keep the message (5 attempts); refused messages are dropped and counted `failed`.
 Pacing per chat is the platform's (Telegram: one message per chat per second). Up to 8 bots, 64 recipients, 64 templates

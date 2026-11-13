@@ -475,6 +475,8 @@ pub struct ApiState {
     next_update: i64,
     /// Replies to the next send calls, instead of `ok`.
     pub script: VecDeque<(u16, String)>,
+    /// Replies to the next `getUpdates` calls, instead of the updates.
+    pub updates_script: VecDeque<(u16, String)>,
 }
 
 pub struct Api {
@@ -540,6 +542,15 @@ impl Api {
         }}));
     }
 
+    /// The next `getUpdates` answers `status` with `body`.
+    pub fn script_updates(&self, status: u16, body: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .updates_script
+            .push_back((status, body.to_owned()));
+    }
+
     pub fn script(&self, status: u16, body: &str) {
         self.state
             .lock()
@@ -577,6 +588,9 @@ fn answer(
         return match method {
             "getMe" => ok(json!({"id": 1, "is_bot": true, "username": "plant_bot"})),
             "getUpdates" => {
+                if let Some(r) = s.updates_script.pop_front() {
+                    return r;
+                }
                 let offset = body["offset"].as_i64().unwrap_or(0);
                 let out: Vec<Json> = s
                     .updates
