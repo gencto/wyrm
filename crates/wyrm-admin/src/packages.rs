@@ -24,7 +24,7 @@ use wyrm_wasm_host::ComponentWorld;
 
 // The format is the SDK's (ADR 0021): `wyr` builds what this checks.
 pub use wyrm_link_sdk::package::{platform, RepoEntry, MANIFEST, MAX_INDEX, MAX_ZIP};
-const MAX_UNPACKED: u64 = 256 << 20;
+pub(crate) const MAX_UNPACKED: u64 = 256 << 20;
 const MAX_FILES: usize = 1000;
 /// Driver name of a link that runs a package: `pkg:<package>`.
 pub const DRIVER_PREFIX: &str = "pkg:";
@@ -47,6 +47,8 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
     }
     let sha = wyrm_link_sdk::package::sha256_hex(wasm);
     let manifest = Manifest {
+        state: None,
+        reads_state: None,
         name: name.to_owned(),
         version: format!("0+{}", &sha[..12]),
         description: String::new(),
@@ -69,9 +71,120 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
     )
 }
 
+/// The files of a package directory as a zip again: the same bytes for
+/// the same files (sorted paths, fixed times, mode 0755 for what the owner
+/// may execute and 0644 for the rest), within the bounds of a package zip.
+/// A package that arrives in a backup as files (ADR 0048 §3.5) is packed
+/// with this and then goes through [`unpack`], the validator of every
+/// install; two directories with the same files give the same SHA-256.
+pub fn repack(dir: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+        let at = root.join(rel);
+        let mut entries: Vec<_> = std::fs::read_dir(&at)
+            .map_err(|e| format!("{}: {e}", at.display()))?
+            .flatten()
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let path = rel.join(e.file_name());
+            // not followed: a link out of the directory is no file of it
+            let meta = e.metadata().map_err(|e| e.to_string())?;
+            if meta.is_dir() {
+                walk(root, &path, out)?;
+            } else if meta.is_file() {
+                out.push(path);
+            } else {
+                return Err(format!("{}: not a regular file", path.display()));
+            }
+            if out.len() > MAX_FILES {
+                return Err(format!("more than {MAX_FILES} files"));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(dir, Path::new(""), &mut files)?;
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let mut total = 0u64;
+    for rel in files {
+        let path = dir.join(&rel);
+        let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        total += meta.len();
+        if total > MAX_UNPACKED {
+            return Err(format!("package over {} MiB", MAX_UNPACKED >> 20));
+        }
+        #[cfg(unix)]
+        let exec = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o100 != 0;
+        #[cfg(not(unix))]
+        let exec = false;
+        let name = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let opt = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default())
+            .unix_permissions(if exec { 0o755 } else { 0o644 });
+        w.start_file(name, opt).map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        w.write_all(&bytes).map_err(|e| e.to_string())?;
+    }
+    let zip = w.finish().map_err(|e| e.to_string())?.into_inner();
+    if zip.len() > MAX_ZIP {
+        return Err(format!("zip larger than {} MiB", MAX_ZIP >> 20));
+    }
+    Ok(zip)
+}
+
 /// Directory of an installed package.
 pub fn dir(root: &Path, def: &PackageDef) -> PathBuf {
     root.join(&def.name).join(&def.version)
+}
+
+/// Remove what an install or a git fetch that never ended left under
+/// `root`: `.tmp-*` and `.git-*` directories, and every version directory
+/// that neither a package of `known` nor its kept previous version names
+/// (a broker that ended between the move of the files and the registry
+/// record; ADR 0048 §1). Call it at a start, before anything installs.
+/// Returns what it removed, relative to `root`.
+pub fn clean_orphans(
+    root: &Path,
+    known: &std::collections::BTreeMap<String, PackageDef>,
+) -> Vec<String> {
+    let mut removed = Vec::new();
+    let mut gone = |path: &Path| {
+        crate::nofollow::remove_any(path);
+        if let Ok(rel) = path.strip_prefix(root) {
+            removed.push(rel.to_string_lossy().into_owned());
+        }
+    };
+    for e in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with(".tmp-") || name.starts_with(".git-") {
+            gone(&e.path());
+            continue;
+        }
+        // the component store and anything else that is not a package
+        if name.starts_with('.') || !e.path().is_dir() {
+            continue;
+        }
+        let Some(def) = known.get(&name) else {
+            gone(&e.path());
+            continue;
+        };
+        let kept = def.previous.as_deref().map(|p| p.def.version.as_str());
+        for v in std::fs::read_dir(e.path()).into_iter().flatten().flatten() {
+            let version = v.file_name().to_string_lossy().into_owned();
+            if version != def.version && Some(version.as_str()) != kept {
+                gone(&v.path());
+            }
+        }
+    }
+    removed.sort();
+    removed
 }
 
 /// A checked package in a temp directory, not yet in place. Dropped
@@ -83,6 +196,9 @@ pub struct Unpacked {
     /// `process` package when its manifest names them (a portable app).
     /// `None`: a driver/point component or a process package without them.
     pub app: Option<Capabilities>,
+    /// The store formats this version reads (`wyrm-link.json` `reads_state`,
+    /// ADR 0048); what it writes is `def.state`.
+    pub reads_state: Vec<u32>,
     tmp: PathBuf,
 }
 
@@ -218,8 +334,12 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             description: String::new(),
             installed: now,
             requester: Vec::new(),
+            state: wyrm_link_sdk::package::DEFAULT_STATE,
+            previous: None,
+            last_update: None,
         },
         app: None,
+        reads_state: vec![wyrm_link_sdk::package::DEFAULT_STATE],
         tmp,
     };
     let mut total = 0u64;
@@ -314,6 +434,8 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         }
         out.def.requester.push((g.path.clone(), level.code()));
     }
+    out.def.state = m.state();
+    out.reads_state = m.reads_state();
     out.def.name = m.name;
     out.def.version = m.version;
     out.def.description = m.description;
@@ -327,6 +449,71 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
 pub(crate) mod tests {
     use super::*;
     use std::io::Write;
+
+    /// Review of PR 72, item 10: a broker that ended between the move of a
+    /// package's files and its registry record leaves a version directory
+    /// nothing names; the next install of that version said "is on disk
+    /// with other content". A start removes what no record names.
+    #[test]
+    fn directories_no_record_names_are_removed_at_a_start() {
+        let root = std::env::temp_dir().join(format!("wyrm-pkg-orphans-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let put = |rel: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"x").unwrap();
+        };
+        let def = |name: &str, version: &str| PackageDef {
+            name: name.into(),
+            version: version.into(),
+            kind: PackageKind::Process,
+            entry: "run".into(),
+            args: Vec::new(),
+            sha256: "00".into(),
+            source: "zip".into(),
+            description: String::new(),
+            installed: 1,
+            requester: Vec::new(),
+            state: 1,
+            previous: None,
+            last_update: None,
+        };
+        let mut a = def("a", "1.1.0");
+        a.previous = Some(Box::new(crate::registry::PreviousDef {
+            def: def("a", "1.0.0"),
+            keep_until: u64::MAX,
+            replaced: 1,
+            changes_state: false,
+            points: Vec::new(),
+        }));
+        let known: std::collections::BTreeMap<String, PackageDef> = [a, def("b", "2.0.0")]
+            .into_iter()
+            .map(|d| (d.name.clone(), d))
+            .collect();
+        for rel in [
+            "a/1.1.0/run",
+            "a/1.0.0/run",
+            "a/1.2.0/run",
+            "b/2.0.0/run",
+            "b/2.1.0/run",
+            "c/1.0.0/run",
+            ".tmp-0123/run",
+            ".git-4567/x",
+            ".wasm/a.wasm",
+        ] {
+            put(rel);
+        }
+        assert_eq!(
+            clean_orphans(&root, &known),
+            [".git-4567", ".tmp-0123", "a/1.2.0", "b/2.1.0", "c"]
+        );
+        for kept in ["a/1.1.0/run", "a/1.0.0/run", "b/2.0.0/run", ".wasm/a.wasm"] {
+            assert!(root.join(kept).is_file(), "{kept}");
+        }
+        assert!(clean_orphans(&root, &known).is_empty());
+        // a root that is not there yet
+        assert!(clean_orphans(&root.join("none"), &known).is_empty());
+    }
     use zip::write::SimpleFileOptions;
 
     /// A zip of `(path, content, unix mode)` entries.

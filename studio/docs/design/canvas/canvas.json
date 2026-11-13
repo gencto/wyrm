@@ -768,6 +768,119 @@
    "w": 1100,
    "h": 460,
    "title": "Trend · tooltip over a gap: no data, comm_fail"
+  },
+  "LinkUpdate.dc.html": {
+   "x": 0,
+   "y": 17700,
+   "w": 1440,
+   "h": 900,
+   "title": "Update a link · review: what changes, restore point, rollback by itself (official package)",
+   "expand": "fill"
+  },
+  "LinkUpdateProgress.dc.html": {
+   "x": 1520,
+   "y": 17700,
+   "w": 1440,
+   "h": 900,
+   "title": "Update a link · progress: restore point, package, restart, nodes declared again",
+   "expand": "fill"
+  },
+  "LinkUpdateDone.dc.html": {
+   "x": 3040,
+   "y": 17700,
+   "w": 1440,
+   "h": 900,
+   "title": "Update a link · done: nodes before and after, restore points",
+   "expand": "fill"
+  },
+  "LinkUpdateRolledBack.dc.html": {
+   "x": 4560,
+   "y": 17700,
+   "w": 1440,
+   "h": 900,
+   "title": "Update a link · rolled back by itself: a link did not bring back its nodes",
+   "expand": "fill"
+  },
+  "LinkBackup.dc.html": {
+   "x": 6080,
+   "y": 17700,
+   "w": 1440,
+   "h": 900,
+   "title": "Back up one link: settings, private data, package, history",
+   "expand": "fill"
+  },
+  "BrokerUpdate.dc.html": {
+   "x": 0,
+   "y": 18720,
+   "w": 1440,
+   "h": 900,
+   "title": "Update the broker · review: signed release, config check, schema, standby, plan",
+   "expand": "fill"
+  },
+  "BrokerUpdateRestart.dc.html": {
+   "x": 1520,
+   "y": 18720,
+   "w": 1440,
+   "h": 900,
+   "title": "Update the broker · restarting: Studio reconnects by itself",
+   "expand": "fill"
+  },
+  "BrokerUpdateDone.dc.html": {
+   "x": 3040,
+   "y": 18720,
+   "w": 1440,
+   "h": 900,
+   "title": "Update the broker · confirmed after its trial start",
+   "expand": "fill"
+  },
+  "BrokerUpdateRolledBack.dc.html": {
+   "x": 4560,
+   "y": 18720,
+   "w": 1440,
+   "h": 900,
+   "title": "Update the broker · rolled back: the trial start failed",
+   "expand": "fill"
+  },
+  "BrokerUpdateExternal.dc.html": {
+   "x": 6080,
+   "y": 18720,
+   "w": 1440,
+   "h": 900,
+   "title": "Update the broker · in a container: update the image",
+   "expand": "fill"
+  },
+  "Backup.dc.html": {
+   "x": 0,
+   "y": 19740,
+   "w": 1440,
+   "h": 900,
+   "title": "Back up the broker · sections with checkboxes (clickable)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "BackupProgress.dc.html": {
+   "x": 1520,
+   "y": 19740,
+   "w": 1440,
+   "h": 900,
+   "title": "Back up · progress, one consistent moment",
+   "expand": "fill"
+  },
+  "BackupDone.dc.html": {
+   "x": 3040,
+   "y": 19740,
+   "w": 1440,
+   "h": 900,
+   "title": "Back up · ready: file, SHA-256, kept on the broker",
+   "expand": "fill"
+  },
+  "BackupRestore.dc.html": {
+   "x": 4560,
+   "y": 19740,
+   "w": 1440,
+   "h": 900,
+   "title": "Restore from a backup · checks, sections, replace or add",
+   "expand": "fill"
   }
  },
  "order": [
@@ -857,7 +970,21 @@
   "GenStyle.dc.html",
   "GenStyleLight.dc.html",
   "GenStylePanelLight.dc.html",
-  "GenStylePhoneLight.dc.html"
+  "GenStylePhoneLight.dc.html",
+  "LinkUpdate.dc.html",
+  "LinkUpdateProgress.dc.html",
+  "LinkUpdateDone.dc.html",
+  "LinkUpdateRolledBack.dc.html",
+  "LinkBackup.dc.html",
+  "BrokerUpdate.dc.html",
+  "BrokerUpdateRestart.dc.html",
+  "BrokerUpdateDone.dc.html",
+  "BrokerUpdateRolledBack.dc.html",
+  "BrokerUpdateExternal.dc.html",
+  "Backup.dc.html",
+  "BackupProgress.dc.html",
+  "BackupDone.dc.html",
+  "BackupRestore.dc.html"
  ],
  "notes": {
   "t-screens": {
@@ -1171,6 +1298,13 @@
    "kind": "title1",
    "maxW": 4790,
    "page": "genui"
+  },
+  "t-upd": {
+   "x": 0,
+   "y": 17440,
+   "text": "Updates, restore points, backups",
+   "kind": "title1",
+   "maxW": 7520
   }
  },
  "designSystems": []

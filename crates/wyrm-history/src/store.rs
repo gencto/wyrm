@@ -282,6 +282,20 @@ impl Store {
         Ok(Some(id))
     }
 
+    /// The series whose point key starts with `prefix`, sorted by key.
+    pub fn series_under(&self, prefix: &str) -> Vec<(String, u32)> {
+        let mut out: Vec<(String, u32)> = self
+            .series
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        out.sort();
+        out
+    }
+
     pub fn series_count(&self) -> usize {
         self.series.lock().unwrap_or_else(|p| p.into_inner()).len()
     }
@@ -763,6 +777,93 @@ impl Store {
                 .sum::<u64>()
     }
 
+    /// A copy of the file of `day` at `dest` (a new file), made inside one
+    /// read transaction: the rows and the journal as of one commit, while
+    /// writes go on (ADR 0048 §3.3). Returns the rows copied, `None` when
+    /// the day has no file. The copy is compact (no freed pages).
+    pub fn copy_day(&self, day: i64, dest: &Path) -> Result<Option<u64>> {
+        let Some(h) = self.day(day, false)? else {
+            return Ok(None);
+        };
+        let r = h.begin_read().map_err(db)?;
+        let out = builder().create(dest).map_err(db)?;
+        let w = out.begin_write().map_err(db)?;
+        let mut n = 0u64;
+        {
+            let mut rows = w.open_table(ROWS).map_err(db)?;
+            match r.open_table(ROWS) {
+                Ok(t) => {
+                    for item in t.iter().map_err(db)? {
+                        let (k, v) = item.map_err(db)?;
+                        rows.insert(k.value(), v.value()).map_err(db)?;
+                        n += 1;
+                    }
+                }
+                Err(TableError::TableDoesNotExist(_)) => {}
+                Err(e) => return Err(db(e)),
+            }
+            let mut changes = w.open_table(CHANGES).map_err(db)?;
+            match r.open_table(CHANGES) {
+                Ok(t) => {
+                    for item in t.iter().map_err(db)? {
+                        let (k, v) = item.map_err(db)?;
+                        changes.insert(k.value(), v.value()).map_err(db)?;
+                    }
+                }
+                Err(TableError::TableDoesNotExist(_)) => {}
+                Err(e) => return Err(db(e)),
+            }
+        }
+        w.commit().map_err(db)?;
+        Ok(Some(n))
+    }
+
+    /// A copy of the index at `dest` (a new file), made inside one read
+    /// transaction: series, the journal counter, the day ranges and the
+    /// sink cursors. Copy the days first and the index last: the index then
+    /// knows every series and every journal number those days hold (a range
+    /// wider than its file is what a crash leaves too, see [`write`](Self::write)).
+    pub fn copy_index(&self, dest: &Path) -> Result<()> {
+        let r = self.index.begin_read().map_err(db)?;
+        let out = builder().create(dest).map_err(db)?;
+        let w = out.begin_write().map_err(db)?;
+        {
+            let mut t = w.open_table(SERIES).map_err(db)?;
+            for item in r.open_table(SERIES).map_err(db)?.iter().map_err(db)? {
+                let (k, v) = item.map_err(db)?;
+                t.insert(k.value(), v.value()).map_err(db)?;
+            }
+            let mut t = w.open_table(META).map_err(db)?;
+            for item in r.open_table(META).map_err(db)?.iter().map_err(db)? {
+                let (k, v) = item.map_err(db)?;
+                t.insert(k.value(), v.value()).map_err(db)?;
+            }
+            let mut t = w.open_table(DAY_SEQ).map_err(db)?;
+            for item in r.open_table(DAY_SEQ).map_err(db)?.iter().map_err(db)? {
+                let (k, v) = item.map_err(db)?;
+                t.insert(k.value(), v.value()).map_err(db)?;
+            }
+            let mut t = w.open_table(SINK_SEQ).map_err(db)?;
+            match r.open_table(SINK_SEQ) {
+                Ok(src) => {
+                    for item in src.iter().map_err(db)? {
+                        let (k, v) = item.map_err(db)?;
+                        t.insert(k.value(), v.value()).map_err(db)?;
+                    }
+                }
+                Err(TableError::TableDoesNotExist(_)) => {}
+                Err(e) => return Err(db(e)),
+            }
+        }
+        w.commit().map_err(db)?;
+        Ok(())
+    }
+
+    /// Bytes of the file of `day` (0 when it has none).
+    pub fn day_bytes(&self, day: i64) -> u64 {
+        std::fs::metadata(self.day_path(day)).map_or(0, |m| m.len())
+    }
+
     /// Day files open now.
     pub fn open_files(&self) -> usize {
         self.days
@@ -791,6 +892,40 @@ mod tests {
 
     fn row(s: u32, t: u64, v: f64) -> NewRow {
         (s, t, encode_row(&Value::Float(v), Quality::Good))
+    }
+
+    #[test]
+    fn copies_made_while_writing_open_as_a_store() {
+        let dir = temp("copy");
+        let st = Store::open(&dir).unwrap();
+        let a = st.series_id("wy/s/downstream/m/a", true).unwrap().unwrap();
+        let t0 = parse_iso("2026-11-10T10:00:00Z").unwrap();
+        st.write(&[row(a, t0, 1.0), row(a, t0 + US_PER_DAY, 2.0)])
+            .unwrap();
+        st.set_sink_seq("pg", Some(1)).unwrap();
+        let out = temp("copy-out");
+        std::fs::create_dir_all(out.join("days")).unwrap();
+        // days first, the index last; a write in between is not in the days
+        // copied and does no harm in the index
+        for day in st.days() {
+            let dest = out.join("days").join(format!("{}.redb", day_name(day)));
+            assert_eq!(st.copy_day(day, &dest).unwrap(), Some(1));
+        }
+        let b = st.series_id("wy/s/downstream/m/b", true).unwrap().unwrap();
+        st.write(&[row(b, t0 + 5, 9.0)]).unwrap();
+        st.copy_index(&out.join("index.redb")).unwrap();
+        assert_eq!(st.copy_day(1, &out.join("none.redb")).unwrap(), None);
+        let id = st.id();
+        let last = st.last_seq();
+        drop(st);
+        let copy = Store::open(&out).unwrap();
+        assert_eq!(copy.id(), id);
+        assert_eq!(copy.read(a, 0, u64::MAX, 10).unwrap().len(), 2);
+        assert_eq!(copy.read(b, 0, u64::MAX, 10).unwrap().len(), 0);
+        assert_eq!(copy.sink_seq("pg").unwrap(), 1);
+        // numbers go on above every one the original handed out
+        copy.write(&[row(b, t0 + 6, 1.0)]).unwrap();
+        assert!(copy.last_seq() > last);
     }
 
     #[test]

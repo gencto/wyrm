@@ -135,6 +135,179 @@ pub struct Config {
     /// the daemon on the followed `data_dir`.
     #[serde(default)]
     pub standby: Option<standby::StandbySection>,
+    /// Backups made from `sys/backups` and kept in `data_dir/backups`
+    /// (ADR 0048).
+    #[serde(default)]
+    pub backups: BackupsSection,
+    /// The file this configuration was read from (set by `wyrmd`): the
+    /// `config` section of a backup copies it.
+    #[serde(skip)]
+    pub config_file: Option<PathBuf>,
+}
+
+/// The text fields of `wyrmd.json5` that the `config` section of a backup
+/// shows (ADR 0048 §3.2), by key path (`*`: any one key): the ones known to
+/// hold no secret. Every other text of the file is masked
+/// (`wyrm_admin::secrets::mask_config`), so a field that is not here, or a
+/// section this list does not know, is never in a backup in clear. A new
+/// text field of [`Config`] goes here or into [`CONFIG_MASKED`]: the test
+/// `every_text_field_of_the_config_is_shown_or_masked_on_purpose` fails
+/// until it is in one of them.
+const CONFIG_SHOWN: &[&str] = &[
+    "site",
+    "profile",
+    "data_dir",
+    "listen",
+    "connect",
+    "tls_names",
+    // public keys
+    "admin_keys",
+    "operators",
+    "rest",
+    "state_anchor_dir",
+    "links.*.driver",
+    "links.*.mode",
+    "peers.listen",
+    "peers.enroll",
+    "peers.upstream.site",
+    "peers.upstream.endpoint",
+    "peers.upstream.ca",
+    "peers.upstream.cert",
+    "peers.downstream.site",
+    "peers.downstream.via",
+    "packages.repository",
+    "gateway.listen",
+    "gateway.tls_cert",
+    "gateway.admin_user",
+    "gateway.mcp.public_url",
+    "gateway.mcp.redirect_uris",
+    "uplink.net",
+    "standby.peer",
+    "standby.witness",
+    "standby.arbiter",
+    "backups.send_links",
+    "backups.send_links.link",
+    "backups.send_links.folder",
+];
+
+/// The text fields of `wyrmd.json5` that are masked on purpose: where a
+/// private key is (a path, and a name that says secret), and what a link
+/// or a platform upstream is given (free maps: any text may be a secret).
+/// Masked is the default; this list is what the test checks a choice by.
+#[cfg(test)]
+const CONFIG_MASKED: &[&str] = &[
+    "gateway.tls_key",
+    "peers.upstream.key",
+    "links.*.params",
+    "uplink.upstreams",
+];
+
+/// The configuration file `path` as JSON, for the `config` section of a
+/// backup: masked by default, [`CONFIG_SHOWN`] in clear. `None` when it
+/// cannot be read.
+fn masked_config(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut v: serde_json::Value = json5::from_str(&text).ok()?;
+    wyrm_admin::secrets::mask_config(&mut v, CONFIG_SHOWN);
+    serde_json::to_string_pretty(&v).ok()
+}
+
+/// `backups` in `wyrmd.json5`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BackupsSection {
+    /// Days a backup stays on the broker (1 to 3650).
+    #[serde(default = "default_backup_days")]
+    pub keep_days: u32,
+    /// Most MiB of backups kept; the oldest are removed first, the newest
+    /// one never.
+    #[serde(default = "default_backup_mb")]
+    pub max_mb: u64,
+    /// Secrets may leave this broker in a backup sealed with a passphrase
+    /// the caller picks: the `keys` section (the site CA, `state.key`,
+    /// `secrets.key`, the gateway keys, `secrets.bin`, link tokens) and link
+    /// secrets that open on any broker. Off by default: whoever has
+    /// `config` on `sys` would else turn a session into the site's
+    /// identity. Set it on the host, for the time it is needed.
+    #[serde(default)]
+    pub export_secrets: bool,
+    /// The file-store links (S3, WebDAV, Google Drive, a local directory)
+    /// the broker may send a kept backup through (`sys/backups/<id>` ▸
+    /// `send`), each with the folder backups land in: `{link, folder}`, or
+    /// a link id alone for the folder `backups`. Empty (the default):
+    /// `send` is refused. Only these links trust the broker's backup sender
+    /// key, and a send writes below that folder only.
+    #[serde(default)]
+    pub send_links: Vec<SendLinkEntry>,
+}
+
+/// One entry of `backups.send_links`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum SendLinkEntry {
+    /// A link id: the folder is `backups`.
+    Link(String),
+    Folder {
+        link: String,
+        #[serde(default = "default_send_folder")]
+        folder: String,
+    },
+}
+
+fn default_send_folder() -> String {
+    "backups".to_owned()
+}
+
+impl SendLinkEntry {
+    fn checked(&self) -> Result<wyrm_admin::SendLink, String> {
+        let (link, folder) = match self {
+            Self::Link(link) => (link.clone(), default_send_folder()),
+            Self::Folder { link, folder } => (link.clone(), folder.trim_matches('/').to_owned()),
+        };
+        wyrm_admin::registry::validate_link_id(&link)
+            .map_err(|e| format!("backups.send_links: {e}"))?;
+        wyrm_admin::control::send::check_folder(&folder)
+            .map_err(|e| format!("backups.send_links: link {link}: {e}"))?;
+        Ok(wyrm_admin::SendLink { link, folder })
+    }
+}
+
+fn default_backup_days() -> u32 {
+    7
+}
+
+fn default_backup_mb() -> u64 {
+    2048
+}
+
+impl BackupsSection {
+    /// `send_links` checked: link ids, plain relative folders, one folder
+    /// a link.
+    pub fn checked_send_links(&self) -> Result<Vec<wyrm_admin::SendLink>, String> {
+        let mut out: Vec<wyrm_admin::SendLink> = Vec::new();
+        for e in &self.send_links {
+            let entry = e.checked()?;
+            if out.iter().any(|o| o.link == entry.link) {
+                return Err(format!(
+                    "backups.send_links: link {} twice (one folder a link)",
+                    entry.link
+                ));
+            }
+            out.push(entry);
+        }
+        Ok(out)
+    }
+}
+
+impl Default for BackupsSection {
+    fn default() -> Self {
+        Self {
+            keep_days: default_backup_days(),
+            max_mb: default_backup_mb(),
+            export_secrets: false,
+            send_links: Vec::new(),
+        }
+    }
 }
 
 /// `alarm` in `wyrmd.json5`: on by default.
@@ -333,7 +506,7 @@ pub struct PeersSection {
 }
 
 /// Link packages (ADR 0011).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackagesSection {
     /// Index for "Install Link ▸ from Repository", JSON
@@ -343,6 +516,23 @@ pub struct PackagesSection {
     /// broker never fetches one.
     #[serde(default)]
     pub repository: Option<String>,
+    /// Days a replaced package version and the restore points of its links
+    /// are kept for a rollback (ADR 0048); 1 to 365.
+    #[serde(default = "default_keep_previous_days")]
+    pub keep_previous_days: u32,
+}
+
+fn default_keep_previous_days() -> u32 {
+    7
+}
+
+impl Default for PackagesSection {
+    fn default() -> Self {
+        Self {
+            repository: None,
+            keep_previous_days: default_keep_previous_days(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -609,6 +799,7 @@ impl Config {
     pub fn from_json5(text: &str) -> Result<Self, Error> {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
+        cfg.backups.checked_send_links()?;
         // `downstream/<d>` is the broker node of downstream site d (ADR 0007).
         for d in &cfg.peers.downstream {
             if cfg.links.contains_key(&d.site) {
@@ -1724,7 +1915,49 @@ impl Daemon {
     /// Open state and CA, apply `wyrmd.json5` links. `link_exe` hosts
     /// process links (`<link_exe> link <driver>`), normally this binary.
     pub fn open(cfg: Config, link_exe: PathBuf) -> Result<Self, Error> {
+        use wyrm_admin::control::restore_broker as restore;
         std::fs::create_dir_all(&cfg.data_dir)?;
+        // A restore staged by `sys/backups/~act/restore_apply {mode: replace}`
+        // (ADR 0048 §3.6): put in place before any store opens, all of it or
+        // nothing. A plan that cannot be applied leaves the state as it was
+        // (`Ok(None)`) and this start goes on with it.
+        let data_dir = cfg.data_dir.clone();
+        let restored = restore::apply_pending(&data_dir).map_err(|e| {
+            format!("restore.pending: {e}. The state before the restore could not be put back")
+        })?;
+        let applied = restored.is_some();
+        match Self::open_stores(cfg, link_exe, restored) {
+            Ok(d) => {
+                // the stores opened on it: what the restore replaced goes
+                if applied {
+                    restore::commit_pending(&data_dir);
+                }
+                Ok(d)
+            }
+            // The stores did not open on what the restore put in place:
+            // everything goes back, and the next start (the supervisor's)
+            // runs on the state before it and reports the failure.
+            Err(e) if applied => match restore::undo_pending(&data_dir, &e.to_string()) {
+                Ok(()) => Err(format!(
+                    "the restore was not applied ({e}): the state before it is back in place, \
+                     start again"
+                )
+                .into()),
+                Err(u) => Err(format!(
+                    "the restore was not applied ({e}) and the state before it could not be \
+                     put back ({u}): see restore.pending"
+                )
+                .into()),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    fn open_stores(
+        cfg: Config,
+        link_exe: PathBuf,
+        restored: Option<wyrm_admin::control::restore_broker::Applied>,
+    ) -> Result<Self, Error> {
         let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
         let anchor = |name: &str| cfg.state_anchor_dir.as_ref().map(|d| d.join(name));
         if let Some(d) = &cfg.state_anchor_dir {
@@ -1799,6 +2032,24 @@ impl Daemon {
             dql: cfg.dql.enabled,
             alarm: cfg.alarm.enabled,
             uplink: cfg.uplink.enabled,
+            backups: wyrm_admin::BackupConfig {
+                keep_days: cfg.backups.keep_days.clamp(1, 3650),
+                max_mb: cfg.backups.max_mb,
+                export_secrets: cfg.backups.export_secrets,
+                send_links: cfg.backups.checked_send_links()?,
+                config: cfg.config_file.as_deref().and_then(masked_config),
+                schemas: BTreeMap::from([
+                    (
+                        "users".to_owned(),
+                        <wyrm_gateway::users::UserDb as wyrm_state::State>::SCHEMA,
+                    ),
+                    (
+                        "flows".to_owned(),
+                        <wyrm_flow::store::FlowStore as wyrm_state::State>::SCHEMA,
+                    ),
+                ]),
+            },
+            keep_previous_days: cfg.packages.keep_previous_days,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -1880,6 +2131,34 @@ impl Daemon {
             ctl.set_role_grants(Arc::new(GatewayRoles(gw.clone())));
         }
         ctl.bootstrap(&cfg.config_links())?;
+        if let Some(r) = restored {
+            tracing::info!(sections = %r.sections.join(", "), "restore applied");
+            ctl.record(
+                &r.by,
+                "restore_applied",
+                &r.backup,
+                wyrm_core::Status::Ok,
+                &format!("sections {}", r.sections.join(", ")),
+            );
+        }
+        // a restore that was not applied: said once, where people look
+        if let Some(f) = wyrm_admin::control::restore_broker::take_failure(&cfg.data_dir) {
+            tracing::error!(
+                by = %f.by, backup = %f.backup,
+                "the restore was not applied, the state before it is in place: {}", f.error
+            );
+            ctl.record(
+                &f.by,
+                "restore_failed",
+                &f.backup,
+                wyrm_core::Status::InternalError,
+                &format!(
+                    "sections {}; not applied, the state before it is in place: {}",
+                    f.sections.join(", "),
+                    f.error
+                ),
+            );
+        }
         Ok(Self {
             cfg,
             ctl,
@@ -1933,6 +2212,12 @@ impl Daemon {
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = shutdown.as_mut() => false,
+                // a restore staged in `restore.pending` (ADR 0048 §3.6):
+                // stop cleanly, the supervisor starts the broker again
+                _ = self.ctl.stop_requested() => {
+                    tracing::info!("stop requested from sys: stopping for a restart");
+                    false
+                }
                 r = self.reload.recv() => r.is_some(),
             };
             if reload {
@@ -2002,6 +2287,249 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 mod tests {
     use super::*;
 
+    /// The structs `wyrmd.json5` is read into, each with the key path of
+    /// its fields.
+    const CONFIG_STRUCTS: &[(&str, &str)] = &[
+        ("Config", ""),
+        ("BackupsSection", "backups"),
+        ("AlarmSection", "alarm"),
+        ("UplinkSection", "uplink"),
+        ("DqlSection", "dql"),
+        ("SchedulerSection", "scheduler"),
+        ("GatewaySection", "gateway"),
+        ("GatewayMcpSection", "gateway.mcp"),
+        ("PeersSection", "peers"),
+        ("PackagesSection", "packages"),
+        ("UpstreamPeer", "peers.upstream"),
+        ("DownstreamPeer", "peers.downstream"),
+        ("LinkSection", "links.*"),
+        ("LinkLimits", "link_limits"),
+        ("StandbySection", "standby"),
+    ];
+
+    /// `(field, type)` of every `pub` field of `pub struct <name>` in `src`.
+    fn fields_of(src: &str, name: &str) -> Option<Vec<(String, String)>> {
+        let start = src.find(&format!("pub struct {name} {{"))?;
+        let body = &src[start..];
+        let body = &body[..body.find("\n}")?];
+        Some(
+            body.lines()
+                .filter_map(|l| {
+                    let l = l.trim().strip_prefix("pub ")?.strip_suffix(',')?;
+                    let (field, ty) = l.split_once(": ")?;
+                    Some((field.to_owned(), ty.to_owned()))
+                })
+                .collect(),
+        )
+    }
+
+    /// The choice is made on purpose (ADR 0048 §3.2): every field of the
+    /// configuration that holds text is on the list of fields a backup
+    /// shows or on the list of fields it masks. A new field that is on
+    /// neither fails here (it would be masked: masked is the default, but
+    /// nobody chose). Read from the sources: the structs are `Deserialize`
+    /// only.
+    #[test]
+    fn every_text_field_of_the_config_is_shown_or_masked_on_purpose() {
+        let sources = [include_str!("lib.rs"), include_str!("standby.rs")];
+        let listed = |path: &str| CONFIG_SHOWN.contains(&path) || CONFIG_MASKED.contains(&path);
+        let mut found = std::collections::BTreeSet::new();
+        for (name, prefix) in CONFIG_STRUCTS {
+            let fields = sources
+                .iter()
+                .find_map(|s| fields_of(s, name))
+                .unwrap_or_else(|| panic!("struct {name} is not in the sources"));
+            assert!(!fields.is_empty(), "{name}: no fields read");
+            for (field, ty) in fields {
+                // not read from the file
+                if *name == "Config" && field == "config_file" {
+                    continue;
+                }
+                let path = match prefix {
+                    &"" => field.clone(),
+                    p => format!("{p}.{field}"),
+                };
+                // a struct of its own: its fields are checked under its name
+                let idents: Vec<&str> = ty
+                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .filter(|w| !w.is_empty())
+                    .collect();
+                let nested: Vec<&&str> = idents
+                    .iter()
+                    .filter(|w| {
+                        w.ends_with("Section") || w.ends_with("Peer") || w.ends_with("Limits")
+                    })
+                    .collect();
+                if !nested.is_empty() {
+                    for n in nested {
+                        assert!(
+                            CONFIG_STRUCTS.iter().any(|(s, _)| **s == **n),
+                            "{path}: struct {n} is not in CONFIG_STRUCTS"
+                        );
+                    }
+                    continue;
+                }
+                // numbers and flags are always shown
+                let plain = idents
+                    .iter()
+                    .all(|w| matches!(*w, "Option" | "bool" | "u16" | "u32" | "u64" | "f64"));
+                if plain {
+                    continue;
+                }
+                assert!(
+                    listed(&path),
+                    "{path} ({ty}) holds text: add it to CONFIG_SHOWN (it never holds a secret) \
+                     or to CONFIG_MASKED"
+                );
+                found.insert(path);
+            }
+        }
+        // the one enum with fields: an entry of `backups.send_links`
+        let lib = sources[0];
+        let entry = &lib[lib.find("pub enum SendLinkEntry {").unwrap()..];
+        let entry = &entry[..entry.find("\n}").unwrap()];
+        let inner: Vec<&str> = entry
+            .lines()
+            .filter_map(|l| l.trim().strip_suffix(": String,"))
+            .collect();
+        assert_eq!(inner, ["link", "folder"], "SendLinkEntry changed");
+        for f in inner {
+            let path = format!("backups.send_links.{f}");
+            assert!(listed(&path), "{path}");
+            found.insert(path);
+        }
+        // and no entry of the lists names a field that is gone
+        for path in CONFIG_SHOWN.iter().chain(CONFIG_MASKED) {
+            assert!(found.contains(*path), "{path}: no such field of the config");
+        }
+        assert!(
+            !CONFIG_SHOWN.iter().any(|p| CONFIG_MASKED.contains(p)),
+            "a field is on both lists"
+        );
+    }
+
+    /// The `config` section of a backup, from a real file: what is on the
+    /// list is shown, every other text is the mask.
+    #[test]
+    fn the_config_copy_of_a_backup_is_masked_by_default() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-mask-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("wyrmd.json5");
+        std::fs::write(
+            &file,
+            r#"{
+                site: "plant", data_dir: "/var/lib/wyrm", profile: "prod",
+                listen: ["tls/0.0.0.0:7447", "quic/0.0.0.0:7448#key=/etc/k.key;tok=hunter2x"],
+                connect: ["tls/central.example:7447?token=hunter2y"],
+                admin_keys: ["00ff00ff"],
+                metrics_interval_ms: 5000,
+                links: {
+                    plc: { driver: "snmp", params: {
+                        community: "hunter2a", conninfo: "host=h password=hunter2b",
+                        note: "Password = hunter2c", privkey: "hunter2d", port: 161,
+                        connections: { c1: { url: "http://u:hunter2e@h/x", poll_ms: 500 } },
+                    } },
+                },
+                gateway: { listen: "0.0.0.0:8445", tls_cert: "/etc/wyrm/gw.pem",
+                           tls_key: "/etc/wyrm/gw.key",
+                           mcp: { public_url: "https://broker.example:8445" } },
+                packages: { repository: "https://ci:hunter2f@repo.example/index.json?sig=hunter2g" },
+                uplink: { net: "broker.example:8883",
+                          upstreams: [{ kind: "mqtt", name: "main", host: "broker.example" }] },
+                peers: { upstream: [{ site: "central", endpoint: "quic/central.example:7448",
+                                      ca: "/etc/wyrm/ca.pem", cert: "/etc/wyrm/b.pem",
+                                      key: "/etc/wyrm/b.key" }] },
+                backups: { export_secrets: false, send_links: ["s3", { link: "dav", folder: "wyrm" }] },
+            }"#,
+        )
+        .unwrap();
+        // the file is a configuration this broker reads
+        Config::from_json5(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let text = masked_config(&file).unwrap();
+        assert!(!text.contains("hunter2"), "{text}");
+        assert!(
+            !text.contains("gw.key") && !text.contains("b.key"),
+            "{text}"
+        );
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let mask = wyrm_admin::secrets::MASK;
+        assert_eq!(v["site"], "plant");
+        assert_eq!(v["listen"][0], "tls/0.0.0.0:7447");
+        assert_eq!(v["listen"][1], "quic/0.0.0.0:7448#***");
+        assert_eq!(v["connect"][0], "tls/central.example:7447?***");
+        assert_eq!(v["admin_keys"][0], "00ff00ff");
+        assert_eq!(v["metrics_interval_ms"], 5000);
+        assert_eq!(v["links"]["plc"]["driver"], "snmp");
+        let params = &v["links"]["plc"]["params"];
+        for name in ["community", "conninfo", "note", "privkey"] {
+            assert_eq!(params[name], mask, "{name}");
+        }
+        assert_eq!(params["port"], 161);
+        assert_eq!(params["connections"]["c1"]["url"], mask);
+        assert_eq!(params["connections"]["c1"]["poll_ms"], 500);
+        assert_eq!(v["gateway"]["tls_cert"], "/etc/wyrm/gw.pem");
+        assert_eq!(v["gateway"]["tls_key"], mask);
+        assert_eq!(
+            v["gateway"]["mcp"]["public_url"],
+            "https://broker.example:8445"
+        );
+        assert_eq!(
+            v["packages"]["repository"],
+            "https://***@repo.example/index.json?***"
+        );
+        assert_eq!(v["uplink"]["net"], "broker.example:8883");
+        assert_eq!(v["uplink"]["upstreams"][0]["host"], mask);
+        assert_eq!(
+            v["peers"]["upstream"][0]["endpoint"],
+            "quic/central.example:7448"
+        );
+        assert_eq!(v["peers"]["upstream"][0]["key"], mask);
+        assert_eq!(v["backups"]["export_secrets"], false);
+        assert_eq!(v["backups"]["send_links"][0], "s3");
+        assert_eq!(v["backups"]["send_links"][1]["folder"], "wyrm");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ADR 0048 §3.4: the host names where backups may be sent; a folder
+    /// that is no plain relative path is refused when the file is read.
+    #[test]
+    fn send_links_name_a_link_and_its_folder() {
+        let cfg = |send: &str| {
+            Config::from_json5(&format!(
+                r#"{{ site: "s", data_dir: "/tmp/x", backups: {{ send_links: {send} }} }}"#
+            ))
+        };
+        assert!(cfg("[]").unwrap().backups.send_links.is_empty());
+        let links = cfg(r#"["files", { link: "s3", folder: "/site/backups/" }, { link: "dav" }]"#)
+            .unwrap()
+            .backups
+            .checked_send_links()
+            .unwrap();
+        let got: Vec<(&str, &str)> = links
+            .iter()
+            .map(|l| (l.link.as_str(), l.folder.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("files", "backups"),
+                ("s3", "site/backups"),
+                ("dav", "backups")
+            ]
+        );
+        for bad in [
+            r#"[{ link: "files", folder: "../other" }]"#,
+            r#"[{ link: "files", folder: "a/../../b" }]"#,
+            r#"[{ link: "files", folder: "a//b" }]"#,
+            r#"[{ link: "files", folder: "" }]"#,
+            r#"[{ link: "a/b", folder: "x" }]"#,
+            r#"["files", { link: "files", folder: "x" }]"#,
+            r#"[{ folder: "x" }]"#,
+        ] {
+            assert!(cfg(bad).is_err(), "{bad}");
+        }
+    }
+
     /// ADR 0043: a `builtin` form of the official manifest is a driver this
     /// binary hosts (`wyr repo check` cannot see this list).
     #[test]
@@ -2022,6 +2550,18 @@ mod tests {
             wyrm_admin::official::repository_url(cfg.packages.repository.as_deref()),
             Some(wyrm_admin::official::embedded().index_url())
         );
+        // ADR 0048: how long an updated package's previous version is kept
+        assert_eq!(cfg.packages.keep_previous_days, 7);
+        assert_eq!(
+            Config::from_json5(r#"{ site: "s" }"#)
+                .unwrap()
+                .packages
+                .keep_previous_days,
+            7
+        );
+        let cfg =
+            Config::from_json5(r#"{ site: "s", packages: { keep_previous_days: 30 } }"#).unwrap();
+        assert_eq!(cfg.packages.keep_previous_days, 30);
     }
 
     #[test]

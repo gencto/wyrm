@@ -946,8 +946,28 @@ async fn install_link_from_zip() {
         .unwrap(),
     );
     assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    // the old version is kept for a rollback (ADR 0048)
     let root = env.ctl.packages_root();
-    assert!(!root.join("mockpkg/1.0.0").exists() && root.join("mockpkg/1.1.0/bin/run").exists());
+    assert!(root.join("mockpkg/1.0.0").exists() && root.join("mockpkg/1.1.0/bin/run").exists());
+    assert_eq!(
+        env.ctl.registry().packages["mockpkg"]
+            .previous
+            .as_deref()
+            .map(|p| p.def.version.clone()),
+        Some("1.0.0".to_owned())
+    );
+    // The health check of the update: pk2 was installed a moment before and
+    // says hello only to the rebuilt router, so the check steps aside for
+    // that rebuild and ends on the new router with both links back.
+    let report = eventually("the update's health check", 90, || async {
+        let p = env.ctl.registry().packages["mockpkg"].clone();
+        let r = p.last_update?;
+        (r.result != "checking" && !env.ctl.package_updating("mockpkg")).then_some(r)
+    })
+    .await;
+    assert_eq!(report.result, "ok", "{report:?}");
+    assert_eq!(report.links, ["pk1", "pk2"]);
+    assert_eq!(report.gone, 0, "{report:?}");
 
     // a bad zip is success: false, not an error
     let (ok, msg) = outcome(
@@ -1089,8 +1109,11 @@ async fn install_link_from_url_repository_git() {
                     let Some(Value::Str(msg)) = m.get("message").cloned() else {
                         return None;
                     };
-                    // the index loads in the background: wait for it
-                    (!msg.contains("loading")).then_some((ok, msg))
+                    // the index loads in the background: wait for it; and an
+                    // update of the same package is checked first (ADR 0048)
+                    (!msg.contains("loading")
+                        && !msg.contains("the update of mockpkg is being checked"))
+                    .then_some((ok, msg))
                 }
             })
             .await
@@ -1467,6 +1490,8 @@ async fn portable_app_installs_as_wasm() {
     };
     let zip = |version: &str, world: &str| {
         let m = Manifest {
+            state: None,
+            reads_state: None,
             name: "echoapp".into(),
             version: version.into(),
             description: "the echo app".into(),
@@ -1602,6 +1627,8 @@ fn echo_app_zip_of_world(
     use wyrm_link_sdk::package::{self, Manifest, PackFile};
     let entry = format!("{name}.wasm");
     let m = Manifest {
+        state: None,
+        reads_state: None,
         name: name.into(),
         version: version.into(),
         description: "the echo app".into(),
@@ -1997,6 +2024,55 @@ async fn portable_app_upgrade_is_a_hot_start() {
         !audit.iter().any(|r| r.op == "stop" && r.key == "h1"),
         "{audit:?}"
     );
+    // ADR 0048: the hot start is an update like any other: a restore point
+    // of the app's store, the old version kept, and a health check that
+    // waits out the sweep of the old code's nodes before it says `ok`
+    let report = eventually("the hot start's health check", 60, || async {
+        let p = env.ctl.registry().packages["echohot"].clone();
+        let r = p.last_update?;
+        (r.result != "checking" && !env.ctl.package_updating("echohot")).then_some(r)
+    })
+    .await;
+    assert_eq!(report.result, "ok", "{report:?}");
+    assert_eq!(
+        (report.from.as_str(), report.to.as_str()),
+        ("1.0.0", "1.0.1")
+    );
+    assert!(report.restore_point && report.gone == 0, "{report:?}");
+    assert!(report.new_keys.contains(&"h1/v2".to_owned()), "{report:?}");
+    let reg = env.ctl.registry();
+    let prev = reg.packages["echohot"].previous.as_deref().unwrap();
+    assert_eq!(prev.def.version, "1.0.0");
+    assert!(env.ctl.packages_root().join("echohot/1.0.0").is_dir());
+    assert!(env
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "restore_point" && r.key == "h1"));
+    // back to 1.0.0 by hand: the link stops, its store is the restore
+    // point's (n = 5, written before the update), and v2's node is gone
+    let rb = c
+        .invoke_one(
+            &format!("wy/{SITE}/sys/packages/echohot"),
+            "rollback",
+            Value::Map(BTreeMap::new()),
+        )
+        .await
+        .unwrap();
+    let Some(Value::Map(m)) = rb else {
+        panic!("rollback: {rb:?}")
+    };
+    assert_eq!(m.get("success"), Some(&Value::Bool(true)), "{m:?}");
+    assert_eq!(env.ctl.registry().packages["echohot"].version, "1.0.0");
+    eventually("1.0.0 runs again without v2", 30, || async {
+        let ch = c.children(&root).await.ok()?;
+        (!ch.is_empty() && !ch.iter().any(|ch| ch.name == "v2")).then_some(())
+    })
+    .await;
+    eventually("the store of the restore point", 20, || async {
+        (last_val(&c, &format!("{root}/n")).await == Some(Value::UInt(5))).then_some(())
+    })
+    .await;
     // the install record names what the links may use (M6)
     assert!(
         audit.iter().any(|r| r.op == "package_install"
@@ -2265,6 +2341,8 @@ async fn one_app_three_modes() {
     match portable_component("wyrm-example-portable") {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "portable-echo".into(),
                 version: "1.0.0".into(),
                 description: "the portable example as a component".into(),
@@ -4442,6 +4520,53 @@ async fn chain_of_three_brokers() {
             .ok()
     })
     .await;
+    // ADR 0048 §3.6: a caller from above never replaces anything of the
+    // site with a restore (its token is signed by a limited key: the admin
+    // sees `Caller.signer`). The refusal comes before the file is read;
+    // `mode: add` passes that gate and fails on the file.
+    {
+        let backups = "wy/edge/sys/backups";
+        let junk = b"not a backup".to_vec();
+        let begin = args_map(&[("size", Value::UInt(junk.len() as u64))]);
+        let Some(Value::Map(m)) = ce
+            .invoke_one(backups, "restore_begin", begin)
+            .await
+            .expect("restore_begin from above")
+        else {
+            panic!("restore_begin: a map");
+        };
+        let Some(Value::Str(upload)) = m.get("upload").cloned() else {
+            panic!("restore_begin: upload");
+        };
+        let part = args_map(&[
+            ("upload", upload.clone().into()),
+            ("offset", Value::UInt(0)),
+            ("data", Value::Bytes(junk)),
+        ]);
+        ce.invoke_one(backups, "restore_part", part).await.unwrap();
+        let apply = |mode: &str| {
+            args_map(&[
+                ("upload", upload.clone().into()),
+                (
+                    "sections",
+                    Value::Array(vec![Value::from("storage"), Value::from("links")]),
+                ),
+                ("mode", mode.into()),
+            ])
+        };
+        let e = ce
+            .invoke_one(backups, "restore_apply", apply("replace"))
+            .await
+            .expect_err("replace from above");
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+        assert!(e.message.contains("upstream"), "{e}");
+        let e = ce
+            .invoke_one(backups, "restore_apply", apply("add"))
+            .await
+            .expect_err("add of a file that is no backup");
+        assert!(!e.message.contains("upstream"), "{e}");
+        assert!(!e_dir.join("restore.pending").exists());
+    }
     // allow_config opens config on edge's links too (Export is config);
     // plant's links stay at write (plant does not allow edge)
     eventually("central exports an edge link", 20, || async {
@@ -7689,6 +7814,8 @@ async fn scheduler_three_modes() {
     match &wasm {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "scheduler".into(),
                 version: "1.0.0".into(),
                 description: "the scheduler as a component".into(),
@@ -8252,6 +8379,8 @@ async fn dql_three_modes() {
     match &wasm {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "dql".into(),
                 version: "1.0.0".into(),
                 description: "the DQL link as a component".into(),
@@ -8619,6 +8748,8 @@ async fn alarm_three_modes() {
     match &wasm {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "alarm".into(),
                 version: "1.0.0".into(),
                 description: "the alarm link as a component".into(),
@@ -10858,5 +10989,2071 @@ async fn every_action_has_a_name_people_read() {
     );
     eprintln!("{actions} actions, {params} parameters checked");
     assert!(actions > 300, "only {actions} actions walked");
+    env.stop().await;
+}
+
+const BACKUP_PASS: &str = "backup passphrase 2026";
+
+/// The job `id` of `sys/backups` once it has ended; panics when it failed.
+async fn backup_done(env: &Env, id: &str) -> wyrm_admin::control::backups::Job {
+    eventually("backup done", 60, || async {
+        let j = env.ctl.backups().get(id)?;
+        assert_ne!(j.status, "failed", "backup {id}: {}", j.error);
+        (j.status == "done").then_some(j)
+    })
+    .await
+}
+
+/// The file of the backup `id`, read in parts through `download_part`.
+async fn download_backup(c: &WyrmClient, id: &str, part: u64) -> Vec<u8> {
+    let node = format!("wy/{SITE}/sys/backups/{id}");
+    let mut out = Vec::new();
+    loop {
+        let args = args_map(&[
+            ("offset", Value::UInt(out.len() as u64)),
+            ("len", Value::UInt(part)),
+        ]);
+        let Some(Value::Map(m)) = c.invoke_one(&node, "download_part", args).await.unwrap() else {
+            panic!("download_part: a map");
+        };
+        let Some(Value::Bytes(data)) = m.get("data") else {
+            panic!("download_part: data");
+        };
+        out.extend_from_slice(data);
+        if m.get("eof") == Some(&Value::Bool(true)) {
+            return out;
+        }
+        assert!(!data.is_empty(), "a part without data before the end");
+    }
+}
+
+fn backup_id(v: Option<Value>) -> String {
+    match v {
+        Some(Value::Map(m)) => match m.get("id") {
+            Some(Value::Str(id)) => id.clone(),
+            other => panic!("id: {other:?}"),
+        },
+        other => panic!("create: {other:?}"),
+    }
+}
+
+fn names(list: &[&str]) -> Value {
+    Value::Array(list.iter().map(|s| Value::from(*s)).collect())
+}
+
+/// ADR 0048 §3: a backup made while the broker writes holds every section
+/// as of one moment, its secrets sealed, and is read back in parts.
+#[tokio::test(flavor = "multi_thread")]
+async fn backup_while_writing() {
+    let dir = temp_dir("backup-live");
+    // the host allows secrets to leave in a backup sealed with a passphrase
+    let extra = format!("{MOCK} backups: {{ export_secrets: true }},");
+    let env = Env::start_in(&dir, &extra).await;
+    let c = env.client().await;
+    let storage = format!("wy/{SITE}/storage");
+    c.invoke_one(&storage, "add_node", args_map(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    for i in 0..20u64 {
+        let publish = args_map(&[
+            ("path", format!("plant/v{i}").into()),
+            ("value", Value::UInt(i)),
+        ]);
+        c.invoke_one(&storage, "publish", publish).await.unwrap();
+    }
+    // a writer that goes on while the backup is made
+    let writer = {
+        let c = env.client().await;
+        let storage = storage.clone();
+        tokio::spawn(async move {
+            let mut n = 100u64;
+            loop {
+                let publish = args_map(&[("path", "plant/live".into()), ("value", Value::UInt(n))]);
+                if c.invoke_one(&storage, "publish", publish).await.is_err() {
+                    return;
+                }
+                n += 1;
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+    };
+    eventually("the writer writes", 10, || async {
+        last_val(&c, &format!("{storage}/plant/live")).await
+    })
+    .await;
+    let backups = format!("wy/{SITE}/sys/backups");
+
+    // refusals before any job: an unknown section, keys without a passphrase,
+    // a short passphrase, an unknown link
+    for (what, args) in [
+        ("section", args_map(&[("sections", names(&["nope"]))])),
+        ("keys", args_map(&[("sections", names(&["keys"]))])),
+        (
+            "short",
+            args_map(&[
+                ("sections", names(&["keys"])),
+                ("passphrase", "short".into()),
+            ]),
+        ),
+        (
+            "link",
+            args_map(&[
+                ("sections", names(&["links"])),
+                ("links", names(&["nolink"])),
+            ]),
+        ),
+    ] {
+        let e = c.invoke_one(&backups, "create", args).await.unwrap_err();
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{what}: {e}");
+    }
+    assert!(env.ctl.backups().list().is_empty());
+
+    // Review of PR 72, item 9: a check and a restore of a backup are long
+    // actions from their first step: a broker that closes for a rebuild
+    // refuses them (`busy`, try again), and one that runs them is waited for.
+    env.ctl.quiesce(Duration::ZERO).await;
+    for (action, args) in [
+        ("restore_check", args_map(&[("upload", "none".into())])),
+        (
+            "restore_apply",
+            args_map(&[
+                ("upload", "none".into()),
+                ("mode", "add".into()),
+                ("sections", names(&["links"])),
+            ]),
+        ),
+    ] {
+        let e = c.invoke_one(&backups, action, args).await.unwrap_err();
+        assert!(e.is(wyrm_core::Status::Busy), "{action}: {e}");
+    }
+    env.ctl.reopen();
+    let e = c
+        .invoke_one(
+            &backups,
+            "restore_check",
+            args_map(&[("upload", "none".into())]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::NotFound), "{e}");
+
+    let est = c
+        .invoke_one(
+            &backups,
+            "estimate",
+            args_map(&[("sections", names(&["keys", "storage", "history", "links"]))]),
+        )
+        .await
+        .unwrap();
+    let Some(Value::Map(est)) = est else {
+        panic!("estimate: {est:?}")
+    };
+    let Some(Value::Map(by)) = est.get("sections") else {
+        panic!("estimate sections")
+    };
+    assert!(by.contains_key("control") && by.contains_key("keys") && by.contains_key("links"));
+
+    let sections = [
+        "keys",
+        "dataflows",
+        "storage",
+        "history",
+        "links",
+        "packages",
+    ];
+    let id = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[
+                ("sections", names(&sections)),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&env, &id).await;
+    writer.abort();
+    assert_eq!(job.progress, 100);
+    assert_eq!(job.kind, "full");
+    assert!(job.sections.contains(&"control".to_owned()), "always made");
+    assert!(job.expires > job.created + 6 * 86_400);
+
+    // the tree shows it
+    let node = format!("{backups}/{id}");
+    let status = eventually("status in the tree", 10, || async {
+        last_val(&c, &format!("{node}/status"))
+            .await
+            .filter(|v| *v == Value::from("done"))
+    })
+    .await;
+    assert_eq!(status, Value::from("done"));
+    assert_eq!(
+        last_val(&c, &format!("{node}/sha256")).await,
+        Some(Value::from(job.sha256.clone()))
+    );
+    assert_eq!(
+        last_val(&c, &format!("{node}/size")).await,
+        Some(Value::UInt(job.size))
+    );
+
+    // read back in small parts: the same bytes as the file, its SHA-256
+    let bytes = download_backup(&c, &id, 4096).await;
+    assert_eq!(bytes.len() as u64, job.size);
+    use sha2::Digest;
+    assert_eq!(hex::encode(sha2::Sha256::digest(&bytes)), job.sha256);
+    let too_long = args_map(&[
+        ("offset", Value::UInt(0)),
+        ("len", Value::UInt((16 << 20) + 1)),
+    ]);
+    assert!(c
+        .invoke_one(&node, "download_part", too_long)
+        .await
+        .is_err());
+
+    // the file: every section, checked; secrets sealed, opened by the passphrase
+    let mut r =
+        wyrm_admin::backup::Reader::new(std::io::Cursor::new(bytes.clone()), 1 << 30).unwrap();
+    r.verify(|_, _| {}).unwrap();
+    let m = r.manifest().clone();
+    assert_eq!(m.site, SITE);
+    assert_eq!(m.kind, wyrm_admin::backup::Kind::Broker);
+    assert_eq!(m.sealed.how, "passphrase");
+    assert!(m.schemas.contains_key("registry") && m.schemas.contains_key("flows"));
+    for s in [
+        "control",
+        "keys",
+        "dataflows",
+        "storage",
+        "history",
+        "links",
+    ] {
+        assert!(m.section(s).is_some(), "section {s}");
+    }
+    assert!(m.section("config").is_none());
+    let keys = m.section("keys").unwrap();
+    assert!(keys.files.iter().all(|f| f.sealed));
+    assert!(keys.files.iter().any(|f| f.path == "keys/pki/ca.key"));
+    assert!(m.key(Some(b"another passphrase!"), None).is_err());
+    let key = m.key(Some(BACKUP_PASS.as_bytes()), None).unwrap();
+    let ca = r.read_plain("keys/pki/ca.key", Some(&key)).unwrap();
+    assert_eq!(&*ca, &std::fs::read(dir.join("pki/ca.key")).unwrap());
+    // nothing of the CA key or the passphrase is in the file in clear
+    let needle = &ca[ca.len() / 2..ca.len() / 2 + 24];
+    assert!(!bytes.windows(needle.len()).any(|w| w == needle));
+    assert!(!bytes
+        .windows(BACKUP_PASS.len())
+        .any(|w| w == BACKUP_PASS.as_bytes()));
+
+    // the registry WAL of the backup opens with the site's key at its LSN
+    let out = temp_dir("backup-live-out");
+    for f in &m.section("control").unwrap().files {
+        r.extract(&f.path, &out.join(&f.path), None).unwrap();
+    }
+    let state_key = wyrm_admin::secret::load_or_create_key(&dir.join("state.key")).unwrap();
+    let reg: wyrm_state::Store<wyrm_admin::registry::Registry> =
+        wyrm_state::Store::open(out.join("control/state"), &state_key).unwrap();
+    assert!(reg.state().links.contains_key("mock"));
+    let lsn = m.section("control").unwrap().info["state"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(reg.lsn(), lsn);
+
+    // the storage tree at one revision: the 20 values, and `live` at one
+    // value the writer gave it
+    let tree = r.read("storage/tree.cbor").unwrap();
+    let tree = wyrm_admin::control::replication::parse_changes(
+        wyrm_core::codec::from_slice(&tree).unwrap(),
+    )
+    .unwrap();
+    assert!(tree.full);
+    assert_eq!(
+        tree.put
+            .iter()
+            .filter(|(p, _)| p.starts_with("plant/v"))
+            .count(),
+        20
+    );
+    let live = tree.put.iter().find(|(p, _)| p == "plant/live").unwrap();
+    assert!(matches!(live.1.value, Some(Value::UInt(n)) if n >= 100));
+
+    // the link: its definition without a token hash, its secrets sealed
+    let def: wyrm_admin::registry::LinkDef =
+        minicbor::decode(&r.read("links/mock/link.cbor").unwrap()).unwrap();
+    assert_eq!(def.driver, "mock");
+    assert!(def.token_hash.is_empty());
+    assert!(m
+        .section("links")
+        .unwrap()
+        .files
+        .iter()
+        .any(|f| f.path == "links/mock/secrets" && f.sealed));
+
+    // the audit names the backup and the download, never the passphrase
+    let audit = env.ctl.audit_tail(200);
+    let created = audit.iter().find(|r| r.op == "backup_create").unwrap();
+    assert_eq!(created.key, id);
+    assert!(created.detail.contains("sealed passphrase"));
+    assert!(created.detail.contains("keys: true") && created.detail.contains("secrets: true"));
+    assert!(audit
+        .iter()
+        .any(|r| r.op == "backup_download" && r.key == id));
+    assert!(audit.iter().all(|r| !r.detail.contains(BACKUP_PASS)));
+
+    // without a passphrase: no secrets in it, links as their settings
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let id2 = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[("sections", names(&["links", "storage"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job2 = backup_done(&env, &id2).await;
+    assert_ne!(id2, id);
+    // without a passphrase: link secrets sealed for this site alone
+    let m2 = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job2.file)).unwrap();
+    assert_eq!(m2.sealed.how, "broker");
+    assert!(m2.section("keys").is_none());
+    assert!(m2
+        .section("links")
+        .unwrap()
+        .files
+        .iter()
+        .any(|f| f.path == "links/mock/secrets" && f.sealed));
+    let created2 = env.ctl.audit_tail(200);
+    let created2 = created2
+        .iter()
+        .find(|r| r.op == "backup_create" && r.key == id2)
+        .unwrap();
+    assert!(created2.detail.contains("keys: false") && created2.detail.contains("secrets: false"));
+
+    // kept across a restart, then removed
+    drop(c);
+    env.stop().await;
+    // the host's switch is off again: keys and passphrases are refused,
+    // everything else works
+    let env = Env::start_in(&dir, MOCK).await;
+    let c = env.client().await;
+    for args in [
+        args_map(&[
+            ("sections", names(&["keys"])),
+            ("passphrase", BACKUP_PASS.into()),
+        ]),
+        args_map(&[
+            ("sections", names(&["links"])),
+            ("passphrase", BACKUP_PASS.into()),
+        ]),
+    ] {
+        let e = c.invoke_one(&backups, "create", args).await.unwrap_err();
+        assert!(e.message.contains("export_secrets"), "{e}");
+    }
+    let meta = c.meta(&backups).await.unwrap();
+    assert_eq!(
+        meta.attr.as_ref().and_then(|a| a.get("export_secrets")),
+        Some(&Value::Bool(false)),
+        "Studio reads why the checkboxes are off"
+    );
+    // the keys of this very broker (the same CA) do not come back either
+    // while the host's switch is off: every restore of `keys` passes it
+    {
+        let upload = upload_backup(&c, &bytes, 1 << 20).await;
+        let args = args_map(&[
+            ("upload", upload.into()),
+            ("passphrase", BACKUP_PASS.into()),
+            ("sections", names(&["keys"])),
+            ("mode", "replace".into()),
+            ("replace_keys", Value::Bool(true)),
+        ]);
+        let e = c
+            .invoke_one(&backups, "restore_apply", args)
+            .await
+            .unwrap_err();
+        assert!(e.message.contains("export_secrets"), "{e}");
+        assert!(!dir.join("restore.pending").exists());
+    }
+    assert_eq!(env.ctl.backups().get(&id), Some(job.clone()));
+    assert_eq!(download_backup(&c, &id, 16 << 20).await, bytes);
+    c.invoke_one(&node, "remove", args_map(&[])).await.unwrap();
+    assert!(env.ctl.backups().get(&id).is_none());
+    assert!(!dir.join("backups").join(&job.file).exists());
+    assert!(c.invoke_one(&node, "remove", args_map(&[])).await.is_err());
+    env.stop().await;
+}
+
+/// `(success, message)` of an install action's answer.
+fn install_outcome(v: Option<Value>) -> (bool, String) {
+    let Some(Value::Map(m)) = v else {
+        panic!("result map: {v:?}")
+    };
+    let msg = match m.get("message") {
+        Some(Value::Str(s)) => s.clone(),
+        other => panic!("message: {other:?}"),
+    };
+    (m.get("success") == Some(&Value::Bool(true)), msg)
+}
+
+/// Upload `bytes` to the broker of `c` in parts of `part`; the upload id.
+async fn upload_backup(c: &WyrmClient, bytes: &[u8], part: usize) -> String {
+    let backups = format!("wy/{SITE}/sys/backups");
+    let begin = args_map(&[("size", Value::UInt(bytes.len() as u64))]);
+    let Some(Value::Map(m)) = c
+        .invoke_one(&backups, "restore_begin", begin)
+        .await
+        .unwrap()
+    else {
+        panic!("restore_begin: a map");
+    };
+    let Some(Value::Str(upload)) = m.get("upload").cloned() else {
+        panic!("restore_begin: upload");
+    };
+    let mut offset = 0;
+    for chunk in bytes.chunks(part) {
+        let args = args_map(&[
+            ("upload", upload.clone().into()),
+            ("offset", Value::UInt(offset)),
+            ("data", Value::Bytes(chunk.to_vec())),
+        ]);
+        c.invoke_one(&backups, "restore_part", args).await.unwrap();
+        offset += chunk.len() as u64;
+    }
+    upload
+}
+
+/// ADR 0048 §3.5: a link backed up on one broker is installed on a second
+/// broker under a new id with its settings, its sealed private data and
+/// secrets, and its package; on its own broker it replaces the link after a
+/// restore point.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_backup_restores_on_a_second_broker() {
+    let dir_a = temp_dir("linkbak-a");
+    let a = Env::start_in(&dir_a, "backups: { export_secrets: true },").await;
+    let ca = slow_client(&a).await;
+    let links = format!("wy/{SITE}/sys/links");
+
+    // a framework link with a runtime edit that holds a secret
+    let install = args_map(&[
+        ("id", "dev1".into()),
+        ("driver", "mockdev".into()),
+        ("mode", "embedded".into()),
+        (
+            "params",
+            args_map(&[("connections", Value::Map(BTreeMap::new()))]),
+        ),
+    ]);
+    ca.invoke_one(&links, "install", install).await.unwrap();
+    let root = format!("wy/{SITE}/downstream/dev1");
+    eventually("dev1 up", 15, || async { ca.meta(&root).await.ok() }).await;
+    let conn = args_map(&[
+        ("name", "c2".into()),
+        ("need_token", Value::Bool(true)),
+        ("token", "pw-123456".into()),
+    ]);
+    ca.invoke_one(&root, "add_connection", conn).await.unwrap();
+    let connected = |c: WyrmClient, id: &'static str| async move {
+        let status = format!("wy/{SITE}/downstream/{id}/c2/status");
+        eventually("c2 connected", 20, || async {
+            // `status` is an enum leaf; 2 = Connected
+            let v = last_val(&c, &status).await;
+            (v == Some(Value::UInt(2))).then_some(())
+        })
+        .await
+    };
+    connected(ca.clone(), "dev1").await;
+
+    // refused: a package it does not run
+    let link = format!("{links}/dev1");
+    let e = ca
+        .invoke_one(
+            &link,
+            "backup",
+            args_map(&[("sections", names(&["package"]))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    // without a passphrase the private data is sealed for this site: the
+    // file opens here, and a broker with other keys refuses it
+    let site_only = backup_id(
+        ca.invoke_one(&link, "backup", args_map(&[("sections", names(&["data"]))]))
+            .await
+            .unwrap(),
+    );
+    let site_job = backup_done(&a, &site_only).await;
+    assert_eq!(site_job.sealed, "broker");
+    let site_bytes = download_backup(&ca, &site_only, 16 << 20).await;
+    assert!(!site_bytes.windows(9).any(|w| w == b"pw-123456"));
+    let id = backup_id(
+        ca.invoke_one(
+            &link,
+            "backup",
+            args_map(&[
+                ("sections", names(&["data"])),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&a, &id).await;
+    assert_eq!((job.kind.as_str(), job.link.as_str()), ("link", "dev1"));
+    assert!(job.file.ends_with(".wyrm-link"));
+    assert_eq!(job.sections, ["settings", "data"]);
+    let bytes = download_backup(&ca, &id, 16 << 20).await;
+    assert!(!bytes.windows(9).any(|w| w == b"pw-123456"));
+    let m = wyrm_admin::backup::Reader::new(std::io::Cursor::new(bytes.clone()), 1 << 30)
+        .unwrap()
+        .manifest()
+        .clone();
+    assert_eq!(m.kind, wyrm_admin::backup::Kind::Link);
+    assert_eq!(m.link.as_ref().unwrap().id, "dev1");
+    assert!(m.section("data").unwrap().files.iter().all(|f| f.sealed));
+    assert!(a
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "link_backup" && r.key == "dev1" && !r.detail.contains(BACKUP_PASS)));
+
+    // the second broker: other keys, nothing of dev1
+    let dir_b = temp_dir("linkbak-b");
+    let b = Env::start_in(&dir_b, "").await;
+    let cb = slow_client(&b).await;
+    let upload = upload_backup(&cb, &bytes, 1000).await;
+    let restore = |pass: &str, id: &str| {
+        args_map(&[
+            ("upload", upload.clone().into()),
+            ("id", id.into()),
+            ("passphrase", pass.into()),
+        ])
+    };
+    // the file sealed for site A's keys: nothing of it opens on B
+    let foreign = args_map(&[
+        ("file", Value::Bytes(site_bytes.clone())),
+        ("id", "dev8".into()),
+    ]);
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(&links, "install_backup", foreign)
+            .await
+            .unwrap(),
+    );
+    assert!(!ok && msg.contains("another broker"), "{msg}");
+    assert!(!b.ctl.registry().links.contains_key("dev8"));
+    // B's host did not allow secrets out: a passphrase is refused there
+    let e = cb
+        .invoke_one(
+            &format!("{links}/nolink"),
+            "backup",
+            args_map(&[("passphrase", BACKUP_PASS.into())]),
+        )
+        .await;
+    assert!(e.is_err());
+    // an id the broker keeps for itself is no id of a restored link
+    let reserved = args_map(&[
+        ("upload", upload.clone().into()),
+        ("id", "scheduler".into()),
+        ("passphrase", BACKUP_PASS.into()),
+    ]);
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(&links, "install_backup", reserved)
+            .await
+            .unwrap(),
+    );
+    assert!(!ok && msg.contains("reserved"), "{msg}");
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(
+            &links,
+            "install_backup",
+            restore("not the passphrase", "dev9"),
+        )
+        .await
+        .unwrap(),
+    );
+    assert!(!ok && msg.contains("wrong passphrase"), "{msg}");
+    assert!(!b.ctl.registry().links.contains_key("dev9"));
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(&links, "install_backup", restore(BACKUP_PASS, "dev9"))
+            .await
+            .unwrap(),
+    );
+    assert!(ok, "{msg}");
+    assert!(msg.contains("link dev9 installed"), "{msg}");
+    // its connection is back and connects: the sealed tree opened with the
+    // store key of the backup, the token came with it
+    connected(cb.clone(), "dev9").await;
+    let def = b.ctl.registry().links.get("dev9").cloned().unwrap();
+    assert_eq!(def.driver, "mockdev");
+    assert!(b
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "link_restore" && r.key == "dev9"));
+    // the upload is used up
+    let (ok, _) = install_outcome(
+        cb.invoke_one(&links, "install_backup", restore(BACKUP_PASS, "dev10"))
+            .await
+            .unwrap(),
+    );
+    assert!(!ok);
+
+    // on its own broker, under its own id: replaced in place, a restore
+    // point of what it was is kept
+    let conn = args_map(&[("name", "c3".into())]);
+    ca.invoke_one(&root, "add_connection", conn).await.unwrap();
+    eventually("c3 there", 10, || async {
+        ca.meta(&format!("{root}/c3")).await.ok()
+    })
+    .await;
+    let same = args_map(&[
+        ("file", Value::Bytes(bytes.clone())),
+        ("passphrase", BACKUP_PASS.into()),
+    ]);
+    let (ok, msg) = install_outcome(ca.invoke_one(&links, "install_backup", same).await.unwrap());
+    assert!(
+        ok && msg.contains("link dev1 replaced") && msg.contains("restore point"),
+        "{msg}"
+    );
+    connected(ca.clone(), "dev1").await;
+    eventually("c3 gone: the state of the backup", 10, || async {
+        ca.meta(&format!("{root}/c3")).await.is_err().then_some(())
+    })
+    .await;
+    // one restore point, as a package update takes them: listed in the tree
+    // (`at`, `version`, `size`) and pruned with them
+    let points = wyrm_admin::restore_point::list(&dir_a.join("restore"), "dev1");
+    assert_eq!(points.len(), 1);
+    let point = dir_a
+        .join("restore/dev1")
+        .join(format!("{}.wyrm-link", points[0].id));
+    assert_eq!(points[0].size, std::fs::metadata(&point).unwrap().len());
+    assert!(!points[0].keys_known, "a restore has no health check");
+    let rows = eventually("the restore point in the tree", 10, || async {
+        match last_val(&ca, &format!("{links}/dev1/restore_points")).await {
+            Some(Value::Array(rows)) if !rows.is_empty() => Some(rows),
+            _ => None,
+        }
+    })
+    .await;
+    let Value::Map(row) = &rows[0] else {
+        panic!("a row: {rows:?}")
+    };
+    assert_eq!(row.get("at"), Some(&Value::UInt(points[0].at)));
+    assert_eq!(row.get("size"), Some(&Value::UInt(points[0].size)));
+    assert_eq!(row.get("version"), Some(&Value::from("")), "a built-in");
+    assert!(a
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "restore_point" && r.key == "dev1"));
+    // the restore point is sealed for this broker: it opens here without a
+    // passphrase and holds c3; the other broker cannot open it
+    let pm = wyrm_admin::backup::read_manifest(&point).unwrap();
+    assert_eq!(pm.sealed.how, "broker");
+    assert!(pm.section("data").is_some() && pm.section("package").is_none());
+    let secrets_b = wyrm_admin::secret::load_or_create_key(&dir_b.join("secrets.key")).unwrap();
+    assert!(pm.key(None, Some(&secrets_b)).is_err());
+    let secrets_a = wyrm_admin::secret::load_or_create_key(&dir_a.join("secrets.key")).unwrap();
+    pm.key(None, Some(&secrets_a)).unwrap();
+
+    // a package link: the backup carries the package to a broker without it
+    let (ok, msg) = install_zip(&ca, "m1", mock_package("1.0.0")).await;
+    assert!(ok, "{msg}");
+    let ca = eventually("a back after the rebuild", 20, || async {
+        let c = client_now(&a).await?;
+        c.meta(&format!("wy/{SITE}/downstream/m1")).await.ok()?;
+        Some(c)
+    })
+    .await;
+    let id = backup_id(
+        ca.invoke_one(
+            &format!("{links}/m1"),
+            "backup",
+            args_map(&[("sections", names(&["package"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&a, &id).await;
+    let pkg = download_backup(&ca, &id, 16 << 20).await;
+    assert_eq!(job.sealed, "none");
+    assert!(!b.ctl.registry().packages.contains_key("mockpkg"));
+    // the package's manifest edited in the file (an entry outside the
+    // package): the install validator refuses it, nothing is registered
+    {
+        use std::io::{Read, Write};
+        let mut zin = zip::ZipArchive::new(std::io::Cursor::new(pkg.clone())).unwrap();
+        let mut entries = Vec::new();
+        for i in 0..zin.len() {
+            let mut f = zin.by_index(i).unwrap();
+            let mut data = Vec::new();
+            f.read_to_end(&mut data).unwrap();
+            entries.push((f.name().unwrap().into_owned(), data));
+        }
+        let evil = br#"{"name":"mockpkg","version":"1.0.0","description":"x","wyrm_link":1,"kind":"process","entries":{"any":"../../../../bin/sh"}}"#
+            .to_vec();
+        let mut m: wyrm_admin::backup::Manifest = serde_json::from_slice(&entries[0].1).unwrap();
+        for s in &mut m.sections {
+            for f in &mut s.files {
+                if f.path == "package/files/wyrm-link.json" {
+                    f.size = evil.len() as u64;
+                    f.sha256 = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&evil));
+                }
+            }
+        }
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opt = zip::write::SimpleFileOptions::default();
+        w.start_file("manifest.json", opt).unwrap();
+        w.write_all(&serde_json::to_vec(&m).unwrap()).unwrap();
+        for (name, data) in entries.iter().skip(1) {
+            w.start_file(name.as_str(), opt).unwrap();
+            let data = if name == "package/files/wyrm-link.json" {
+                &evil
+            } else {
+                data
+            };
+            w.write_all(data).unwrap();
+        }
+        let forged = w.finish().unwrap().into_inner();
+        let args = args_map(&[("file", Value::Bytes(forged)), ("id", "m3".into())]);
+        let (ok, msg) =
+            install_outcome(cb.invoke_one(&links, "install_backup", args).await.unwrap());
+        assert!(!ok && msg.contains("the package of the backup"), "{msg}");
+        assert!(!b.ctl.registry().packages.contains_key("mockpkg"));
+        assert!(!b.ctl.registry().links.contains_key("m3"));
+    }
+    let from_file = args_map(&[("file", Value::Bytes(pkg)), ("id", "m2".into())]);
+    let (ok, msg) = install_outcome(
+        cb.invoke_one(&links, "install_backup", from_file)
+            .await
+            .unwrap(),
+    );
+    assert!(ok, "{msg}");
+    assert!(
+        msg.contains("package mockpkg 1.0.0 installed from the backup"),
+        "{msg}"
+    );
+    let pdef = b.ctl.registry().packages.get("mockpkg").cloned().unwrap();
+    assert_eq!(pdef.version, "1.0.0");
+    // its record is the install validator's: built from the files (their
+    // SHA-256 as a package again), never read from the backup
+    assert!(pdef.source.starts_with("backup m1@"), "{}", pdef.source);
+    let files = wyrm_admin::packages::repack(&dir_a.join("packages/mockpkg/1.0.0")).unwrap();
+    assert_eq!(pdef.sha256, wyrm_link_sdk::package::sha256_hex(&files));
+    eventually("m2 runs on the second broker", 30, || async {
+        let c = client_now(&b).await?;
+        c.meta(&format!("wy/{SITE}/downstream/m2")).await.ok()
+    })
+    .await;
+
+    a.stop().await;
+    b.stop().await;
+}
+
+/// ADR 0048 §3.6: a backup made while the broker writes is restored into a
+/// fresh `data_dir`: `add` live (storage nodes and links that are not
+/// there), then `replace` with the site's keys, applied at the next start
+/// before any store opens.
+#[tokio::test(flavor = "multi_thread")]
+async fn backup_restores_into_a_fresh_data_dir() {
+    let secrets_on = "backups: { export_secrets: true },";
+    let dir_a = temp_dir("restore-a");
+    let a = Env::start_in(&dir_a, &format!("{MOCK} {secrets_on}")).await;
+    let ca = a.client().await;
+    let storage = format!("wy/{SITE}/storage");
+    ca.invoke_one(&storage, "add_node", args_map(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    for i in 0..5u64 {
+        let publish = args_map(&[
+            ("path", format!("plant/v{i}").into()),
+            ("value", Value::UInt(i)),
+        ]);
+        ca.invoke_one(&storage, "publish", publish).await.unwrap();
+    }
+    let backups = format!("wy/{SITE}/sys/backups");
+    let id = backup_id(
+        ca.invoke_one(
+            &backups,
+            "create",
+            args_map(&[
+                (
+                    "sections",
+                    names(&["keys", "dataflows", "storage", "history", "links"]),
+                ),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    backup_done(&a, &id).await;
+    let bytes = download_backup(&ca, &id, 16 << 20).await;
+    let ca_pem = std::fs::read(dir_a.join("pki/ca.pem")).unwrap();
+    drop(ca);
+    a.stop().await;
+
+    // a fresh broker of the same site name: other keys, nothing in it
+    let dir_b = temp_dir("restore-b");
+    let b = Env::start_in(&dir_b, secrets_on).await;
+    let cb = slow_client(&b).await;
+    assert_ne!(std::fs::read(dir_b.join("pki/ca.pem")).unwrap(), ca_pem);
+    let upload = upload_backup(&cb, &bytes, 64 << 10).await;
+    let with = |extra: &[(&str, Value)]| {
+        let mut v = vec![
+            ("upload", Value::from(upload.clone())),
+            ("passphrase", Value::from(BACKUP_PASS)),
+        ];
+        v.extend(extra.iter().cloned());
+        args_map(&v)
+    };
+    let wrong = args_map(&[
+        ("upload", upload.clone().into()),
+        ("passphrase", "not the passphrase".into()),
+    ]);
+    assert!(cb
+        .invoke_one(&backups, "restore_check", wrong)
+        .await
+        .is_err());
+    let Some(Value::Map(check)) = cb
+        .invoke_one(&backups, "restore_check", with(&[]))
+        .await
+        .unwrap()
+    else {
+        panic!("restore_check: a map");
+    };
+    assert_eq!(check.get("same_site"), Some(&Value::Bool(true)));
+    assert_eq!(check.get("keys"), Some(&Value::from("other")));
+    assert_eq!(check.get("control_opens_here"), Some(&Value::Bool(false)));
+    assert_eq!(check.get("problems"), Some(&Value::Array(Vec::new())));
+    let Some(Value::Map(links)) = check.get("links") else {
+        panic!("links")
+    };
+    assert_eq!(links.get("mock"), Some(&Value::from("new")));
+
+    // add: live, nothing replaced, no restart
+    let Some(Value::Map(added)) = cb
+        .invoke_one(
+            &backups,
+            "restore_apply",
+            with(&[
+                ("sections", names(&["storage", "links"])),
+                ("mode", "add".into()),
+            ]),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("restore_apply add: a map");
+    };
+    assert_eq!(added.get("restart"), Some(&Value::Bool(false)), "{added:?}");
+    assert!(b.ctl.registry().links.contains_key("mock"), "{added:?}");
+    let v3 = format!("{storage}/plant/v3");
+    let v = eventually("an added storage value", 20, || async {
+        let c = client_now(&b).await?;
+        last_val(&c, &v3).await
+    })
+    .await;
+    assert_eq!(v, Value::UInt(3));
+    // a second add changes nothing: everything exists (the storage add
+    // rebuilt the router: a call is tried again on a new session)
+    let again = with(&[("sections", names(&["links"])), ("mode", "add".into())]);
+    let Some(Value::Map(again)) = invoke_retry(&b, &backups, "restore_apply", again).await else {
+        panic!("restore_apply add: a map");
+    };
+    assert_eq!(again.get("done"), Some(&Value::Array(Vec::new())));
+
+    let cb = slow_client(&b).await;
+    // replace: refused without replace_keys, and for a section it has not
+    // (`busy` while the router of the add is still being rebuilt)
+    let sections = names(&["control", "keys", "storage", "links", "history"]);
+    let e = eventually("a refusal, not busy", 40, || async {
+        let args = with(&[("sections", sections.clone()), ("mode", "replace".into())]);
+        let e = cb
+            .invoke_one(&backups, "restore_apply", args)
+            .await
+            .unwrap_err();
+        (!e.is(wyrm_core::Status::Busy)).then_some(e)
+    })
+    .await;
+    assert!(e.message.contains("replace_keys"), "{e}");
+    let e = cb
+        .invoke_one(
+            &backups,
+            "restore_apply",
+            with(&[
+                ("sections", names(&["control"])),
+                ("mode", "replace".into()),
+            ]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("keys"), "{e}");
+    assert!(!dir_b.join("restore.pending").exists());
+
+    let Some(Value::Map(done)) = cb
+        .invoke_one(
+            &backups,
+            "restore_apply",
+            with(&[
+                ("sections", sections),
+                ("mode", "replace".into()),
+                ("replace_keys", Value::Bool(true)),
+            ]),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("restore_apply replace: a map");
+    };
+    assert_eq!(done.get("restart"), Some(&Value::Bool(true)));
+    // what it replaced is backed up first; then the broker stops by itself
+    assert!(b
+        .ctl
+        .backups()
+        .list()
+        .iter()
+        .any(|j| j.kind == "pre-restore" && j.status == "done"));
+    drop(cb);
+    eventually("the broker stops for the restore", 30, || async {
+        b.task.is_finished().then_some(())
+    })
+    .await;
+    assert!(dir_b.join("restore.pending/plan.json").is_file());
+    b.stop().await;
+
+    // the next start applies it before any store opens
+    let b = Env::start_in(&dir_b, &format!("{MOCK} {secrets_on}")).await;
+    assert!(!dir_b.join("restore.pending").exists());
+    assert_eq!(std::fs::read(dir_b.join("pki/ca.pem")).unwrap(), ca_pem);
+    assert_eq!(
+        std::fs::read(dir_b.join("state.key")).unwrap(),
+        std::fs::read(dir_a.join("state.key")).unwrap()
+    );
+    assert!(b.ctl.registry().links.contains_key("mock"));
+    let audit = b.ctl.audit_tail(50);
+    assert!(audit.iter().any(|r| r.op == "restore_applied"), "{audit:?}");
+    let cb = slow_client(&b).await;
+    for i in 0..5u64 {
+        let key = format!("{storage}/plant/v{i}");
+        let v = eventually("a restored storage value", 20, || async {
+            last_val(&cb, &key).await
+        })
+        .await;
+        assert_eq!(v, Value::UInt(i));
+    }
+    // the link of the backup runs again
+    eventually("mock is up", 20, || async {
+        cb.meta(&format!("wy/{SITE}/downstream/mock")).await.ok()
+    })
+    .await;
+    b.stop().await;
+}
+
+// ---- Package updates with a way back (ADR 0048 §1) ----
+
+/// A process package `name` whose entry is the shell script `body` (after
+/// `#!/bin/sh`), with `extra` fields in its manifest (`state`, `reads_state`).
+fn script_package(name: &str, version: &str, body: &str, extra: serde_json::Value) -> Vec<u8> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    let mut manifest = serde_json::json!({
+        "name": name,
+        "version": version,
+        "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
+        "kind": "process",
+        "entries": { wyrm_admin::packages::platform(): "bin/run" },
+    });
+    if let (Some(m), Some(e)) = (manifest.as_object_mut(), extra.as_object()) {
+        m.extend(e.clone());
+    }
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opt = SimpleFileOptions::default();
+    w.start_file(wyrm_admin::packages::MANIFEST, opt).unwrap();
+    w.write_all(manifest.to_string().as_bytes()).unwrap();
+    w.start_file("bin/run", opt.unix_permissions(0o644))
+        .unwrap();
+    w.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
+        .unwrap();
+    w.finish().unwrap().into_inner()
+}
+
+/// The package `updpkg` of the update tests: `wyrmd link mockdev` as a
+/// process, so its link keeps runtime edits in its private `framework.tree`.
+fn upd_good(version: &str, extra: serde_json::Value) -> Vec<u8> {
+    let body = format!("exec \"{}\" link mockdev", env!("CARGO_BIN_EXE_wyrmd"));
+    script_package("updpkg", version, &body, extra)
+}
+
+/// A version of `updpkg` that loses what the link had: it deletes the saved
+/// tree (the connection added at runtime is not declared again) and leaves
+/// a file of its own in the link's private data.
+fn upd_lossy(version: &str) -> Vec<u8> {
+    let body = format!(
+        "rm -f \"$WYRM_DATA_DIR/framework.tree\"\n\
+         echo lossy > \"$WYRM_DATA_DIR/lossy-was-here\"\n\
+         exec \"{}\" link mockdev",
+        env!("CARGO_BIN_EXE_wyrmd")
+    );
+    script_package("updpkg", version, &body, serde_json::json!({}))
+}
+
+/// A version of `updpkg` whose link never says hello.
+fn upd_dead(version: &str) -> Vec<u8> {
+    script_package("updpkg", version, "exit 1", serde_json::json!({}))
+}
+
+/// An install or update action answered `{success, message}`, retried while
+/// the router is being rebuilt.
+async fn upd_call(env: &Env, key: &str, action: &str, args: Vec<(&str, Value)>) -> (bool, String) {
+    let args = Value::Map(args.into_iter().map(|(k, v)| (k.to_owned(), v)).collect());
+    let v = eventually(&format!("{action} on {key}"), 60, || {
+        let args = args.clone();
+        async move {
+            let c = client_now(env).await?.with_timeout(Duration::from_secs(60));
+            match c.invoke_one(key, action, args).await {
+                Ok(v) => Some(v),
+                // an error of the admin itself is the answer; anything else
+                // is the router between two builds
+                Err(e)
+                    if matches!(
+                        status_of(&e),
+                        Some(wyrm_core::Status::InvalidParameter | wyrm_core::Status::NotFound)
+                    ) =>
+                {
+                    panic!("{action}: {e}")
+                }
+                Err(_) => None,
+            }
+        }
+    })
+    .await;
+    let Some(Value::Map(m)) = v else {
+        panic!("{action}: result map: {v:?}")
+    };
+    let msg = match m.get("message") {
+        Some(Value::Str(s)) => s.clone(),
+        other => panic!("{action}: message: {other:?}"),
+    };
+    (m.get("success") == Some(&Value::Bool(true)), msg)
+}
+
+/// `updpkg` 1.0.0 installed as link `u1`, with a connection `c2` added at
+/// runtime (kept in the link's private data).
+async fn upd_setup(env: &Env) {
+    let links = format!("wy/{SITE}/sys/links");
+    let (ok, msg) = upd_call(
+        env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            (
+                "zip",
+                Value::Bytes(upd_good("1.0.0", serde_json::json!({}))),
+            ),
+        ],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let root = format!("wy/{SITE}/downstream/u1");
+    eventually("u1 answers", 40, || async {
+        let c = client_now(env).await?;
+        c.meta(&root).await.ok()
+    })
+    .await;
+    let args = Value::Map(BTreeMap::from([("name".to_owned(), Value::from("c2"))]));
+    invoke_retry(env, &root, "add_connection", args).await;
+    upd_c2(env, "c2 is declared").await;
+}
+
+/// Waits until the link `u1` has its connection `c2`.
+async fn upd_c2(env: &Env, what: &str) {
+    let node = format!("wy/{SITE}/downstream/u1/c2/status");
+    eventually(what, 40, || async {
+        let c = client_now(env).await?;
+        c.meta(&node).await.ok()
+    })
+    .await;
+}
+
+/// `attr.updates_available` of `sys/links`.
+async fn upd_available(env: &Env) -> Option<Value> {
+    let c = client_now(env).await?;
+    let meta = c.meta(&format!("wy/{SITE}/sys/links")).await.ok()?;
+    meta.attr?.get("updates_available").cloned()
+}
+
+/// A value of `sys/packages/updpkg` (or of another node under `sys`).
+async fn upd_sys(env: &Env, path: &str) -> Option<Value> {
+    last_sample(env, &format!("wy/{SITE}/sys/{path}"))
+        .await
+        .map(|s| s.v)
+}
+
+fn upd_field(v: &Value, name: &str) -> Value {
+    match v {
+        Value::Map(m) => m.get(name).cloned().unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
+/// `sys/packages/updpkg/last_update` once its `result` is no longer
+/// `checking` and the check has let go of the package.
+async fn upd_result(env: &Env, secs: u64) -> Value {
+    eventually("the update's result", secs, || async {
+        let v = upd_sys(env, "packages/updpkg/last_update").await?;
+        match upd_field(&v, "result") {
+            Value::Str(r) if r != "checking" && !env.ctl.package_updating("updpkg") => Some(v),
+            _ => None,
+        }
+    })
+    .await
+}
+
+fn upd_text(v: &Value, name: &str) -> String {
+    match upd_field(v, name) {
+        Value::Str(s) => s,
+        other => panic!("{name}: {other:?} in {v:?}"),
+    }
+}
+
+fn upd_count(v: &Value, name: &str) -> u64 {
+    match upd_field(v, name) {
+        Value::UInt(n) => n,
+        other => panic!("{name}: {other:?} in {v:?}"),
+    }
+}
+
+/// ADR 0048 §1.3–1.6: an update whose new version does not declare every
+/// key again is rolled back by the broker itself: the old version runs
+/// again and the link's private data is as it was before the update.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_that_loses_keys_rolls_back() {
+    let dir = temp_dir("upd-lossy");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/version").await,
+        Some(Value::from("1.0.0"))
+    );
+    // a package the repository does not list: no `latest`
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/latest").await,
+        Some(Value::from(""))
+    );
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/update_available").await,
+        Some(Value::Bool(false))
+    );
+    let tree = dir.join("links/u1/data/framework.tree");
+    assert!(tree.is_file(), "the link saved its runtime edit");
+
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_lossy("1.1.0"))),
+            ("auto_rollback_s", Value::UInt(8)),
+        ],
+    )
+    .await;
+    assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    assert!(msg.contains("restore points: u1"), "{msg}");
+    // the old version is kept beside the new one
+    let root = env.ctl.packages_root();
+    assert!(root.join("updpkg/1.0.0/bin/run").exists() && root.join("updpkg/1.1.0").exists());
+
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    assert_eq!(
+        (upd_text(&r, "from"), upd_text(&r, "to")),
+        ("1.0.0".into(), "1.1.0".into())
+    );
+    assert!(upd_count(&r, "gone") >= 1, "{r:?}");
+    let Value::Array(gone) = upd_field(&r, "gone_keys") else {
+        panic!("{r:?}")
+    };
+    assert!(gone.contains(&Value::from("u1/c2")), "{gone:?}");
+    let reason = upd_text(&r, "reason");
+    assert!(
+        reason.contains("u1 did not declare") && reason.contains("within 8 s"),
+        "{reason}"
+    );
+
+    // the old version runs again, on its data as it was
+    let reg = env.ctl.registry();
+    let p = &reg.packages["updpkg"];
+    assert_eq!(p.version, "1.0.0");
+    assert!(p.previous.is_none(), "nothing is kept after a rollback");
+    assert!(root.join("updpkg/1.0.0/bin/run").exists() && !root.join("updpkg/1.1.0").exists());
+    assert!(!dir.join("links/u1/data/lossy-was-here").exists());
+    // the new version deleted the saved tree: only the restore point has c2
+    upd_c2(&env, "c2 is back after the rollback").await;
+    assert!(tree.is_file(), "the private data is the restore point's");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/version").await,
+        Some(Value::from("1.0.0"))
+    );
+    // one restore point of the link, listed with its version and size
+    let Some(Value::Array(points)) = upd_sys(&env, "links/u1/restore_points").await else {
+        panic!("restore_points")
+    };
+    assert_eq!(points.len(), 1, "{points:?}");
+    assert_eq!(upd_text(&points[0], "version"), "1.0.0");
+    assert!(upd_count(&points[0], "size") > 0 && upd_count(&points[0], "at") > 0);
+    // it is a link backup sealed for this broker (no passphrase, and the
+    // host's `backups.export_secrets` is off): settings and private data,
+    // every data file sealed, no package and no history in it
+    let point_dir = dir.join("restore/u1");
+    let sealed: Vec<_> = std::fs::read_dir(&point_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "wyrm-link"))
+        .collect();
+    assert_eq!(sealed.len(), 1);
+    let pm = wyrm_admin::backup::read_manifest(&sealed[0].path()).unwrap();
+    assert_eq!(pm.kind, wyrm_admin::backup::Kind::Link);
+    assert_eq!(pm.sealed.how, "broker");
+    let data = pm.section("data").expect("the private data");
+    assert!(data.files.iter().all(|f| f.sealed));
+    assert!(data
+        .files
+        .iter()
+        .any(|f| f.path == "data/files/framework.tree"));
+    assert!(pm.section("package").is_none() && pm.section("history").is_none());
+    // the key list of the health check is kept beside it
+    let kept = wyrm_admin::restore_point::list(&dir.join("restore"), "u1");
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].keys_known && kept[0].keys.iter().any(|k| k.contains("c2")));
+
+    let audit = env.ctl.audit_tail(200);
+    for op in ["restore_point", "package_update", "update_rollback"] {
+        assert!(audit.iter().any(|r| r.op == op), "{op}: {audit:?}");
+    }
+    let rb = audit.iter().find(|r| r.op == "update_rollback").unwrap();
+    assert!(
+        rb.key == "updpkg" && rb.detail.contains("data restored: u1"),
+        "{rb:?}"
+    );
+
+    // a version whose link never says hello goes the same way
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_dead("1.2.0"))),
+            ("auto_rollback_s", Value::UInt(6)),
+        ],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    assert!(
+        upd_text(&r, "reason").contains("u1 did not come back within 6 s"),
+        "{r:?}"
+    );
+    assert_eq!(env.ctl.registry().packages["updpkg"].version, "1.0.0");
+    upd_c2(&env, "c2 is back after the second rollback").await;
+    env.stop().await;
+}
+
+/// ADR 0048 §1.5–1.6: with `auto_rollback_s: 0` the new version stays and
+/// the report names what is gone; `rollback` then brings the old version
+/// and the link's data back by hand.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_reports_gone_and_rolls_back_by_hand() {
+    let dir = temp_dir("upd-report");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    let package = format!("wy/{SITE}/sys/packages/updpkg");
+    // nothing to go back to yet
+    let (ok, msg) = upd_call(&env, &package, "rollback", vec![]).await;
+    assert!(!ok && msg.contains("no previous version"), "{msg}");
+
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_lossy("1.1.0"))),
+            ("auto_rollback_s", Value::UInt(0)),
+        ],
+    )
+    .await;
+    assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    // while the links are being checked they are the check's: `busy`
+    let c = env.client().await;
+    let err = c
+        .invoke_one(
+            &format!("{links}/u1"),
+            "stop",
+            Value::Map(Default::default()),
+        )
+        .await
+        .expect_err("busy during the check");
+    assert!(err.is(wyrm_core::Status::Busy), "{err}");
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            (
+                "zip",
+                Value::Bytes(upd_good("1.3.0", serde_json::json!({}))),
+            ),
+        ],
+    )
+    .await;
+    assert!(!ok && msg.contains("being checked"), "{msg}");
+
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert!(upd_count(&r, "gone") >= 1, "{r:?}");
+    let Value::Array(gone) = upd_field(&r, "gone_keys") else {
+        panic!("{r:?}")
+    };
+    assert!(gone.contains(&Value::from("u1/c2")), "{gone:?}");
+    assert!(upd_text(&r, "reason").contains("not rolled back"), "{r:?}");
+    // the new version stays, the old one is kept for a rollback
+    let reg = env.ctl.registry();
+    let p = &reg.packages["updpkg"];
+    assert_eq!(p.version, "1.1.0");
+    let prev = p.previous.as_deref().expect("the previous version is kept");
+    assert_eq!(prev.def.version, "1.0.0");
+    assert!(prev.keep_until > prev.replaced + 6 * 86_400);
+    let shown = upd_sys(&env, "packages/updpkg/previous").await.unwrap();
+    assert_eq!(upd_text(&shown, "version"), "1.0.0");
+    assert_eq!(upd_count(&shown, "keep_until"), prev.keep_until);
+    assert!(dir.join("links/u1/data/lossy-was-here").exists());
+
+    // only the kept version can be named
+    let (ok, msg) = upd_call(
+        &env,
+        &package,
+        "rollback",
+        vec![("to", Value::from("0.9.0"))],
+    )
+    .await;
+    assert!(!ok && msg.contains("1.0.0"), "{msg}");
+    let (ok, msg) = upd_call(
+        &env,
+        &package,
+        "rollback",
+        vec![("to", Value::from("1.0.0"))],
+    )
+    .await;
+    assert!(ok && msg.contains("1.1.0 → 1.0.0"), "{msg}");
+    assert!(msg.contains("data restored: u1"), "{msg}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "1.0.0");
+    assert!(reg.packages["updpkg"].previous.is_none());
+    let root = env.ctl.packages_root();
+    assert!(root.join("updpkg/1.0.0/bin/run").exists() && !root.join("updpkg/1.1.0").exists());
+    assert!(!dir.join("links/u1/data/lossy-was-here").exists());
+    upd_c2(&env, "c2 is back after the rollback").await;
+    let r = upd_sys(&env, "packages/updpkg/last_update").await.unwrap();
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    assert!(upd_text(&r, "reason").contains("rolled back by"), "{r:?}");
+    // the counts of the update that was undone stay with it
+    assert!(upd_count(&r, "gone") >= 1, "{r:?}");
+    assert!(env
+        .ctl
+        .audit_tail(200)
+        .iter()
+        .any(|r| r.op == "update_rollback" && r.detail.contains("rolled back by")));
+    env.stop().await;
+}
+
+/// ADR 0048 §1.7: `state` and `reads_state`. A version that does not read
+/// the installed store format is an update that changes it: refused without
+/// a restore point, reported as such with one; a version that reads the
+/// installed format is not.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_that_changes_the_store_format() {
+    let dir = temp_dir("upd-state");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/state").await,
+        Some(Value::UInt(1))
+    );
+    let v2 = || upd_good("2.0.0", serde_json::json!({ "state": 2 }));
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(v2())),
+            ("restore_point", Value::Bool(false)),
+        ],
+    )
+    .await;
+    assert!(
+        !ok && msg.contains("changes the store format") && msg.contains("restore_point: true"),
+        "{msg}"
+    );
+    // nothing was installed
+    assert_eq!(env.ctl.registry().packages["updpkg"].version, "1.0.0");
+    assert!(!env.ctl.packages_root().join("updpkg/2.0.0").exists());
+    assert!(!dir.join("restore/u1").exists());
+
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![("name", Value::from("u1")), ("zip", Value::Bytes(v2()))],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert_eq!(upd_field(&r, "changes_state"), Value::Bool(true));
+    assert_eq!(upd_field(&r, "restore_point"), Value::Bool(true));
+    assert_eq!(upd_count(&r, "gone"), 0, "{r:?}");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/state").await,
+        Some(Value::UInt(2))
+    );
+    let prev = upd_sys(&env, "packages/updpkg/previous").await.unwrap();
+    assert_eq!(upd_field(&prev, "changes_state"), Value::Bool(true));
+    assert!(dir.join("restore/u1").is_dir());
+
+    // a version that reads the installed format changes nothing: it may
+    // go without a restore point
+    let v3 = upd_good(
+        "3.0.0",
+        serde_json::json!({ "state": 3, "reads_state": [2, 3] }),
+    );
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(v3)),
+            ("restore_point", Value::Bool(false)),
+        ],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert_eq!(upd_field(&r, "changes_state"), Value::Bool(false));
+    assert_eq!(upd_field(&r, "restore_point"), Value::Bool(false));
+    // a manifest that could not read its own store is no package
+    let bad = upd_good(
+        "4.0.0",
+        serde_json::json!({ "state": 4, "reads_state": [3] }),
+    );
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![("name", Value::from("u1")), ("zip", Value::Bytes(bad))],
+    )
+    .await;
+    assert!(!ok && msg.contains("reads_state"), "{msg}");
+    // an argument out of range is an error, not a result
+    let c = env.client().await;
+    let err = c
+        .invoke_one(
+            &links,
+            "install_zip",
+            Value::Map(BTreeMap::from([
+                ("name".to_owned(), Value::from("u1")),
+                ("zip".to_owned(), Value::Bytes(v2())),
+                ("auto_rollback_s".to_owned(), Value::UInt(100_000)),
+            ])),
+        )
+        .await
+        .expect_err("out of range");
+    assert!(err.is(wyrm_core::Status::InvalidParameter), "{err}");
+    env.stop().await;
+}
+
+/// ADR 0048 §1.1–1.2: the repository's version shows as `latest` /
+/// `update_available` (and in `sys/links/updates_available`), and
+/// `sys/packages/<name>/~act/update` installs it by the index's SHA-256.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_from_the_repository() {
+    use sha2::Digest;
+    let v2 = upd_good(
+        "2.0.0",
+        serde_json::json!({ "state": 2, "reads_state": [1, 2] }),
+    );
+    let mut files = std::collections::HashMap::new();
+    let index = serde_json::json!([
+        { "name": "updpkg", "version": "2.0.0", "url": "v2.zip",
+          "sha256": hex::encode(sha2::Sha256::digest(&v2)),
+          "state": 2, "reads_state": [1, 2] },
+    ]);
+    files.insert("/v2.zip".to_owned(), (200, String::new(), v2));
+    files.insert(
+        "/index.json".to_owned(),
+        (200, String::new(), index.to_string().into_bytes()),
+    );
+    let port = serve_files(files).await;
+    let env = Env::start(
+        "upd-repo",
+        &format!(r#"packages: {{ repository: "http://127.0.0.1:{port}/index.json" }},"#),
+    )
+    .await;
+    upd_setup(&env).await;
+    let package = format!("wy/{SITE}/sys/packages/updpkg");
+    eventually("the index names the update", 40, || async {
+        (upd_sys(&env, "packages/updpkg/latest").await? == Value::from("2.0.0")).then_some(())
+    })
+    .await;
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/update_available").await,
+        Some(Value::Bool(true))
+    );
+    // 2.0.0 reads state 1: the store format stays
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/changes_state").await,
+        Some(Value::Bool(false))
+    );
+    assert_eq!(upd_available(&env).await, Some(Value::UInt(1)));
+
+    let (ok, msg) = upd_call(
+        &env,
+        &package,
+        "update",
+        vec![("version", Value::from("9.9.9"))],
+    )
+    .await;
+    assert!(!ok && msg.contains("2.0.0"), "{msg}");
+    let (ok, msg) = upd_call(&env, &package, "update", vec![]).await;
+    assert!(ok && msg.contains("1.0.0 → 2.0.0"), "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert_eq!(upd_count(&r, "gone"), 0, "{r:?}");
+    assert!(upd_count(&r, "kept") >= 2, "{r:?}");
+    let Value::Array(of) = upd_field(&r, "links") else {
+        panic!("{r:?}")
+    };
+    assert_eq!(of, [Value::from("u1")]);
+    let reg = env.ctl.registry();
+    let p = &reg.packages["updpkg"];
+    assert_eq!((p.version.as_str(), p.state()), ("2.0.0", 2));
+    assert!(p.source.starts_with("repository "), "{}", p.source);
+    upd_c2(&env, "the link kept its connection").await;
+    eventually("no update is left", 20, || async {
+        (upd_sys(&env, "packages/updpkg/update_available").await? == Value::Bool(false)
+            && upd_available(&env).await? == Value::UInt(0))
+        .then_some(())
+    })
+    .await;
+    let (ok, msg) = upd_call(&env, &package, "update", vec![]).await;
+    assert!(!ok && msg.contains("installed already"), "{msg}");
+    // an unknown package is an error of its own
+    let c = env.client().await;
+    let err = c
+        .invoke_one(
+            &format!("wy/{SITE}/sys/packages/nope"),
+            "update",
+            Value::Map(Default::default()),
+        )
+        .await
+        .expect_err("no such package");
+    assert!(!err.is(wyrm_core::Status::Ok), "{err}");
+    let audit = env.ctl.audit_tail(200);
+    assert!(
+        audit
+            .iter()
+            .any(|r| r.op == "package_update" && r.detail.contains("1.0.0 → 2.0.0 ok")),
+        "{audit:?}"
+    );
+    env.stop().await;
+}
+
+/// ADR 0048 §3.4: `send` writes a kept backup into a file store through a
+/// file-store link the host named in `backups.send_links`, in parts, with
+/// the broker's backup sender key, into the folder the host named and
+/// nowhere else. A link the host did not name, a path that climbs out of
+/// the folder, a name that exists and a backup that holds the keys are
+/// refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn backup_is_sent_through_a_file_store_link() {
+    let dir = temp_dir("backup-send");
+    let store = temp_dir("backup-send-store");
+    std::fs::create_dir_all(store.join("backups/2026")).unwrap();
+    std::fs::create_dir_all(store.join("private")).unwrap();
+    std::fs::write(store.join("private/report.txt"), b"not a backup").unwrap();
+    let store = store.canonicalize().unwrap();
+    let links = format!(
+        r#"links: {{
+            files: {{ driver: "localfs", params: {{ allowed_roots: "{root}",
+                      connections: {{ c1: {{ root: "{root}" }} }} }} }},
+            other: {{ driver: "localfs", params: {{ allowed_roots: "{root}",
+                      connections: {{ c1: {{ root: "{root}" }} }} }} }},
+            mock: {{ driver: "mock", params: {{ points: 8, rate_hz: 20, depth: 1, fanout: 2 }} }} }},"#,
+        root = store.display()
+    );
+    // a link id alone: the folder `backups` of its connections
+    let extra = format!(r#"{links} backups: {{ send_links: ["files"], export_secrets: true }},"#);
+    let env = Env::start_in(&dir, &extra).await;
+    let c = slow_client(&env).await;
+    let backups = format!("wy/{SITE}/sys/backups");
+    let folder = format!("wy/{SITE}/downstream/files/c1/files/backups");
+    eventually("the store's folder is in the tree", 30, || async {
+        c.meta(&folder).await.ok()
+    })
+    .await;
+    let meta = c.meta(&backups).await.unwrap();
+    assert_eq!(
+        meta.attr.as_ref().and_then(|a| a.get("send_links")),
+        Some(&Value::Array(vec![args_map(&[
+            ("link", "files".into()),
+            ("folder", "backups".into())
+        ])])),
+        "Studio reads which links to offer, and where the files go"
+    );
+    let storage = format!("wy/{SITE}/storage");
+    // text that does not compress to nothing: the file is sent in several parts
+    use sha2::Digest;
+    let mut seed = sha2::Sha256::digest(b"backup-send").to_vec();
+    for i in 0..60u64 {
+        let mut text = String::with_capacity(30_000);
+        while text.len() < 30_000 {
+            seed = sha2::Sha256::digest(&seed).to_vec();
+            text.push_str(&hex::encode(&seed));
+        }
+        let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
+        c.invoke_one(&storage, "publish", publish).await.unwrap();
+    }
+    let id = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[("sections", names(&["storage", "links"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&env, &id).await;
+    let node = format!("{backups}/{id}");
+    let send = |link: &str, conn: &str, path: Option<&str>| {
+        let mut a = vec![
+            ("link", Value::from(link)),
+            ("connection", Value::from(conn)),
+        ];
+        a.extend(path.map(|p| ("path", Value::from(p))));
+        args_map(&a)
+    };
+
+    // refused: a link the host did not name (it has the same store)
+    let e = c
+        .invoke_one(&node, "send", send("other", "c1", None))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("backups.send_links"), "{e}");
+    // refused by the broker: a path that climbs out of the host's folder,
+    // an absolute one, a connection that is a path
+    for path in [
+        "../private/report.txt",
+        "2026/../../private/report.txt",
+        "/private/report.txt",
+        "..",
+    ] {
+        let e = c
+            .invoke_one(&node, "send", send("files", "c1", Some(path)))
+            .await
+            .expect_err(path);
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{path}: {e}");
+        assert!(e.message.contains("path"), "{path}: {e}");
+    }
+    let e = c
+        .invoke_one(&node, "send", send("files", "c1/files/private", None))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("connection"), "{e}");
+    // the link itself refuses a folder it does not have: nothing is sent
+    let e = c
+        .invoke_one(&node, "send", send("files", "c1", Some("nofolder/x")))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("did not take the file"), "{e}");
+    assert_eq!(
+        std::fs::read(store.join("private/report.txt")).unwrap(),
+        b"not a backup"
+    );
+    assert_eq!(std::fs::read_dir(store.join("private")).unwrap().count(), 1);
+
+    let Some(Value::Map(sent)) = c
+        .invoke_one(&node, "send", send("files", "c1", None))
+        .await
+        .unwrap()
+    else {
+        panic!("send: a map");
+    };
+    let to = format!("files/c1/files/backups/{}", job.file);
+    assert_eq!(sent.get("to"), Some(&Value::from(to.clone())));
+    assert!(
+        matches!(sent.get("parts"), Some(Value::UInt(n)) if *n >= 2),
+        "{sent:?}"
+    );
+    let done = eventually("the backup is sent", 60, || async {
+        let j = env.ctl.backups().get(&id)?;
+        assert_ne!(j.send_status, "failed", "{}", j.send_error);
+        (j.send_status == "done").then_some(j)
+    })
+    .await;
+    assert_eq!(
+        (done.send_progress, done.sent_to.as_str()),
+        (100, to.as_str())
+    );
+    // the file in the store is the backup, byte for byte
+    let stored = std::fs::read(store.join("backups").join(&job.file)).unwrap();
+    assert_eq!(stored.len() as u64, job.size);
+    assert_eq!(hex::encode(sha2::Sha256::digest(&stored)), job.sha256);
+    assert_eq!(stored, download_backup(&c, &id, 16 << 20).await);
+    // the tree shows it
+    let shown = eventually("send_status in the tree", 10, || async {
+        last_val(&c, &format!("{node}/send_status"))
+            .await
+            .filter(|v| *v == Value::from("done"))
+    })
+    .await;
+    assert_eq!(shown, Value::from("done"));
+    assert_eq!(
+        last_val(&c, &format!("{node}/sent_to")).await,
+        Some(Value::from(to.clone()))
+    );
+    // audited by the admin (start and end) and by the link, under the
+    // sender's subject
+    let audit = env.ctl.audit_tail(300);
+    let sends: Vec<_> = audit
+        .iter()
+        .filter(|r| r.op == "backup_send" && r.key == id)
+        .collect();
+    // who, the backup, the link, the path, the size, the SHA-256
+    assert!(
+        sends.iter().any(|r| r.sub == "svc:wyr"
+            && r.detail.contains("started")
+            && r.detail.contains("link files")
+            && r.detail
+                .contains(&format!("path c1/files/backups/{}", job.file))
+            && r.detail.contains(&format!("{} bytes", job.size))
+            && r.detail.contains(&job.sha256)),
+        "{sends:?}"
+    );
+    assert!(
+        sends
+            .iter()
+            .any(|r| r.sub == "svc:wyr" && r.detail.starts_with("sent;")),
+        "{sends:?}"
+    );
+    eventually("the link's audit names the sender", 10, || async {
+        let audit = env.ctl.audit_tail(1000);
+        audit
+            .iter()
+            .any(|r| {
+                r.sub == "claimed:broker:backup"
+                    && r.key == format!("wy/{SITE}/downstream/files/c1/~act/upload_commit")
+            })
+            .then_some(())
+    })
+    .await;
+    // an existing target is never replaced: the same name again, and a
+    // file of the folder under another name
+    let e = c
+        .invoke_one(&node, "send", send("files", "c1", None))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("exists"), "{e}");
+    std::fs::write(store.join("backups/2026/kept.bin"), b"kept").unwrap();
+    c.invoke_one(
+        &format!("wy/{SITE}/downstream/files/c1/files/backups/2026"),
+        "refresh",
+        args_map(&[]),
+    )
+    .await
+    .unwrap();
+    let e = eventually("the link sees the file", 20, || async {
+        c.invoke_one(&node, "send", send("files", "c1", Some("2026/kept.bin")))
+            .await
+            .err()
+            .filter(|e| e.message.contains("exists"))
+    })
+    .await;
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert_eq!(
+        std::fs::read(store.join("backups/2026/kept.bin")).unwrap(),
+        b"kept"
+    );
+    // a sub-folder of the host's folder takes it under another name
+    c.invoke_one(
+        &node,
+        "send",
+        send("files", "c1", Some("2026/copy.wyrm-backup")),
+    )
+    .await
+    .unwrap();
+    eventually("the second copy is sent", 60, || async {
+        let j = env.ctl.backups().get(&id)?;
+        assert_ne!(j.send_status, "failed", "{}", j.send_error);
+        (j.send_status == "done" && j.sent_to.ends_with("2026/copy.wyrm-backup")).then_some(())
+    })
+    .await;
+    assert_eq!(
+        std::fs::read(store.join("backups/2026/copy.wyrm-backup")).unwrap(),
+        stored
+    );
+
+    // a backup that holds the keys is never sent
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let with_keys = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[
+                ("sections", names(&["keys"])),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    backup_done(&env, &with_keys).await;
+    let e = c
+        .invoke_one(
+            &format!("{backups}/{with_keys}"),
+            "send",
+            send("files", "c1", None),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("keys"), "{e}");
+    // the folder holds the one backup and the sub-folder, nothing else
+    assert_eq!(std::fs::read_dir(store.join("backups")).unwrap().count(), 2);
+    env.stop().await;
+}
+
+/// ADR 0048 §1 (rights): an update whose new version asks for a grant its
+/// links do not have installs nothing without `accept`; with it, each link
+/// of the package gets the grant, and keeps it after a rollback.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_with_new_grants_needs_accept() {
+    let dir = temp_dir("upd-accept");
+    let env = Env::start_in(&dir, MOCK).await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    let grant = "wy/{site}/downstream/mock";
+    let asks = serde_json::json!({ "requester": [{ "path": grant, "level": "read" }] });
+    let update = |accept: Option<bool>| {
+        let mut args = vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_good("2.0.0", asks.clone()))),
+        ];
+        args.extend(accept.map(|a| ("accept", Value::Bool(a))));
+        args
+    };
+    assert!(env.ctl.registry().links["u1"].grants.is_empty());
+
+    // without accept: the message names what is asked, nothing is installed
+    for accept in [None, Some(false)] {
+        let (ok, msg) = upd_call(&env, &links, "install_zip", update(accept)).await;
+        assert!(!ok, "{msg}");
+        assert!(msg.contains("asks for more than its links have"), "{msg}");
+        assert!(
+            msg.contains("read") && msg.contains("downstream/mock"),
+            "{msg}"
+        );
+        assert!(msg.contains("Nothing is installed"), "{msg}");
+    }
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "1.0.0");
+    assert!(reg.packages["updpkg"].previous.is_none());
+    assert!(reg.links["u1"].grants.is_empty());
+    assert!(!dir.join("packages/updpkg/2.0.0").exists());
+    assert!(!dir.join("restore/u1").exists(), "no restore point either");
+    drop(reg);
+
+    // with accept: installed, the link has the grant
+    let (ok, msg) = upd_call(&env, &links, "install_zip", update(Some(true))).await;
+    assert!(ok && msg.contains("1.0.0 → 2.0.0"), "{msg}");
+    let r = upd_result(&env, 180).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "2.0.0");
+    let read = wyrm_core::Perm::Read.code();
+    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    drop(reg);
+    upd_c2(&env, "c2 is still there on 2.0.0").await;
+
+    // a rollback brings 1.0.0 back; the accepted grant stays with the link
+    let package = format!("wy/{SITE}/sys/packages/updpkg");
+    let (ok, msg) = upd_call(&env, &package, "rollback", vec![]).await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "1.0.0");
+    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    drop(reg);
+    env.stop().await;
+}
+
+/// ADR 0048 §3.5 for a process link: its backup holds the private data the
+/// process wrote and the package it runs; installed under a new id on the
+/// same broker, the copy comes up with the runtime edit of the first.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_backup_of_a_process_link() {
+    let dir = temp_dir("linkbak-proc");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    let id = backup_id(
+        invoke_retry(
+            &env,
+            &format!("{links}/u1"),
+            "backup",
+            args_map(&[("sections", names(&["data", "package"]))]),
+        )
+        .await,
+    );
+    let job = backup_done(&env, &id).await;
+    assert_eq!((job.kind.as_str(), job.link.as_str()), ("link", "u1"));
+    assert_eq!(job.sections, ["settings", "data", "package"]);
+    // no passphrase: sealed for this site
+    assert_eq!(job.sealed, "broker");
+    let m = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job.file)).unwrap();
+    let link = m.link.as_ref().unwrap();
+    assert_eq!(
+        (link.id.as_str(), link.mode.as_str(), link.package.as_str()),
+        ("u1", "process", "updpkg")
+    );
+    assert_eq!(link.version, "1.0.0");
+    // what the process wrote in its private directory, sealed
+    let data = m.section("data").unwrap();
+    assert!(data
+        .files
+        .iter()
+        .any(|f| f.path == "data/files/framework.tree" && f.sealed));
+    assert!(m
+        .section("package")
+        .unwrap()
+        .files
+        .iter()
+        .any(|f| f.path == "package/files/bin/run"));
+
+    // a second link from it: same package, the data of the first
+    let c = slow_client(&env).await;
+    let bytes = download_backup(&c, &id, 16 << 20).await;
+    let args = args_map(&[("file", Value::Bytes(bytes)), ("id", "u2".into())]);
+    let (ok, msg) = install_outcome(invoke_retry(&env, &links, "install_backup", args).await);
+    assert!(ok && msg.contains("link u2 installed"), "{msg}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["u2"].driver, reg.links["u1"].driver);
+    assert_eq!(reg.links["u2"].mode, reg.links["u1"].mode);
+    drop(reg);
+    let c2 = format!("wy/{SITE}/downstream/u2/c2/status");
+    eventually(
+        "u2 has the connection u1 was given at runtime",
+        60,
+        || async {
+            let c = client_now(&env).await?;
+            c.meta(&c2).await.ok()
+        },
+    )
+    .await;
+    upd_c2(&env, "u1 still runs").await;
+    env.stop().await;
+}
+
+/// Review of PR 72, item 6: a staged restore whose stores do not open does
+/// not keep the broker from starting. The start that applied it puts the
+/// state before it back and ends; the next one runs on that state and
+/// audits the failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restore_that_does_not_open_is_undone() {
+    let dir = temp_dir("restore-undone");
+    let env = Env::start_in(&dir, MOCK).await;
+    env.stop().await;
+    let files = |d: &std::path::Path| -> BTreeMap<String, Vec<u8>> {
+        std::fs::read_dir(d)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| {
+                (
+                    e.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(e.path()).unwrap(),
+                )
+            })
+            .collect()
+    };
+    let state = files(&dir.join("history"));
+    assert!(state.contains_key("index.redb"));
+
+    // a history index that is no database, staged as a restore of `history`
+    let pending = dir.join("restore.pending");
+    std::fs::create_dir_all(pending.join("data/history/days")).unwrap();
+    std::fs::write(pending.join("data/history/index.redb"), vec![0xA5u8; 4096]).unwrap();
+    std::fs::write(
+        pending.join("plan.json"),
+        br#"{"by":"user:eve","backup":"e2e 2026-11-13T10:00:00Z","sections":["history"],"dirs":["history"]}"#,
+    )
+    .unwrap();
+
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let text = format!(
+        r#"{{ site: "{SITE}", data_dir: "{}",
+             listen: ["tcp/127.0.0.1:{}", "tls/127.0.0.1:{}"],
+             admin_keys: ["{}"], {MOCK} }}"#,
+        dir.display(),
+        free_port(),
+        free_port(),
+        hex::encode(key.verifying_key().to_bytes())
+    );
+    let cfg = Config::from_json5(&text).unwrap();
+    let e = match open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
+        Ok(_) => panic!("a history index of garbage opened"),
+        Err(e) => e.to_string(),
+    };
+    assert!(
+        e.contains("the restore was not applied") && e.contains("back in place"),
+        "{e}"
+    );
+    // everything is as it was, and the folder is set aside with the reason
+    assert_eq!(files(&dir.join("history")), state);
+    assert!(!pending.exists());
+    assert!(dir.join("restore.failed/plan.json").is_file());
+    assert!(!dir.join("restore.failed/data").exists());
+
+    // the supervisor's next start: the broker runs on the state before
+    let env = Env::start_in(&dir, MOCK).await;
+    assert!(env.ctl.registry().links.contains_key("mock"));
+    let audit = env.ctl.audit_tail(50);
+    let failed: Vec<_> = audit.iter().filter(|r| r.op == "restore_failed").collect();
+    assert_eq!(failed.len(), 1, "{audit:?}");
+    assert_eq!(failed[0].sub, "user:eve");
+    assert!(
+        failed[0].detail.contains("not applied"),
+        "{}",
+        failed[0].detail
+    );
+    assert!(!audit.iter().any(|r| r.op == "restore_applied"));
+    env.stop().await;
+    // said once
+    let env = Env::start_in(&dir, MOCK).await;
+    let again = env.ctl.audit_tail(100);
+    assert_eq!(again.iter().filter(|r| r.op == "restore_failed").count(), 1);
     env.stop().await;
 }

@@ -118,6 +118,69 @@ pub fn records_after(dir: &Path, after: u64, max: usize) -> Result<Page> {
     Ok(page)
 }
 
+/// The head of a WAL copy: its last LSN and the chain MAC there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Head {
+    pub lsn: u64,
+    pub chain: [u8; 32],
+}
+
+/// A copy of the WAL in `src` as of one sequence number, for a backup
+/// (ADR 0048 §3.3): every complete record at the time of the read, checked
+/// against the HMAC chain with `key`, written as one segment into the new
+/// directory `dest` and synced once. Like a follower's directory it holds
+/// no snapshot: `Store::open` on it replays the records. The writer is not
+/// stopped (see [`records_after`]: a torn tail is left out). A `src` that
+/// does not exist gives an empty `dest` and LSN 0.
+pub fn copy_to(src: &Path, key: &[u8], dest: &Path) -> Result<Head> {
+    fs::create_dir_all(dest)?;
+    let mut head = Head {
+        lsn: 0,
+        chain: [0; 32],
+    };
+    if !src.is_dir() {
+        return Ok(head);
+    }
+    let path = dest.join(segment_name(1));
+    let mut out = std::io::BufWriter::new(File::create(&path)?);
+    let mut bad: Option<u64> = None;
+    let mut io: Option<std::io::Error> = None;
+    walk(src, |lsn, stored, payload| {
+        if bad.is_some() || io.is_some() {
+            return;
+        }
+        if lsn != head.lsn + 1 || mac(key, &head.chain, lsn, payload) != stored {
+            bad = Some(lsn);
+            return;
+        }
+        let mut rec = Vec::with_capacity(HEADER + payload.len());
+        rec.extend((payload.len() as u32).to_le_bytes());
+        rec.extend(crc32c::crc32c(payload).to_le_bytes());
+        rec.extend(stored);
+        rec.extend(payload);
+        if let Err(e) = out.write_all(&rec) {
+            io = Some(e);
+            return;
+        }
+        head = Head { lsn, chain: stored };
+    })?;
+    if let Some(e) = io {
+        return Err(e.into());
+    }
+    if let Some(lsn) = bad {
+        return Err(StateError::Tampered {
+            lsn,
+            file: src.display().to_string(),
+        });
+    }
+    let f = out
+        .into_inner()
+        .map_err(|e| StateError::Io(e.into_error()))?;
+    f.sync_all()?;
+    sync_dir(dest)?;
+    Ok(head)
+}
+
 /// The follower side of one WAL: appends the leader's records in order
 /// after checking each against its own chain.
 pub struct Follower {
@@ -380,6 +443,33 @@ mod tests {
         assert_eq!(page.records.len(), 1);
         f.append(&page.records[0]).unwrap();
         assert_eq!(f.lsn(), 6);
+    }
+
+    #[test]
+    fn a_copy_of_a_live_wal_opens_at_its_head() {
+        let key = [8u8; 32];
+        let base = dir("copyto");
+        let (lead, copy) = (base.join("lead"), base.join("copy"));
+        let mut store: Store<Count> = Store::open(&lead, &key).unwrap();
+        for i in 1..=4 {
+            store.apply(Add(i)).unwrap();
+        }
+        // across a snapshot (two segments), with the writer still open
+        store.snapshot().unwrap();
+        store.apply(Add(10)).unwrap();
+        let head = copy_to(&lead, &key, &copy).unwrap();
+        assert_eq!(head.lsn, 5);
+        store.apply(Add(100)).unwrap();
+        let opened: Store<Count> = Store::open(&copy, &key).unwrap();
+        assert_eq!(opened.state(), &Count(20), "as of record 5");
+        assert_eq!(opened.lsn(), 5);
+        // another key is another site's WAL; a missing store is empty
+        assert!(matches!(
+            copy_to(&lead, &[9u8; 32], &base.join("bad")),
+            Err(StateError::Tampered { .. })
+        ));
+        let none = copy_to(&base.join("nope"), &key, &base.join("empty")).unwrap();
+        assert_eq!(none.lsn, 0);
     }
 
     #[test]

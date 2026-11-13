@@ -345,9 +345,27 @@ Everything the broker owns is under `data_dir`. What cannot be regenerated:
 | `links/<id>/` | each link's certificate, token and private data (`data/`: runtime edits, portable stores) | the link starts from its registry parameters |
 | `history/`, `storage/` | the historian's day files and index, broker storage | history and stored values gone |
 | `audit/` | the audit journal | the record of who did what |
-| `packages/`, `peers/`, `operators/` | installed link packages, certificates issued for downstream brokers, operator certificates | reinstall, reissue |
+| `packages/`, `peers/`, `operators/` | installed link packages (and the previous version of an updated one), certificates issued for downstream brokers, operator certificates | reinstall, reissue |
+| `restore/<link>/` | restore points of links taken before a package update or a restore from a backup (docs/links.md §5a): link backups (`.wyrm-link`) sealed with a key derived from `secrets.key`, and their `.meta` | a rollback of an update restores no private data |
 
 How to take a backup:
+- **Online, from the broker itself (ADR 0048).** `sys/backups/~act/create
+  {sections, passphrase}` makes a `.wyrm-backup` while the broker runs: the
+  WALs as of one sequence number, the storage at one revision, each history
+  file inside one read transaction, keys and secrets sealed with the
+  passphrase. Read it with `download_part`, or let the broker write it into
+  a file store with `send` (the host names the link and the folder in
+  `backups.send_links`). One link goes with `sys/links/<id>/~act/backup`.
+  The keys section and a passphrase need `backups.export_secrets: true` on
+  the host; without it a backup holds no keys and its link secrets open
+  only on a broker with this site's keys. Restore with
+  `sys/backups/~act/restore_check` and `restore_apply`: `mode: add` works
+  live; `mode: replace` restarts the broker once, is refused for a caller
+  that comes through an upstream, and restores keys only with
+  `export_secrets`, the passphrase and, for keys that differ from this
+  broker's, `replace_keys`. Sections, limits and the restore of a link are
+  in [backups.md](backups.md). This is the way for a broker that runs; the
+  two ways below stay for a broker that does not start.
 - **Stopped broker (simplest, consistent).** `systemctl stop wyrmd`, copy
   `data_dir` whole, keep its modes (`cp -a`, `tar --same-permissions`), start
   again. `wyrmd -c … verify` on the copy checks the WALs (CRC, HMAC chain,

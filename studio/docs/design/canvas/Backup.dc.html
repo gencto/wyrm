@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — backup and restore</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+a{color:#F3A766;text-decoration:none}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; height: 900px; background: #0E1113; font-size: 14px; overflow: hidden">
+<div aria-hidden="true" style="height: 100%; display: flex; flex-direction: column">
+<div style="height: 56px; border-bottom: 1px solid #252B30; display: flex; align-items: center; gap: 12px; padding: 0 16px"><span style="width: 36px; height: 22px; border-radius: 6px; background: #2A1F16"></span><span style="font-weight: 700; letter-spacing: 0.08em">WYRM</span><span style="color: #A3ABAF">Studio</span></div>
+<div style="flex: 1; display: flex"><div style="width: 76px; border-right: 1px solid #252B30"></div><div style="flex: 1; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px"><span style="font-size: 26px; font-weight: 600">{{bgTitle}}</span><div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px"><span style="height: 200px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"></span><span style="height: 200px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"></span><span style="height: 260px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"></span></div></div></div>
+</div>
+
+<div style="position: absolute; inset: 0; background: rgba(6, 8, 9, 0.66); display: flex; align-items: center; justify-content: center; padding: 24px">
+<section role="dialog" aria-modal="true" aria-labelledby="bk-title" style="width: 100%; max-width: 680px; max-height: 860px; border-radius: 14px; border: 1px solid #2F373D; background: #161A1D; box-shadow: 0 24px 64px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+<div style="padding: 22px 24px 10px; display: flex; flex-direction: column; gap: 6px">
+<h2 id="bk-title" style="margin: 0; font-size: 20px; font-weight: 600">{{head.title}}</h2>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">{{head.sub}}</span>
+</div>
+
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 8px 24px 14px; display: flex; flex-direction: column; gap: 16px">
+<!-- sections with checkboxes -->
+<sc-if value="{{showSections}}" hint-placeholder-val="{{true}}">
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px">
+<legend style="padding: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{legend}}</legend>
+<sc-for list="{{sections}}" as="s" hint-placeholder-count="8">
+<div style="padding: 10px 12px; border-radius: 8px; border: 1px solid {{s.line}}; background: #13171A; display: flex; flex-direction: column; gap: 6px; opacity: {{s.op}}">
+<label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer">
+<input type="checkbox" checked="{{s.on}}" disabled="{{s.locked}}" onChange="{{s.toggle}}" style="accent-color: #E8893A; width: 16px; height: 16px; margin-top: 2px">
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; gap: 8px; align-items: baseline"><span style="font-size: 14px; font-weight: 600">{{s.name}}</span><sc-if value="{{s.hasTag}}" hint-placeholder-val="{{false}}"><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: {{s.tagBg}}; color: {{s.tagC}}">{{s.tag}}</span></sc-if><code style="margin-left: auto; font-size: 12px; color: #A3ABAF">{{s.size}}</code></span><span style="font-size: 12px; color: #8E979C; line-height: 1.45">{{s.d}}</span></span>
+</label>
+<sc-if value="{{s.hasRange}}" hint-placeholder-val="{{false}}"><div style="margin-left: 26px; display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{s.ranges}}" as="r" hint-placeholder-count="4"><button type="button" role="radio" aria-checked="{{r.on}}" style="height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid {{r.line}}; background: {{r.bg}}; color: {{r.fg}}; font-size: 12px; cursor: pointer">{{r.t}}</button></sc-for></div></sc-if>
+<sc-if value="{{s.hasLinks}}" hint-placeholder-val="{{false}}"><div style="margin-left: 26px; display: flex; flex-wrap: wrap; gap: 6px"><sc-for list="{{s.links}}" as="l" hint-placeholder-count="5"><label style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid #2F373D; font-size: 12px; color: #C5CBCE"><input type="checkbox" checked="{{l.on}}" style="accent-color: #E8893A; width: 13px; height: 13px">{{l.t}}</label></sc-for></div></sc-if>
+</div>
+</sc-for>
+</fieldset>
+</sc-if>
+
+<sc-if value="{{isChoose}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #C5CBCE">Passphrase for the keys and secrets
+<input type="password" value="correct-horse" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #13171A; color: #ECE9E1; font: inherit; font-size: 14px; box-sizing: border-box">
+<span style="font-size: 12px; color: #8E979C">Seals Keys and Secrets (Argon2id, ChaCha20-Poly1305), as <code>wyrmd keys export</code>. Without it they stay out. Studio never stores it.</span></label>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; color: #C5CBCE">Where</span>
+<div role="radiogroup" aria-label="Where" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: 8px; background: #1D2226"><span role="radio" aria-checked="true" style="height: 34px; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; display: grid; place-items: center">This computer</span><span role="radio" aria-checked="false" style="height: 34px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: grid; place-items: center">File store link…</span><span role="radio" aria-checked="false" style="height: 34px; border-radius: 6px; color: #A3ABAF; font-size: 13px; display: grid; place-items: center">Keep on the broker</span></div>
+<span style="font-size: 12px; color: #8E979C">A file store link (S3, WebDAV, a USB disk via localfs) takes it without passing through this computer.</span></div>
+</div>
+</sc-if>
+
+<sc-if value="{{isProgress}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="height: 8px; border-radius: 4px; background: #22282D; overflow: hidden"><span style="display: block; width: 46%; height: 100%; background: #E8893A"></span></div>
+<span style="font-size: 13px; color: #C5CBCE">History · day 2026-10-29 of 30 · 196 MiB of 431 MiB · 1 min left</span>
+<sc-for list="{{prog}}" as="p" hint-placeholder-count="5"><span style="display: flex; gap: 10px; font-size: 13px; color: {{p.c}}"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: {{p.c}}"></span>{{p.t}}<code style="margin-left: auto; font-size: 12px; color: #8E979C">{{p.s}}</code></span></sc-for>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Taken from one consistent moment (15:40:12): stores are read inside their own read transactions; the broker keeps running and writing.</span>
+</div>
+</sc-if>
+
+<sc-if value="{{isDone}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div role="status" style="display: flex; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1px solid #36705F; background: #15302A"><span style="flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: #6CC4B0"></span><div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">Saved plant-2026-11-13-1540.wyrm-backup</span><span style="font-size: 13px; color: #C5CBCE">462 MiB · 7 sections · checked after writing</span></div></div>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px"><span style="color: #8E979C">SHA-256</span><code style="font-size: 12px; overflow-wrap: anywhere">9f2c…41ab e07d…3c19</code><span style="color: #8E979C">Contents</span><span>manifest.json, control/, secrets.sealed, storage.json, dataflows/, history/30 days, links/9</span><span style="color: #8E979C">Broker</span><span>plant · wyrmd 0.1.0 · registry 19</span></div>
+<span style="font-size: 12px; color: #E2C15A; line-height: 1.5">It holds the site's keys: whoever has the file and the passphrase is an administrator of plant.</span>
+</div>
+</sc-if>
+
+<sc-if value="{{isRestore}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Checked</span>
+<sc-for list="{{rchecks}}" as="c" hint-placeholder-count="4"><div style="display: flex; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: #13171A"><span style="flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: {{c.c}}"></span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">{{c.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.45">{{c.d}}</span></div></div></sc-for></div>
+<div role="radiogroup" aria-label="How" style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; color: #C5CBCE">How</span>
+<label style="display: flex; gap: 10px; font-size: 13px; color: #C5CBCE; line-height: 1.5"><input type="radio" name="how" checked style="accent-color: #E8893A; margin-top: 3px">Replace what is ticked and restart the broker once (a backup of what it replaces is made first)</label>
+<label style="display: flex; gap: 10px; font-size: 13px; color: #C5CBCE; line-height: 1.5"><input type="radio" name="how" style="accent-color: #E8893A; margin-top: 3px">Add only: links, flows and storage that do not exist yet; nothing replaced, no restart</label></div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #C5CBCE">Passphrase of the backup<input type="password" value="correct-horse" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #13171A; color: #ECE9E1; font: inherit; font-size: 14px; box-sizing: border-box"></label>
+</div>
+</sc-if>
+
+<sc-if value="{{isLink}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px"><span style="color: #8E979C">Link</span><span>modbus · process · package modbus 0.5.0 (official)</span><span style="color: #8E979C">Rights it has</span><span>write on downstream/modbus · net 10.0.4.0/24</span></div>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Restore it on this broker (replaces the link, after a restore point) or on another broker as a new link: Links › Add › From backup. The package comes from the file when it is not installed there.</span>
+</div>
+</sc-if>
+</div>
+
+<div style="padding: 14px 24px 20px; border-top: 1px solid #252B30; display: flex; align-items: center; gap: 8px">
+<span style="margin-right: auto; font-size: 12px; color: #8E979C">{{foot.note}}</span>
+<button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">{{foot.secondary}}</button>
+<button type="button" aria-disabled="{{foot.dis}}" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{foot.bg}}; color: {{foot.fg}}; font-size: 14px; font-weight: 600; cursor: pointer">{{foot.primary}}</button>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"choose","options":["choose","progress","done","restore","link"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stage = this.props.stage ?? 'choose';
+    const st = this.state || {};
+    const off = st.off || (stage === 'restore' ? { history: true } : {});
+    const EMBER = '#E8893A', TEAL = '#6CC4B0', AMBER = '#E2C15A';
+    const tg = (t, kind) => ({ hasTag: !!t, tag: t, tagBg: kind === 'warn' ? '#2E2814' : '#22282D', tagC: kind === 'warn' ? AMBER : '#A3ABAF' });
+    const rng = (on) => ['Last 7 days', 'Last 30 days', 'All (90 days)', 'Custom…'].map((t, i) => ({ t, on: i === on ? 'true' : 'false', bg: i === on ? '#2A1F16' : 'transparent', line: i === on ? '#5A3E25' : '#2F373D', fg: i === on ? '#F3A766' : '#A3ABAF' }));
+    const linkIds = ['modbus', 'line2-modbus', 's7', 'bacnet', 'telegram', 'scheduler', 'alarm', 'dql', 'uplink'].map((t) => ({ t, on: 'true' }));
+    const base = [
+      { id: 'control', name: 'Control plane', size: '1.2 MiB', d: 'Registry (links, grants, peers, tokens, ACL options), users and roles, settings. Needed to restore anything else.', locked: stage !== 'restore', ...tg('always', '') },
+      { id: 'keys', name: 'Keys and secrets', size: '48 KiB', d: 'Site CA, state and secrets keys, gateway key, link tokens and sealed secrets. Sealed with the passphrase below.', ...tg('passphrase', 'warn') },
+      { id: 'dataflows', name: 'Dataflows', size: '310 KiB', d: '14 flows (deployed versions and drafts) and the block library.' },
+      { id: 'storage', name: 'Broker storage', size: '2.4 MiB', d: 'The storage tree and its values (as Export of Storage).' },
+      { id: 'history', name: 'History', size: '431 MiB', d: 'Watch groups and their recorded days (redb day files).', hasRange: true, ranges: rng(1) },
+      { id: 'alarms', name: 'Alarms', size: '6.8 MiB', d: 'Classes, watches and records of the alarm link (its store).' },
+      { id: 'links', name: 'Links', size: '22 MiB', d: 'Per link: settings and nodes, its private data (stores, framework tree), and its package. Restore needs the same package or the one in the file.', hasLinks: true, links: linkIds },
+      { id: 'packages', name: 'Installed packages', size: '18 MiB', d: 'The archives, so a restore on a fresh broker needs no repository.' },
+      { id: 'config', name: 'wyrmd.json5 (read only)', size: '6 KiB', d: 'A copy for reference; a restore never writes it.' }
+    ];
+    const sections = base.map((s) => {
+      const on = !off[s.id];
+      return { hasTag: false, tag: '', tagBg: '', tagC: '', hasRange: false, ranges: [], hasLinks: false, links: [], ...s,
+        hasRange: !!s.hasRange && on, hasLinks: !!s.hasLinks && on,
+        on, locked: !!s.locked, op: on ? 1 : 0.55, line: on ? '#2F373D' : '#22282D',
+        toggle: () => this.setState({ off: { ...off, [s.id]: on } }) };
+    });
+    const linkSections = [
+      { id: 'settings', name: 'Settings and nodes', size: '84 KiB', d: 'Connections, devices, points as Export (wyrm-driver-branch/1), and grants and net of the link.', locked: true, ...tg('always', '') },
+      { id: 'data', name: 'Private data', size: '2.9 MiB', d: 'data_dir/links/modbus/data: sealed settings and secrets (framework.tree), stores. Sealed with a passphrase.', ...tg('passphrase', 'warn') },
+      { id: 'package', name: 'Package modbus 0.5.0', size: '3.4 MiB', d: 'So it restores where the repository cannot be reached.' },
+      { id: 'hist', name: 'History of its points', size: '64 MiB', d: '142 series watched under downstream/modbus.', hasRange: true, ranges: rng(0) }
+    ].map((s) => ({ hasTag: false, tag: '', tagBg: '', tagC: '', hasRange: false, ranges: [], hasLinks: false, links: [], ...s, on: true, locked: !!s.locked, op: 1, line: '#2F373D', toggle: () => {} }));
+    const P = (t, s, c) => ({ t, s, c });
+    const prog = [P('Control plane', '1.2 MiB', TEAL), P('Keys and secrets, sealed', '48 KiB', TEAL), P('Dataflows', '310 KiB', TEAL), P('Broker storage', '2.4 MiB', TEAL), P('History', '196 / 431 MiB', EMBER), P('Alarms', '', '#5A6168'), P('Links (9)', '', '#5A6168')];
+    const C = (t, d, c) => ({ t, d, c, line: c === AMBER ? '#4A4020' : '#252B30' });
+    const rchecks = [
+      C('plant-2026-11-01-0300.wyrm-backup · SHA-256 ok', 'From plant · wyrmd 0.1.0 · registry 19 · 8 sections', TEAL),
+      C('Same site and the same keys', 'The CA and state key of this broker match the file; tokens and certificates stay valid.', TEAL),
+      C('3 links changed since then', 'modbus 0.5.0 here, 0.4.2 in the file: restoring Links puts 0.4.2 back with its settings.', AMBER),
+      C('Restart needed', 'Control plane, keys and history are swapped while the broker is stopped; it restarts once (about 10 s).', AMBER)
+    ];
+    const H = {
+      choose: { title: 'Back up plant', sub: 'Pick what goes in. One .wyrm-backup file (a zip with a manifest); history days can be left out or limited.' },
+      progress: { title: 'Backing up plant', sub: 'You can close this; the broker finishes it and keeps it under Backups.' },
+      done: { title: 'Backup ready', sub: 'Download started · also kept on the broker for 7 days (Backups).' },
+      restore: { title: 'Restore plant from a backup', sub: 'plant-2026-11-01-0300.wyrm-backup · tick what to bring back.' },
+      link: { title: 'Back up the link modbus', sub: 'One file with everything modbus needs to come back, here or on another broker.' }
+    }[stage];
+    const F = {
+      choose: { note: 'About 482 MiB · config on sys', secondary: 'Cancel', primary: 'Back up', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      progress: { note: '46 %', secondary: 'Cancel', primary: 'Backing up…', bg: '#22282D', fg: '#8E979C', dis: 'true' },
+      done: { note: '', secondary: 'Close', primary: 'Show in Backups', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      restore: { note: 'A backup of what it replaces is made first', secondary: 'Cancel', primary: 'Restore and restart', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      link: { note: '70 MiB · config on sys/links', secondary: 'Cancel', primary: 'Back up modbus', bg: EMBER, fg: '#0E1113', dis: 'false' }
+    }[stage];
+    return {
+      head: H, foot: F, bgTitle: stage === 'link' ? 'Links' : 'wyrmd on plant',
+      sections: stage === 'link' ? linkSections : sections, legend: stage === 'restore' ? 'In the file' : 'What goes in',
+      prog, rchecks,
+      showSections: stage === 'choose' || stage === 'restore' || stage === 'link',
+      isChoose: stage === 'choose' || stage === 'link', isProgress: stage === 'progress', isDone: stage === 'done', isRestore: stage === 'restore', isLink: stage === 'link'
+    };
+  }
+}
+</script>
+</body>
+</html>

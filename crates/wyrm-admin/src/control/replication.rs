@@ -142,7 +142,7 @@ fn mtime_ns(m: &std::fs::Metadata) -> u64 {
 }
 
 /// A directory entry name that is being written or is scratch: left out.
-fn skipped(name: &str) -> bool {
+pub(super) fn skipped(name: &str) -> bool {
     name.ends_with(".tmp")
         || name.starts_with(".tmp")
         || name == "tmp"
@@ -151,7 +151,7 @@ fn skipped(name: &str) -> bool {
         || name == "LOCK"
 }
 
-fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
+pub(super) fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
     let Ok(dir) = std::fs::read_dir(root.join(rel)) else {
         return;
     };
@@ -585,9 +585,14 @@ pub fn parse_history(v: Value) -> Option<HistoryPage> {
 /// bytes, and the whole file's SHA-256 with the first part.
 type Part = (u64, Vec<u8>, Option<Vec<u8>>);
 
-fn read_part(path: &Path, offset: u64, len: u64) -> Result<Part, String> {
+/// A part of the replicated file `name` under `data_dir`. A link owns its
+/// `links/<id>/data` and may run: the file is opened through no symlink
+/// (`nofollow::open_under`), so a name swapped for a link to another file
+/// since the listing is refused, never sent to the standby as link data.
+fn read_part(data_dir: &Path, name: &str, offset: u64, len: u64) -> Result<Part, String> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut f =
+        crate::nofollow::open_under(data_dir, name)?.ok_or_else(|| format!("{name}: not found"))?;
     let total = f.metadata().map_err(|e| e.to_string())?.len();
     if total > MAX_FILE_LEN {
         return Err("file too large to replicate".into());
@@ -728,7 +733,7 @@ impl Control {
         *self.storage.lock().unwrap_or_else(|p| p.into_inner()) = Arc::downgrade(storage);
     }
 
-    fn storage(&self) -> Option<Arc<wyrm_storage::Store>> {
+    pub(super) fn storage(&self) -> Option<Arc<wyrm_storage::Store>> {
         self.storage
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -784,7 +789,7 @@ impl Control {
                     return error_value("offset and len: numbers");
                 };
                 let len = len.clamp(1, PART_LEN);
-                match read_part(&d.join(&name), offset, len) {
+                match read_part(d, &name, offset, len) {
                     Ok((total, part, digest)) => {
                         let mut m = BTreeMap::from([
                             ("name".to_owned(), Value::from(name)),
