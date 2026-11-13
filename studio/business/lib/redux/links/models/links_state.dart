@@ -16,5 +16,6 @@ abstract class LinksState with _$LinksState {
     @Default(IListConst([])) IList<String> log,
     @Default(IListConst([])) IList<LinkRevision> revisions,
     String? version,
+    @Default(0) int updatesAvailable,
   }) = _LinksState;
 }

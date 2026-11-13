@@ -86,6 +86,7 @@ import 'system/actions/remove_profile_action.dart';
 import 'system/actions/retrieve_profiles_action.dart';
 import 'system/actions/retrieve_system_log_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
+import 'updates/actions/update_package_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
 ///
@@ -119,6 +120,7 @@ mixin Selectors {
   SelectPanels get panels => SelectPanels(state);
   SelectWindow get window => SelectWindow(state);
   SelectProblems get problems => SelectProblems(state);
+  SelectUpdates get updates => SelectUpdates(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -589,6 +591,9 @@ extension type SelectLinks(AppState _state) {
   /// The parameter revisions are being read.
   bool get isReadingHistory =>
       _state.wait.isWaitingForType<RetrieveLinkHistoryAction>();
+
+  /// Returns updatesAvailable
+  int get updatesAvailable => _state.links.updatesAvailable;
 }
 
 extension type SelectQuarantine(AppState _state) {
@@ -1112,4 +1117,42 @@ extension type SelectProblems(AppState _state) {
 
   /// Returns notices
   IList<StudioNotice> get notices => _state.problems.notices;
+}
+
+extension type SelectUpdates(AppState _state) {
+  /// Returns package
+  String? get package => _state.updates.package;
+
+  /// Returns view
+  String get view => _state.updates.view;
+
+  /// Returns takePoint
+  bool get takePoint => _state.updates.takePoint;
+
+  /// Returns autoRollback
+  bool get autoRollback => _state.updates.autoRollback;
+
+  /// Returns acceptNew
+  bool get acceptNew => _state.updates.acceptNew;
+
+  /// Returns asks
+  String? get asks => _state.updates.asks;
+
+  /// Returns message
+  String? get message => _state.updates.message;
+
+  /// Returns seenAt
+  int get seenAt => _state.updates.seenAt;
+
+  /// Returns seenResult
+  String? get seenResult => _state.updates.seenResult;
+
+  /// Returns queue
+  IList<String> get queue => _state.updates.queue;
+
+  /// Returns fileName
+  String? get fileName => _state.updates.fileName;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<UpdatePackageAction>();
 }

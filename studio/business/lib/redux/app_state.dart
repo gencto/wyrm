@@ -24,6 +24,7 @@ import 'site/models/site_state.dart';
 import 'system/models/system_state.dart';
 import 'tasks/models/tasks_state.dart';
 import 'theme/models/theme_state.dart';
+import 'updates/models/updates_state.dart';
 import 'window/models/window_state.dart';
 
 export 'selectors.dart';
@@ -57,6 +58,7 @@ abstract class AppState with _$AppState {
     required PanelsState panels,
     required WindowState window,
     required ProblemsState problems,
+    required UpdatesState updates,
     required Wait wait,
   }) = _AppState;
 
@@ -85,6 +87,7 @@ abstract class AppState with _$AppState {
     panels: PanelsState(),
     window: WindowState(),
     problems: ProblemsState(),
+    updates: UpdatesState(),
     wait: Wait.empty,
   );
 }
