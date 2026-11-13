@@ -75,6 +75,17 @@ Send it: `templates/high_temp ▸ send {limit: 80}` (write) — from a flow `inv
 link or by hand; `to` overrides the template's recipients. ▸ **Preview** returns the request it
 would make, without sending.
 
+**One message kept up to date.** `send {…, update: "return"}` posts the message the first time
+and edits it in place every later time it is sent with the same `update` name, at each recipient
+(a progress line, a state card): text, a photo's or document's caption, Block Kit. An edit that
+changes nothing is done, not failed; a message deleted in the chat is posted again and edited
+from then on. A location is always a new message. `update` is a name of a-z, 0-9 and `_`, up to
+64 per bot; the ids are kept in the link's store, so a restart goes on editing the same
+messages. It needs only `write`, so a flow can do it (no `send_raw`). Every recipient shows
+`recipients/<r>/last_message_id`, the platform's id of the last message it got (Telegram
+`message_id`, Slack `ts`). `to`, `update` and `vars` are the Send form's own fields: a template
+cannot use them as variables.
+
 A template keeps the rights of whoever added or last edited it: `values` must be readable by
 them.
 

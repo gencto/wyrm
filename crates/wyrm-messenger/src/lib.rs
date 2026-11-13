@@ -180,6 +180,8 @@ struct Bot {
     buckets: HashMap<String, auth::Bucket>,
     seen: HashMap<String, (u64, u64)>,
     shown: HashMap<String, Value>,
+    /// The platform's id of the last message each recipient got (`last_message_id`).
+    last_ids: BTreeMap<String, String>,
 }
 
 impl Bot {
@@ -217,6 +219,7 @@ impl Bot {
             buckets: HashMap::new(),
             seen: HashMap::new(),
             shown: HashMap::new(),
+            last_ids: BTreeMap::new(),
         }
     }
 
@@ -255,6 +258,16 @@ impl Bot {
         ];
         for (l, v) in leaves {
             self.put(host, tree::leaf(&n, l), v, now);
+        }
+        let ids: Vec<(String, String)> = self
+            .last_ids
+            .iter()
+            .filter(|(r, _)| self.recipients.contains_key(*r))
+            .map(|(r, i)| (r.clone(), i.clone()))
+            .collect();
+        for (r, id) in ids {
+            let p = tree::leaf(&tree::recipient_path(&n, &r), "last_message_id");
+            self.put(host, p, Value::Str(id), now);
         }
     }
 
@@ -408,10 +421,38 @@ impl Bot {
                 }
             }
             let (method, body) = (self.def.kind.request)(front);
+            let editing = front.edit.is_some();
             n += 1;
-            match self.call(host, &method, &body) {
-                Ok(_) => {
+            let result = match self.call(host, &method, &body) {
+                // an edit that changed nothing is done; one whose message is gone goes anew
+                Err(Fail::Rejected(msg)) if editing && (self.def.kind.edit_unchanged)(&msg) => {
+                    Ok(Json::Null)
+                }
+                Err(Fail::Rejected(msg)) if editing && (self.def.kind.edit_gone)(&msg) => {
+                    if let Some(f) = self.queue.front_mut() {
+                        f.edit = None;
+                    }
+                    continue;
+                }
+                r => r,
+            };
+            match result {
+                Ok(reply) => {
                     let m = self.queue.pop_front();
+                    if let Some(m) = &m {
+                        // the id of what went out (an unchanged edit keeps the one it had)
+                        let id = (self.def.kind.message_id)(&reply).or_else(|| m.edit.clone());
+                        if let Some(id) = id {
+                            if let Some(slot) = &m.slot {
+                                if let Err(e) = store::put(host, slot, &Value::Str(id.clone())) {
+                                    host.log(Level::Warn, &format!("{slot}: {}", e.msg));
+                                }
+                            }
+                            if let Some(r) = &m.recipient {
+                                self.last_ids.insert(r.clone(), id);
+                            }
+                        }
+                    }
                     if counted {
                         self.sent += 1;
                         self.last_sent = now;
@@ -962,6 +1003,13 @@ impl<C: Chat> Messenger<C> {
     fn declare_recipient(host: &mut dyn Host, kind: Kind, bot: &str, r: &Recipient) {
         let p = tree::recipient_path(bot, &r.name);
         host.declare_node(&p, tree::recipient_node(r));
+        host.declare_node(
+            &tree::leaf(&p, "last_message_id"),
+            wyrm_core::NodeMeta::leaf(wyrm_core::TypeCode::String).attr(
+                "description",
+                "The platform's id of the last message this recipient got (message_id, ts)",
+            ),
+        );
         for (a, meta) in tree::recipient_actions(kind) {
             host.declare_action(&p, a, meta);
         }
@@ -1150,29 +1198,65 @@ impl<C: Chat> Messenger<C> {
         to: &[String],
         rendered: Rendered,
         origin: &str,
+        update: Option<&str>,
     ) -> Result<Value, AppError> {
         if to.is_empty() {
             return Err(invalid("to: no recipients"));
         }
-        let bot = self.bot_mut(bot_name)?;
-        if bot.state == State::Disabled {
-            return Err(AppError::new(Status::NotSupported, "the bot is disabled"));
+        if let Some(u) = update {
+            let key = store::updates_key(bot_name);
+            let mut names = store::index(host, &key);
+            if !names.iter().any(|n| n == u) {
+                if names.len() >= model::MAX_UPDATES {
+                    return Err(AppError::new(
+                        Status::ResourceExhausted,
+                        format!(
+                            "update: at most {} edited messages per bot",
+                            model::MAX_UPDATES
+                        ),
+                    ));
+                }
+                names.push(u.to_owned());
+                store::put_index(host, &key, names.iter())?;
+            }
         }
+        let editable = Outgoing {
+            body: rendered.body.clone(),
+            ..Outgoing::text("", "", origin)
+        }
+        .editable();
         let mut out = Vec::new();
-        for r in to {
-            let (chat, thread, silent) = bot.resolve(r).map_err(invalid)?;
-            out.push(Outgoing {
-                chat,
-                thread,
-                body: rendered.body.clone(),
-                buttons: rendered.buttons.clone(),
-                silent: rendered.silent || silent,
-                protect: rendered.protect,
-                preview: rendered.preview,
-                origin: format!("{origin} → {r}"),
-                attempts: 0,
-            });
+        {
+            let bot = self.bot(bot_name)?;
+            if bot.state == State::Disabled {
+                return Err(AppError::new(Status::NotSupported, "the bot is disabled"));
+            }
+            for r in to {
+                let (chat, thread, silent) = bot.resolve(r).map_err(invalid)?;
+                let (edit, slot) = match update {
+                    Some(u) if editable => (
+                        store::slot(host, bot_name, u, r),
+                        Some(store::slot_key(bot_name, u, r)),
+                    ),
+                    _ => (None, None),
+                };
+                out.push(Outgoing {
+                    chat,
+                    thread,
+                    body: rendered.body.clone(),
+                    buttons: rendered.buttons.clone(),
+                    silent: rendered.silent || silent,
+                    protect: rendered.protect,
+                    preview: rendered.preview,
+                    origin: format!("{origin} → {r}"),
+                    attempts: 0,
+                    edit,
+                    slot,
+                    recipient: bot.recipients.contains_key(r).then(|| r.clone()),
+                });
+            }
         }
+        let bot = self.bot_mut(bot_name)?;
         let n = out.len() as u64;
         for m in out {
             bot.enqueue(m);
@@ -1211,6 +1295,15 @@ impl<C: Chat> Messenger<C> {
         }
         let to = Self::to_of(&args, &t.to)?;
         args.remove("to");
+        let update = match args.remove("update") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(u)) if u.trim().is_empty() => None,
+            Some(Value::Str(u)) => {
+                render::check_var(u.trim()).map_err(|e| invalid(format!("update: {e}")))?;
+                Some(u.trim().to_owned())
+            }
+            Some(_) => return Err(invalid("update: a name")),
+        };
         if let Some(Value::Map(v)) = args.remove("vars") {
             for (k, x) in v {
                 args.entry(k).or_insert(x);
@@ -1233,6 +1326,9 @@ impl<C: Chat> Messenger<C> {
                 preview: rendered.preview,
                 origin: name.into(),
                 attempts: 0,
+                edit: None,
+                slot: None,
+                recipient: None,
             };
             let (method, body) = (b.def.kind.request)(&m);
             return Ok(Value::Map(Map::from([
@@ -1245,7 +1341,7 @@ impl<C: Chat> Messenger<C> {
             ])));
         }
         let origin = format!("template {name}");
-        self.deliver(host, bot, &to, rendered, &origin)
+        self.deliver(host, bot, &to, rendered, &origin, update.as_deref())
     }
 
     /// Ad-hoc `send` of a bot or of one recipient: a template made on the spot, built-ins only.
@@ -1278,7 +1374,7 @@ impl<C: Chat> Messenger<C> {
         }
         let b = self.bot(bot)?;
         let rendered = self.render(host, b, &t, None, &Map::new())?;
-        self.deliver(host, bot, &to, rendered, "send")
+        self.deliver(host, bot, &to, rendered, "send", None)
     }
 
     fn send_raw(&mut self, host: &mut dyn Host, bot: &str, args: &Map) -> Result<Value, AppError> {
@@ -1953,8 +2049,12 @@ impl<C: Chat> Messenger<C> {
                 b.recipients
                     .remove(name)
                     .ok_or_else(|| AppError::new(Status::NotFound, name.to_owned()))?;
+                b.last_ids.remove(name);
+                b.shown
+                    .retain(|k, _| !k.starts_with(&tree::recipient_path(bot, name)));
                 let names: Vec<String> = b.recipients.keys().cloned().collect();
                 store::delete_item(host, 'r', bot, name);
+                store::delete_slots_of(host, bot, name);
                 Self::put_coll(host, 'r', bot, names.into_iter())?;
                 host.remove_node(&tree::recipient_path(bot, name));
                 Ok(Value::Null)

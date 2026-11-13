@@ -57,6 +57,13 @@ pub const TELEGRAM: Platform = Platform {
     path: |base, token, method| format!("{base}/bot{token}/{method}"),
     request: telegram,
     reply: telegram_reply,
+    message_id: telegram_message_id,
+    edit_unchanged: |m| m.contains("message is not modified"),
+    edit_gone: |m| {
+        m.contains("message to edit not found")
+            || m.contains("message can't be edited")
+            || m.contains("MESSAGE_ID_INVALID")
+    },
     identity: |me| me["username"].as_str().unwrap_or("").to_owned(),
     raw_methods: RAW_METHODS,
     // every Bot API param that names a chat or an account
@@ -171,6 +178,9 @@ fn tg_chat(chat: &str) -> Json {
 
 /// `(method, body)` of a Telegram request.
 pub fn telegram(m: &Outgoing) -> (String, Json) {
+    if let Some(id) = m.edit.as_deref().filter(|_| m.editable()) {
+        return telegram_edit(m, id);
+    }
     let mut o = serde_json::Map::new();
     let mut put = |k: &str, v: Json| {
         o.insert(k.to_owned(), v);
@@ -241,26 +251,84 @@ pub fn telegram(m: &Outgoing) -> (String, Json) {
         put("protect_content", json!(true));
     }
     if !m.buttons.is_empty() {
-        let rows: Vec<Json> = m
-            .buttons
-            .iter()
-            .map(|row| {
-                Json::Array(
-                    row.iter()
-                        .map(|b| {
-                            if b.is_url() {
-                                json!({ "text": b.label, "url": b.target })
-                            } else {
-                                json!({ "text": b.label, "callback_data": b.target })
-                            }
-                        })
-                        .collect(),
-                )
-            })
-            .collect();
-        put("reply_markup", json!({ "inline_keyboard": rows }));
+        put("reply_markup", inline_keyboard(&m.buttons));
     }
     (method.into(), Json::Object(o))
+}
+
+/// The edit in place of message `id`: `editMessageText` for a text, `editMessageCaption` for a
+/// photo's or a document's caption (the media stays). An edit takes no thread, silence or
+/// protection: the message keeps those it was sent with.
+fn telegram_edit(m: &Outgoing, id: &str) -> (String, Json) {
+    let mut o = serde_json::Map::new();
+    o.insert("chat_id".into(), tg_chat(&m.chat));
+    o.insert(
+        "message_id".into(),
+        id.parse::<i64>().map_or_else(|_| json!(id), Json::from),
+    );
+    let method = match &m.body {
+        Body::Photo {
+            caption, format, ..
+        }
+        | Body::Document {
+            caption, format, ..
+        } => {
+            o.insert(
+                "caption".into(),
+                json!(render::cut(caption, TG_CAPTION_MAX)),
+            );
+            if let Some(p) = tg_parse_mode(*format) {
+                o.insert("parse_mode".into(), json!(p));
+            }
+            "editMessageCaption"
+        }
+        Body::Text { text, format } => {
+            o.insert("text".into(), json!(render::cut(text, TG_TEXT_MAX)));
+            if let Some(p) = tg_parse_mode(*format) {
+                o.insert("parse_mode".into(), json!(p));
+            }
+            o.insert(
+                "link_preview_options".into(),
+                json!({ "is_disabled": !m.preview }),
+            );
+            "editMessageText"
+        }
+        Body::Blocks { text, .. } => {
+            o.insert("text".into(), json!(render::cut(text, TG_TEXT_MAX)));
+            "editMessageText"
+        }
+        // never asked: only what `Outgoing::editable` says
+        _ => "editMessageText",
+    };
+    if !m.buttons.is_empty() {
+        o.insert("reply_markup".into(), inline_keyboard(&m.buttons));
+    }
+    (method.into(), Json::Object(o))
+}
+
+fn inline_keyboard(buttons: &[Vec<wyrm_messenger::model::Button>]) -> Json {
+    let rows: Vec<Json> = buttons
+        .iter()
+        .map(|row| {
+            Json::Array(
+                row.iter()
+                    .map(|b| {
+                        if b.is_url() {
+                            json!({ "text": b.label, "url": b.target })
+                        } else {
+                            json!({ "text": b.label, "callback_data": b.target })
+                        }
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    json!({ "inline_keyboard": rows })
+}
+
+/// The `message_id` a send's result names.
+fn telegram_message_id(result: &Json) -> Option<String> {
+    result["message_id"].as_i64().map(|i| i.to_string())
 }
 
 /// A Telegram reply: `{ok: true, result}` or `{ok: false, error_code, description, parameters}`.
@@ -364,6 +432,9 @@ mod tests {
 
     fn msg(body: Body) -> Outgoing {
         Outgoing {
+            edit: None,
+            slot: None,
+            recipient: None,
             chat: "-100123".into(),
             thread: Some("7".into()),
             body,

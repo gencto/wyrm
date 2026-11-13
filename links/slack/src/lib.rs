@@ -54,6 +54,14 @@ pub const SLACK: Platform = Platform {
     path: |base, _token, method| format!("{base}/api/{method}"),
     request: slack,
     reply: slack_reply,
+    message_id: slack_message_id,
+    // chat.update of the same text succeeds
+    edit_unchanged: |_| false,
+    edit_gone: |m| {
+        m.contains("message_not_found")
+            || m.contains("cant_update_message")
+            || m.contains("edit_window_closed")
+    },
     identity: |me| {
         format!(
             "{} ({})",
@@ -191,12 +199,22 @@ pub fn slack(m: &Outgoing) -> (String, Json) {
     if !blocks.is_empty() {
         o.insert("blocks".into(), Json::Array(blocks));
     }
+    if let Some(ts) = m.edit.as_ref().filter(|_| m.editable()) {
+        // an edit in place: the message keeps its thread and its unfurls
+        o.insert("ts".into(), json!(ts));
+        return ("chat.update".into(), Json::Object(o));
+    }
     if let Some(t) = &m.thread {
         o.insert("thread_ts".into(), json!(t));
     }
     o.insert("unfurl_links".into(), json!(m.preview));
     o.insert("unfurl_media".into(), json!(m.preview));
     ("chat.postMessage".into(), Json::Object(o))
+}
+
+/// The `ts` of a posted message (Slack names a message by its channel and `ts`).
+fn slack_message_id(reply: &Json) -> Option<String> {
+    reply["ts"].as_str().map(str::to_owned)
 }
 
 /// A Slack reply: HTTP 200 with `{ok: true, …}` or `{ok: false, error}`.
@@ -243,6 +261,9 @@ mod tests {
 
     fn msg(body: Body) -> Outgoing {
         Outgoing {
+            edit: None,
+            slot: None,
+            recipient: None,
             chat: "-100123".into(),
             thread: Some("7".into()),
             body,
@@ -262,6 +283,27 @@ mod tests {
             origin: "t".into(),
             attempts: 0,
         }
+    }
+
+    /// `send {update}`: an edit in place is `chat.update` of the message's `ts`, without a thread
+    /// or unfurl settings (the message keeps those it was posted with).
+    #[test]
+    fn an_edit_is_chat_update() {
+        let mut m = msg(Body::Text {
+            text: "2/3".into(),
+            format: Format::Plain,
+        });
+        m.edit = Some("1700000000.000100".into());
+        let (method, body) = slack(&m);
+        assert_eq!(method, "chat.update");
+        assert_eq!(body["ts"], "1700000000.000100");
+        assert_eq!(body["text"], "2/3");
+        assert!(body.get("thread_ts").is_none());
+        assert_eq!(
+            slack_message_id(&json!({"ok": true, "ts": "1.2"})),
+            Some("1.2".into())
+        );
+        assert!((SLACK.edit_gone)("slack: message_not_found"));
     }
 
     #[test]

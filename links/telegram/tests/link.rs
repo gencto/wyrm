@@ -608,3 +608,75 @@ fn updates_that_fail_do_not_stop_sending() {
     // the reading comes back by itself, and the error goes
     h.until("updates read again", |h| h.text("ops/error").is_empty());
 }
+
+/// `send {update}`: the first send posts the message, later ones edit it in place at each
+/// recipient; an edit that changes nothing is done; a message that is gone is posted again; the
+/// recipient shows the id of its last message (DVPSM demo, 2026-11-13: progress needed
+/// send_raw, a config action a flow cannot run).
+#[test]
+fn a_template_keeps_one_message_up_to_date() {
+    let api = Api::start();
+    let mut h = telegram(&api);
+    h.invoke(
+        "ops",
+        "add_template",
+        map(&[
+            ("name", s("progress")),
+            ("text", s("Return: {{step}}")),
+            ("to", s("team")),
+        ]),
+    )
+    .expect("template");
+    let send = |h: &mut SimHost, step: &str| {
+        h.invoke(
+            "ops/templates/progress",
+            "send",
+            map(&[("step", s(step)), ("update", s("return"))]),
+        )
+        .expect("send");
+    };
+    send(&mut h, "1/3");
+    h.until("posted", |h| h.num("ops/sent") == 1);
+    let first = api.calls("sendMessage");
+    assert_eq!(first.len(), 1);
+    let id = h.text("ops/recipients/team/last_message_id");
+    assert!(!id.is_empty(), "the recipient shows the message's id");
+
+    send(&mut h, "2/3");
+    h.until("edited", |h| h.num("ops/sent") == 2);
+    let edits = api.calls("editMessageText");
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].body["message_id"].to_string(), id);
+    assert_eq!(edits[0].body["text"], "Return: 2/3");
+    assert_eq!(api.calls("sendMessage").len(), 1, "no new message");
+
+    // nothing changed: Telegram refuses the edit, and that is done, not failed
+    api.script(
+        400,
+        r#"{"ok":false,"description":"Bad Request: message is not modified"}"#,
+    );
+    send(&mut h, "2/3");
+    h.until("unchanged", |h| h.num("ops/sent") == 3);
+    assert_eq!(h.num("ops/failed"), 0);
+
+    // the message was deleted in the chat: posted again, and edited from then on
+    api.script(
+        400,
+        r#"{"ok":false,"description":"Bad Request: message to edit not found"}"#,
+    );
+    send(&mut h, "3/3");
+    h.until("posted again", |h| h.num("ops/sent") == 4);
+    assert_eq!(api.calls("sendMessage").len(), 2);
+    let again = h.text("ops/recipients/team/last_message_id");
+    assert_ne!(again, id);
+    send(&mut h, "done");
+    h.until("edited the new one", |h| h.num("ops/sent") == 5);
+    let last = api.calls("editMessageText").pop().unwrap();
+    assert_eq!(last.body["message_id"].to_string(), again);
+
+    // a send without update is a new message
+    h.invoke("ops/templates/progress", "send", map(&[("step", s("x"))]))
+        .expect("send");
+    h.until("new", |h| h.num("ops/sent") == 6);
+    assert_eq!(api.calls("sendMessage").len(), 3);
+}

@@ -9,6 +9,8 @@
 //! ri/<bot>, r/<bot>/<n>     recipients
 //! ti/<bot>, t/<bot>/<n>     templates; rights/t/<bot>/<n> their author's rights (ADR 0029)
 //! ui/<bot>, u/<bot>/<n>     chat users; rights/u/<bot>/<n> the rights of who invited or edited them
+//! mi/<bot>                  names of edited messages (`send {update}`)
+//! m/<bot>/<update>/<r>      the platform's id of that message at recipient <r>
 //! ```
 
 use wyrm_core::{codec, Status, Value};
@@ -113,8 +115,41 @@ pub fn delete_item(host: &mut dyn Host, c: char, bot: &str, name: &str) {
     host.store_delete(&rights_key(c, bot, name));
 }
 
+/// The index of a bot's edited messages.
+pub fn updates_key(bot: &str) -> String {
+    format!("mi/{bot}")
+}
+
+/// Where the id of edited message `update` at recipient `r` is kept.
+pub fn slot_key(bot: &str, update: &str, r: &str) -> String {
+    format!("m/{bot}/{update}/{r}")
+}
+
+/// The id of edited message `update` at `r`, when it was sent.
+pub fn slot(host: &dyn Host, bot: &str, update: &str, r: &str) -> Option<String> {
+    match get(host, &slot_key(bot, update, r))? {
+        Value::Str(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Every slot of recipient `r` (it was removed).
+pub fn delete_slots_of(host: &mut dyn Host, bot: &str, r: &str) {
+    for u in index(host, &updates_key(bot)) {
+        host.store_delete(&slot_key(bot, &u, r));
+    }
+}
+
 /// Everything of a bot.
 pub fn delete_bot(host: &mut dyn Host, bot: &str) {
+    // the slots first: they are found through the recipients' index
+    let recipients = index(host, &coll('r', bot));
+    for u in index(host, &updates_key(bot)) {
+        for r in &recipients {
+            host.store_delete(&slot_key(bot, &u, r));
+        }
+    }
+    host.store_delete(&updates_key(bot));
     for c in ['r', 't', 'u'] {
         for n in index(host, &coll(c, bot)) {
             delete_item(host, c, bot, &n);

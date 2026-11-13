@@ -490,10 +490,22 @@ pub fn template_actions(kind: Kind, vars: &[String]) -> Vec<(&'static str, Actio
     vec![
         (
             "send",
-            with_vars(ActionMeta::new().display("Send").level(Perm::Write).param(
-                "to",
-                text("To", "Recipient names; the template's when empty."),
-            ))
+            with_vars(
+                ActionMeta::new()
+                    .display("Send")
+                    .level(Perm::Write)
+                    .param(
+                        "to",
+                        text("To", "Recipient names; the template's when empty."),
+                    )
+                    .param(
+                        "update",
+                        text(
+                            "Update",
+                            "A name for one message kept up to date: the first send with it posts the message, later ones edit it in place at each recipient (text, captions, Block Kit). Empty: a new message each time.",
+                        ),
+                    ),
+            )
             .result(ActionResult::Type(TypeCode::Map)),
         ),
         (

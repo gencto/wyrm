@@ -16,6 +16,8 @@ pub type Map = BTreeMap<String, Value>;
 pub const MAX_BOTS: usize = 8;
 pub const MAX_RECIPIENTS: usize = 64;
 pub const MAX_TEMPLATES: usize = 64;
+/// Names of messages edited in place (`send {update}`) per bot.
+pub const MAX_UPDATES: usize = 64;
 pub const MAX_USERS: usize = 100;
 /// Live values of one template (a state card of 3 sources and 3 transfer switches needs 20).
 pub const MAX_VALUES: usize = 32;
@@ -715,6 +717,12 @@ impl Template {
                     || out.contains(&name)
                 {
                     continue;
+                }
+                // the Send form's own fields
+                if matches!(name.as_str(), "to" | "update" | "vars") {
+                    return Err(format!(
+                        "{{{{{name}}}}}: a name the Send form keeps for itself"
+                    ));
                 }
                 out.push(name);
             }

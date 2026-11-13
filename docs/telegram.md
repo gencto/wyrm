@@ -31,6 +31,9 @@ backslash-escaped; a message Telegram cannot parse goes again as plain text), `p
 `text`, `photo` / `document` (`media` = URL or `file_id`, `text` = caption ≤ 1024), `location`.
 `buttons` take links and `/command`s (≤ 64 bytes after filling in), a command run for whoever
 presses it. `silent`, `protect` (no forwarding or saving), `preview` (link previews).
+`send {update}` edits with `editMessageText` (a text) or `editMessageCaption` (a photo's or a
+document's caption; the media stays); Telegram's "message is not modified" counts as done,
+"message to edit not found" posts it again.
 
 ## Raw requests
 

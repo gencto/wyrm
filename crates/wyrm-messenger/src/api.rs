@@ -80,6 +80,13 @@ pub struct Outgoing {
     /// Who it is for in errors: a recipient or template name, `reply`, `raw`.
     pub origin: String,
     pub attempts: u32,
+    /// The platform's id of an earlier message to edit in place instead of sending a new one
+    /// (a template's `send {update}`; [`Platform::message_id`] of what was sent).
+    pub edit: Option<String>,
+    /// Where the id of what goes out is kept (store key), for the next edit.
+    pub slot: Option<String>,
+    /// The recipient it is for (`last_message_id`), when it is one.
+    pub recipient: Option<String>,
 }
 
 impl Outgoing {
@@ -97,7 +104,18 @@ impl Outgoing {
             preview: false,
             origin: origin.to_owned(),
             attempts: 0,
+            edit: None,
+            slot: None,
+            recipient: None,
         }
+    }
+
+    /// A body a platform can edit in place: text, a caption, Block Kit.
+    pub fn editable(&self) -> bool {
+        matches!(
+            self.body,
+            Body::Text { .. } | Body::Photo { .. } | Body::Document { .. } | Body::Blocks { .. }
+        )
     }
 
     /// The same message without markup (after the platform could not parse it).
@@ -209,9 +227,16 @@ pub struct Platform {
     pub check_thread: fn(&str) -> Result<(), String>,
     /// The request path of `method` under the API's base path.
     pub path: fn(base: &str, token: &str, method: &str) -> String,
-    /// `(method, body)` of a message.
+    /// `(method, body)` of a message; with [`Outgoing::edit`] the request that edits that
+    /// message in place (`editMessageText`, `chat.update`).
     pub request: fn(&Outgoing) -> (String, Json),
     pub reply: fn(u16, &[u8]) -> Result<Json, Fail>,
+    /// The id of the message a send's result names (`message_id`, `ts`), to edit it later.
+    pub message_id: fn(&Json) -> Option<String>,
+    /// An edit was refused because nothing changed: done, not failed.
+    pub edit_unchanged: fn(&str) -> bool,
+    /// An edit was refused because the message is gone or can no longer be edited: send anew.
+    pub edit_gone: fn(&str) -> bool,
     /// The bot's name from the identify call's result.
     pub identity: fn(&Json) -> String,
     /// The methods `send_raw` offers, by exact name, each with the params that must name a

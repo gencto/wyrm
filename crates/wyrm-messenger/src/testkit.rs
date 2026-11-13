@@ -477,6 +477,8 @@ pub struct ApiState {
     pub script: VecDeque<(u16, String)>,
     /// Replies to the next `getUpdates` calls, instead of the updates.
     pub updates_script: VecDeque<(u16, String)>,
+    /// The id of the last message sent (Telegram `message_id`).
+    pub next_message: i64,
 }
 
 pub struct Api {
@@ -603,10 +605,17 @@ fn answer(
                 ok(Json::Array(out))
             }
             "answerCallbackQuery" | "leaveChat" => ok(json!(true)),
-            _ => s
-                .script
-                .pop_front()
-                .unwrap_or_else(|| ok(json!({"message_id": 1}))),
+            _ => {
+                if let Some(r) = s.script.pop_front() {
+                    r
+                } else if method.starts_with("send") {
+                    // each message sent has an id of its own
+                    s.next_message += 1;
+                    ok(json!({"message_id": s.next_message}))
+                } else {
+                    ok(json!({"message_id": body["message_id"].clone()}))
+                }
+            }
         };
     }
     if let Some(method) = path.strip_prefix("/api/") {
