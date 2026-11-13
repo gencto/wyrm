@@ -77,6 +77,14 @@ impl<A: App + Send + 'static> Engine for NativeEngine<A> {
                 args,
                 who,
             } => app.on_invoke(host, &path, &action, args, &who).map(Some),
+            Event::Check {
+                path,
+                action,
+                args,
+                who,
+            } => app
+                .on_check(host, &path, &action, &args, &who)
+                .map(|()| None),
             Event::Timer(t) => {
                 app.on_timer(host, t);
                 Ok(None)

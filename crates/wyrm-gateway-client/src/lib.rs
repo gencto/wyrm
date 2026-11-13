@@ -772,6 +772,18 @@ impl Conn {
         .await
     }
 
+    /// `check` (spec 05 0.2.33): the responder checks the call as the action would take it and
+    /// does nothing; only where its root `~meta` has `attr.check`.
+    pub async fn check(&self, key: &str, action: &str, args: Value) -> Result<()> {
+        self.request(
+            "check",
+            key,
+            vec![("action", Value::from(action)), ("args", args)],
+        )
+        .await
+        .map(|_| ())
+    }
+
     pub async fn list(&self, key: &str) -> Result<Stream> {
         self.stream("list", key).await
     }

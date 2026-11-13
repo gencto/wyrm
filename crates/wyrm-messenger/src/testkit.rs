@@ -385,6 +385,20 @@ impl<A: App> SimHost<A> {
         r
     }
 
+    /// `~act/<a>?check`: the app's check, and whatever it asked of the host dropped, as the
+    /// runtime does.
+    pub fn check(&mut self, path: &str, action: &str, args: Value) -> Result<(), AppError> {
+        let r = self.app.as_mut().expect("started").on_check(
+            &mut self.buf,
+            path,
+            action,
+            &args,
+            &engineer(),
+        );
+        let _ = self.buf.finish();
+        r
+    }
+
     pub fn set(&mut self, path: &str, v: Value) -> Result<(), AppError> {
         let r = self
             .app

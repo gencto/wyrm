@@ -367,7 +367,7 @@ impl Conn {
             }
             "history" => p.grants.perm(&format!("{own}/~val")) >= Perm::Read,
             "set" => p.grants.perm(&format!("{own}/~set")) >= Perm::Write,
-            "invoke" => match req.action.as_deref() {
+            "invoke" | "check" => match req.action.as_deref() {
                 Some(a) if wyrm_core::keyspace::validate_segment(a).is_ok() => {
                     p.grants.perm(&format!("{own}/~act/{a}")) >= Perm::Read
                 }
@@ -477,6 +477,16 @@ impl Conn {
                     Err(e) => client_err(id, &e),
                 },
             },
+            // spec 05 0.2.33: the responder checks the call and does nothing; the caller
+            // sends it only where the responder's root says `attr.check`
+            "check" => {
+                let action = req.action.unwrap_or_default();
+                let args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));
+                match c.invoke_check(&req.key, &action, args).await {
+                    Ok(()) => ok_frame(id, None),
+                    Err(e) => client_err(id, &e),
+                }
+            }
             "invoke" => {
                 let action = req.action.unwrap_or_default();
                 let mut args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));

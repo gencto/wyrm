@@ -35,7 +35,7 @@ wyrmd -c wyrmd.json5 user add claude --roles operator
 4. Start a chat and ask "who are you on WYRM?". Claude calls `whoami` and answers with the user, the site and the grants.
 
 ## 3. What to expect
-- Before a change, Claude reads the node's `~meta`, runs a dry run and shows what it would send. Claude Desktop asks you before each tool call. Allow only what you have read.
+- Before a change, Claude reads the node's `~meta`, runs a dry run and shows what it would send. A link built with spec 0.2.33 or later also checks the call itself without running it (`checked_by_link`: `ok` or the refusal the action would give, ADR 0047); an older link is checked against its `~meta` only. Claude Desktop asks you before each tool call. Allow only what you have read.
 - Several dependent steps (add a device, wait for it, set a value, expect a reading) go in one `plan_run`. Claude checks the plan first and applies it after you agree.
 - Keys: `downstream/modbus/plc1/temp` means a key on the gateway's own site. `wy/<site>/…` reaches a site below it.
 - When the session expires (8 h by default), the connector logs in again by itself.

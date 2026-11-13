@@ -57,6 +57,20 @@ pub trait Link: Send + Sized + 'static {
         async { Err(LinkError::not_supported("invoke")) }
     }
 
+    /// Check `action` on `path` as [`Self::on_invoke`] would take it, and do nothing (spec 05
+    /// 0.2.33, `~act/<a>?check`): parse the arguments the way the action does and refuse what it
+    /// would refuse. Token, level and the arguments against `~meta` are checked by the SDK
+    /// already. The default accepts: the SDK's checks are all there is.
+    fn on_check(
+        &mut self,
+        _path: &str,
+        _action: &str,
+        _args: &Value,
+        _who: &Caller,
+    ) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
+
     /// The shortest bound on one driver call this link needs with `cfg`. The SDK raises
     /// `LinkConfig::driver_timeout` to it, so a driver whose own calls may take this long is not
     /// answered `timeout` while the call still runs (a portable link: its `call_ms` + 1 s).

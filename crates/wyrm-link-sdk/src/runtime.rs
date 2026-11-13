@@ -142,6 +142,15 @@ enum Cmd<C> {
         timeout: Duration,
         sink: ReplySink,
     },
+    /// `~act/<a>?check`: the driver's own check, nothing done.
+    Check {
+        path: String,
+        action: String,
+        args: Value,
+        caller: Caller,
+        timeout: Duration,
+        tx: oneshot::Sender<Result<()>>,
+    },
     Reconfigure {
         cfg: C,
         tx: oneshot::Sender<Result<()>>,
@@ -229,7 +238,8 @@ pub async fn spawn<L: Link>(
         ..Default::default()
     }
     .attr("driver", L::NAME)
-    .attr("version", L::VERSION);
+    .attr("version", L::VERSION)
+    .attr(crate::ctx::CHECK_ATTR, true);
     let prefix = match &cfg.root {
         Some(r) => r.clone(),
         None => format!("{}/{}/downstream/{}", keyspace::ROOT, cfg.site, cfg.link),
@@ -513,6 +523,27 @@ async fn run_driver<L: Link>(ctx: LinkCtx, mut link: L, mut rx: mpsc::Receiver<C
                 {
                     let _ = errs.error(e).await;
                 }
+            }
+            Cmd::Check {
+                path,
+                action,
+                args,
+                caller,
+                timeout,
+                tx,
+            } => {
+                let r = guarded(tokio::time::timeout(
+                    timeout,
+                    link.on_check(&path, &action, &args, &caller),
+                ))
+                .await;
+                let Ok(r) = r else {
+                    let _ = tx.send(Err(panicked()));
+                    fail("on_check").await;
+                    return;
+                };
+                let _ =
+                    tx.send(r.unwrap_or_else(|_| Err(LinkError::timeout("driver did not answer"))));
             }
             Cmd::Reconfigure { cfg, tx } => match guarded(link.reconfigure(cfg)).await {
                 Ok(r) => {
@@ -1209,7 +1240,12 @@ impl<C: Send + 'static> Shared<C> {
                 (sub, r)
             }
         };
-        self.audit(q, "invoke", &sub, &args, &r).await;
+        let op = if param(q, "check").is_some() {
+            "check"
+        } else {
+            "invoke"
+        };
+        self.audit(q, op, &sub, &args, &r).await;
         r
     }
 
@@ -1258,6 +1294,22 @@ impl<C: Send + 'static> Shared<C> {
             return Err(LinkError::new(Status::InvalidMessage, "args must be a map"));
         };
         validate_args(&act.params, given)?;
+        if param(q, "check").is_some() {
+            // spec 05 0.2.33: everything the action would check, then nothing done
+            let (tx, rx) = oneshot::channel();
+            self.submit(Cmd::Check {
+                path: path.to_owned(),
+                action: action.to_owned(),
+                args,
+                caller,
+                timeout: self.driver_timeout,
+                tx,
+            })?;
+            rx.await
+                .map_err(|_| LinkError::new(Status::Disconnected, "driver stopped"))??;
+            reply_here(q, Vec::new(), status_att(Status::Ok), true).await;
+            return Ok(());
+        }
         let stream = act.stream == Some(true) || act.result == Some(ActionResult::Stream);
         let timeout = act
             .timeout_ms

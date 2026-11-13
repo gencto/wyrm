@@ -2689,6 +2689,60 @@ async fn history_sink_feeds_its_link() {
 /// A link as a requester (DSA `isRequester`, owner decision 2026-10-22):
 /// grants open the ACL to other branches and make every link trust its
 /// requester key up to the grant's level and under the grant's path.
+/// spec 05 0.2.33: a responder says on its root that it answers `~act/<a>?check`, and a check
+/// refuses what the action would refuse and does nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_does_nothing() {
+    let env = Env::start("check", "").await;
+    let c = env.client().await;
+    let root = format!("wy/{SITE}/storage");
+    let args = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    for r in [
+        root.clone(),
+        format!("wy/{SITE}/sys"),
+        format!("wy/{SITE}/dataflows"),
+    ] {
+        let m = c.meta(&r).await.unwrap();
+        assert_eq!(m.attr_value("check"), Some(&Value::Bool(true)), "{r}");
+    }
+    c.invoke_check(&root, "add_node", args(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    assert!(
+        c.meta(&format!("{root}/plant")).await.is_err(),
+        "nothing made"
+    );
+    // what the action refuses, the check refuses: a missing required argument
+    assert!(c.invoke_check(&root, "add_node", args(&[])).await.is_err());
+    // and an unknown action
+    assert!(c
+        .invoke_check(&root, "no_such_action", args(&[]))
+        .await
+        .is_err());
+    // the action itself still runs
+    c.invoke_one(&root, "add_node", args(&[("name", "plant".into())]))
+        .await
+        .unwrap();
+    assert!(c.meta(&format!("{root}/plant")).await.is_ok());
+    // the audit names the check apart from the action
+    eventually("audited", 10, || async {
+        env.ctl
+            .audit_tail(50)
+            .iter()
+            .any(|r| r.op == "check")
+            .then_some(())
+    })
+    .await;
+    drop(c);
+    env.stop().await;
+}
+
 /// ADR 0046: a link granted `write` on a folder of the site's storage writes
 /// there with its requester key, and nowhere else in storage; write on the
 /// whole of storage is refused.

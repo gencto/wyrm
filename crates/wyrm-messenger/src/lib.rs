@@ -1770,6 +1770,152 @@ impl<C: Chat> Messenger<C> {
     }
 
     /// Merge an Edit's arguments over the stored form (`null` or empty text clears a field).
+    /// `~act/<a>?check` (spec 05 0.2.33): what the action would refuse for these arguments,
+    /// read the same way and nothing done (the forms, the author's rights, recipients, the
+    /// rendering of a send).
+    fn check_call(
+        &self,
+        host: &dyn Host,
+        path: &str,
+        action: &str,
+        m: Map,
+        who: &Who,
+    ) -> Result<(), AppError> {
+        let segs: Vec<&str> = if path.is_empty() {
+            Vec::new()
+        } else {
+            path.split('/').collect()
+        };
+        let kind = C::PLATFORM;
+        let named = |m: &Map| -> Result<(String, Map), AppError> {
+            let name = Form(m).required("name").map_err(invalid)?.trim().to_owned();
+            let mut fields = m.clone();
+            fields.remove("name");
+            Ok((name, fields))
+        };
+        let values_readable = |t: &Template| -> Result<(), AppError> {
+            let rights = caller_rights(who, "a template")?;
+            match t.values.iter().find(|(_, k)| !rights.may(k, Perm::Read)) {
+                Some((_, k)) => Err(denied(format!(
+                    "values: {k} is outside the caller's rights"
+                ))),
+                None => Ok(()),
+            }
+        };
+        match (segs.as_slice(), action) {
+            ([], "add_bot") => {
+                let (name, fields) = named(&m)?;
+                BotDef::parse(&name, kind, &fields, self.net.as_deref()).map_err(invalid)?;
+                if self.bots.contains_key(&name) {
+                    return Err(invalid(format!("name: {name} exists")));
+                }
+            }
+            ([bot], "edit") => {
+                let b = self.bot(bot)?;
+                let fields = Self::merged(b.def.fields(), &m, &[]);
+                BotDef::parse(bot, kind, &fields, self.net.as_deref()).map_err(invalid)?;
+            }
+            ([bot], "add_recipient") => {
+                let (name, fields) = named(&m)?;
+                Recipient::parse(&name, kind, &fields).map_err(invalid)?;
+                if self.bot(bot)?.recipients.contains_key(&name) {
+                    return Err(invalid(format!("name: {name} exists")));
+                }
+            }
+            ([bot], "add_template") => {
+                let (name, fields) = named(&m)?;
+                let t = Template::parse(&name, kind, &fields).map_err(invalid)?;
+                values_readable(&t)?;
+                if self.bot(bot)?.templates.contains_key(&t.name) {
+                    return Err(invalid(format!("name: {} exists", t.name)));
+                }
+            }
+            ([bot], "invite_user") if kind.inbound => {
+                let (name, fields) = named(&m)?;
+                model::check_name(&name, "name").map_err(invalid)?;
+                let (level, select) =
+                    User::parse_rights(&fields, self.site.as_deref()).map_err(invalid)?;
+                Self::check_user_rights(&caller_rights(who, "a chat user")?, level, &select)?;
+                if self.bot(bot)?.users.contains_key(&name) {
+                    return Err(invalid(format!("name: {name} exists")));
+                }
+            }
+            ([bot], "send") => {
+                let b = self.bot(bot)?;
+                for r in Self::to_of(&m, &[])? {
+                    b.resolve(&r).map_err(invalid)?;
+                }
+                let mut fields = m.clone();
+                fields.remove("to");
+                if !fields.contains_key("format") {
+                    fields.insert("format".into(), Value::Str(b.def.format.name().into()));
+                }
+                Template::parse("send", kind, &fields).map_err(invalid)?;
+            }
+            ([bot, "recipients", name], "edit") => {
+                let r = self
+                    .bot(bot)?
+                    .recipients
+                    .get(*name)
+                    .ok_or_else(|| AppError::new(Status::NotFound, (*name).to_owned()))?;
+                let Value::Map(base) = r.to_value() else {
+                    return Ok(());
+                };
+                Recipient::parse(name, kind, &Self::merged(base, &m, &["name"]))
+                    .map_err(invalid)?;
+            }
+            ([bot, "templates", name], "edit") => {
+                let (t, _) = self
+                    .bot(bot)?
+                    .templates
+                    .get(*name)
+                    .ok_or_else(|| AppError::new(Status::NotFound, (*name).to_owned()))?;
+                let Value::Map(base) = t.to_value() else {
+                    return Ok(());
+                };
+                let t = Template::parse(name, kind, &Self::merged(base, &m, &["name"]))
+                    .map_err(invalid)?;
+                values_readable(&t)?;
+            }
+            ([bot, "templates", name], "send" | "preview") => {
+                let b = self.bot(bot)?;
+                let (t, rights) = b
+                    .templates
+                    .get(*name)
+                    .ok_or_else(|| AppError::new(Status::NotFound, (*name).to_owned()))?;
+                if rights.is_none() {
+                    return Err(denied("no author rights kept for this template: Edit it"));
+                }
+                let mut args = m.clone();
+                for r in Self::to_of(&args, &t.to)? {
+                    b.resolve(&r).map_err(invalid)?;
+                }
+                args.remove("to");
+                if let Some(u) = args.remove("update") {
+                    match u {
+                        Value::Str(u) if u.trim().is_empty() => {}
+                        Value::Str(u) => render::check_var(u.trim())
+                            .map_err(|e| invalid(format!("update: {e}")))?,
+                        Value::Null => {}
+                        _ => return Err(invalid("update: a name")),
+                    }
+                }
+                self.render(host, b, t, rights.as_ref(), &args)?;
+            }
+            ([bot, "users", name], "edit") => {
+                if !self.bot(bot)?.users.contains_key(*name) {
+                    return Err(AppError::new(Status::NotFound, (*name).to_owned()));
+                }
+                let (level, select) =
+                    User::parse_rights(&m, self.site.as_deref()).map_err(invalid)?;
+                Self::check_user_rights(&caller_rights(who, "a chat user")?, level, &select)?;
+            }
+            // the rest takes no form beyond its meta
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn merged(mut base: Map, args: &Map, keep: &[&str]) -> Map {
         for k in keep {
             base.remove(*k);
@@ -2301,6 +2447,18 @@ impl<C: Chat> App for Messenger<C> {
             [bot, coll, name] => self.child_invoke(host, bot, (coll, name), action, m, who),
             _ => Err(AppError::new(Status::NotSupported, path.to_owned())),
         }
+    }
+
+    fn on_check(
+        &mut self,
+        host: &mut dyn Host,
+        path: &str,
+        action: &str,
+        args: &Value,
+        who: &Who,
+    ) -> Result<(), AppError> {
+        let m = args_of(args.clone())?;
+        self.check_call(host, path, action, m, who)
     }
 
     fn on_timer(&mut self, host: &mut dyn Host, timer: TimerId) {

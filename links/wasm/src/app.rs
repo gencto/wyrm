@@ -188,6 +188,9 @@ impl WasmEngine {
                     Err(e) => Err(e),
                 }
             }
+            // world 0.3.0 has no check call: a component's checks end at the action's meta,
+            // which the SDK has checked already
+            Event::Check { .. } => Ok(None),
             Event::Timer(t) => {
                 r.on_timer(host, t.0)?;
                 Ok(None)

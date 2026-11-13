@@ -730,3 +730,60 @@ fn update_names_never_run_out() {
         .invoke("ops", "forget_update", map(&[("update", s("fresh"))]))
         .is_err());
 }
+
+/// `~act/<a>?check` (spec 05 0.2.33): the link refuses what the action would refuse, by the same
+/// reading of the form, and does nothing (DVPSM demo, 2026-11-13: a dry run said "ok" for a
+/// form the bot then refused).
+#[test]
+fn a_check_refuses_what_the_action_would_and_does_nothing() {
+    let api = Api::start();
+    let mut h = telegram(&api);
+    // a typed enum out of range, and one in range
+    let url = api.url();
+    let bot = |format: u64| {
+        map(&[
+            ("name", s("ops2")),
+            ("api_url", s(&url)),
+            ("format", Value::UInt(format)),
+        ])
+    };
+    let e = h.check("", "add_bot", bot(9)).unwrap_err();
+    assert!(e.msg.contains("format: one of"), "{e:?}");
+    h.check("", "add_bot", bot(0)).expect("a good form checks");
+    // a host outside the link's net
+    let e = h
+        .check("", "add_bot", map(&[("name", s("ops3"))]))
+        .unwrap_err();
+    assert!(e.msg.contains("net"), "{e:?}");
+    assert!(
+        h.invoke("ops2", "test_connection", map(&[])).is_err(),
+        "nothing was added"
+    );
+    // a name that exists
+    assert!(h.check("", "add_bot", map(&[("name", s("ops"))])).is_err());
+    // a template send to a recipient that does not exist, a bad update name
+    h.invoke(
+        "ops",
+        "add_template",
+        map(&[("name", s("t")), ("text", s("{{x}}")), ("to", s("team"))]),
+    )
+    .expect("template");
+    assert!(h
+        .check("ops/templates/t", "send", map(&[("to", s("nobody"))]))
+        .is_err());
+    assert!(h
+        .check("ops/templates/t", "send", map(&[("update", s("Bad Name"))]))
+        .is_err());
+    h.check("ops/templates/t", "send", map(&[("x", s("1"))]))
+        .expect("checks");
+    // nothing went out
+    assert_eq!(api.calls("sendMessage").len(), 0);
+    // the level of a chat user
+    assert!(h
+        .check(
+            "ops",
+            "invite_user",
+            map(&[("name", s("ann")), ("level", Value::UInt(7))])
+        )
+        .is_err());
+}

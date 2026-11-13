@@ -540,9 +540,18 @@ impl GatewayMcp {
         });
         if p.dry_run {
             let gate = self.gate(&sess, &key, level).err();
-            return Ok(
-                json!({ "dry_run": true, "would_send": plan, "refused_by_connector": gate }),
-            );
+            // the link checks the call too, when it says it can (it acts on nothing)
+            let by_link = gw::link_check(&c, &key, &p.action, args).await;
+            return Ok(json!({
+                "dry_run": true,
+                "would_send": plan,
+                "refused_by_connector": gate,
+                "checked_by_link": if by_link.is_null() {
+                    json!("not offered by this link (an older one): the arguments were checked against its ~meta only")
+                } else {
+                    by_link
+                },
+            }));
         }
         self.gate(&sess, &key, level)?;
         let r = gw::invoke(&c, &key, &p.action, args).await?;

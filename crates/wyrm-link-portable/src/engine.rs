@@ -21,6 +21,14 @@ pub enum Event {
         args: Value,
         who: Who,
     },
+    /// `~act/<a>?check` (spec 05 0.2.33): the app checks the call as `Invoke` would take it;
+    /// whatever it does through the host is dropped.
+    Check {
+        path: String,
+        action: String,
+        args: Value,
+        who: Who,
+    },
     Timer(TimerId),
     /// Subscription, node key (without `~val`), sample.
     Value(SubId, String, Sample),

@@ -51,4 +51,5 @@ Downstream — те, що підключається до брокера: лін
 | `agg`, `window` | `~val?history` | `avg|min|max|sum|count|first|last|delta|and|or`; вікно `<n>s|m|h|d|w` (`5m`, `1h`) від `<from>`; `agg` без `window` — один рядок на весь діапазон, `window` без `agg` — перше значення вікна |
 | `limit` | `~val?history` | рядків відповіді, 1..100 000 (default 10 000) |
 | `close` | `~act/<a>` | `<rid>` — закрити стрім |
+| `check` | `~act/<a>` | без значення (0.2.33): перевірити виклик, нічого не робити (05 `check`) |
 | `dry_run` | `sys/**/~act/*` | `true` |

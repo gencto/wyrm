@@ -789,6 +789,17 @@ gh attestation verify example-link-1.0.0-linux-x86_64.zip -R gencto/wyrm
 A file that fails this check did not come from the release workflow of this
 repository. `links-v2026.11.12` has no attestations; check it by `SHA256SUMS`.
 
+### Checking a call without running it
+
+`~act/<a>?check` (spec 05 0.2.33, ADR 0047) asks a link whether it would take a call, without
+running it: the SDK checks the token, the level and the arguments against the action's meta,
+then calls `Link::on_check` (portable links: `App::on_check`); both default to accepting. A
+link whose actions parse their arguments further (a form, a recipient, the author's rights)
+implements it with the same parsing, so a dry run refuses what the action would refuse. Do
+nothing in it: a portable link's host commands during a check are dropped. The SDK marks every
+link root with `attr.check`, and clients ask only links that have it. A WASM component of world
+0.3.0 has no such call: its check ends at the meta.
+
 ## 13. Trust and security
 
 - **Who can install:** users with `config` on `wy/<site>/sys/**`. Each

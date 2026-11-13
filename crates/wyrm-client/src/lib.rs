@@ -706,6 +706,23 @@ impl WyrmClient {
         Ok(EventStream::new(out, dropped))
     }
 
+    /// `~act/<action>?check` (spec 05 0.2.33): the responder checks the call as the action
+    /// would take it (token, level, arguments, its own parsing) and does nothing. Send it only
+    /// where the responder's root `~meta` has `attr.check` (an older one runs the action).
+    pub async fn invoke_check(&self, node: &str, action: &str, args: Value) -> Result<()> {
+        let key = suffixed(node, &format!("~act/{action}"));
+        let payload =
+            to_vec(&args).map_err(|e| ClientError::new(Status::InternalError, e.to_string()))?;
+        self.one(
+            &format!("{key}?check"),
+            Some(payload),
+            self.token_att(&key),
+            true,
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// `invoke` of a plain action: its single result.
     pub async fn invoke_one(&self, node: &str, action: &str, args: Value) -> Result<Option<Value>> {
         let mut s = self.invoke(node, action, args).await?;

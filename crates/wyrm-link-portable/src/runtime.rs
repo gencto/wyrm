@@ -236,8 +236,34 @@ fn engine_thread<E: Engine>(
                 } else {
                     call_time
                 };
+                let check = matches!(ev, Event::Check { .. });
                 begin(counts, &mut host, time);
-                (false, seq, engine.event(&mut host, ev))
+                let r = engine.event(&mut host, ev);
+                if check {
+                    // a check acts on nothing: what the app did through the host is dropped
+                    lock(&call).deadline = None;
+                    let _ = host.finish();
+                    let outcome = match r {
+                        Err(Fault::Crash(m)) => Outcome {
+                            result: Err(Failure::Fault(m)),
+                            cmds: Vec::new(),
+                        },
+                        Err(Fault::Replaced) => Outcome {
+                            result: Err(Failure::Replaced),
+                            cmds: Vec::new(),
+                        },
+                        Ok(r) => Outcome {
+                            result: Ok(r),
+                            cmds: Vec::new(),
+                        },
+                    };
+                    let _ = seq;
+                    if out.send(outcome).is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                (false, seq, r)
             }
         };
         lock(&call).deadline = None;
@@ -1500,6 +1526,22 @@ where
         };
         let v = self.ask(ev, out.since(), Some(out.clone())).await?;
         out.reply(v.unwrap_or(Value::Null)).await
+    }
+
+    async fn on_check(
+        &mut self,
+        path: &str,
+        action: &str,
+        args: &Value,
+        who: &Caller,
+    ) -> wyrm_link_sdk::Result<()> {
+        let ev = Event::Check {
+            path: path.to_owned(),
+            action: action.to_owned(),
+            args: args.clone(),
+            who: who_of(who),
+        };
+        self.ask(ev, Instant::now(), None).await.map(|_| ())
     }
 
     async fn stop(&mut self) {

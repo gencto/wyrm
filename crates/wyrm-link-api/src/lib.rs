@@ -319,6 +319,20 @@ pub trait App: Sized {
         args: Value,
         who: &Who,
     ) -> Result<Value, AppError>;
+    /// `~act/<a>?check` (spec 05 0.2.33): refuse what [`Self::on_invoke`] would refuse for
+    /// these arguments, and do nothing (the host drops what it is asked here). The default
+    /// accepts; the host has checked the arguments against the action's meta already. A WASM
+    /// component of world 0.3.0 has no such call: its checks end at the meta.
+    fn on_check(
+        &mut self,
+        _host: &mut dyn Host,
+        _path: &str,
+        _action: &str,
+        _args: &Value,
+        _who: &Who,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
     fn on_timer(&mut self, _host: &mut dyn Host, _timer: TimerId) {}
     fn on_value(&mut self, _host: &mut dyn Host, _sub: SubId, _key: &str, _sample: Sample) {}
     fn on_reply(&mut self, _host: &mut dyn Host, _req: ReqId, _result: Result<Value, AppError>) {}

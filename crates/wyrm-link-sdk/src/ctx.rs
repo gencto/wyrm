@@ -17,6 +17,9 @@ use zenoh::pubsub::Publisher;
 use zenoh::qos::{CongestionControl, Priority};
 use zenoh::Session;
 
+/// The root attribute that says the responder answers `~act/<a>?check` (spec 05 0.2.33).
+pub const CHECK_ATTR: &str = "check";
+
 /// Microseconds since the Unix epoch.
 pub fn now_us() -> u64 {
     SystemTime::now()
@@ -191,9 +194,14 @@ impl LinkCtx {
     /// node's `~meta` and, for a new node, the parent's (new `children`).
     pub async fn declare_node(&self, path: &str, meta: NodeMeta) -> Result<()> {
         self.ensure_open()?;
-        if !path.is_empty() {
+        let meta = if path.is_empty() {
+            // spec 05 0.2.33: this responder checks `~act/<a>?check` without acting; a client
+            // sends `?check` only where the root says so (an older one would run the action)
+            meta.attr(CHECK_ATTR, true)
+        } else {
             keyspace::validate_path(path)?;
-        }
+            meta
+        };
         let changed = self.tree_mut().declare(path, meta)?;
         #[cfg(feature = "advanced")]
         self.sync_reliable(path).await?;

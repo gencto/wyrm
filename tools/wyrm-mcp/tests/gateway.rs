@@ -314,6 +314,20 @@ async fn read_only_and_allow_config_and_a_wrong_password() {
     assert!(!e, "{r}");
     assert_eq!(r["sent"]["level"], json!("config"));
 
+    // a dry run of an action is checked by the link too (spec 05 0.2.33), and does nothing
+    let (e, d) = call(
+        &eng,
+        "action_invoke",
+        json!({ "path": "downstream/mock", "action": "reset", "args": {} }),
+    )
+    .await;
+    assert!(!e, "{d}");
+    assert_eq!(d["dry_run"], json!(true), "{d}");
+    assert!(
+        d["checked_by_link"] == json!("ok") || d["checked_by_link"]["error"].is_string(),
+        "{d}"
+    );
+
     // plan: check, then apply
     let plan = json!({ "steps": [
         { "set": format!("wy/{SITE}/downstream/mock/p1"), "value": 7 },

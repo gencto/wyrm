@@ -128,6 +128,39 @@ pub async fn invoke(c: &Conn, key: &str, action: &str, args: Value) -> Result<Js
     )
 }
 
+/// The root node of the responder that answers `key`: `wy/<site>/downstream/<link>`, or the
+/// site's `sys`, `dataflows`, `storage`, `upstream`.
+pub fn responder_root(key: &str) -> Option<String> {
+    let p: Vec<&str> = key.split('/').collect();
+    match p.as_slice() {
+        ["wy", site, "downstream", link, ..] => Some(format!("wy/{site}/downstream/{link}")),
+        ["wy", site, section, ..] => Some(format!("wy/{site}/{section}")),
+        _ => None,
+    }
+}
+
+/// The responder's own check of an action (spec 05 0.2.33, `~act/<a>?check`): `ok`, its
+/// refusal, or `null` when the responder does not say it checks (an older link, which would run
+/// the action: never asked then).
+pub async fn link_check(c: &Conn, key: &str, action: &str, args: Value) -> Json {
+    let Some(root) = responder_root(key) else {
+        return Json::Null;
+    };
+    let says = c
+        .meta(&root)
+        .await
+        .ok()
+        .and_then(|m| m.attr_value("check").cloned())
+        == Some(Value::Bool(true));
+    if !says {
+        return Json::Null;
+    }
+    match c.check(key, action, args).await {
+        Ok(()) => json!("ok"),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
 // ---------- plans ----------
 
 /// One step of a plan (`run`).
@@ -297,8 +330,13 @@ pub async fn check_step(c: &Conn, step: &Step) -> Json {
                 return json!({ "step": "invoke", "key": key, "action": action, "check": "later", "why": "the node does not exist yet: checked when it runs" });
             };
             match invoke_args(&m, action, args) {
-                Ok((level, _)) => {
-                    json!({ "step": "invoke", "key": key, "action": action, "check": "ok", "level": level })
+                Ok((level, v)) => {
+                    let by_link = link_check(c, key, action, v).await;
+                    let check = match &by_link {
+                        Json::Object(o) if o.contains_key("error") => "error",
+                        _ => "ok",
+                    };
+                    json!({ "step": "invoke", "key": key, "action": action, "check": check, "level": level, "checked_by_link": by_link })
                 }
                 Err(e) => {
                     json!({ "step": "invoke", "key": key, "action": action, "check": "error", "error": e })
