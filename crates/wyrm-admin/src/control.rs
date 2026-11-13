@@ -778,7 +778,8 @@ impl Control {
             paused_checks: Mutex::default(),
         });
         // before any link runs: what a broker that ended in the middle of a
-        // rollback left (ADR 0048 §1.6)
+        // restore of a link's data or of a rollback left (ADR 0048 §1.6, §3.5)
+        ctl.recover_link_data();
         ctl.complete_rollbacks();
         Ok((ctl, rx))
     }

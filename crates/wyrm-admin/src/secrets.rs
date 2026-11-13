@@ -155,6 +155,64 @@ impl SecretStore {
         Ok(())
     }
 
+    /// Where the secrets a restore replaces are kept until it is committed.
+    /// No link has this name (an id never starts with `.`).
+    fn stash_name(link: &str) -> String {
+        format!(".restoring/{link}")
+    }
+
+    /// Set the secrets `new` of `link` and keep what the link had before
+    /// beside them, in one save: a restore that does not reach its end
+    /// takes them back with [`Self::unstash`] (ADR 0048 §3.5). The store is
+    /// as before when it cannot be saved.
+    pub fn replace_stashed(
+        &self,
+        link: &str,
+        new: &BTreeMap<String, Zeroizing<Vec<u8>>>,
+    ) -> Result<(), Error> {
+        let mut db = self.lock();
+        let before = db.clone();
+        let old = db.get(link).cloned().unwrap_or_default();
+        db.insert(Self::stash_name(link), old);
+        let entry = db.entry(link.to_owned()).or_default();
+        for (name, v) in new {
+            entry.insert(name.clone(), v.clone());
+        }
+        if entry.is_empty() {
+            db.remove(link);
+        }
+        let saved = self.save(&db);
+        if saved.is_err() {
+            *db = before;
+        }
+        saved
+    }
+
+    /// End a [`Self::replace_stashed`] of `link`: `restore` puts the
+    /// secrets it had before back, else they are forgotten. `false`: nothing
+    /// was kept.
+    pub fn unstash(&self, link: &str, restore: bool) -> Result<bool, Error> {
+        let mut db = self.lock();
+        let before = db.clone();
+        let Some(old) = db.remove(&Self::stash_name(link)) else {
+            return Ok(false);
+        };
+        if restore {
+            if old.is_empty() {
+                db.remove(link);
+            } else {
+                db.insert(link.to_owned(), old);
+            }
+        }
+        match self.save(&db) {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                *db = before;
+                Err(e)
+            }
+        }
+    }
+
     /// Names only (shown in the tree).
     pub fn names(&self, link: &str) -> Vec<String> {
         self.lock()
