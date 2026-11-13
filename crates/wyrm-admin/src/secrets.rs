@@ -548,7 +548,7 @@ mod tests {
         });
         mask_config(&mut v, SHOWN);
         let text = v.to_string();
-        for secret in [
+        let secrets = [
             "hunter2",
             "t0k",
             "/etc/wyrm/gw.key",
@@ -556,8 +556,13 @@ mod tests {
             &"bb".repeat(16),
             "mqtts",
             "4711",
-        ] {
-            assert!(!text.contains(secret), "{secret} in {text}");
+        ];
+        // the message names the place, never the value (nothing secret is printed, even a test's)
+        for (i, secret) in secrets.iter().enumerate() {
+            assert!(
+                !text.contains(secret),
+                "secret {i} of the list is in the masked copy"
+            );
         }
         // what is on the list stays: the site, the listener, the public keys
         assert_eq!(v["site"], "plant");
