@@ -1911,11 +1911,10 @@ mod tests {
         broken[0] = b'x';
         refuse("checksum", &[broken], "checksum");
         // data after the end
-        let mut tail = tar_gz(&[good.clone()]);
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         gz.write_all(&[good.clone(), vec![0u8; 1024], b"#!/bin/sh".to_vec()].concat())
             .unwrap();
-        tail.clone_from(&gz.finish().unwrap());
+        let tail = gz.finish().unwrap();
         let (path, asset) = asset_of(&d, &tail);
         assert!(unpack(&path, &asset, &versions, "0.2.0")
             .unwrap_err()

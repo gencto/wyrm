@@ -57,6 +57,30 @@ Before the restart the steps come from `update_last.step` (`fetching`, `checking
 - Rolled back: banner (warn) with `update_last.reason`, facts `Tried` (`to`), `Reason`, `Now` (`from`), `Control plane restored` (`restored`), `Audit` (`update_rollback`); `Open the log`.
 - External (`update_mode: external`): no update button; the dialog shows `sys/update_hint` (what to run outside the broker) and offers `Make the backup` (§4 with `control`).
 
+### What the broker has, against what the Studio screens were built on
+The screens of branch `studio/updates-backups` took their names from ADR 0048 §2 before the broker was built. The broker differs in these points; nothing else does. Adapt Studio once.
+
+| Studio assumed | The broker has | Type, values |
+|---|---|---|
+| `sys/latest` | the same | string; empty without an index |
+| (none) | `sys/update_available` | bool |
+| `sys/update_state`: `none`, `staged`, `trial`, `confirmed`, `rolled_back` | the same, and a sixth value `failed` | string. `failed`: a rollback was due and could not be done (the old version or a needed backup is gone); the new version stays. `staged` shows only for the seconds before the stop |
+| `sys/update_mode`: `self`, `external` | `off`, `external`, `self` | string; `off` is the default: hide the card |
+| (none) | `sys/update_hint` | string; empty when nothing stands in the way. `self`: what is missing (layout, guard, index, channel). `external`: what to run outside the broker |
+| `update_last.from`, `to`, `reason` | the same | strings |
+| `update_last.down_s` | `without_s` | number: seconds from the stop of the old version to the router of the new one |
+| `update_last.links` (the links) | `links` | a **number**: how many links had to come back. The broker keeps no list in `sys` (the names are in `data_dir/update.json` and, when they do not come back, in `reason`) |
+| `update_last.links_back` | not there | a confirmed update means all of `links` are back; a failed trial names the missing ones in `reason` |
+| `update_last.back_s` | not there | use `at` − `started` (confirmed or rolled back at, the old version stopped at; unix seconds) |
+| `update_last.rollback_until` | `keep_until` | number, unix seconds; 0 until confirmed |
+| (none) | `update_last.result`, `at`, `started`, `by`, `attempts`, `deadline`, `restored`, `backup`, `schemas_moved`, `role`, `step`, `latest_date`, `latest_notes` | `result` = the state the file holds (`trial`, `confirmed`, `rolled_back`, `failed`); `step` only while an update is prepared; `schemas_moved` a list of store names; `backup` the id in `sys/backups` |
+| `sys/~act/update {version, confirm_site}` | the same two, plus `upload`, `release`, `signature`, `target` (`active`, `standby`), `without_standby` (bool) | answers `{success, message, version, restart}` at once; the work goes on after the answer. `version` may be empty (the latest) |
+| `sys/~act/rollback_update` (no arguments) | `rollback_update {confirm_site}` | `confirm_site` is required; answers `{success, message, restart}`; refused through an upstream |
+| a dry run that returns checks | `update?check` answers `ok` or one refusal | no list; the archive is not fetched by the dry run |
+| (none) | `sys/~act/check_updates` | `{latest, update_available}`; reads the index now |
+| (none) | `sys/standby_version`, `sys/standby_update` | strings; declared only on a broker of a standby pair |
+| upload of a signed archive | `sys/backups/~act/restore_begin {size}` → `{upload, part_size}`, `restore_part {upload, offset, data}`, `restore_abort {upload}`, then `update {upload, release, signature, confirm_site}` | the upload actions are the ones of a backup restore; `release` and `signature` are the text of `wyrmd-<v>.release.json` and of its `.sig`; at most two uploads are open at once |
+
 ## 4. Backing up and restoring the broker (`Backup*`)
 
 ### Where
