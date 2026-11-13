@@ -10,9 +10,9 @@ is brought to it (`docs/operations.md` §2, "A broker that updates itself").
 | File | What |
 |---|---|
 | `wyrmd-<version>-<target>.tar.gz` | the binary `wyrmd`, nothing else; `<target>` is `<arch>-<os>[-musl]` as the binary says (`wyrmd release-info`) |
-| `wyrmd-<version>.release.json` | the release document: version, date, notes URL, `min_from`, the SCHEMA of each control-plane store, the replication protocol, and per target the archive's name, size, SHA-256 and URL |
+| `wyrmd-<version>.release.json` | the release document: version, date, notes URL, `min_from`, the SCHEMA of each control-plane store, the replication protocol, and per target the archive's name, size, SHA-256 and URL, and the SHA-256 of the binary in it (`bin_sha256`: what a host checks before every start) |
 | `wyrmd-<version>.release.json.sig` | Ed25519 signature (hex) over `wyrmd-release-v1\n` + the document's bytes |
-| `releases.json`, `releases.json.sig` | the index: a list of entries `{release, signature}`, each a release document as text with its own signature, and the signature of the whole file (over `wyrmd-releases-v1\n` + the bytes); `updates.channel` is its URL |
+| `releases.json` | the channel file (`updates.channel` is its URL): `{wyrmd_channel, index, signature}`. `index` is the text of the index: `wyrmd_releases`, `sequence` (one higher with every index published), `created`, and the entries `{release, signature}`, each a release document as text with its own signature. `signature` signs that text (over `wyrmd-releases-v1\n` + the bytes). One file: a reader never has the index without its signature |
 
 A broker checks the signature against the keys pinned in its binary
 (`wyrm_admin::release::RELEASE_KEYS`) and in `updates.keys`, then the
@@ -22,10 +22,22 @@ own signature, which covers the version, the SCHEMA numbers and each
 archive's size and SHA-256: a signed list does not make an unsigned entry
 good, and one bad entry refuses the whole index.
 
-`wyrmd release index` adds a release to an index only when the release,
-the index that is there and every entry of it verify (`--key` adds keys to
-the built-in ones); `--new` starts an empty index and refuses to replace
-one. The workflow therefore never signs an index it did not check.
+`wyrmd release index --from <channel file>` writes the next index only
+when the release, the published channel file and every entry of it verify
+(`--key` adds keys to the built-in ones) and when the published index
+holds every version given with `--have` (the release tags that exist): an
+older index that was put back is refused. The sequence goes up by one.
+`--new` starts an index and refuses to replace one. `release doc` checks
+each archive against its description and the binary in it against the
+hash that will be signed. `release bundle` makes the channel file from an
+index and its signature, after checking both. The workflow therefore
+never signs an index it did not check, and a broker refuses an index with
+a lower sequence than it has read.
+
+The workflow signs in a job of its own (`sign`): it builds the tool from
+the tagged source without a build cache, has no write access to the
+repository and is the only job with the key (environment
+`wyrmd-release`: require a reviewer). The job that publishes has no key.
 
 ## The release key
 
@@ -54,9 +66,10 @@ target/release/wyrmd release pack dist            # the archive and what it is
 target/release/wyrmd release doc dist --date 2026-11-13
 WYRMD_RELEASE_KEY=<seed> target/release/wyrmd release sign dist/wyrmd-0.2.0.release.json
 target/release/wyrmd release verify dist/wyrmd-0.2.0.release.json --key <public key>
-# an index for a mirror: --new the first time, then without it
-target/release/wyrmd release index --new dist/wyrmd-0.2.0.release.json releases.json --key <public key>
-WYRMD_RELEASE_KEY=<seed> target/release/wyrmd release sign --index releases.json
+# a channel file for a mirror: --new the first time, then --from releases.json
+target/release/wyrmd release index --new dist/wyrmd-0.2.0.release.json index.json --key <public key>
+WYRMD_RELEASE_KEY=<seed> target/release/wyrmd release sign --index index.json
+target/release/wyrmd release bundle index.json releases.json --key <public key>
 ```
 
 Bring the archive, the release document and its signature to the broker:

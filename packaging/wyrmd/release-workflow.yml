@@ -1,12 +1,25 @@
 # Copy to .github/workflows/wyrmd-release.yml (a session without the GitHub `workflow` scope cannot add it).
-# NOT ENABLED: it does nothing until it is copied there and the secret WYRMD_RELEASE_KEY exists
-# (packaging/wyrmd/README.md says how the key is made, kept and pinned).
+# NOT ENABLED: it does nothing until it is copied there and the environment `wyrmd-release` holds
+# the secret WYRMD_RELEASE_KEY (packaging/wyrmd/README.md says how the key is made, kept and pinned).
 #
 # The wyrmd release (ADR 0048 §2.3): one archive per target, each packed by the binary itself
-# (`wyrmd release pack`), one release document for all of them, the releases index with that
-# release added, and an Ed25519 signature of the document and of the index. Published as the
-# assets of release <tag>; the index and its signature also replace the two assets of release
-# `wyrmd-index`, the URL brokers read (`updates.channel`).
+# (`wyrmd release pack`), one release document for all of them with its Ed25519 signature, and the
+# channel file `releases.json` (the releases index and its signature in one file) with that release
+# added. Published as the assets of release <tag>; the channel file also replaces the one asset of
+# release `wyrmd-index`, the URL brokers read (`updates.channel`).
+#
+# Trust:
+# - Every entry of the index is a release document under its own signature, and a broker uses
+#   nothing of an entry that this signature does not cover.
+# - The index is never signed unless the published one verified, holds every release tag that
+#   exists, and gets a sequence one higher (job `sign`). A broker refuses a lower sequence than it
+#   has read, so an old index put back hides no release.
+# - The signing key is in the environment of two steps of one job. That job runs a tool it builds
+#   itself from the tagged source, without a build cache, and has no write access to the
+#   repository; the job that publishes has no key.
+# - Triggers: a tag push by someone with write access, or a manual run that builds and signs
+#   nothing; never `pull_request_target`. No `${{ }}` expression stands in a `run:` line: values
+#   reach the scripts through `env:`.
 #
 #   git tag wyrmd-v0.2.0 && git push origin wyrmd-v0.2.0   # build, sign and publish
 #   Actions ▸ wyrmd-release ▸ Run workflow                  # build only: unsigned artifacts
@@ -23,8 +36,9 @@ env:
   CARGO_TERM_COLOR: never
 jobs:
   build:
-    # One binary per host. Linux builds are static (musl), so they run on any board. The target
-    # names of the archives come from the binaries (`<arch>-<os>[-musl]`), not from this file.
+    # One binary per host, built from scratch: a release build takes nothing from a cache that
+    # another run could have written. Linux builds are static (musl), so they run on any board.
+    # The target names of the archives come from the binaries (`<arch>-<os>[-musl]`).
     strategy:
       fail-fast: true
       matrix:
@@ -40,8 +54,6 @@ jobs:
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with: { targets: "${{ matrix.target }}" }
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with: { key: "wyrmd-${{ matrix.target }}" }
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - env:
@@ -61,74 +73,115 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: "wyrmd-${{ matrix.target }}", path: dist/*, if-no-files-found: error }
 
-  publish:
-    # The release document, the index and their signatures; only for a tag. The signing key is
-    # read from the environment of the one step that signs and reaches no other step or job.
+  sign:
+    # The release document, the index and their signatures; only for a tag. The tool is built here,
+    # from the tagged source, without a cache: the key is never in the environment of a binary that
+    # another job made. `release doc` checks every archive against its description and the binary
+    # in it against the hash that is signed. This job cannot write to the repository.
     if: startsWith(github.ref, 'refs/tags/wyrmd-v')
     needs: build
     runs-on: ubuntu-latest
     environment: wyrmd-release
     permissions:
-      contents: write
+      contents: read
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - run: cargo build --locked --release -p wyrmd
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { path: dist, merge-multiple: true }
-      # the Linux x86_64 binary of this very release is the tool (it runs on this runner)
-      - run: |
-          set -euo pipefail
-          mkdir tool
-          tar -xzf dist/wyrmd-*-x86_64-linux-musl.tar.gz -C tool wyrmd
-          chmod +x tool/wyrmd
       - env:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
-          tool/wyrmd release doc dist \
+          set -euo pipefail
+          target/release/wyrmd release doc dist \
             --date "$(date -u +%F)" \
             --notes "https://github.com/$REPO/releases/tag/$TAG" \
             --base-url "https://github.com/$REPO/releases/download/$TAG"
-      # The release document is signed first. This is the only step that sees the key.
       - env:
           WYRMD_RELEASE_KEY: ${{ secrets.WYRMD_RELEASE_KEY }}
-        run: tool/wyrmd release sign dist/wyrmd-*.release.json
-      # The index so far. `wyrmd-index` is a release anyone with write access can change, so
-      # nothing of it is taken on trust: `release index` adds to it only when its signature
-      # and the own signature of every entry in it verify with the pinned key; else the job
-      # fails and nothing is signed. A missing asset of an existing `wyrmd-index` release also
-      # fails; only a release that does not exist at all starts an empty index.
+        run: target/release/wyrmd release sign dist/wyrmd-*.release.json
+      # The index so far. `wyrmd-index` is a release anyone with write access can change, so nothing
+      # of it is taken on trust: `release index --from` adds to it only when its signature and the
+      # own signature of every entry verify with the pinned key, and when it holds every release
+      # that has a tag (an older index put back does not). Else the job fails and nothing is
+      # signed. A `wyrmd-index` release without its asset fails too; only a release that does not
+      # exist at all starts an index, and then no other release tag may exist.
       - env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
           PUBLIC: ${{ vars.WYRMD_RELEASE_PUBLIC }}
         run: |
           set -euo pipefail
-          if gh release view wyrmd-index --repo "$REPO" >/dev/null 2>&1; then
-            gh release download wyrmd-index --repo "$REPO" \
-              --pattern releases.json --pattern releases.json.sig --dir .
-            test -s releases.json && test -s releases.json.sig
-            tool/wyrmd release index dist/wyrmd-*.release.json releases.json ${PUBLIC:+--key "$PUBLIC"}
+          have=()
+          while read -r ref; do
+            v="${ref#refs/tags/wyrmd-v}"
+            if [ "wyrmd-v$v" != "$TAG" ] && gh release view "wyrmd-v$v" --repo "$REPO" >/dev/null 2>&1; then
+              have+=(--have "$v")
+            fi
+          done < <(gh api "repos/$REPO/git/matching-refs/tags/wyrmd-v" --paginate --jq '.[].ref')
+          if gh api "repos/$REPO/releases/tags/wyrmd-index" --jq .id >/dev/null 2>index.err; then
+            code=200
+          elif grep -q "HTTP 404" index.err; then
+            code=404
           else
-            tool/wyrmd release index --new dist/wyrmd-*.release.json releases.json ${PUBLIC:+--key "$PUBLIC"}
+            code="$(cat index.err)"
           fi
+          case "$code" in
+            200)
+              gh release download wyrmd-index --repo "$REPO" --pattern releases.json --dir published
+              test -s published/releases.json
+              target/release/wyrmd release index --from published/releases.json \
+                "${have[@]}" --created "$(date -u +%F)" ${PUBLIC:+--key "$PUBLIC"} \
+                dist/wyrmd-*.release.json index.json
+              ;;
+            404)
+              test "${#have[@]}" -eq 0 || { echo "releases exist but no wyrmd-index release"; exit 1; }
+              target/release/wyrmd release index --new --created "$(date -u +%F)" \
+                ${PUBLIC:+--key "$PUBLIC"} dist/wyrmd-*.release.json index.json
+              ;;
+            *) echo "wyrmd-index: HTTP ${code:-none}"; exit 1 ;;
+          esac
       - env:
           WYRMD_RELEASE_KEY: ${{ secrets.WYRMD_RELEASE_KEY }}
-        run: tool/wyrmd release sign --index releases.json
-      # what was signed is what a broker with the pinned key reads
+        run: target/release/wyrmd release sign --index index.json
+      # one file holds the index and its signature; it is what a broker with the pinned key reads
       - env:
           PUBLIC: ${{ vars.WYRMD_RELEASE_PUBLIC }}
         run: |
           set -euo pipefail
-          tool/wyrmd release verify dist/wyrmd-*.release.json ${PUBLIC:+--key "$PUBLIC"}
-          tool/wyrmd release verify --index releases.json ${PUBLIC:+--key "$PUBLIC"}
+          target/release/wyrmd release bundle index.json releases.json ${PUBLIC:+--key "$PUBLIC"}
+          target/release/wyrmd release verify dist/wyrmd-*.release.json ${PUBLIC:+--key "$PUBLIC"}
+          target/release/wyrmd release verify --channel releases.json ${PUBLIC:+--key "$PUBLIC"}
           (cd dist && sha256sum *.tar.gz) > SHA256SUMS
+          mkdir out
+          cp dist/*.tar.gz dist/*.release.json dist/*.release.json.sig SHA256SUMS releases.json out/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: wyrmd-signed, path: out/*, if-no-files-found: error }
+
+  publish:
+    # Uploads what `sign` made. It may write to the repository and has no key.
+    if: startsWith(github.ref, 'refs/tags/wyrmd-v')
+    needs: sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: wyrmd-signed, path: out }
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
-          gh release create "$TAG" dist/*.tar.gz dist/*.release.json dist/*.release.json.sig SHA256SUMS \
+          set -euo pipefail
+          gh release create "$TAG" out/*.tar.gz out/*.release.json out/*.release.json.sig out/SHA256SUMS \
             --repo "$REPO" --title "$TAG" --notes "wyrmd ${TAG#wyrmd-v}. Signed: see docs/operations.md."
           gh release view wyrmd-index --repo "$REPO" >/dev/null 2>&1 \
             || gh release create wyrmd-index --repo "$REPO" --title "wyrmd releases index" \
-                 --notes "The signed index brokers read (updates.channel). Replaced by every wyrmd release."
-          gh release upload wyrmd-index releases.json releases.json.sig --repo "$REPO" --clobber
+                 --notes "The signed channel file brokers read (updates.channel). Replaced by every wyrmd release."
+          # one asset: a reader gets the index and its signature together, or the old file
+          gh release upload wyrmd-index out/releases.json --repo "$REPO" --clobber

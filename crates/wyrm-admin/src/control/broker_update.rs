@@ -73,7 +73,7 @@ impl UpdateMode {
 pub struct UpdateConfig {
     pub mode: UpdateMode,
     /// URL of the signed releases index (`https://`, or `http://` to
-    /// loopback); its signature is at `<channel>.sig`.
+    /// loopback): the channel file, the index and its signature in one.
     pub channel: Option<String>,
     /// The pinned release keys: the built-in ones and `updates.keys`.
     pub keys: Vec<VerifyingKey>,
@@ -1231,7 +1231,11 @@ async fn run(
     let (layout2, u2, d2) = (layout.clone(), u.clone(), d.clone());
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         if !layout2.guard_is(&exe) {
-            layout2.refresh_guard(&exe)?;
+            // a unit that keeps `bin/` from the broker's user refreshes the
+            // guard itself (`guard-refresh`): it is then one start behind
+            if let Err(e) = layout2.refresh_guard(&exe) {
+                warn!("broker update: the guard is not replaced: {e}");
+            }
         }
         u2.save(&d2)?;
         if let Err(e) = layout2.switch(&u2.to) {

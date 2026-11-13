@@ -27,8 +27,9 @@ pub struct UpdatesSection {
     /// (docs/operations.md §2).
     #[serde(default = "default_mode")]
     pub mode: String,
-    /// URL of the signed releases index (`releases.json`; its signature is
-    /// at `<url>.sig`). `https://`, or `http://` to loopback (a mirror).
+    /// URL of the channel file (`releases.json`: the releases index and its
+    /// signature in one file). `https://`, or `http://` to loopback (a
+    /// mirror).
     #[serde(default)]
     pub channel: Option<String>,
     /// Ed25519 public keys (hex) trusted for releases besides the ones
@@ -500,7 +501,10 @@ async fn standby_apply(
         ..Default::default()
     };
     if !layout.guard_is(&exe) {
-        layout.refresh_guard(&exe)?;
+        // kept by a root step where `bin/` is not the broker's to write
+        if let Err(e) = layout.refresh_guard(&exe) {
+            tracing::warn!("broker update: the guard is not replaced: {e}");
+        }
     }
     u.save(&cfg.data_dir)?;
     if let Err(e) = layout.switch(&u.to) {
