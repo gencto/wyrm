@@ -480,10 +480,12 @@ async fn standby_apply(
         config.as_deref(),
         &layout,
         &archive,
-        &rel,
+        &release::Signed {
+            release: rel.clone(),
+            document: doc.clone(),
+            signature: signature.clone(),
+        },
         &asset,
-        doc,
-        signature,
     )
     .await?;
     let _ = std::fs::remove_dir_all(&dir);

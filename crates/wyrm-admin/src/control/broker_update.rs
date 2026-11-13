@@ -356,11 +356,10 @@ pub async fn stage(
     config_file: Option<&Path>,
     layout: &Layout,
     archive: &Path,
-    release: &Release,
+    signed: &release::Signed,
     asset: &Asset,
-    document: &[u8],
-    signature: &str,
 ) -> Result<PathBuf, String> {
+    let (release, document, signature) = (&signed.release, &signed.document, &signed.signature);
     let config = config_file
         .ok_or("this broker was not started from a configuration file")?
         .to_owned();
@@ -1152,10 +1151,12 @@ async fn run(
         ctl.cfg.updates.config_file.as_deref(),
         &layout,
         &archive,
-        &plan.release,
+        &release::Signed {
+            release: plan.release.clone(),
+            document: plan.release_bytes.clone(),
+            signature: plan.signature.clone(),
+        },
         &plan.asset,
-        &plan.release_bytes,
-        &plan.signature,
     )
     .await?;
     ctl.update.set_step("staged");
