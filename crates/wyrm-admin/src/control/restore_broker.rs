@@ -1115,15 +1115,17 @@ impl Admin {
         let mut done: Vec<String> = Vec::new();
         let mut skipped: Vec<String> = Vec::new();
         // the whole file is checked once; the key goes on to the parts
-        let (ctl2, path2, pass2) = (ctl.clone(), path.to_owned(), passphrase.clone());
-        let (manifest, tree) = tokio::task::spawn_blocking(move || {
+        let (ctl2, path2, pass2) = (ctl.clone(), path.to_owned(), passphrase);
+        // the key is derived once (Argon2id for a passphrase) and goes on
+        // to every link of the file
+        let (manifest, tree, key) = tokio::task::spawn_blocking(move || {
             let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
             let c = ctl2.check_broker_backup(&mut r, pass2.as_deref().map(|p| &p[..]))?;
             let tree = match c.manifest.section("storage") {
                 Some(_) => Some(r.read("storage/tree.cbor")?),
                 None => None,
             };
-            Ok::<_, String>((c.manifest, tree))
+            Ok::<_, String>((c.manifest, tree, c.key))
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -1165,12 +1167,11 @@ impl Admin {
                     skipped.push(format!("link {id}: exists"));
                     continue;
                 }
-                let (ctl2, path2, pass2, id2) =
-                    (ctl.clone(), path.to_owned(), passphrase.clone(), id.clone());
+                let (ctl2, path2, key, id2) =
+                    (ctl.clone(), path.to_owned(), key.clone(), id.clone());
                 let read = tokio::task::spawn_blocking(move || {
                     let mut r = format::Reader::open(&path2, MAX_UPLOAD)?;
                     let m = r.manifest().clone();
-                    let key = ctl2.backup_key(&m, pass2.as_deref().map(|p| &p[..]))?;
                     // the package the link names, if the backup holds it
                     let def: LinkDef =
                         minicbor::decode(&r.read(&format!("links/{id2}/link.cbor"))?)

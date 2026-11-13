@@ -72,6 +72,13 @@ const SEAL_MAGIC: &[u8; 5] = b"WYBS1";
 const CHECK_TEXT: &[u8] = b"wyrm-backup-check";
 const SALT_LEN: usize = 16;
 const ID_LEN: usize = 16;
+/// The most Argon2id work a manifest may ask of this host: the key is
+/// derived before the manifest's MAC can be checked, so the parameters are
+/// an unauthenticated input. A broker writes the crate's defaults (19 MiB,
+/// 2 passes, 1 lane); the reference board has 2 GB.
+pub const MAX_KDF_KIB: u32 = 128 << 10;
+pub const MAX_KDF_T: u32 = 4;
+pub const MAX_KDF_P: u32 = 4;
 
 /// `true` for a path whose file holds secrets and so must be sealed in a
 /// backup of `kind`, whatever its manifest says: all of `keys`; in `links`
@@ -460,8 +467,11 @@ fn argon2(kdf: &Kdf, passphrase: &[u8], id: Vec<u8>) -> Result<MasterKey, String
         ));
     }
     // a manifest is not trusted with this host's memory and time
-    if kdf.name != "argon2id" || kdf.m_kib > (1 << 20) || kdf.t > 16 || kdf.p > 16 {
-        return Err("sealed.kdf: not Argon2id within 1 GiB, 16 passes, 16 lanes".into());
+    if kdf.name != "argon2id" || kdf.m_kib > MAX_KDF_KIB || kdf.t > MAX_KDF_T || kdf.p > MAX_KDF_P {
+        return Err(format!(
+            "sealed.kdf: not Argon2id within {} MiB, {MAX_KDF_T} passes, {MAX_KDF_P} lanes",
+            MAX_KDF_KIB >> 10
+        ));
     }
     let salt = hex::decode(&kdf.salt).map_err(|_| "sealed.kdf.salt: hex")?;
     let params = argon2::Params::new(kdf.m_kib, kdf.t, kdf.p, Some(32))
@@ -1244,6 +1254,39 @@ mod tests {
         m.sealed.mac = key.mac_of(&m).unwrap();
         m.check().unwrap();
         (m, key)
+    }
+
+    /// Review of PR 72, item 8: the Argon2id parameters of a manifest run
+    /// before its MAC is checked, so they are bounded by what a small host
+    /// can afford, and what this broker writes is far inside the bound.
+    #[test]
+    fn a_manifest_cannot_ask_for_more_key_derivation_than_a_small_host_has() {
+        let pass = b"correct horse battery";
+        let (sealed, _) = Sealing::Passphrase(pass).start().unwrap();
+        let kdf = sealed.kdf.clone().unwrap();
+        assert!(kdf.m_kib <= MAX_KDF_KIB / 4 && kdf.t <= MAX_KDF_T && kdf.p <= MAX_KDF_P);
+        assert!(sealed.master(Some(pass), None).is_ok());
+        for (m_kib, t, p) in [
+            (MAX_KDF_KIB + 1, kdf.t, kdf.p),
+            (1 << 20, kdf.t, kdf.p),
+            (kdf.m_kib, MAX_KDF_T + 1, kdf.p),
+            (kdf.m_kib, kdf.t, MAX_KDF_P + 1),
+        ] {
+            let mut s = sealed.clone();
+            s.kdf = Some(Kdf {
+                m_kib,
+                t,
+                p,
+                ..kdf.clone()
+            });
+            let started = std::time::Instant::now();
+            let e = s.master(Some(pass), None).err().unwrap();
+            assert!(e.contains("sealed.kdf"), "{e}");
+            assert!(
+                started.elapsed() < std::time::Duration::from_millis(200),
+                "refused before any work"
+            );
+        }
     }
 
     #[test]
