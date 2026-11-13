@@ -20,6 +20,18 @@
 //!   which only the same broker opens). `sealed.check` tells a wrong
 //!   passphrase before anything is read.
 //!
+//! * A sealed backup (`passphrase` or `broker`) has a random `sealed.id`,
+//!   mixed into every file key (a sealed part of another backup under the
+//!   same passphrase does not open here), and `sealed.mac`: HMAC-SHA-256
+//!   over the whole manifest (every path, size, SHA-256, `sealed` and
+//!   `exec` flag, every `info`) under a key from the master key and the id.
+//!   The only way to a [`MasterKey`] for reading is [`Manifest::key`], which
+//!   checks that MAC: who holds the key holds an authentic manifest.
+//! * The reader, not the file, says what must be sealed ([`must_be_sealed`]):
+//!   every file of `keys`, a link's `secrets`, `token` and `files/**` in
+//!   `links`, and every file of a link backup's `data`. A manifest that
+//!   lists one of them as not sealed is refused.
+//!
 //! The reader takes nothing on trust: the entry count, every path, every
 //! size and the sum of sizes are bounded and checked against the manifest
 //! before a byte is written anywhere, and each file is hashed as it is read.
@@ -51,12 +63,31 @@ pub const MAX_PATH: usize = 512;
 pub const MAX_DEPTH: usize = 24;
 /// Largest file [`Reader::read`] returns in memory.
 pub const MAX_IN_MEMORY: u64 = 64 << 20;
+/// Largest single file of a backup (a history day file is the largest kind).
+pub const MAX_FILE: u64 = 1 << 40;
 /// Plain bytes in one part of a sealed file.
 pub const SEAL_PART: usize = 1 << 20;
 
 const SEAL_MAGIC: &[u8; 5] = b"WYBS1";
 const CHECK_TEXT: &[u8] = b"wyrm-backup-check";
 const SALT_LEN: usize = 16;
+const ID_LEN: usize = 16;
+
+/// `true` for a path whose file holds secrets and so must be sealed in a
+/// backup of `kind`, whatever its manifest says: all of `keys`; in `links`
+/// each link's `secrets`, `token` and `files/**` (its private data); all of
+/// a link backup's `data`. Everything else holds no secret by construction
+/// (`link.cbor` carries no token hash, params are linted at install).
+pub fn must_be_sealed(kind: Kind, path: &str) -> bool {
+    let segs: Vec<&str> = path.split('/').collect();
+    matches!(
+        (kind, segs.as_slice()),
+        (Kind::Broker, ["keys", ..])
+            | (Kind::Broker, ["links", _, "secrets" | "token"])
+            | (Kind::Broker, ["links", _, "files", ..])
+            | (Kind::Link, ["data", ..])
+    )
+}
 
 /// The sections of a broker backup (ADR 0048 §3.2).
 pub const BROKER_SECTIONS: [&str; 8] = [
@@ -124,6 +155,14 @@ pub struct Sealed {
     /// Hex of a constant sealed under the master key: opens only with it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub check: String,
+    /// Hex, 16 random bytes of this backup: part of every file key and of
+    /// the MAC key. Empty only with `how: none`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// Hex HMAC-SHA-256 of the manifest (this field empty) under the
+    /// master key and `id`. Empty only with `how: none`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mac: String,
 }
 
 /// The link of a link backup.
@@ -165,8 +204,13 @@ pub struct Section {
 
 impl Section {
     /// Stored bytes of the section's files.
+    /// `u64::MAX` when the sum does not fit (no bound then admits it;
+    /// [`Manifest::check`] refuses such a manifest).
     pub fn size(&self) -> u64 {
-        self.files.iter().map(|f| f.size).sum()
+        self.files
+            .iter()
+            .try_fold(0u64, |a, f| a.checked_add(f.size))
+            .unwrap_or(u64::MAX)
     }
 }
 
@@ -193,8 +237,38 @@ impl Manifest {
     }
 
     /// Stored bytes of every file.
+    /// `u64::MAX` when the sum does not fit, as [`Section::size`].
     pub fn size(&self) -> u64 {
-        self.sections.iter().map(Section::size).sum()
+        self.sections
+            .iter()
+            .flat_map(|s| s.files.iter())
+            .try_fold(0u64, |a, f| a.checked_add(f.size))
+            .unwrap_or(u64::MAX)
+    }
+
+    /// The bytes the MAC covers: this manifest with `sealed.mac` empty.
+    fn mac_text(&self) -> Result<Vec<u8>, String> {
+        let mut m = self.clone();
+        m.sealed.mac.clear();
+        serde_json::to_vec(&m).map_err(|e| e.to_string())
+    }
+
+    /// The master key of this backup's sealed files: from `passphrase`
+    /// (`how: passphrase`) or from this broker's `secrets_key` (`how:
+    /// broker`). `Err` for a wrong passphrase, another broker's file, or a
+    /// manifest changed since the backup was made (any path, size, digest
+    /// or flag): the key is handed out only for an authentic manifest.
+    pub fn key(
+        &self,
+        passphrase: Option<&[u8]>,
+        secrets_key: Option<&[u8]>,
+    ) -> Result<MasterKey, String> {
+        let key = self.sealed.master(passphrase, secrets_key)?;
+        let mac = hex::decode(&self.sealed.mac).map_err(|_| "manifest: sealed.mac: hex")?;
+        ring::hmac::verify(&key.mac_key(), &self.mac_text()?, &mac).map_err(|_| {
+            "the manifest was changed after the backup was made (its MAC does not match)".to_owned()
+        })?;
+        Ok(key)
     }
 
     /// Check what a manifest alone can show: version, section names of its
@@ -215,12 +289,30 @@ impl Manifest {
         if (self.sealed.how == "passphrase") != self.sealed.kdf.is_some() {
             return Err("manifest: sealed.kdf goes with how: passphrase".into());
         }
+        let keyed = self.sealed.how != "none";
+        let hex_of =
+            |s: &str, len: usize| s.len() == 2 * len && s.bytes().all(|b| b.is_ascii_hexdigit());
+        if keyed
+            && !(hex_of(&self.sealed.id, ID_LEN)
+                && hex_of(&self.sealed.mac, 32)
+                && !self.sealed.check.is_empty())
+        {
+            return Err(
+                "manifest: a sealed backup carries sealed.id, sealed.check and sealed.mac; \
+                 this one is not authenticated"
+                    .into(),
+            );
+        }
+        if !keyed && !(self.sealed.id.is_empty() && self.sealed.mac.is_empty()) {
+            return Err("manifest: sealed.id and sealed.mac go with a sealed backup".into());
+        }
         if (self.kind == Kind::Link) != self.link.is_some() {
             return Err("manifest: link goes with kind: link".into());
         }
         let mut names = BTreeSet::new();
         let mut paths = BTreeSet::new();
         let mut count = 0usize;
+        let mut total = 0u64;
         for s in &self.sections {
             if !self.kind.sections().contains(&s.name.as_str()) {
                 return Err(format!(
@@ -246,6 +338,21 @@ impl Manifest {
                 }
                 if f.sha256.len() != 64 || !f.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
                     return Err(format!("manifest: {}: sha256", f.path));
+                }
+                if f.size > MAX_FILE {
+                    return Err(format!(
+                        "manifest: {}: {} bytes (at most {MAX_FILE} a file)",
+                        f.path, f.size
+                    ));
+                }
+                total = total
+                    .checked_add(f.size)
+                    .ok_or("manifest: the sizes of its files do not add up")?;
+                if must_be_sealed(self.kind, &f.path) && !f.sealed {
+                    return Err(format!(
+                        "manifest: {} holds secrets and is not sealed",
+                        f.path
+                    ));
                 }
                 if f.sealed && self.sealed.how == "none" {
                     return Err(format!(
@@ -290,37 +397,62 @@ pub fn check_path(path: &str) -> Result<(), String> {
 
 /// The master key of a backup's sealed files.
 #[derive(Clone)]
-pub struct MasterKey(Zeroizing<[u8; 32]>);
+pub struct MasterKey {
+    key: Zeroizing<[u8; 32]>,
+    /// `sealed.id` of the backup it belongs to.
+    id: Vec<u8>,
+}
 
 impl MasterKey {
     fn file_key(&self, path: &str) -> Zeroizing<[u8; 32]> {
         let mut h = Sha256::new();
         h.update(b"wyrm-backup-file\0");
-        h.update(self.0.as_ref());
+        h.update(self.key.as_ref());
+        h.update(&self.id);
+        h.update(b"\0");
         h.update(path.as_bytes());
         Zeroizing::new(h.finalize().into())
     }
 
+    fn mac_key(&self) -> ring::hmac::Key {
+        let mut h = Sha256::new();
+        h.update(b"wyrm-backup-mac\0");
+        h.update(self.key.as_ref());
+        h.update(&self.id);
+        let k: Zeroizing<[u8; 32]> = Zeroizing::new(h.finalize().into());
+        ring::hmac::Key::new(ring::hmac::HMAC_SHA256, k.as_ref())
+    }
+
+    /// The MAC of `manifest` (hex) for its `sealed.mac`.
+    fn mac_of(&self, manifest: &Manifest) -> Result<String, String> {
+        Ok(hex::encode(
+            ring::hmac::sign(&self.mac_key(), &manifest.mac_text()?).as_ref(),
+        ))
+    }
+
     fn check(&self) -> String {
-        hex::encode(wyrm_link_sdk::seal::seal(&self.0, CHECK_TEXT))
+        hex::encode(wyrm_link_sdk::seal::seal(&self.key, CHECK_TEXT))
     }
 
     fn opens(&self, check: &str) -> bool {
         hex::decode(check)
             .ok()
-            .and_then(|c| wyrm_link_sdk::seal::open(&self.0, &c))
+            .and_then(|c| wyrm_link_sdk::seal::open(&self.key, &c))
             .is_some_and(|p| p == CHECK_TEXT)
     }
 }
 
-fn broker_key(secrets_key: &[u8]) -> MasterKey {
+fn broker_key(secrets_key: &[u8], id: Vec<u8>) -> MasterKey {
     let mut h = Sha256::new();
     h.update(b"wyrm-backup-broker\0");
     h.update(secrets_key);
-    MasterKey(Zeroizing::new(h.finalize().into()))
+    MasterKey {
+        key: Zeroizing::new(h.finalize().into()),
+        id,
+    }
 }
 
-fn argon2(kdf: &Kdf, passphrase: &[u8]) -> Result<MasterKey, String> {
+fn argon2(kdf: &Kdf, passphrase: &[u8], id: Vec<u8>) -> Result<MasterKey, String> {
     if passphrase.len() < crate::keys::MIN_PASSPHRASE {
         return Err(format!(
             "passphrase: at least {} characters",
@@ -338,7 +470,7 @@ fn argon2(kdf: &Kdf, passphrase: &[u8]) -> Result<MasterKey, String> {
     argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
         .hash_password_into(passphrase, &salt, key.as_mut())
         .map_err(|e| format!("key derivation: {e}"))?;
-    Ok(MasterKey(key))
+    Ok(MasterKey { key, id })
 }
 
 /// What seals a new backup.
@@ -351,8 +483,15 @@ pub enum Sealing<'a> {
     Broker(&'a [u8]),
 }
 
+fn new_id() -> Result<Vec<u8>, String> {
+    let mut id = [0u8; ID_LEN];
+    getrandom::fill(&mut id).map_err(|e| format!("no randomness: {e}"))?;
+    Ok(id.to_vec())
+}
+
 impl Sealing<'_> {
-    /// The `sealed` of the manifest and the master key (none for `None`).
+    /// The `sealed` of the manifest (its `mac` is set by [`write`]) and the
+    /// master key (none for `None`), with a fresh id of the backup.
     pub fn start(&self) -> Result<(Sealed, Option<MasterKey>), String> {
         match self {
             Sealing::None => Ok((
@@ -360,6 +499,8 @@ impl Sealing<'_> {
                     how: "none".into(),
                     kdf: None,
                     check: String::new(),
+                    id: String::new(),
+                    mac: String::new(),
                 },
                 None,
             )),
@@ -374,23 +515,27 @@ impl Sealing<'_> {
                     t: d.t_cost(),
                     p: d.p_cost(),
                 };
-                let key = argon2(&kdf, p)?;
+                let key = argon2(&kdf, p, new_id()?)?;
                 Ok((
                     Sealed {
                         how: "passphrase".into(),
                         check: key.check(),
                         kdf: Some(kdf),
+                        id: hex::encode(&key.id),
+                        mac: String::new(),
                     },
                     Some(key),
                 ))
             }
             Sealing::Broker(k) => {
-                let key = broker_key(k);
+                let key = broker_key(k, new_id()?);
                 Ok((
                     Sealed {
                         how: "broker".into(),
                         kdf: None,
                         check: key.check(),
+                        id: hex::encode(&key.id),
+                        mac: String::new(),
                     },
                     Some(key),
                 ))
@@ -400,22 +545,27 @@ impl Sealing<'_> {
 }
 
 impl Sealed {
-    /// The master key of a backup read: from `passphrase` (`how:
-    /// passphrase`) or from this broker's `secrets_key` (`how: broker`).
-    /// `Err` for a wrong passphrase or another broker's file.
-    pub fn key(
+    /// The master key, before the manifest's MAC is checked: see
+    /// [`Manifest::key`], the only way out of this module.
+    fn master(
         &self,
         passphrase: Option<&[u8]>,
         secrets_key: Option<&[u8]>,
     ) -> Result<MasterKey, String> {
+        let id = hex::decode(&self.id).map_err(|_| "manifest: sealed.id: hex")?;
+        if id.len() != ID_LEN {
+            return Err("manifest: sealed.id: 16 bytes".into());
+        }
         let key = match (self.how.as_str(), &self.kdf) {
             ("passphrase", Some(kdf)) => argon2(
                 kdf,
-                passphrase.ok_or("passphrase: required, the backup has sealed files")?,
+                passphrase.ok_or("passphrase: required, the backup is sealed with one")?,
+                id,
             )?,
-            ("broker", _) => {
-                broker_key(secrets_key.ok_or("the backup is sealed for the broker that made it")?)
-            }
+            ("broker", _) => broker_key(
+                secrets_key.ok_or("the backup is sealed for the broker that made it")?,
+                id,
+            ),
             _ => return Err("the backup has no sealed files".into()),
         };
         if !key.opens(&self.check) {
@@ -610,11 +760,14 @@ fn hash_file(path: &Path) -> std::io::Result<(u64, String)> {
 /// Write the backup `out` from staged files: the manifest first, then
 /// every file in manifest order. `progress(done, total)` in stored bytes.
 /// The file appears under its name only when complete (`<out>.part` until
-/// then) and is readable by the owner alone.
+/// then) and is readable by the owner alone. `key` is the master key of
+/// `head.sealed` (from [`Sealing::start`]; `None` with `how: none`): it
+/// signs the manifest.
 pub fn write(
     out: &Path,
     head: Head,
     sections: Vec<StagedSection>,
+    key: Option<&MasterKey>,
     mut progress: impl FnMut(u64, u64),
 ) -> Result<Written, String> {
     use zip::write::SimpleFileOptions;
@@ -647,6 +800,16 @@ pub fn write(
             info: s.info.clone(),
             files,
         });
+    }
+    match key {
+        Some(k) if manifest.sealed.how != "none" => {
+            if hex::encode(&k.id) != manifest.sealed.id {
+                return Err("the key is of another backup".into());
+            }
+            manifest.sealed.mac = k.mac_of(&manifest)?;
+        }
+        None if manifest.sealed.how == "none" => {}
+        _ => return Err("a sealed backup is written with its key, an unsealed one without".into()),
     }
     manifest.check()?;
     let total = manifest.size();
@@ -689,6 +852,9 @@ pub fn write(
                 w.start_file(e.path.as_str(), opt(e.sealed, e.size))
                     .map_err(|e| e.to_string())?;
                 let mut src = File::open(&f.source).map_err(|e| io(&f.source, e))?;
+                // hashed again as it goes in: a source that changed since the
+                // manifest was made fails the backup instead of spoiling it
+                let mut h = Sha256::new();
                 let mut left = e.size;
                 while left > 0 {
                     let want = buf.len().min(left as usize);
@@ -696,10 +862,14 @@ pub fn write(
                     if n == 0 {
                         return Err(format!("{}: changed while it was read", f.source.display()));
                     }
+                    h.update(&buf[..n]);
                     w.write_all(&buf[..n]).map_err(|e| io(&part, e))?;
                     left -= n as u64;
                     done += n as u64;
                     progress(done, total);
+                }
+                if hex::encode(h.finalize()) != e.sha256 {
+                    return Err(format!("{}: changed while it was read", f.source.display()));
                 }
             }
         }
@@ -875,7 +1045,10 @@ impl<R: Read + Seek> Reader<R> {
         path: &str,
         key: Option<&MasterKey>,
     ) -> Result<Zeroizing<Vec<u8>>, String> {
-        let sealed = self.files.get(path).is_some_and(|f| f.sealed);
+        // the reader decides what must be sealed, not the file's flag
+        // (`Manifest::check` refused a secret file listed as plain)
+        let sealed = self.files.get(path).is_some_and(|f| f.sealed)
+            || must_be_sealed(self.manifest.kind, path);
         let stored = Zeroizing::new(self.read(path)?);
         if !sealed {
             return Ok(stored);
@@ -912,7 +1085,7 @@ impl<R: Read + Seek> Reader<R> {
         let out = opts.open(dest).map_err(io)?;
         let r = (|| {
             let mut out = std::io::BufWriter::new(out);
-            let n = if f.sealed {
+            let n = if f.sealed || must_be_sealed(self.manifest.kind, path) {
                 let key = key.ok_or_else(|| format!("{path}: sealed, no key"))?;
                 // sealed files are checked whole first, then opened part by part
                 let stored = dest.with_extension("sealed-part");
@@ -1002,7 +1175,10 @@ mod tests {
         ];
         let out = d.join("b.wyrm-backup");
         let mut last = (0, 0);
-        let w = write(&out, head(sealed), sections, |a, b| last = (a, b)).unwrap();
+        let w = write(&out, head(sealed), sections, Some(&key), |a, b| {
+            last = (a, b)
+        })
+        .unwrap();
         assert_eq!(last.0, last.1, "progress reaches the total");
         assert_eq!(w.size, std::fs::metadata(&out).unwrap().len());
         assert!(!d.join("b.wyrm-backup.part").exists());
@@ -1026,21 +1202,20 @@ mod tests {
         let stored = r.read("keys/pki/ca.key").unwrap();
         assert!(!stored.windows(16).any(|w| w == [7u8; 16]));
         assert!(r.read_plain("keys/pki/ca.key", None).is_err());
-        let key = r.manifest().sealed.key(Some(PASS), None).unwrap();
+        let key = r.manifest().key(Some(PASS), None).unwrap();
         assert_eq!(
             r.read_plain("keys/pki/ca.key", Some(&key)).unwrap().len(),
             SEAL_PART + 10
         );
         assert_eq!(
             r.manifest()
-                .sealed
                 .key(Some(b"wrong passphrase!"), None)
                 .err()
                 .as_deref(),
             Some("wrong passphrase")
         );
-        assert!(r.manifest().sealed.key(Some(b"short"), None).is_err());
-        assert!(r.manifest().sealed.key(None, Some(b"k")).is_err());
+        assert!(r.manifest().key(Some(b"short"), None).is_err());
+        assert!(r.manifest().key(None, Some(b"k")).is_err());
         // extracted: content, owner-only, never over a file
         let dest = d.join("out/pki/ca.key");
         assert_eq!(
@@ -1060,28 +1235,189 @@ mod tests {
         assert_eq!(read_manifest(&path).unwrap(), w.manifest);
     }
 
+    /// A manifest of one plain file, sealed as `sealing` says and signed.
+    fn signed(sealing: Sealing) -> (Manifest, MasterKey) {
+        let (sealed, key) = sealing.start().unwrap();
+        let key = key.unwrap();
+        let mut m = manifest_with(&[("control/a", 3, b"abc")]);
+        m.sealed = sealed;
+        m.sealed.mac = key.mac_of(&m).unwrap();
+        m.check().unwrap();
+        (m, key)
+    }
+
     #[test]
     fn broker_sealing_opens_only_with_the_same_key() {
-        let (sealed, key) = Sealing::Broker(b"secrets key").start().unwrap();
-        let key = key.unwrap();
+        let (m, key) = signed(Sealing::Broker(b"secrets key"));
         let s = seal_bytes(&key, "data/x", b"");
         assert_eq!(
             open_bytes(&key, "data/x", &s).unwrap().len(),
             0,
             "an empty file"
         );
-        let k2 = sealed.key(None, Some(b"secrets key")).unwrap();
+        let k2 = m.key(None, Some(b"secrets key")).unwrap();
         assert!(open_bytes(&k2, "data/x", &s).is_ok());
-        assert!(sealed.key(None, Some(b"another key")).is_err());
-        assert!(sealed.key(Some(PASS), None).is_err());
+        assert!(m.key(None, Some(b"another key")).is_err());
+        assert!(m.key(Some(PASS), None).is_err());
         let (none, k) = Sealing::None.start().unwrap();
-        assert!(k.is_none() && none.key(Some(PASS), None).is_err());
+        assert!(k.is_none() && none.master(Some(PASS), None).is_err());
+    }
+
+    #[test]
+    fn an_edited_manifest_gives_no_key() {
+        let (m, _) = signed(Sealing::Broker(b"secrets key"));
+        m.key(None, Some(b"secrets key")).unwrap();
+        let edited = |f: &dyn Fn(&mut Manifest)| {
+            let mut e = m.clone();
+            f(&mut e);
+            e.key(None, Some(b"secrets key")).err()
+        };
+        let changed = |e: Option<String>| e.is_some_and(|e| e.contains("changed"));
+        // a digest, a size, a path, a flag, what a section says, the site
+        assert!(changed(edited(
+            &|m| m.sections[0].files[0].sha256 = "0".repeat(64)
+        )));
+        assert!(changed(edited(&|m| m.sections[0].files[0].size = 4)));
+        assert!(changed(edited(
+            &|m| m.sections[0].files[0].path = "control/b".into()
+        )));
+        assert!(changed(edited(&|m| m.sections[0].files[0].exec = true)));
+        assert!(changed(edited(&|m| m.sections[0].files[0].sealed = true)));
+        assert!(changed(edited(&|m| {
+            m.sections[0].info.insert("lsn".into(), 9.into());
+        })));
+        assert!(changed(edited(&|m| m.site = "other".into())));
+        assert!(changed(edited(&|m| m.sections[0].files.clear())));
+        // a sealed backup without its MAC or id is not read at all
+        let mut bare = m.clone();
+        bare.sealed.mac.clear();
+        assert!(bare.check().unwrap_err().contains("not authenticated"));
+        let mut bare = m.clone();
+        bare.sealed.id.clear();
+        assert!(bare.check().is_err());
+        // and an unsealed one cannot claim to be authenticated
+        let mut plain = manifest_with(&[("control/a", 3, b"abc")]);
+        plain.sealed.mac = m.sealed.mac.clone();
+        assert!(plain.check().is_err());
+        // the writer signs only with the key of that backup
+        let (_, other) = signed(Sealing::Broker(b"secrets key"));
+        let d = dir("wrongkey");
+        let head = Head {
+            sealed: m.sealed.clone(),
+            ..head(m.sealed.clone())
+        };
+        assert!(write(
+            &d.join("x.wyrm-backup"),
+            head.clone(),
+            vec![],
+            Some(&other),
+            |_, _| {}
+        )
+        .is_err());
+        assert!(write(&d.join("x.wyrm-backup"), head, vec![], None, |_, _| {}).is_err());
+    }
+
+    #[test]
+    fn sizes_that_overflow_are_refused() {
+        // two files whose sizes wrap around to a small sum
+        let mut m = manifest_with(&[("control/a", 3, b"abc"), ("control/b", 3, b"abc")]);
+        m.sections[0].files[0].size = u64::MAX;
+        m.sections[0].files[1].size = 2;
+        assert_eq!(m.size(), u64::MAX, "never a small number");
+        assert_eq!(m.sections[0].size(), u64::MAX);
+        assert!(m.check().is_err());
+        // within one file's bound each, still more than u64 in all
+        let mut m = manifest_with(&[("control/a", 3, b"abc")]);
+        m.sections[0].files[0].size = MAX_FILE + 1;
+        assert!(m.check().unwrap_err().contains("at most"));
+        m.sections[0].files[0].size = MAX_FILE;
+        m.check().unwrap();
+        // the reader's bound holds for the sum
+        let zip = zip_of(&serde_json::to_vec(&m).unwrap(), &[("control/a", b"abc")]);
+        assert!(Reader::new(Cursor::new(zip), 1 << 30).is_err());
+    }
+
+    #[test]
+    fn a_secret_file_listed_as_plain_is_refused() {
+        // keys, a link's secrets, token and private files; a link backup's data
+        for (kind, path, secret) in [
+            (Kind::Broker, "keys/pki/ca.key", true),
+            (Kind::Broker, "keys/secrets.bin", true),
+            (Kind::Broker, "links/plc1/secrets", true),
+            (Kind::Broker, "links/plc1/token", true),
+            (Kind::Broker, "links/plc1/files/framework.tree", true),
+            (Kind::Broker, "links/plc1/link.cbor", false),
+            (
+                Kind::Broker,
+                "control/state/wal.00000000000000000001.wyw",
+                false,
+            ),
+            (Kind::Broker, "packages/demo/files/bin/run", false),
+            (Kind::Link, "data/secrets", true),
+            (Kind::Link, "data/files/store/00ff", true),
+            (Kind::Link, "settings/link.cbor", false),
+            (Kind::Link, "package/files/bin/run", false),
+        ] {
+            assert_eq!(must_be_sealed(kind, path), secret, "{path}");
+        }
+        // the flag of a sealed file flipped to false, with the plain bytes
+        // of an attacker in its place: refused before anything is read
+        let d = dir("downgrade");
+        let (path, _, w) = sample(&d);
+        let mut m = w.manifest.clone();
+        let f = &mut m.sections[1].files[0];
+        assert!(f.sealed);
+        f.sealed = false;
+        f.size = 6;
+        f.sha256 = hex::encode(Sha256::digest(b"forged"));
+        assert!(m.check().unwrap_err().contains("not sealed"));
+        let wal = std::fs::read(d.join("wal")).unwrap();
+        let zip = zip_of(
+            &serde_json::to_vec(&m).unwrap(),
+            &[
+                ("control/state/wal.00000000000000000001.wyw", &wal),
+                ("keys/pki/ca.key", b"forged"),
+            ],
+        );
+        assert!(Reader::new(Cursor::new(zip), 1 << 30).is_err());
+        // with `how: none` there is no sealed file, so no secret file at all
+        let mut m = manifest_with(&[("control/a", 3, b"abc")]);
+        m.sections[0].name = "keys".into();
+        m.sections[0].files[0].path = "keys/state.key".into();
+        assert!(m.check().is_err());
+        m.sections[0].files[0].sealed = true;
+        assert!(m.check().is_err());
+        let _ = path;
+    }
+
+    #[test]
+    fn a_sealed_part_of_another_backup_does_not_open() {
+        // the same passphrase (here: the same broker key), two backups
+        let (_, a) = signed(Sealing::Broker(b"secrets key"));
+        let (_, b) = signed(Sealing::Broker(b"secrets key"));
+        let in_a = seal_bytes(&a, "keys/state.key", b"the key of a");
+        let in_b = seal_bytes(&b, "keys/state.key", b"the key of b");
+        assert_eq!(
+            &**open_bytes(&a, "keys/state.key", &in_a).unwrap(),
+            b"the key of a"
+        );
+        // the whole file, and one part, moved from b into a
+        assert!(open_bytes(&a, "keys/state.key", &in_b).is_err());
+        let plain = vec![3u8; SEAL_PART + 1];
+        let (long_a, long_b) = (
+            seal_bytes(&a, "keys/x", &plain),
+            seal_bytes(&b, "keys/x", &plain),
+        );
+        let part = 4 + SEAL_PART + 9 + 28;
+        let mut mixed = long_a[..5 + part].to_vec();
+        mixed.extend_from_slice(&long_b[5 + part..]);
+        assert!(open_bytes(&a, "keys/x", &mixed).is_err());
+        assert!(open_bytes(&a, "keys/x", &long_a).is_ok());
     }
 
     #[test]
     fn sealed_parts_are_bound_to_their_file_and_place() {
-        let (_, key) = Sealing::Broker(b"k").start().unwrap();
-        let key = key.unwrap();
+        let (_, key) = signed(Sealing::Broker(b"k"));
         let plain: Vec<u8> = (0..(2 * SEAL_PART + 5)).map(|i| (i % 251) as u8).collect();
         let sealed = seal_bytes(&key, "data/a", &plain);
         assert_eq!(*open_bytes(&key, "data/a", &sealed).unwrap(), plain);
@@ -1155,6 +1491,8 @@ mod tests {
                 how: "none".into(),
                 kdf: None,
                 check: String::new(),
+                id: String::new(),
+                mac: String::new(),
             },
             link: None,
             sections: vec![Section {

@@ -151,7 +151,7 @@ fn skipped(name: &str) -> bool {
         || name == "LOCK"
 }
 
-fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
+pub(super) fn walk(root: &Path, rel: &str, out: &mut Vec<FileEntry>) {
     let Ok(dir) = std::fs::read_dir(root.join(rel)) else {
         return;
     };
@@ -728,7 +728,7 @@ impl Control {
         *self.storage.lock().unwrap_or_else(|p| p.into_inner()) = Arc::downgrade(storage);
     }
 
-    fn storage(&self) -> Option<Arc<wyrm_storage::Store>> {
+    pub(super) fn storage(&self) -> Option<Arc<wyrm_storage::Store>> {
         self.storage
             .lock()
             .unwrap_or_else(|p| p.into_inner())
