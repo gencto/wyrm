@@ -114,6 +114,13 @@ class ViewBridgeService extends DisposableServiceInterface {
             },
           );
     }
+    // A list that was already open (a template's) and is now also the
+    // menu's: the menu hears what is known, it does not wait for a change.
+    for (final k in _menu) {
+      if (_children[k] case final known?) {
+        _listener.onChildren(k, known.keys.toList());
+      }
+    }
     _route();
   }
 

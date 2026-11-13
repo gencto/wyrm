@@ -176,7 +176,12 @@ void main() {
     await shot(tester, 'views_12_device_kiosk');
     await tester.tap(find.text('By width'));
     await settle(tester);
-    await tester.tap(find.text('Back').last);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(ViewProjectShell),
+        matching: find.text('Back'),
+      ),
+    );
     await settle(tester, 2500);
     expect(store.state.views.stack.map((p) => p.page), ['overview']);
     expect(find.text('Reset S7 marker word'), findsOneWidget);

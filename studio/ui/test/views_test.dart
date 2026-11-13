@@ -1,12 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/buttons/button.dart';
+import 'package:ui/buttons/pill_tabs.dart';
 import 'package:ui/charts/trend.dart';
+import 'package:ui/models/value_changed.dart';
+import 'package:ui/pages/views_lab_page.dart';
+import 'package:ui/shell/window_bar.dart';
 import 'package:ui/theme/common.dart';
+import 'package:ui/theme/radii.dart';
 import 'package:ui/views/catalog/bind.dart';
 import 'package:ui/views/catalog/wyrm_catalog.dart';
 import 'package:ui/views/view_card.dart';
@@ -580,6 +586,177 @@ void main() {
       print(
         'genui refine: $viewBindBuilds binds built, '
         '${viewBindSubscriptions - subscriptions} subscribed again',
+      );
+      await _end(tester);
+    });
+  });
+
+  group('lab page', () {
+    Widget lab(
+      WindowBarVm window, {
+      ThemeData? theme,
+      ViewProjectVm? shell,
+    }) => MaterialApp(
+      theme: theme ?? _dark,
+      home: ViewsLabPage(
+        window: window,
+        onBack: () {},
+        theme: FieldVm(value: ThemeMode.dark, onChanged: (_) {}),
+        samples: const [PillTabVm(id: 'demo-plant', label: 'demo-plant')],
+        sample: FieldVm(value: 'demo-plant', onChanged: (_) {}),
+        onRefine: null,
+        project: FieldVm(value: false, onChanged: (_) {}),
+        draft: FieldVm(value: '', onChanged: (_) {}),
+        onShowDraft: null,
+        result: '',
+        width: FieldVm(value: 'desktop', onChanged: (_) {}),
+        density: FieldVm(value: '', onChanged: (_) {}),
+        surfaceId: 'demo-plant',
+        messages: _lines('demo-plant.a2ui.jsonl'),
+        data: _plant(),
+        format: _format(),
+        onAction: _fired.add,
+        shell: shell,
+        onItem: (_) {},
+        onCrumb: (_) {},
+        onPageBack: null,
+        tab: FieldVm(value: 'checks', onChanged: (_) {}),
+        checks: const [],
+        problems: 0,
+      ),
+    );
+
+    testWidgets('Back keeps clear of the macOS window buttons', (tester) async {
+      await _size(tester, const Size(1440, 900));
+      // What `windowBar()` hands a page in the frameless macOS window.
+      var drags = 0;
+      await tester.pumpWidget(
+        lab(WindowBarVm(leading: 92, onDrag: () => drags++)),
+      );
+      await tester.pump();
+
+      final back = tester.getRect(
+        find.ancestor(of: find.text('Back'), matching: find.byType(Button)),
+      );
+      expect(back.left, 92);
+      expect(
+        tester.getTopLeft(find.text('Views lab')).dx,
+        greaterThan(back.right),
+      );
+      // The header is the window's drag area.
+      await tester.drag(find.text('Views lab'), const Offset(40, 0));
+      expect(drags, 1);
+      await _end(tester);
+    });
+
+    for (final (name, theme, colors) in [
+      ('dark', darkTheme(), darkColors),
+      ('light', lightTheme(), lightColors),
+    ]) {
+      testWidgets('$name: the border follows the corner of the frame and of '
+          'every card', (tester) async {
+        await _size(tester, const Size(1440, 900));
+        final key = GlobalKey();
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: key,
+            child: lab(
+              const WindowBarVm(),
+              theme: theme,
+              shell: const ViewProjectVm(
+                title: 'Plant · demo',
+                crumbs: ['Overview'],
+                items: [
+                  ViewNavItemVm(id: 'overview', label: 'Overview'),
+                ],
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        final boundary =
+            key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+        final pixels = await tester.runAsync(() async {
+          final image = await boundary.toImage();
+          return (await image.toByteData())!;
+        });
+
+        double distance(Color a, Color b) =>
+            ((a.r - b.r).abs() + (a.g - b.g).abs() + (a.b - b.b).abs()) * 255;
+
+        // How many pixels of the corner square of [box] (side [r]) have
+        // the colour of the border [line]: the arc, when it is drawn over
+        // whatever fills the corner. A fill over the border leaves none
+        // (its blends with the ground never reach the line's colour).
+        int onArc(Rect box, double r, Color line) {
+          var n = 0;
+          for (var y = 1; y < r; y++) {
+            for (var x = 1; x < r; x++) {
+              final at =
+                  ((box.top.round() + y) * 1440 + box.left.round() + x) * 4;
+              final seen = Color.fromARGB(
+                255,
+                pixels!.getUint8(at),
+                pixels.getUint8(at + 1),
+                pixels.getUint8(at + 2),
+              );
+              if (distance(seen, line) < distance(line, colors.ground1) / 2) {
+                n++;
+              }
+            }
+          }
+          return n;
+        }
+
+        // The frame: its menu (ground1) fills the corner under the border;
+        // the border (line2) is still what is seen on the arc.
+        final frame = tester.getRect(find.byKey(const ValueKey('view-frame')));
+        expect(onArc(frame, 12, colors.line2), greaterThan(5));
+        // Every card: one Material owns fill, radius and border.
+        final cards = find.byType(ViewCard);
+        expect(cards, findsWidgets);
+        for (final card in cards.evaluate()) {
+          final box = tester.getRect(find.byWidget(card.widget));
+          expect(
+            onArc(box, 10, colors.line1),
+            greaterThan(4),
+            reason: 'card at ${box.topLeft}',
+          );
+          final material = tester.widget<Material>(
+            find
+                .descendant(
+                  of: find.byWidget(card.widget),
+                  matching: find.byType(Material),
+                )
+                .first,
+          );
+          expect(material.clipBehavior, Clip.antiAlias);
+          expect(
+            (material.shape! as RoundedRectangleBorder).borderRadius,
+            Radii.card,
+          );
+        }
+        await _end(tester);
+      });
+    }
+
+    testWidgets('a window with its own frame keeps the bar padding', (
+      tester,
+    ) async {
+      await _size(tester, const Size(1440, 900));
+      await tester.pumpWidget(lab(const WindowBarVm()));
+      await tester.pump();
+
+      expect(
+        tester
+            .getRect(
+              find.ancestor(
+                of: find.text('Back'),
+                matching: find.byType(Button),
+              ),
+            )
+            .left,
+        16,
       );
       await _end(tester);
     });

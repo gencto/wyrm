@@ -405,6 +405,22 @@ not json
     });
 
     test(
+      'the menu hears the children of a list that was already open',
+      () async {
+        final b = bindingsOf(parseViewDoc(viewSample('demo-plant.a2ui.jsonl')));
+        bridge.sync(b);
+        await settle();
+        api.lists[_sim]!.add(ListRefreshed([_node('d1'), _point('status')]));
+        await settle();
+        expect(heard.children, isEmpty);
+
+        bridge.sync(b, menu: {_sim});
+
+        expect(heard.children[_sim], ['d1']);
+      },
+    );
+
+    test(
       'another document closes what it no longer reads and keeps the rest',
       () async {
         bridge.sync(

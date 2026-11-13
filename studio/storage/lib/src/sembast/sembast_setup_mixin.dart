@@ -36,7 +36,9 @@ mixin SembastSetupMixin {
     final getPath = () async {
       //
       // ignore: do_not_use_environment
-      const isWeb = bool.fromEnvironment('dart.library.js_util');
+      // `js_util` is not there under dart2wasm; `js_interop` is in both
+      // web compilers.
+      const isWeb = bool.fromEnvironment('dart.library.js_interop');
 
       if (directory != null) {
         return p.join(directory, dbFile);

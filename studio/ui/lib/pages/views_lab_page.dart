@@ -7,6 +7,7 @@ import '../buttons/theme_switcher.dart';
 import '../charts/trend.dart';
 import '../inputs/switch_row.dart';
 import '../models/value_changed.dart';
+import '../shell/window_bar.dart';
 import '../theme/common.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -46,6 +47,7 @@ class ViewsLabPage extends StatelessWidget {
     required this.tab,
     required this.checks,
     required this.problems,
+    this.window = const WindowBarVm(),
     super.key,
   });
 
@@ -54,6 +56,9 @@ class ViewsLabPage extends StatelessWidget {
   static const double phoneWidth = 390;
 
   final VoidCallback onBack;
+
+  /// The frameless window's side of the top bar.
+  final WindowBarVm window;
   final FieldVm<ThemeMode> theme;
 
   /// The samples to pick from: id and label.
@@ -119,32 +124,37 @@ class ViewsLabPage extends StatelessWidget {
           children: [
             Container(
               height: 56,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
                 color: c.ground1,
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
-              child: Row(
-                spacing: 12,
-                children: [
-                  SizedBox(
-                    height: 32,
-                    child: Button.quiet(
-                      label: s.viewsBack,
-                      onPressed: onBack,
-                      size: .small,
-                      fontSize: 13,
-                      inset: 12,
+              // The window's title bar, as on every page of its own: the
+              // room for the window buttons, and the drag area.
+              child: WindowBar(
+                vm: window,
+                padding: 16,
+                child: Row(
+                  spacing: 12,
+                  children: [
+                    SizedBox(
+                      height: 32,
+                      child: Button.quiet(
+                        label: s.viewsBack,
+                        onPressed: onBack,
+                        size: .small,
+                        fontSize: 13,
+                        inset: 12,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      s.viewsLab,
-                      style: Theme.of(context).textTheme.titleMedium,
+                    Expanded(
+                      child: Text(
+                        s.viewsLab,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                     ),
-                  ),
-                  ThemeSwitcher(vm: theme),
-                ],
+                    ThemeSwitcher(vm: theme),
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -293,23 +303,30 @@ class ViewsLabPage extends StatelessWidget {
                 child: Container(
                   width: frame,
                   margin: const EdgeInsets.only(bottom: 16),
-                  clipBehavior: .antiAlias,
-                  decoration: BoxDecoration(
+                  // One shape owns the fill, the radius and the border: the
+                  // child is clipped to it and the border is drawn over the
+                  // child. (A `BoxDecoration` border is drawn under the
+                  // child, whose square corner then shows inside the curve.)
+                  child: Material(
+                    key: const ValueKey('view-frame'),
                     color: c.ground0,
-                    borderRadius: Radii.panel,
-                    border: .all(color: c.line2),
-                  ),
-                  child: switch (shell) {
-                    final vm? => ViewProjectShell(
-                      vm: vm,
-                      density: d,
-                      onItem: onItem,
-                      onCrumb: onCrumb,
-                      onBack: onPageBack,
-                      child: surface,
+                    clipBehavior: .antiAlias,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: Radii.panel,
+                      side: BorderSide(color: c.line2),
                     ),
-                    null => surface,
-                  },
+                    child: switch (shell) {
+                      final vm? => ViewProjectShell(
+                        vm: vm,
+                        density: d,
+                        onItem: onItem,
+                        onCrumb: onCrumb,
+                        onBack: onPageBack,
+                        child: surface,
+                      ),
+                      null => surface,
+                    },
+                  ),
                 ),
               );
             },

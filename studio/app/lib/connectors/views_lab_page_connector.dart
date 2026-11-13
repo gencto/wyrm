@@ -30,6 +30,7 @@ import 'package:ui/charts/trend.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/views_lab_page.dart';
+import 'package:ui/shell/window_bar.dart';
 import 'package:ui/views/catalog/wyrm_catalog.dart';
 import 'package:ui/views/view_checks.dart';
 import 'package:ui/views/view_project_shell.dart';
@@ -37,6 +38,7 @@ import 'package:ui/views/view_style.dart';
 import 'package:ui/views/view_surface.dart';
 
 import '../common/trend.dart';
+import '../common/window.dart';
 import '../navigation/go_action.dart';
 
 /// The views lab (docs/design/specs/genui-views.md §4), reached from
@@ -58,6 +60,7 @@ class ViewsLabPageConnector extends StatelessWidget {
     onDispose: (store) => store.dispatchSync(CloseViewsLabAction()),
     builder: (context, vm) => ViewsLabPage(
       onBack: vm.onBack,
+      window: vm.window,
       theme: vm.theme,
       samples: vm.samples,
       sample: vm.sample,
@@ -99,6 +102,7 @@ class _Factory extends VmFactory<AppState, ViewsLabPageConnector, _Vm>
     ];
     final draft = views.draft;
     return _Vm(
+      window: windowBar(fullScreen: window.fullScreen),
       theme: FieldVm(
         value: theme.mode == .light ? .light : .dark,
         onChanged: (m) => dispatchSync(SetThemeModeAction(m)),
@@ -290,6 +294,7 @@ class _Factory extends VmFactory<AppState, ViewsLabPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.window,
     required this.theme,
     required this.samples,
     required this.sample,
@@ -315,6 +320,7 @@ class _Vm extends Vm {
     required this.onPageBack,
   }) : super(
          equals: [
+           window,
            theme,
            samples,
            sample,
@@ -337,6 +343,7 @@ class _Vm extends Vm {
          ],
        );
 
+  final WindowBarVm window;
   final FieldVm<ThemeMode> theme;
   final List<PillTabVm> samples;
   final FieldVm<String> sample;
