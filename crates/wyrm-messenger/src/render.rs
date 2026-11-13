@@ -85,6 +85,73 @@ pub enum Modifier {
     Time,
 }
 
+/// A value map after `|`: `{{state|NORMAL=🟢,UNSTABLE=🟡,*=⚪}}`. The text the placeholder
+/// gives without it is looked up; `*` is what any other text becomes (without `*` the text
+/// stays). Up to [`MAX_MAP_PAIRS`] pairs in [`MAX_MAP_BYTES`]; a key or a value holds no `,`,
+/// `=`, `|` or braces.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ValueMap {
+    pairs: Vec<(String, String)>,
+    other: Option<String>,
+}
+
+pub const MAX_MAP_PAIRS: usize = 16;
+pub const MAX_MAP_BYTES: usize = 256;
+
+impl ValueMap {
+    fn parse(spec: &str, whole: &str) -> Result<Self, String> {
+        let bad = |why: &str| format!("{{{{{whole}}}}}: {why}");
+        if spec.len() > MAX_MAP_BYTES {
+            return Err(bad(&format!(
+                "a value map is at most {MAX_MAP_BYTES} bytes"
+            )));
+        }
+        let mut m = ValueMap::default();
+        for pair in spec.split(',') {
+            let (k, v) = pair
+                .split_once('=')
+                .ok_or_else(|| bad("a value map is key=value pairs, comma separated"))?;
+            let (k, v) = (k.trim(), v.trim());
+            if k.is_empty() || v.contains(['=', '{', '}']) || k.contains(['{', '}']) {
+                return Err(bad("a key and a value without = or braces"));
+            }
+            if k == "*" {
+                if m.other.replace(v.to_owned()).is_some() {
+                    return Err(bad("one * in a value map"));
+                }
+            } else if m.pairs.iter().any(|(x, _)| x == k) {
+                return Err(bad(&format!("{k} twice in a value map")));
+            } else {
+                m.pairs.push((k.to_owned(), v.to_owned()));
+            }
+        }
+        if m.pairs.len() + usize::from(m.other.is_some()) > MAX_MAP_PAIRS {
+            return Err(bad(&format!(
+                "at most {MAX_MAP_PAIRS} pairs in a value map"
+            )));
+        }
+        Ok(m)
+    }
+
+    /// What `text` becomes.
+    pub fn apply(&self, text: String) -> String {
+        match self.pairs.iter().find(|(k, _)| *k == text.trim()) {
+            Some((_, v)) => v.clone(),
+            None => self.other.clone().unwrap_or(text),
+        }
+    }
+}
+
+fn parse_full(inner: &str) -> Result<(String, Modifier, Option<ValueMap>), String> {
+    let whole = inner.trim();
+    let (base, map) = match whole.split_once('|') {
+        Some((b, m)) => (b, Some(ValueMap::parse(m, whole)?)),
+        None => (whole, None),
+    };
+    let (name, m) = parse_one(base)?;
+    Ok((name, m, map))
+}
+
 fn parse_one(inner: &str) -> Result<(String, Modifier), String> {
     let inner = inner.trim();
     let (name, m) = if let Some((n, d)) = inner.split_once(":.") {
@@ -112,7 +179,8 @@ pub fn placeholders(text: &str) -> Result<Vec<(String, Modifier)>, String> {
     while let Some(i) = rest.find("{{") {
         let after = &rest[i + 2..];
         let j = after.find("}}").ok_or("a {{ without its }}")?;
-        out.push(parse_one(&after[..j])?);
+        let (name, m, _) = parse_full(&after[..j])?;
+        out.push((name, m));
         rest = &after[j + 2..];
     }
     Ok(out)
@@ -131,8 +199,12 @@ pub fn render(
         out.push_str(&rest[..i]);
         let after = &rest[i + 2..];
         let j = after.find("}}").ok_or("a {{ without its }}")?;
-        let (name, m) = parse_one(&after[..j])?;
+        let (name, m, map) = parse_full(&after[..j])?;
         if let Some(v) = lookup(&name, &m) {
+            let v = match &map {
+                Some(map) => map.apply(v),
+                None => v,
+            };
             out.push_str(&escape(&v, how));
         }
         rest = &after[j + 2..];
@@ -179,6 +251,48 @@ mod tests {
             ("md", _) => Some("a_b*c.".into()),
             _ => None,
         }
+    }
+
+    /// Value maps (DVPSM demo, 2026-11-13: state emojis without an expression in the flow).
+    #[test]
+    fn value_maps() {
+        let look = |n: &str, m: &Modifier| -> Option<String> {
+            match (n, m) {
+                ("st", Modifier::None) => Some("UNSTABLE".into()),
+                ("st", Modifier::Quality) => Some("bad".into()),
+                ("x", _) => Some("<b>".into()),
+                _ => None,
+            }
+        };
+        let r = |t: &str| render(t, Escape::Html, &look);
+        assert_eq!(r("{{st|NORMAL=🟢,UNSTABLE=🟡,*=⚪}}").unwrap(), "🟡");
+        assert_eq!(
+            r("{{st|NORMAL=🟢}}").unwrap(),
+            "UNSTABLE",
+            "no *: the text stays"
+        );
+        assert_eq!(r("{{st|*=⚪}}").unwrap(), "⚪");
+        assert_eq!(r("{{st.q|good=ok,bad=❗}}").unwrap(), "❗");
+        // what a map gives is escaped as any value
+        assert_eq!(r("{{x|y=1}}").unwrap(), "&lt;b&gt;");
+        assert_eq!(r("{{st|a=<i>}}").unwrap(), "UNSTABLE");
+        assert_eq!(r("{{st|*=<i>}}").unwrap(), "&lt;i&gt;");
+        // placeholders still name the variable
+        assert_eq!(
+            placeholders("{{st|A=1}}").unwrap(),
+            vec![("st".into(), Modifier::None)]
+        );
+        for bad in [
+            "{{st|A}}",
+            "{{st|=1}}",
+            "{{st|A=1,A=2}}",
+            "{{st|*=1,*=2}}",
+            "{{st|A=b=c}}",
+        ] {
+            assert!(r(bad).is_err(), "{bad}");
+        }
+        let many: Vec<String> = (0..17).map(|i| format!("k{i}=v")).collect();
+        assert!(r(&format!("{{{{st|{}}}}}", many.join(","))).is_err());
     }
 
     #[test]

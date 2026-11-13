@@ -61,6 +61,11 @@ silent   false   protect false   preview false
   (`.q` then says `bad`). Up to 32 values per template; the link watches each distinct key once,
   at most 1000 keys in all.
 - `{{site}}`, `{{bot}}`, `{{now}}`.
+- A value map after `|` turns the text into another: `{{state|NORMAL=🟢,UNSTABLE=🟡,*=⚪}}`,
+  `{{temp.q|good=,bad=❗}}`. It looks up the text the placeholder gives without it (after
+  `:.N`, `.q`, `.t`); `*` is what any other text becomes, and without `*` the text stays. Up to
+  16 pairs in 256 bytes; a key or a value holds no `,`, `=`, `|` or braces. What it gives is
+  escaped as any value.
 - Values are **escaped for the format**: a device named `<Boiler & Co>` shows as such and never
   breaks the HTML. MarkdownV2 is strict: if Telegram cannot parse a message it is sent once more
   as plain text (the log says so).
