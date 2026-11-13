@@ -190,6 +190,10 @@ const CONFIG_SHOWN: &[&str] = &[
     "standby.peer",
     "standby.witness",
     "standby.arbiter",
+    // the release keys are public keys
+    "updates.mode",
+    "updates.channel",
+    "updates.keys",
     "backups.send_links",
     "backups.send_links.link",
     "backups.send_links.folder",
@@ -2315,6 +2319,7 @@ mod tests {
         ("LinkSection", "links.*"),
         ("LinkLimits", "link_limits"),
         ("StandbySection", "standby"),
+        ("UpdatesSection", "updates"),
     ];
 
     /// `(field, type)` of every `pub` field of `pub struct <name>` in `src`.
@@ -2341,7 +2346,11 @@ mod tests {
     /// only.
     #[test]
     fn every_text_field_of_the_config_is_shown_or_masked_on_purpose() {
-        let sources = [include_str!("lib.rs"), include_str!("standby.rs")];
+        let sources = [
+            include_str!("lib.rs"),
+            include_str!("standby.rs"),
+            include_str!("update.rs"),
+        ];
         let listed = |path: &str| CONFIG_SHOWN.contains(&path) || CONFIG_MASKED.contains(&path);
         let mut found = std::collections::BTreeSet::new();
         for (name, prefix) in CONFIG_STRUCTS {
