@@ -2258,6 +2258,108 @@ mod tests {
         may_download(&plain, true).unwrap();
     }
 
+    /// Review of PR 72: a job that panics gives its slot back (the next
+    /// backup is not `busy` for ever), is shown `failed`, and the links it
+    /// copied are free again. And a backup does not copy a link that an
+    /// update or a restore holds.
+    #[test]
+    fn a_job_that_panics_gives_its_slot_back() {
+        let ctl = super::super::tests::control("backup-panic", false, |_| {});
+        let id = "20261113T100000Z".to_owned();
+        ctl.backups.lock().insert(
+            id.clone(),
+            Job {
+                id: id.clone(),
+                kind: "full".into(),
+                link: String::new(),
+                sections: vec!["control".into(), "links".into()],
+                status: "running".into(),
+                progress: 10,
+                step: "links".into(),
+                size: 0,
+                sha256: String::new(),
+                created: 1,
+                expires: 2,
+                error: String::new(),
+                file: "f".into(),
+                sealed: "broker".into(),
+                by: "user:a".into(),
+                pinned: false,
+                sent_to: String::new(),
+                send_status: String::new(),
+                send_progress: 0,
+                send_error: String::new(),
+            },
+        );
+        ctl.backups.running.store(true, Ordering::SeqCst);
+        ctl.backups.copying.lock().unwrap().insert("l1".to_owned());
+        // while it runs: the link it copies is not replaced or updated
+        let e = ctl.backup_copies(&["l0".into(), "l1".into()]).unwrap();
+        assert_eq!(e.status, Status::Busy);
+        assert_eq!(ctl.claim_link("l1").err().unwrap().status, Status::Busy);
+        assert!(
+            ctl.link_busy("l1").is_none(),
+            "a refused claim leaves nothing"
+        );
+        assert!(ctl.backup_copies(&["l0".into()]).is_none());
+
+        let running = RunningJob {
+            ctl: ctl.clone(),
+            id: Some(id.clone()),
+        };
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _held = running;
+            panic!("a section could not be read");
+        }));
+        assert!(r.is_err());
+        assert!(!ctl.backups.running.load(Ordering::SeqCst));
+        let j = ctl.backups.get(&id).unwrap();
+        assert_eq!(j.status, "failed");
+        assert!(j.error.contains("unexpectedly"), "{}", j.error);
+        assert!(ctl.backup_copies(&["l1".into()]).is_none());
+        drop(ctl.claim_link("l1").unwrap());
+
+        // the other way round: a link that a restore holds is not copied
+        let held = ctl.claim_link("l1").unwrap();
+        ctl.apply(Op::Install(LinkDef {
+            id: "l1".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        let req = || BackupRequest {
+            kind: Kind::Link,
+            sections: vec!["data".into()],
+            links: None,
+            link: Some("l1".into()),
+            history_days: None,
+            seal: SealWith::None,
+            label: "link".into(),
+            pinned: false,
+            remote: false,
+            estimate: false,
+        };
+        let e = ctl.backup_launch(req(), "user:a", true).unwrap_err();
+        assert_eq!(e.status, Status::Busy);
+        assert!(e.message.contains("being restored"), "{}", e.message);
+        assert!(
+            !ctl.backups.running.load(Ordering::SeqCst),
+            "the slot is free"
+        );
+        drop(held);
+        let made = ctl.backup_launch(req(), "user:a", true).unwrap();
+        assert_eq!(ctl.backups.get(&made).unwrap().status, "done");
+    }
+
     #[test]
     fn broker_made_secrets_stay_out_of_a_backup() {
         let secret = |v: &[u8]| Zeroizing::new(v.to_vec());
