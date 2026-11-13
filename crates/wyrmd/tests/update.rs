@@ -218,6 +218,8 @@ struct Unit {
     stop: Arc<AtomicBool>,
     /// Exit codes of the broker, in order.
     exits: Arc<Mutex<Vec<i32>>>,
+    /// Times the guard ended with an error: the broker was not started.
+    refused: Arc<std::sync::atomic::AtomicU32>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -225,7 +227,8 @@ impl Unit {
     fn start(prefix: &Path, cfg: &Path) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let exits = Arc::new(Mutex::new(Vec::new()));
-        let (stop2, exits2) = (stop.clone(), exits.clone());
+        let refused = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let (stop2, exits2, refused2) = (stop.clone(), exits.clone(), refused.clone());
         let (prefix, cfg) = (prefix.to_owned(), cfg.to_owned());
         let thread = std::thread::spawn(move || {
             while !stop2.load(Ordering::SeqCst) {
@@ -239,6 +242,7 @@ impl Unit {
                     .status();
                 if !guard.is_ok_and(|s| s.success()) {
                     // ExecStartPre failed: the broker is not started
+                    refused2.fetch_add(1, Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(500));
                     continue;
                 }
@@ -273,6 +277,7 @@ impl Unit {
         Self {
             stop,
             exits,
+            refused,
             thread: Some(thread),
         }
     }
@@ -467,14 +472,21 @@ fn release_of(id: &Identity, asset: Asset) -> Release {
 }
 
 /// A loopback HTTP server for a releases index and its archives.
-fn serve(files: BTreeMap<String, Arc<Vec<u8>>>) -> u16 {
+type Files = BTreeMap<String, Arc<Vec<u8>>>;
+
+fn serve(files: Files) -> u16 {
+    serve_shared(Arc::new(Mutex::new(files)))
+}
+
+/// [`serve`] with files that the test replaces while it runs.
+fn serve_shared(files: Arc<Mutex<Files>>) -> u16 {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut s) = stream else { continue };
-            let files = files.clone();
+            let files = files.lock().unwrap().clone();
             std::thread::spawn(move || {
                 let mut req = Vec::new();
                 let mut buf = [0u8; 1024];
@@ -507,10 +519,13 @@ fn serve(files: BTreeMap<String, Arc<Vec<u8>>>) -> u16 {
     port
 }
 
-/// The bytes of an index of `releases`, every entry signed by `signer`.
-fn index_bytes(releases: &[Release], signer: &ed25519_dalek::SigningKey) -> Vec<u8> {
+/// The bytes of an index of `releases` with `sequence`, every entry signed
+/// by `signer`.
+fn index_bytes(releases: &[Release], signer: &ed25519_dalek::SigningKey, sequence: u64) -> Vec<u8> {
     let file = IndexFile {
         wyrmd_releases: release::FORMAT,
+        sequence,
+        created: "2026-11-13".into(),
         releases: releases
             .iter()
             .map(|r| {
@@ -525,14 +540,18 @@ fn index_bytes(releases: &[Release], signer: &ed25519_dalek::SigningKey) -> Vec<
     serde_json::to_vec(&file).unwrap()
 }
 
-/// A signed index of `releases` as the files of a channel.
-fn channel_files(releases: Vec<Release>) -> BTreeMap<String, Arc<Vec<u8>>> {
-    let index = index_bytes(&releases, &release_key());
-    let sig = release::sign_index(&index, &release_key());
-    BTreeMap::from([
-        ("/releases.json".to_owned(), Arc::new(index)),
-        ("/releases.json.sig".to_owned(), Arc::new(sig.into_bytes())),
-    ])
+/// The channel file of `index` signed by `signer`, as the files of a channel.
+fn channel_of(index: &[u8], signer: &ed25519_dalek::SigningKey) -> Files {
+    let sig = release::sign_index(index, signer);
+    BTreeMap::from([(
+        "/releases.json".to_owned(),
+        Arc::new(release::bundle(index, &sig).unwrap()),
+    )])
+}
+
+/// A signed index (sequence 7) of `releases` as the files of a channel.
+fn channel_files(releases: Vec<Release>) -> Files {
+    channel_of(&index_bytes(&releases, &release_key(), 7), &release_key())
 }
 
 /// Bring `bytes` to the broker in parts (the upload of the backups).
@@ -585,7 +604,7 @@ async fn a_broker_updates_itself_and_is_confirmed() {
         Arc::new(std::fs::read(stage.join(&file)).unwrap()),
     );
     let http = serve(files);
-    let site = Site::start(
+    let mut site = Site::start(
         "good",
         &format!(r#"channel: "http://127.0.0.1:{http}/releases.json""#),
     )
@@ -671,11 +690,12 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     let u = site.update_file();
     assert_eq!(u.state, "confirmed");
     assert!(
-        u.ended >= u.deadline,
-        "confirmed only after the trial: ended {} deadline {}",
-        u.ended,
-        u.deadline
+        u.ran_s >= u.trial_s && u.trial_s == 25,
+        "confirmed only after the version ran its trial: ran {} of {} s",
+        u.ran_s,
+        u.trial_s
     );
+    assert!(u.settled || u.starts == 0);
     assert!(u.keep_until > u.ended && u.without_s >= 1);
     // the guard follows the confirmed version
     assert_eq!(
@@ -732,6 +752,45 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     let ops = audit_ops(site.port).await;
     assert!(ops.iter().any(|(o, _)| o == "update_rollback"), "{ops:?}");
     assert_eq!(site.unit.exits(), [0, 0]);
+
+    // the binary of the version that is current is replaced on disk (by
+    // one that the release key did sign, for another version): the guard
+    // does not let it start, and nothing else is there to start
+    let port = site.port;
+    let gone = site.prefix.join("versions").join("0.2.0");
+    eventually("the version that was rolled back is removed", 60, || {
+        let gone = gone.clone();
+        async move { (!gone.exists()).then_some(()) }
+    })
+    .await;
+    site.unit.stop();
+    let bin = site
+        .prefix
+        .join("versions")
+        .join("0.1.0")
+        .join(release::BIN);
+    let real = site.root.join("wyrmd.real");
+    std::fs::rename(&bin, &real).unwrap();
+    std::fs::copy(next_bin(), &bin).unwrap();
+    site.unit = Unit::start(&site.prefix, &site.cfg);
+    let refused = site.unit.refused.clone();
+    eventually("the guard refuses the start", 60, || {
+        let refused = refused.clone();
+        async move { (refused.load(Ordering::SeqCst) >= 3).then_some(()) }
+    })
+    .await;
+    assert!(
+        site.unit.exits().is_empty(),
+        "the replaced binary was never run: {:?}",
+        site.unit.exits()
+    );
+    assert!(client_on(port).await.is_none(), "no broker is up");
+    // the real binary back: it starts
+    site.unit.stop();
+    std::fs::rename(&real, &bin).unwrap();
+    site.unit = Unit::start(&site.prefix, &site.cfg);
+    site.wait_version("0.1.0").await;
+    assert_eq!(site.unit.refused.load(Ordering::SeqCst), 0);
     let root = site.root.clone();
     drop(site);
     let _ = std::fs::remove_dir_all(root);
@@ -1130,8 +1189,13 @@ async fn external_mode_reports_only() {
         sha256: "a".repeat(64),
         size: 1000,
         url: String::new(),
+        bin_sha256: "b".repeat(64),
     };
-    let http = serve(channel_files(vec![release_of(&newer, asset.clone())]));
+    let served = Arc::new(Mutex::new(channel_files(vec![release_of(
+        &newer,
+        asset.clone(),
+    )])));
+    let http = serve_shared(served.clone());
     let pinned = hex::encode(release_key().verifying_key().to_bytes());
     let node = format!("wy/{SITE}/sys");
     let go = args(&[("confirm_site", SITE.into())]);
@@ -1175,31 +1239,39 @@ async fn external_mode_reports_only() {
         .await
         .unwrap_err();
     assert!(e.message.contains("updated outside"), "{}", e.message);
-    // an index that the pinned key did not sign shows nothing
+    // an older index, validly signed, is put back (it hides 0.9.0): it is
+    // refused, and what was read before stays
+    let older = Identity {
+        version: "0.5.0".into(),
+        ..me.clone()
+    };
+    let old_index = index_bytes(&[release_of(&older, asset.clone())], &release_key(), 6);
+    *served.lock().unwrap() = channel_of(&old_index, &release_key());
+    let e = c
+        .invoke_one(&node, "check_updates", args(&[]))
+        .await
+        .unwrap_err();
+    assert!(
+        e.message.contains("older than one this broker has read"),
+        "{}",
+        e.message
+    );
+    assert_eq!(sys_str(ext.port, "latest").await.as_deref(), Some("0.9.0"));
+    // the same sequence again is taken
+    *served.lock().unwrap() = channel_files(vec![release_of(&newer, asset.clone())]);
+    c.invoke_one(&node, "check_updates", args(&[]))
+        .await
+        .unwrap();
     drop(c);
     ext.stop().await;
 
     // an index that another key signed
-    let forged = {
-        let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
-        let index = index_bytes(&[release_of(&newer, asset.clone())], &other);
-        let sig = release::sign_index(&index, &other);
-        serve(BTreeMap::from([
-            ("/releases.json".to_owned(), Arc::new(index)),
-            ("/releases.json.sig".to_owned(), Arc::new(sig.into_bytes())),
-        ]))
-    };
+    let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
+    let foreign = index_bytes(&[release_of(&newer, asset.clone())], &other, 7);
+    let forged = serve(channel_of(&foreign, &other));
     // an index the pinned key signed as a whole, with an entry it did not
     // sign: the entry is not trusted because the list is
-    let planted = {
-        let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
-        let index = index_bytes(&[release_of(&newer, asset.clone())], &other);
-        let sig = release::sign_index(&index, &release_key());
-        serve(BTreeMap::from([
-            ("/releases.json".to_owned(), Arc::new(index)),
-            ("/releases.json.sig".to_owned(), Arc::new(sig.into_bytes())),
-        ]))
-    };
+    let planted = serve(channel_of(&foreign, &release_key()));
     let ext = Local::start(
         "external-planted",
         &format!(
@@ -1272,13 +1344,16 @@ async fn external_mode_reports_only() {
 }
 
 /// The release tooling (`wyrmd release …`) makes what a broker reads, and
-/// signs nothing it did not check: `release index` adds to an index only
-/// when that index, every entry of it and the new release verify.
+/// signs nothing it did not check: `release index` adds to the published
+/// index only when that index, every entry of it and the new release
+/// verify, and when it holds every release that exists.
 #[test]
 fn release_index_refuses_what_does_not_verify() {
+    use sha2::{Digest, Sha256};
     let d = temp_dir("tooling");
     let seed = hex::encode(RELEASE_SEED);
     let public = hex::encode(release_key().verifying_key().to_bytes());
+    let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
     let tool = |args: &[&str], key: Option<&str>| {
         let mut c = Command::new(env!("CARGO_BIN_EXE_wyrmd"));
         c.arg("release").args(args).current_dir(&d).env_clear();
@@ -1302,64 +1377,91 @@ fn release_index_refuses_what_does_not_verify() {
         assert!(!success, "{args:?} must be refused: {said}");
         assert!(said.contains(want), "{args:?}: {said}");
     };
-    // what `release pack` leaves beside an archive, for two versions
+    // what `release pack` leaves: an archive and what it is, for two versions
     let me = wyrmd::update::identity(None);
     let packed = |version: &str| {
         let dir = d.join(version);
         std::fs::create_dir_all(&dir).unwrap();
         let file = format!("wyrmd-{version}-{}.tar.gz", me.target);
+        let bin = format!("the binary of {version}");
+        let gz = testkit::tar_gz(&[testkit::tar_entry("wyrmd", b'0', 0o755, bin.as_bytes())]);
+        std::fs::write(dir.join(&file), &gz).unwrap();
+        let (sha256, size) = release::sha256_file(&dir.join(&file)).unwrap();
         let side = serde_json::json!({
             "identity": Identity { version: version.into(), ..me.clone() },
-            "asset": Asset { file: file.clone(), sha256: "b".repeat(64), size: 4096, url: String::new() },
+            "asset": Asset {
+                file: file.clone(),
+                sha256,
+                size,
+                url: String::new(),
+                bin_sha256: hex::encode(Sha256::digest(bin.as_bytes())),
+            },
         });
         std::fs::write(dir.join(format!("{file}.json")), side.to_string()).unwrap();
-        ok(&["doc", version, "--date", "2026-11-13"], None);
-        format!("{version}/wyrmd-{version}.release.json")
+        (dir, file, format!("{version}/wyrmd-{version}.release.json"))
     };
-    let (r2, r3) = (packed("0.2.0"), packed("0.3.0"));
+    let (dir2, file2, r2) = packed("0.2.0");
+    let (_, _, r3) = packed("0.3.0");
+    // a description that is not of the archive beside it makes no document
+    let side = dir2.join(format!("{file2}.json"));
+    let good_side = std::fs::read_to_string(&side).unwrap();
+    let hash = hex::encode(Sha256::digest(b"the binary of 0.2.0"));
+    std::fs::write(&side, good_side.replace(&hash, &"0".repeat(64))).unwrap();
+    refused(&["doc", "0.2.0"], "binary in the archive");
+    std::fs::write(&side, &good_side).unwrap();
+    ok(&["doc", "0.2.0", "--date", "2026-11-13"], None);
+    ok(&["doc", "0.3.0", "--date", "2026-11-14"], None);
 
     // a release that is not signed, or signed by another key, starts no index
-    refused(
-        &["index", "--new", "--key", &public, &r2, "releases.json"],
-        "",
-    );
+    let new = ["index", "--new", "--key", &public, &r2, "index.json"];
+    refused(&new, "");
     ok(&["sign", &r2], Some(&"03".repeat(32)));
-    refused(
-        &["index", "--new", "--key", &public, &r2, "releases.json"],
-        "pinned release key",
-    );
-    assert!(!d.join("releases.json").exists());
+    refused(&new, "pinned release key");
+    assert!(!d.join("index.json").exists());
     ok(&["sign", &r2], Some(&seed));
     ok(&["verify", &r2, "--key", &public], None);
     refused(&["verify", &r2], "no release key is pinned");
-    // no index there: only --new starts one
-    refused(&["index", "--key", &public, &r2, "releases.json"], "--new");
-    ok(
-        &["index", "--new", "--key", &public, &r2, "releases.json"],
+    // an index is started on purpose only
+    refused(&["index", "--key", &public, &r2, "index.json"], "--new");
+    let said = ok(&new, None);
+    assert!(said.contains("sequence 1, 1 releases"), "{said}");
+    refused(&new, "exists");
+    // the channel file: only of an index that is signed
+    let bundle = ["bundle", "index.json", "releases.json", "--key", &public];
+    refused(&bundle, "index.json.sig");
+    ok(&["sign", "--index", "index.json"], Some(&"03".repeat(32)));
+    refused(&bundle, "pinned release key");
+    ok(&["sign", "--index", "index.json"], Some(&seed));
+    ok(&bundle, None);
+    let said = ok(
+        &["verify", "--channel", "releases.json", "--key", &public],
         None,
     );
-    refused(
-        &["index", "--new", "--key", &public, &r2, "releases.json"],
-        "exists",
-    );
-    ok(&["sign", "--index", "releases.json"], Some(&seed));
-    ok(
-        &["verify", "--index", "releases.json", "--key", &public],
-        None,
-    );
+    assert!(said.contains("sequence 1"), "{said}");
     let good = std::fs::read(d.join("releases.json")).unwrap();
-    let good_sig = std::fs::read(d.join("releases.json.sig")).unwrap();
     ok(&["sign", &r3], Some(&seed));
 
-    // the old index without its signature
-    std::fs::remove_file(d.join("releases.json.sig")).unwrap();
-    refused(
-        &["index", "--key", &public, &r3, "releases.json"],
-        "releases.json.sig",
-    );
-    assert_eq!(std::fs::read(d.join("releases.json")).unwrap(), good);
-    // changed after it was signed: an entry planted in it
-    let mut file: IndexFile = serde_json::from_slice(&good).unwrap();
+    // the next release is added to the published channel file only
+    let add = |channel: &str, have: &str| {
+        vec![
+            "index".to_owned(),
+            "--from".into(),
+            channel.into(),
+            "--key".into(),
+            public.clone(),
+            "--have".into(),
+            have.into(),
+            r3.clone(),
+            "next.json".into(),
+        ]
+    };
+    fn refs(v: &[String]) -> Vec<&str> {
+        v.iter().map(String::as_str).collect()
+    }
+    let nothing_written = || assert!(!d.join("next.json").exists(), "next.json was written");
+    // (1) an entry planted in it after it was signed
+    let channel: release::Channel = serde_json::from_slice(&good).unwrap();
+    let mut file: IndexFile = serde_json::from_str(&channel.index).unwrap();
     let evil = serde_json::to_string(&release_of(
         &Identity {
             version: "9.9.9".into(),
@@ -1370,65 +1472,69 @@ fn release_index_refuses_what_does_not_verify() {
             sha256: "c".repeat(64),
             size: 1,
             url: String::new(),
+            bin_sha256: "c".repeat(64),
         },
     ))
     .unwrap();
     file.releases.push(IndexEntry {
-        signature: release::sign_release(
-            evil.as_bytes(),
-            &ed25519_dalek::SigningKey::from_bytes(&[3; 32]),
-        ),
+        signature: release::sign_release(evil.as_bytes(), &other),
         release: evil,
     });
     let planted = serde_json::to_vec(&file).unwrap();
-    std::fs::write(d.join("releases.json"), &planted).unwrap();
-    std::fs::write(d.join("releases.json.sig"), &good_sig).unwrap();
-    refused(
-        &["index", "--key", &public, &r3, "releases.json"],
-        "not added to",
+    let write_channel = |name: &str, index: &[u8], signature: &str| {
+        std::fs::write(d.join(name), release::bundle(index, signature).unwrap()).unwrap();
+    };
+    write_channel("planted.json", &planted, &channel.signature);
+    refused(&refs(&add("planted.json", "0.2.0")), "not added to");
+    nothing_written();
+    // (2) signed as a whole by the real key all the same (a signer that
+    // did not look): the planted entry still refuses it
+    write_channel(
+        "laundered.json",
+        &planted,
+        &release::sign_index(&planted, &release_key()),
     );
-    assert_eq!(
-        std::fs::read(d.join("releases.json")).unwrap(),
-        planted,
-        "left as it was"
-    );
-    // signed as a whole by the real key all the same (a signer that did
-    // not look): the planted entry still refuses it
-    std::fs::write(
-        d.join("releases.json.sig"),
-        release::sign_index(&planted, &release_key()),
-    )
-    .unwrap();
     refused(
-        &["index", "--key", &public, &r3, "releases.json"],
+        &refs(&add("laundered.json", "0.2.0")),
         "an entry is refused",
     );
-    // signed by another key
-    std::fs::write(d.join("releases.json"), &good).unwrap();
-    std::fs::write(
-        d.join("releases.json.sig"),
-        release::sign_index(&good, &ed25519_dalek::SigningKey::from_bytes(&[3; 32])),
-    )
-    .unwrap();
-    refused(
-        &["index", "--key", &public, &r3, "releases.json"],
-        "pinned release key",
+    nothing_written();
+    // (3) signed by another key
+    write_channel(
+        "foreign.json",
+        channel.index.as_bytes(),
+        &release::sign_index(channel.index.as_bytes(), &other),
     );
+    refused(&refs(&add("foreign.json", "0.2.0")), "pinned release key");
+    // (4) an old index put back: a version that was released is not in it
+    refused(
+        &refs(&add("releases.json", "0.2.5")),
+        "older index was put back",
+    );
+    nothing_written();
+    // (5) neither the published file nor --new
+    refused(&["index", "--key", &public, &r3, "next.json"], "--new");
 
-    // the index as it was signed takes the next release; its old signature
-    // goes, so an index that was not signed again is not served as signed
-    std::fs::write(d.join("releases.json.sig"), &good_sig).unwrap();
-    let said = ok(&["index", "--key", &public, &r3, "releases.json"], None);
-    assert!(said.contains("2 releases"), "{said}");
-    assert!(!d.join("releases.json.sig").exists());
-    ok(&["sign", "--index", "releases.json"], Some(&seed));
+    // the published index takes the next release: one higher, to be signed
+    let said = ok(&refs(&add("releases.json", "0.2.0")), None);
+    assert!(said.contains("sequence 2, 2 releases"), "{said}");
+    refused(
+        &["bundle", "next.json", "releases.json", "--key", &public],
+        "next.json.sig",
+    );
+    assert_eq!(std::fs::read(d.join("releases.json")).unwrap(), good);
+    ok(&["sign", "--index", "next.json"], Some(&seed));
+    ok(
+        &["bundle", "next.json", "releases.json", "--key", &public],
+        None,
+    );
     // and a broker reads it
-    let index = release::read_index(
+    let index = release::read_channel(
         &std::fs::read(d.join("releases.json")).unwrap(),
-        &std::fs::read_to_string(d.join("releases.json.sig")).unwrap(),
         &[release_key().verifying_key()],
     )
     .unwrap();
+    assert_eq!(index.sequence, 2);
     assert_eq!(
         index.latest(&me.target).map(|s| s.release.version.as_str()),
         Some("0.3.0")
@@ -1491,4 +1597,12 @@ fn the_updates_section_is_validated() {
     assert!(parse("trial_s: 5").unwrap_err().contains("10 to 3600"));
     assert!(parse("keep_days: 0").unwrap_err().contains("1 to 90"));
     assert!(parse("unknown: 1").is_err());
+    // the guard is looked for before the start of the process, which
+    // `wyrmd` notes first thing (a promoted standby opens its daemon later)
+    let d = temp_dir("process-start");
+    wyrmd::update::trial_start(&d, 30);
+    let cfg = wyrmd::Config::from_json5(r#"{ site: "s" }"#).unwrap();
+    let started = wyrmd::update::update_config(&cfg).unwrap().process_start;
+    assert!(started.is_some_and(|t| t + 5 >= release::now_s()));
+    let _ = std::fs::remove_dir_all(&d);
 }
