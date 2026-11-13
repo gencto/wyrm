@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — update the broker</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+a{color:#F3A766;text-decoration:none}
+button{font-family:inherit}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="position: relative; height: 900px; background: #0E1113; font-size: 14px; overflow: hidden">
+
+<!-- System › Maintenance underneath -->
+<div aria-hidden="true" style="height: 100%; display: flex; flex-direction: column">
+<div style="height: 56px; border-bottom: 1px solid #252B30; display: flex; align-items: center; gap: 12px; padding: 0 16px"><span style="width: 36px; height: 22px; border-radius: 6px; background: #2A1F16"></span><span style="font-weight: 700; letter-spacing: 0.08em">WYRM</span><span style="color: #A3ABAF">Studio</span></div>
+<div style="flex: 1; display: flex"><div style="width: 76px; border-right: 1px solid #252B30"></div>
+<div style="flex: 1; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px">
+<span style="font-size: 26px; font-weight: 600">wyrmd on plant</span>
+<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px">
+<div style="padding: 18px; border-radius: 12px; border: 1px solid #5A3E25; background: #13171A; display: flex; flex-direction: column; gap: 8px"><span style="font-weight: 600; font-size: 16px">Broker version</span><span style="color: #A3ABAF">0.1.0 · 0.2.0 is available</span><span style="height: 36px; width: 160px; border-radius: 8px; background: #E8893A"></span></div>
+<div style="height: 140px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"></div>
+<div style="height: 220px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"></div>
+<div style="height: 220px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"></div>
+</div></div></div>
+</div>
+
+<div style="position: absolute; inset: 0; background: rgba(6, 8, 9, 0.66); display: flex; align-items: center; justify-content: center; padding: 24px">
+<section role="dialog" aria-modal="true" aria-labelledby="bu-title" style="width: 100%; max-width: 640px; max-height: 840px; border-radius: 14px; border: 1px solid #2F373D; background: #161A1D; box-shadow: 0 24px 64px rgba(0,0,0,0.55); display: flex; flex-direction: column">
+<div style="padding: 22px 24px 12px; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 10px"><h2 id="bu-title" style="margin: 0 auto 0 0; font-size: 20px; font-weight: 600">{{head.title}}</h2><span style="font-size: 11px; height: 22px; padding: 0 8px; border-radius: 11px; background: {{head.pillBg}}; color: {{head.pillC}}; display: flex; align-items: center">{{head.pill}}</span></div>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">{{head.sub}}</span>
+</div>
+
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 8px 24px 16px; display: flex; flex-direction: column; gap: 16px">
+<sc-if value="{{isReview}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<section style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Checked before anything changes</span>
+<sc-for list="{{checks}}" as="c" hint-placeholder-count="6"><div style="display: flex; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: #13171A"><span style="flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: {{c.c}}"></span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">{{c.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.45">{{c.d}}</span></div></div></sc-for>
+</section>
+<section style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">How it goes</span>
+<sc-for list="{{plan}}" as="p" hint-placeholder-count="5"><span style="display: flex; gap: 10px; font-size: 13px; color: #C5CBCE; line-height: 1.5"><code style="flex: none; color: #F3A766">{{p.n}}</code>{{p.t}}</span></sc-for>
+</section>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #C5CBCE">Type <code style="color: #ECE9E1">plant</code> to confirm
+<input type="text" value="plant" style="height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #13171A; color: #ECE9E1; font: inherit; font-size: 14px; box-sizing: border-box"></label>
+</div>
+</sc-if>
+
+<sc-if value="{{isRestart}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 10px; border: 1px solid #5A3E25; background: #1E1813"><span style="width: 28px; height: 28px; border-radius: 50%; border: 3px solid #3A4249; border-top-color: #E8893A; animation: wy-spin 1s linear infinite"></span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">plant is restarting on 0.2.0</span><span style="font-size: 13px; color: #A3ABAF">Studio lost the gateway at 15:31:04 and tries again every 2 s · <code>00:14</code></span></div></div>
+<ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="6"><li style="display: flex; gap: 12px; padding: 7px 0"><span style="flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid {{s.c}}; background: {{s.fill}}; box-sizing: border-box"></span><div style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; color: {{s.tc}}">{{s.t}}</span><code style="font-size: 11px; color: #8E979C">{{s.d}}</code></div></li></sc-for>
+</ol>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">Links on other machines walk to their next endpoint or wait; devices keep their last outputs. Values recorded by links during the restart are not lost if the link buffers them.</span>
+</div>
+</sc-if>
+
+<sc-if value="{{isResult}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div role="status" style="display: flex; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1px solid {{res.line}}; background: {{res.bg}}"><span style="flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: {{res.c}}"></span><div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">{{res.title}}</span><span style="font-size: 13px; color: #C5CBCE; line-height: 1.5">{{res.text}}</span></div></div>
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px"><sc-for list="{{facts}}" as="f" hint-placeholder-count="5"><span style="color: #8E979C">{{f.l}}</span><span>{{f.v}}</span></sc-for></div>
+</div>
+</sc-if>
+
+<sc-if value="{{isExternal}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: #C5CBCE; line-height: 1.55">
+<span>This broker runs in a container (<code>updates.mode: "external"</code>). It cannot replace itself: the image is changed where the container is defined, and the data volume carries the state across.</span>
+<code style="display: block; padding: 12px; border-radius: 8px; background: #0B0D0F; border: 1px solid #1D2226; font-size: 12px; color: #C5CBCE; white-space: pre-wrap">image: ghcr.io/gencto/wyrmd:0.2.0
+docker compose pull wyrmd &amp;&amp; docker compose up -d wyrmd</code>
+<span>Studio still makes the pre-update backup for you before you do it.</span>
+</div>
+</sc-if>
+</div>
+
+<div style="padding: 14px 24px 20px; border-top: 1px solid #252B30; display: flex; align-items: center; gap: 8px">
+<span style="margin-right: auto; font-size: 12px; color: #8E979C">{{foot.note}}</span>
+<button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">{{foot.secondary}}</button>
+<button type="button" aria-disabled="{{foot.dis}}" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{foot.bg}}; color: {{foot.fg}}; font-size: 14px; font-weight: 600; cursor: pointer">{{foot.primary}}</button>
+</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"review","options":["review","restarting","confirmed","rolledback","external"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stage = this.props.stage ?? 'review';
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', EMBER = '#E8893A';
+    const C = (t, d, c) => ({ t, d, c, line: c === AMBER ? '#4A4020' : '#252B30' });
+    const checks = [
+      C('Release signed and checked', 'wyrmd 0.2.0 linux-aarch64 · Ed25519 signature of the WYRM release key · SHA-256 ok', TEAL),
+      C('The new binary accepts this configuration', 'wyrmd 0.2.0 check /etc/wyrm/wyrmd.json5: ok', TEAL),
+      C('Room for it', '41 MiB for the binary and the pre-update backup; 38.2 GiB free', TEAL),
+      C('Registry moves from SCHEMA 19 to 20', '0.1.0 cannot read it afterwards: a rollback restores the pre-update backup of the control plane, so changes made after the update are lost on rollback.', AMBER),
+      C('Links built for this broker', 'Every installed package says wyrm_link 3; 0.2.0 runs 2 and 3.', TEAL),
+      C('A standby follows this broker', 'Update standby:plant first (it takes no traffic), then this one: the standby takes over for the restart.', AMBER)
+    ];
+    const plan = [
+      { n: '1', t: 'Pre-update backup of the control plane, secrets sealed (12 MiB, kept until the update is confirmed).' },
+      { n: '2', t: 'The new binary is staged beside the current one; 0.1.0 stays on disk.' },
+      { n: '3', t: 'The broker stops cleanly and the service manager starts 0.2.0 (systemd: about 5–15 s without the broker).' },
+      { n: '4', t: '0.2.0 runs on trial: it must have the router, the gateway and its links back within 3 min.' },
+      { n: '5', t: 'Then it confirms itself. If it does not, the next start goes back to 0.1.0 with the backup of step 1.' }
+    ];
+    const S = (t, d, st) => { const m = { done: [TEAL, '#15302A', '#ECE9E1'], now: [EMBER, 'transparent', '#ECE9E1'], todo: ['#3A4249', 'transparent', '#8E979C'] }[st]; return { t, d, c: m[0], fill: m[1], tc: m[2] }; };
+    const steps = [
+      S('Pre-update backup', 'backups/pre-update-0.2.0.wyrm-backup · 12 MiB', 'done'),
+      S('0.2.0 staged', 'versions/0.2.0/wyrmd', 'done'),
+      S('Stopped on 0.1.0, started on 0.2.0', 'systemd restart', 'done'),
+      S('Registry migrated 19 → 20', '', 'now'),
+      S('Router, gateway, links back', '', 'todo'),
+      S('Confirmed', '', 'todo')
+    ];
+    const rolled = stage === 'rolledback';
+    const res = rolled
+      ? { title: 'Back on 0.1.0', text: '0.2.0 started but the gateway did not come up in 3 min (port 8446 in use). The next start went back to 0.1.0 and restored the control plane from the pre-update backup. Nothing changed on the links.', c: AMBER, bg: '#2E2814', line: '#4A4020' }
+      : { title: 'plant runs 0.2.0', text: 'Router, gateway and 9 of 9 links back in 41 s. The update is confirmed; 0.1.0 and the pre-update backup are kept for 7 days.', c: TEAL, bg: '#15302A', line: '#36705F' };
+    const facts = rolled
+      ? [{ l: 'Tried', v: '0.2.0 · 15:31 – 15:34' }, { l: 'Reason', v: 'gateway: bind 127.0.0.1:8446: address in use' }, { l: 'Now', v: '0.1.0 · control plane as at 15:30' }, { l: 'Log of 0.2.0', v: 'kept in backups/pre-update-0.2.0' }, { l: 'Audit', v: 'update_rollback' }]
+      : [{ l: 'Version', v: '0.1.0 → 0.2.0 · Zenoh 1.10.1 → 1.11.0' }, { l: 'Without the broker', v: '9 s' }, { l: 'Links back', v: '9 of 9 in 41 s' }, { l: 'Roll back', v: 'possible until 20 Nov (control plane as at 15:30)' }, { l: 'Audit', v: 'update_start, update_confirmed' }];
+    const H = {
+      review: { title: 'Update plant to wyrmd 0.2.0', sub: 'Released 12 Nov · from the official release channel · the broker restarts once', pill: '0.1.0 → 0.2.0', pillBg: '#2A1F16', pillC: '#F3A766' },
+      restarting: { title: 'Updating plant', sub: 'This screen reconnects by itself.', pill: 'restarting', pillBg: '#2A1F16', pillC: '#F3A766' },
+      confirmed: { title: 'plant updated', sub: '', pill: '0.2.0', pillBg: '#15302A', pillC: TEAL },
+      rolledback: { title: 'Update rolled back', sub: '', pill: '0.1.0', pillBg: '#2E2814', pillC: AMBER },
+      external: { title: 'Update plant to wyrmd 0.2.0', sub: 'Released 12 Nov', pill: 'container', pillBg: '#22282D', pillC: '#A3ABAF' }
+    }[stage];
+    const F = {
+      review: { note: 'Needs config on sys · audited', secondary: 'Cancel', primary: 'Back up and update', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      restarting: { note: 'Closing Studio does not stop it.', secondary: 'Hide', primary: 'Reconnecting…', bg: '#22282D', fg: '#8E979C', dis: 'true' },
+      confirmed: { note: '', secondary: 'Close', primary: 'Roll back to 0.1.0…', bg: '#22282D', fg: '#ECE9E1', dis: 'false' },
+      rolledback: { note: '', secondary: 'Close', primary: 'Open the log of 0.2.0', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      external: { note: '', secondary: 'Close', primary: 'Make the backup', bg: EMBER, fg: '#0E1113', dis: 'false' }
+    }[stage];
+    return { checks, plan, steps, res, facts, head: H, foot: F,
+      isReview: stage === 'review', isRestart: stage === 'restarting', isResult: stage === 'confirmed' || rolled, isExternal: stage === 'external' };
+  }
+}
+</script>
+</body>
+</html>

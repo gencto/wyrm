@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — update a link</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113;color:#ECE9E1;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+code{font-family:'IBM Plex Mono',ui-monospace,monospace}
+a{color:#F3A766;text-decoration:none}
+button{font-family:inherit}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="height: 900px; display: flex; flex-direction: column; background: #0E1113; font-size: 14px; overflow: hidden">
+
+<header aria-hidden="true" style="flex: none; height: 56px; border-bottom: 1px solid #252B30; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: #0E1113"><span style="width: 36px; height: 22px; border-radius: 6px; background: #2A1F16"></span><span style="font-weight: 700; letter-spacing: 0.08em">WYRM</span><span style="color: #A3ABAF">Studio</span><span style="margin-left: 12px; height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #6CC4B0"></span><code>plant</code></span><span style="margin-left: auto; width: 36px; height: 36px; border-radius: 50%; background: #22282D"></span></header>
+
+<div style="flex: 1; min-height: 0; display: flex">
+<nav aria-hidden="true" style="flex: none; width: 76px; border-right: 1px solid #252B30; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 16px"><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span><span style="width: 44px; height: 44px; border-radius: 8px; background: #2A1F16"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span><span style="width: 28px; height: 28px; border-radius: 8px; background: #22282D"></span></nav>
+
+<!-- Links list -->
+<main style="flex: 1; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<h1 style="margin: 0 auto 0 0; font-size: 26px; font-weight: 600">Links</h1>
+<div role="tablist" aria-label="Filter" style="display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: #161A1D; border: 1px solid #252B30">
+<button type="button" role="tab" aria-selected="false" style="height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px">All · 9</button>
+<button type="button" role="tab" aria-selected="true" style="height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: #2F373D; color: #ECE9E1; font-size: 13px; display: flex; align-items: center; gap: 6px">Updates<span style="min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: #2A1F16; color: #F3A766; font-size: 11px; display: grid; place-items: center">3</span></button>
+<button type="button" role="tab" aria-selected="false" style="height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #A3ABAF; font-size: 13px">Remote · 2</button>
+</div>
+<button type="button" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 13px">Update all official…</button>
+</div>
+<span style="font-size: 12px; color: #8E979C">The official repository was read 14 min ago · <a href="#refresh">Check now</a></span>
+<div style="border: 1px solid #252B30; border-radius: 10px; background: #13171A; overflow: hidden">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+<div style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 150px 110px; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid #1D2226; background: {{r.bg}}">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{r.dot}}"></span><span style="font-weight: 600">{{r.id}}</span><span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #22282D; color: #A3ABAF">{{r.kind}}</span></span><code style="font-size: 12px; color: #8E979C">{{r.pkg}}</code></div>
+<span style="font-size: 13px; color: #C5CBCE">{{r.src}}</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 13px"><code style="color: #A3ABAF">{{r.from}}</code><span style="color: #5A6168">→</span><code style="color: {{r.toC}}">{{r.to}}</code></span>
+<span style="font-size: 12px; color: {{r.stC}}; text-align: right">{{r.st}}</span>
+</div>
+</sc-for>
+</div>
+</main>
+
+<!-- Drawer -->
+<aside aria-label="Update modbus" style="flex: none; width: 460px; border-left: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; min-height: 0; box-shadow: -24px 0 48px rgba(0,0,0,0.35)">
+<div style="padding: 18px 20px 14px; border-bottom: 1px solid #252B30; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 10px"><h2 style="margin: 0 auto 0 0; font-size: 18px; font-weight: 600">{{head.title}}</h2><span style="font-size: 11px; height: 22px; padding: 0 8px; border-radius: 11px; background: {{head.pillBg}}; color: {{head.pillC}}; display: flex; align-items: center">{{head.pill}}</span></div>
+<span style="font-size: 13px; color: #A3ABAF">{{head.sub}}</span>
+</div>
+
+<div style="flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 18px">
+
+<!-- Review -->
+<sc-if value="{{isReview}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 18px">
+<section style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">What is new in 0.5.0</span>
+<sc-for list="{{notes}}" as="n" hint-placeholder-count="3"><span style="display: flex; gap: 10px; font-size: 13px; line-height: 1.5; color: #C5CBCE"><span style="flex: none; width: 5px; height: 5px; margin-top: 8px; border-radius: 50%; background: #E8893A"></span>{{n}}</span></sc-for>
+<a href="#changelog" style="font-size: 12px">Full changelog ›</a></section>
+
+<section style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">What changes for the broker</span>
+<sc-for list="{{changes}}" as="c" hint-placeholder-count="4"><div style="display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid {{c.line}}; background: #161A1D"><span style="flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: {{c.c}}"></span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px">{{c.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.45">{{c.d}}</span></div></div></sc-for>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 10px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Before it starts</span>
+<label style="display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #C5CBCE; line-height: 1.5"><input type="checkbox" checked style="accent-color: #E8893A; width: 16px; height: 16px; margin-top: 2px">Save a restore point of both links (settings, nodes, store, the package 0.4.2) · 3.1 MiB, kept 7 days</label>
+<label style="display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #C5CBCE; line-height: 1.5"><input type="checkbox" checked style="accent-color: #E8893A; width: 16px; height: 16px; margin-top: 2px">Roll back by itself if a link does not come back with all its nodes in 2 min</label>
+<label style="display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #C5CBCE; line-height: 1.5"><input type="checkbox" style="accent-color: #E8893A; width: 16px; height: 16px; margin-top: 2px">Accept the new rights it asks for (network 10.0.5.0/24)</label>
+</section>
+</div>
+</sc-if>
+
+<!-- Progress -->
+<sc-if value="{{isProgress}}" hint-placeholder-val="{{false}}">
+<ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="7"><li style="display: flex; gap: 12px; padding: 8px 0"><span style="flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid {{s.c}}; background: {{s.fill}}; box-sizing: border-box; display: grid; place-items: center; animation: {{s.anim}}"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{s.dot}}"></span></span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; color: {{s.tc}}">{{s.t}}</span><code style="font-size: 11px; color: #8E979C">{{s.d}}</code></div></li></sc-for>
+</ol>
+</sc-if>
+
+<!-- Done / rolled back -->
+<sc-if value="{{isResult}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div role="status" style="display: flex; gap: 12px; padding: 14px 16px; border-radius: 10px; border: 1px solid {{res.line}}; background: {{res.bg}}"><span style="flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: {{res.c}}"></span><div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">{{res.title}}</span><span style="font-size: 13px; color: #C5CBCE; line-height: 1.5">{{res.text}}</span></div></div>
+<section style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Nodes before and after</span>
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px"><sc-for list="{{diff}}" as="d" hint-placeholder-count="3"><div style="padding: 10px 12px; border-radius: 8px; border: 1px solid #252B30; background: #161A1D; display: flex; flex-direction: column; gap: 2px"><code style="font-size: 20px; color: {{d.c}}">{{d.n}}</code><span style="font-size: 12px; color: #8E979C">{{d.l}}</span></div></sc-for></div>
+<sc-for list="{{diffRows}}" as="d" hint-placeholder-count="2"><div style="display: flex; gap: 8px; font-size: 12px"><span style="color: {{d.c}}; width: 14px">{{d.s}}</span><code style="color: #C5CBCE; overflow-wrap: anywhere">{{d.k}}</code><span style="margin-left: auto; color: #8E979C">{{d.note}}</span></div></sc-for>
+</section>
+<section style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">Restore points</span>
+<sc-for list="{{points}}" as="p" hint-placeholder-count="2"><div style="display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #1D2226; font-size: 13px"><code style="color: #C5CBCE">{{p.v}}</code><span style="color: #8E979C">{{p.when}}</span><a href="#restore" style="margin-left: auto; font-size: 12px">{{p.act}}</a></div></sc-for>
+</section>
+</div>
+</sc-if>
+</div>
+
+<div style="padding: 14px 20px 18px; border-top: 1px solid #252B30; display: flex; align-items: center; gap: 8px">
+<span style="margin-right: auto; font-size: 12px; color: #8E979C">{{foot.note}}</span>
+<sc-if value="{{foot.hasSecondary}}" hint-placeholder-val="{{true}}"><button type="button" style="height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-size: 14px; cursor: pointer">{{foot.secondary}}</button></sc-if>
+<button type="button" aria-disabled="{{foot.dis}}" style="height: 40px; padding: 0 16px; border-radius: 8px; border: 0; background: {{foot.bg}}; color: {{foot.fg}}; font-size: 14px; font-weight: 600; cursor: pointer">{{foot.primary}}</button>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"review","options":["review","progress","done","rolledback"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const stage = this.props.stage ?? 'review';
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', EMBER = '#E8893A', MUT = '#5A6168';
+    const R = (id, kind, pkg, src, from, to, st, stC, sel) => ({ id, kind, pkg, src, from, to, st, stC, toC: to === '—' ? '#8E979C' : '#F3A766', bg: sel ? '#1E1813' : 'transparent', dot: TEAL });
+    const rows = [
+      R('modbus', 'process', 'package modbus · official', 'links-v0.5.0 · SHA-256 checked', '0.4.2', '0.5.0', 'runs 2 links', '#A3ABAF', true),
+      R('line2-modbus', 'process', 'package modbus · official', 'same package as modbus', '0.4.2', '0.5.0', 'updated together', '#8E979C'),
+      R('telegram', 'wasm', 'package telegram · official', 'links-v0.3.1', '0.3.0', '0.3.1', 'hot start, no restart', '#A3ABAF'),
+      R('counter-avg', 'wasm', 'package counter-avg · custom (zip)', 'bring a newer archive', '1.2.0', '—', 'Update from file…', '#F3A766')
+    ];
+    const notes = ['FC23 read/write in one request', 'Points keep their quality across a reconnect', 'Fix: BCD32 word order on Schneider meters'];
+    const C = (t, d, c) => ({ t, d, c, line: c === AMBER ? '#4A4020' : '#252B30' });
+    const changes = [
+      C('2 links restart: modbus, line2-modbus', 'About 5 s without values each; their nodes are declared again from the settings they keep.', AMBER),
+      C('Settings and nodes are kept', 'The framework tree (2 connections, 6 devices, 142 points) stays in each link’s data folder and is read by 0.5.0.', TEAL),
+      C('It asks for one more network range', 'net: 10.0.5.0/24 (scan of a second subnet). Not applied unless you accept it below.', AMBER),
+      C('Store format: same (state 3)', 'The package says 0.5.0 reads the store of 0.4.2. A package that changes it says so here and rollback restores the old store.', TEAL)
+    ];
+    const S = (t, d, st) => {
+      const m = { done: [TEAL, '#15302A', TEAL, 'none', '#ECE9E1'], now: [EMBER, 'transparent', EMBER, 'wy-spin 1s linear infinite', '#ECE9E1'], todo: ['#3A4249', 'transparent', 'transparent', 'none', '#8E979C'] }[st];
+      return { t, d, c: m[0], fill: m[1], dot: m[2], anim: m[3], tc: m[4] };
+    };
+    const steps = [
+      S('Restore point saved', 'restore/modbus/2026-11-13T15:24 · 3.1 MiB', 'done'),
+      S('Package fetched and checked', 'modbus-0.5.0-linux-aarch64.zip · SHA-256 ok', 'done'),
+      S('Package unpacked beside 0.4.2', 'packages/modbus/0.5.0 (0.4.2 kept for rollback)', 'done'),
+      S('modbus restarted on 0.5.0', 'hello in 1.8 s', 'done'),
+      S('modbus: nodes declared again', '118 of 142 · waiting up to 2 min', 'now'),
+      S('line2-modbus restarted on 0.5.0', '', 'todo'),
+      S('Health: every link back with its nodes', '', 'todo')
+    ];
+    const rolled = stage === 'rolledback';
+    const res = rolled
+      ? { title: 'Rolled back to 0.4.2', text: 'line2-modbus came back on 0.5.0 with 61 of 84 nodes in 2 min. Both links run 0.4.2 again with the store and settings of the restore point. The log of 0.5.0 is kept with the restore point.', c: AMBER, bg: '#2E2814', line: '#4A4020' }
+      : { title: 'Both links run 0.5.0', text: 'modbus and line2-modbus are back with all their nodes. 0.4.2 stays installed for 7 days so you can roll back in one step.', c: TEAL, bg: '#15302A', line: '#36705F' };
+    const diff = rolled
+      ? [{ n: '84', l: 'kept (0.4.2)', c: '#ECE9E1' }, { n: '0', l: 'new', c: '#8E979C' }, { n: '0', l: 'gone', c: '#8E979C' }]
+      : [{ n: '226', l: 'kept', c: '#ECE9E1' }, { n: '+4', l: 'new in 0.5.0', c: TEAL }, { n: '0', l: 'gone', c: '#8E979C' }];
+    const diffRows = rolled
+      ? [{ s: '!', k: 'line2-modbus/ip1/unit3/**', note: 'not declared by 0.5.0 (23 points)', c: AMBER }]
+      : [{ s: '+', k: 'modbus/ip1/~act/read_write_registers', note: 'new action', c: TEAL }, { s: '+', k: 'modbus/*/diagnostics/reconnects', note: 'new value, per connection', c: TEAL }];
+    const points = rolled
+      ? [{ v: '0.4.2 · before update', when: 'today 15:24 · in use', act: 'Download' }]
+      : [{ v: '0.4.2 · before update', when: 'today 15:24 · 3.1 MiB · kept 7 days', act: 'Roll back to 0.4.2…' }, { v: '0.4.1 · before update', when: '2 Nov · 2.8 MiB', act: 'Download' }];
+    const H = {
+      review: { title: 'Update modbus 0.4.2 → 0.5.0', sub: 'Official package · 2 links run it · released 11 Nov', pill: 'official', pillBg: '#15302A', pillC: TEAL },
+      progress: { title: 'Updating modbus', sub: 'Values of these two links pause while each restarts.', pill: 'step 5 of 7', pillBg: '#2A1F16', pillC: '#F3A766' },
+      done: { title: 'modbus updated', sub: '0.4.2 → 0.5.0 · 2 links · 38 s', pill: 'done', pillBg: '#15302A', pillC: TEAL },
+      rolledback: { title: 'modbus update rolled back', sub: '0.5.0 → 0.4.2 · by itself after 2 min', pill: 'rolled back', pillBg: '#2E2814', pillC: AMBER }
+    }[stage];
+    const F = {
+      review: { note: 'Needs config on sys/links', secondary: 'Cancel', primary: 'Update 2 links', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      progress: { note: 'You can leave this screen; it goes on.', secondary: 'Stop and roll back', primary: 'Updating…', bg: '#22282D', fg: '#8E979C', dis: 'true' },
+      done: { note: 'Audit: package_install, link_restart ×2', secondary: 'Close', primary: 'Open modbus', bg: EMBER, fg: '#0E1113', dis: 'false' },
+      rolledback: { note: 'Audit: update_rollback', secondary: 'Close', primary: 'Open the log of 0.5.0', bg: EMBER, fg: '#0E1113', dis: 'false' }
+    }[stage];
+    return { rows, notes, changes, steps, res, diff, diffRows, points, head: H, foot: { ...F, hasSecondary: true },
+      isReview: stage === 'review', isProgress: stage === 'progress', isResult: stage === 'done' || rolled };
+  }
+}
+</script>
+</body>
+</html>
