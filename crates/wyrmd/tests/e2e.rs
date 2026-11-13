@@ -4520,6 +4520,53 @@ async fn chain_of_three_brokers() {
             .ok()
     })
     .await;
+    // ADR 0048 §3.6: a caller from above never replaces anything of the
+    // site with a restore (its token is signed by a limited key: the admin
+    // sees `Caller.signer`). The refusal comes before the file is read;
+    // `mode: add` passes that gate and fails on the file.
+    {
+        let backups = "wy/edge/sys/backups";
+        let junk = b"not a backup".to_vec();
+        let begin = args_map(&[("size", Value::UInt(junk.len() as u64))]);
+        let Some(Value::Map(m)) = ce
+            .invoke_one(backups, "restore_begin", begin)
+            .await
+            .expect("restore_begin from above")
+        else {
+            panic!("restore_begin: a map");
+        };
+        let Some(Value::Str(upload)) = m.get("upload").cloned() else {
+            panic!("restore_begin: upload");
+        };
+        let part = args_map(&[
+            ("upload", upload.clone().into()),
+            ("offset", Value::UInt(0)),
+            ("data", Value::Bytes(junk)),
+        ]);
+        ce.invoke_one(backups, "restore_part", part).await.unwrap();
+        let apply = |mode: &str| {
+            args_map(&[
+                ("upload", upload.clone().into()),
+                (
+                    "sections",
+                    Value::Array(vec![Value::from("storage"), Value::from("links")]),
+                ),
+                ("mode", mode.into()),
+            ])
+        };
+        let e = ce
+            .invoke_one(backups, "restore_apply", apply("replace"))
+            .await
+            .expect_err("replace from above");
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+        assert!(e.message.contains("upstream"), "{e}");
+        let e = ce
+            .invoke_one(backups, "restore_apply", apply("add"))
+            .await
+            .expect_err("add of a file that is no backup");
+        assert!(!e.message.contains("upstream"), "{e}");
+        assert!(!e_dir.join("restore.pending").exists());
+    }
     // allow_config opens config on edge's links too (Export is config);
     // plant's links stay at write (plant does not allow edge)
     eventually("central exports an edge link", 20, || async {
@@ -11281,6 +11328,24 @@ async fn backup_while_writing() {
         Some(&Value::Bool(false)),
         "Studio reads why the checkboxes are off"
     );
+    // the keys of this very broker (the same CA) do not come back either
+    // while the host's switch is off: every restore of `keys` passes it
+    {
+        let upload = upload_backup(&c, &bytes, 1 << 20).await;
+        let args = args_map(&[
+            ("upload", upload.into()),
+            ("passphrase", BACKUP_PASS.into()),
+            ("sections", names(&["keys"])),
+            ("mode", "replace".into()),
+            ("replace_keys", Value::Bool(true)),
+        ]);
+        let e = c
+            .invoke_one(&backups, "restore_apply", args)
+            .await
+            .unwrap_err();
+        assert!(e.message.contains("export_secrets"), "{e}");
+        assert!(!dir.join("restore.pending").exists());
+    }
     assert_eq!(env.ctl.backups().get(&id), Some(job.clone()));
     assert_eq!(download_backup(&c, &id, 16 << 20).await, bytes);
     c.invoke_one(&node, "remove", args_map(&[])).await.unwrap();

@@ -488,25 +488,31 @@ fn checked_package(dir: &Path, root: &Path, source: &str) -> Result<packages::Un
         .map_err(|e| format!("the package of the backup: {e}"))
 }
 
+/// What a package of a backup asks for, as `install_*` shows it: the
+/// network of its capabilities and its requester grants. One list for
+/// `install_backup` and for the broker restore.
+pub(super) fn package_asks(p: &packages::Unpacked) -> Vec<String> {
+    let mut asks = Vec::new();
+    if let Some(c) = p.app.as_ref().filter(|c| !c.net.is_empty()) {
+        asks.push(format!(
+            "package {}: network {}",
+            p.def.name,
+            c.net.join(", ")
+        ));
+    }
+    for (path, code) in &p.def.requester {
+        let level = Perm::try_from(*code).map_or("?", |p| p.name());
+        asks.push(format!("package {}: {level} on {path}", p.def.name));
+    }
+    asks
+}
+
 /// What a link backup asks for that an installer must have seen: the
 /// link's requester grants and network allowlist and, for a package this
 /// install brings (`package`), the grants and the network its manifest
 /// asks for, as `install_*` shows them.
 fn asks_of(def: &LinkDef, package: Option<&packages::Unpacked>) -> Vec<String> {
-    let mut asks = Vec::new();
-    if let Some(p) = package {
-        if let Some(c) = p.app.as_ref().filter(|c| !c.net.is_empty()) {
-            asks.push(format!(
-                "package {}: network {}",
-                p.def.name,
-                c.net.join(", ")
-            ));
-        }
-        for (path, code) in &p.def.requester {
-            let level = Perm::try_from(*code).map_or("?", |p| p.name());
-            asks.push(format!("package {}: {level} on {path}", p.def.name));
-        }
-    }
+    let mut asks = package.map(package_asks).unwrap_or_default();
     if let Value::Map(m) = decode_params(&def.params) {
         if let Some(Value::Str(net)) = m
             .get("net")

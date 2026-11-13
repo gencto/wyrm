@@ -92,22 +92,26 @@ Upload the `.wyrm-backup` (`restore_begin`, `restore_part`), then:
 
 | Action | Result |
 |---|---|
-| `sys/backups/~act/restore_check {upload, passphrase?}` | `{site, same_site, created, broker, sealed, schemas: {name: {backup, here}}, sections: {name: bytes}, keys: none|same|other, control_opens_here, links: {id: new|exists}, problems[], notes[]}` |
+| `sys/backups/~act/restore_check {upload, passphrase?}` | `{site, same_site, created, broker, sealed, schemas: {name: {backup, here}}, sections: {name: bytes}, keys: none|same|differ|other, keys_differ[], control_opens_here, links: {id: new|exists}, problems[], notes[]}` |
 | `sys/backups/~act/restore_apply {upload, sections, mode, passphrase?, accept?, replace_keys?}` | `add`: `{done[], skipped[], restart: false}`; `replace`: `{sections, restart: true}` |
 
 - **`mode: add`** works live. Sections `links` and `storage`. Links that do not exist are installed as `install_backup` does; storage nodes that do not exist are added. Nothing is replaced. `dataflows` is skipped with a note: a flow is deployed with proofs of its deployer.
-- **`mode: replace`** takes `control`, `keys`, `dataflows`, `storage`, `history`, `links`, `packages`.
+- **`mode: replace`** takes `control`, `keys`, `dataflows`, `storage`, `history`, `links`, `packages`. A caller whose authority comes from an upstream (`allow_config`) is refused `replace` altogether, before the file is read: it would replace this site's control state, links and packages. `add` stays open to it, with its `accept`.
   1. The broker makes a `pre-restore` backup of the same sections.
   2. It stages the sections in `data_dir/restore.pending` (written whole or not at all) and checks that each WAL opens with the keys that will be in place.
   3. It answers, then stops. The supervisor starts it again (`Restart=always`).
   4. The next start applies the folder before any store opens, then removes it. A start that stops halfway is taken up by the next one. The audit gets `restore_applied`.
 - A backup of another site name is refused. Set `site` in `wyrmd.json5` to the backup's first.
 - A backup whose store SCHEMA is newer than this broker reads is refused.
-- **`replace_keys`**: keys of another CA (a fresh `data_dir`) replace the site's identity only with `replace_keys: true`, the passphrase, `backups.export_secrets: true` and a caller of this site. Certificates of the replaced CA are removed; link processes, operators and peer brokers enrol again. The `pre-restore` backup then holds the old keys under the same passphrase.
+- **The `keys` section** is restored only through three gates, whatever the keys are (also the keys of this very broker): `backups.export_secrets: true` on the host, a caller of this site, and the passphrase.
+- **`replace_keys: true`** is needed too unless every key file of the backup is byte for byte this broker's. `restore_check` answers `keys`: `same` (all identical), `differ` (this CA, other key files: `state.key`, `secrets.key`, a gateway key, `secrets.bin`, a link token), `other` (another CA), and lists the files in `keys_differ`. With another CA, the certificates it issued are removed; link processes, operators and peer brokers enrol again. The `pre-restore` backup holds the old keys, under the same passphrase, whenever keys are replaced.
+- **Only defined files are restored.** Each file of a backup must be one its section defines, or the whole backup is refused by the check and by both modes: under `keys/` exactly the key files (`pki/ca.pem`, `pki/ca.key`, `state.key`, `secrets.key`, `flows.key`, `gateway/hmac.key`, `gateway/gateway.key`, `flows/flow.key`), `secrets.bin` and `links/<link id>/token`; `control/<store>/<file>` of the four WAL stores; `dataflows/artifacts/**`; `storage/tree.cbor` and `export.json`; `history/index.redb` and `history/days/<day>.redb`; `links/<link id>/{link.cbor, secrets, files/**}`; `packages/<name>/files/**`; `config/wyrmd.json`. The broker builds every destination from these checked parts; it never joins a path of the archive to a directory.
+- **Packages** of a `replace` pass the validator of every install (`packages::unpack`). What a package asks for (requester grants, network) needs `accept: true`, unless this broker has the same version with the same files; without it the answer lists them and nothing is staged.
+- **Link secrets.** Without `keys`, a link's secrets go into this broker's store, and the ones a broker makes for a link's identity (requester key, agent signing key) are dropped, as in `install_backup`. With `keys`, `secrets.bin` of the backup comes back whole, the broker-made ones among them: they are that site's own identity, restored under the gates above.
 - `control` of a backup under other keys is restored only together with `keys`.
 - With `state_anchor_dir` set, `control` is restored offline (`docs/operations.md` §3).
 - `links` with `control` restores the private data of every link of the backup; without `control`, of the links this broker has.
-- The audit journal is replaced only when the keys are.
+- The audit journal is replaced only when `state.key` is.
 
 To move a site to a new host: install `wyrmd` with the same `site` and `backups.export_secrets: true`, start it, upload the backup, `restore_apply` with `mode: replace`, `replace_keys: true` and every section.
 

@@ -6779,11 +6779,30 @@ mod tests {
         link_keys: Vec<wyrm_link_sdk::LimitedKey>,
         control_keys: Vec<ed25519_dalek::VerifyingKey>,
     ) -> Arc<Control> {
+        control_full(name, scheduler, prep, link_keys, control_keys, |_| {})
+    }
+
+    /// [`control`] whose configuration `tweak` changes before it opens.
+    pub(super) fn control_tweaked(
+        name: &str,
+        tweak: impl FnOnce(&mut ControlConfig),
+    ) -> Arc<Control> {
+        control_full(name, false, |_| {}, Vec::new(), Vec::new(), tweak)
+    }
+
+    fn control_full(
+        name: &str,
+        scheduler: bool,
+        prep: impl FnOnce(&std::path::Path),
+        link_keys: Vec<wyrm_link_sdk::LimitedKey>,
+        control_keys: Vec<ed25519_dalek::VerifyingKey>,
+        tweak: impl FnOnce(&mut ControlConfig),
+    ) -> Arc<Control> {
         let dir = std::env::temp_dir().join(format!("wyrm-ctl-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         prep(&dir);
-        let cfg = ControlConfig {
+        let mut cfg = ControlConfig {
             site: "s".into(),
             data_dir: dir,
             admin_keys: Vec::new(),
@@ -6808,6 +6827,7 @@ mod tests {
             backups: Default::default(),
             keep_previous_days: 7,
         };
+        tweak(&mut cfg);
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
     }
 
