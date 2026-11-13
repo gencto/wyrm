@@ -338,6 +338,26 @@ pub fn masked_name(name: &str) -> bool {
     })
 }
 
+/// The length of the protocol prefix of a Zenoh locator (`tls/`, `quic/`):
+/// the text starts with `[a-z][a-z0-9+.-]*` and a `/`. Anything else before
+/// the first `/` (a `:`, `@`, `?`, `#`, an upper case letter, nothing) is
+/// no protocol: 0, and nothing before the `@` is kept.
+fn locator_protocol(s: &str) -> usize {
+    let Some(slash) = s.find('/') else {
+        return 0;
+    };
+    let name = &s[..slash];
+    let ok = name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '.' | '-'));
+    if ok {
+        slash + 1
+    } else {
+        0
+    }
+}
+
 /// A shown text with what may hold a secret inside it masked whole,
 /// whether it is a URL (`scheme://…`), a Zenoh locator (`tls/host:7447`) or
 /// anything else:
@@ -347,7 +367,8 @@ pub fn masked_name(name: &str) -> bool {
 ///   `?***` or `#***`;
 /// * the userinfo before an `@` in the address part becomes `***`: after
 ///   `://` in a URL (`scheme://***@host…`), after the protocol in a locator
-///   (`tls/***@host:7447`). It ends at the last `@` of the address; a
+///   (`tls/***@host:7447`; a prefix is kept only when it is one,
+///   [`locator_protocol`]). It ends at the last `@` of the address; a
 ///   password with `/`, `?`, `#` or `@` in it (not escaped) hides where the
 ///   address ends, so when a `:` stands before the last `@` of the whole
 ///   text, that `@` is taken.
@@ -367,7 +388,7 @@ fn mask_shown(s: &str) -> Option<String> {
     };
     // where the userinfo starts: at the address, after a locator's protocol
     let from = match (scheme, at) {
-        (None, Some(at)) => rest[..at].find('/').map_or(0, |i| i + 1),
+        (None, Some(at)) => locator_protocol(&rest[..at]),
         _ => 0,
     };
     let tail = match at {
@@ -754,6 +775,20 @@ mod tests {
         assert_eq!(masked("tls/tok3n@h:7447#x=1"), "tls/***@h:7447#***");
         assert_eq!(masked("tls/u:hun/ter2@h:7447"), "tls/***@h:7447");
         assert_eq!(masked("u:hunter2@h"), "***@h");
+        // what stands before the first `/` is kept only when it is a
+        // locator's protocol
+        assert_eq!(masked("user:pa/ss@host"), "***@host");
+        assert_eq!(masked("user:hunter2/x@host:1#c=1"), "***@host:1#***");
+        assert_eq!(masked("tls/user:pw@host:7447"), "tls/***@host:7447");
+        assert_eq!(masked("quic/host:7447"), "quic/host:7447");
+        assert_eq!(masked("/var/u:hunter2@h/x"), "***@h/x");
+        assert_eq!(masked("TLS/u:hunter2@h"), "***@h");
+        assert_eq!(masked("a@b/u:hunter2@h"), "***@h");
+        assert_eq!(locator_protocol("tls/x"), 4);
+        assert_eq!(locator_protocol("unixsock-stream/x"), 16);
+        for no in ["u:p/x", "/x", "x", "1tls/x", "a?b/x", "a#b/x", "a@b/x"] {
+            assert_eq!(locator_protocol(no), 0, "{no}");
+        }
         // nothing to mask: as it is
         for plain in [
             "tcp/127.0.0.1:7447",
