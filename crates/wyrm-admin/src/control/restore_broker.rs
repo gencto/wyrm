@@ -461,11 +461,12 @@ fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Res
     Ok(())
 }
 
+/// `{link: {name: bytes}}`.
+type LinkSecrets = BTreeMap<String, BTreeMap<String, Zeroizing<Vec<u8>>>>;
+
 /// The link secrets a restore staged: `{link: {name: bytes}}`, without the
 /// ones a broker makes for a link's identity (never taken from a backup).
-fn parse_link_secrets(
-    bytes: &[u8],
-) -> Result<BTreeMap<String, BTreeMap<String, Zeroizing<Vec<u8>>>>, String> {
+fn parse_link_secrets(bytes: &[u8]) -> Result<LinkSecrets, String> {
     let Value::Map(links) =
         wyrm_core::codec::from_slice::<Value>(bytes).map_err(|e| format!("link secrets: {e}"))?
     else {

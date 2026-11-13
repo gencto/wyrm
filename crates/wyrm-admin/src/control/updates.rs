@@ -77,6 +77,9 @@ pub(super) struct UpdateOpts {
     /// Seconds the links have to come back with every key before the broker
     /// rolls back by itself; 0 keeps the new version and reports.
     pub auto_rollback_s: u32,
+    /// The caller has seen what the new version asks for beyond what its
+    /// links have (`accept`); set by the install that runs the update.
+    pub accept: bool,
 }
 
 impl Default for UpdateOpts {
@@ -84,6 +87,7 @@ impl Default for UpdateOpts {
         Self {
             restore_point: true,
             auto_rollback_s: DEFAULT_AUTO_ROLLBACK_S,
+            accept: false,
         }
     }
 }
@@ -1350,10 +1354,10 @@ impl Admin {
         app: Option<&Capabilities>,
         opts: UpdateOpts,
         sub: &str,
-        accept: bool,
         claim: PackageClaim,
     ) -> Result<String, String> {
         let ctl = &self.ctl;
+        let accept = opts.accept;
         let def = unpacked.def.clone();
         let name = def.name.clone();
         let root = ctl.packages_root();
@@ -2557,7 +2561,8 @@ mod tests {
             UpdateOpts::from_args(&args(vec![])).unwrap(),
             UpdateOpts {
                 restore_point: true,
-                auto_rollback_s: 120
+                auto_rollback_s: 120,
+                accept: false
             }
         );
         let o = UpdateOpts::from_args(&args(vec![

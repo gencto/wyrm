@@ -4493,7 +4493,8 @@ impl Admin {
             }
             // another version is installed: an update (ADR 0048)
             Some(old) => {
-                self.update_package(old, unpacked, app.as_ref(), opts, sub, accept, claim)
+                let opts = updates::UpdateOpts { accept, ..opts };
+                self.update_package(old, unpacked, app.as_ref(), opts, sub, claim)
                     .await?
             }
             None => {
