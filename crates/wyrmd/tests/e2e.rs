@@ -12553,13 +12553,17 @@ async fn package_update_from_the_repository() {
 
 /// ADR 0048 §3.4: `send` writes a kept backup into a file store through a
 /// file-store link the host named in `backups.send_links`, in parts, with
-/// the broker's backup sender key; a link the host did not name, and a
-/// backup that holds the keys, are refused.
+/// the broker's backup sender key, into the folder the host named and
+/// nowhere else. A link the host did not name, a path that climbs out of
+/// the folder, a name that exists and a backup that holds the keys are
+/// refused.
 #[tokio::test(flavor = "multi_thread")]
 async fn backup_is_sent_through_a_file_store_link() {
     let dir = temp_dir("backup-send");
     let store = temp_dir("backup-send-store");
-    std::fs::create_dir_all(store.join("backups")).unwrap();
+    std::fs::create_dir_all(store.join("backups/2026")).unwrap();
+    std::fs::create_dir_all(store.join("private")).unwrap();
+    std::fs::write(store.join("private/report.txt"), b"not a backup").unwrap();
     let store = store.canonicalize().unwrap();
     let links = format!(
         r#"links: {{
@@ -12570,6 +12574,7 @@ async fn backup_is_sent_through_a_file_store_link() {
             mock: {{ driver: "mock", params: {{ points: 8, rate_hz: 20, depth: 1, fanout: 2 }} }} }},"#,
         root = store.display()
     );
+    // a link id alone: the folder `backups` of its connections
     let extra = format!(r#"{links} backups: {{ send_links: ["files"], export_secrets: true }},"#);
     let env = Env::start_in(&dir, &extra).await;
     let c = slow_client(&env).await;
@@ -12582,8 +12587,11 @@ async fn backup_is_sent_through_a_file_store_link() {
     let meta = c.meta(&backups).await.unwrap();
     assert_eq!(
         meta.attr.as_ref().and_then(|a| a.get("send_links")),
-        Some(&names(&["files"])),
-        "Studio reads which links to offer"
+        Some(&Value::Array(vec![args_map(&[
+            ("link", "files".into()),
+            ("folder", "backups".into())
+        ])])),
+        "Studio reads which links to offer, and where the files go"
     );
     let storage = format!("wy/{SITE}/storage");
     // text that does not compress to nothing: the file is sent in several parts
@@ -12609,29 +12617,56 @@ async fn backup_is_sent_through_a_file_store_link() {
     );
     let job = backup_done(&env, &id).await;
     let node = format!("{backups}/{id}");
-    let send = |link: &str, path: &str| args_map(&[("link", link.into()), ("path", path.into())]);
+    let send = |link: &str, conn: &str, path: Option<&str>| {
+        let mut a = vec![
+            ("link", Value::from(link)),
+            ("connection", Value::from(conn)),
+        ];
+        a.extend(path.map(|p| ("path", Value::from(p))));
+        args_map(&a)
+    };
 
-    // refused: a link the host did not name, a node that is no folder
+    // refused: a link the host did not name (it has the same store)
     let e = c
-        .invoke_one(&node, "send", send("other", "c1/files/backups"))
+        .invoke_one(&node, "send", send("other", "c1", None))
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
     assert!(e.message.contains("backups.send_links"), "{e}");
+    // refused by the broker: a path that climbs out of the host's folder,
+    // an absolute one, a connection that is a path
+    for path in [
+        "../private/report.txt",
+        "2026/../../private/report.txt",
+        "/private/report.txt",
+        "..",
+    ] {
+        let e = c
+            .invoke_one(&node, "send", send("files", "c1", Some(path)))
+            .await
+            .expect_err(path);
+        assert!(e.is(wyrm_core::Status::InvalidParameter), "{path}: {e}");
+        assert!(e.message.contains("path"), "{path}: {e}");
+    }
     let e = c
-        .invoke_one(&node, "send", send("files", "c1/status"))
+        .invoke_one(&node, "send", send("files", "c1/files/private", None))
         .await
         .unwrap_err();
-    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("connection"), "{e}");
     // the link itself refuses a folder it does not have: nothing is sent
     let e = c
-        .invoke_one(&node, "send", send("files", "c1/files/nofolder"))
+        .invoke_one(&node, "send", send("files", "c1", Some("nofolder/x")))
         .await
         .unwrap_err();
     assert!(e.message.contains("did not take the file"), "{e}");
+    assert_eq!(
+        std::fs::read(store.join("private/report.txt")).unwrap(),
+        b"not a backup"
+    );
+    assert_eq!(std::fs::read_dir(store.join("private")).unwrap().count(), 1);
 
     let Some(Value::Map(sent)) = c
-        .invoke_one(&node, "send", send("files", "c1/files/backups"))
+        .invoke_one(&node, "send", send("files", "c1", None))
         .await
         .unwrap()
     else {
@@ -12677,14 +12712,21 @@ async fn backup_is_sent_through_a_file_store_link() {
         .iter()
         .filter(|r| r.op == "backup_send" && r.key == id)
         .collect();
+    // who, the backup, the link, the path, the size, the SHA-256
     assert!(
-        sends.iter().any(|r| r.detail.contains("started")),
+        sends.iter().any(|r| r.sub == "svc:wyr"
+            && r.detail.contains("started")
+            && r.detail.contains("link files")
+            && r.detail
+                .contains(&format!("path c1/files/backups/{}", job.file))
+            && r.detail.contains(&format!("{} bytes", job.size))
+            && r.detail.contains(&job.sha256)),
         "{sends:?}"
     );
     assert!(
         sends
             .iter()
-            .any(|r| r.detail.contains("sent to") && r.detail.contains(&to)),
+            .any(|r| r.sub == "svc:wyr" && r.detail.starts_with("sent;")),
         "{sends:?}"
     );
     eventually("the link's audit names the sender", 10, || async {
@@ -12698,12 +12740,51 @@ async fn backup_is_sent_through_a_file_store_link() {
             .then_some(())
     })
     .await;
-    // a second send of the same name: the link does not overwrite
+    // an existing target is never replaced: the same name again, and a
+    // file of the folder under another name
     let e = c
-        .invoke_one(&node, "send", send("files", "c1/files/backups"))
+        .invoke_one(&node, "send", send("files", "c1", None))
         .await
         .unwrap_err();
     assert!(e.message.contains("exists"), "{e}");
+    std::fs::write(store.join("backups/2026/kept.bin"), b"kept").unwrap();
+    c.invoke_one(
+        &format!("wy/{SITE}/downstream/files/c1/files/backups/2026"),
+        "refresh",
+        args_map(&[]),
+    )
+    .await
+    .unwrap();
+    let e = eventually("the link sees the file", 20, || async {
+        c.invoke_one(&node, "send", send("files", "c1", Some("2026/kept.bin")))
+            .await
+            .err()
+            .filter(|e| e.message.contains("exists"))
+    })
+    .await;
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert_eq!(
+        std::fs::read(store.join("backups/2026/kept.bin")).unwrap(),
+        b"kept"
+    );
+    // a sub-folder of the host's folder takes it under another name
+    c.invoke_one(
+        &node,
+        "send",
+        send("files", "c1", Some("2026/copy.wyrm-backup")),
+    )
+    .await
+    .unwrap();
+    eventually("the second copy is sent", 60, || async {
+        let j = env.ctl.backups().get(&id)?;
+        assert_ne!(j.send_status, "failed", "{}", j.send_error);
+        (j.send_status == "done" && j.sent_to.ends_with("2026/copy.wyrm-backup")).then_some(())
+    })
+    .await;
+    assert_eq!(
+        std::fs::read(store.join("backups/2026/copy.wyrm-backup")).unwrap(),
+        stored
+    );
 
     // a backup that holds the keys is never sent
     tokio::time::sleep(Duration::from_millis(1100)).await;
@@ -12724,12 +12805,145 @@ async fn backup_is_sent_through_a_file_store_link() {
         .invoke_one(
             &format!("{backups}/{with_keys}"),
             "send",
-            send("files", "c1/files/backups"),
+            send("files", "c1", None),
         )
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
     assert!(e.message.contains("keys"), "{e}");
-    assert_eq!(std::fs::read_dir(store.join("backups")).unwrap().count(), 1);
+    // the folder holds the one backup and the sub-folder, nothing else
+    assert_eq!(std::fs::read_dir(store.join("backups")).unwrap().count(), 2);
+    env.stop().await;
+}
+
+/// ADR 0048 §1 (rights): an update whose new version asks for a grant its
+/// links do not have installs nothing without `accept`; with it, each link
+/// of the package gets the grant, and keeps it after a rollback.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_with_new_grants_needs_accept() {
+    let dir = temp_dir("upd-accept");
+    let env = Env::start_in(&dir, MOCK).await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    let grant = "wy/{site}/downstream/mock";
+    let asks = serde_json::json!({ "requester": [{ "path": grant, "level": "read" }] });
+    let update = |accept: Option<bool>| {
+        let mut args = vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_good("2.0.0", asks.clone()))),
+        ];
+        args.extend(accept.map(|a| ("accept", Value::Bool(a))));
+        args
+    };
+    assert!(env.ctl.registry().links["u1"].grants.is_empty());
+
+    // without accept: the message names what is asked, nothing is installed
+    for accept in [None, Some(false)] {
+        let (ok, msg) = upd_call(&env, &links, "install_zip", update(accept)).await;
+        assert!(!ok, "{msg}");
+        assert!(msg.contains("asks for more than its links have"), "{msg}");
+        assert!(
+            msg.contains("read") && msg.contains("downstream/mock"),
+            "{msg}"
+        );
+        assert!(msg.contains("Nothing is installed"), "{msg}");
+    }
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "1.0.0");
+    assert!(reg.packages["updpkg"].previous.is_none());
+    assert!(reg.links["u1"].grants.is_empty());
+    assert!(!dir.join("packages/updpkg/2.0.0").exists());
+    assert!(!dir.join("restore/u1").exists(), "no restore point either");
+    drop(reg);
+
+    // with accept: installed, the link has the grant
+    let (ok, msg) = upd_call(&env, &links, "install_zip", update(Some(true))).await;
+    assert!(ok && msg.contains("1.0.0 → 2.0.0"), "{msg}");
+    let r = upd_result(&env, 180).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "2.0.0");
+    let read = wyrm_core::Perm::Read.code();
+    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    drop(reg);
+    upd_c2(&env, "c2 is still there on 2.0.0").await;
+
+    // a rollback brings 1.0.0 back; the accepted grant stays with the link
+    let package = format!("wy/{SITE}/sys/packages/updpkg");
+    let (ok, msg) = upd_call(&env, &package, "rollback", vec![]).await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "1.0.0");
+    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    drop(reg);
+    env.stop().await;
+}
+
+/// ADR 0048 §3.5 for a process link: its backup holds the private data the
+/// process wrote and the package it runs; installed under a new id on the
+/// same broker, the copy comes up with the runtime edit of the first.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_backup_of_a_process_link() {
+    let dir = temp_dir("linkbak-proc");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    let id = backup_id(
+        invoke_retry(
+            &env,
+            &format!("{links}/u1"),
+            "backup",
+            args_map(&[("sections", names(&["data", "package"]))]),
+        )
+        .await,
+    );
+    let job = backup_done(&env, &id).await;
+    assert_eq!((job.kind.as_str(), job.link.as_str()), ("link", "u1"));
+    assert_eq!(job.sections, ["settings", "data", "package"]);
+    // no passphrase: sealed for this site
+    assert_eq!(job.sealed, "broker");
+    let m = wyrm_admin::backup::read_manifest(&dir.join("backups").join(&job.file)).unwrap();
+    let link = m.link.as_ref().unwrap();
+    assert_eq!(
+        (link.id.as_str(), link.mode.as_str(), link.package.as_str()),
+        ("u1", "process", "updpkg")
+    );
+    assert_eq!(link.version, "1.0.0");
+    // what the process wrote in its private directory, sealed
+    let data = m.section("data").unwrap();
+    assert!(data
+        .files
+        .iter()
+        .any(|f| f.path == "data/files/framework.tree" && f.sealed));
+    assert!(m
+        .section("package")
+        .unwrap()
+        .files
+        .iter()
+        .any(|f| f.path == "package/files/bin/run"));
+
+    // a second link from it: same package, the data of the first
+    let c = slow_client(&env).await;
+    let bytes = download_backup(&c, &id, 16 << 20).await;
+    let args = args_map(&[("file", Value::Bytes(bytes)), ("id", "u2".into())]);
+    let (ok, msg) = install_outcome(invoke_retry(&env, &links, "install_backup", args).await);
+    assert!(ok && msg.contains("link u2 installed"), "{msg}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.links["u2"].driver, reg.links["u1"].driver);
+    assert_eq!(reg.links["u2"].mode, reg.links["u1"].mode);
+    drop(reg);
+    let c2 = format!("wy/{SITE}/downstream/u2/c2/status");
+    eventually(
+        "u2 has the connection u1 was given at runtime",
+        60,
+        || async {
+            let c = client_now(&env).await?;
+            c.meta(&c2).await.ok()
+        },
+    )
+    .await;
+    upd_c2(&env, "u1 still runs").await;
     env.stop().await;
 }

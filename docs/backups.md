@@ -38,7 +38,7 @@ A `.wyrm-backup` (broker) or `.wyrm-link` (one link) is a zip. Its first entry i
 | `sys/backups/<id>` | values `status` (`running`, `done`, `failed`), `progress` (%), `step`, `size`, `sha256`, `created`, `expires`, `error`, `sent_to`, `send_status`, `send_progress` (%), `send_error`; attributes `kind` (`full`, `link`, `pre-update`, `pre-restore`), `name`, `sections`, `sealed`, `link` | |
 | `sys/backups/<id>` | `download_part {offset, len?}` | `{data, offset, size, eof}`; `len` at most 16 MiB, default 4 MiB |
 | `sys/backups/<id>` | `remove` | |
-| `sys/backups/<id>` | `send {link, path, name?}` | `{to, upload, parts}`; the file goes to a file store in the background (§2.1) |
+| `sys/backups/<id>` | `send {link, connection, path?}` | `{to, upload, parts}`; the file goes to a file store in the background (§2.1) |
 
 Sections:
 
@@ -65,19 +65,29 @@ A client loop: `create`, read `status` until `done`, `download_part` from offset
 
 ### 2.1 Send a backup to a file store
 
-`sys/backups/<id>/~act/send {link, path, name?}` writes a kept backup into a file store (S3, WebDAV, Google Drive, a local directory: [filestores.md](filestores.md)) through a file-store link of this broker.
+`sys/backups/<id>/~act/send {link, connection, path?}` writes a kept backup into a file store (S3, WebDAV, Google Drive, a local directory: [filestores.md](filestores.md)) through a file-store link of this broker.
 
-1. On the host, name the link in `wyrmd.json5` and restart the broker: `backups: { send_links: ["files"] }`. The default is an empty list: `send` is refused. `sys/backups` shows the list as the attribute `send_links`.
-2. Call `send` with `link` (one of the list) and `path`, the folder node under the link: `<connection>/files`, or a folder below it (`c1/files/backups`). `name` defaults to the backup's file name.
-3. The broker begins an upload on the link (`upload_begin` with the size and SHA-256), answers `{to, upload, parts}`, and sends the parts (1 MiB each) in the background, then `upload_commit`.
-4. Read `send_status` of `sys/backups/<id>`: `sending` (with `send_progress`), `done`, or `failed` (with `send_error`). `sent_to` is `<link>/<path>/<name>`.
+1. On the host, name the link and the folder in `wyrmd.json5`, then restart the broker:
+   ```json5
+   backups: { send_links: [{ link: "files", folder: "site/backups" }] },
+   ```
+   A link id alone (`send_links: ["files"]`) means the folder `backups`. One folder for each link. The default is an empty list: `send` is refused. `sys/backups` shows the list as the attribute `send_links` (`[{link, folder}]`).
+2. Make the folder in the store (Create Folder on the link, or in the store itself). `send` does not create it.
+3. Call `send` with `link` (one of the list) and `connection` (a connection of that link). The file goes to `<connection>/files/<folder>/` under the backup's own file name.
+4. To give another name or a sub-folder, set `path`: `nightly.wyrm-backup`, or `2026/nightly.wyrm-backup` (the sub-folder must exist).
+5. The broker begins an upload on the link (`upload_begin` with the size and SHA-256), answers `{to, upload, parts}`, and sends the parts (1 MiB each) in the background, then `upload_commit`.
+6. Read `send_status` of `sys/backups/<id>`: `sending` (with `send_progress`), `done`, or `failed` (with `send_error`). `sent_to` is `<link>/<connection>/files/<folder>/<path>`.
 
-- The broker signs these calls with its backup sender key. Only the links in `send_links` trust that key: at `write`, on their own subtree, for the subject `broker:backup`. The broker makes the key on first use; it is no link's secret and is in no link backup.
+The broker writes with its own key, for any caller with `config` on `sys`. So the host decides where the files go, not the caller:
+
+- **Only below the host's folder.** `path` is a file name or a sub-path of plain names. An absolute path, `..`, an empty segment, `\` or `:` is refused before the link is called. `connection` is one name.
+- **A narrow token.** The broker signs these calls with its backup sender key. Only the links in `send_links` trust that key (at `write`, on their own subtree, for the subject `broker:backup`). Each token of a send is good for the keys of `<connection>/files/<folder>/**` and the connection's four upload actions only. The broker makes the key on first use; it is no link's secret and is in no link backup.
+- **Nothing is overwritten.** A name that exists in the folder is refused. Give another `path`.
+- **The audit names the caller.** `backup_send` in the admin's journal, at the start and at the end: who called, the backup, the link, the path, the size and the SHA-256. The link's own audit records each upload call under `claimed:broker:backup`; the upload actions carry no note, so the caller's name is only in the admin's journal.
 - A backup that holds the `keys` section is never sent. Download it on the broker's own gateway.
-- The link does not overwrite: a name that exists in the folder is refused. Give another `name`.
+- A caller that reaches the site through an upstream may send a backup without `keys`: the host named the destination.
 - One send runs at a time (`busy` beyond). A backup that is being sent is not removed or pruned. If the broker stops during a send, start `send` again.
 - The link spools the file on its own disk before it goes to the store (`<data_dir>/links/<id>/data/uploads/`), so that disk needs room for it.
-- Audit: `backup_send` at the start and at the end (the admin's journal); the link's own audit records each upload call under `claimed:broker:backup`.
 
 ## 3. Back up and restore one link
 

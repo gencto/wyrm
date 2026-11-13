@@ -173,13 +173,45 @@ pub struct BackupsSection {
     /// identity. Set it on the host, for the time it is needed.
     #[serde(default)]
     pub export_secrets: bool,
-    /// Ids of the file-store links (S3, WebDAV, Google Drive, a local
-    /// directory) the broker may send a kept backup through
-    /// (`sys/backups/<id>` ▸ `send`). Empty (the default): `send` is
-    /// refused. Only these links trust the broker's backup sender key, at
-    /// `write` on their own subtree.
+    /// The file-store links (S3, WebDAV, Google Drive, a local directory)
+    /// the broker may send a kept backup through (`sys/backups/<id>` ▸
+    /// `send`), each with the folder backups land in: `{link, folder}`, or
+    /// a link id alone for the folder `backups`. Empty (the default):
+    /// `send` is refused. Only these links trust the broker's backup sender
+    /// key, and a send writes below that folder only.
     #[serde(default)]
-    pub send_links: Vec<String>,
+    pub send_links: Vec<SendLinkEntry>,
+}
+
+/// One entry of `backups.send_links`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum SendLinkEntry {
+    /// A link id: the folder is `backups`.
+    Link(String),
+    Folder {
+        link: String,
+        #[serde(default = "default_send_folder")]
+        folder: String,
+    },
+}
+
+fn default_send_folder() -> String {
+    "backups".to_owned()
+}
+
+impl SendLinkEntry {
+    fn checked(&self) -> Result<wyrm_admin::SendLink, String> {
+        let (link, folder) = match self {
+            Self::Link(link) => (link.clone(), default_send_folder()),
+            Self::Folder { link, folder } => (link.clone(), folder.trim_matches('/').to_owned()),
+        };
+        wyrm_admin::registry::validate_link_id(&link)
+            .map_err(|e| format!("backups.send_links: {e}"))?;
+        wyrm_admin::control::send::check_folder(&folder)
+            .map_err(|e| format!("backups.send_links: link {link}: {e}"))?;
+        Ok(wyrm_admin::SendLink { link, folder })
+    }
 }
 
 fn default_backup_days() -> u32 {
@@ -188,6 +220,25 @@ fn default_backup_days() -> u32 {
 
 fn default_backup_mb() -> u64 {
     2048
+}
+
+impl BackupsSection {
+    /// `send_links` checked: link ids, plain relative folders, one folder
+    /// a link.
+    pub fn checked_send_links(&self) -> Result<Vec<wyrm_admin::SendLink>, String> {
+        let mut out: Vec<wyrm_admin::SendLink> = Vec::new();
+        for e in &self.send_links {
+            let entry = e.checked()?;
+            if out.iter().any(|o| o.link == entry.link) {
+                return Err(format!(
+                    "backups.send_links: link {} twice (one folder a link)",
+                    entry.link
+                ));
+            }
+            out.push(entry);
+        }
+        Ok(out)
+    }
 }
 
 impl Default for BackupsSection {
@@ -690,6 +741,7 @@ impl Config {
     pub fn from_json5(text: &str) -> Result<Self, Error> {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
+        cfg.backups.checked_send_links()?;
         // `downstream/<d>` is the broker node of downstream site d (ADR 0007).
         for d in &cfg.peers.downstream {
             if cfg.links.contains_key(&d.site) {
@@ -1888,7 +1940,7 @@ impl Daemon {
                 keep_days: cfg.backups.keep_days.clamp(1, 3650),
                 max_mb: cfg.backups.max_mb,
                 export_secrets: cfg.backups.export_secrets,
-                send_links: cfg.backups.send_links.clone(),
+                send_links: cfg.backups.checked_send_links()?,
                 config: cfg.config_file.as_deref().and_then(masked_config),
                 schemas: BTreeMap::from([
                     (
@@ -2120,6 +2172,46 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0048 §3.4: the host names where backups may be sent; a folder
+    /// that is no plain relative path is refused when the file is read.
+    #[test]
+    fn send_links_name_a_link_and_its_folder() {
+        let cfg = |send: &str| {
+            Config::from_json5(&format!(
+                r#"{{ site: "s", data_dir: "/tmp/x", backups: {{ send_links: {send} }} }}"#
+            ))
+        };
+        assert!(cfg("[]").unwrap().backups.send_links.is_empty());
+        let links = cfg(r#"["files", { link: "s3", folder: "/site/backups/" }, { link: "dav" }]"#)
+            .unwrap()
+            .backups
+            .checked_send_links()
+            .unwrap();
+        let got: Vec<(&str, &str)> = links
+            .iter()
+            .map(|l| (l.link.as_str(), l.folder.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("files", "backups"),
+                ("s3", "site/backups"),
+                ("dav", "backups")
+            ]
+        );
+        for bad in [
+            r#"[{ link: "files", folder: "../other" }]"#,
+            r#"[{ link: "files", folder: "a/../../b" }]"#,
+            r#"[{ link: "files", folder: "a//b" }]"#,
+            r#"[{ link: "files", folder: "" }]"#,
+            r#"[{ link: "a/b", folder: "x" }]"#,
+            r#"["files", { link: "files", folder: "x" }]"#,
+            r#"[{ folder: "x" }]"#,
+        ] {
+            assert!(cfg(bad).is_err(), "{bad}");
+        }
+    }
 
     /// ADR 0043: a `builtin` form of the official manifest is a driver this
     /// binary hosts (`wyr repo check` cannot see this list).

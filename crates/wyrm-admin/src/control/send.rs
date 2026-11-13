@@ -1,8 +1,8 @@
-//! `sys/backups/<id>/~act/send {link, path, name?}` (ADR 0048 §3.4): the
-//! broker writes a kept backup into a file store (S3, WebDAV, Google Drive,
-//! a local directory) through a file-store link, in parts, with the link's
-//! own upload actions (`upload_begin` / `upload_part` / `upload_commit`,
-//! ADR 0028).
+//! `sys/backups/<id>/~act/send {link, connection, path?}` (ADR 0048 §3.4):
+//! the broker writes a kept backup into a file store (S3, WebDAV, Google
+//! Drive, a local directory) through a file-store link, in parts, with the
+//! link's own upload actions (`upload_begin` / `upload_part` /
+//! `upload_commit`, ADR 0028).
 //!
 //! The admin has no signing key links trust, so it gets one for this alone:
 //! the **backup sender key**, a secret the broker makes (like a link's
@@ -11,10 +11,18 @@
 //! limited key at `write` on their own subtree, bound to the subject
 //! [`SENDER_SUBJECT`]. Nothing is kept in the registry.
 //!
+//! The broker writes here with its own key for whoever has `config` on
+//! `sys`, whatever that caller may do on the link. So the **host** decides
+//! where a backup may land, not the caller: each entry of `send_links`
+//! names one folder, the caller names a connection and a file (or a
+//! sub-path) below that folder, and every token the broker signs is good
+//! for that folder's keys and the connection's four upload actions only.
+//! Nothing is overwritten. The audit names the caller.
+//!
 //! A backup that holds the `keys` section is never sent: the site's
 //! identity does not go to a store by a remote command.
 
-use super::backups::Job;
+use super::backups::{Job, SendLink};
 use super::*;
 use ed25519_dalek::SigningKey;
 
@@ -56,7 +64,7 @@ impl Control {
     /// The limited key the link `id` trusts the broker's `send` with:
     /// `None` unless the host named the link in `backups.send_links`.
     pub(super) fn backup_sender_key(&self, id: &str) -> Option<wyrm_link_sdk::LimitedKey> {
-        if !self.cfg.backups.send_links.iter().any(|l| l == id) {
+        if !self.cfg.backups.send_links.iter().any(|l| l.link == id) {
             return None;
         }
         let key = match self.sender_seed() {
@@ -75,26 +83,76 @@ impl Control {
     }
 }
 
-/// What `send` was asked for, checked.
+/// What `send` was asked for, checked against the host's list.
 #[derive(Debug, Clone, PartialEq)]
 struct Target {
     link: String,
-    /// The folder node under the link: `<connection>/files[/<folder>…]`.
-    path: String,
     /// The connection: the node of `upload_part` and `upload_commit`.
     conn: String,
+    /// The folder node under the link the file goes into:
+    /// `<connection>/files/<host's folder>[/<sub-folders of the path>]`.
+    folder: String,
+    /// The host's folder node (`<connection>/files/<folder>`): the tokens
+    /// of this send are good below it and nowhere else.
+    root: String,
     /// The file's name in the store.
     name: String,
 }
 
 impl Target {
     fn shown(&self) -> String {
-        format!("{}/{}/{}", self.link, self.path, self.name)
+        format!("{}/{}/{}", self.link, self.folder, self.name)
+    }
+
+    /// The grants of this send's tokens: the host's folder, and the four
+    /// upload actions of the connection (they act only on uploads this
+    /// subject began, so only on ones begun in that folder).
+    fn grants(&self, site: &str) -> Vec<wyrm_core::ptok::Grant> {
+        let link = format!("wy/{site}/downstream/{}", self.link);
+        let mut out = vec![wyrm_core::ptok::Grant {
+            k: format!("{link}/{}/**", self.root),
+            p: Perm::Write,
+        }];
+        for action in UPLOAD_ACTIONS {
+            out.push(wyrm_core::ptok::Grant {
+                k: format!("{link}/{}/~act/{action}", self.conn),
+                p: Perm::Write,
+            });
+        }
+        out
+    }
+}
+
+/// The actions of a connection a send calls after `upload_begin`.
+const UPLOAD_ACTIONS: [&str; 4] = [
+    "upload_part",
+    "upload_commit",
+    "upload_status",
+    "upload_abort",
+];
+
+/// One segment of a path a caller or the host gave: a plain name.
+fn plain(seg: &str) -> bool {
+    !seg.is_empty()
+        && seg != "."
+        && seg != ".."
+        && !seg.contains(['\\', ':'])
+        && wyrm_core::keyspace::validate_segment(seg).is_ok()
+}
+
+/// A `folder` of `backups.send_links`: plain segments, relative.
+pub fn check_folder(folder: &str) -> Result<(), String> {
+    if folder.split('/').all(plain) {
+        Ok(())
+    } else {
+        Err(format!(
+            "folder {folder:?}: a relative path of plain names (no `..`, no empty segment)"
+        ))
     }
 }
 
 /// Check the arguments of `send` for the job `j` against the host's list.
-fn target_of(j: &Job, args: &Value, send_links: &[String]) -> Result<Target, LinkError> {
+fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
     let bad = |m: &str| LinkError::invalid_parameter(m.to_owned());
     if j.status != "done" {
         return Err(LinkError::new(
@@ -112,40 +170,44 @@ fn target_of(j: &Job, args: &Value, send_links: &[String]) -> Result<Target, Lin
         .filter(|l| !l.is_empty())
         .ok_or_else(|| bad("link: required"))?;
     crate::registry::validate_link_id(link).map_err(|e| bad(&e))?;
-    if !send_links.iter().any(|l| l == link) {
+    let Some(entry) = send_links.iter().find(|l| l.link == link) else {
         return Err(bad(&format!(
             "link {link} is not one the broker sends backups through: name it in \
              backups.send_links in wyrmd.json5 (set on the host)"
         )));
-    }
-    let path = arg_str(args, "path")
-        .map(|p| p.trim_matches('/'))
-        .filter(|p| !p.is_empty())
-        .ok_or_else(|| bad("path: required (<connection>/files, or a folder below it)"))?;
-    wyrm_core::keyspace::validate_path(path).map_err(|e| bad(&format!("path: {e}")))?;
-    if path.split('/').any(|s| s == "." || s == "..") {
-        return Err(bad("path: no `.` or `..`"));
-    }
-    let mut segs = path.split('/');
-    let conn = segs.next().unwrap_or_default();
-    if segs.next() != Some("files") {
-        return Err(bad(
-            "path: <connection>/files, or a folder below it (the folder node of the file store \
-             link)",
-        ));
-    }
-    let name = match arg_str(args, "name").filter(|n| !n.is_empty()) {
-        Some(n) => n,
+    };
+    check_folder(&entry.folder).map_err(|e| bad(&format!("backups.send_links: {e}")))?;
+    let conn = arg_str(args, "connection")
+        .filter(|c| plain(c))
+        .ok_or_else(|| bad("connection: required, a connection of the link"))?;
+    // the path is below the host's folder: a file name, or sub-folders and
+    // a file name. It is never absolute and never climbs.
+    let path = match arg_str(args, "path").filter(|p| !p.is_empty()) {
+        Some(p) => p,
         None => j.file.as_str(),
     };
-    if name.contains(['/', '\\']) || name == "." || name == ".." || name.len() > 255 {
-        return Err(bad("name: a file name"));
+    let segs: Vec<&str> = path.split('/').collect();
+    if !segs.iter().all(|s| plain(s)) {
+        return Err(bad(&format!(
+            "path: a file name or a sub-path below the folder {} of plain names (not absolute, \
+             no `..`, no empty segment)",
+            entry.folder
+        )));
     }
+    let Some((name, sub)) = segs.split_last() else {
+        return Err(bad("path: a file name"));
+    };
+    if name.len() > 255 {
+        return Err(bad("path: a file name of at most 255 bytes"));
+    }
+    let root = format!("{conn}/files/{}", entry.folder);
+    let folder = sub.iter().fold(root.clone(), |f, s| format!("{f}/{s}"));
     Ok(Target {
         link: link.to_owned(),
-        path: path.to_owned(),
         conn: conn.to_owned(),
-        name: name.to_owned(),
+        folder,
+        root,
+        name: (*name).to_owned(),
     })
 }
 
@@ -273,7 +335,10 @@ impl Sending {
                     "backup_send",
                     &self.id,
                     Status::Ok,
-                    &format!("sent to {} ({} bytes)", self.to.shown(), self.size),
+                    &format!(
+                        "sent; link {}; path {}/{}; {} bytes",
+                        self.to.link, self.to.folder, self.to.name, self.size
+                    ),
                 );
             }
             Err(e) => {
@@ -309,12 +374,10 @@ pub(super) async fn send(
     }
     let key = ctl.sender_seed().map_err(LinkError::internal)?;
     let scope = format!("wy/{}/downstream/{}", ctl.cfg.site, to.link);
+    // good for the host's folder and the connection's upload actions only
     let tokens = wyrm_client::SigningTokens::new(key, ctl.cfg.site.clone())
         .subject(SENDER_SUBJECT)
-        .grants(vec![wyrm_core::ptok::Grant {
-            k: format!("{scope}/**"),
-            p: Perm::Write,
-        }])
+        .grants(to.grants(&ctl.cfg.site))
         .max(Perm::Write);
     let client = wyrm_client::WyrmClient::new(ctx.client().clone())
         .with_tokens(Arc::new(tokens))
@@ -330,9 +393,11 @@ pub(super) async fn send(
         ("size", Value::UInt(job.size)),
         ("part_size", Value::UInt(PART)),
         ("sha256", Value::from(job.sha256.clone())),
+        // never: a send replaces no file of the store
+        ("overwrite", Value::Bool(false)),
     ]);
     let begun = client
-        .invoke_one(&format!("{scope}/{}", to.path), "upload_begin", begin)
+        .invoke_one(&format!("{scope}/{}", to.folder), "upload_begin", begin)
         .await;
     let upload = match begun {
         Ok(v) => text(&v, "upload"),
@@ -364,12 +429,17 @@ pub(super) async fn send(
         j.send_progress = 0;
         j.send_error.clear();
     });
+    // who, what, where: the link's own audit names only the broker's
+    // subject (the upload actions take no note of the caller)
     ctl.record(
         sub,
         "backup_send",
         id,
         Status::Ok,
-        &format!("to {} ({} bytes), started", to.shown(), job.size),
+        &format!(
+            "started; link {}; path {}/{}; {} bytes; sha256 {}",
+            to.link, to.folder, to.name, job.size, job.sha256
+        ),
     );
     let answer = args_of([
         ("to", Value::from(to.shown())),
@@ -404,17 +474,20 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
                     .description("One of backups.send_links (attribute send_links of sys/backups)"),
             )
             .param(
-                "path",
+                "connection",
                 str_param()
                     .required(true)
-                    .display("Folder")
-                    .description("<connection>/files, or a folder below it"),
+                    .display("Connection")
+                    .description(
+                        "A connection of the link; the file goes into the host's folder of it",
+                    ),
             )
             .param(
-                "name",
-                str_param()
-                    .display("File name")
-                    .description("Default: the backup's own name"),
+                "path",
+                str_param().display("File name").description(
+                    "Below the host's folder: a file name, or sub-folders and a file name. \
+                         Default: the backup's own name",
+                ),
             )
             .result(ActionResult::Type(TypeCode::Map))
             .timeout_ms(INSTALL_TIMEOUT_MS)
@@ -461,13 +534,20 @@ mod tests {
         )
     }
 
+    fn host(link: &str, folder: &str) -> Vec<SendLink> {
+        vec![SendLink {
+            link: link.to_owned(),
+            folder: folder.to_owned(),
+        }]
+    }
+
     #[test]
     fn send_is_refused_without_the_hosts_list_and_for_keys() {
-        let allowed = vec!["files".to_owned()];
-        let ok = args(&[("link", "files"), ("path", "/c1/files/backups/")]);
+        let allowed = host("files", "backups");
+        let ok = args(&[("link", "files"), ("connection", "c1")]);
         let t = target_of(&job(&["control", "storage"]), &ok, &allowed).unwrap();
         assert_eq!(
-            (t.conn.as_str(), t.path.as_str(), t.name.as_str()),
+            (t.conn.as_str(), t.folder.as_str(), t.name.as_str()),
             (
                 "c1",
                 "c1/files/backups",
@@ -483,26 +563,79 @@ mod tests {
         assert!(e.message.contains("backups.send_links"), "{e}");
         assert!(e.status.code() >= 0x20);
         // another link than the host named
-        let other = args(&[("link", "s3"), ("path", "c1/files")]);
-        assert!(target_of(&job(&["control"]), &other, &allowed).is_err());
+        let other = args(&[("link", "s3"), ("connection", "c1")]);
+        let e = target_of(&job(&["control"]), &other, &allowed).unwrap_err();
+        assert!(e.message.contains("backups.send_links"), "{e}");
         // a backup with the site's keys never goes to a store
         let e = target_of(&job(&["control", "keys"]), &ok, &allowed).unwrap_err();
         assert!(e.message.contains("keys"), "{e}");
         assert!(e.status.code() >= 0x20);
-        // not a folder node of a connection, or a path that leaves it
-        for path in ["c1", "c1/status", "c1/files/../x", "", "c1/files/a b\u{0}"] {
-            let a = args(&[("link", "files"), ("path", path)]);
-            assert!(
-                target_of(&job(&["control"]), &a, &allowed).is_err(),
-                "{path}"
-            );
-        }
-        let named = args(&[("link", "files"), ("path", "c1/files"), ("name", "../x")]);
-        assert!(target_of(&job(&["control"]), &named, &allowed).is_err());
         let mut running = job(&["control"]);
         running.status = "running".into();
         let e = target_of(&running, &ok, &allowed).unwrap_err();
         assert_eq!(e.status, Status::Busy, "{e}");
+    }
+
+    /// The confused deputy: the broker writes with its own key, so the
+    /// caller never chooses where. The file lands in the host's folder or
+    /// below it; a path that climbs out, an absolute one and a connection
+    /// that is a path are refused, and the tokens are good for that folder
+    /// and the connection's upload actions only.
+    #[test]
+    fn a_send_stays_in_the_hosts_folder() {
+        let allowed = host("files", "site/backups");
+        let j = job(&["control"]);
+        let with = |path: &str| args(&[("link", "files"), ("connection", "c1"), ("path", path)]);
+        let t = target_of(&j, &with("2026/nightly.wyrm-backup"), &allowed).unwrap();
+        assert_eq!(t.root, "c1/files/site/backups");
+        assert_eq!(t.folder, "c1/files/site/backups/2026");
+        assert_eq!(t.name, "nightly.wyrm-backup");
+        for path in [
+            "../other/x",
+            "..",
+            "a/../../x",
+            "/etc/passwd",
+            "/x",
+            "a//x",
+            "a/",
+            "./x",
+            "C:\\x",
+            "a\\..\\x",
+            "c1/files/../x",
+            "a b\u{0}",
+        ] {
+            let e = target_of(&j, &with(path), &allowed).expect_err(path);
+            assert!(e.message.contains("path"), "{path}: {e}");
+            assert!(e.status.code() >= 0x20);
+        }
+        // the connection is one name, not a way to another node
+        for conn in ["", "c1/files", "..", "c1/../c2", "a:b"] {
+            let a = args(&[("link", "files"), ("connection", conn)]);
+            assert!(target_of(&j, &a, &allowed).is_err(), "{conn}");
+        }
+        let none = args(&[("link", "files")]);
+        assert!(target_of(&j, &none, &allowed).is_err());
+        // a folder of the host that is no plain path is refused, not used
+        for folder in ["", "../x", "/abs", "a//b", "a/.."] {
+            assert!(check_folder(folder).is_err(), "{folder}");
+            let e = target_of(&j, &with("x"), &host("files", folder)).unwrap_err();
+            assert!(e.message.contains("send_links"), "{folder}: {e}");
+        }
+        assert!(check_folder("backups").is_ok() && check_folder("a/b").is_ok());
+
+        // what a token of this send is good for
+        let grants: Vec<String> = t.grants("s").into_iter().map(|g| g.k).collect();
+        assert_eq!(
+            grants,
+            [
+                "wy/s/downstream/files/c1/files/site/backups/**",
+                "wy/s/downstream/files/c1/~act/upload_part",
+                "wy/s/downstream/files/c1/~act/upload_commit",
+                "wy/s/downstream/files/c1/~act/upload_status",
+                "wy/s/downstream/files/c1/~act/upload_abort",
+            ]
+        );
+        assert!(t.grants("s").iter().all(|g| g.p == Perm::Write));
     }
 
     /// Only the links the host named trust the sender key, at `write` on
@@ -511,7 +644,10 @@ mod tests {
     #[test]
     fn only_the_named_links_trust_the_sender_key() {
         let ctl = super::super::tests::control_tweaked("send-trust", |c| {
-            c.backups.send_links = vec!["files".to_owned()];
+            c.backups.send_links = vec![SendLink {
+                link: "files".to_owned(),
+                folder: "backups".to_owned(),
+            }];
         });
         let k = ctl.backup_sender_key("files").unwrap();
         assert_eq!(k.cap, Perm::Write);

@@ -53,16 +53,26 @@ pub struct BackupConfig {
     /// data that open on any broker. While `false`, `keys` is refused and
     /// link secrets are sealed for this site only.
     pub export_secrets: bool,
-    /// The file-store links the broker may send a kept backup through
-    /// (`backups.send_links`, default none: `send` is refused; set on the
-    /// host alone). Only they trust the backup sender key
-    /// ([`super::send`]).
-    pub send_links: Vec<String>,
+    /// The file-store links the broker may send a kept backup through,
+    /// each with the one folder backups land in (`backups.send_links`,
+    /// default none: `send` is refused; set on the host alone). Only they
+    /// trust the backup sender key ([`super::send`]).
+    pub send_links: Vec<SendLink>,
     /// `wyrmd.json5` as read at start, as JSON with every secret masked
     /// ([`crate::secrets::mask_config`]), for the `config` section.
     pub config: Option<String>,
     /// `State::SCHEMA` of the stores other crates own: `users`, `flows`.
     pub schemas: BTreeMap<String, u32>,
+}
+
+/// One entry of `backups.send_links`: a file-store link and the folder of
+/// its connections that backups are sent into.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SendLink {
+    pub link: String,
+    /// Below `<connection>/files`: plain names, relative
+    /// ([`super::send::check_folder`]).
+    pub folder: String,
 }
 
 impl Default for BackupConfig {
@@ -1627,7 +1637,12 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
                         .backups
                         .send_links
                         .iter()
-                        .map(|l| Value::from(l.clone()))
+                        .map(|l| {
+                            Value::Map(BTreeMap::from([
+                                ("link".to_owned(), Value::from(l.link.clone())),
+                                ("folder".to_owned(), Value::from(l.folder.clone())),
+                            ]))
+                        })
                         .collect(),
                 ),
             )

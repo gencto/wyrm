@@ -21,7 +21,7 @@ pub mod secret;
 pub mod secrets;
 pub mod supervisor;
 
-pub use control::backups::{BackupConfig, LinkBackup};
+pub use control::backups::{BackupConfig, LinkBackup, SendLink};
 pub use control::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, PeerConfig, RunningLink,
     UpstreamConf,
