@@ -145,6 +145,15 @@ pub struct Config {
     pub config_file: Option<PathBuf>,
 }
 
+/// The configuration file `path` as JSON with its secrets masked, for the
+/// `config` section of a backup; `None` when it cannot be read.
+fn masked_config(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut v: serde_json::Value = json5::from_str(&text).ok()?;
+    wyrm_admin::secrets::mask_config(&mut v);
+    serde_json::to_string_pretty(&v).ok()
+}
+
 /// `backups` in `wyrmd.json5`.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -156,6 +165,14 @@ pub struct BackupsSection {
     /// one never.
     #[serde(default = "default_backup_mb")]
     pub max_mb: u64,
+    /// Secrets may leave this broker in a backup sealed with a passphrase
+    /// the caller picks: the `keys` section (the site CA, `state.key`,
+    /// `secrets.key`, the gateway keys, `secrets.bin`, link tokens) and link
+    /// secrets that open on any broker. Off by default: whoever has
+    /// `config` on `sys` would else turn a session into the site's
+    /// identity. Set it on the host, for the time it is needed.
+    #[serde(default)]
+    pub export_secrets: bool,
 }
 
 fn default_backup_days() -> u32 {
@@ -171,6 +188,7 @@ impl Default for BackupsSection {
         Self {
             keep_days: default_backup_days(),
             max_mb: default_backup_mb(),
+            export_secrets: false,
         }
     }
 }
@@ -1763,6 +1781,10 @@ impl Daemon {
     /// process links (`<link_exe> link <driver>`), normally this binary.
     pub fn open(cfg: Config, link_exe: PathBuf) -> Result<Self, Error> {
         std::fs::create_dir_all(&cfg.data_dir)?;
+        // A restore staged by `sys/backups/~act/restore_apply {mode: replace}`
+        // (ADR 0048 §3.6): put in place before any store opens.
+        let restored = wyrm_admin::control::restore_broker::apply_pending(&cfg.data_dir)
+            .map_err(|e| format!("restore.pending: {e}"))?;
         let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
         let anchor = |name: &str| cfg.state_anchor_dir.as_ref().map(|d| d.join(name));
         if let Some(d) = &cfg.state_anchor_dir {
@@ -1840,7 +1862,8 @@ impl Daemon {
             backups: wyrm_admin::BackupConfig {
                 keep_days: cfg.backups.keep_days.clamp(1, 3650),
                 max_mb: cfg.backups.max_mb,
-                config_file: cfg.config_file.clone(),
+                export_secrets: cfg.backups.export_secrets,
+                config: cfg.config_file.as_deref().and_then(masked_config),
                 schemas: BTreeMap::from([
                     (
                         "users".to_owned(),
@@ -1933,6 +1956,16 @@ impl Daemon {
             ctl.set_role_grants(Arc::new(GatewayRoles(gw.clone())));
         }
         ctl.bootstrap(&cfg.config_links())?;
+        if let Some(r) = restored {
+            tracing::info!(sections = %r.sections.join(", "), "restore applied");
+            ctl.record(
+                &r.by,
+                "restore_applied",
+                &r.backup,
+                wyrm_core::Status::Ok,
+                &format!("sections {}", r.sections.join(", ")),
+            );
+        }
         Ok(Self {
             cfg,
             ctl,
@@ -1986,6 +2019,12 @@ impl Daemon {
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
                 _ = shutdown.as_mut() => false,
+                // a restore staged in `restore.pending` (ADR 0048 §3.6):
+                // stop cleanly, the supervisor starts the broker again
+                _ = self.ctl.stop_requested() => {
+                    tracing::info!("stop requested from sys: stopping for a restart");
+                    false
+                }
                 r = self.reload.recv() => r.is_some(),
             };
             if reload {

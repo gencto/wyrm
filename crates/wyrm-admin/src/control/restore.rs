@@ -14,7 +14,9 @@
 //! manifest, and nothing sealed without the key that proves the manifest
 //! authentic (`wyrm_admin::backup`).
 
-use super::backups::{io_err, link_prefix, make_private_dir, passphrase_arg, uint_arg, StageDir};
+use super::backups::{
+    broker_made_secret, io_err, link_prefix, make_private_dir, passphrase_arg, uint_arg, StageDir,
+};
 use super::*;
 use crate::backup::{self as format, Kind, Manifest};
 use zeroize::Zeroizing;
@@ -39,18 +41,13 @@ pub struct Upload {
     pub busy: bool,
 }
 
-/// Secrets of a link that are its identity on one broker, made by that
-/// broker: never carried over by a backup.
-fn broker_made_secret(name: &str) -> bool {
-    name == wyrm_link_sdk::REQUESTER_KEY || name == AGENT_KEY_REF
-}
-
 /// What a `.wyrm-link` holds, read and checked, its files opened into a
 /// private stage directory (removed with this value).
 pub(super) struct LinkRestore {
     pub manifest: Manifest,
     pub def: LinkDef,
-    pub package: Option<PackageDef>,
+    /// The package of the backup, checked and unpacked as any install's.
+    pub package: Option<packages::Unpacked>,
     /// The link's secrets (`data`), without the broker-made ones.
     pub secrets: BTreeMap<String, Zeroizing<Vec<u8>>>,
     pub has_data: bool,
@@ -59,6 +56,49 @@ pub(super) struct LinkRestore {
     /// History pages in the stage directory.
     pub history: Vec<PathBuf>,
     stage: StageDir,
+}
+
+/// Where the parts of one link are in a backup.
+pub(super) struct LinkLayout {
+    /// The `link.cbor`.
+    pub settings: String,
+    /// `<base>/secrets` and `<base>/files/**`.
+    pub data: Option<String>,
+    /// `<base>/files/**`, the package's files.
+    pub package: Option<String>,
+    /// Prefix of the history pages.
+    pub history: Option<String>,
+}
+
+impl LinkLayout {
+    /// A `.wyrm-link`.
+    fn link(m: &Manifest) -> Self {
+        let has = |s: &str| m.section(s).is_some();
+        Self {
+            settings: "settings/link.cbor".into(),
+            data: has("data").then(|| "data".to_owned()),
+            package: has("package").then(|| "package".to_owned()),
+            history: has("history").then(|| "history/".to_owned()),
+        }
+    }
+
+    /// The link `id` of a broker backup, with its package `package` when
+    /// the backup holds it.
+    pub(super) fn in_broker(m: &Manifest, id: &str, package: Option<&str>) -> Self {
+        let listed = |p: String| {
+            m.sections
+                .iter()
+                .any(|s| s.files.iter().any(|f| f.path == p))
+        };
+        Self {
+            settings: format!("links/{id}/link.cbor"),
+            data: listed(format!("links/{id}/secrets")).then(|| format!("links/{id}")),
+            package: package
+                .filter(|n| listed(format!("packages/{n}/files/{}", packages::MANIFEST)))
+                .map(|n| format!("packages/{n}")),
+            history: None,
+        }
+    }
 }
 
 impl LinkRestore {
@@ -240,8 +280,25 @@ impl Control {
         r.verify(|_, _| {})?;
         let key = self.backup_key(&manifest, passphrase)?;
         let key = key.as_ref();
-        let def: LinkDef = minicbor::decode(&r.read("settings/link.cbor")?)
-            .map_err(|e| format!("settings/link.cbor: {e}"))?;
+        self.read_link_parts(&mut r, key, &LinkLayout::link(&manifest))
+    }
+
+    /// The link whose files are laid out as `lay` says in the backup `r`
+    /// (already verified), opened into a stage directory.
+    pub(super) fn read_link_parts<R: std::io::Read + std::io::Seek>(
+        &self,
+        r: &mut format::Reader<R>,
+        key: Option<&format::MasterKey>,
+        lay: &LinkLayout,
+    ) -> Result<LinkRestore, String> {
+        let manifest = r.manifest().clone();
+        let paths: Vec<String> = manifest
+            .sections
+            .iter()
+            .flat_map(|s| s.files.iter().map(|f| f.path.clone()))
+            .collect();
+        let def: LinkDef = minicbor::decode(&r.read(&lay.settings)?)
+            .map_err(|e| format!("{}: {e}", lay.settings))?;
         crate::registry::validate_link_id(&def.id)?;
         let backups = self.backups_dir();
         make_private_dir(&backups)?;
@@ -256,50 +313,50 @@ impl Control {
             history: Vec::new(),
             stage,
         };
-        if let Some(s) = manifest.section("data") {
+        if let Some(base) = &lay.data {
             out.has_data = true;
-            let plain = r.read_plain("data/secrets", key)?;
+            let secrets = format!("{base}/secrets");
+            let plain = r.read_plain(&secrets, key)?;
             let Value::Map(m) =
                 wyrm_core::codec::from_slice::<Value>(&plain).map_err(|e| e.to_string())?
             else {
-                return Err("data/secrets: not a map".into());
+                return Err(format!("{secrets}: not a map"));
             };
             for (name, v) in m {
                 if let (Value::Bytes(b), false) = (v, broker_made_secret(&name)) {
                     out.secrets.insert(name, Zeroizing::new(b));
                 }
             }
-            for f in &s.files {
-                if let Some(rel) = f.path.strip_prefix("data/files/") {
-                    r.extract(&f.path, &out.files_dir().join(rel), key)?;
+            let prefix = format!("{base}/files/");
+            for path in &paths {
+                if let Some(rel) = path.strip_prefix(&prefix) {
+                    r.extract(path, &out.files_dir().join(rel), key)?;
                     out.files.push(rel.to_owned());
                 }
             }
         }
-        if let Some(s) = manifest.section("package") {
-            let def: PackageDef = minicbor::decode(&r.read("package/package.cbor")?)
-                .map_err(|e| format!("package/package.cbor: {e}"))?;
-            for seg in [&def.name, &def.version] {
-                wyrm_core::keyspace::validate_segment(seg)
-                    .map_err(|e| format!("package {} {}: {e}", def.name, def.version))?;
-            }
-            for f in &s.files {
-                if let Some(rel) = f.path.strip_prefix("package/files/") {
-                    r.extract(&f.path, &out.package_dir().join(rel), None)?;
+        if let Some(base) = &lay.package {
+            let prefix = format!("{base}/files/");
+            for path in &paths {
+                if let Some(rel) = path.strip_prefix(&prefix) {
+                    r.extract(path, &out.package_dir().join(rel), None)?;
                 }
             }
-            if !out.package_dir().join(&def.entry).is_file() {
-                return Err(format!(
-                    "package {} {}: its entry {} is not in the backup",
-                    def.name, def.version, def.entry
-                ));
-            }
-            out.package = Some(def);
+            // Nothing of the backup says what the package is: its files go
+            // through the validator of every install (entry inside the
+            // package, requester grants, world and capabilities), which
+            // builds the record.
+            let source = format!("backup {}@{}", out.def.id, manifest.site);
+            out.package = Some(checked_package(
+                &out.package_dir(),
+                &self.packages_root(),
+                &source,
+            )?);
         }
-        if let Some(s) = manifest.section("history") {
-            for (i, f) in s.files.iter().enumerate() {
+        if let Some(prefix) = &lay.history {
+            for (i, path) in paths.iter().filter(|p| p.starts_with(prefix)).enumerate() {
                 let dest = out.stage.0.join("history").join(format!("{i:05}.cbor"));
-                r.extract(&f.path, &dest, None)?;
+                r.extract(path, &dest, None)?;
                 out.history.push(dest);
             }
         }
@@ -422,10 +479,34 @@ impl Control {
     }
 }
 
-/// What a link backup asks for that an installer must have seen: its
-/// requester grants and its network allowlist.
-fn asks_of(def: &LinkDef) -> Vec<String> {
+/// The files of a package that came in a backup, through the validator of
+/// every install ([`packages::unpack`]): packed again as a zip, then checked
+/// and unpacked beside the installed packages of `root`.
+fn checked_package(dir: &Path, root: &Path, source: &str) -> Result<packages::Unpacked, String> {
+    let zip = packages::repack(dir)?;
+    packages::unpack(&zip, root, source, now_s())
+        .map_err(|e| format!("the package of the backup: {e}"))
+}
+
+/// What a link backup asks for that an installer must have seen: the
+/// link's requester grants and network allowlist and, for a package this
+/// install brings (`package`), the grants and the network its manifest
+/// asks for, as `install_*` shows them.
+fn asks_of(def: &LinkDef, package: Option<&packages::Unpacked>) -> Vec<String> {
     let mut asks = Vec::new();
+    if let Some(p) = package {
+        if let Some(c) = p.app.as_ref().filter(|c| !c.net.is_empty()) {
+            asks.push(format!(
+                "package {}: network {}",
+                p.def.name,
+                c.net.join(", ")
+            ));
+        }
+        for (path, code) in &p.def.requester {
+            let level = Perm::try_from(*code).map_or("?", |p| p.name());
+            asks.push(format!("package {}: {level} on {path}", p.def.name));
+        }
+    }
     if let Value::Map(m) = decode_params(&def.params) {
         if let Some(Value::Str(net)) = m
             .get("net")
@@ -487,9 +568,33 @@ impl Admin {
             Some(i) => i.to_owned(),
             None => r.def.id.clone(),
         };
+        self.install_restored(r, id, accepted(args), sub).await
+    }
+
+    /// Install the link read from a backup as `id` (see the module
+    /// documentation): a new link, or an existing one replaced in place.
+    pub(super) async fn install_restored(
+        &self,
+        mut r: LinkRestore,
+        id: String,
+        accept: bool,
+        sub: &str,
+    ) -> Result<String, String> {
+        let ctl = &self.ctl;
         crate::registry::validate_link_id(&id)?;
-        let asks = asks_of(&r.def);
-        if !asks.is_empty() && !accepted(args) {
+        let existing = ctl.registry().links.get(&id).cloned();
+        if existing.is_none() {
+            // a new link: the ids a broker keeps for itself are refused
+            crate::registry::validate_new_link_id(&id)?;
+        }
+        // what the package asks for counts when this install brings it, or
+        // makes a new link of it
+        let brings = r
+            .package
+            .as_ref()
+            .filter(|p| existing.is_none() || !ctl.registry().packages.contains_key(&p.def.name));
+        let asks = asks_of(&r.def, brings);
+        if !asks.is_empty() && !accept {
             return Err(format!(
                 "the link {} of the backup asks for: {}. Nothing is installed: read them, then \
                  install again with Accept Requested Rights",
@@ -498,7 +603,6 @@ impl Admin {
             ));
         }
         let from = format!("{}@{} of {}", r.def.id, r.manifest.site, r.manifest.created);
-        let existing = ctl.registry().links.get(&id).cloned();
         if let Some(old) = &existing {
             if old.origin == Origin::Config {
                 return Err(format!("link {id} is defined in wyrmd.json5: not replaced"));
@@ -513,11 +617,39 @@ impl Admin {
                 ));
             }
         }
-        let mut message = match self.backup_package(&r, sub).await? {
+        // The definition of the backup is checked as a new link's is, before
+        // anything is stopped or written: params (no secret in them, the
+        // driver takes them), every grant (`check_grant`), the id.
+        let params = decode_params(&r.def.params);
+        crate::secrets::lint_params(&params, "params")?;
+        if r.def.driver == AGENT_DRIVER {
+            check_agent_refs(&params).map_err(|e| e.message)?;
+        }
+        let packaged = r.def.driver.starts_with(packages::DRIVER_PREFIX);
+        if r.def.mode != Mode::External && !packaged {
+            if !ctl.host.drivers().contains(&r.def.driver.as_str()) {
+                return Err(format!(
+                    "driver {} is not built into this broker",
+                    r.def.driver
+                ));
+            }
+            ctl.host
+                .validate(&r.def.driver, &params)
+                .map_err(|e| e.message)?;
+        }
+        for (path, code) in &r.def.grants {
+            let level = Perm::try_from(*code).map_err(|c| format!("grant level {c}"))?;
+            crate::registry::check_grant(path, level).map_err(|e| format!("grant: {e}"))?;
+        }
+        if ctl.peers().downstream.contains(&id) || ctl.cfg.operators.contains(&id) {
+            return Err(format!(
+                "link id {id:?} is a downstream site or an operator of this broker"
+            ));
+        }
+        let mut message = match self.backup_package(&mut r, sub).await? {
             Some(m) => format!("{m}; "),
             None => String::new(),
         };
-        let params = decode_params(&r.def.params);
         match &existing {
             Some(old) => {
                 // a way back first (ADR 0048 §3.5)
@@ -540,7 +672,6 @@ impl Admin {
                     self.stop_link(&id, sub).await.map_err(|e| e.message)?;
                 }
                 if old.params != r.def.params {
-                    crate::secrets::lint_params(&params, "params")?;
                     ctl.apply(Op::Update {
                         id: id.clone(),
                         mode: old.mode,
@@ -627,7 +758,11 @@ impl Admin {
 
     /// The package of a link backup on this broker: the installed one when
     /// it is the same, installed from the backup when there is none.
-    async fn backup_package(&self, r: &LinkRestore, sub: &str) -> Result<Option<String>, String> {
+    async fn backup_package(
+        &self,
+        r: &mut LinkRestore,
+        sub: &str,
+    ) -> Result<Option<String>, String> {
         let ctl = &self.ctl;
         let Some(name) = r.def.driver.strip_prefix(packages::DRIVER_PREFIX) else {
             if r.def.mode != Mode::External && !ctl.host.drivers().contains(&r.def.driver.as_str())
@@ -639,14 +774,27 @@ impl Admin {
             }
             return Ok(None);
         };
-        let installed = ctl.registry().packages.get(name).cloned();
-        match (installed, &r.package) {
-            (Some(i), Some(p)) if i.version == p.version && i.sha256 == p.sha256 => Ok(None),
+        let name = name.to_owned();
+        let installed = ctl.registry().packages.get(&name).cloned();
+        let root = ctl.packages_root();
+        match (installed, r.package.take()) {
+            (Some(i), Some(p)) if i.version == p.def.version => {
+                // the same files as the installed ones, or it is another package
+                let here = packages::repack(&packages::dir(&root, &i))?;
+                if wyrm_link_sdk::package::sha256_hex(&here) != p.def.sha256 {
+                    return Err(format!(
+                        "package {name} {} is installed here with other content than the \
+                         backup holds",
+                        i.version
+                    ));
+                }
+                Ok(None)
+            }
             (Some(i), Some(p)) => Err(format!(
-                "package {name} {} is installed here; the backup holds {} (sha256 {}). One \
-                 version per package: update or roll back the package first, or restore the \
-                 backup without its package section",
-                i.version, p.version, p.sha256
+                "package {name} {} is installed here; the backup holds {}. One version per \
+                 package: update or roll back the package first, or restore the backup \
+                 without its package section",
+                i.version, p.def.version
             )),
             (Some(i), None) => Ok(Some(format!(
                 "package {name} {} of this broker is used",
@@ -656,29 +804,19 @@ impl Admin {
                 "package {name} is not installed here and the backup does not hold it"
             )),
             (None, Some(p)) => {
-                if p.name != name {
+                // as `install_package` does with a package that came as a
+                // zip: the record is the validator's, never the backup's
+                let (def, app) = (p.def.clone(), p.app.clone());
+                if def.name != name {
                     return Err(format!(
                         "the backup holds package {}, the link runs {name}",
-                        p.name
+                        def.name
                     ));
                 }
-                if p.kind == PackageKind::Process && ctl.cfg.link_endpoint.is_none() {
+                if def.kind == PackageKind::Process && ctl.cfg.link_endpoint.is_none() {
                     return Err("process links need a tls/ listener on the broker".into());
                 }
-                let mut def = p.clone();
-                def.installed = now_s();
-                def.source = format!("backup {}@{}", r.def.id, r.manifest.site);
-                let root = ctl.packages_root();
-                let to = packages::dir(&root, &def);
-                if to.exists() {
-                    return Err(format!(
-                        "{}: exists without its package record",
-                        to.display()
-                    ));
-                }
-                let parent = root.join(&def.name);
-                std::fs::create_dir_all(&parent).map_err(|e| io_err(&parent, e))?;
-                copy_tree(&r.package_dir(), &to)?;
+                p.commit(&root)?;
                 if def.kind == PackageKind::Wasm {
                     ctl.publish_component(&def)?;
                 }
@@ -689,7 +827,7 @@ impl Admin {
                     "package_install",
                     &def.name,
                     Status::Ok,
-                    &install_detail(&def, None),
+                    &install_detail(&def, app.as_ref()),
                 );
                 declare_package(&self.ctx, &def)
                     .await
@@ -701,22 +839,6 @@ impl Admin {
             }
         }
     }
-}
-
-/// Copy the files under `from` to the new directory `to`, modes kept.
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(to).map_err(|e| io_err(to, e))?;
-    for e in std::fs::read_dir(from).map_err(|e| io_err(from, e))? {
-        let e = e.map_err(|e| io_err(from, e))?;
-        let (src, dst) = (e.path(), to.join(e.file_name()));
-        let meta = e.metadata().map_err(|e| io_err(&src, e))?;
-        if meta.is_dir() {
-            copy_tree(&src, &dst)?;
-        } else if meta.is_file() {
-            std::fs::copy(&src, &dst).map_err(|e| io_err(&dst, e))?;
-        }
-    }
-    Ok(())
 }
 
 /// The upload actions of `sys/backups` and `install_backup` of `sys/links`.
@@ -807,6 +929,11 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
             ),
     )
     .await
+}
+
+/// The restore actions of a broker backup.
+pub(super) async fn declare_broker(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
+    super::restore_broker::declare(ctx).await
 }
 
 /// The `send` action of a kept backup.
@@ -904,7 +1031,7 @@ mod tests {
             grants: vec![("wy/{site}/downstream/plc".into(), Perm::Write.code())],
         };
         assert_eq!(
-            asks_of(&def),
+            asks_of(&def, None),
             [
                 "network plc.example:502",
                 "write on wy/{site}/downstream/plc"
@@ -915,6 +1042,115 @@ mod tests {
             grants: Vec::new(),
             ..def
         };
-        assert!(asks_of(&plain).is_empty());
+        assert!(asks_of(&plain, None).is_empty());
+    }
+
+    /// A package directory as a backup carries it: its manifest and files.
+    fn package_dir(name: &str, manifest: serde_json::Value, files: &[(&str, &[u8])]) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("wyrm-restore-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("pkg")).unwrap();
+        std::fs::write(d.join("pkg").join(packages::MANIFEST), manifest.to_string()).unwrap();
+        for (path, data) in files {
+            let p = d.join("pkg").join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, data).unwrap();
+        }
+        d
+    }
+
+    fn manifest(entry: &str, requester: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "name": "demo",
+            "version": "1.0.0",
+            "description": "d",
+            "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
+            "kind": "process",
+            "entries": { packages::platform(): entry },
+            "requester": requester,
+        })
+    }
+
+    #[test]
+    fn a_package_of_a_backup_passes_the_validator_of_an_install() {
+        let none = serde_json::json!([]);
+        // a good one: the record comes from the manifest, and what it asks
+        // for is shown
+        let grants = serde_json::json!([{ "path": "wy/{site}/downstream/plc", "level": "write" }]);
+        let d = package_dir(
+            "ok",
+            manifest("bin/run", grants),
+            &[("bin/run", b"#!/bin/sh\n")],
+        );
+        let p = checked_package(&d.join("pkg"), &d.join("root"), "backup x@s").unwrap();
+        assert_eq!(
+            (p.def.name.as_str(), p.def.version.as_str()),
+            ("demo", "1.0.0")
+        );
+        assert_eq!(p.def.entry, "bin/run");
+        assert_eq!(p.def.source, "backup x@s");
+        let def = LinkDef {
+            id: "a".into(),
+            driver: "pkg:demo".into(),
+            mode: Mode::Process,
+            params: encode_params(&Value::Null).unwrap(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 0,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        };
+        assert_eq!(
+            asks_of(&def, Some(&p)),
+            ["package demo: write on wy/{site}/downstream/plc"]
+        );
+        // the same files give the same SHA-256, other files another
+        let again = packages::repack(&d.join("pkg")).unwrap();
+        assert_eq!(wyrm_link_sdk::package::sha256_hex(&again), p.def.sha256);
+        std::fs::write(d.join("pkg/bin/run"), b"#!/bin/sh\nrm -rf /\n").unwrap();
+        let other = packages::repack(&d.join("pkg")).unwrap();
+        assert_ne!(wyrm_link_sdk::package::sha256_hex(&other), p.def.sha256);
+
+        // an entry outside the package, with a file there to find
+        let d = package_dir(
+            "escape",
+            manifest("../evil", none.clone()),
+            &[("bin/run", b"x")],
+        );
+        std::fs::write(d.join("evil"), b"x").unwrap();
+        let e = checked_package(&d.join("pkg"), &d.join("root"), "s")
+            .err()
+            .unwrap();
+        assert!(e.contains("not a file of the package"), "{e}");
+        // an entry that is not among the files
+        let d = package_dir(
+            "missing",
+            manifest("bin/run", none.clone()),
+            &[("bin/other", b"x")],
+        );
+        assert!(checked_package(&d.join("pkg"), &d.join("root"), "s").is_err());
+        // a whole root, and a level that is no level
+        for bad in [
+            serde_json::json!([{ "path": "wy/{site}/downstream", "level": "write" }]),
+            serde_json::json!([{ "path": "wy/{site}/downstream/plc", "level": "config" }]),
+            serde_json::json!([{ "path": "wy/{site}/sys", "level": "read" }]),
+        ] {
+            let d = package_dir(
+                "grant",
+                manifest("bin/run", bad.clone()),
+                &[("bin/run", b"x")],
+            );
+            let e = checked_package(&d.join("pkg"), &d.join("root"), "s")
+                .err()
+                .unwrap();
+            assert!(e.contains("requester"), "{bad}: {e}");
+        }
+        // no manifest at all: files alone are no package
+        let d = package_dir("bare", none, &[("bin/run", b"x")]);
+        std::fs::remove_file(d.join("pkg").join(packages::MANIFEST)).unwrap();
+        assert!(checked_package(&d.join("pkg"), &d.join("root"), "s").is_err());
     }
 }

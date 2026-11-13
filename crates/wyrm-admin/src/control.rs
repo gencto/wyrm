@@ -44,6 +44,7 @@ use zenoh::Session;
 pub mod backups;
 pub mod replication;
 pub mod restore;
+pub mod restore_broker;
 mod signers;
 
 pub type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -394,6 +395,9 @@ pub struct Control {
     arbiter_lease: Mutex<Option<std::time::Instant>>,
     /// Backup jobs and the files kept in `data_dir/backups` (ADR 0048).
     backups: backups::Backups,
+    /// Asks the daemon to stop cleanly (a restore that replaces stores is
+    /// applied at the next start, ADR 0048 §3.6).
+    stop: tokio::sync::Notify,
 }
 
 /// One long admin action in flight; see [`Control::idle`].
@@ -733,6 +737,7 @@ impl Control {
                 standby_forks: Mutex::default(),
                 arbiter_lease: Mutex::default(),
                 backups: kept,
+                stop: tokio::sync::Notify::new(),
             }),
             rx,
         ))
@@ -770,6 +775,17 @@ impl Control {
         let def = reg.tokens.get(id)?;
         let fresh = def.expires == 0 || now_s() < def.expires;
         (fresh && def.sha256 == token_sha256(token)).then(|| id.to_owned())
+    }
+
+    /// Ask the daemon that owns this control plane to stop cleanly; its
+    /// supervisor starts it again (`Restart=always`).
+    pub fn request_stop(&self) {
+        self.stop.notify_one();
+    }
+
+    /// Resolves when [`request_stop`](Self::request_stop) was called.
+    pub async fn stop_requested(&self) {
+        self.stop.notified().await;
     }
 
     pub fn config(&self) -> &ControlConfig {
@@ -4075,8 +4091,14 @@ impl Link for Admin {
                         .collect(),
                 )))
             }
+            (["backups"], "restore_check" | "restore_apply") => {
+                self.restore_broker(action, &args, &sub, who.signer.is_some())
+                    .await
+            }
             (["backups", rest @ ..], _) => {
-                backups::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub).await
+                // a limited key signed it: an upstream site with allow_config
+                let remote = who.signer.is_some();
+                backups::invoke(&self.ctl, &self.ctx, rest, action, &args, &sub, remote).await
             }
             (["links"], "install_backup") => {
                 let _busy = self.ctl.busy()?;
@@ -4085,9 +4107,10 @@ impl Link for Admin {
             (["links", id], "backup") => {
                 // the link must exist before anything is said about it
                 self.def(id)?;
-                let job = self
-                    .ctl
-                    .backup_start(backups::request_of(&args, Some(id))?, &sub)?;
+                let job = self.ctl.backup_start(
+                    backups::request_of(&args, Some(id), who.signer.is_some())?,
+                    &sub,
+                )?;
                 backups::show_job(&self.ctx, &self.ctl, &job).await;
                 Ok(Some(Value::Map(BTreeMap::from([(
                     "id".to_owned(),

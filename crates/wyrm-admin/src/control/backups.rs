@@ -47,8 +47,15 @@ pub struct BackupConfig {
     pub keep_days: u32,
     /// Most MiB of kept backups; the oldest go first.
     pub max_mb: u64,
-    /// `wyrmd.json5` as read at start, for the `config` section.
-    pub config_file: Option<PathBuf>,
+    /// Secrets may leave this broker in a backup sealed with a passphrase
+    /// the caller picks (`backups.export_secrets`, default `false`; set on
+    /// the host alone): the `keys` section, and link secrets and private
+    /// data that open on any broker. While `false`, `keys` is refused and
+    /// link secrets are sealed for this site only.
+    pub export_secrets: bool,
+    /// `wyrmd.json5` as read at start, as JSON with every secret masked
+    /// ([`crate::secrets::mask_config`]), for the `config` section.
+    pub config: Option<String>,
     /// `State::SCHEMA` of the stores other crates own: `users`, `flows`.
     pub schemas: BTreeMap<String, u32>,
 }
@@ -58,7 +65,8 @@ impl Default for BackupConfig {
         Self {
             keep_days: 7,
             max_mb: 2048,
-            config_file: None,
+            export_secrets: false,
+            config: None,
             schemas: BTreeMap::new(),
         }
     }
@@ -101,6 +109,11 @@ pub struct BackupRequest {
     pub label: String,
     /// Never pruned (the pre-update backup of an unconfirmed update).
     pub pinned: bool,
+    /// The caller's authority comes from another site (an upstream with
+    /// `allow_config`, ADR 0018): this site's secrets never travel up.
+    pub remote: bool,
+    /// Only sizes are asked for: nothing is made, so nothing is gated.
+    pub estimate: bool,
 }
 
 /// One backup job, kept beside its file as `<file>.json`.
@@ -215,7 +228,7 @@ impl Backups {
 /// under `data_dir`, HMAC key file, name in `schemas`. The standby's three
 /// ([`replication::STORES`]) and the audit journal, which a standby keeps
 /// of its own.
-fn wal_stores() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
+pub(super) fn wal_stores() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     let mut v: Vec<_> = replication::STORES
         .iter()
         .map(|(name, dir, key)| {
@@ -232,7 +245,7 @@ fn wal_stores() -> Vec<(&'static str, &'static str, &'static str, &'static str)>
 
 /// Key files of the `keys` section, relative to `data_dir`: the key bundle
 /// of a standby ([`crate::keys::FILES`]) and the flow engine's signing key.
-fn key_files() -> Vec<&'static str> {
+pub(super) fn key_files() -> Vec<&'static str> {
     let mut v = crate::keys::FILES.to_vec();
     v.push("flows/flow.key");
     v
@@ -357,6 +370,27 @@ impl Stager<'_> {
     }
 }
 
+/// `true` for a link secret that is the link's identity on one broker,
+/// made by that broker: its requester key and an agent's signing key. They
+/// never leave the broker in a backup and are never taken from one; the
+/// broker that restores a link makes new ones. (A link's token is not a
+/// secret of the store: it is in no link backup at all, and in a broker
+/// backup only in `keys`.) The store key is not one of them: it is the key
+/// of the link's private files, which are useless without it, and travels
+/// sealed beside them.
+pub(super) fn broker_made_secret(name: &str) -> bool {
+    name == wyrm_link_sdk::REQUESTER_KEY || name == AGENT_KEY_REF
+}
+
+/// The secrets of a link that go into a backup: all but the broker-made.
+fn exported_secrets(
+    all: BTreeMap<String, Zeroizing<Vec<u8>>>,
+) -> BTreeMap<String, Zeroizing<Vec<u8>>> {
+    all.into_iter()
+        .filter(|(name, _)| !broker_made_secret(name))
+        .collect()
+}
+
 /// What a link backup made by [`Control::link_backup_to`] holds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkBackup {
@@ -381,7 +415,7 @@ impl Control {
         &self.backups
     }
 
-    fn schemas(&self) -> BTreeMap<String, u32> {
+    pub(super) fn schemas(&self) -> BTreeMap<String, u32> {
         use wyrm_state::State;
         let mut m = self.cfg.backups.schemas.clone();
         m.insert("registry".into(), Registry::SCHEMA);
@@ -423,12 +457,35 @@ impl Control {
                 ));
             }
         }
-        let unsealed = matches!(req.seal, SealWith::None);
         let has = |s: &str| chosen.iter().any(|c| c == s);
+        // Secrets leave the site only when the host said so, and never
+        // towards an upstream (ADR 0048 §3.4, §4).
+        let passphrase = matches!(req.seal, SealWith::Passphrase(_));
+        if passphrase || (has("keys") && !req.estimate) {
+            let what = if has("keys") {
+                "keys: the site's keys and secrets"
+            } else {
+                "passphrase: secrets sealed with a passphrase"
+            };
+            if !self.cfg.backups.export_secrets {
+                return Err(format!(
+                    "{what} do not leave this broker: backups.export_secrets is false in \
+                     wyrmd.json5 (set it on the host to allow it). Without a passphrase, link \
+                     secrets and private data are sealed for this site and open only on a \
+                     broker that holds its keys"
+                ));
+            }
+            if req.remote {
+                return Err(format!(
+                    "{what} never travel to another site: make this backup on the broker's \
+                     own gateway, not through its upstream"
+                ));
+            }
+        }
         let reg = self.registry();
         match req.kind {
             Kind::Broker => {
-                if has("keys") && unsealed {
+                if has("keys") && !passphrase && !req.estimate {
                     return Err("keys: the keys and secrets need a passphrase".into());
                 }
                 if let Some(l) = req
@@ -439,16 +496,13 @@ impl Control {
                 {
                     return Err(format!("links: no link {l}"));
                 }
-                if has("config") && self.cfg.backups.config_file.is_none() {
+                if has("config") && self.cfg.backups.config.is_none() {
                     return Err("config: this broker was not started from a file".into());
                 }
             }
             Kind::Link => {
                 let id = req.link.as_deref().ok_or("link: required")?;
                 let def = reg.links.get(id).ok_or_else(|| format!("no link {id}"))?;
-                if has("data") && unsealed {
-                    return Err("data: the link's private data needs a passphrase".into());
-                }
                 if has("data") && def.mode == Mode::External {
                     return Err(
                         "data: an external link keeps its data on its own host, not here".into(),
@@ -519,7 +573,12 @@ impl Control {
                     .map(|l| under(&format!("links/{l}/data/")) + 1024)
                     .sum(),
                 "packages" => under("packages/"),
-                "config" => self.cfg.backups.config_file.clone().map_or(0, len),
+                "config" => self
+                    .cfg
+                    .backups
+                    .config
+                    .as_ref()
+                    .map_or(0, |c| c.len() as u64),
                 "settings" => 1024,
                 "data" => under(&format!("links/{}/data/", link_ids[0])),
                 "package" => reg
@@ -547,10 +606,12 @@ impl Control {
         make_private_dir(&backups)?;
         let stage = StageDir::new(&backups)?;
         let secrets_key;
+        // without a passphrase, what holds secrets is sealed for this site
+        let secret_parts = chosen.iter().any(|c| c == "links" || c == "data");
         let sealing = match &req.seal {
-            SealWith::None => format::Sealing::None,
+            SealWith::None if !secret_parts => format::Sealing::None,
             SealWith::Passphrase(p) => format::Sealing::Passphrase(p),
-            SealWith::Broker => {
+            SealWith::None | SealWith::Broker => {
                 secrets_key = secret::load_or_create_key(&self.cfg.data_dir.join("secrets.key"))
                     .map_err(|e| format!("secrets.key: {e}"))?;
                 format::Sealing::Broker(&secrets_key)
@@ -588,8 +649,8 @@ impl Control {
                         let def = reg.links.get(&id).ok_or_else(|| format!("no link {id}"))?;
                         let base = format!("links/{id}");
                         s.files.extend(self.stage_link_settings(&st, def, &base)?);
-                        // without a passphrase a link is its settings alone
-                        let data = st.key.is_some() && def.mode != Mode::External;
+                        // an external link keeps its data on its own host
+                        let data = def.mode != Mode::External;
                         if data {
                             s.files.extend(self.stage_link_data(&st, def, &base)?);
                         }
@@ -608,17 +669,16 @@ impl Control {
                     self.stage_packages(&st, &all, false)?
                 }
                 (Kind::Broker, "config") => {
-                    let src = self
+                    let text = self
                         .cfg
                         .backups
-                        .config_file
-                        .clone()
+                        .config
+                        .as_ref()
                         .ok_or("config: this broker was not started from a file")?;
-                    let text = std::fs::read(&src).map_err(|e| io_err(&src, e))?;
                     StagedSection {
                         name: "config".into(),
-                        info: json_map([("restored", false.into())]),
-                        files: vec![st.bytes("config/wyrmd.json5", &text)?],
+                        info: json_map([("restored", false.into()), ("secrets", "masked".into())]),
+                        files: vec![st.bytes("config/wyrmd.json", text.as_bytes())?],
                     }
                 }
                 (Kind::Link, section) => {
@@ -859,8 +919,7 @@ impl Control {
     ) -> Result<Vec<Staged>, String> {
         let secrets = Zeroizing::new(
             wyrm_core::codec::to_vec(&Value::Map(
-                self.secrets
-                    .for_link(&def.id)
+                exported_secrets(self.secrets.for_link(&def.id))
                     .into_iter()
                     .map(|(k, v)| (k, Value::Bytes(v.to_vec())))
                     .collect(),
@@ -884,8 +943,11 @@ impl Control {
         Ok(out)
     }
 
-    /// Packages as `packages/<name>/{package.cbor, files/**}`, or the one
-    /// of a link backup as `package/{package.cbor, files/**}` (`single`).
+    /// Packages as `packages/<name>/files/**`, or the one of a link backup
+    /// as `package/files/**` (`single`): the files of the installed
+    /// directory, `wyrm-link.json` among them. No record of the registry
+    /// goes with them: a restore builds it from the files, through the
+    /// validator of every install.
     fn stage_packages(
         &self,
         st: &Stager,
@@ -904,9 +966,6 @@ impl Control {
             } else {
                 format!("packages/{}", def.name)
             };
-            let bytes = minicbor::to_vec(def).map_err(|e| format!("{}: {e}", def.name))?;
-            s.files
-                .push(st.bytes(&format!("{base}/package.cbor"), &bytes)?);
             let prefix = format!("packages/{}/{}/", def.name, def.version);
             let mut n = 0;
             for f in files.iter().filter(|f| f.name.starts_with(&prefix)) {
@@ -1024,6 +1083,8 @@ impl Control {
             seal: SealWith::Broker,
             label: "link".into(),
             pinned: false,
+            remote: false,
+            estimate: false,
         };
         let w = self.write_backup(&req, path, &|_, _| {})?;
         Ok(LinkBackup {
@@ -1089,6 +1150,30 @@ impl Control {
         req: BackupRequest,
         sub: &str,
     ) -> Result<String, LinkError> {
+        self.backup_launch(req, sub, false)
+    }
+
+    /// Make the backup of `req` as a job and wait for it (blocking: call
+    /// it off the async runtime). `Err` when it is refused or fails.
+    pub(super) fn backup_now(
+        self: &Arc<Self>,
+        req: BackupRequest,
+        sub: &str,
+    ) -> Result<Job, String> {
+        let id = self.backup_launch(req, sub, true).map_err(|e| e.message)?;
+        match self.backups.get(&id) {
+            Some(j) if j.status == "done" => Ok(j),
+            Some(j) => Err(j.error),
+            None => Err("the backup is gone".into()),
+        }
+    }
+
+    fn backup_launch(
+        self: &Arc<Self>,
+        req: BackupRequest,
+        sub: &str,
+        wait: bool,
+    ) -> Result<String, LinkError> {
         let chosen = self
             .check_request(&req)
             .map_err(LinkError::invalid_parameter)?;
@@ -1144,7 +1229,13 @@ impl Control {
                     expires: now + u64::from(self.cfg.backups.keep_days.max(1)) * 86_400,
                     error: String::new(),
                     file: file.clone(),
-                    sealed: req.seal.name().to_owned(),
+                    sealed: match &req.seal {
+                        SealWith::None if chosen.iter().any(|c| c == "links" || c == "data") => {
+                            "broker"
+                        }
+                        s => s.name(),
+                    }
+                    .to_owned(),
                     by: sub.to_owned(),
                     pinned: req.pinned,
                 },
@@ -1157,10 +1248,24 @@ impl Control {
             None => ("backup_create", id.clone()),
         };
         // the request as it is audited: never the passphrase
+        let has = |s: &str| chosen.iter().any(|c| c == s);
+        let exported = matches!(req.seal, SealWith::Passphrase(_));
+        if exported {
+            warn!(
+                backup = %id, by = sub, keys = has("keys"),
+                "a backup with secrets sealed by a passphrase is being made: with that \
+                 passphrase it opens anywhere (backups.export_secrets)"
+            );
+        }
         let detail = format!(
-            "{id}: sections {}; sealed {}{}",
+            "{id}: sections {}; sealed {}; keys: {}; secrets: {}{}",
             chosen.join(", "),
-            req.seal.name(),
+            match &req.seal {
+                SealWith::None if has("links") || has("data") => "broker",
+                s => s.name(),
+            },
+            has("keys"),
+            exported && (has("keys") || has("links") || has("data")),
             req.history_days
                 .map(|d| format!("; history {d} days"))
                 .unwrap_or_default()
@@ -1168,7 +1273,7 @@ impl Control {
         self.record(sub, op, &key, Status::Ok, &detail);
         let ctl = self.clone();
         let (sub, job_id) = (sub.to_owned(), id.clone());
-        tokio::task::spawn_blocking(move || {
+        let run = move || {
             let out = ctl.backups_dir().join(&file);
             let r = ctl.write_backup(&req, &out, &|step, pct| {
                 ctl.backups.update(&job_id, |j| {
@@ -1220,7 +1325,12 @@ impl Control {
             ctl.backups.running.store(false, Ordering::SeqCst);
             ctl.prune_backups();
             ctl.backups.notify();
-        });
+        };
+        if wait {
+            run();
+        } else {
+            tokio::task::spawn_blocking(run);
+        }
         Ok(id)
     }
 
@@ -1334,7 +1444,11 @@ pub(super) fn passphrase_arg(args: &Value) -> Result<Option<Zeroizing<Vec<u8>>>,
 }
 
 /// The request of `create` / `estimate` (broker) or `backup` (link `Some`).
-pub(super) fn request_of(args: &Value, link: Option<&str>) -> Result<BackupRequest, LinkError> {
+pub(super) fn request_of(
+    args: &Value,
+    link: Option<&str>,
+    remote: bool,
+) -> Result<BackupRequest, LinkError> {
     let sections = list_arg(args, "sections")?.unwrap_or_default();
     let history_days = match uint_arg(args, "history_days")? {
         Some(0) | None => None,
@@ -1362,6 +1476,8 @@ pub(super) fn request_of(args: &Value, link: Option<&str>) -> Result<BackupReque
         },
         label: if link.is_some() { "link" } else { "full" }.to_owned(),
         pinned: false,
+        remote,
+        estimate: false,
     })
 }
 
@@ -1370,7 +1486,7 @@ fn passphrase_param() -> ParamMeta {
         .display("Passphrase")
         .editor(EDITOR_PASSWORD)
         .description(format!(
-            "Seals keys, secrets and private data: at least {} characters. Without it they are left out",
+            "At least {} characters; only with backups.export_secrets. Without it, link secrets are sealed for this site",
             crate::keys::MIN_PASSPHRASE
         ))
 }
@@ -1405,6 +1521,7 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         NodeMeta::folder()
             .attr("keep_days", u64::from(ctl.cfg.backups.keep_days))
             .attr("max_mb", ctl.cfg.backups.max_mb)
+            .attr("export_secrets", ctl.cfg.backups.export_secrets)
             .attr(
                 "sections",
                 Value::Array(
@@ -1441,7 +1558,8 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
         request(ActionMeta::new().display("Estimate")),
     )
     .await?;
-    super::restore::declare(ctx).await
+    super::restore::declare(ctx).await?;
+    super::restore::declare_broker(ctx).await
 }
 
 fn job_node(j: &Job) -> NodeMeta {
@@ -1620,10 +1738,11 @@ pub(super) async fn invoke(
     action: &str,
     args: &Value,
     sub: &str,
+    remote: bool,
 ) -> wyrm_link_sdk::Result<Option<Value>> {
     match (rest, action) {
         ([], "create") => {
-            let id = ctl.backup_start(request_of(args, None)?, sub)?;
+            let id = ctl.backup_start(request_of(args, None, remote)?, sub)?;
             show_job(ctx, ctl, &id).await;
             Ok(Some(Value::Map(BTreeMap::from([(
                 "id".to_owned(),
@@ -1631,9 +1750,11 @@ pub(super) async fn invoke(
             )]))))
         }
         ([], "estimate") => {
-            let mut req = request_of(args, None)?;
-            // sizes do not depend on the sealing; `keys` is estimated without one
+            // sizes do not depend on the sealing: every section is estimated,
+            // also one this caller could not make
+            let mut req = request_of(args, None, false)?;
             req.seal = SealWith::Broker;
+            req.estimate = true;
             let ctl2 = ctl.clone();
             let sizes = tokio::task::spawn_blocking(move || ctl2.backup_estimate(&req))
                 .await
@@ -1734,20 +1855,45 @@ mod tests {
                 Value::from("correct horse battery"),
             ),
         ]));
-        let r = request_of(&args, None).unwrap();
+        let r = request_of(&args, None, false).unwrap();
         assert_eq!(r.sections, ["storage", "keys"]);
         assert_eq!(r.links, Some(vec!["a".to_owned(), "b".to_owned()]));
         assert_eq!(r.history_days, Some(7));
         assert!(matches!(r.seal, SealWith::Passphrase(_)));
-        let r = request_of(&Value::Map(BTreeMap::new()), Some("plc")).unwrap();
+        let r = request_of(&Value::Map(BTreeMap::new()), Some("plc"), true).unwrap();
+        assert!(r.remote);
         assert!(r.kind == Kind::Link && r.link.as_deref() == Some("plc"));
         assert!(matches!(r.seal, SealWith::None) && r.history_days.is_none());
         let bad = Value::Map(BTreeMap::from([("sections".to_owned(), Value::UInt(1))]));
-        assert!(request_of(&bad, None).is_err());
+        assert!(request_of(&bad, None, false).is_err());
         let bad = Value::Map(BTreeMap::from([(
             "history_days".to_owned(),
             Value::Float(1.5),
         )]));
-        assert!(request_of(&bad, None).is_err());
+        assert!(request_of(&bad, None, false).is_err());
+    }
+
+    #[test]
+    fn broker_made_secrets_stay_out_of_a_backup() {
+        let secret = |v: &[u8]| Zeroizing::new(v.to_vec());
+        let all = BTreeMap::from([
+            (wyrm_link_sdk::REQUESTER_KEY.to_owned(), secret(b"seed")),
+            (AGENT_KEY_REF.to_owned(), secret(b"agent")),
+            (
+                wyrm_link_sdk::driver::persist::STORE_KEY.to_owned(),
+                secret(b"store"),
+            ),
+            ("password".to_owned(), secret(b"pw")),
+        ]);
+        let out = exported_secrets(all);
+        let names: Vec<&str> = out.keys().map(String::as_str).collect();
+        // the identity keys stay; the key of the private files and what a
+        // person entered go, sealed
+        assert_eq!(
+            names,
+            [wyrm_link_sdk::driver::persist::STORE_KEY, "password"]
+        );
+        assert!(broker_made_secret(wyrm_link_sdk::REQUESTER_KEY));
+        assert!(broker_made_secret("agent_key"));
     }
 }

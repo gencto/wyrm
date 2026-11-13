@@ -69,6 +69,74 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
     )
 }
 
+/// The files of a package directory as a zip again: the same bytes for
+/// the same files (sorted paths, fixed times, mode 0755 for what the owner
+/// may execute and 0644 for the rest), within the bounds of a package zip.
+/// A package that arrives in a backup as files (ADR 0048 §3.5) is packed
+/// with this and then goes through [`unpack`], the validator of every
+/// install; two directories with the same files give the same SHA-256.
+pub fn repack(dir: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+        let at = root.join(rel);
+        let mut entries: Vec<_> = std::fs::read_dir(&at)
+            .map_err(|e| format!("{}: {e}", at.display()))?
+            .flatten()
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let path = rel.join(e.file_name());
+            // not followed: a link out of the directory is no file of it
+            let meta = e.metadata().map_err(|e| e.to_string())?;
+            if meta.is_dir() {
+                walk(root, &path, out)?;
+            } else if meta.is_file() {
+                out.push(path);
+            } else {
+                return Err(format!("{}: not a regular file", path.display()));
+            }
+            if out.len() > MAX_FILES {
+                return Err(format!("more than {MAX_FILES} files"));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(dir, Path::new(""), &mut files)?;
+    let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let mut total = 0u64;
+    for rel in files {
+        let path = dir.join(&rel);
+        let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        total += meta.len();
+        if total > MAX_UNPACKED {
+            return Err(format!("package over {} MiB", MAX_UNPACKED >> 20));
+        }
+        #[cfg(unix)]
+        let exec = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o100 != 0;
+        #[cfg(not(unix))]
+        let exec = false;
+        let name = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("/");
+        let opt = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .last_modified_time(zip::DateTime::default())
+            .unix_permissions(if exec { 0o755 } else { 0o644 });
+        w.start_file(name, opt).map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        w.write_all(&bytes).map_err(|e| e.to_string())?;
+    }
+    let zip = w.finish().map_err(|e| e.to_string())?.into_inner();
+    if zip.len() > MAX_ZIP {
+        return Err(format!("zip larger than {} MiB", MAX_ZIP >> 20));
+    }
+    Ok(zip)
+}
+
 /// Directory of an installed package.
 pub fn dir(root: &Path, def: &PackageDef) -> PathBuf {
     root.join(&def.name).join(&def.version)

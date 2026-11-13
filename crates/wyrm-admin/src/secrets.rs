@@ -169,26 +169,66 @@ impl SecretStore {
     }
 }
 
+/// Names that say a value is a secret.
+const WORDS: &[&str] = &[
+    "password",
+    "passwd",
+    "passphrase",
+    "secret",
+    "token",
+    "private_key",
+    "api_key",
+    "apikey",
+    "credential",
+    "key_pem",
+];
+
+/// `true` for a field name that says its value is a secret.
+pub fn secret_name(name: &str) -> bool {
+    let lk = name.to_ascii_lowercase();
+    WORDS.iter().any(|w| lk.contains(w)) || lk == "key" || lk.ends_with("_key")
+}
+
+/// What stands for a masked secret.
+pub const MASK: &str = "***";
+
+/// A configuration as JSON with every secret masked, for the `config`
+/// section of a backup (ADR 0048 §3.2): the value of a field named like a
+/// secret ([`secret_name`]; whatever its type), a PEM private key, and a
+/// long hex string wherever it is, except under `admin_keys` (public keys).
+pub fn mask_config(v: &mut serde_json::Value) {
+    fn walk(v: &mut serde_json::Value, public: bool) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, v) in m.iter_mut() {
+                    if secret_name(k) {
+                        *v = serde_json::Value::String(MASK.into());
+                    } else {
+                        walk(v, k == "admin_keys");
+                    }
+                }
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|v| walk(v, public)),
+            serde_json::Value::String(s) => {
+                let hex = s.len() >= 32 && s.chars().all(|c| c.is_ascii_hexdigit());
+                if s.contains("PRIVATE KEY-----") || (hex && !public) {
+                    *s = MASK.into();
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(v, false);
+}
+
 /// Lint at install (wiki: "params ... looks like a password/key → move to
 /// secrets"): keys named like secrets, or long hex strings.
 pub fn lint_params(v: &Value, path: &str) -> Result<(), String> {
-    const WORDS: &[&str] = &[
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "private_key",
-        "api_key",
-        "apikey",
-        "credential",
-        "key_pem",
-    ];
     match v {
         Value::Map(m) => {
             for (k, v) in m {
-                let lk = k.to_ascii_lowercase();
                 let p = format!("{path}.{k}");
-                if WORDS.iter().any(|w| lk.contains(w)) || lk == "key" || lk.ends_with("_key") {
+                if secret_name(k) {
                     return Err(format!(
                         "{p}: looks like a secret; use links/<id>/~act/set_secret"
                     ));
@@ -225,6 +265,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn a_config_copy_has_no_secret_in_clear() {
+        let mut v = serde_json::json!({
+            "site": "plant",
+            "admin_keys": ["aa".repeat(32)],
+            "gateway": { "tls_key": "/etc/wyrm/gw.key", "listen": "0.0.0.0:8445" },
+            "uplink": { "upstreams": [{ "name": "x", "password": "hunter2", "url": "mqtts://b" }] },
+            "links": { "plc": { "params": { "api_token": { "v": "t0k" }, "psk": "bb".repeat(16) } } },
+            "peers": { "upstream": [{ "site": "c", "key": "-----BEGIN PRIVATE KEY-----x" }] },
+            "note": "-----BEGIN EC PRIVATE KEY-----\nabc",
+        });
+        mask_config(&mut v);
+        let text = v.to_string();
+        for secret in [
+            "hunter2",
+            "t0k",
+            "/etc/wyrm/gw.key",
+            "PRIVATE KEY",
+            &"bb".repeat(16),
+        ] {
+            assert!(!text.contains(secret), "{secret} in {text}");
+        }
+        // what is not a secret stays: the site, the listener, the public keys
+        assert_eq!(v["site"], "plant");
+        assert_eq!(v["gateway"]["listen"], "0.0.0.0:8445");
+        assert_eq!(v["admin_keys"][0], "aa".repeat(32));
+        assert_eq!(v["uplink"]["upstreams"][0]["password"], MASK);
+        assert!(secret_name("Passphrase") && secret_name("state_key") && !secret_name("keep_days"));
     }
 
     /// Review ADM-7: only a missing file is an empty store.

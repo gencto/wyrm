@@ -63,6 +63,7 @@ System › Maintenance: the card `Back up and restore` (today the copyable comma
 ### Back up (board `Backup`, clickable)
 - Sections as checkboxes with their sizes (from the job's estimate, `sys/backups` `estimate {sections}`): `Control plane` (always, locked), `Keys and secrets` (tag `passphrase`), `Dataflows`, `Broker storage`, `History` (range chips 7 / 30 / all / custom), `Alarms`, `Links` (chips per link, all on), `Installed packages`, `wyrmd.json5 (read only)`. Unticked rows dim to 55 %.
 - `Passphrase for the keys and secrets` (password field; without it `Keys and secrets` is unticked and disabled with the reason).
+- `sys/backups` attribute `export_secrets` (`backups.export_secrets` in `wyrmd.json5`, set on the host): while `false`, `Keys and secrets` and the passphrase field are disabled with that reason; link secrets are then sealed for the site and the file opens only on a broker with its keys.
 - `Where`: `This computer` (download in parts), `File store link…` (pick a file-store link and a folder; `send`), `Keep on the broker` (kept `keep_days`).
 - Footer: total size, `config on sys`, `Back up` → `sys/backups/~act/create`.
 - Progress (`BackupProgress`): a bar, the current section and day, per-section rows (done good, current ember, to do muted), the line about one consistent moment. Closing the dialog leaves the job running; the Backups card shows it.
