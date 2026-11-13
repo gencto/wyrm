@@ -24,6 +24,7 @@ flowchart LR
     end
     linkInstall["LinkInstallPage · /link-install"]
     flowEditor["FlowEditorPage · /flow-editor/:id"]
+    viewsLab["ViewsLabPage · /views-lab"]
     frxBack(["◀ back"])
 
     studio ==>|"onLogOut (replace)"| logIn
@@ -35,11 +36,13 @@ flowchart LR
     system -->|"onTile"| gallery
     system -->|"onAttention"| gallery
     system -->|"onElsewhere"| gallery
+    system -->|"onTapViewsLab"| viewsLab
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
     linkInstall -.->|"onResultAction"| frxBack
     flowEditor -.->|"onClose"| frxBack
     flowEditor ==>|"onLogo (navigate)"| explorer
+    viewsLab -.->|"onBack"| system
 
     classDef frxEntry stroke-dasharray: 5 3
     class logIn,studio frxEntry
@@ -60,6 +63,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `AccessPage` | `/studio/access` | no | 6 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 8 | [assistant](assistant.md) |
-| `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
+| `SystemPage` | `/studio/system` | no | 27 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 42 | [flowEditor](flowEditor.md) |
+| `ViewsLabPage` | `/views-lab` | no | 14 | [viewsLab](viewsLab.md) |

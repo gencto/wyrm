@@ -42,6 +42,8 @@ import 'package:models/studio_notice.dart';
 import 'package:models/task_event.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/user_info.dart';
+import 'package:models/view_check.dart';
+import 'package:models/view_place.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 
@@ -86,6 +88,7 @@ import 'system/actions/remove_profile_action.dart';
 import 'system/actions/retrieve_profiles_action.dart';
 import 'system/actions/retrieve_system_log_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
+import 'views/actions/open_views_lab_action.dart';
 
 /// The facade: mix it in and every substate's selectors are in scope.
 ///
@@ -119,6 +122,7 @@ mixin Selectors {
   SelectPanels get panels => SelectPanels(state);
   SelectWindow get window => SelectWindow(state);
   SelectProblems get problems => SelectProblems(state);
+  SelectViews get views => SelectViews(state);
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -1112,4 +1116,66 @@ extension type SelectProblems(AppState _state) {
 
   /// Returns notices
   IList<StudioNotice> get notices => _state.problems.notices;
+}
+
+extension type SelectViews(AppState _state) {
+  /// Returns sample
+  String get sample => _state.views.sample;
+
+  /// Returns source
+  String get source => _state.views.source;
+
+  /// Returns refine
+  String get refine => _state.views.refine;
+
+  /// Returns docs
+  IMap<String, String> get docs => _state.views.docs;
+
+  /// Returns catalog
+  IMap<String, Object> get catalog => _state.views.catalog;
+
+  /// Returns width
+  String get width => _state.views.width;
+
+  /// Returns density
+  String? get density => _state.views.density;
+
+  /// Returns tab
+  String get tab => _state.views.tab;
+
+  /// Returns project
+  bool get project => _state.views.project;
+
+  /// Returns stack
+  IList<ViewPlace> get stack => _state.views.stack;
+
+  /// Returns data
+  IMap<String, Object> get data => _state.views.data;
+
+  /// Returns children
+  IMap<String, IList<String>> get children => _state.views.children;
+
+  /// Returns checks
+  IList<ViewCheck> get checks => _state.views.checks;
+
+  /// Returns result
+  String? get result => _state.views.result;
+
+  /// Returns open
+  bool get open => _state.views.open;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<OpenViewsLabAction>();
+
+  /// Returns keys
+  IMap<String, String> get keys => _state.views.keys;
+
+  /// Returns alarms
+  IMap<String, String> get alarms => _state.views.alarms;
+
+  /// Returns grants
+  IList<(String, String)> get grants => _state.views.grants;
+
+  /// Returns draft
+  String get draft => _state.views.draft;
 }

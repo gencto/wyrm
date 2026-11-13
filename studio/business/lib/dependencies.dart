@@ -26,6 +26,8 @@ import 'redux/services/traffic/traffic.dart';
 import 'redux/services/traffic/traffic_dispatcher.dart';
 import 'redux/services/tree_watch/tree_watch.dart';
 import 'redux/services/tree_watch/tree_watch_dispatcher.dart';
+import 'redux/services/view_bridge/view_bridge.dart';
+import 'redux/services/view_bridge/view_bridge_dispatcher.dart';
 import 'redux/services/wyrm_connection/wyrm_connection.dart';
 import 'redux/services/wyrm_connection/wyrm_connection_dispatcher.dart';
 import 'wyrm/failures.dart';
@@ -93,6 +95,7 @@ class AppDependencies {
     agentTasks.attach(session.api);
     flowWatch.attach(session.api);
     flowPreview.attach(session.api);
+    viewBridge.attach(session.api);
     if (old != null && !identical(old, session)) {
       await old.close();
     }
@@ -109,6 +112,7 @@ class AppDependencies {
     agentTasks.detach();
     flowWatch.detach();
     flowPreview.detach();
+    viewBridge.detach();
     await old?.close();
   }
 
@@ -171,6 +175,12 @@ class AppDependencies {
     listener: FlowPreviewDispatcher(store: _store),
   );
 
+  /// The values, lists and meta of the view on screen in the views lab
+  /// (docs/design/specs/genui-views.md).
+  late final viewBridge = ViewBridgeService(
+    listener: ViewBridgeDispatcher(store: _store),
+  );
+
   late final traffic = TrafficService(
     listener: TrafficDispatcher(store: _store),
   );
@@ -191,5 +201,6 @@ class AppDependencies {
     await flowWatch.start();
     await flowPreview.start();
     await traffic.start();
+    await viewBridge.start();
   }
 }

@@ -7,5 +7,7 @@ export 'package:wyrm_core/wyrm_core.dart';
 
 export 'src/api.dart';
 export 'src/frames.dart';
-export 'src/gateway.dart';
+// The gateway transport: `dart:io` everywhere but in a browser, where it
+// is `fetch` and the browser's WebSocket (same classes, same API).
+export 'src/gateway.dart' if (dart.library.js_interop) 'src/gateway_web.dart';
 export 'src/reconnect.dart';

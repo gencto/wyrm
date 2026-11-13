@@ -260,6 +260,7 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.panels != next.panels) 'panels',
       if (prev.window != next.window) 'window',
       if (prev.problems != next.problems) 'problems',
+      if (prev.views != next.views) 'views',
     ];
   }
 }
