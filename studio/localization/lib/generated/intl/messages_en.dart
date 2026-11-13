@@ -724,7 +724,7 @@ class MessageLookup extends MessageLookupByLibrary {
   static String m311(link, version) => "${link} · ${version} · before update";
 
   static String m312(version, links) =>
-      "These links stop and start on ${version} with the data of their restore points: ${links}. After it no version is kept: there is no second rollback.";
+      "These links stop and start on ${version}: ${links}. The broker puts their private data back to the restore point of the update when the update changed the store format or did not end well; after an update that ended well they keep the data they have. After it no version is kept: there is no second rollback.";
 
   static String m313(package, version) => "Roll back ${package} to ${version}?";
 
@@ -3309,7 +3309,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "updRollBackTitle": m313,
     "updRollBackTo": m314,
     "updRolledBackNote": MessageLookupByLibrary.simpleMessage(
-      "The links run the kept version again with the data of their restore points.",
+      "The links run the kept version again.",
     ),
     "updRolledBackTo": m315,
     "updRowChecking": MessageLookupByLibrary.simpleMessage("being checked"),

@@ -28,7 +28,7 @@ The action answers once the links restarted; there is no progress stream. The st
 ### Result (`LinkUpdateDone`, `LinkUpdateRolledBack`)
 - Banner by `last_update.result`: `ok` → `Both links run 0.5.0` (good; warn with `reason` when `gone` > 0, which happens with `auto_rollback_s: 0`); `rolled_back` → `Rolled back to 0.4.2` (warn) with `reason` (which link, how many nodes came back, or `rolled back by <who>`); `failed` → the new version stays, a link did not answer (warn, offer Roll back). `checking` is the progress screen, never a result.
 - `Nodes before and after`: three tiles `kept`, `new`, `gone` and up to 10 of `new_keys` / `gone_keys` (`<link>/<path>`; `+` good, `!` warn), from `last_update`.
-- `Restore points`: newest first; `Roll back to <v>…` (confirm dialog naming the links that restart, `last_update.links`) → `rollback {to}`. After a rollback `previous` is empty: no second rollback.
+- `Restore points`: newest first; `Roll back to <v>…` (confirm dialog naming the links that restart, `last_update.links`) → `rollback {to, restore_data}`. Studio sends neither argument: the broker then restores the links' private data from the restore points of that update only when the update changed the store format, did not end `ok`, or lost nodes, and the links of an update that ended well keep the data they have (the confirm says so; `last_update.reason` says which was done). After a rollback `previous` is empty: no second rollback.
 - Footer: audit names, `Close`, `Open <link>` or `Open the log of <v>` (System › Log, source the link, time of the update).
 
 ## 2. Backing up and restoring one link (`LinkBackup`)

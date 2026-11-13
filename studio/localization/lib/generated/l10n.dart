@@ -11301,10 +11301,10 @@ class S {
     );
   }
 
-  /// `The links run the kept version again with the data of their restore points.`
+  /// `The links run the kept version again.`
   String get updRolledBackNote {
     return Intl.message(
-      'The links run the kept version again with the data of their restore points.',
+      'The links run the kept version again.',
       name: 'updRolledBackNote',
       desc: '',
       args: [],
@@ -11536,10 +11536,10 @@ class S {
     );
   }
 
-  /// `These links stop and start on {version} with the data of their restore points: {links}. After it no version is kept: there is no second rollback.`
+  /// `These links stop and start on {version}: {links}. The broker puts their private data back to the restore point of the update when the update changed the store format or did not end well; after an update that ended well they keep the data they have. After it no version is kept: there is no second rollback.`
   String updRollBackNote(Object version, Object links) {
     return Intl.message(
-      'These links stop and start on $version with the data of their restore points: $links. After it no version is kept: there is no second rollback.',
+      'These links stop and start on $version: $links. The broker puts their private data back to the restore point of the update when the update changed the store format or did not end well; after an update that ended well they keep the data they have. After it no version is kept: there is no second rollback.',
       name: 'updRollBackNote',
       desc: '',
       args: [version, links],

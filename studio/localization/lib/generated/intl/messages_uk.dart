@@ -726,7 +726,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "${link} · ${version} · перед оновленням";
 
   static String m312(version, links) =>
-      "Ці лінки зупиняться і запустяться на ${version} з даними своїх точок відновлення: ${links}. Після цього жодна версія не зберігається: другого відкату немає.";
+      "Ці лінки зупиняться і запустяться на ${version}: ${links}. Брокер повертає їхні приватні дані до точки відновлення оновлення, якщо оновлення змінило формат сховища або закінчилося погано; після вдалого оновлення вони зберігають поточні дані. Після цього жодна версія не зберігається: другого відкату немає.";
 
   static String m313(package, version) => "Відкотити ${package} до ${version}?";
 
@@ -3361,7 +3361,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "updRollBackTitle": m313,
     "updRollBackTo": m314,
     "updRolledBackNote": MessageLookupByLibrary.simpleMessage(
-      "Лінки знову працюють на збереженій версії з даними своїх точок відновлення.",
+      "Лінки знову працюють на збереженій версії.",
     ),
     "updRolledBackTo": m315,
     "updRowChecking": MessageLookupByLibrary.simpleMessage("перевіряється"),
