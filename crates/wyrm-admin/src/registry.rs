@@ -562,6 +562,117 @@ pub struct PackageDef {
     #[cbor(default)]
     #[serde(default)]
     pub requester: Vec<(String, u8)>,
+    /// The store format this version writes (`wyrm-link.json` `state`, ADR
+    /// 0048); 0 in a record written before SCHEMA 20: read it with
+    /// [`PackageDef::state`].
+    #[n(10)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub state: u32,
+    /// The version this one replaced, kept for a rollback until
+    /// `keep_until` (ADR 0048 §1.4). Only one is kept.
+    #[n(11)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub previous: Option<Box<PreviousDef>>,
+    /// The last update or rollback of the package (`sys/packages/<name>/last_update`).
+    #[n(12)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub last_update: Option<UpdateReport>,
+}
+
+impl PackageDef {
+    /// The store format of this version: 1 when the package names none.
+    pub fn state(&self) -> u32 {
+        self.state.max(1)
+    }
+
+    /// This version as it is kept in [`PreviousDef`]: without its own
+    /// `previous` and `last_update`.
+    pub fn bare(&self) -> PackageDef {
+        PackageDef {
+            previous: None,
+            last_update: None,
+            ..self.clone()
+        }
+    }
+}
+
+/// A replaced version of a package whose directory is still on disk
+/// (`data_dir/packages/<name>/<version>`), for `rollback` (ADR 0048 §1.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct PreviousDef {
+    /// The replaced version ([`PackageDef::bare`]).
+    #[n(0)]
+    pub def: PackageDef,
+    /// Unix seconds: the directory is removed after it.
+    #[n(1)]
+    pub keep_until: u64,
+    /// Unix seconds of the update that replaced it: a rollback restores each
+    /// link from its newest restore point taken at or before it.
+    #[n(2)]
+    pub replaced: u64,
+    /// The update changed the store format (the new version's `reads_state`
+    /// lacked this version's `state`): a rollback needs the restore points.
+    #[n(3)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub changes_state: bool,
+}
+
+/// Most keys of `new` and of `gone` kept in an [`UpdateReport`].
+pub const UPDATE_REPORT_KEYS: usize = 200;
+
+/// `result` of an [`UpdateReport`] while the health check runs.
+pub const UPDATE_CHECKING: &str = "checking";
+pub const UPDATE_OK: &str = "ok";
+pub const UPDATE_ROLLED_BACK: &str = "rolled_back";
+pub const UPDATE_FAILED: &str = "failed";
+
+/// What the last update of a package did (ADR 0048 §1.1, §1.5): shown as
+/// the map `sys/packages/<name>/last_update`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct UpdateReport {
+    /// The version before the update.
+    #[n(0)]
+    pub from: String,
+    /// The version the update installed.
+    #[n(1)]
+    pub to: String,
+    /// Unix seconds.
+    #[n(2)]
+    pub at: u64,
+    /// `checking` (the health check runs), `ok`, `rolled_back` (`from` runs
+    /// again) or `failed`.
+    #[n(3)]
+    pub result: String,
+    /// Keys the links had before and have now.
+    #[n(4)]
+    pub kept: u32,
+    /// Keys they have now and did not have before.
+    #[n(5)]
+    pub new: u32,
+    /// Keys they had before and did not declare again.
+    #[n(6)]
+    pub gone: u32,
+    /// At most [`UPDATE_REPORT_KEYS`] of each, as `<link>/<path>`.
+    #[n(7)]
+    pub new_keys: Vec<String>,
+    #[n(8)]
+    pub gone_keys: Vec<String>,
+    /// Why it was rolled back or failed; a note otherwise.
+    #[n(9)]
+    pub reason: String,
+    /// The links of the package at the update.
+    #[n(10)]
+    pub links: Vec<String>,
+    /// The update changed the store format.
+    #[n(11)]
+    pub changes_state: bool,
+    /// A restore point was taken of every link.
+    #[n(12)]
+    pub restore_point: bool,
 }
 
 /// The embedded historian's settings (`sys/history`, ADR 0014). The rows
@@ -914,8 +1025,9 @@ impl wyrm_state::State for Registry {
     // 14: keys renamed by spec 0.2.0 (snapshots rebuilt through `renamed_keys`);
     // 15: `PeerDef::cert_pem`; 16: enrollments and tokens (ADR 0015);
     // 17: `PeerDef::allow_config`, `signers`; 18: `config_signers` (ADR 0018);
-    // 19: history sinks and `keep_after_sync_days` (ADR 0026)
-    const SCHEMA: u32 = 19;
+    // 19: history sinks and `keep_after_sync_days` (ADR 0026);
+    // 20: `PackageDef::{state, previous, last_update}` (ADR 0048)
+    const SCHEMA: u32 = 20;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -1791,6 +1903,90 @@ mod tests {
         };
         let p: PackageDef = minicbor::decode(&minicbor::to_vec(&old).unwrap()).unwrap();
         assert!(p.requester.is_empty());
+        // SCHEMA 20 (ADR 0048): a package stored before it has no previous
+        // version, no update report, and writes store format 1
+        assert_eq!((p.state, p.state()), (0, 1));
+        assert!(p.previous.is_none() && p.last_update.is_none());
+
+        // a PackageDef as SCHEMA 19 wrote it (with `requester`), inside its op
+        #[derive(minicbor::Encode)]
+        struct PackageDefV19 {
+            #[n(0)]
+            name: String,
+            #[n(1)]
+            version: String,
+            #[n(2)]
+            kind: PackageKind,
+            #[n(3)]
+            entry: String,
+            #[n(4)]
+            args: Vec<String>,
+            #[n(5)]
+            sha256: String,
+            #[n(6)]
+            source: String,
+            #[n(7)]
+            description: String,
+            #[n(8)]
+            installed: u64,
+            #[n(9)]
+            requester: Vec<(String, u8)>,
+        }
+        #[derive(minicbor::Encode)]
+        enum OpV19 {
+            #[n(14)]
+            PutPackage(#[n(0)] PackageDefV19),
+        }
+        let old = OpV19::PutPackage(PackageDefV19 {
+            name: "p".into(),
+            version: "1.2.0".into(),
+            kind: PackageKind::Wasm,
+            entry: "p.wasm".into(),
+            args: vec![],
+            sha256: "00".into(),
+            source: "repository https://r/index.json".into(),
+            description: "d".into(),
+            installed: 9,
+            requester: vec![("wy/{site}/downstream/mock".into(), 2)],
+        });
+        let op: Op = minicbor::decode(&minicbor::to_vec(&old).unwrap())
+            .expect("a SCHEMA 19 PutPackage record decodes");
+        let mut r = Registry::default();
+        r.apply(&op).unwrap();
+        let p = &r.packages["p"];
+        assert_eq!((p.version.as_str(), p.state()), ("1.2.0", 1));
+        assert_eq!(p.requester.len(), 1);
+        assert!(p.previous.is_none() && p.last_update.is_none());
+
+        // and the new fields go through a record and back
+        let mut new = p.clone();
+        new.version = "1.3.0".into();
+        new.state = 2;
+        new.previous = Some(Box::new(PreviousDef {
+            def: p.bare(),
+            keep_until: 700,
+            replaced: 100,
+            changes_state: true,
+        }));
+        new.last_update = Some(UpdateReport {
+            from: "1.2.0".into(),
+            to: "1.3.0".into(),
+            at: 100,
+            result: UPDATE_OK.into(),
+            kept: 3,
+            new: 1,
+            gone: 0,
+            new_keys: vec!["l1/a".into()],
+            links: vec!["l1".into()],
+            changes_state: true,
+            restore_point: true,
+            ..UpdateReport::default()
+        });
+        let bytes = minicbor::to_vec(Op::PutPackage(new.clone())).unwrap();
+        let Op::PutPackage(back) = minicbor::decode::<Op>(&bytes).unwrap() else {
+            panic!("PutPackage")
+        };
+        assert_eq!(back, new);
     }
 
     #[test]

@@ -149,6 +149,10 @@ struct Meta {
     requester: Vec<Grant>,
     /// A portable app (either kind): what its link may use, granted at install (ADR 0023).
     capabilities: Option<Capabilities>,
+    /// The format of the link's private data that this version writes (ADR 0048; default 1).
+    state: Option<u32>,
+    /// The formats it reads (default `[state]`).
+    reads_state: Option<Vec<u32>>,
 }
 
 fn process() -> String {
@@ -244,6 +248,8 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
                     )
                 })?;
             let manifest = Manifest {
+                state: meta.state,
+                reads_state: meta.reads_state.clone(),
                 entry: Some(format!("{name}.wasm")),
                 name,
                 version: p.version.clone(),
@@ -296,6 +302,8 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
         artifact: Artifact::Bin(bin),
         features: meta.features,
         manifest: Manifest {
+            state: meta.state,
+            reads_state: meta.reads_state,
             name,
             version: p.version.clone(),
             description,
@@ -456,6 +464,8 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
         let data = std::fs::read(&wasm).map_err(|e| format!("{}: {e}", wasm.display()))?;
         let world = manifest_world(&data).map_err(|e| format!("{}: {e}", wasm.display()))?;
         let m = Manifest {
+            state: None,
+            reads_state: None,
             name: name.clone(),
             version: version.clone(),
             description,
@@ -571,6 +581,9 @@ fn add_to_index(index: &mut Vec<RepoEntry>, m: &Manifest, url: String, sha256: S
         url: None,
         sha256: None,
         assets: BTreeMap::new(),
+        // ADR 0048: only what the manifest names, so an index stays as it was
+        state: m.state,
+        reads_state: m.reads_state.clone(),
         ..RepoEntry::default()
     };
     let i = match index.iter().position(|e| e.name == m.name) {
@@ -771,6 +784,19 @@ pub(crate) mod tests {
         assert_eq!(proc.features, ["process"]);
         assert_eq!(proc.manifest.capabilities, Some(caps));
         assert_eq!(proc.manifest.world, None);
+        // ADR 0048: the store format, for both kinds; absent stays absent
+        assert_eq!((got.manifest.state, proc.manifest.state()), (None, 1));
+        let meta = serde_json::json!({ "wyrm-link": {
+            "name": "acme", "kind": "wasm", "state": 3, "reads_state": [2, 3] } });
+        for kind in [None, Some("process")] {
+            let m = plan(&app_pkg(meta.clone()), kind).unwrap().manifest;
+            assert_eq!((m.state(), m.reads_state()), (3, vec![2, 3]));
+        }
+        // a version that could not read its own store, before any build
+        let bad = serde_json::json!({ "wyrm-link": {
+            "kind": "wasm", "state": 3, "reads_state": [2] } });
+        let err = plan(&app_pkg(bad), None).unwrap_err().to_string();
+        assert!(err.contains("reads_state"), "{err}");
         let big = serde_json::json!({ "wyrm-link": {
             "kind": "process", "capabilities": { "call_ms": 0 } } });
         let err = plan(&app_pkg(big), None).unwrap_err().to_string();
@@ -808,6 +834,8 @@ pub(crate) mod tests {
 
     fn manifest(version: &str, hosts: &[&str]) -> Manifest {
         Manifest {
+            state: None,
+            reads_state: None,
             name: "acme".into(),
             version: version.into(),
             description: format!("acme {version}"),
@@ -854,6 +882,19 @@ pub(crate) mod tests {
         assert_eq!(index[0].asset("linux-x86_64").unwrap().url, "c");
         let text = serde_json::to_string(&index).unwrap();
         assert!(package::parse_index(text.as_bytes()).is_ok());
+        // ADR 0048: the index says what store format a version reads, when
+        // its manifest names it; an index of packages that do not stays as it was
+        assert!(!text.contains("state"), "{text}");
+        let mut m = manifest("2.0.0", &["linux-x86_64"]);
+        (m.state, m.reads_state) = (Some(2), Some(vec![1, 2]));
+        add_to_index(&mut index, &m, "d".into(), sha('d'));
+        assert_eq!(
+            (index[0].state, index[0].reads_state.clone()),
+            (Some(2), Some(vec![1, 2]))
+        );
+        assert!(index[0].reads(1) && !index[0].reads(3));
+        let text = serde_json::to_string(&index).unwrap();
+        assert_eq!(package::parse_index(text.as_bytes()).unwrap(), index);
     }
 
     #[test]

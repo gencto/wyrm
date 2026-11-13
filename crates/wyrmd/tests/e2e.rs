@@ -946,8 +946,28 @@ async fn install_link_from_zip() {
         .unwrap(),
     );
     assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    // the old version is kept for a rollback (ADR 0048)
     let root = env.ctl.packages_root();
-    assert!(!root.join("mockpkg/1.0.0").exists() && root.join("mockpkg/1.1.0/bin/run").exists());
+    assert!(root.join("mockpkg/1.0.0").exists() && root.join("mockpkg/1.1.0/bin/run").exists());
+    assert_eq!(
+        env.ctl.registry().packages["mockpkg"]
+            .previous
+            .as_deref()
+            .map(|p| p.def.version.clone()),
+        Some("1.0.0".to_owned())
+    );
+    // The health check of the update: pk2 was installed a moment before and
+    // says hello only to the rebuilt router, so the check steps aside for
+    // that rebuild and ends on the new router with both links back.
+    let report = eventually("the update's health check", 90, || async {
+        let p = env.ctl.registry().packages["mockpkg"].clone();
+        let r = p.last_update?;
+        (r.result != "checking" && !env.ctl.package_updating("mockpkg")).then_some(r)
+    })
+    .await;
+    assert_eq!(report.result, "ok", "{report:?}");
+    assert_eq!(report.links, ["pk1", "pk2"]);
+    assert_eq!(report.gone, 0, "{report:?}");
 
     // a bad zip is success: false, not an error
     let (ok, msg) = outcome(
@@ -1089,8 +1109,11 @@ async fn install_link_from_url_repository_git() {
                     let Some(Value::Str(msg)) = m.get("message").cloned() else {
                         return None;
                     };
-                    // the index loads in the background: wait for it
-                    (!msg.contains("loading")).then_some((ok, msg))
+                    // the index loads in the background: wait for it; and an
+                    // update of the same package is checked first (ADR 0048)
+                    (!msg.contains("loading")
+                        && !msg.contains("the update of mockpkg is being checked"))
+                    .then_some((ok, msg))
                 }
             })
             .await
@@ -1467,6 +1490,8 @@ async fn portable_app_installs_as_wasm() {
     };
     let zip = |version: &str, world: &str| {
         let m = Manifest {
+            state: None,
+            reads_state: None,
             name: "echoapp".into(),
             version: version.into(),
             description: "the echo app".into(),
@@ -1602,6 +1627,8 @@ fn echo_app_zip_of_world(
     use wyrm_link_sdk::package::{self, Manifest, PackFile};
     let entry = format!("{name}.wasm");
     let m = Manifest {
+        state: None,
+        reads_state: None,
         name: name.into(),
         version: version.into(),
         description: "the echo app".into(),
@@ -1997,6 +2024,55 @@ async fn portable_app_upgrade_is_a_hot_start() {
         !audit.iter().any(|r| r.op == "stop" && r.key == "h1"),
         "{audit:?}"
     );
+    // ADR 0048: the hot start is an update like any other: a restore point
+    // of the app's store, the old version kept, and a health check that
+    // waits out the sweep of the old code's nodes before it says `ok`
+    let report = eventually("the hot start's health check", 60, || async {
+        let p = env.ctl.registry().packages["echohot"].clone();
+        let r = p.last_update?;
+        (r.result != "checking" && !env.ctl.package_updating("echohot")).then_some(r)
+    })
+    .await;
+    assert_eq!(report.result, "ok", "{report:?}");
+    assert_eq!(
+        (report.from.as_str(), report.to.as_str()),
+        ("1.0.0", "1.0.1")
+    );
+    assert!(report.restore_point && report.gone == 0, "{report:?}");
+    assert!(report.new_keys.contains(&"h1/v2".to_owned()), "{report:?}");
+    let reg = env.ctl.registry();
+    let prev = reg.packages["echohot"].previous.as_deref().unwrap();
+    assert_eq!(prev.def.version, "1.0.0");
+    assert!(env.ctl.packages_root().join("echohot/1.0.0").is_dir());
+    assert!(env
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "restore_point" && r.key == "h1"));
+    // back to 1.0.0 by hand: the link stops, its store is the restore
+    // point's (n = 5, written before the update), and v2's node is gone
+    let rb = c
+        .invoke_one(
+            &format!("wy/{SITE}/sys/packages/echohot"),
+            "rollback",
+            Value::Map(BTreeMap::new()),
+        )
+        .await
+        .unwrap();
+    let Some(Value::Map(m)) = rb else {
+        panic!("rollback: {rb:?}")
+    };
+    assert_eq!(m.get("success"), Some(&Value::Bool(true)), "{m:?}");
+    assert_eq!(env.ctl.registry().packages["echohot"].version, "1.0.0");
+    eventually("1.0.0 runs again without v2", 30, || async {
+        let ch = c.children(&root).await.ok()?;
+        (!ch.is_empty() && !ch.iter().any(|ch| ch.name == "v2")).then_some(())
+    })
+    .await;
+    eventually("the store of the restore point", 20, || async {
+        (last_val(&c, &format!("{root}/n")).await == Some(Value::UInt(5))).then_some(())
+    })
+    .await;
     // the install record names what the links may use (M6)
     assert!(
         audit.iter().any(|r| r.op == "package_install"
@@ -2265,6 +2341,8 @@ async fn one_app_three_modes() {
     match portable_component("wyrm-example-portable") {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "portable-echo".into(),
                 version: "1.0.0".into(),
                 description: "the portable example as a component".into(),
@@ -7689,6 +7767,8 @@ async fn scheduler_three_modes() {
     match &wasm {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "scheduler".into(),
                 version: "1.0.0".into(),
                 description: "the scheduler as a component".into(),
@@ -8252,6 +8332,8 @@ async fn dql_three_modes() {
     match &wasm {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "dql".into(),
                 version: "1.0.0".into(),
                 description: "the DQL link as a component".into(),
@@ -8619,6 +8701,8 @@ async fn alarm_three_modes() {
     match &wasm {
         Some(component) => {
             let m = Manifest {
+                state: None,
+                reads_state: None,
                 name: "alarm".into(),
                 version: "1.0.0".into(),
                 description: "the alarm link as a component".into(),
@@ -11749,4 +11833,619 @@ async fn backup_restores_into_a_fresh_data_dir() {
     })
     .await;
     b.stop().await;
+}
+
+// ---- Package updates with a way back (ADR 0048 §1) ----
+
+/// A process package `name` whose entry is the shell script `body` (after
+/// `#!/bin/sh`), with `extra` fields in its manifest (`state`, `reads_state`).
+fn script_package(name: &str, version: &str, body: &str, extra: serde_json::Value) -> Vec<u8> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    let mut manifest = serde_json::json!({
+        "name": name,
+        "version": version,
+        "wyrm_link": wyrm_link_sdk::LINK_PROTOCOL,
+        "kind": "process",
+        "entries": { wyrm_admin::packages::platform(): "bin/run" },
+    });
+    if let (Some(m), Some(e)) = (manifest.as_object_mut(), extra.as_object()) {
+        m.extend(e.clone());
+    }
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opt = SimpleFileOptions::default();
+    w.start_file(wyrm_admin::packages::MANIFEST, opt).unwrap();
+    w.write_all(manifest.to_string().as_bytes()).unwrap();
+    w.start_file("bin/run", opt.unix_permissions(0o644))
+        .unwrap();
+    w.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
+        .unwrap();
+    w.finish().unwrap().into_inner()
+}
+
+/// The package `updpkg` of the update tests: `wyrmd link mockdev` as a
+/// process, so its link keeps runtime edits in its private `framework.tree`.
+fn upd_good(version: &str, extra: serde_json::Value) -> Vec<u8> {
+    let body = format!("exec \"{}\" link mockdev", env!("CARGO_BIN_EXE_wyrmd"));
+    script_package("updpkg", version, &body, extra)
+}
+
+/// A version of `updpkg` that loses what the link had: it deletes the saved
+/// tree (the connection added at runtime is not declared again) and leaves
+/// a file of its own in the link's private data.
+fn upd_lossy(version: &str) -> Vec<u8> {
+    let body = format!(
+        "rm -f \"$WYRM_DATA_DIR/framework.tree\"\n\
+         echo lossy > \"$WYRM_DATA_DIR/lossy-was-here\"\n\
+         exec \"{}\" link mockdev",
+        env!("CARGO_BIN_EXE_wyrmd")
+    );
+    script_package("updpkg", version, &body, serde_json::json!({}))
+}
+
+/// A version of `updpkg` whose link never says hello.
+fn upd_dead(version: &str) -> Vec<u8> {
+    script_package("updpkg", version, "exit 1", serde_json::json!({}))
+}
+
+/// An install or update action answered `{success, message}`, retried while
+/// the router is being rebuilt.
+async fn upd_call(env: &Env, key: &str, action: &str, args: Vec<(&str, Value)>) -> (bool, String) {
+    let args = Value::Map(args.into_iter().map(|(k, v)| (k.to_owned(), v)).collect());
+    let v = eventually(&format!("{action} on {key}"), 60, || {
+        let args = args.clone();
+        async move {
+            let c = client_now(env).await?.with_timeout(Duration::from_secs(60));
+            match c.invoke_one(key, action, args).await {
+                Ok(v) => Some(v),
+                // an error of the admin itself is the answer; anything else
+                // is the router between two builds
+                Err(e)
+                    if matches!(
+                        status_of(&e),
+                        Some(wyrm_core::Status::InvalidParameter | wyrm_core::Status::NotFound)
+                    ) =>
+                {
+                    panic!("{action}: {e}")
+                }
+                Err(_) => None,
+            }
+        }
+    })
+    .await;
+    let Some(Value::Map(m)) = v else {
+        panic!("{action}: result map: {v:?}")
+    };
+    let msg = match m.get("message") {
+        Some(Value::Str(s)) => s.clone(),
+        other => panic!("{action}: message: {other:?}"),
+    };
+    (m.get("success") == Some(&Value::Bool(true)), msg)
+}
+
+/// `updpkg` 1.0.0 installed as link `u1`, with a connection `c2` added at
+/// runtime (kept in the link's private data).
+async fn upd_setup(env: &Env) {
+    let links = format!("wy/{SITE}/sys/links");
+    let (ok, msg) = upd_call(
+        env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            (
+                "zip",
+                Value::Bytes(upd_good("1.0.0", serde_json::json!({}))),
+            ),
+        ],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let root = format!("wy/{SITE}/downstream/u1");
+    eventually("u1 answers", 40, || async {
+        let c = client_now(env).await?;
+        c.meta(&root).await.ok()
+    })
+    .await;
+    let args = Value::Map(BTreeMap::from([("name".to_owned(), Value::from("c2"))]));
+    invoke_retry(env, &root, "add_connection", args).await;
+    upd_c2(env, "c2 is declared").await;
+}
+
+/// Waits until the link `u1` has its connection `c2`.
+async fn upd_c2(env: &Env, what: &str) {
+    let node = format!("wy/{SITE}/downstream/u1/c2/status");
+    eventually(what, 40, || async {
+        let c = client_now(env).await?;
+        c.meta(&node).await.ok()
+    })
+    .await;
+}
+
+/// `attr.updates_available` of `sys/links`.
+async fn upd_available(env: &Env) -> Option<Value> {
+    let c = client_now(env).await?;
+    let meta = c.meta(&format!("wy/{SITE}/sys/links")).await.ok()?;
+    meta.attr?.get("updates_available").cloned()
+}
+
+/// A value of `sys/packages/updpkg` (or of another node under `sys`).
+async fn upd_sys(env: &Env, path: &str) -> Option<Value> {
+    last_sample(env, &format!("wy/{SITE}/sys/{path}"))
+        .await
+        .map(|s| s.v)
+}
+
+fn upd_field(v: &Value, name: &str) -> Value {
+    match v {
+        Value::Map(m) => m.get(name).cloned().unwrap_or(Value::Null),
+        _ => Value::Null,
+    }
+}
+
+/// `sys/packages/updpkg/last_update` once its `result` is no longer
+/// `checking` and the check has let go of the package.
+async fn upd_result(env: &Env, secs: u64) -> Value {
+    eventually("the update's result", secs, || async {
+        let v = upd_sys(env, "packages/updpkg/last_update").await?;
+        match upd_field(&v, "result") {
+            Value::Str(r) if r != "checking" && !env.ctl.package_updating("updpkg") => Some(v),
+            _ => None,
+        }
+    })
+    .await
+}
+
+fn upd_text(v: &Value, name: &str) -> String {
+    match upd_field(v, name) {
+        Value::Str(s) => s,
+        other => panic!("{name}: {other:?} in {v:?}"),
+    }
+}
+
+fn upd_count(v: &Value, name: &str) -> u64 {
+    match upd_field(v, name) {
+        Value::UInt(n) => n,
+        other => panic!("{name}: {other:?} in {v:?}"),
+    }
+}
+
+/// ADR 0048 §1.3–1.6: an update whose new version does not declare every
+/// key again is rolled back by the broker itself: the old version runs
+/// again and the link's private data is as it was before the update.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_that_loses_keys_rolls_back() {
+    let dir = temp_dir("upd-lossy");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/version").await,
+        Some(Value::from("1.0.0"))
+    );
+    // a package the repository does not list: no `latest`
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/latest").await,
+        Some(Value::from(""))
+    );
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/update_available").await,
+        Some(Value::Bool(false))
+    );
+    let tree = dir.join("links/u1/data/framework.tree");
+    assert!(tree.is_file(), "the link saved its runtime edit");
+
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_lossy("1.1.0"))),
+            ("auto_rollback_s", Value::UInt(8)),
+        ],
+    )
+    .await;
+    assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    assert!(msg.contains("restore points: u1"), "{msg}");
+    // the old version is kept beside the new one
+    let root = env.ctl.packages_root();
+    assert!(root.join("updpkg/1.0.0/bin/run").exists() && root.join("updpkg/1.1.0").exists());
+
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    assert_eq!(
+        (upd_text(&r, "from"), upd_text(&r, "to")),
+        ("1.0.0".into(), "1.1.0".into())
+    );
+    assert!(upd_count(&r, "gone") >= 1, "{r:?}");
+    let Value::Array(gone) = upd_field(&r, "gone_keys") else {
+        panic!("{r:?}")
+    };
+    assert!(gone.contains(&Value::from("u1/c2")), "{gone:?}");
+    let reason = upd_text(&r, "reason");
+    assert!(
+        reason.contains("u1 did not declare") && reason.contains("within 8 s"),
+        "{reason}"
+    );
+
+    // the old version runs again, on its data as it was
+    let reg = env.ctl.registry();
+    let p = &reg.packages["updpkg"];
+    assert_eq!(p.version, "1.0.0");
+    assert!(p.previous.is_none(), "nothing is kept after a rollback");
+    assert!(root.join("updpkg/1.0.0/bin/run").exists() && !root.join("updpkg/1.1.0").exists());
+    assert!(!dir.join("links/u1/data/lossy-was-here").exists());
+    // the new version deleted the saved tree: only the restore point has c2
+    upd_c2(&env, "c2 is back after the rollback").await;
+    assert!(tree.is_file(), "the private data is the restore point's");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/version").await,
+        Some(Value::from("1.0.0"))
+    );
+    // one restore point of the link, listed with its version and size
+    let Some(Value::Array(points)) = upd_sys(&env, "links/u1/restore_points").await else {
+        panic!("restore_points")
+    };
+    assert_eq!(points.len(), 1, "{points:?}");
+    assert_eq!(upd_text(&points[0], "version"), "1.0.0");
+    assert!(upd_count(&points[0], "size") > 0 && upd_count(&points[0], "at") > 0);
+    // sealed: the connection's name is not readable in the file
+    let point_dir = dir.join("restore/u1");
+    let sealed: Vec<_> = std::fs::read_dir(&point_dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "restore"))
+        .collect();
+    assert_eq!(sealed.len(), 1);
+    let bytes = std::fs::read(sealed[0].path()).unwrap();
+    assert!(!bytes.windows(14).any(|w| w == b"framework.tree"));
+
+    let audit = env.ctl.audit_tail(200);
+    for op in ["restore_point", "package_update", "update_rollback"] {
+        assert!(audit.iter().any(|r| r.op == op), "{op}: {audit:?}");
+    }
+    let rb = audit.iter().find(|r| r.op == "update_rollback").unwrap();
+    assert!(
+        rb.key == "updpkg" && rb.detail.contains("data restored: u1"),
+        "{rb:?}"
+    );
+
+    // a version whose link never says hello goes the same way
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_dead("1.2.0"))),
+            ("auto_rollback_s", Value::UInt(6)),
+        ],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    assert!(
+        upd_text(&r, "reason").contains("u1 did not come back within 6 s"),
+        "{r:?}"
+    );
+    assert_eq!(env.ctl.registry().packages["updpkg"].version, "1.0.0");
+    upd_c2(&env, "c2 is back after the second rollback").await;
+    env.stop().await;
+}
+
+/// ADR 0048 §1.5–1.6: with `auto_rollback_s: 0` the new version stays and
+/// the report names what is gone; `rollback` then brings the old version
+/// and the link's data back by hand.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_reports_gone_and_rolls_back_by_hand() {
+    let dir = temp_dir("upd-report");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    let package = format!("wy/{SITE}/sys/packages/updpkg");
+    // nothing to go back to yet
+    let (ok, msg) = upd_call(&env, &package, "rollback", vec![]).await;
+    assert!(!ok && msg.contains("no previous version"), "{msg}");
+
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(upd_lossy("1.1.0"))),
+            ("auto_rollback_s", Value::UInt(0)),
+        ],
+    )
+    .await;
+    assert!(ok && msg.contains("1.0.0 → 1.1.0"), "{msg}");
+    // while the links are being checked they are the check's: `busy`
+    let c = env.client().await;
+    let err = c
+        .invoke_one(
+            &format!("{links}/u1"),
+            "stop",
+            Value::Map(Default::default()),
+        )
+        .await
+        .expect_err("busy during the check");
+    assert!(err.is(wyrm_core::Status::Busy), "{err}");
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            (
+                "zip",
+                Value::Bytes(upd_good("1.3.0", serde_json::json!({}))),
+            ),
+        ],
+    )
+    .await;
+    assert!(!ok && msg.contains("being checked"), "{msg}");
+
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert!(upd_count(&r, "gone") >= 1, "{r:?}");
+    let Value::Array(gone) = upd_field(&r, "gone_keys") else {
+        panic!("{r:?}")
+    };
+    assert!(gone.contains(&Value::from("u1/c2")), "{gone:?}");
+    assert!(upd_text(&r, "reason").contains("not rolled back"), "{r:?}");
+    // the new version stays, the old one is kept for a rollback
+    let reg = env.ctl.registry();
+    let p = &reg.packages["updpkg"];
+    assert_eq!(p.version, "1.1.0");
+    let prev = p.previous.as_deref().expect("the previous version is kept");
+    assert_eq!(prev.def.version, "1.0.0");
+    assert!(prev.keep_until > prev.replaced + 6 * 86_400);
+    let shown = upd_sys(&env, "packages/updpkg/previous").await.unwrap();
+    assert_eq!(upd_text(&shown, "version"), "1.0.0");
+    assert_eq!(upd_count(&shown, "keep_until"), prev.keep_until);
+    assert!(dir.join("links/u1/data/lossy-was-here").exists());
+
+    // only the kept version can be named
+    let (ok, msg) = upd_call(
+        &env,
+        &package,
+        "rollback",
+        vec![("to", Value::from("0.9.0"))],
+    )
+    .await;
+    assert!(!ok && msg.contains("1.0.0"), "{msg}");
+    let (ok, msg) = upd_call(
+        &env,
+        &package,
+        "rollback",
+        vec![("to", Value::from("1.0.0"))],
+    )
+    .await;
+    assert!(ok && msg.contains("1.1.0 → 1.0.0"), "{msg}");
+    assert!(msg.contains("data restored: u1"), "{msg}");
+    let reg = env.ctl.registry();
+    assert_eq!(reg.packages["updpkg"].version, "1.0.0");
+    assert!(reg.packages["updpkg"].previous.is_none());
+    let root = env.ctl.packages_root();
+    assert!(root.join("updpkg/1.0.0/bin/run").exists() && !root.join("updpkg/1.1.0").exists());
+    assert!(!dir.join("links/u1/data/lossy-was-here").exists());
+    upd_c2(&env, "c2 is back after the rollback").await;
+    let r = upd_sys(&env, "packages/updpkg/last_update").await.unwrap();
+    assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
+    assert!(upd_text(&r, "reason").contains("rolled back by"), "{r:?}");
+    // the counts of the update that was undone stay with it
+    assert!(upd_count(&r, "gone") >= 1, "{r:?}");
+    assert!(env
+        .ctl
+        .audit_tail(200)
+        .iter()
+        .any(|r| r.op == "update_rollback" && r.detail.contains("rolled back by")));
+    env.stop().await;
+}
+
+/// ADR 0048 §1.7: `state` and `reads_state`. A version that does not read
+/// the installed store format is an update that changes it: refused without
+/// a restore point, reported as such with one; a version that reads the
+/// installed format is not.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_that_changes_the_store_format() {
+    let dir = temp_dir("upd-state");
+    let env = Env::start_in(&dir, "").await;
+    upd_setup(&env).await;
+    let links = format!("wy/{SITE}/sys/links");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/state").await,
+        Some(Value::UInt(1))
+    );
+    let v2 = || upd_good("2.0.0", serde_json::json!({ "state": 2 }));
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(v2())),
+            ("restore_point", Value::Bool(false)),
+        ],
+    )
+    .await;
+    assert!(
+        !ok && msg.contains("changes the store format") && msg.contains("restore_point: true"),
+        "{msg}"
+    );
+    // nothing was installed
+    assert_eq!(env.ctl.registry().packages["updpkg"].version, "1.0.0");
+    assert!(!env.ctl.packages_root().join("updpkg/2.0.0").exists());
+    assert!(!dir.join("restore/u1").exists());
+
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![("name", Value::from("u1")), ("zip", Value::Bytes(v2()))],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert_eq!(upd_field(&r, "changes_state"), Value::Bool(true));
+    assert_eq!(upd_field(&r, "restore_point"), Value::Bool(true));
+    assert_eq!(upd_count(&r, "gone"), 0, "{r:?}");
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/state").await,
+        Some(Value::UInt(2))
+    );
+    let prev = upd_sys(&env, "packages/updpkg/previous").await.unwrap();
+    assert_eq!(upd_field(&prev, "changes_state"), Value::Bool(true));
+    assert!(dir.join("restore/u1").is_dir());
+
+    // a version that reads the installed format changes nothing: it may
+    // go without a restore point
+    let v3 = upd_good(
+        "3.0.0",
+        serde_json::json!({ "state": 3, "reads_state": [2, 3] }),
+    );
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![
+            ("name", Value::from("u1")),
+            ("zip", Value::Bytes(v3)),
+            ("restore_point", Value::Bool(false)),
+        ],
+    )
+    .await;
+    assert!(ok, "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert_eq!(upd_field(&r, "changes_state"), Value::Bool(false));
+    assert_eq!(upd_field(&r, "restore_point"), Value::Bool(false));
+    // a manifest that could not read its own store is no package
+    let bad = upd_good(
+        "4.0.0",
+        serde_json::json!({ "state": 4, "reads_state": [3] }),
+    );
+    let (ok, msg) = upd_call(
+        &env,
+        &links,
+        "install_zip",
+        vec![("name", Value::from("u1")), ("zip", Value::Bytes(bad))],
+    )
+    .await;
+    assert!(!ok && msg.contains("reads_state"), "{msg}");
+    // an argument out of range is an error, not a result
+    let c = env.client().await;
+    let err = c
+        .invoke_one(
+            &links,
+            "install_zip",
+            Value::Map(BTreeMap::from([
+                ("name".to_owned(), Value::from("u1")),
+                ("zip".to_owned(), Value::Bytes(v2())),
+                ("auto_rollback_s".to_owned(), Value::UInt(100_000)),
+            ])),
+        )
+        .await
+        .expect_err("out of range");
+    assert!(err.is(wyrm_core::Status::InvalidParameter), "{err}");
+    env.stop().await;
+}
+
+/// ADR 0048 §1.1–1.2: the repository's version shows as `latest` /
+/// `update_available` (and in `sys/links/updates_available`), and
+/// `sys/packages/<name>/~act/update` installs it by the index's SHA-256.
+#[tokio::test(flavor = "multi_thread")]
+async fn package_update_from_the_repository() {
+    use sha2::Digest;
+    let v2 = upd_good(
+        "2.0.0",
+        serde_json::json!({ "state": 2, "reads_state": [1, 2] }),
+    );
+    let mut files = std::collections::HashMap::new();
+    let index = serde_json::json!([
+        { "name": "updpkg", "version": "2.0.0", "url": "v2.zip",
+          "sha256": hex::encode(sha2::Sha256::digest(&v2)),
+          "state": 2, "reads_state": [1, 2] },
+    ]);
+    files.insert("/v2.zip".to_owned(), (200, String::new(), v2));
+    files.insert(
+        "/index.json".to_owned(),
+        (200, String::new(), index.to_string().into_bytes()),
+    );
+    let port = serve_files(files).await;
+    let env = Env::start(
+        "upd-repo",
+        &format!(r#"packages: {{ repository: "http://127.0.0.1:{port}/index.json" }},"#),
+    )
+    .await;
+    upd_setup(&env).await;
+    let package = format!("wy/{SITE}/sys/packages/updpkg");
+    eventually("the index names the update", 40, || async {
+        (upd_sys(&env, "packages/updpkg/latest").await? == Value::from("2.0.0")).then_some(())
+    })
+    .await;
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/update_available").await,
+        Some(Value::Bool(true))
+    );
+    // 2.0.0 reads state 1: the store format stays
+    assert_eq!(
+        upd_sys(&env, "packages/updpkg/changes_state").await,
+        Some(Value::Bool(false))
+    );
+    assert_eq!(upd_available(&env).await, Some(Value::UInt(1)));
+
+    let (ok, msg) = upd_call(
+        &env,
+        &package,
+        "update",
+        vec![("version", Value::from("9.9.9"))],
+    )
+    .await;
+    assert!(!ok && msg.contains("2.0.0"), "{msg}");
+    let (ok, msg) = upd_call(&env, &package, "update", vec![]).await;
+    assert!(ok && msg.contains("1.0.0 → 2.0.0"), "{msg}");
+    let r = upd_result(&env, 90).await;
+    assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
+    assert_eq!(upd_count(&r, "gone"), 0, "{r:?}");
+    assert!(upd_count(&r, "kept") >= 2, "{r:?}");
+    let Value::Array(of) = upd_field(&r, "links") else {
+        panic!("{r:?}")
+    };
+    assert_eq!(of, [Value::from("u1")]);
+    let reg = env.ctl.registry();
+    let p = &reg.packages["updpkg"];
+    assert_eq!((p.version.as_str(), p.state()), ("2.0.0", 2));
+    assert!(p.source.starts_with("repository "), "{}", p.source);
+    upd_c2(&env, "the link kept its connection").await;
+    eventually("no update is left", 20, || async {
+        (upd_sys(&env, "packages/updpkg/update_available").await? == Value::Bool(false)
+            && upd_available(&env).await? == Value::UInt(0))
+        .then_some(())
+    })
+    .await;
+    let (ok, msg) = upd_call(&env, &package, "update", vec![]).await;
+    assert!(!ok && msg.contains("installed already"), "{msg}");
+    // an unknown package is an error of its own
+    let c = env.client().await;
+    let err = c
+        .invoke_one(
+            &format!("wy/{SITE}/sys/packages/nope"),
+            "update",
+            Value::Map(Default::default()),
+        )
+        .await
+        .expect_err("no such package");
+    assert!(!err.is(wyrm_core::Status::Ok), "{err}");
+    let audit = env.ctl.audit_tail(200);
+    assert!(
+        audit
+            .iter()
+            .any(|r| r.op == "package_update" && r.detail.contains("1.0.0 → 2.0.0 ok")),
+        "{audit:?}"
+    );
+    env.stop().await;
 }

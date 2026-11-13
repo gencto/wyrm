@@ -829,7 +829,7 @@ impl Admin {
                     Status::Ok,
                     &install_detail(&def, app.as_ref()),
                 );
-                declare_package(&self.ctx, &def)
+                declare_package(&self.ctx, ctl, &def)
                     .await
                     .map_err(|e| e.to_string())?;
                 Ok(Some(format!(

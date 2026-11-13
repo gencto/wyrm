@@ -47,6 +47,8 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
     }
     let sha = wyrm_link_sdk::package::sha256_hex(wasm);
     let manifest = Manifest {
+        state: None,
+        reads_state: None,
         name: name.to_owned(),
         version: format!("0+{}", &sha[..12]),
         description: String::new(),
@@ -151,6 +153,9 @@ pub struct Unpacked {
     /// `process` package when its manifest names them (a portable app).
     /// `None`: a driver/point component or a process package without them.
     pub app: Option<Capabilities>,
+    /// The store formats this version reads (`wyrm-link.json` `reads_state`,
+    /// ADR 0048); what it writes is `def.state`.
+    pub reads_state: Vec<u32>,
     tmp: PathBuf,
 }
 
@@ -286,8 +291,12 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             description: String::new(),
             installed: now,
             requester: Vec::new(),
+            state: wyrm_link_sdk::package::DEFAULT_STATE,
+            previous: None,
+            last_update: None,
         },
         app: None,
+        reads_state: vec![wyrm_link_sdk::package::DEFAULT_STATE],
         tmp,
     };
     let mut total = 0u64;
@@ -382,6 +391,8 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
         }
         out.def.requester.push((g.path.clone(), level.code()));
     }
+    out.def.state = m.state();
+    out.reads_state = m.reads_state();
     out.def.name = m.name;
     out.def.version = m.version;
     out.def.description = m.description;
