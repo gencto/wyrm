@@ -87,17 +87,7 @@ impl UpdatesSection {
             return Err(format!("updates.keep_days {}: 1 to 90", self.keep_days));
         }
         if let Some(c) = &self.channel {
-            let loopback = ["http://127.0.0.1", "http://localhost", "http://[::1]"]
-                .iter()
-                .any(|p| {
-                    c.strip_prefix(p)
-                        .is_some_and(|r| r.starts_with(':') || r.starts_with('/'))
-                });
-            if !c.starts_with("https://") && !loopback {
-                return Err(
-                    "updates.channel: an https:// URL (plain http only to loopback)".into(),
-                );
-            }
+            check_channel(c)?;
         }
         if mode == UpdateMode::External && self.channel.is_none() {
             return Err(
@@ -107,6 +97,52 @@ impl UpdatesSection {
         }
         Ok(())
     }
+}
+
+/// `updates.channel`: `https://<host>[:port]/<path>`, or `http://` to a
+/// loopback address (a mirror on the broker host, tests). No user or
+/// password before the host and no `?query` or `#fragment`: the URL is
+/// shown in `sys` and in the config copy of a backup, so it holds no
+/// credential. The message never repeats the URL.
+pub fn check_channel(url: &str) -> Result<(), String> {
+    const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
+        (plain http only to a loopback address)";
+    let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
+        (true, r)
+    } else if let Some(r) = url.strip_prefix("http://") {
+        (false, r)
+    } else {
+        return Err(HELP.into());
+    };
+    if rest.contains(['?', '#']) {
+        return Err(
+            "updates.channel: no query string and no fragment (the URL is shown in sys and in \
+             backups); a channel is a public URL"
+                .into(),
+        );
+    }
+    let authority = rest.split('/').next().unwrap_or_default();
+    if authority.contains('@') {
+        return Err(
+            "updates.channel: no name or password before the host (the URL is shown in sys \
+             and in backups); a channel is a public URL"
+                .into(),
+        );
+    }
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.len() > 1024 {
+        return Err(HELP.into());
+    }
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or_default(),
+        None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
+    };
+    if host.is_empty() || !rest.contains('/') {
+        return Err(HELP.into());
+    }
+    if !tls && !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+        return Err(HELP.into());
+    }
+    Ok(())
 }
 
 /// What the admin needs of `cfg` for the broker's update.

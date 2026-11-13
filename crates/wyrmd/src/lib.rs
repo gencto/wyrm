@@ -2342,6 +2342,32 @@ mod tests {
     /// configuration that holds text is on the list of fields a backup
     /// shows or on the list of fields it masks. A new field that is on
     /// neither fails here (it would be masked: masked is the default, but
+    /// `updates.channel` is shown in the config copy of a backup. A channel
+    /// with a credential is refused when the configuration is read; a file
+    /// that has one all the same loses it in the copy (the second net of
+    /// `mask_config`: a shown text keeps no userinfo and nothing after `?`
+    /// or `#`).
+    #[test]
+    fn a_credential_in_the_update_channel_is_never_in_the_config_copy() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-channel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wyrmd.json5");
+        let text = r#"{ site: "s", updates: { mode: "external",
+            channel: "https://user:tok@host.example/x?sig=abc" } }"#;
+        std::fs::write(&path, text).unwrap();
+        let e = Config::from_json5(text).unwrap_err().to_string();
+        assert!(e.contains("updates.channel"), "{e}");
+        assert!(!e.contains("tok") && !e.contains("abc"), "{e}");
+        let copy = masked_config(&path).unwrap();
+        for secret in ["user", "tok", "sig", "abc"] {
+            assert!(!copy.contains(secret), "{secret} in {copy}");
+        }
+        assert!(copy.contains("host.example"), "{copy}");
+        assert!(copy.contains("external"), "{copy}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// nobody chose). Read from the sources: the structs are `Deserialize`
     /// only.
     #[test]

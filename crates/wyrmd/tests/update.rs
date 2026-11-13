@@ -1455,9 +1455,38 @@ fn the_updates_section_is_validated() {
     assert!(parse(r#"channel: "http://dl.example/releases.json""#)
         .unwrap_err()
         .contains("https://"));
+    assert!(parse(r#"channel: "ftp://dl.example/releases.json""#).is_err());
     assert!(parse(r#"channel: "http://127.0.0.1.evil.example/releases.json""#).is_err());
+    assert!(parse(r#"channel: "http://127.0.0.1@evil.example/releases.json""#).is_err());
+    assert!(parse(r#"channel: "https://dl.example""#).is_err());
     assert!(parse(r#"channel: "http://127.0.0.1:8080/releases.json""#).is_ok());
+    assert!(parse(r#"channel: "http://[::1]:8080/releases.json""#).is_ok());
     assert!(parse(r#"channel: "https://dl.example/releases.json""#).is_ok());
+    assert!(parse(r#"channel: "https://dl.example:8443/a/releases.json""#).is_ok());
+    // a channel holds no credential, and a refusal does not repeat one
+    for (url, want) in [
+        (
+            "https://user:tok3n@dl.example/releases.json",
+            "no name or password",
+        ),
+        (
+            "https://tok3n@dl.example/releases.json",
+            "no name or password",
+        ),
+        (
+            "https://dl.example/releases.json?sig=tok3n",
+            "no query string",
+        ),
+        ("https://dl.example/releases.json#tok3n", "no query string"),
+        (
+            "http://user:tok3n@127.0.0.1:8080/releases.json",
+            "no name or password",
+        ),
+    ] {
+        let e = parse(&format!(r#"channel: "{url}""#)).unwrap_err();
+        assert!(e.contains(want), "{url}: {e}");
+        assert!(!e.contains("tok3n") && !e.contains("user"), "{e}");
+    }
     assert!(parse(r#"keys: ["abc"]"#).unwrap_err().contains("64 hex"));
     assert!(parse("trial_s: 5").unwrap_err().contains("10 to 3600"));
     assert!(parse("keep_days: 0").unwrap_err().contains("1 to 90"));

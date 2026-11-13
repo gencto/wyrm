@@ -349,6 +349,14 @@ updates: {
   back when it does not prove itself. It needs the layout and the unit
   below. Linux and macOS only.
 
+`updates.channel` is a public URL: `https://` (plain `http://` only to a
+loopback address, for a mirror on the broker host). A URL with a user or
+password, a query string or a fragment is refused when the configuration
+is read: the channel is shown in `sys` and in the config copy of a
+backup, so it must hold no credential. A private mirror is reached
+through the network (a VPN, a mirror on the plant network), not through a
+token in the URL.
+
 The release key: this version of `wyrmd` has **no built-in release key**.
 A broker trusts only the keys in `updates.keys`; with none, every update
 is refused. `packaging/wyrmd/README.md` says how a key is made.
