@@ -165,6 +165,9 @@ impl StandbySection {
 /// Why [`follow`] returned.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
+    /// A newer `wyrmd` was made current on the active's order (ADR 0048
+    /// §2.8): the process stops and its supervisor starts that version.
+    Update,
     /// The active was away for long enough: open the daemon.
     Takeover,
     /// `shutdown` resolved.
@@ -227,7 +230,7 @@ async fn open_session(cfg: &Config, peer: &str, files: &CertFiles) -> Result<Ses
 }
 
 /// One `get` on the active's replication queryable; `None` without an answer.
-async fn ask(session: &Session, key: &str) -> Option<Value> {
+pub(crate) async fn ask(session: &Session, key: &str) -> Option<Value> {
     let replies = session
         .get(key)
         .target(zenoh::query::QueryTarget::AllComplete)
@@ -1151,6 +1154,19 @@ pub async fn follow_with(
                                         forks.push(f);
                                     }
                                     let _ = std::fs::remove_file(standby_dir(&cfg.data_dir).join(ACTIVE_MARK));
+                                }
+                            }
+                            if polls % FILES_EVERY == 1 {
+                                // the broker's own update (ADR 0048 §2.8):
+                                // a standby goes first, on the active's order
+                                crate::update::standby_synced();
+                                match crate::update::standby_poll(&session, &prefix, cfg).await {
+                                    Ok(true) => {
+                                        let _ = session.close().await;
+                                        return Ok(Outcome::Update);
+                                    }
+                                    Ok(false) => {}
+                                    Err(e) => tracing::debug!("standby: update: {e}"),
                                 }
                             }
                             report_forks(&session, &prefix, &mut forks).await;

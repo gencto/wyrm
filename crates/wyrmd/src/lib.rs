@@ -8,7 +8,9 @@
 #![forbid(unsafe_code)]
 
 pub mod arbiter;
+pub mod cli;
 pub mod standby;
+pub mod update;
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -139,6 +141,9 @@ pub struct Config {
     /// (ADR 0048).
     #[serde(default)]
     pub backups: BackupsSection,
+    /// The broker's own update (ADR 0048 §2): off by default.
+    #[serde(default)]
+    pub updates: update::UpdatesSection,
     /// The file this configuration was read from (set by `wyrmd`): the
     /// `config` section of a backup copies it.
     #[serde(skip)]
@@ -742,6 +747,7 @@ impl Config {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
         cfg.backups.checked_send_links()?;
+        cfg.updates.validate()?;
         // `downstream/<d>` is the broker node of downstream site d (ADR 0007).
         for d in &cfg.peers.downstream {
             if cfg.links.contains_key(&d.site) {
@@ -1954,6 +1960,7 @@ impl Daemon {
                 ]),
             },
             keep_previous_days: cfg.packages.keep_previous_days,
+            updates: update::update_config(&cfg)?,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -2045,6 +2052,9 @@ impl Daemon {
                 &format!("sections {}", r.sections.join(", ")),
             );
         }
+        // an update the guard took back is recorded by the version it
+        // went back to (ADR 0048 §2.6)
+        ctl.update_started();
         Ok(Self {
             cfg,
             ctl,

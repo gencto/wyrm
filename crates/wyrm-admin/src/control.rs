@@ -42,6 +42,7 @@ use wyrm_state::{StateError, Store};
 use zenoh::Session;
 
 pub mod backups;
+pub mod broker_update;
 pub mod replication;
 pub mod restore;
 pub mod restore_broker;
@@ -133,6 +134,8 @@ pub struct ControlConfig {
     /// Days a replaced package version and the restore points of its links
     /// are kept for a rollback (`packages.keep_previous_days`, ADR 0048).
     pub keep_previous_days: u32,
+    /// The broker's own update (`updates` in `wyrmd.json5`, ADR 0048 §2).
+    pub updates: broker_update::UpdateConfig,
 }
 
 /// Role grants of the user gateway, shown and edited from `sys` (Get and
@@ -408,6 +411,8 @@ pub struct Control {
     /// report left `checking` by a broker that ended is closed at the next
     /// start ([`updates::keep`]).
     updating: Mutex<BTreeMap<String, Option<String>>>,
+    /// The broker's own update (ADR 0048 §2).
+    update: broker_update::BrokerUpdate,
     /// Checks that stepped aside for a rebuild of the router; the next
     /// router starts them again ([`updates::resume`]).
     paused_checks: Mutex<Vec<updates::UpdatePlan>>,
@@ -733,6 +738,7 @@ impl Control {
             .map_err(|e| e.to_string())?;
         let (reload, rx) = mpsc::unbounded_channel();
         let kept = backups::Backups::open(&cfg.data_dir.join("backups"));
+        let update = broker_update::BrokerUpdate::open(&cfg.data_dir);
         Ok((
             Arc::new(Self {
                 cfg,
@@ -765,6 +771,7 @@ impl Control {
                 backups: kept,
                 stop: tokio::sync::Notify::new(),
                 updating: Mutex::default(),
+                update,
                 paused_checks: Mutex::default(),
             }),
             rx,
@@ -1986,6 +1993,7 @@ impl Control {
                 session.clone(),
             )),
             tokio::spawn(backups::watch_backups(self.clone(), ctx.clone())),
+            tokio::spawn(broker_update::watch(self.clone(), ctx.clone())),
         ];
         info!(site = %self.cfg.site, "admin attached");
         let peers = self.start_peers(&session).await;
@@ -2575,7 +2583,7 @@ fn arg_str<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
 /// The DSA-style values of `sys`: broker info, traffic rates, options.
 async fn declare_sys_values(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Result<()> {
     let info = [
-        env!("CARGO_PKG_VERSION").to_owned(),
+        crate::release::identity().version.clone(),
         zenoh::GIT_VERSION.to_owned(),
         iso_utc(ctl.started),
         format!("rust ({})", if ctl.cfg.dev { "dev" } else { "prod" }),
@@ -3796,6 +3804,7 @@ impl Link for Admin {
         .await?;
         crate::history::declare(&ctx, &cfg.ctl).await?;
         backups::declare(&ctx, &cfg.ctl).await?;
+        broker_update::declare(&ctx, &cfg.ctl).await?;
         // `wy/<site>/sys/broker` liveliness (no node): process links
         // re-publish when it returns, peers show `connected` from it.
         let broker = ctx
@@ -3896,6 +3905,21 @@ impl Link for Admin {
         self.ctx
             .update(path, Value::Bool(on), Quality::Good, now_us())
             .await
+    }
+
+    /// `~act/<a>?check` (spec 05 0.2.33): the broker's own update says what
+    /// it would refuse; the other actions have the SDK's checks.
+    async fn on_check(
+        &mut self,
+        path: &str,
+        action: &str,
+        args: &Value,
+        who: &Caller,
+    ) -> wyrm_link_sdk::Result<()> {
+        match (path, action) {
+            ("", "update") => broker_update::check(&self.ctl, args, &sub_of(who)).await,
+            _ => Ok(()),
+        }
     }
 
     async fn on_invoke(
@@ -4100,6 +4124,11 @@ impl Link for Admin {
             (["profiles"], "put") => self.put_profile(&args, &sub).await.map(|_| None),
             (["profiles"], "remove") => self.remove_profile(&args, &sub).await.map(|_| None),
             ([""], "clear_conns") => self.clear_conns(&sub).await,
+            ([""], "update") => broker_update::update(&self.ctl, &self.ctx, &args, &sub).await,
+            ([""], "rollback_update") => {
+                broker_update::rollback(&self.ctl, &args, &sub, who.signer.is_some()).await
+            }
+            ([""], "check_updates") => broker_update::check_updates(&self.ctl).await,
             (["upstream"], "add") => self.add_upstream(&args, &sub).await,
             (["upstream", site], "remove") => self.remove_upstream(site, &sub).await,
             ([""], "get_permissions") => {
@@ -6835,6 +6864,7 @@ mod tests {
             uplink: scheduler,
             backups: Default::default(),
             keep_previous_days: 7,
+            updates: Default::default(),
         };
         tweak(&mut cfg);
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
