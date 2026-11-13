@@ -403,11 +403,17 @@ pub struct Control {
     /// Asks the daemon to stop cleanly (a restore that replaces stores is
     /// applied at the next start, ADR 0048 §3.6).
     stop: tokio::sync::Notify,
-    /// Packages whose update is being checked (ADR 0048 §1.5), each with who
-    /// asked to stop it and roll back, if anyone did. Not persisted: a
-    /// report left `checking` by a broker that ended is closed at the next
-    /// start ([`updates::keep`]).
-    updating: Mutex<BTreeMap<String, Option<String>>>,
+    /// Packages one operation works on now, each held by a
+    /// [`updates::PackageClaim`] from the first step of the operation to its
+    /// last (an update with its health check, a rollback, an install, a
+    /// removal, a restore that touches a link of the package): one at a time
+    /// per package (ADR 0048 §1.9). Not persisted: a report left `checking`
+    /// by a broker that ended is closed at the next start
+    /// ([`updates::keep`]).
+    updating: Mutex<BTreeMap<String, updates::Phase>>,
+    /// Links a restore replaces now ([`updates::LinkClaim`]): nothing else
+    /// stops, starts, backs up or replaces such a link meanwhile.
+    link_ops: Mutex<BTreeSet<String>>,
     /// Checks that stepped aside for a rebuild of the router; the next
     /// router starts them again ([`updates::resume`]).
     paused_checks: Mutex<Vec<updates::UpdatePlan>>,
@@ -765,6 +771,7 @@ impl Control {
                 backups: kept,
                 stop: tokio::sync::Notify::new(),
                 updating: Mutex::default(),
+                link_ops: Mutex::default(),
                 paused_checks: Mutex::default(),
             }),
             rx,

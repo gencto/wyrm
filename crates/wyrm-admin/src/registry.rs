@@ -619,6 +619,13 @@ pub struct PreviousDef {
     #[cbor(default)]
     #[serde(default)]
     pub changes_state: bool,
+    /// The restore points this update took: `(link, point id)`. A rollback
+    /// applies exactly these; a record written before the field existed has
+    /// none and falls back to the newest point at or before `replaced`.
+    #[n(4)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub points: Vec<(String, String)>,
 }
 
 /// Most keys of `new` and of `gone` kept in an [`UpdateReport`].
