@@ -2689,6 +2689,91 @@ async fn history_sink_feeds_its_link() {
 /// A link as a requester (DSA `isRequester`, owner decision 2026-10-22):
 /// grants open the ACL to other branches and make every link trust its
 /// requester key up to the grant's level and under the grant's path.
+/// ADR 0046: a link granted `write` on a folder of the site's storage writes
+/// there with its requester key, and nowhere else in storage; write on the
+/// whole of storage is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn link_grant_on_a_storage_folder() {
+    let env = Env::start(
+        "storage-grant",
+        r#"links: { rec: { driver: "x", mode: "external" } },"#,
+    )
+    .await;
+    let token = std::fs::read_to_string(env.ctl.config().data_dir.join("links/rec/token")).unwrap();
+    let c = env.client().await;
+    let root = format!("wy/{SITE}/storage");
+    let sys = format!("wy/{SITE}/sys/links/rec");
+    let args = |kv: &[(&str, Value)]| {
+        Value::Map(
+            kv.iter()
+                .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                .collect(),
+        )
+    };
+    for folder in ["dvpsm", "other"] {
+        c.invoke_one(&root, "add_node", args(&[("name", folder.into())]))
+            .await
+            .unwrap();
+        c.invoke_one(
+            &format!("{root}/{folder}"),
+            "add_value",
+            args(&[("name", "cmd".into()), ("type", Value::from("number"))]),
+        )
+        .await
+        .unwrap();
+    }
+    let grant = |path: &str, level: &str| {
+        args(&[("path", Value::from(path)), ("level", Value::from(level))])
+    };
+    assert!(
+        c.invoke_one(&sys, "grant", grant("wy/{site}/storage", "write"))
+            .await
+            .is_err(),
+        "write on all of storage: refused"
+    );
+    c.invoke_one(&sys, "grant", grant("wy/{site}/storage/dvpsm", "write"))
+        .await
+        .unwrap();
+    let as_rec = |key: ed25519_dalek::SigningKey| {
+        let env = &env;
+        async move {
+            let s = env.tls_session("rec").await;
+            WyrmClient::new(s)
+                .with_timeout(Duration::from_secs(2))
+                .with_tokens(Arc::new(
+                    SigningTokens::new(key, SITE).subject("link:rec".to_owned()),
+                ))
+        }
+    };
+    let key = eventually("a write into its folder", 20, || async {
+        let s = env.tls_session("rec").await;
+        let secrets = hello_secrets(&s, "rec", &token).await?;
+        let Some(Value::Bytes(seed)) = secrets.get(wyrm_link_sdk::REQUESTER_KEY) else {
+            return None;
+        };
+        let key = ed25519_dalek::SigningKey::from_bytes(&seed[..].try_into().ok()?);
+        let rec = as_rec(key.clone()).await;
+        rec.set(&format!("{root}/dvpsm/cmd"), 1.0).await.ok()?;
+        Some(key)
+    })
+    .await;
+    eventually("the value it wrote", 10, || async {
+        (last_val(&c, &format!("{root}/dvpsm/cmd")).await? == Value::Float(1.0)).then_some(())
+    })
+    .await;
+    let rec = as_rec(key).await;
+    assert!(
+        rec.set(&format!("{root}/other/cmd"), 2.0).await.is_err(),
+        "another folder: refused"
+    );
+    assert!(
+        rec.meta(&format!("{root}/other/cmd")).await.is_err(),
+        "not even read outside its grant"
+    );
+    drop(c);
+    env.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn link_grants_make_a_requester() {
     let env = Env::start(

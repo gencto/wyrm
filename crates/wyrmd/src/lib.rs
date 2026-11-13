@@ -1193,7 +1193,8 @@ impl Broker {
         };
         // Storage (ADR 0017): the admin keys, users through the gateway and
         // flows at write, each only under `storage`; upstream sites at
-        // write (ADR 0018).
+        // write (ADR 0018); a link with a grant under `storage` within it
+        // (ADR 0046; a grant change rebuilds the router, and this with it).
         let root = format!("wy/{}/storage", cfg.site);
         let mut lcfg = LinkConfig::new(cfg.site.clone(), STORAGE_LINK);
         lcfg.root = Some(root.clone());
@@ -1207,6 +1208,7 @@ impl Broker {
                 subject: None,
             })
             .chain(ctl.upstream_trust("storage"))
+            .chain(ctl.requester_keys_under(&root))
             .collect();
         let storage = match wyrm_link_sdk::spawn::<Storage>(
             session.clone(),

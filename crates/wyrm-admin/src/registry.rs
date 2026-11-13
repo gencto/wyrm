@@ -153,25 +153,37 @@ pub const MAX_LINK_GRANT: wyrm_core::Perm = wyrm_core::Perm::Write;
 /// segments (no wildcards, no suffixes). `dataflows` grants stop at `read`.
 pub fn check_grant(path: &str, level: wyrm_core::Perm) -> Result<(), String> {
     use wyrm_core::Perm;
-    let rest = path.strip_prefix("wy/{site}/").ok_or_else(|| {
-        format!("{path}: starts with wy/{{site}}/downstream or wy/{{site}}/dataflows")
-    })?;
+    const ROOTS: &str = "wy/{site}/downstream, wy/{site}/dataflows or wy/{site}/storage";
+    let rest = path
+        .strip_prefix("wy/{site}/")
+        .ok_or_else(|| format!("{path}: starts with {ROOTS}"))?;
     let mut segs = rest.split('/');
     let root = segs.next().unwrap_or_default();
-    if !matches!(root, "downstream" | "dataflows") {
-        return Err(format!("{path}: only downstream or dataflows (never sys)"));
+    if !matches!(root, "downstream" | "dataflows" | "storage") {
+        return Err(format!(
+            "{path}: only downstream, dataflows or storage (never sys)"
+        ));
     }
+    let mut depth = 0;
     for seg in segs {
         validate_segment(seg).map_err(|e| format!("{path}: {e}"))?;
         if seg.starts_with('~') {
             return Err(format!("{path}: a node path, no suffix"));
         }
+        depth += 1;
     }
     if level > MAX_LINK_GRANT {
         return Err(format!("level {}: at most write", level.name()));
     }
     if root == "dataflows" && level > Perm::Read {
         return Err("flows: at most read (flows are commanded by people)".into());
+    }
+    // ADR 0046: the site's storage is shared; a link writes only into a folder
+    // of its own grant, never over the whole of it.
+    if root == "storage" && level > Perm::Read && depth == 0 {
+        return Err(format!(
+            "{path}: write on storage needs a folder below it (wy/{{site}}/storage/<folder>)"
+        ));
     }
     Ok(())
 }
@@ -1818,9 +1830,18 @@ mod tests {
             ("wy/{site}/downstream/x/~set", Perm::Read),
             ("wy/{site}/downstream/x", Perm::Config),
             ("wy/{site}/dataflows/f1", Perm::Write),
+            // ADR 0046: write on storage only into a folder, never all of it
+            ("wy/{site}/storage", Perm::Write),
+            ("wy/{site}/storage/dvpsm", Perm::Config),
+            ("wy/{site}/storage/dvpsm/~set", Perm::Write),
         ] {
             assert!(r.apply(&grant(path, level)).is_err(), "{path} {level:?}");
         }
+        // ADR 0046: storage, read anywhere in it, write in a folder
+        r.apply(&grant("wy/{site}/storage", Perm::Read)).unwrap();
+        r.apply(&grant("wy/{site}/storage/dvpsm/cmd", Perm::Write))
+            .unwrap();
+        assert_eq!(r.links["rec"].grants.len(), 4);
     }
 
     /// ADR 0015: a name our CA issued `broker:<site>` for never becomes an

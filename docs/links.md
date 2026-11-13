@@ -572,9 +572,17 @@ do both. Give it **grants**, as a role has them:
 | `write` | also `set` them and invoke their actions |
 
 - **Path:** `wy/{site}/downstream` (every link), `wy/{site}/downstream/<link>[/…]` (one
-  link or a part of it), or `wy/{site}/dataflows[/…]` (at most `read`). Plain
-  segments only: no wildcards, no `~` suffixes, never `sys`. A grant covers
-  the path and everything under it. `config` is for people only.
+  link or a part of it), `wy/{site}/dataflows[/…]` (at most `read`), or
+  `wy/{site}/storage[/…]` (the site's storage, ADR 0046: `read` anywhere in
+  it, `write` only on a folder below it, `wy/{site}/storage/<folder>[/…]`,
+  never on all of it). Plain segments only: no wildcards, no `~` suffixes,
+  never `sys`. A grant covers the path and everything under it. `config` is
+  for people only.
+- **Storage:** a link with a grant there reads and writes those values as a
+  flow does, e.g. a chat bot's buttons and `/set` on the points of
+  `storage/<bot>/cmd` (grant `write` on `wy/{site}/storage/<bot>/cmd`, `read`
+  on `wy/{site}/storage/<bot>`). The storage link trusts the link's
+  requester key only under the grant's path.
 - **Who grants:** a package asks in `wyrm-link.json` (`requester`, section
   6); every link installed from it gets these grants, and the install
   message lists them (`…; grant wy/{site}/downstream/mock read`). Change them with

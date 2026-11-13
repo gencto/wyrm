@@ -956,6 +956,20 @@ impl Control {
         out
     }
 
+    /// The requester keys of the links whose grants lie under `root` (this
+    /// site's `storage`, ADR 0046): what the embedded storage link trusts
+    /// besides the admin, the gateway, the flow engine and upstream sites.
+    pub fn requester_keys_under(&self, root: &str) -> Vec<wyrm_link_sdk::LimitedKey> {
+        self.requester_limited_keys()
+            .into_iter()
+            .filter(|k| {
+                k.scopes
+                    .iter()
+                    .any(|s| s == root || s.strip_prefix(root).is_some_and(|r| r.starts_with('/')))
+            })
+            .collect()
+    }
+
     /// The requester key of each history sink's link, trusted at `read` on
     /// its sink's node only (`next`, ADR 0026), for the subject `link:<id>`.
     fn sink_limited_keys(&self) -> Vec<wyrm_link_sdk::LimitedKey> {
