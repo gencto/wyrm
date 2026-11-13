@@ -2718,8 +2718,13 @@ async fn a_check_does_nothing() {
         c.meta(&format!("{root}/plant")).await.is_err(),
         "nothing made"
     );
-    // what the action refuses, the check refuses: a missing required argument
+    // what the action refuses, the check refuses: a missing required argument, the link's own
+    // rule (a name that is no segment)
     assert!(c.invoke_check(&root, "add_node", args(&[])).await.is_err());
+    assert!(c
+        .invoke_check(&root, "add_node", args(&[("name", "bad name!".into())]))
+        .await
+        .is_err());
     // and an unknown action
     assert!(c
         .invoke_check(&root, "no_such_action", args(&[]))

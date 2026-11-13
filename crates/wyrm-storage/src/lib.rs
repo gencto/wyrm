@@ -597,6 +597,49 @@ impl Link for Storage {
         }
     }
 
+    /// `~act/<a>?check` (spec 05 0.2.33): the names, places and room a new node needs, and the
+    /// parent's rights of a rename or duplicate, as the actions check them; nothing written.
+    async fn on_check(
+        &mut self,
+        path: &str,
+        action: &str,
+        args: &Value,
+        who: &Caller,
+    ) -> Result<()> {
+        match (path, action) {
+            (_, "add_node" | "add_value") => {
+                self.new_child(path, text_arg(args, "name")?, 1)?;
+            }
+            (p, "rename" | "duplicate") if !p.is_empty() => {
+                let (parent, _) =
+                    split_parent(path).ok_or_else(|| LinkError::invalid_parameter("root"))?;
+                let parent_key = self.ctx.key(parent, "");
+                let have = who.perm_on(&parent_key);
+                if have < Perm::Write {
+                    return Err(LinkError::new(
+                        Status::PermissionDenied,
+                        format!(
+                            "{action}: needs write on {parent_key}, where the new name goes (the caller has {})",
+                            have.name()
+                        ),
+                    ));
+                }
+                self.rec(path)?;
+                let n = if action == "duplicate" {
+                    self.store.subtree(path).len()
+                } else {
+                    0
+                };
+                self.new_child(parent, text_arg(args, "name")?, n)?;
+            }
+            (p, "delete") if !p.is_empty() => {
+                self.rec(path)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     async fn stop(&mut self) {
         self.flusher.abort();
         // The task holds the store: wait until it has let it go.
