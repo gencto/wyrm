@@ -353,10 +353,19 @@ How to take a backup:
   {sections, passphrase}` makes a `.wyrm-backup` while the broker runs: the
   WALs as of one sequence number, the storage at one revision, each history
   file inside one read transaction, keys and secrets sealed with the
-  passphrase. Read it with `download_part`. One link goes with
-  `sys/links/<id>/~act/backup`. Sections, limits and the restore of a link
-  are in [backups.md](backups.md). This is the way for a broker that runs;
-  the two ways below stay for a broker that does not start.
+  passphrase. Read it with `download_part`, or let the broker write it into
+  a file store with `send` (the host names the link and the folder in
+  `backups.send_links`). One link goes with `sys/links/<id>/~act/backup`.
+  The keys section and a passphrase need `backups.export_secrets: true` on
+  the host; without it a backup holds no keys and its link secrets open
+  only on a broker with this site's keys. Restore with
+  `sys/backups/~act/restore_check` and `restore_apply`: `mode: add` works
+  live; `mode: replace` restarts the broker once, is refused for a caller
+  that comes through an upstream, and restores keys only with
+  `export_secrets`, the passphrase and, for keys that differ from this
+  broker's, `replace_keys`. Sections, limits and the restore of a link are
+  in [backups.md](backups.md). This is the way for a broker that runs; the
+  two ways below stay for a broker that does not start.
 - **Stopped broker (simplest, consistent).** `systemctl stop wyrmd`, copy
   `data_dir` whole, keep its modes (`cp -a`, `tar --same-permissions`), start
   again. `wyrmd -c … verify` on the copy checks the WALs (CRC, HMAC chain,

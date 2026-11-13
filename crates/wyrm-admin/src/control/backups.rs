@@ -1985,6 +1985,106 @@ mod tests {
         assert!(key_files().contains(&"pki/ca.key") && key_files().contains(&"flows/flow.key"));
     }
 
+    /// ADR 0048 §3.4: kept backups go after `backups.keep_days` and,
+    /// oldest first, beyond `backups.max_mb`; never the newest one, a
+    /// pinned one or one that is being sent. Their files go with them.
+    #[test]
+    fn kept_backups_are_pruned_by_age_and_size() {
+        let ctl = super::super::tests::control_tweaked("backup-prune", |c| {
+            c.backups.keep_days = 7;
+            c.backups.max_mb = 1;
+        });
+        let dir = ctl.backups_dir();
+        make_private_dir(&dir).unwrap();
+        let now = now_s();
+        let day = 86_400;
+        let add = |id: &str, created: u64, kib: usize, f: &dyn Fn(&mut Job)| {
+            let file = format!("{id}.wyrm-backup");
+            std::fs::write(dir.join(&file), vec![0u8; kib << 10]).unwrap();
+            let mut j = Job {
+                id: id.to_owned(),
+                kind: "full".into(),
+                link: String::new(),
+                sections: vec!["control".into()],
+                status: "done".into(),
+                progress: 100,
+                step: String::new(),
+                size: (kib as u64) << 10,
+                sha256: String::new(),
+                created,
+                // as `create` sets it: `keep_days` after it was made
+                expires: created + 7 * day,
+                error: String::new(),
+                file,
+                sealed: "none".into(),
+                by: "user:a".into(),
+                pinned: false,
+                sent_to: String::new(),
+                send_status: String::new(),
+                send_progress: 0,
+                send_error: String::new(),
+            };
+            f(&mut j);
+            ctl.save_job(&j);
+            ctl.backups.lock().insert(j.id.clone(), j);
+        };
+        let plain = |_: &mut Job| {};
+        // older than keep_days: gone, however small
+        add("a-old", now - 8 * day, 1, &plain);
+        // older than keep_days but pinned (the pre-update backup of an
+        // update that is not confirmed), or being sent: kept
+        add("b-pinned", now - 9 * day, 1, &|j| j.pinned = true);
+        add("c-sending", now - 9 * day, 1, &|j| {
+            j.send_status = "sending".into()
+        });
+        // a job that failed more than a day ago is forgotten
+        add("d-failed", now - 2 * day, 0, &|j| {
+            j.status = "failed".into()
+        });
+        // within keep_days, 2100 KiB in all against max_mb = 1: the oldest
+        // go until the rest fits
+        add("e-big", now - 3 * day, 700, &plain);
+        add("f-big", now - 2 * day, 700, &plain);
+        add("g-newest", now - day, 700, &plain);
+
+        let mut gone = ctl.prune_backups();
+        gone.sort();
+        assert_eq!(gone, ["a-old", "d-failed", "e-big", "f-big"]);
+        let left: Vec<String> = ctl.backups.list().into_iter().map(|j| j.id).collect();
+        assert_eq!(left, ["b-pinned", "c-sending", "g-newest"]);
+        for id in &gone {
+            assert!(!dir.join(format!("{id}.wyrm-backup")).exists(), "{id}");
+            assert!(!dir.join(format!("{id}.wyrm-backup.json")).exists(), "{id}");
+        }
+        for id in &left {
+            assert!(dir.join(format!("{id}.wyrm-backup")).is_file(), "{id}");
+        }
+        // nothing more to do; the newest stays although it alone is over
+        // a smaller limit
+        assert!(ctl.prune_backups().is_empty());
+        let tiny = super::super::tests::control_tweaked("backup-prune-tiny", |c| {
+            c.backups.max_mb = 0;
+        });
+        make_private_dir(&tiny.backups_dir()).unwrap();
+        let mut only = ctl.backups.get("g-newest").unwrap();
+        only.file = "only.wyrm-backup".into();
+        std::fs::write(tiny.backups_dir().join(&only.file), b"x").unwrap();
+        tiny.backups.lock().insert(only.id.clone(), only);
+        assert!(
+            tiny.prune_backups().is_empty(),
+            "the newest is never pruned"
+        );
+        // a restart reads the kept ones back from their records
+        let reopened = Backups::open(&dir);
+        let ids: Vec<String> = reopened.list().into_iter().map(|j| j.id).collect();
+        assert_eq!(ids, ["b-pinned", "c-sending", "g-newest"]);
+        assert_eq!(
+            reopened.get("c-sending").unwrap().send_status,
+            "failed",
+            "a send does not outlive the broker"
+        );
+    }
+
     #[test]
     fn arguments() {
         let args = Value::Map(BTreeMap::from([
