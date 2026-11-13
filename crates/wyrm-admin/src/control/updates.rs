@@ -749,7 +749,15 @@ impl Admin {
                 "restore_point",
                 link,
                 Status::Ok,
-                &format!("{} {package} {version} {} B", p.id, p.size),
+                &format!(
+                    "{} {package} {version} {} B{}",
+                    p.id,
+                    p.size,
+                    match p.skipped {
+                        0 => String::new(),
+                        n => format!("; {n} entries skipped (not files)"),
+                    }
+                ),
             ),
             Err(e) => self
                 .ctl

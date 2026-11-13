@@ -281,7 +281,13 @@ What the broker does, in this order:
    `<UTC>.meta` beside it. The copy is sealed with a key derived from
    `secrets.key`: what a link sealed stays sealed, and the file opens only
    on this broker (or one with its key bundle). Scratch (`uploads/`, `tmp`,
-   `*.tmp`) is left out; private data over 128 MiB is refused (update
+   `*.tmp`) is left out. The link still runs and owns that directory, so the
+   broker follows no symlink in it: every entry is opened once without
+   following links and read from that handle; symlinks, sockets and FIFOs
+   are skipped and counted in the audit record, and an entry swapped for a
+   symlink while it is copied ends the update with nothing changed. A
+   rollback writes into a new directory and swaps it in, never through a
+   symlink. Private data over 128 MiB is refused (update
    without a restore point, if the store format allows it). A failure here
    ends the update with nothing changed.
 5. **Install.** The new version goes to

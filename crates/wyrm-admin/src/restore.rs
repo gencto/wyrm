@@ -13,6 +13,7 @@
 
 use minicbor::{Decode, Encode};
 use sha2::Digest;
+use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -50,6 +51,11 @@ pub struct Point {
     pub keys: Vec<String>,
     #[n(6)]
     pub keys_known: bool,
+    /// Entries of the data directory that were not copied: neither a
+    /// regular file nor a directory (a symlink, a socket, a FIFO).
+    #[n(7)]
+    #[cbor(default)]
+    pub skipped: u32,
 }
 
 /// The key restore points are sealed with: derived from `secrets.key`, so
@@ -83,44 +89,169 @@ fn scratch(name: &str) -> bool {
         || name == "LOCK"
 }
 
-/// `(relative path, absolute path)` of every regular file under `dir`,
-/// sorted; symlinks and scratch names are left out.
-fn files_of(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
-    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> Result<(), String> {
-        let rd = match std::fs::read_dir(dir) {
-            Ok(rd) => rd,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(format!("{}: {e}", dir.display())),
-        };
-        let mut entries: Vec<_> = rd.flatten().collect();
-        entries.sort_by_key(|e| e.file_name());
-        for e in entries {
-            let name = e.file_name().to_string_lossy().into_owned();
-            if scratch(&name) {
+/// Open `path` for reading without following a symlink in its last
+/// component, and without waiting on a FIFO. `dir`: it must be a directory.
+#[cfg(unix)]
+fn open_nofollow(path: &Path, dir: bool) -> std::io::Result<File> {
+    use nix::fcntl::OFlag;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut flags = OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC;
+    if dir {
+        flags |= OFlag::O_DIRECTORY;
+    }
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(flags.bits())
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_nofollow(path: &Path, _dir: bool) -> std::io::Result<File> {
+    let mut o = std::fs::OpenOptions::new();
+    o.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS: the
+        // link itself, never its target; directories open too
+        o.custom_flags(0x0020_0000 | 0x0200_0000);
+    }
+    o.open(path)
+}
+
+/// Is the entry `name` of the open directory `parent` the very object
+/// `meta` was read from (same device and inode, not followed)? A path is
+/// resolved again at every use, so a directory on the way may have been
+/// swapped for a symlink since the walk entered it: the held handle of the
+/// parent is what cannot be swapped.
+#[cfg(unix)]
+// the widths of `st_dev` and `st_ino` differ between unix targets
+#[allow(clippy::unnecessary_cast)]
+fn same_entry(parent: &File, name: &std::ffi::OsStr, meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::io::AsRawFd;
+    match nix::sys::stat::fstatat(
+        Some(parent.as_raw_fd()),
+        name,
+        nix::fcntl::AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(st) => st.st_dev as u64 == meta.dev() && st.st_ino as u64 == meta.ino(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn same_entry(_: &File, _: &std::ffi::OsStr, _: &std::fs::Metadata) -> bool {
+    true
+}
+
+/// One entry of a directory of the link's data, opened once.
+struct Entry {
+    file: File,
+    /// From the handle, never from the path.
+    meta: std::fs::Metadata,
+}
+
+/// Open the entry `name` of the directory `parent` (at `parent_path`),
+/// which the listing said is a directory (`dir`) or a regular file. The
+/// link runs while its data is copied and owns this directory, so nothing
+/// read from a path is trusted: the entry is opened once without following
+/// a symlink, its type and size come from that handle, and it must be the
+/// entry of that name in the held parent. `Ok(None)`: it went away.
+/// Anything else that is not what the listing said (a file swapped for a
+/// symlink, a directory swapped on the way) is refused.
+fn open_entry(
+    parent: &File,
+    parent_path: &Path,
+    name: &std::ffi::OsStr,
+    dir: bool,
+) -> Result<Option<Entry>, String> {
+    let path = parent_path.join(name);
+    let refused = |why: &str| {
+        format!(
+            "{}: {why}; the link's data changed while it was copied",
+            path.display()
+        )
+    };
+    let file = match open_nofollow(&path, dir) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(refused(&format!(
+                "not opened without following links ({e})"
+            )))
+        }
+    };
+    let meta = file.metadata().map_err(|e| refused(&e.to_string()))?;
+    let kind = meta.file_type();
+    if kind.is_symlink() || (dir && !kind.is_dir()) || (!dir && !kind.is_file()) {
+        return Err(refused("not the file or directory that was listed"));
+    }
+    if !same_entry(parent, name, &meta) {
+        return Err(refused("not an entry of the directory that was listed"));
+    }
+    Ok(Some(Entry { file, meta }))
+}
+
+/// What a walk of the link's data found beside what it copied.
+#[derive(Debug, Default)]
+struct Walked {
+    files: usize,
+    /// Entries that are neither a regular file nor a directory (symlinks,
+    /// sockets, FIFOs, devices): never opened, never copied.
+    skipped: u32,
+}
+
+/// Every regular file under the open directory `dir` (at `path`), in name
+/// order, handed to `emit` as `(relative path, open handle, its metadata)`.
+/// Scratch names are left out; what is not a file or directory is counted.
+fn walk(
+    dir: &File,
+    path: &Path,
+    rel: &str,
+    seen: &mut Walked,
+    emit: &mut dyn FnMut(&str, File, &std::fs::Metadata) -> Result<(), String>,
+) -> Result<(), String> {
+    let rd = std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut entries: Vec<_> = rd.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+    for e in entries {
+        let os_name = e.file_name();
+        let name = os_name.to_string_lossy().into_owned();
+        if scratch(&name) {
+            continue;
+        }
+        // the listing's own type (not followed) says how to open it
+        let is_dir = match e.file_type() {
+            Ok(t) if t.is_dir() => true,
+            Ok(t) if t.is_file() => false,
+            // a symlink, a socket, a FIFO, a device: not the link's data
+            Ok(_) => {
+                seen.skipped += 1;
                 continue;
             }
-            // not followed: a link out of the directory is not the link's data
-            let meta = std::fs::symlink_metadata(e.path())
-                .map_err(|x| format!("{}: {x}", e.path().display()))?;
-            let path = if rel.is_empty() {
-                name
-            } else {
-                format!("{rel}/{name}")
-            };
-            if meta.is_dir() {
-                walk(&e.path(), &path, out)?;
-            } else if meta.is_file() {
-                if out.len() >= MAX_FILES {
-                    return Err(format!("more than {MAX_FILES} files"));
-                }
-                out.push((path, e.path()));
+            Err(x) if x.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(x) => return Err(format!("{}: {x}", e.path().display())),
+        };
+        let Some(entry) = open_entry(dir, path, &os_name, is_dir)? else {
+            continue;
+        };
+        let child = if rel.is_empty() {
+            name
+        } else {
+            format!("{rel}/{name}")
+        };
+        if is_dir {
+            walk(&entry.file, &path.join(&os_name), &child, seen, emit)?;
+        } else {
+            seen.files += 1;
+            if seen.files > MAX_FILES {
+                return Err(format!("more than {MAX_FILES} files"));
             }
+            emit(&child, entry.file, &entry.meta)?;
         }
-        Ok(())
     }
-    let mut out = Vec::new();
-    walk(dir, "", &mut out)?;
-    Ok(out)
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -135,38 +266,111 @@ fn mode_of(_: &std::fs::Metadata) -> u32 {
 }
 
 /// SEAM (write side): the private data directory `data` as one sealed file
-/// `out`; returns its size. Provisional format, to be replaced by the
-/// `.wyrm-link` writer of ADR 0048 §3.5 (sections `data` without history).
-fn write_archive(data: &Path, out: &Path, key: &[u8; 32]) -> Result<u64, String> {
+/// `out`; returns its size and how many entries were skipped (not a file,
+/// not a directory). Provisional format, to be replaced by the `.wyrm-link`
+/// writer of ADR 0048 §3.5 (sections `data` without history).
+///
+/// The link is running (ADR 0048 §1.3: before anything stops) and owns the
+/// directory: every entry is opened once without following symlinks and
+/// read from that handle ([`open_entry`]), so the copy never leaves `data`.
+fn write_archive(data: &Path, out: &Path, key: &[u8; 32]) -> Result<(u64, u32), String> {
     use zip::write::SimpleFileOptions;
     let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let mut total = 0u64;
-    for (rel, path) in files_of(data)? {
-        let meta = std::fs::metadata(&path).map_err(|e| format!("{rel}: {e}"))?;
-        total += meta.len();
-        if total > MAX_BYTES {
-            return Err(format!(
-                "the link's private data is over {} MiB",
-                MAX_BYTES >> 20
-            ));
+    let mut seen = Walked::default();
+    match open_nofollow(data, true) {
+        Ok(root) => {
+            let kind = root
+                .metadata()
+                .map_err(|e| format!("{}: {e}", data.display()))?
+                .file_type();
+            if kind.is_symlink() || !kind.is_dir() {
+                return Err(format!("{}: not a directory", data.display()));
+            }
+            let mut emit = |rel: &str, file: File, meta: &std::fs::Metadata| {
+                let left = MAX_BYTES - total;
+                let mut bytes = Vec::new();
+                // one byte past the budget tells "fits" from "too big",
+                // whatever size the file says it has
+                file.take(left + 1)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| format!("{rel}: {e}"))?;
+                if bytes.len() as u64 > left {
+                    return Err(format!(
+                        "the link's private data is over {} MiB",
+                        MAX_BYTES >> 20
+                    ));
+                }
+                total += bytes.len() as u64;
+                // stored: what a link keeps is sealed already and does not compress
+                let opt = SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored)
+                    .unix_permissions(mode_of(meta));
+                w.start_file(rel, opt).map_err(|e| format!("{rel}: {e}"))?;
+                w.write_all(&bytes).map_err(|e| format!("{rel}: {e}"))
+            };
+            walk(&root, data, "", &mut seen, &mut emit)?;
         }
-        let bytes = std::fs::read(&path).map_err(|e| format!("{rel}: {e}"))?;
-        // stored: what a link keeps is sealed already and does not compress
-        let opt = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(mode_of(&meta));
-        w.start_file(rel.as_str(), opt)
-            .map_err(|e| format!("{rel}: {e}"))?;
-        w.write_all(&bytes).map_err(|e| format!("{rel}: {e}"))?;
+        // no directory yet: an empty restore point
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(format!(
+                "{}: not opened without following links ({e})",
+                data.display()
+            ))
+        }
     }
     let plain = w.finish().map_err(|e| e.to_string())?.into_inner();
     let sealed = wyrm_link_sdk::seal::seal(key, &plain);
     crate::secret::write_private(out, &sealed).map_err(|e| format!("{}: {e}", out.display()))?;
-    Ok(sealed.len() as u64)
+    Ok((sealed.len() as u64, seen.skipped))
+}
+
+/// A new file `path` (it must not exist, and a symlink there is not
+/// followed) with `bytes`, readable by its owner (`mode` on unix).
+fn write_new(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(mode.map_or(0o600, |m| m & 0o777))
+            .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits());
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    let mut f = o.open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
+/// The directories of `rel` under `root`, made one by one: one that is
+/// there must be a real directory (never a symlink to follow).
+fn make_dirs(root: &Path, rel: &Path) -> Result<PathBuf, String> {
+    let mut dir = root.to_path_buf();
+    for c in rel.components() {
+        let std::path::Component::Normal(c) = c else {
+            return Err(format!("unsafe path {}", rel.display()));
+        };
+        dir.push(c);
+        match std::fs::create_dir(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let real = std::fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
+                if !real {
+                    return Err(format!("{}: not a directory", dir.display()));
+                }
+            }
+            Err(e) => return Err(format!("{}: {e}", dir.display())),
+        }
+    }
+    Ok(dir)
 }
 
 /// SEAM (read side): unpack what [`write_archive`] made into the new, empty
-/// directory `data`. Provisional format, as [`write_archive`].
+/// directory `data` (made by the caller, swapped into place afterwards).
+/// Provisional format, as [`write_archive`]. Every file is created new and
+/// no symlink is followed, so nothing is written outside `data`.
 fn read_archive(file: &Path, data: &Path, key: &[u8; 32]) -> Result<(), String> {
     let sealed = std::fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let plain = wyrm_link_sdk::seal::open(key, &sealed)
@@ -187,10 +391,11 @@ fn read_archive(file: &Path, data: &Path, key: &[u8; 32]) -> Result<(), String> 
         if f.is_symlink() || !f.is_file() {
             return Err(format!("{}: not a regular file", rel.display()));
         }
-        let path = data.join(&rel);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
+        let name = rel
+            .file_name()
+            .ok_or_else(|| format!("unsafe path {}", rel.display()))?
+            .to_owned();
+        let dir = make_dirs(data, rel.parent().unwrap_or(Path::new("")))?;
         let mode = f.unix_mode();
         let mut bytes = Vec::new();
         (&mut f)
@@ -201,16 +406,7 @@ fn read_archive(file: &Path, data: &Path, key: &[u8; 32]) -> Result<(), String> 
         if total > MAX_BYTES {
             return Err(format!("restore point over {} MiB", MAX_BYTES >> 20));
         }
-        crate::secret::write_private(&path, &bytes)
-            .map_err(|e| format!("{}: {e}", rel.display()))?;
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode & 0o777))
-                .map_err(|e| format!("{}: {e}", rel.display()))?;
-        }
-        #[cfg(not(unix))]
-        let _ = mode;
+        write_new(&dir.join(name), &bytes, mode).map_err(|e| format!("{}: {e}", rel.display()))?;
     }
     Ok(())
 }
@@ -219,6 +415,14 @@ fn read_archive(file: &Path, data: &Path, key: &[u8; 32]) -> Result<(), String> 
 fn private_dir(dir: &Path) -> Result<(), String> {
     let mut b = std::fs::DirBuilder::new();
     b.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+    b.create(dir).map_err(|e| format!("{}: {e}", dir.display()))
+}
+
+/// A new directory only its owner enters: refused when the name is taken.
+fn new_private_dir(dir: &Path) -> Result<(), String> {
+    let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
     b.create(dir).map_err(|e| format!("{}: {e}", dir.display()))
@@ -254,13 +458,14 @@ pub fn make(
         id = format!("{}-{n}", stamp(now));
     }
     let archive = dir.join(format!("{id}.{ARCHIVE}"));
-    let size = write_archive(data, &archive, key)?;
+    let (size, skipped) = write_archive(data, &archive, key)?;
     let point = Point {
         id: id.clone(),
         at: now,
         package: package.to_owned(),
         version: version.to_owned(),
         size,
+        skipped,
         keys_known: keys.is_some(),
         keys: keys.unwrap_or_default(),
     };
@@ -287,9 +492,20 @@ pub fn apply(root: &Path, link: &str, id: &str, data: &Path, key: &[u8; 32]) -> 
         .ok_or_else(|| format!("{}: no parent", data.display()))?;
     let fresh = parent.join("data.restoring");
     let old = parent.join("data.replaced");
-    let _ = std::fs::remove_dir_all(&fresh);
-    let _ = std::fs::remove_dir_all(&old);
-    private_dir(&fresh)?;
+    // left by an apply that was cut: removed as what they are (a symlink
+    // planted under these names is unlinked, never followed)
+    for stale in [&fresh, &old] {
+        match std::fs::symlink_metadata(stale) {
+            Ok(m) if m.is_dir() => {
+                let _ = std::fs::remove_dir_all(stale);
+            }
+            Ok(_) => {
+                let _ = std::fs::remove_file(stale);
+            }
+            Err(_) => {}
+        }
+    }
+    new_private_dir(&fresh)?;
     if let Err(e) = read_archive(&archive, &fresh, key) {
         let _ = std::fs::remove_dir_all(&fresh);
         return Err(e);
@@ -523,6 +739,119 @@ mod tests {
         make(&root, "l2", &data, &k, "pkg", "1.0.0", None, 3_000).unwrap();
         remove_link(&root, "l2");
         assert!(!root.join("l2").exists());
+    }
+
+    /// Security review of the restore point: the link runs while its data
+    /// is copied and owns the directory. A symlink there is never followed
+    /// (so no file of the broker's is copied out), a file or directory
+    /// swapped for a symlink after it was listed is refused, and a restore
+    /// never writes through a symlink.
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_never_followed() {
+        use std::os::unix::fs::symlink;
+        let d = tmp("symlink");
+        let (root, data) = (d.join("restore"), d.join("links/l1/data"));
+        let outside = d.join("outside");
+        write(&outside.join("secret"), b"BROKER-SECRET-0123456789");
+        write(&data.join("own"), b"mine");
+        write(&data.join("sub/own2"), b"mine2");
+        symlink(outside.join("secret"), data.join("leak")).unwrap();
+        symlink(&outside, data.join("leakdir")).unwrap();
+        symlink(outside.join("secret"), data.join("sub/leak2")).unwrap();
+        let k = key(b"k");
+        let p = make(&root, "l1", &data, &k, "pkg", "1", None, 10).unwrap();
+        assert_eq!(p.skipped, 3, "the three symlinks are counted, not copied");
+        // what the point holds: the link's two files, nothing from outside
+        let sealed = std::fs::read(root.join(format!("l1/{}.restore", p.id))).unwrap();
+        let plain = wyrm_link_sdk::seal::open(&k, &sealed).unwrap();
+        assert!(!plain.windows(13).any(|w| w == b"BROKER-SECRET"));
+        let mut names: Vec<String> = zip::ZipArchive::new(Cursor::new(plain))
+            .unwrap()
+            .file_names()
+            .map(|n| n.unwrap().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["own", "sub/own2"]);
+
+        // a file swapped for a symlink after the listing: opened without
+        // following, so it is refused, not read
+        let dir = open_nofollow(&data, true).unwrap();
+        let leak = std::ffi::OsStr::new("leak");
+        let err = open_entry(&dir, &data, leak, false).err().unwrap();
+        assert!(err.contains("changed while it was copied"), "{err}");
+        let err = open_entry(&dir, &data, std::ffi::OsStr::new("leakdir"), true)
+            .err()
+            .unwrap();
+        assert!(err.contains("changed while it was copied"), "{err}");
+        // a directory on the way swapped for a symlink: what opens through
+        // the path is not an entry of the directory the walk holds
+        let sub = open_nofollow(&data.join("sub"), true).unwrap();
+        std::fs::rename(data.join("sub"), data.join("sub.real")).unwrap();
+        symlink(&outside, data.join("sub")).unwrap();
+        let err = open_entry(
+            &sub,
+            &data.join("sub"),
+            std::ffi::OsStr::new("secret"),
+            false,
+        )
+        .err()
+        .unwrap();
+        assert!(err.contains("not an entry of the directory"), "{err}");
+        // the real entry of the held directory still opens
+        std::fs::remove_file(data.join("sub")).unwrap();
+        std::fs::rename(data.join("sub.real"), data.join("sub")).unwrap();
+        let own2 = std::ffi::OsStr::new("own2");
+        assert!(open_entry(&sub, &data.join("sub"), own2, false)
+            .unwrap()
+            .is_some());
+        // an entry that went away is not an error
+        let gone = std::ffi::OsStr::new("gone");
+        assert!(open_entry(&dir, &data, gone, false).unwrap().is_none());
+        // a data directory that is itself a symlink is refused
+        let fake = d.join("links/l2/data");
+        std::fs::create_dir_all(fake.parent().unwrap()).unwrap();
+        symlink(&outside, &fake).unwrap();
+        assert!(make(&root, "l2", &fake, &k, "pkg", "1", None, 10).is_err());
+
+        // apply: the fresh directory's name taken by a symlink to outside
+        // (left there by the link): it is unlinked, and nothing is written
+        // through it
+        symlink(&outside, d.join("links/l1/data.restoring")).unwrap();
+        symlink(&outside, d.join("links/l1/data.replaced")).unwrap();
+        apply(&root, "l1", &p.id, &data, &k).unwrap();
+        assert_eq!(std::fs::read(data.join("own")).unwrap(), b"mine");
+        assert_eq!(std::fs::read(data.join("sub/own2")).unwrap(), b"mine2");
+        assert!(
+            !data.join("leak").exists(),
+            "the symlinks did not come back"
+        );
+        let mut out: Vec<_> = std::fs::read_dir(&outside)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        out.sort();
+        assert_eq!(out, ["secret"], "nothing was written outside");
+        assert_eq!(
+            std::fs::read(outside.join("secret")).unwrap(),
+            b"BROKER-SECRET-0123456789"
+        );
+        // unpacking never writes over or through what is there
+        let target = d.join("unpack");
+        std::fs::create_dir_all(&target).unwrap();
+        symlink(&outside, target.join("sub")).unwrap();
+        let file = root.join(format!("l1/{}.restore", p.id));
+        let err = read_archive(&file, &target, &k).unwrap_err();
+        assert!(err.contains("not a directory"), "{err}");
+        let target = d.join("unpack2");
+        std::fs::create_dir_all(&target).unwrap();
+        symlink(outside.join("secret"), target.join("own")).unwrap();
+        assert!(read_archive(&file, &target, &k).is_err());
+        assert_eq!(
+            std::fs::read(outside.join("secret")).unwrap(),
+            b"BROKER-SECRET-0123456789"
+        );
     }
 
     #[test]
