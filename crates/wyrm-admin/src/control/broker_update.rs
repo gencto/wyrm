@@ -24,12 +24,16 @@ use zeroize::Zeroizing;
 
 /// How often the releases index is read.
 const INDEX_EVERY: Duration = Duration::from_secs(6 * 3600);
+/// When a read of the index failed: the next one.
+const INDEX_RETRY: Duration = Duration::from_secs(300);
 /// The index and one release document over the network.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// An archive over the network.
 const ARCHIVE_TIMEOUT: Duration = Duration::from_secs(900);
 /// The new binary's `release-info` and `check`.
 const BINARY_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often a version in its trial writes how long it has run.
+const TRIAL_BEAT_S: u64 = 5;
 /// How long the health of a trial is asked again at its end.
 const TRIAL_GRACE: Duration = Duration::from_secs(10);
 /// How long before a start the guard must have run (it runs right before).
@@ -85,6 +89,10 @@ pub struct UpdateConfig {
     pub gateway: Option<SocketAddr>,
     /// This broker is one of a standby pair (ADR 0036).
     pub standby: bool,
+    /// Unix seconds this process started (`wyrmd`): the guard ran before
+    /// that, not before the daemon opened (a promoted standby opens it
+    /// hours after its start). `None`: the daemon's own start.
+    pub process_start: Option<u64>,
 }
 
 impl Default for UpdateConfig {
@@ -98,6 +106,7 @@ impl Default for UpdateConfig {
             config_file: None,
             gateway: None,
             standby: false,
+            process_start: None,
         }
     }
 }
@@ -136,7 +145,13 @@ pub struct BrokerUpdate {
     step: Mutex<String>,
     /// An update that ended before the broker stopped for it.
     failed: Mutex<Option<BTreeMap<String, Value>>>,
-    index: Mutex<Option<Result<release::Index, String>>>,
+    /// The last releases index that verified, and why the last read
+    /// failed (empty: it did not). A failed read never replaces a good
+    /// index.
+    index: Mutex<Option<release::Index>>,
+    index_error: Mutex<String>,
+    /// Since when this process sees the clock past `keep_until`.
+    past_since: Mutex<Option<std::time::Instant>>,
     standby: Mutex<StandbySaid>,
     order: Mutex<Option<Order>>,
     /// What the standby did with the last order.
@@ -165,6 +180,8 @@ impl BrokerUpdate {
             step: Mutex::default(),
             failed: Mutex::default(),
             index: Mutex::default(),
+            index_error: Mutex::default(),
+            past_since: Mutex::default(),
             standby: Mutex::default(),
             order: Mutex::new(order),
             order_result: Mutex::default(),
@@ -239,6 +256,11 @@ fn gates(g: &Gate) -> Result<(), LinkError> {
         ));
     }
     Ok(())
+}
+
+/// Did the guard run right before the process that started at `started`?
+pub fn guard_fresh(stamp: Option<u64>, started: u64) -> bool {
+    stamp.is_some_and(|at| at <= started + 2 && at + GUARD_FRESH_S >= started)
 }
 
 /// What to do in `external` mode, shown as `sys/update_hint` and as the
@@ -336,6 +358,8 @@ pub async fn stage(
     archive: &Path,
     release: &Release,
     asset: &Asset,
+    document: &[u8],
+    signature: &str,
 ) -> Result<PathBuf, String> {
     let config = config_file
         .ok_or("this broker was not started from a configuration file")?
@@ -350,9 +374,19 @@ pub async fn stage(
         version.clone(),
         versions.clone(),
     );
-    let bin = tokio::task::spawn_blocking(move || release::unpack(&a, &asset2, &vs2, &v2))
-        .await
-        .map_err(|e| e.to_string())??;
+    let (doc2, sig2) = (document.to_vec(), signature.to_owned());
+    let bin = tokio::task::spawn_blocking(move || {
+        let bin = release::unpack(&a, &asset2, &vs2, &v2)?;
+        // the signed release stays with the binary: the guard and the
+        // broker check the binary against it before every start
+        if let Err(e) = release::keep_release(&vs2, &v2, &doc2, &sig2) {
+            let _ = std::fs::remove_dir_all(vs2.join(&v2));
+            return Err(e);
+        }
+        Ok::<_, String>(bin)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let proved = async {
         let said = release::run_binary(&bin, &["release-info".into()], BINARY_TIMEOUT).await?;
         let id: Identity = serde_json::from_str(said.trim())
@@ -431,6 +465,8 @@ fn upd_map(u: &UpdateFile) -> BTreeMap<String, Value> {
         ("reason".to_owned(), Value::from(u.reason.clone())),
         ("attempts".to_owned(), Value::UInt(u.attempts.into())),
         ("deadline".to_owned(), Value::UInt(u.deadline)),
+        ("trial_s".to_owned(), Value::UInt(u.trial_s)),
+        ("ran_s".to_owned(), Value::UInt(u.ran_s)),
         ("keep_until".to_owned(), Value::UInt(u.keep_until)),
         ("restored".to_owned(), Value::Bool(u.restored)),
         ("without_s".to_owned(), Value::UInt(u.without_s)),
@@ -466,8 +502,9 @@ impl Control {
     }
 
     fn guard_ran(&self) -> bool {
-        release::guard_stamp(&self.cfg.data_dir)
-            .is_some_and(|at| at <= self.started + 2 && at + GUARD_FRESH_S >= self.started)
+        // the guard runs right before the process starts
+        let started = self.cfg.updates.process_start.unwrap_or(self.started);
+        guard_fresh(release::guard_stamp(&self.cfg.data_dir), started)
     }
 
     /// Another job that runs now, in words.
@@ -506,12 +543,10 @@ impl Control {
     }
 
     fn latest_release(&self) -> Option<Release> {
-        match &*lock(&self.update.index) {
-            Some(Ok(i)) => i
-                .latest(&release::identity().target)
-                .map(|s| s.release.clone()),
-            _ => None,
-        }
+        lock(&self.update.index).as_ref().and_then(|i| {
+            i.latest(&release::identity().target)
+                .map(|s| s.release.clone())
+        })
     }
 
     /// `(latest, update_available, update_state, update_last, hint)` as
@@ -547,19 +582,20 @@ impl Control {
         let hint = match self.cfg.updates.mode {
             UpdateMode::Off => String::new(),
             UpdateMode::External => external_hint(&latest_v),
-            UpdateMode::SelfUpdate => match (self.layout(), &*lock(&self.update.index)) {
-                (Err(e), _) => e,
-                (Ok(_), _) if !self.guard_ran() => {
-                    "the guard did not run before this start: update is refused \
-                     (docs/operations.md §2)"
-                        .into()
+            UpdateMode::SelfUpdate => {
+                let index_error = lock(&self.update.index_error).clone();
+                match self.layout() {
+                    Err(e) => e,
+                    Ok(_) if !self.guard_ran() => "the guard did not run before this start: \
+                                                   update is refused (docs/operations.md §2)"
+                        .into(),
+                    Ok(_) if !index_error.is_empty() => format!("releases index: {index_error}"),
+                    Ok(_) if self.cfg.updates.channel.is_none() => {
+                        "no updates.channel: an update is brought as a signed archive".into()
+                    }
+                    Ok(_) => String::new(),
                 }
-                (Ok(_), Some(Err(e))) => format!("releases index: {e}"),
-                (Ok(_), None) if self.cfg.updates.channel.is_none() => {
-                    "no updates.channel: an update is brought as a signed archive".into()
-                }
-                _ => String::new(),
-            },
+            }
         };
         (latest_v, available, state, last, hint)
     }
@@ -570,18 +606,29 @@ impl Control {
         let Some(channel) = u.channel.as_deref().filter(|_| u.mode != UpdateMode::Off) else {
             return Err("no updates.channel".into());
         };
+        // one file holds the index and its signature: a reader never has one
+        // without the other
         let r = async {
-            let bytes = crate::fetch::get(channel, release::MAX_RELEASE * 4, FETCH_TIMEOUT).await?;
-            let sig = crate::fetch::get(&format!("{channel}.sig"), 4096, FETCH_TIMEOUT).await?;
-            let sig = String::from_utf8(sig).map_err(|_| "signature: not text".to_owned())?;
-            release::read_index(&bytes, &sig, &u.keys)
+            let bytes = crate::fetch::get(channel, release::MAX_CHANNEL, FETCH_TIMEOUT).await?;
+            let index = release::read_channel(&bytes, &u.keys)?;
+            // an older index than one read before was put back
+            release::note_sequence(&self.cfg.data_dir, index.sequence)?;
+            Ok::<_, String>(index)
         }
         .await;
-        let out = r.as_ref().map(|_| ()).map_err(Clone::clone);
-        if let Err(e) = &r {
-            debug!("releases index: {e}");
-        }
-        *lock(&self.update.index) = Some(r);
+        let out = match r {
+            Ok(index) => {
+                *lock(&self.update.index) = Some(index);
+                lock(&self.update.index_error).clear();
+                Ok(())
+            }
+            Err(e) => {
+                debug!("releases index: {e}");
+                // the index read before stays; the read is tried again soon
+                lock(&self.update.index_error).clone_from(&e);
+                Err(e)
+            }
+        };
         self.update.notify();
         out
     }
@@ -616,21 +663,41 @@ impl Control {
                 warn!("update.json: {e}");
             }
         }
-        self.update_housekeeping();
+        self.update_housekeeping(true);
     }
 
     /// Unpin the pre-update backup and remove version directories nobody
     /// can go back to.
-    fn update_housekeeping(&self) {
+    fn update_housekeeping(&self, at_start: bool) {
         let d = &self.cfg.data_dir;
-        let Some(u) = UpdateFile::load(d) else {
+        let Some(mut u) = UpdateFile::load(d) else {
             return;
         };
-        let over = match u.state.as_str() {
-            "rolled_back" => true,
-            "confirmed" => now_s() > u.keep_until,
-            _ => false,
+        // after a rollback: only once the version it left current came up
+        if u.state == "rolled_back" && !u.settled {
+            return;
+        }
+        let now = now_s();
+        // how long this process has seen the clock past `keep_until`
+        let past_s = {
+            let mut since = lock(&self.update.past_since);
+            if u.state == "confirmed" && now > u.keep_until {
+                since
+                    .get_or_insert_with(std::time::Instant::now)
+                    .elapsed()
+                    .as_secs()
+            } else {
+                *since = None;
+                0
+            }
         };
+        let counted = u.expired_starts;
+        let over = u.expire(now, at_start, past_s);
+        if u.expired_starts != counted {
+            if let Err(e) = u.save(d) {
+                warn!("update.json: {e}");
+            }
+        }
         if !over {
             return;
         }
@@ -826,7 +893,7 @@ async fn plan_of(
                 "no updates.channel: bring the archive (upload) with its release and signature",
             )
         })?;
-        let cached = matches!(&*lock(&ctl.update.index), Some(Ok(_)));
+        let cached = lock(&ctl.update.index).is_some();
         if !fresh && cached {
             // nothing to read
         } else if let Err(e) = ctl.poll_index().await {
@@ -835,9 +902,8 @@ async fn plan_of(
                 format!("releases index: {e}"),
             ));
         }
-        let index = match &*lock(&ctl.update.index) {
-            Some(Ok(i)) => i.clone(),
-            _ => return Err(LinkError::internal("releases index: not read")),
+        let Some(index) = lock(&ctl.update.index).clone() else {
+            return Err(LinkError::internal("releases index: not read"));
         };
         // an entry of the index is a release document under its own
         // signature (checked when the index was read): those bytes go on
@@ -1088,6 +1154,8 @@ async fn run(
         &archive,
         &plan.release,
         &plan.asset,
+        &plan.release_bytes,
+        &plan.signature,
     )
     .await?;
     ctl.update.set_step("staged");
@@ -1106,7 +1174,9 @@ async fn run(
                 links: None,
                 link: None,
                 history_days: None,
-                seal: SealWith::None,
+                // sealed for this broker: the guard checks the manifest
+                // with the key of secrets.key before it restores from it
+                seal: SealWith::Broker,
                 label: "pre-update".into(),
                 pinned: true,
                 remote: false,
@@ -1150,6 +1220,7 @@ async fn run(
         backup_sha256: job.sha256.clone(),
         from_schemas: me.schemas.clone(),
         to_schemas: plan.release.schemas.clone(),
+        stores: release::stores_of(&d),
         links,
         by: plan.by.clone(),
         started: now,
@@ -1299,19 +1370,14 @@ pub(super) async fn rollback(
         guard_ran: ctl.guard_ran(),
         trial: false,
     })?;
-    if now_s() > u.keep_until {
-        return Err(LinkError::new(
-            Status::OutOfRange,
-            format!(
-                "the update to {} was confirmed more than updates.keep_days ago: wyrmd {} \
-                 and the pre-update backup are no longer kept",
-                u.to, u.from
-            ),
-        ));
-    }
+    // while the old version and the backup are kept: the clock alone does
+    // not end it (see `UpdateFile::expire`)
     let layout = ctl.layout().map_err(LinkError::not_supported)?;
     if !layout.bin_of(&u.from).is_file() {
-        return Err(LinkError::not_found(format!("wyrmd {} is gone", u.from)));
+        return Err(LinkError::not_found(format!(
+            "wyrmd {} is no longer kept (updates.keep_days are over)",
+            u.from
+        )));
     }
     if !u.moved().is_empty() && ctl.backups().get(&u.backup_id).is_none() {
         return Err(LinkError::not_found(format!(
@@ -1606,7 +1672,21 @@ async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(),
 async fn trial(ctl: &Arc<Control>, session: &Session) {
     let d = &ctl.cfg.data_dir;
     let me = &release::identity().version;
-    let Some(mut u) = UpdateFile::load(d).filter(|u| u.in_trial() && &u.to == me) else {
+    // the version a rollback left current came up: the guard leaves it
+    if let Some(mut u) = UpdateFile::load(d)
+        .filter(|u| matches!(u.state.as_str(), "rolled_back" | "failed") && !u.settled)
+    {
+        u.settled = true;
+        u.starts = 0;
+        if let Err(e) = u.save(d) {
+            warn!("update.json: {e}");
+        }
+        let ctl2 = ctl.clone();
+        let _ = tokio::task::spawn_blocking(move || ctl2.update_housekeeping(false)).await;
+        ctl.update.notify();
+    }
+    let mine = |u: &UpdateFile| u.in_trial() && &u.to == me;
+    let Some(mut u) = UpdateFile::load(d).filter(mine) else {
         return;
     };
     if u.without_s == 0 {
@@ -1616,16 +1696,34 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
         }
         ctl.update.notify();
     }
-    // set by `wyrmd` at the start of the process; never open-ended
-    let deadline = match u.deadline {
-        0 => now_s() + ctl.cfg.updates.trial_s,
-        d => d,
+    let trial_s = match u.trial_s {
+        0 => ctl.cfg.updates.trial_s,
+        s => s,
     };
     info!(
-        from = %u.from, deadline_in_s = deadline.saturating_sub(now_s()),
+        from = %u.from, ran_s = u.ran_s, trial_s,
         "broker update: wyrmd {me} is in its trial"
     );
-    tokio::time::sleep(Duration::from_secs(deadline.saturating_sub(now_s()))).await;
+    // The trial is counted in the time this version ran, written as it
+    // runs: a host that was off, or a broker that was down, comes back into
+    // the trial it left. The wall clock decides nothing.
+    let mut part_ms = 0u128;
+    while u.ran_s < trial_s {
+        let step = Duration::from_secs((trial_s - u.ran_s).min(TRIAL_BEAT_S));
+        let t = tokio::time::Instant::now();
+        tokio::time::sleep(step).await;
+        part_ms += t.elapsed().as_millis();
+        let Some(mut now) = UpdateFile::load(d).filter(mine) else {
+            return;
+        };
+        now.ran_s += (part_ms / 1000) as u64;
+        part_ms %= 1000;
+        now.deadline = now_s() + trial_s.saturating_sub(now.ran_s);
+        if let Err(e) = now.save(d) {
+            warn!("update.json: {e}");
+        }
+        u = now;
+    }
     let until = tokio::time::Instant::now() + TRIAL_GRACE;
     let verdict = loop {
         match healthy(ctl, session, &u).await {
@@ -1699,7 +1797,7 @@ pub(super) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
     };
     let mut rx = ctl.update.changed.subscribe();
     let polls = ctl.cfg.updates.mode != UpdateMode::Off && ctl.cfg.updates.channel.is_some();
-    let mut index = tokio::time::interval(INDEX_EVERY);
+    let mut next_index = tokio::time::Instant::now();
     let mut tidy = tokio::time::interval(Duration::from_secs(3600));
     let mut standby = tokio::time::interval(Duration::from_secs(5));
     loop {
@@ -1714,12 +1812,18 @@ pub(super) async fn watch(ctl: Arc<Control>, ctx: LinkCtx) {
                 }
                 rx.borrow_and_update();
             }
-            _ = index.tick(), if polls => {
-                let _ = ctl.poll_index().await;
+            _ = tokio::time::sleep_until(next_index), if polls => {
+                // a read that failed (the file was being replaced, the
+                // network was away) is not kept for hours
+                let every = match ctl.poll_index().await {
+                    Ok(()) => INDEX_EVERY,
+                    Err(_) => INDEX_RETRY,
+                };
+                next_index = tokio::time::Instant::now() + every;
             }
             _ = tidy.tick() => {
                 let ctl = ctl.clone();
-                let _ = tokio::task::spawn_blocking(move || ctl.update_housekeeping()).await;
+                let _ = tokio::task::spawn_blocking(move || ctl.update_housekeeping(false)).await;
             }
             // a standby that went quiet drops out of the values
             _ = standby.tick(), if ctl.cfg.updates.standby => {}

@@ -30,6 +30,10 @@ enum Cmd {
     /// ExecStartPre, run as <prefix>/bin/wyrmd-guard): take back an update
     /// whose trial failed (ADR 0048).
     UpdateGuard,
+    /// For a unit that keeps <prefix>/bin away from the broker's user: run
+    /// as root after update-guard (`ExecStartPre=+`), it makes the guard
+    /// the verified binary of the current version.
+    GuardRefresh,
     /// Make the install layout of a broker that updates itself in PREFIX
     /// from this binary: versions/<version>/wyrmd, current, bin/wyrmd-guard
     /// (no wyrmd.json5).
@@ -254,6 +258,7 @@ async fn run(args: Args) -> Result<(), Error> {
             return Ok(());
         }
         Some(Cmd::UpdateGuard) => return crate::update::run_guard(&cfg),
+        Some(Cmd::GuardRefresh) => return crate::update::run_guard_refresh(&cfg),
         Some(Cmd::Ca) => {
             let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
             for d in &cfg.peers.downstream {
@@ -317,6 +322,8 @@ async fn run(args: Args) -> Result<(), Error> {
     }
     // the trial of a new version begins with its first start (ADR 0048 §2.5)
     crate::update::trial_start(&cfg.data_dir, cfg.updates.trial_s);
+    // a broker that updates itself runs only a verified binary (ADR 0048 §2)
+    crate::update::verify_self(&cfg, &own_exe()?)?;
     if cfg.standby.is_some() {
         return run_with_standby(cfg).await;
     }

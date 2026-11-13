@@ -49,6 +49,15 @@ pub const MAX_ATTEMPTS: u32 = 3;
 pub const STATE_FILE: &str = "update.json";
 /// `data_dir/update.guard`: when the guard ran last.
 pub const GUARD_STAMP: &str = "update.guard";
+/// `data_dir/update.seen`: the highest sequence of a releases index read.
+pub const SEEN_FILE: &str = "update.seen";
+/// In a version directory: the signed release document the version came
+/// from, and its signature. An archive may not hold files of these names.
+pub const RELEASE_DOC: &str = "release.json";
+pub const RELEASE_SIG: &str = "release.sig";
+/// `<prefix>/bin/trusted.json`: versions put there by hand
+/// (`wyrmd install-layout`), each with the SHA-256 of its binary.
+pub const TRUSTED: &str = "trusted.json";
 /// The replication protocol between the brokers of a standby pair (ADR
 /// 0036): `sys/replication/**` as this version asks and answers it.
 pub const REPLICATION_PROTOCOL: u32 = 1;
@@ -169,6 +178,16 @@ pub struct Asset {
     /// Where it is (`https://`); empty: beside the index.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub url: String,
+    /// SHA-256 (hex) of the binary `wyrmd` in the archive: what a host runs
+    /// is checked against it before every start, not only at the unpack.
+    #[serde(default)]
+    pub bin_sha256: String,
+}
+
+fn is_sha256(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// One release of `wyrmd`.
@@ -211,7 +230,26 @@ pub struct IndexEntry {
 pub struct IndexFile {
     /// [`FORMAT`].
     pub wyrmd_releases: u32,
+    /// Goes up by one with every index that is published: a host refuses
+    /// an index older than one it has read (an old, validly signed index
+    /// put back would hide a newer release).
+    pub sequence: u64,
+    /// When it was made (`YYYY-MM-DD`), for people.
+    #[serde(default)]
+    pub created: String,
     pub releases: Vec<IndexEntry>,
+}
+
+/// What `updates.channel` serves: the index and its signature in one file,
+/// so a reader never sees one without the other.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Channel {
+    /// [`FORMAT`].
+    pub wyrmd_channel: u32,
+    /// The text of the index ([`IndexFile`]) exactly as it was signed.
+    pub index: String,
+    /// Its signature ([`sign_index`]).
+    pub signature: String,
 }
 
 /// A release whose own signature was checked against the pinned keys, with
@@ -227,6 +265,9 @@ pub struct Signed {
 /// and the signature of every entry.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Index {
+    /// 0: an index that was never published (a new one).
+    pub sequence: u64,
+    pub created: String,
     pub releases: Vec<Signed>,
 }
 
@@ -278,13 +319,13 @@ impl Release {
                     a.file
                 ));
             }
-            if a.sha256.len() != 64
-                || !a
-                    .sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            {
+            if !is_sha256(&a.sha256) {
                 return Err(format!("target {t}: sha256: 64 lower-case hex digits"));
+            }
+            if !is_sha256(&a.bin_sha256) {
+                return Err(format!(
+                    "target {t}: bin_sha256: 64 lower-case hex digits"
+                ));
             }
             if a.size == 0 || a.size > MAX_ARCHIVE {
                 return Err(format!(
@@ -316,6 +357,20 @@ impl Release {
             return Err(format!(
                 "wyrmd {} is not newer than {}: an update never goes down a version",
                 self.version, me.version
+            ));
+        }
+        // a store this version does not know could not be put back by its
+        // guard: such a release is installed by hand
+        if let Some(unknown) = self
+            .schemas
+            .keys()
+            .chain(me.schemas.keys())
+            .find(|k| !CONTROL_STORES.iter().any(|(name, _, _)| name == k))
+        {
+            return Err(format!(
+                "wyrmd {} names the store {unknown:?}, which this version cannot restore \
+                 after a failed update: update this broker by hand",
+                self.version
             ));
         }
         if !self.min_from.is_empty() && newer(&self.min_from, &me.version) {
@@ -471,7 +526,14 @@ pub fn read_index(bytes: &[u8], signature: &str, keys: &[VerifyingKey]) -> Resul
     if file.releases.len() > MAX_RELEASES {
         return Err(format!("index: more than {MAX_RELEASES} releases"));
     }
-    let mut out = Index::default();
+    if file.sequence == 0 || file.created.len() > 32 {
+        return Err("index: no sequence, or a created that is not a date".into());
+    }
+    let mut out = Index {
+        sequence: file.sequence,
+        created: file.created,
+        releases: Vec::new(),
+    };
     for e in file.releases {
         let release = read_release(e.release.as_bytes(), &e.signature, keys)
             .map_err(|why| format!("index: an entry is refused: {why}"))?;
@@ -505,14 +567,21 @@ impl Index {
 
     /// The index with the release document `document` added (a release of
     /// the same version is replaced): the document must carry its own good
-    /// signature. The result is to be signed as a whole ([`sign_index`]).
+    /// signature. The sequence goes up by one. The result is to be signed
+    /// as a whole ([`sign_index`]).
     pub fn with(
         mut self,
         document: &[u8],
         signature: &str,
         keys: &[VerifyingKey],
+        created: &str,
     ) -> Result<Self, String> {
         let release = read_release(document, signature, keys)?;
+        self.sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or("index: the sequence is used up")?;
+        created.clone_into(&mut self.created);
         self.releases
             .retain(|s| s.release.version != release.version);
         if self.releases.len() >= MAX_RELEASES {
@@ -541,9 +610,65 @@ impl Index {
             .collect::<Result<Vec<_>, String>>()?;
         Ok(IndexFile {
             wyrmd_releases: FORMAT,
+            sequence: self.sequence,
+            created: self.created.clone(),
             releases,
         })
     }
+}
+
+/// The channel file of an index and its signature.
+pub fn bundle(index: &[u8], signature: &str) -> Result<Vec<u8>, String> {
+    let c = Channel {
+        wyrmd_channel: FORMAT,
+        index: String::from_utf8(index.to_vec()).map_err(|_| "index: not text".to_owned())?,
+        signature: signature.trim().to_owned(),
+    };
+    serde_json::to_vec(&c).map_err(|e| e.to_string())
+}
+
+/// Largest channel file (the index as a JSON string, and its signature).
+pub const MAX_CHANNEL: usize = MAX_RELEASE * 10;
+
+/// A channel file: the index in it, checked as [`read_index`] checks it.
+pub fn read_channel(bytes: &[u8], keys: &[VerifyingKey]) -> Result<Index, String> {
+    if bytes.len() > MAX_CHANNEL {
+        return Err(format!("channel: more than {MAX_CHANNEL} bytes"));
+    }
+    let c: Channel = serde_json::from_slice(bytes).map_err(|e| format!("channel: {e}"))?;
+    if c.wyrmd_channel != FORMAT {
+        return Err(format!(
+            "channel format {}: this broker reads format {FORMAT}",
+            c.wyrmd_channel
+        ));
+    }
+    read_index(c.index.as_bytes(), &c.signature, keys)
+}
+
+/// The highest index sequence this host has read (`data_dir/update.seen`).
+pub fn seen_sequence(data_dir: &Path) -> u64 {
+    std::fs::read_to_string(data_dir.join(SEEN_FILE))
+        .ok()
+        .and_then(|t| t.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// Take the index of sequence `sequence`: refused when this host has read
+/// a later one; remembered when it is later than all before.
+pub fn note_sequence(data_dir: &Path, sequence: u64) -> Result<(), String> {
+    let seen = seen_sequence(data_dir);
+    if sequence < seen {
+        return Err(format!(
+            "the releases index is older than one this broker has read (sequence {sequence}, \
+             read {seen}): an old index was put back"
+        ));
+    }
+    if sequence > seen {
+        let path = data_dir.join(SEEN_FILE);
+        crate::secret::write_private(&path, sequence.to_string().as_bytes())
+            .map_err(|e| io(&path, e))?;
+    }
+    Ok(())
 }
 
 fn io(path: &Path, e: std::io::Error) -> String {
@@ -700,6 +825,11 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
                 "archive: entry {shown:?}: not a plain file name (no directories, no `..`)"
             ));
         }
+        if name == RELEASE_DOC || name == RELEASE_SIG {
+            return Err(format!(
+                "archive: entry {name}: the name of a file the broker writes"
+            ));
+        }
         if names.contains(&name) {
             return Err(format!("archive: entry {name} twice"));
         }
@@ -802,6 +932,15 @@ pub fn unpack(
         let mut gz = flate2::read::GzDecoder::new(f).take(limit);
         untar(&mut gz, &part)
     })();
+    let unpacked = unpacked.and_then(|_| {
+        // what the signed release says the binary is
+        let (bin, _) = sha256_file(&part.join(BIN))?;
+        if bin == asset.bin_sha256 {
+            Ok(())
+        } else {
+            Err("the binary in the archive is not the one of the release (SHA-256)".to_owned())
+        }
+    });
     if let Err(e) = unpacked {
         let _ = std::fs::remove_dir_all(&part);
         return Err(e);
@@ -816,6 +955,45 @@ pub fn unpack(
     std::fs::rename(&part, &dest).map_err(|e| io(&dest, e))?;
     sync_dir(versions);
     Ok(dest.join(BIN))
+}
+
+/// Keep the signed release document and its signature in the version's
+/// directory: what [`Layout::verify`] checks the binary against before
+/// every start.
+pub fn keep_release(
+    versions: &Path,
+    version: &str,
+    document: &[u8],
+    signature: &str,
+) -> Result<(), String> {
+    check_version(version)?;
+    let dir = versions.join(version);
+    for (name, bytes) in [
+        (RELEASE_DOC, document),
+        (RELEASE_SIG, signature.trim().as_bytes()),
+    ] {
+        let path = dir.join(name);
+        if path.symlink_metadata().is_ok() {
+            std::fs::remove_file(&path).map_err(|e| io(&path, e))?;
+        }
+        let mut f = new_file(&path, 0o644).map_err(|e| io(&path, e))?;
+        f.write_all(bytes).map_err(|e| io(&path, e))?;
+        f.sync_all().map_err(|e| io(&path, e))?;
+    }
+    sync_dir(&dir);
+    Ok(())
+}
+
+/// A small file that is a file (no link), read whole.
+fn read_plain_file(path: &Path, max: u64) -> Result<Vec<u8>, String> {
+    let m = path.symlink_metadata().map_err(|e| io(path, e))?;
+    if !m.file_type().is_file() || m.len() > max {
+        return Err(format!(
+            "{}: not a plain file of at most {max} bytes",
+            path.display()
+        ));
+    }
+    std::fs::read(path).map_err(|e| io(path, e))
 }
 
 /// The install layout of a broker that updates itself.
@@ -841,6 +1019,124 @@ impl Layout {
 
     pub fn bin_of(&self, version: &str) -> PathBuf {
         self.versions().join(version).join(BIN)
+    }
+
+    /// `<prefix>/bin/trusted.json`.
+    pub fn trusted(&self) -> PathBuf {
+        self.prefix.join("bin").join(TRUSTED)
+    }
+
+    fn trusted_list(&self) -> BTreeMap<String, String> {
+        read_plain_file(&self.trusted(), 1 << 20)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// Is `sha256` the binary of `version` as this host may run it? Either
+    /// the version was put there by hand (`bin/trusted.json` names it with
+    /// this hash), or its directory holds a release document that one of
+    /// `keys` signed and that names this hash for this host's target. The
+    /// document's own version must be the directory's: a signed release is
+    /// good for its own version only.
+    pub fn verify_hash(
+        &self,
+        version: &str,
+        sha256: &str,
+        keys: &[VerifyingKey],
+    ) -> Result<(), String> {
+        check_version(version)?;
+        if self.trusted_list().get(version).map(String::as_str) == Some(sha256) {
+            return Ok(());
+        }
+        let dir = self.versions().join(version);
+        let found = (|| {
+            let doc = read_plain_file(&dir.join(RELEASE_DOC), MAX_RELEASE as u64)?;
+            let sig = read_plain_file(&dir.join(RELEASE_SIG), 4096)?;
+            let sig = String::from_utf8(sig).map_err(|_| "signature: not text".to_owned())?;
+            let release = read_release(&doc, &sig, keys)?;
+            if release.version != version {
+                return Err(format!("its release document is of wyrmd {}", release.version));
+            }
+            let asset = release
+                .targets
+                .get(&target())
+                .ok_or("its release has no build for this host")?;
+            if asset.bin_sha256 != sha256 {
+                return Err("the binary is not the one its signed release names".to_owned());
+            }
+            Ok(())
+        })();
+        found.map_err(|e| {
+            format!(
+                "wyrmd {version} in {} is not verified: {e}",
+                dir.display()
+            )
+        })
+    }
+
+    /// [`Self::verify_hash`] of the binary of `version` as it is on disk (a
+    /// plain file, no link).
+    pub fn verify(&self, version: &str, keys: &[VerifyingKey]) -> Result<(), String> {
+        check_version(version)?;
+        let bin = self.bin_of(version);
+        let plain = bin
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_file());
+        if !plain {
+            return Err(format!("{}: not a plain file", bin.display()));
+        }
+        let (sha, _) = sha256_file(&bin)?;
+        self.verify_hash(version, &sha, keys)
+    }
+
+    /// Name `version` with the hash of its binary in `bin/trusted.json`: a
+    /// version put there by hand has no signed release.
+    fn trust(&self, version: &str, sha256: &str) -> Result<(), String> {
+        let mut list = self.trusted_list();
+        list.insert(version.to_owned(), sha256.to_owned());
+        let path = self.trusted();
+        let dir = path.parent().unwrap_or(&self.prefix).to_owned();
+        std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
+        let tmp = dir.join(format!(".{TRUSTED}.new"));
+        if tmp.symlink_metadata().is_ok() {
+            std::fs::remove_file(&tmp).map_err(|e| io(&tmp, e))?;
+        }
+        let bytes = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
+        let mut f = new_file(&tmp, 0o644).map_err(|e| io(&tmp, e))?;
+        f.write_all(&bytes).map_err(|e| io(&tmp, e))?;
+        f.sync_all().map_err(|e| io(&tmp, e))?;
+        std::fs::rename(&tmp, &path).map_err(|e| io(&path, e))
+    }
+
+    /// For a guard that runs as root (`ExecStartPre=+… guard-refresh`, the
+    /// hardened unit): make the guard the binary of the version that is
+    /// current, when that version is verified. The binary is read once,
+    /// through no link, and what was hashed is what is written. Returns
+    /// whether the guard was replaced.
+    pub fn refresh_guard_verified(&self, keys: &[VerifyingKey]) -> Result<bool, String> {
+        let version = self
+            .current_version()
+            .ok_or_else(|| format!("{}: not a link to a version", self.current().display()))?;
+        let bytes = read_plain_file(&self.bin_of(&version), MAX_BINARY)?;
+        let sha = hex::encode(Sha256::digest(&bytes));
+        self.verify_hash(&version, &sha, keys)?;
+        let guard = self.guard();
+        if sha256_file(&guard).is_ok_and(|(g, _)| g == sha) {
+            return Ok(false);
+        }
+        let dir = guard.parent().unwrap_or(&self.prefix).to_owned();
+        let tmp = dir.join(format!(".{GUARD}.new"));
+        if tmp.symlink_metadata().is_ok() {
+            std::fs::remove_file(&tmp).map_err(|e| io(&tmp, e))?;
+        }
+        let mut out = new_file(&tmp, 0o755).map_err(|e| io(&tmp, e))?;
+        out.write_all(&bytes).map_err(|e| io(&tmp, e))?;
+        out.sync_all().map_err(|e| io(&tmp, e))?;
+        drop(out);
+        std::fs::rename(&tmp, &guard).map_err(|e| io(&guard, e))?;
+        sync_dir(&dir);
+        Ok(true)
     }
 
     /// The version `current` points at.
@@ -1014,6 +1310,8 @@ impl Layout {
             std::io::copy(&mut src, &mut out).map_err(|e| io(&bin, e))?;
             out.sync_all().map_err(|e| io(&bin, e))?;
         }
+        // put there by hand: trusted by its hash, it has no signed release
+        l.trust(version, &sha256_file(&bin)?.0)?;
         l.switch(version)?;
         l.refresh_guard(&bin)?;
         Ok(l)
@@ -1061,10 +1359,32 @@ pub struct UpdateFile {
     /// Seconds the new version has to prove itself, from its first start.
     #[serde(default)]
     pub trial_s: u64,
-    /// Unix seconds: the trial ends; the new version is judged then. 0
-    /// until the new version started for the first time.
+    /// Seconds the new version has run in its trial, written by it as it
+    /// runs. The trial ends when this reaches `trial_s`: time the host was
+    /// off, or the broker was down, is not part of a trial.
+    #[serde(default)]
+    pub ran_s: u64,
+    /// Unix seconds at which the trial ends if the version keeps running:
+    /// an estimate for people, set at each start. Nothing is decided by it.
     #[serde(default)]
     pub deadline: u64,
+    /// The control-plane stores (names of `schemas`) that existed when the
+    /// update began: a store that did not is moved aside by a rollback,
+    /// not restored.
+    #[serde(default)]
+    pub stores: Vec<String>,
+    /// After a rollback, or one that could not be done: starts the guard
+    /// let through before the version that is current came up once.
+    #[serde(default)]
+    pub starts: u32,
+    /// The version that is current after a rollback came up: the guard
+    /// leaves `current` alone from then on.
+    #[serde(default)]
+    pub settled: bool,
+    /// Starts at which the clock was past `keep_until` (see
+    /// [`UpdateFile::expire`]).
+    #[serde(default)]
+    pub expired_starts: u32,
     /// The pre-update backup: its job id, file name in `data_dir/backups`
     /// and SHA-256. Empty on a standby (it follows; it has nothing to
     /// restore).
@@ -1146,6 +1466,31 @@ impl UpdateFile {
     pub fn moved(&self) -> Vec<String> {
         moved(&self.from_schemas, &self.to_schemas)
     }
+
+    /// Is the old version of a confirmed update no longer kept? Called at
+    /// each start of the broker (`at_start`) and then once an hour with
+    /// `past_s`, the seconds this process has seen the clock past
+    /// `keep_until` without a break. One reading of the clock decides
+    /// nothing (a host without a clock battery starts with a wrong time):
+    /// the time must be past `keep_until` at two starts, or for a full hour
+    /// of one run. A clock that is before `keep_until` again forgets the
+    /// starts counted. Never in a trial. `true`: the old version and the
+    /// pre-update backup may go.
+    pub fn expire(&mut self, now: u64, at_start: bool, past_s: u64) -> bool {
+        match self.state.as_str() {
+            "rolled_back" => return true,
+            "confirmed" => {}
+            _ => return false,
+        }
+        if now <= self.keep_until {
+            self.expired_starts = 0;
+            return false;
+        }
+        if at_start {
+            self.expired_starts = self.expired_starts.saturating_add(1);
+        }
+        self.expired_starts >= 2 || past_s >= 3600
+    }
 }
 
 /// Unix seconds now.
@@ -1184,135 +1529,295 @@ pub enum Guarded {
         to: String,
         restored: bool,
     },
-    /// A rollback was due and cannot be done: the new version stays.
+    /// A rollback was due and could not be done as a whole; the text says
+    /// which version is current and on what state.
     Stuck(String),
 }
 
+fn other_of<'a>(u: &'a UpdateFile, current: &str) -> &'a str {
+    if current == u.from {
+        &u.to
+    } else {
+        &u.from
+    }
+}
+
 /// `wyrmd update-guard`: run before every start of the broker, by the
-/// previous version's binary (`<prefix>/bin/wyrmd-guard`). It counts each
-/// start of a version in its trial. With an update in its trial that
-/// failed (the new version said so, was started [`MAX_ATTEMPTS`] times
-/// without ending its trial, or its time is over), or with a rollback asked
-/// for on purpose, it restores the control plane from the pre-update backup
-/// where the update moved a SCHEMA, points `current` back at the old
-/// version and writes `rolled_back`. `Err`: a step failed and the next run
-/// does it again.
-pub fn guard(layout: &Layout, data_dir: &Path, version: &str) -> Result<Guarded, String> {
+/// previous version's binary (`<prefix>/bin/wyrmd-guard`).
+///
+/// It counts each start of a version in its trial. It takes an update back
+/// when the new version gave its trial up (exit code 76 and its reason),
+/// when [`MAX_ATTEMPTS`] starts did not end the trial, or when a rollback
+/// was asked for on purpose: where the update moved a SCHEMA it restores
+/// those stores from the pre-update backup, then points `current` back at
+/// the old version. The clock decides nothing: a host that was off for a
+/// day comes back into the trial it left.
+///
+/// **It never leaves the broker without a version to start because a
+/// restore failed.** When the stores cannot be restored (the backup is
+/// gone or changed, a file cannot be written), the old version is made
+/// current on the state as it is and the state is `failed` with the reason.
+/// If the version that is current after a rollback then does not come up
+/// in [`MAX_ATTEMPTS`] starts, the other version is made current. Errors
+/// of writing `update.json` are said and passed over.
+///
+/// With `keys` (a broker in `updates.mode: "self"`) the version that is
+/// current is verified before the guard lets it start
+/// ([`Layout::verify`]): a binary that is not the one a signed release
+/// names (or one put there by hand) is never started. The other version of
+/// the update is made current if it verifies; else the guard returns `Err`
+/// and nothing starts. That is the one case in which it blocks a start.
+pub fn guard(
+    layout: &Layout,
+    data_dir: &Path,
+    version: &str,
+    keys: Option<&[VerifyingKey]>,
+) -> Result<Guarded, String> {
     stamp_guard(data_dir, version);
-    let Some(mut u) = UpdateFile::load(data_dir) else {
-        return Ok(Guarded::Nothing);
+    let done = match UpdateFile::load(data_dir) {
+        Some(u) => decide(layout, data_dir, u),
+        None => Guarded::Nothing,
     };
+    if let Some(keys) = keys {
+        verified_current(layout, data_dir, keys)?;
+    }
+    Ok(done)
+}
+
+fn save_or_say(u: &UpdateFile, data_dir: &Path) {
+    if let Err(e) = u.save(data_dir) {
+        eprintln!("update-guard: {STATE_FILE} is not written: {e}");
+    }
+}
+
+fn decide(layout: &Layout, data_dir: &Path, mut u: UpdateFile) -> Guarded {
     let now = now_s();
-    if u.state == "trial" && layout.current_version().as_deref() == Some(u.from.as_str()) {
+    let current = layout.current_version().unwrap_or_default();
+    if u.state == "trial" && current == u.from {
         // the old version stopped before `current` moved: nothing ran
         u.state = "rolled_back".into();
         u.reason = format!("the broker stopped before wyrmd {} was made current", u.to);
         u.ended = now;
         u.audited = false;
-        u.save(data_dir)?;
-        return Ok(Guarded::RolledBack {
+        u.settled = true;
+        save_or_say(&u, data_dir);
+        return Guarded::RolledBack {
             from: u.from,
             to: u.to,
             restored: false,
-        });
+        };
     }
-    let why = if u.state == "trial" {
-        if !u.failed.is_empty() {
+    let why = match u.state.as_str() {
+        "trial" if !u.failed.is_empty() => {
             Some(format!("wyrmd {} gave its trial up: {}", u.to, u.failed))
-        } else if u.attempts >= MAX_ATTEMPTS {
-            Some(format!(
-                "wyrmd {} started {} times and never ended its trial",
-                u.to, u.attempts
-            ))
-        } else if u.deadline != 0 && now > u.deadline {
-            Some(format!(
-                "wyrmd {} did not end its trial in time (it was not running at the end)",
-                u.to
-            ))
-        } else {
-            None
         }
-    } else if u.state == "confirmed" && !u.rollback.is_empty() && now <= u.keep_until {
-        Some(format!("rolled back by {}", u.rollback))
-    } else {
-        None
-    };
-    let Some(why) = why else {
-        if u.state == "trial" {
+        "trial" if u.attempts >= MAX_ATTEMPTS => Some(format!(
+            "wyrmd {} was started {} times and did not end its trial",
+            u.to, u.attempts
+        )),
+        "trial" => {
             // this start of the new version is let through, and counted
             u.attempts += 1;
-            u.save(data_dir)?;
+            save_or_say(&u, data_dir);
+            return Guarded::Nothing;
         }
-        return Ok(Guarded::Nothing);
-    };
-    let stuck = |u: &mut UpdateFile, what: String| -> Result<Guarded, String> {
-        u.state = "failed".into();
-        u.reason = format!("{why}; not rolled back: {what}");
-        u.ended = now;
-        u.audited = false;
-        u.rollback.clear();
-        u.save(data_dir)?;
-        Ok(Guarded::Stuck(u.reason.clone()))
-    };
-    if check_version(&u.from).is_err() || !layout.bin_of(&u.from).is_file() {
-        let what = format!("{} is gone", layout.bin_of(&u.from).display());
-        return stuck(&mut u, what);
-    }
-    let moved = u.moved();
-    let mut restored = false;
-    if !moved.is_empty() && u.role != "standby" {
-        let backup = data_dir.join("backups").join(&u.backup);
-        let usable = !u.backup.is_empty()
-            && plain_name(&u.backup, 200)
-            && sha256_file(&backup).is_ok_and(|(sha, _)| sha == u.backup_sha256);
-        if !usable {
-            let what = format!(
-                "the update moved the SCHEMA of {} and the pre-update backup {} is gone or changed",
-                moved.join(", "),
-                u.backup
+        "confirmed" if !u.rollback.is_empty() => Some(format!("rolled back by {}", u.rollback)),
+        "rolled_back" | "failed" if !u.settled => {
+            // the version a rollback left current must come up once
+            if u.starts < MAX_ATTEMPTS {
+                u.starts += 1;
+                save_or_say(&u, data_dir);
+                return Guarded::Nothing;
+            }
+            let other = other_of(&u, &current).to_owned();
+            let said = format!(
+                "wyrmd {current} did not come up in {} starts after the rollback",
+                u.starts
             );
-            return stuck(&mut u, what);
+            u.starts = 0;
+            u.audited = false;
+            u.state = "failed".into();
+            u.ended = now;
+            if check_version(&other).is_ok() && layout.switch(&other).is_ok() {
+                u.reason = format!("{}; {said}: wyrmd {other} is current", u.reason);
+            } else {
+                // nothing else to start: this one goes on being tried
+                u.settled = true;
+                u.reason = format!("{}; {said}, and wyrmd {other} is gone", u.reason);
+            }
+            save_or_say(&u, data_dir);
+            return Guarded::Stuck(u.reason);
         }
-        restore_control(data_dir, &backup, &moved)
-            .map_err(|e| format!("pre-update backup {}: {e}", u.backup))?;
-        restored = true;
-    }
-    layout.switch(&u.from)?;
-    u.state = "rolled_back".into();
-    u.reason = why;
+        _ => None,
+    };
+    let Some(why) = why else {
+        return Guarded::Nothing;
+    };
     u.ended = now;
-    u.restored = restored;
     u.audited = false;
     u.rollback.clear();
-    u.save(data_dir)?;
-    Ok(Guarded::RolledBack {
-        from: u.from,
-        to: u.to,
-        restored,
-    })
+    u.starts = 0;
+    u.settled = false;
+    if check_version(&u.from).is_err() || !layout.bin_of(&u.from).is_file() {
+        // the old version cannot be started: the new one stays
+        u.state = "failed".into();
+        u.reason = format!(
+            "{why}; not rolled back: {} is gone; wyrmd {} stays",
+            layout.bin_of(&u.from).display(),
+            u.to
+        );
+        u.settled = true;
+        save_or_say(&u, data_dir);
+        return Guarded::Stuck(u.reason);
+    }
+    let moved = u.moved();
+    let restored = if moved.is_empty() || u.role == "standby" {
+        Ok(false)
+    } else {
+        restore_for(data_dir, &u, &moved).map(|()| true)
+    };
+    if let Err(e) = layout.switch(&u.from) {
+        u.state = "failed".into();
+        u.reason = format!("{why}; not rolled back: {e}; wyrmd {} stays", u.to);
+        u.settled = true;
+        save_or_say(&u, data_dir);
+        return Guarded::Stuck(u.reason);
+    }
+    match restored {
+        Ok(restored) => {
+            u.state = "rolled_back".into();
+            u.reason = why;
+            u.restored = restored;
+            save_or_say(&u, data_dir);
+            Guarded::RolledBack {
+                from: u.from,
+                to: u.to,
+                restored,
+            }
+        }
+        Err(e) => {
+            // the old version is started all the same, on the state as it is
+            u.state = "failed".into();
+            u.restored = false;
+            u.reason = format!(
+                "{why}; the control plane ({}) was not restored: {e}; wyrmd {} runs on the \
+                 state wyrmd {} left",
+                moved.join(", "),
+                u.from,
+                u.to
+            );
+            save_or_say(&u, data_dir);
+            Guarded::Stuck(u.reason)
+        }
+    }
+}
+
+/// The pre-update backup of `u`, checked, and the stores `moved` put back.
+fn restore_for(data_dir: &Path, u: &UpdateFile, moved: &[String]) -> Result<(), String> {
+    if u.backup.is_empty() || !plain_name(&u.backup, 200) {
+        return Err("the update has no pre-update backup".into());
+    }
+    let backup = data_dir.join("backups").join(&u.backup);
+    let (sha, _) = sha256_file(&backup).map_err(|e| format!("the pre-update backup: {e}"))?;
+    if sha != u.backup_sha256 {
+        return Err(format!(
+            "the pre-update backup {} is not the file the update made",
+            u.backup
+        ));
+    }
+    restore_control(data_dir, &backup, moved, &u.stores)
+        .map_err(|e| format!("pre-update backup {}: {e}", u.backup))
+}
+
+/// The version `current` names is verified, or another version of the
+/// update that is; `Err` when nothing verified can be started.
+fn verified_current(layout: &Layout, data_dir: &Path, keys: &[VerifyingKey]) -> Result<(), String> {
+    let current = layout
+        .current_version()
+        .ok_or_else(|| format!("{}: not a link to a version", layout.current().display()))?;
+    let Err(why) = layout.verify(&current, keys) else {
+        return Ok(());
+    };
+    let mut u = UpdateFile::load(data_dir);
+    let other = u
+        .as_ref()
+        .map(|u| other_of(u, &current).to_owned())
+        .filter(|o| o != &current && layout.verify(o, keys).is_ok());
+    let Some(other) = other else {
+        return Err(format!(
+            "{why}. Nothing is started: a broker in updates.mode \"self\" runs only a binary \
+             that a pinned release key signed or that `wyrmd install-layout` put there"
+        ));
+    };
+    layout.switch(&other)?;
+    if let Some(u) = u.as_mut() {
+        u.state = "failed".into();
+        u.reason = format!("{why}; wyrmd {other} is current");
+        u.ended = now_s();
+        u.audited = false;
+        u.settled = true;
+        u.rollback.clear();
+        save_or_say(u, data_dir);
+    }
+    eprintln!("update-guard: {why}; wyrmd {other} is current");
+    Ok(())
 }
 
 /// The control-plane WAL stores: name in `schemas`, directory in a backup's
 /// `control` section, directory under `data_dir`.
-const CONTROL_STORES: [(&str, &str, &str); 4] = [
+pub const CONTROL_STORES: [(&str, &str, &str); 4] = [
     ("registry", "state", "state"),
     ("flows", "flows", "flows/state"),
     ("users", "users", "gateway/users"),
     ("audit", "audit", "audit"),
 ];
 
-/// Put the WALs of `stores` (names of `schemas`) back from the `control`
-/// section of the broker backup at `backup`, with the broker stopped. The
-/// files are read whole (size and SHA-256 of the manifest) into
-/// `data_dir/update.restore` first; then each store's directory is moved
-/// aside into `data_dir/update.aside` and replaced. A run that stopped
-/// halfway is done again from the start by the next one.
-pub fn restore_control(data_dir: &Path, backup: &Path, stores: &[String]) -> Result<(), String> {
+/// The control-plane stores (names of `schemas`) that exist in `data_dir`.
+pub fn stores_of(data_dir: &Path) -> Vec<String> {
+    CONTROL_STORES
+        .iter()
+        .filter(|(_, _, dir)| data_dir.join(dir).is_dir())
+        .map(|(name, _, _)| (*name).to_owned())
+        .collect()
+}
+
+/// Put the control plane of before an update back, with the broker
+/// stopped: the WALs of `stores` (names of `schemas`) from the `control`
+/// section of the pre-update backup at `backup`. A store of `existed` is
+/// replaced by the backup's; one that did not exist before the update is
+/// moved aside and left out, as it was.
+///
+/// The backup is one this broker sealed (`how: broker`): its manifest is
+/// checked with the key of `secrets.key` before a file is read, and every
+/// file against the manifest's size and SHA-256. Everything is read into
+/// `data_dir/update.restore` first; an error up to there changes nothing.
+/// Then each store's directory is moved into `data_dir/update.aside` and
+/// replaced; if a move fails, the ones made are undone.
+pub fn restore_control(
+    data_dir: &Path,
+    backup: &Path,
+    stores: &[String],
+    existed: &[String],
+) -> Result<(), String> {
     use crate::backup as format;
     let mut r = format::Reader::open(backup, 8 << 30)?;
     if r.manifest().kind != format::Kind::Broker {
         return Err("not a broker backup".into());
     }
+    if r.manifest().sealed.how != "broker" {
+        return Err("not sealed for this broker".into());
+    }
+    let key_path = data_dir.join("secrets.key");
+    let secrets_key = zeroize::Zeroizing::new(
+        std::fs::read_to_string(&key_path)
+            .ok()
+            .and_then(|t| hex::decode(t.trim()).ok())
+            .ok_or("secrets.key: not readable")?,
+    );
+    // the manifest is authentic: every path, size and digest in it
+    r.manifest()
+        .key(None, Some(&secrets_key))
+        .map_err(|e| format!("its manifest is not this broker's: {e}"))?;
     let listed: Vec<String> = r
         .manifest()
         .section("control")
@@ -1326,12 +1831,17 @@ pub fn restore_control(data_dir: &Path, backup: &Path, stores: &[String]) -> Res
         std::fs::remove_dir_all(&stage).map_err(|e| io(&stage, e))?;
     }
     new_dir(&stage, 0o700).map_err(|e| io(&stage, e))?;
-    let mut swaps = Vec::new();
+    // (name in the backup, directory under data_dir, has files to put back)
+    let mut swaps: Vec<(&str, &str, bool)> = Vec::new();
     for store in stores {
         let (_, name, dir) = CONTROL_STORES
             .iter()
             .find(|(schema, _, _)| schema == store)
             .ok_or_else(|| format!("{store}: not a control-plane store"))?;
+        if !existed.contains(store) {
+            swaps.push((name, dir, false));
+            continue;
+        }
         let prefix = format!("control/{name}/");
         let mut n = 0;
         for path in listed.iter().filter(|p| p.starts_with(&prefix)) {
@@ -1345,25 +1855,52 @@ pub fn restore_control(data_dir: &Path, backup: &Path, stores: &[String]) -> Res
         if n == 0 {
             return Err(format!("the backup does not hold the store {store}"));
         }
-        swaps.push((*name, *dir));
+        swaps.push((name, dir, true));
     }
     let aside = data_dir.join("update.aside");
     if aside.symlink_metadata().is_ok() {
         std::fs::remove_dir_all(&aside).map_err(|e| io(&aside, e))?;
     }
     new_dir(&aside, 0o700).map_err(|e| io(&aside, e))?;
-    for (name, dir) in swaps {
-        let live = data_dir.join(dir);
-        if live.symlink_metadata().is_ok() {
-            let to = aside.join(name);
-            std::fs::rename(&live, &to).map_err(|e| io(&live, e))?;
-        } else if let Some(parent) = live.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
+    // (live directory, where it was moved to, the restored one is in place)
+    let mut done: Vec<(PathBuf, Option<PathBuf>, bool)> = Vec::new();
+    let swapped = (|| {
+        for (name, dir, restore) in &swaps {
+            let live = data_dir.join(dir);
+            let mut moved_to = None;
+            if live.symlink_metadata().is_ok() {
+                let to = aside.join(name);
+                std::fs::rename(&live, &to).map_err(|e| io(&live, e))?;
+                moved_to = Some(to);
+            }
+            done.push((live.clone(), moved_to, false));
+            if *restore {
+                if let Some(parent) = live.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
+                }
+                std::fs::rename(stage.join(name), &live).map_err(|e| io(&live, e))?;
+                if let Some(last) = done.last_mut() {
+                    last.2 = true;
+                }
+            }
+            if let Some(parent) = live.parent() {
+                sync_dir(parent);
+            }
         }
-        std::fs::rename(stage.join(name), &live).map_err(|e| io(&live, e))?;
-        if let Some(parent) = live.parent() {
-            sync_dir(parent);
+        Ok::<(), String>(())
+    })();
+    if let Err(e) = swapped {
+        // back to what was there: the caller starts a version on it
+        for (live, moved_to, placed) in done.into_iter().rev() {
+            if placed {
+                let _ = std::fs::remove_dir_all(&live);
+            }
+            if let Some(from) = moved_to {
+                let _ = std::fs::rename(&from, &live);
+            }
         }
+        let _ = std::fs::remove_dir_all(&stage);
+        return Err(e);
     }
     let _ = std::fs::remove_dir_all(&stage);
     Ok(())
@@ -1474,6 +2011,7 @@ pub fn pack(
         sha256,
         size,
         url: String::new(),
+        bin_sha256: sha256_file(bin)?.0,
     })
 }
 

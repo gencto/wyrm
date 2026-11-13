@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
-use wyrm_admin::control::broker_update::{stage, ORDER_PART, STATE_STORES};
+use wyrm_admin::control::broker_update::{guard_fresh, stage, ORDER_PART, STATE_STORES};
 use wyrm_admin::release::{self, Identity, Layout, UpdateFile};
 use wyrm_admin::{UpdateConfig, UpdateMode};
 use wyrm_core::Value;
@@ -161,6 +161,10 @@ pub fn update_config(cfg: &Config) -> Result<UpdateConfig, String> {
             .map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone())),
         gateway: cfg.gateway.as_ref().map(|g| g.listen),
         standby: cfg.standby.is_some(),
+        process_start: match STARTED.load(Ordering::SeqCst) {
+            0 => None,
+            t => Some(t),
+        },
     })
 }
 
@@ -228,26 +232,47 @@ static STARTED: AtomicU64 = AtomicU64::new(0);
 /// The standby made one complete sync since it started.
 static SYNCED: AtomicBool = AtomicBool::new(false);
 
-/// First thing at a start of the broker: the trial of a new version
-/// begins with its first start (ADR 0048 §2.5). The starts are counted by
-/// the guard.
+/// First thing at a start of the broker: when this process started (the
+/// guard ran right before it), and for a version in its trial (ADR 0048
+/// §2.5) the time at which the trial ends if it keeps running. The trial
+/// itself is counted in the time the version ran, and its starts by the
+/// guard.
 pub fn trial_start(data_dir: &Path, trial_s: u64) {
     STARTED.store(release::now_s(), Ordering::SeqCst);
     let me = &release::identity().version;
     if let Some(mut u) = UpdateFile::load(data_dir).filter(|u| u.in_trial() && &u.to == me) {
-        if u.deadline == 0 {
-            let s = if u.trial_s == 0 { trial_s } else { u.trial_s };
-            u.deadline = release::now_s() + s;
-            if let Err(e) = u.save(data_dir) {
-                tracing::warn!("update.json: {e}");
-            }
+        let s = if u.trial_s == 0 { trial_s } else { u.trial_s };
+        u.deadline = release::now_s() + s.saturating_sub(u.ran_s);
+        if let Err(e) = u.save(data_dir) {
+            tracing::warn!("update.json: {e}");
         }
         tracing::info!(
             attempt = u.attempts,
+            ran_s = u.ran_s,
             from = %u.from,
             "broker update: wyrmd {me} starts in its trial"
         );
     }
+}
+
+/// At the start of a broker in `updates.mode: "self"` that sits in the
+/// install layout: its own binary is the one a signed release names (or
+/// one `wyrmd install-layout` put there). The guard checks the same before
+/// it lets a version start; this is the second look, for a unit without
+/// the guard. A binary outside the layout is not checked (it cannot update
+/// itself either).
+pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
+    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+        return Ok(());
+    }
+    let me = &release::identity().version;
+    let Ok(layout) = Layout::of_broker(exe, me) else {
+        return Ok(());
+    };
+    let keys = release::pinned_keys(&cfg.updates.keys)?;
+    layout.verify(me, &keys).map_err(|e| {
+        format!("{e}. This broker does not start: updates.mode \"self\" runs only a verified binary")
+    })
 }
 
 /// The standby has everything the active has (a complete sync, files
@@ -263,11 +288,28 @@ pub fn standby_synced() {
 pub async fn standby_trial(data_dir: &Path, exe: &Path) {
     let me = &release::identity().version;
     let mine = |u: &UpdateFile| u.in_trial() && &u.to == me && u.role == "standby";
-    let Some(u) = UpdateFile::load(data_dir).filter(mine) else {
+    let Some(mut u) = UpdateFile::load(data_dir).filter(mine) else {
         return std::future::pending().await;
     };
-    let left = u.deadline.saturating_sub(release::now_s());
-    tokio::time::sleep(Duration::from_secs(left)).await;
+    // counted in the time this version ran, as the active's trial is
+    let trial_s = u.trial_s.max(10);
+    let mut part_ms = 0u128;
+    while u.ran_s < trial_s {
+        let step = Duration::from_secs((trial_s - u.ran_s).min(5));
+        let t = tokio::time::Instant::now();
+        tokio::time::sleep(step).await;
+        part_ms += t.elapsed().as_millis();
+        let Some(mut now) = UpdateFile::load(data_dir).filter(mine) else {
+            return std::future::pending().await;
+        };
+        now.ran_s += (part_ms / 1000) as u64;
+        part_ms %= 1000;
+        now.deadline = release::now_s() + trial_s.saturating_sub(now.ran_s);
+        if let Err(e) = now.save(data_dir) {
+            tracing::warn!("update.json: {e}");
+        }
+        u = now;
+    }
     // some more polls for a sync that is under way
     for _ in 0..10 {
         if SYNCED.load(Ordering::SeqCst) {
@@ -372,9 +414,7 @@ async fn standby_apply(
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let layout = Layout::of_broker(&exe, &me.version)?;
     let started = STARTED.load(Ordering::SeqCst);
-    let guard_ran = release::guard_stamp(&cfg.data_dir)
-        .is_some_and(|at| at <= started + 2 && at + 300 >= started);
-    if !guard_ran {
+    if !guard_fresh(release::guard_stamp(&cfg.data_dir), started) {
         return Err("the guard did not run before the standby started".into());
     }
     let (Some(Value::Bytes(doc)), Some(Value::Str(signature))) =
@@ -439,6 +479,8 @@ async fn standby_apply(
         &archive,
         &rel,
         &asset,
+        doc,
+        signature,
     )
     .await?;
     let _ = std::fs::remove_dir_all(&dir);
@@ -467,8 +509,9 @@ async fn standby_apply(
     Ok(())
 }
 
-/// `wyrmd update-guard`: see [`release::guard`]. An error ends the process
-/// with code 1: the supervisor does not start the broker and tries again.
+/// `wyrmd update-guard`: see [`release::guard`]. With `updates.mode:
+/// "self"` the version it lets start is verified. `Err` (exit code 1, the
+/// broker is not started) only when no verified version can be started.
 pub fn run_guard(cfg: &Config) -> Result<(), Error> {
     let me = &release::identity().version;
     let exe: PathBuf = std::env::current_exe()?;
@@ -481,13 +524,41 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
             return Ok(());
         }
     };
-    match release::guard(&layout, &cfg.data_dir, me)? {
+    let keys = match cfg.updates.mode()? {
+        UpdateMode::SelfUpdate => Some(release::pinned_keys(&cfg.updates.keys)?),
+        _ => None,
+    };
+    match release::guard(&layout, &cfg.data_dir, me, keys.as_deref())? {
         release::Guarded::Nothing => {}
         release::Guarded::RolledBack { from, to, restored } => eprintln!(
             "update-guard: wyrmd {to} is taken back; current is wyrmd {from} again \
              (control plane restored from the pre-update backup: {restored})"
         ),
         release::Guarded::Stuck(why) => eprintln!("update-guard: {why}"),
+    }
+    Ok(())
+}
+
+/// `wyrmd guard-refresh`: for a unit that keeps `<prefix>/bin` out of the
+/// broker user's reach (`ExecStartPre=+…`, run as root after
+/// `update-guard`). It makes the guard the binary of the version that is
+/// current, when that version is verified and no trial runs (in a trial
+/// the guard stays the previous version). It writes nothing but the guard.
+pub fn run_guard_refresh(cfg: &Config) -> Result<(), Error> {
+    let exe: PathBuf = std::env::current_exe()?;
+    let layout = Layout::of_guard(&exe)?;
+    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+        return Ok(());
+    }
+    if UpdateFile::load(&cfg.data_dir).is_some_and(|u| u.in_trial()) {
+        return Ok(());
+    }
+    let keys = release::pinned_keys(&cfg.updates.keys)?;
+    if layout.refresh_guard_verified(&keys)? {
+        eprintln!(
+            "guard-refresh: the guard is wyrmd {}",
+            layout.current_version().unwrap_or_default()
+        );
     }
     Ok(())
 }
@@ -521,21 +592,43 @@ pub enum ReleaseCmd {
         #[arg(long, default_value = "")]
         base_url: String,
     },
-    /// Put the release document RELEASE into the index INDEX (a release of
-    /// the same version is replaced). Nothing is taken on trust: RELEASE
-    /// must verify against RELEASE.sig, the index that is there against
-    /// INDEX.sig, and every entry of it against its own signature, all with
-    /// the keys built into this binary and the ones given. The new index is
-    /// then to be signed (`release sign --index`); its old signature file is
-    /// removed. An index that does not exist is started only with --new.
+    /// Write the index INDEX: the one of the published channel file
+    /// (--from) with the release document RELEASE added (a release of the
+    /// same version is replaced) and its sequence one higher. Nothing is
+    /// taken on trust: RELEASE must verify against RELEASE.sig, the channel
+    /// file against the signature in it, and every entry of it against its
+    /// own signature, all with the keys built into this binary and the ones
+    /// given. The channel's index must hold every version named with
+    /// --have (the releases that exist): an old index put back is refused.
+    /// INDEX is then signed (`release sign --index`) and made the channel
+    /// file (`release bundle`). --new starts an index (sequence 1) without
+    /// a channel file.
     Index {
         release: PathBuf,
         index: PathBuf,
+        /// The channel file that is published now.
+        #[arg(long, conflicts_with = "new")]
+        from: Option<PathBuf>,
         #[arg(long)]
         key: Vec<String>,
         /// Start an empty index; refused when INDEX exists.
         #[arg(long)]
         new: bool,
+        /// A version the channel's index must hold.
+        #[arg(long)]
+        have: Vec<String>,
+        /// YYYY-MM-DD.
+        #[arg(long, default_value = "")]
+        created: String,
+    },
+    /// Write the channel file CHANNEL (what `updates.channel` serves): the
+    /// index INDEX and its signature INDEX.sig in one file. Both are
+    /// checked first.
+    Bundle {
+        index: PathBuf,
+        channel: PathBuf,
+        #[arg(long)]
+        key: Vec<String>,
     },
     /// Sign FILE (a release document, or an index with --index) with the
     /// seed in WYRMD_RELEASE_KEY; writes FILE.sig.
@@ -545,11 +638,14 @@ pub enum ReleaseCmd {
         index: bool,
     },
     /// Check FILE against FILE.sig with the keys built into this binary and
-    /// the ones given.
+    /// the ones given; with --channel, FILE is a channel file (it holds its
+    /// signature).
     Verify {
         file: PathBuf,
         #[arg(long)]
         index: bool,
+        #[arg(long)]
+        channel: bool,
         #[arg(long)]
         key: Vec<String>,
     },
@@ -637,6 +733,14 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                     )
                     .into());
                 }
+                // the archive beside the description is the one it describes,
+                // and the binary in it has the hash that will be signed
+                let archive = dir.join(&p.asset.file);
+                let scratch = dir.join(".doc-check");
+                let _ = std::fs::remove_dir_all(&scratch);
+                let checked = release::unpack(&archive, &p.asset, &scratch, &p.identity.version);
+                let _ = std::fs::remove_dir_all(&scratch);
+                checked.map_err(|e| format!("{}: {e}", archive.display()))?;
                 let mut asset = p.asset.clone();
                 if !base_url.is_empty() {
                     asset.url = format!("{}/{}", base_url.trim_end_matches('/'), asset.file);
@@ -663,41 +767,70 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
         ReleaseCmd::Index {
             release: doc,
             index,
+            from,
             key,
             new,
+            have,
+            created,
         } => {
             let keys = release::pinned_keys(&key)?;
             let text = |p: &Path| {
                 String::from_utf8(read(p)?).map_err(|_| format!("{}: not text", p.display()))
             };
-            let old = match (index.exists(), new) {
-                (true, true) => {
+            let old = match (&from, new) {
+                (None, false) => {
+                    return Err("--from <channel file>, or --new to start an index".into())
+                }
+                (None, true) if index.exists() => {
                     return Err(format!(
                         "{} exists: --new starts an empty index and replaces none",
                         index.display()
                     )
                     .into())
                 }
-                (false, false) => {
-                    return Err(format!(
-                        "{}: no such index (--new starts an empty one)",
-                        index.display()
-                    )
-                    .into())
-                }
-                (false, true) => release::Index::default(),
-                // the index that is there is checked before anything is
-                // added to it: what is signed next is only what verified
-                (true, false) => {
-                    release::read_index(&read(&index)?, &text(&sig_path(&index))?, &keys)
-                        .map_err(|e| format!("{}: not added to: {e}", index.display()))?
-                }
+                (None, true) => release::Index::default(),
+                // the published index is checked before anything is added
+                // to it: what is signed next is only what verified
+                (Some(channel), _) => release::read_channel(&read(channel)?, &keys)
+                    .map_err(|e| format!("{}: not added to: {e}", channel.display()))?,
             };
-            let idx = old.with(&read(&doc)?, &text(&sig_path(&doc))?, &keys)?;
-            // not signed yet: the old signature does not cover it
+            // every release that exists is in it: an old index was not put back
+            if let Some(missing) = have.iter().find(|v| old.get(v).is_none()) {
+                return Err(format!(
+                    "the published index (sequence {}) does not hold wyrmd {missing}, which \
+                     was released: an older index was put back. Nothing is added to it",
+                    old.sequence
+                )
+                .into());
+            }
+            let idx = old.with(&read(&doc)?, &text(&sig_path(&doc))?, &keys, &created)?;
+            // not signed yet: an old signature does not cover it
             let _ = std::fs::remove_file(sig_path(&index));
             std::fs::write(&index, pretty(&idx.to_file()?)?)?;
-            println!("{}: {} releases", index.display(), idx.releases.len());
+            println!(
+                "{}: sequence {}, {} releases",
+                index.display(),
+                idx.sequence,
+                idx.releases.len()
+            );
+        }
+        ReleaseCmd::Bundle {
+            index,
+            channel,
+            key,
+        } => {
+            let keys = release::pinned_keys(&key)?;
+            let bytes = read(&index)?;
+            let sig = String::from_utf8(read(&sig_path(&index))?)
+                .map_err(|_| "signature: not text")?;
+            let checked = release::read_index(&bytes, &sig, &keys)?;
+            std::fs::write(&channel, release::bundle(&bytes, &sig)?)?;
+            println!(
+                "{}: sequence {}, {} releases",
+                channel.display(),
+                checked.sequence,
+                checked.releases.len()
+            );
         }
         ReleaseCmd::Sign { file, index } => {
             let seed = zeroize::Zeroizing::new(
@@ -725,14 +858,24 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 hex::encode(key.verifying_key().to_bytes())
             );
         }
-        ReleaseCmd::Verify { file, index, key } => {
+        ReleaseCmd::Verify {
+            file,
+            index,
+            channel,
+            key,
+        } => {
             let keys = release::pinned_keys(&key)?;
             let bytes = read(&file)?;
+            if channel {
+                let i = release::read_channel(&bytes, &keys)?;
+                println!("ok: sequence {}, {} releases", i.sequence, i.releases.len());
+                return Ok(());
+            }
             let sig =
                 String::from_utf8(read(&sig_path(&file))?).map_err(|_| "signature: not text")?;
             if index {
                 let i = release::read_index(&bytes, &sig, &keys)?;
-                println!("ok: {} releases", i.releases.len());
+                println!("ok: sequence {}, {} releases", i.sequence, i.releases.len());
             } else {
                 let r = release::read_release(&bytes, &sig, &keys)?;
                 println!("ok: wyrmd {}", r.version);
