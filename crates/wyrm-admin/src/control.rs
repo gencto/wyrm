@@ -45,6 +45,7 @@ pub mod backups;
 pub mod replication;
 pub mod restore;
 pub mod restore_broker;
+pub mod send;
 mod signers;
 mod updates;
 
@@ -975,6 +976,8 @@ impl Control {
             limited_keys.extend(self.upstream_trust("dataflows"));
             limited_keys.extend(self.upstream_trust("storage"));
         }
+        // a file-store link the host named takes the broker's `send`
+        limited_keys.extend(self.backup_sender_key(id));
         lcfg.admin_keys = admin_keys;
         lcfg.limited_keys = limited_keys;
         lcfg.secrets = self.link_secrets(id);
@@ -4170,6 +4173,10 @@ impl Link for Admin {
                 self.restore_broker(action, &args, &sub, who.signer.is_some())
                     .await
             }
+            (["backups", id], "send") => {
+                let _busy = self.ctl.busy()?;
+                send::send(&self.ctl, &self.ctx, id, &args, &sub).await
+            }
             (["backups", rest @ ..], _) => {
                 // a limited key signed it: an upstream site with allow_config
                 let remote = who.signer.is_some();
@@ -4662,7 +4669,9 @@ impl Admin {
                     .collect(),
             ),
         );
-        let (admin_keys, limited_keys) = self.ctl.link_trust();
+        let (admin_keys, mut limited_keys) = self.ctl.link_trust();
+        // a file-store link the host named takes the broker's `send`
+        limited_keys.extend(self.ctl.backup_sender_key(id));
         reply.insert(
             "admin_keys".into(),
             Value::Array(

@@ -53,6 +53,11 @@ pub struct BackupConfig {
     /// data that open on any broker. While `false`, `keys` is refused and
     /// link secrets are sealed for this site only.
     pub export_secrets: bool,
+    /// The file-store links the broker may send a kept backup through
+    /// (`backups.send_links`, default none: `send` is refused; set on the
+    /// host alone). Only they trust the backup sender key
+    /// ([`super::send`]).
+    pub send_links: Vec<String>,
     /// `wyrmd.json5` as read at start, as JSON with every secret masked
     /// ([`crate::secrets::mask_config`]), for the `config` section.
     pub config: Option<String>,
@@ -66,6 +71,7 @@ impl Default for BackupConfig {
             keep_days: 7,
             max_mb: 2048,
             export_secrets: false,
+            send_links: Vec::new(),
             config: None,
             schemas: BTreeMap::new(),
         }
@@ -148,12 +154,25 @@ pub struct Job {
     pub by: String,
     #[serde(default)]
     pub pinned: bool,
+    /// Where `send` put it, or is putting it: `<link>/<path>/<name>`.
+    #[serde(default)]
+    pub sent_to: String,
+    /// Of the last `send`: empty, `sending`, `done`, `failed`.
+    #[serde(default)]
+    pub send_status: String,
+    /// 0 to 100.
+    #[serde(default)]
+    pub send_progress: u8,
+    #[serde(default)]
+    pub send_error: String,
 }
 
 /// The backup jobs of a broker; lives in [`Control`], outlives rebuilds.
 pub struct Backups {
     jobs: Mutex<BTreeMap<String, Job>>,
     running: AtomicBool,
+    /// A backup is being sent to a file store (one at a time).
+    sending: AtomicBool,
     /// Bumped on every change of a job: [`watch_backups`] publishes.
     changed: tokio::sync::watch::Sender<u64>,
     /// Files being uploaded for a restore or a link install (stage 3, 4).
@@ -180,7 +199,11 @@ impl Backups {
                     .filter(|j| j.file == file && j.status == "done" && dir.join(file).is_file())
                     .filter(|j| wyrm_core::keyspace::validate_segment(&j.id).is_ok());
                 match job {
-                    Some(j) => {
+                    Some(mut j) => {
+                        if j.send_status == "sending" {
+                            j.send_status = "failed".into();
+                            j.send_error = "the broker stopped while it was sent".into();
+                        }
                         jobs.insert(j.id.clone(), j);
                     }
                     None => {
@@ -192,6 +215,7 @@ impl Backups {
         Self {
             jobs: Mutex::new(jobs),
             running: AtomicBool::new(false),
+            sending: AtomicBool::new(false),
             changed: tokio::sync::watch::channel(0).0,
             uploads: Mutex::default(),
         }
@@ -216,11 +240,22 @@ impl Backups {
         self.lock().get(id).cloned()
     }
 
-    fn update(&self, id: &str, f: impl FnOnce(&mut Job)) {
+    pub(super) fn update(&self, id: &str, f: impl FnOnce(&mut Job)) {
         if let Some(j) = self.lock().get_mut(id) {
             f(j);
         }
         self.notify();
+    }
+
+    /// Take (`true`) or give back the one slot of `send`; `false` when it
+    /// was asked for and is taken.
+    pub(super) fn sending(&self, on: bool) -> bool {
+        if on {
+            !self.sending.swap(true, Ordering::SeqCst)
+        } else {
+            self.sending.store(false, Ordering::SeqCst);
+            true
+        }
     }
 }
 
@@ -1168,7 +1203,7 @@ impl Control {
         let mut count = jobs.len();
         let mut gone = Vec::new();
         for j in &jobs {
-            if j.status == "running" || j.pinned {
+            if j.status == "running" || j.pinned || j.send_status == "sending" {
                 continue;
             }
             let failed_old = j.status == "failed" && j.created + 86_400 < now;
@@ -1185,6 +1220,17 @@ impl Control {
             info!(removed = ?gone, "backups pruned");
         }
         gone
+    }
+
+    /// Write the record of a kept backup beside its file (`<file>.json`).
+    pub(super) fn save_job(&self, j: &Job) {
+        let side = self.backups_dir().join(format!("{}.json", j.file));
+        let saved = serde_json::to_vec_pretty(j)
+            .map_err(|e| e.to_string())
+            .and_then(|b| secret::write_private(&side, &b).map_err(|e| e.to_string()));
+        if let Err(e) = saved {
+            warn!(backup = %j.id, "the record of the backup is not saved: {e}");
+        }
     }
 
     /// Forget a job and remove its files.
@@ -1294,6 +1340,10 @@ impl Control {
                     .to_owned(),
                     by: sub.to_owned(),
                     pinned: req.pinned,
+                    sent_to: String::new(),
+                    send_status: String::new(),
+                    send_progress: 0,
+                    send_error: String::new(),
                 },
             );
             (id, file)
@@ -1349,15 +1399,7 @@ impl Control {
                         j.sha256 = w.sha256.clone();
                     });
                     if let Some(j) = ctl.backups.get(&job_id) {
-                        let side = ctl.backups_dir().join(format!("{file}.json"));
-                        let saved = serde_json::to_vec_pretty(&j)
-                            .map_err(|e| e.to_string())
-                            .and_then(|b| {
-                                secret::write_private(&side, &b).map_err(|e| e.to_string())
-                            });
-                        if let Err(e) = saved {
-                            warn!(backup = %job_id, "the backup is made, its record is not saved: {e}");
-                        }
+                        ctl.save_job(&j);
                     }
                     info!(backup = %job_id, size = w.size, "backup made");
                 }
@@ -1579,6 +1621,17 @@ pub(super) async fn declare(ctx: &LinkCtx, ctl: &Control) -> wyrm_link_sdk::Resu
             .attr("max_mb", ctl.cfg.backups.max_mb)
             .attr("export_secrets", ctl.cfg.backups.export_secrets)
             .attr(
+                "send_links",
+                Value::Array(
+                    ctl.cfg
+                        .backups
+                        .send_links
+                        .iter()
+                        .map(|l| Value::from(l.clone()))
+                        .collect(),
+                ),
+            )
+            .attr(
                 "sections",
                 Value::Array(
                     format::BROKER_SECTIONS
@@ -1635,7 +1688,17 @@ fn job_node(j: &Job) -> NodeMeta {
     n
 }
 
-const JOB_TEXT: [&str; 6] = ["status", "step", "sha256", "created", "expires", "error"];
+const JOB_TEXT: [&str; 9] = [
+    "status",
+    "step",
+    "sha256",
+    "created",
+    "expires",
+    "error",
+    "sent_to",
+    "send_status",
+    "send_error",
+];
 
 async fn declare_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
     let path = format!("backups/{}", j.id);
@@ -1644,8 +1707,10 @@ async fn declare_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
         ctx.declare_node(&format!("{path}/{name}"), NodeMeta::leaf(TypeCode::String))
             .await?;
     }
-    ctx.declare_node(&format!("{path}/progress"), NodeMeta::number().unit("%"))
-        .await?;
+    for name in ["progress", "send_progress"] {
+        ctx.declare_node(&format!("{path}/{name}"), NodeMeta::number().unit("%"))
+            .await?;
+    }
     ctx.declare_node(&format!("{path}/size"), NodeMeta::number().unit("B"))
         .await?;
     ctx.declare_action(
@@ -1679,7 +1744,7 @@ async fn declare_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
             .level(Perm::Config),
     )
     .await?;
-    super::restore::declare_send(ctx, &path).await
+    super::send::declare(ctx, &path).await
 }
 
 async fn publish_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
@@ -1692,18 +1757,23 @@ async fn publish_job(ctx: &LinkCtx, j: &Job) -> wyrm_link_sdk::Result<()> {
         ("created", iso_utc(j.created)),
         ("expires", iso_utc(j.expires)),
         ("error", j.error.clone()),
+        ("sent_to", j.sent_to.clone()),
+        ("send_status", j.send_status.clone()),
+        ("send_error", j.send_error.clone()),
     ];
     for (name, v) in text {
         ctx.update(&format!("{path}/{name}"), Value::Str(v), Quality::Good, t)
             .await?;
     }
-    ctx.update(
-        &format!("{path}/progress"),
-        Value::UInt(j.progress.into()),
-        Quality::Good,
-        t,
-    )
-    .await?;
+    for (name, v) in [("progress", j.progress), ("send_progress", j.send_progress)] {
+        ctx.update(
+            &format!("{path}/{name}"),
+            Value::UInt(v.into()),
+            Quality::Good,
+            t,
+        )
+        .await?;
+    }
     ctx.update(
         &format!("{path}/size"),
         Value::UInt(j.size),
@@ -1864,6 +1934,9 @@ pub(super) async fn invoke(
                 None => return Err(LinkError::not_found(format!("backup {id}"))),
                 Some(j) if j.status == "running" => {
                     return Err(LinkError::new(Status::Busy, "the backup is being made"))
+                }
+                Some(j) if j.send_status == "sending" => {
+                    return Err(LinkError::new(Status::Busy, "the backup is being sent"))
                 }
                 Some(_) => {}
             }

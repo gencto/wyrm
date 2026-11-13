@@ -12550,3 +12550,186 @@ async fn package_update_from_the_repository() {
     );
     env.stop().await;
 }
+
+/// ADR 0048 §3.4: `send` writes a kept backup into a file store through a
+/// file-store link the host named in `backups.send_links`, in parts, with
+/// the broker's backup sender key; a link the host did not name, and a
+/// backup that holds the keys, are refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn backup_is_sent_through_a_file_store_link() {
+    let dir = temp_dir("backup-send");
+    let store = temp_dir("backup-send-store");
+    std::fs::create_dir_all(store.join("backups")).unwrap();
+    let store = store.canonicalize().unwrap();
+    let links = format!(
+        r#"links: {{
+            files: {{ driver: "localfs", params: {{ allowed_roots: "{root}",
+                      connections: {{ c1: {{ root: "{root}" }} }} }} }},
+            other: {{ driver: "localfs", params: {{ allowed_roots: "{root}",
+                      connections: {{ c1: {{ root: "{root}" }} }} }} }},
+            mock: {{ driver: "mock", params: {{ points: 8, rate_hz: 20, depth: 1, fanout: 2 }} }} }},"#,
+        root = store.display()
+    );
+    let extra = format!(r#"{links} backups: {{ send_links: ["files"], export_secrets: true }},"#);
+    let env = Env::start_in(&dir, &extra).await;
+    let c = slow_client(&env).await;
+    let backups = format!("wy/{SITE}/sys/backups");
+    let folder = format!("wy/{SITE}/downstream/files/c1/files/backups");
+    eventually("the store's folder is in the tree", 30, || async {
+        c.meta(&folder).await.ok()
+    })
+    .await;
+    let meta = c.meta(&backups).await.unwrap();
+    assert_eq!(
+        meta.attr.as_ref().and_then(|a| a.get("send_links")),
+        Some(&names(&["files"])),
+        "Studio reads which links to offer"
+    );
+    let storage = format!("wy/{SITE}/storage");
+    // text that does not compress to nothing: the file is sent in several parts
+    use sha2::Digest;
+    let mut seed = sha2::Sha256::digest(b"backup-send").to_vec();
+    for i in 0..60u64 {
+        let mut text = String::with_capacity(30_000);
+        while text.len() < 30_000 {
+            seed = sha2::Sha256::digest(&seed).to_vec();
+            text.push_str(&hex::encode(&seed));
+        }
+        let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
+        c.invoke_one(&storage, "publish", publish).await.unwrap();
+    }
+    let id = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[("sections", names(&["storage", "links"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    let job = backup_done(&env, &id).await;
+    let node = format!("{backups}/{id}");
+    let send = |link: &str, path: &str| args_map(&[("link", link.into()), ("path", path.into())]);
+
+    // refused: a link the host did not name, a node that is no folder
+    let e = c
+        .invoke_one(&node, "send", send("other", "c1/files/backups"))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("backups.send_links"), "{e}");
+    let e = c
+        .invoke_one(&node, "send", send("files", "c1/status"))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    // the link itself refuses a folder it does not have: nothing is sent
+    let e = c
+        .invoke_one(&node, "send", send("files", "c1/files/nofolder"))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("did not take the file"), "{e}");
+
+    let Some(Value::Map(sent)) = c
+        .invoke_one(&node, "send", send("files", "c1/files/backups"))
+        .await
+        .unwrap()
+    else {
+        panic!("send: a map");
+    };
+    let to = format!("files/c1/files/backups/{}", job.file);
+    assert_eq!(sent.get("to"), Some(&Value::from(to.clone())));
+    assert!(
+        matches!(sent.get("parts"), Some(Value::UInt(n)) if *n >= 2),
+        "{sent:?}"
+    );
+    let done = eventually("the backup is sent", 60, || async {
+        let j = env.ctl.backups().get(&id)?;
+        assert_ne!(j.send_status, "failed", "{}", j.send_error);
+        (j.send_status == "done").then_some(j)
+    })
+    .await;
+    assert_eq!(
+        (done.send_progress, done.sent_to.as_str()),
+        (100, to.as_str())
+    );
+    // the file in the store is the backup, byte for byte
+    let stored = std::fs::read(store.join("backups").join(&job.file)).unwrap();
+    assert_eq!(stored.len() as u64, job.size);
+    assert_eq!(hex::encode(sha2::Sha256::digest(&stored)), job.sha256);
+    assert_eq!(stored, download_backup(&c, &id, 16 << 20).await);
+    // the tree shows it
+    let shown = eventually("send_status in the tree", 10, || async {
+        last_val(&c, &format!("{node}/send_status"))
+            .await
+            .filter(|v| *v == Value::from("done"))
+    })
+    .await;
+    assert_eq!(shown, Value::from("done"));
+    assert_eq!(
+        last_val(&c, &format!("{node}/sent_to")).await,
+        Some(Value::from(to.clone()))
+    );
+    // audited by the admin (start and end) and by the link, under the
+    // sender's subject
+    let audit = env.ctl.audit_tail(300);
+    let sends: Vec<_> = audit
+        .iter()
+        .filter(|r| r.op == "backup_send" && r.key == id)
+        .collect();
+    assert!(
+        sends.iter().any(|r| r.detail.contains("started")),
+        "{sends:?}"
+    );
+    assert!(
+        sends
+            .iter()
+            .any(|r| r.detail.contains("sent to") && r.detail.contains(&to)),
+        "{sends:?}"
+    );
+    eventually("the link's audit names the sender", 10, || async {
+        let audit = env.ctl.audit_tail(1000);
+        audit
+            .iter()
+            .any(|r| {
+                r.sub == "claimed:broker:backup"
+                    && r.key == format!("wy/{SITE}/downstream/files/c1/~act/upload_commit")
+            })
+            .then_some(())
+    })
+    .await;
+    // a second send of the same name: the link does not overwrite
+    let e = c
+        .invoke_one(&node, "send", send("files", "c1/files/backups"))
+        .await
+        .unwrap_err();
+    assert!(e.message.contains("exists"), "{e}");
+
+    // a backup that holds the keys is never sent
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let with_keys = backup_id(
+        c.invoke_one(
+            &backups,
+            "create",
+            args_map(&[
+                ("sections", names(&["keys"])),
+                ("passphrase", BACKUP_PASS.into()),
+            ]),
+        )
+        .await
+        .unwrap(),
+    );
+    backup_done(&env, &with_keys).await;
+    let e = c
+        .invoke_one(
+            &format!("{backups}/{with_keys}"),
+            "send",
+            send("files", "c1/files/backups"),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("keys"), "{e}");
+    assert_eq!(std::fs::read_dir(store.join("backups")).unwrap().count(), 1);
+    env.stop().await;
+}

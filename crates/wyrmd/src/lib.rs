@@ -155,7 +155,7 @@ fn masked_config(path: &std::path::Path) -> Option<String> {
 }
 
 /// `backups` in `wyrmd.json5`.
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BackupsSection {
     /// Days a backup stays on the broker (1 to 3650).
@@ -173,6 +173,13 @@ pub struct BackupsSection {
     /// identity. Set it on the host, for the time it is needed.
     #[serde(default)]
     pub export_secrets: bool,
+    /// Ids of the file-store links (S3, WebDAV, Google Drive, a local
+    /// directory) the broker may send a kept backup through
+    /// (`sys/backups/<id>` ▸ `send`). Empty (the default): `send` is
+    /// refused. Only these links trust the broker's backup sender key, at
+    /// `write` on their own subtree.
+    #[serde(default)]
+    pub send_links: Vec<String>,
 }
 
 fn default_backup_days() -> u32 {
@@ -189,6 +196,7 @@ impl Default for BackupsSection {
             keep_days: default_backup_days(),
             max_mb: default_backup_mb(),
             export_secrets: false,
+            send_links: Vec::new(),
         }
     }
 }
@@ -1880,6 +1888,7 @@ impl Daemon {
                 keep_days: cfg.backups.keep_days.clamp(1, 3650),
                 max_mb: cfg.backups.max_mb,
                 export_secrets: cfg.backups.export_secrets,
+                send_links: cfg.backups.send_links.clone(),
                 config: cfg.config_file.as_deref().and_then(masked_config),
                 schemas: BTreeMap::from([
                     (

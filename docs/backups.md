@@ -35,9 +35,10 @@ A `.wyrm-backup` (broker) or `.wyrm-link` (one link) is a zip. Its first entry i
 |---|---|---|
 | `sys/backups` | `estimate {sections, links?, history_days?}` | `{sections: {name: bytes}, total}` before compression |
 | `sys/backups` | `create {sections, links?, history_days?, passphrase?}` | `{id}`; one job at a time (`busy` beyond) |
-| `sys/backups/<id>` | values `status` (`running`, `done`, `failed`), `progress` (%), `step`, `size`, `sha256`, `created`, `expires`, `error`; attributes `kind` (`full`, `link`, `pre-update`, `pre-restore`), `name`, `sections`, `sealed`, `link` | |
+| `sys/backups/<id>` | values `status` (`running`, `done`, `failed`), `progress` (%), `step`, `size`, `sha256`, `created`, `expires`, `error`, `sent_to`, `send_status`, `send_progress` (%), `send_error`; attributes `kind` (`full`, `link`, `pre-update`, `pre-restore`), `name`, `sections`, `sealed`, `link` | |
 | `sys/backups/<id>` | `download_part {offset, len?}` | `{data, offset, size, eof}`; `len` at most 16 MiB, default 4 MiB |
 | `sys/backups/<id>` | `remove` | |
+| `sys/backups/<id>` | `send {link, path, name?}` | `{to, upload, parts}`; the file goes to a file store in the background (§2.1) |
 
 Sections:
 
@@ -57,10 +58,26 @@ The job stages its files in `data_dir/backups/.stage-*`, then writes the zip. It
 Backups stay in `data_dir/backups` for `backups.keep_days` (default 7) within `backups.max_mb` (default 2048). The oldest are removed first; the newest one and a pinned one (the pre-update backup of an update not yet confirmed) never.
 
 ```json5
-backups: { keep_days: 7, max_mb: 2048, export_secrets: false },
+backups: { keep_days: 7, max_mb: 2048, export_secrets: false, send_links: [] },
 ```
 
 A client loop: `create`, read `status` until `done`, `download_part` from offset 0 until `eof`, compare the SHA-256.
+
+### 2.1 Send a backup to a file store
+
+`sys/backups/<id>/~act/send {link, path, name?}` writes a kept backup into a file store (S3, WebDAV, Google Drive, a local directory: [filestores.md](filestores.md)) through a file-store link of this broker.
+
+1. On the host, name the link in `wyrmd.json5` and restart the broker: `backups: { send_links: ["files"] }`. The default is an empty list: `send` is refused. `sys/backups` shows the list as the attribute `send_links`.
+2. Call `send` with `link` (one of the list) and `path`, the folder node under the link: `<connection>/files`, or a folder below it (`c1/files/backups`). `name` defaults to the backup's file name.
+3. The broker begins an upload on the link (`upload_begin` with the size and SHA-256), answers `{to, upload, parts}`, and sends the parts (1 MiB each) in the background, then `upload_commit`.
+4. Read `send_status` of `sys/backups/<id>`: `sending` (with `send_progress`), `done`, or `failed` (with `send_error`). `sent_to` is `<link>/<path>/<name>`.
+
+- The broker signs these calls with its backup sender key. Only the links in `send_links` trust that key: at `write`, on their own subtree, for the subject `broker:backup`. The broker makes the key on first use; it is no link's secret and is in no link backup.
+- A backup that holds the `keys` section is never sent. Download it on the broker's own gateway.
+- The link does not overwrite: a name that exists in the folder is refused. Give another `name`.
+- One send runs at a time (`busy` beyond). A backup that is being sent is not removed or pruned. If the broker stops during a send, start `send` again.
+- The link spools the file on its own disk before it goes to the store (`<data_dir>/links/<id>/data/uploads/`), so that disk needs room for it.
+- Audit: `backup_send` at the start and at the end (the admin's journal); the link's own audit records each upload call under `claimed:broker:backup`.
 
 ## 3. Back up and restore one link
 

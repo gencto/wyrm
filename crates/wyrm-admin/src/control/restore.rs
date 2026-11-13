@@ -963,11 +963,6 @@ pub(super) async fn declare_broker(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
     super::restore_broker::declare(ctx).await
 }
 
-/// The `send` action of a kept backup.
-pub(super) async fn declare_send(_ctx: &LinkCtx, _path: &str) -> wyrm_link_sdk::Result<()> {
-    Ok(())
-}
-
 pub(super) async fn invoke(
     ctl: &Arc<Control>,
     rest: &[&str],
