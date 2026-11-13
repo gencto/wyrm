@@ -11,7 +11,7 @@ CBOR map (на дроті) / JSON (у конфігах і UI) — одна сх�
   "nodes": { <node_id>: { "type": tstr, ...config, "placement": "local"|"process"|"wasm"? } },
   "edges": [ [ "<node>.<port>", "<node>.<port>" ] ],
   "policy": { "overflow": "drop_oldest"|"drop_newest"|"block", "queue": uint, "state_flush_s": uint, "restart": {"backoff_max_s": uint} },
-  "permissions": { "token": tstr, "maxperm": uint },
+  "permissions": { "token": tstr, "maxperm": uint / tstr },   ; код (0 none … 3 write) або назва ("write"), 0.2.32
   "layout": { <node_id>: [ x, y ] },  // 0.2.5: де редактор малює ноду; компілятор не зважає
   "blocks": { <name>: { "description": tstr?, "inputs": [ {"name": tstr, "to": tstr | [tstr], "default": any?, "description": tstr?} ],
                         "outputs": [ {"name": tstr, "from": tstr, "description": tstr?} ],

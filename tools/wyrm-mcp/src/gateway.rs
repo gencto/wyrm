@@ -572,8 +572,10 @@ impl GatewayMcp {
 
     /// The level a step needs, read from the live `~meta` (`None`: nothing is written).
     async fn step_level(c: &Conn, step: &Step) -> Result<Option<(String, Perm)>, String> {
+        // a node that is not there (yet: an earlier step makes it) has no meta: the strictest
+        // level then, and a dry run says it is checked when it runs
         let meta = |k: String| async move {
-            let m = c.meta(&k).await.map_err(|e| e.to_string())?;
+            let m = c.meta(&k).await.unwrap_or_default();
             Ok::<_, String>((k, m))
         };
         Ok(match step {
@@ -602,6 +604,12 @@ impl GatewayMcp {
             for s in &steps {
                 let mut j = gw::check_step(&c, s).await;
                 ok &= j["check"] != json!("error");
+                if j["check"] == json!("later") || j["check"] == json!("skip") {
+                    // made by an earlier step: its level, and so the connector's switches,
+                    // are checked when it runs
+                    out.push(j);
+                    continue;
+                }
                 if let Some((k, level)) = Self::step_level(&c, s).await? {
                     if let Err(e) = self.gate(&sess, &k, level) {
                         j["refused_by_connector"] = json!(e);

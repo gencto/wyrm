@@ -323,6 +323,16 @@ async fn read_only_and_allow_config_and_a_wrong_password() {
     assert!(!e && c["checked"] == json!(true), "{c}");
     let (e, a) = call(&eng, "plan_run", json!({ "plan": plan, "apply": true })).await;
     assert!(!e && a["applied"] == json!(true), "{a}");
+    // a step on a node an earlier step makes: checked when it runs, the plan still checks
+    // (DVPSM demo, 2026-11-13: the whole dry run failed with NotFound)
+    let later = json!({ "steps": [
+        { "set": format!("wy/{SITE}/downstream/mock/not_made_yet"), "value": 1 },
+        { "invoke": format!("wy/{SITE}/downstream/mock/bot"), "action": "add_template", "args": {} },
+    ]});
+    let (e, c) = call(&eng, "plan_run", json!({ "plan": later })).await;
+    assert!(!e, "{c}");
+    assert_eq!(c["steps"][0]["check"], json!("later"), "{c}");
+    assert_eq!(c["steps"][1]["check"], json!("later"), "{c}");
 
     let bad = env.mcp("claude", "wrong password", false, false).await;
     let (e, r) = call(&bad, "whoami", json!({})).await;

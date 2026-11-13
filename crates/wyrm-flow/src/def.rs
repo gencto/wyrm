@@ -965,9 +965,13 @@ pub fn check(def: &FlowDef) -> Result<BTreeMap<String, Ports>> {
     for (id, n) in &def.nodes {
         if let Some(need) = nodes::needs_perm(&n.ty) {
             if def.maxperm < need {
+                // the code and the name: a code read as a name (2 for write) misleads
                 return err(format!(
-                    "permissions.maxperm: {} < {} needed by nodes.{id} ({})",
+                    "permissions.maxperm: {} ({}) < {} ({}) needed by nodes.{id} ({}); \
+                     the codes are 0 none, 1 list, 2 read, 3 write, or give the name",
+                    def.maxperm.code(),
                     def.maxperm.name(),
+                    need.code(),
                     need.name(),
                     n.ty
                 ));

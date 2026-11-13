@@ -482,3 +482,30 @@ async fn interval_from_a_port_is_bounded() {
         }
     }
 }
+
+/// spec 06 0.2.32: `maxperm` as a code or a name; a refusal names both, so a code read as a name
+/// (2 for write: it is read) is plain (DVPSM demo, 2026-11-13).
+#[test]
+fn maxperm_by_code_or_name() {
+    let flow = |maxperm: Value| {
+        map(&[
+            ("id", Value::from("f")),
+            (
+                "nodes",
+                map(&[(
+                    "s",
+                    map(&[
+                        ("type", Value::from("set")),
+                        ("path", Value::from("downstream/m/p0")),
+                    ]),
+                )]),
+            ),
+            ("permissions", map(&[("maxperm", maxperm)])),
+        ])
+    };
+    assert!(def::compile(&flow(Value::from("write"))).is_ok());
+    assert!(def::compile(&flow(Value::UInt(3))).is_ok());
+    let e = def::compile(&flow(Value::UInt(2))).unwrap_err().to_string();
+    assert!(e.contains("2 (read) < 3 (write)"), "{e}");
+    assert!(def::compile(&flow(Value::from("config"))).is_err());
+}
