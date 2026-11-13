@@ -1940,6 +1940,32 @@ pub(super) async fn show_job(ctx: &LinkCtx, ctl: &Control, id: &str) {
     }
 }
 
+/// May the caller have the bytes of the backup `job`? A backup that holds
+/// this site's keys, or secrets sealed with a passphrase (it opens anywhere
+/// with it), never travels to another site, whoever made it: a caller whose
+/// authority comes from an upstream (`remote`) is refused (ADR 0048 §3.4,
+/// §4). One sealed for this broker, or without secrets, opens nowhere else
+/// and may go.
+fn may_download(job: &Job, remote: bool) -> Result<(), LinkError> {
+    let keys = job.sections.iter().any(|s| s == "keys");
+    if remote && (keys || job.sealed == "passphrase") {
+        return Err(LinkError::new(
+            Status::PermissionDenied,
+            format!(
+                "backup {} holds {}: it never travels to another site. Download it on the \
+                 broker's own gateway, not through its upstream",
+                job.id,
+                if keys {
+                    "this site's keys"
+                } else {
+                    "secrets sealed with a passphrase"
+                }
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Actions under `sys/backups` (`rest`: the path below it).
 pub(super) async fn invoke(
     ctl: &Arc<Control>,
@@ -1985,6 +2011,9 @@ pub(super) async fn invoke(
             ]))))
         }
         ([id], "download_part") => {
+            if let Some(job) = ctl.backups.get(id) {
+                may_download(&job, remote)?;
+            }
             let offset = uint_arg(args, "offset")?
                 .ok_or_else(|| LinkError::invalid_parameter("offset: required"))?;
             let len = match uint_arg(args, "len")? {
@@ -2184,6 +2213,49 @@ mod tests {
             Value::Float(1.5),
         )]));
         assert!(request_of(&bad, None, false).is_err());
+    }
+
+    /// Review of PR 72, item 7: the rule of `create` (a site's keys and
+    /// passphrase-sealed secrets never travel up) holds for a backup that
+    /// was made locally and is then asked for from above.
+    #[test]
+    fn keys_and_exported_secrets_are_not_downloaded_through_an_upstream() {
+        let job = |sections: &[&str], sealed: &str| Job {
+            id: "20261113T100000Z".into(),
+            kind: "full".into(),
+            link: String::new(),
+            sections: sections.iter().map(|s| (*s).to_owned()).collect(),
+            status: "done".into(),
+            progress: 100,
+            step: String::new(),
+            size: 1,
+            sha256: String::new(),
+            created: 1,
+            expires: 2,
+            error: String::new(),
+            file: "f".into(),
+            sealed: sealed.into(),
+            by: "user:admin".into(),
+            pinned: false,
+            sent_to: String::new(),
+            send_status: String::new(),
+            send_progress: 0,
+            send_error: String::new(),
+        };
+        let with_keys = job(&["control", "keys"], "passphrase");
+        let exported = job(&["control", "links"], "passphrase");
+        let for_site = job(&["control", "links"], "broker");
+        let plain = job(&["control", "storage"], "none");
+        for j in [&with_keys, &exported, &for_site, &plain] {
+            may_download(j, false).unwrap();
+        }
+        for j in [&with_keys, &exported] {
+            let e = may_download(j, true).unwrap_err();
+            assert_eq!(e.status, Status::PermissionDenied);
+            assert!(e.message.contains("never travels"), "{}", e.message);
+        }
+        may_download(&for_site, true).unwrap();
+        may_download(&plain, true).unwrap();
     }
 
     #[test]
