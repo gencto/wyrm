@@ -1,7 +1,7 @@
 //! The command line of `wyrmd` (`src/main.rs` calls [`main`]).
 
-use clap::{Parser, Subcommand};
 use crate::{Config, Daemon, Error};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(version, about = "WYRM broker")]
@@ -197,8 +197,7 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
         Some(Cmd::ReleaseInfo) => {
             println!(
                 "{}",
-                serde_json::to_string(wyrm_admin::release::identity())
-                    .map_err(|e| e.to_string())?
+                serde_json::to_string(wyrm_admin::release::identity()).map_err(|e| e.to_string())?
             );
             return Ok(());
         }
@@ -353,8 +352,8 @@ fn exit_if_asked(ctl: &wyrm_admin::Control) {
 /// is away, then run as the active one; a non-primary active steps down
 /// and follows again when the primary is back.
 async fn run_with_standby(cfg: Config) -> Result<(), Error> {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use crate::standby::{follow_with, isolated, lease_lost, primary_is_back, Outcome};
+    use std::sync::atomic::{AtomicBool, Ordering};
     let exe = own_exe()?;
     let arbiters = crate::arbiter::Arbiters::of(&cfg)?;
     if arbiters.is_none() {

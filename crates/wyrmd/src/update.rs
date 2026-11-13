@@ -94,7 +94,9 @@ impl UpdatesSection {
                         .is_some_and(|r| r.starts_with(':') || r.starts_with('/'))
                 });
             if !c.starts_with("https://") && !loopback {
-                return Err("updates.channel: an https:// URL (plain http only to loopback)".into());
+                return Err(
+                    "updates.channel: an https:// URL (plain http only to loopback)".into(),
+                );
             }
         }
         if mode == UpdateMode::External && self.channel.is_none() {
@@ -651,9 +653,8 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
                 // the index that is there is checked before anything is
                 // added to it: what is signed next is only what verified
                 (true, false) => {
-                    release::read_index(&read(&index)?, &text(&sig_path(&index))?, &keys).map_err(
-                        |e| format!("{}: not added to: {e}", index.display()),
-                    )?
+                    release::read_index(&read(&index)?, &text(&sig_path(&index))?, &keys)
+                        .map_err(|e| format!("{}: not added to: {e}", index.display()))?
                 }
             };
             let idx = old.with(&read(&doc)?, &text(&sig_path(&doc))?, &keys)?;

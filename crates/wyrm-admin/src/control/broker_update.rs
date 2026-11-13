@@ -19,8 +19,8 @@ use super::*;
 use crate::backup::Kind;
 use crate::release::{self, Asset, Identity, Layout, Release, UpdateFile};
 use std::net::SocketAddr;
-use zeroize::Zeroizing;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use zeroize::Zeroizing;
 
 /// How often the releases index is read.
 const INDEX_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -388,7 +388,9 @@ pub async fn stage(
         ];
         release::run_binary(&bin, &args, BINARY_TIMEOUT)
             .await
-            .map_err(|e| format!("the new version refuses this broker's configuration or state: {e}"))?;
+            .map_err(|e| {
+                format!("the new version refuses this broker's configuration or state: {e}")
+            })?;
         Ok(())
     }
     .await;
@@ -493,7 +495,12 @@ impl Control {
             return Some("a restore is staged for the next start".into());
         }
         if let Some(name) = lock(&self.updating).keys().next() {
-            return Some(format!("package {name} is being updated"));
+            return Some(format!(
+                "package {name} is being installed, updated or rolled back"
+            ));
+        }
+        if let Some(id) = lock(&self.link_ops).iter().next() {
+            return Some(format!("link {id} is being restored"));
         }
         None
     }
@@ -512,7 +519,10 @@ impl Control {
     fn update_view(&self) -> (String, bool, String, BTreeMap<String, Value>, String) {
         let me = release::identity();
         let latest = self.latest_release();
-        let latest_v = latest.as_ref().map(|r| r.version.clone()).unwrap_or_default();
+        let latest_v = latest
+            .as_ref()
+            .map(|r| r.version.clone())
+            .unwrap_or_default();
         let available = latest.is_some_and(|r| release::newer(&r.version, &me.version));
         let file = UpdateFile::load(&self.cfg.data_dir);
         let step = lock(&self.update.step).clone();
@@ -817,7 +827,10 @@ async fn plan_of(
             "target: this broker has no standby (no standby section in wyrmd.json5)",
         ));
     }
-    let version = arg_str(args, "version").unwrap_or_default().trim().to_owned();
+    let version = arg_str(args, "version")
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
     let upload = arg_str(args, "upload").unwrap_or_default().to_owned();
     let (release, release_bytes, signature, source) = if upload.is_empty() {
         let channel = u.channel.clone().ok_or_else(|| {
@@ -848,7 +861,11 @@ async fn plan_of(
         .ok_or_else(|| {
             LinkError::not_found(format!(
                 "the releases index has no wyrmd {} for {}",
-                if version.is_empty() { "at all" } else { &version },
+                if version.is_empty() {
+                    "at all"
+                } else {
+                    &version
+                },
                 release::identity().target
             ))
         })?;
@@ -962,11 +979,25 @@ pub(super) async fn update(
             "an update of the broker is being prepared",
         ));
     }
+    // The broker is taken as a restore with `mode: replace` takes it (the
+    // claim of ADR 0048 §1.9): refused while a package or a link is held by
+    // an operation, and no install, update, rollback or restore starts
+    // until this update ends or the broker has restarted.
+    let exclusive = !plan.for_standby;
+    if exclusive {
+        if let Err(e) = ctl.replacing(true) {
+            ctl.update.running.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    }
     // the upload is taken now: a wrong id is refused in the answer
     let archive = match &plan.source {
         Source::Upload(id) => match ctl.upload_take(id) {
             Ok(p) => Some(p),
             Err(e) => {
+                if exclusive {
+                    let _ = ctl.replacing(false);
+                }
                 ctl.update.running.store(false, Ordering::SeqCst);
                 return Err(e);
             }
@@ -1001,6 +1032,10 @@ pub(super) async fn update(
         match r {
             Ok(()) => ctl2.update.set_step(""),
             Err(e) => {
+                // nothing was switched: the broker is free again
+                if exclusive {
+                    let _ = ctl2.replacing(false);
+                }
                 warn!(to = %to, "broker update: {e}");
                 let key = if standby { "standby" } else { to.as_str() };
                 ctl2.record(&by, "update_start", key, Status::InternalError, &e);
@@ -1298,8 +1333,13 @@ pub(super) async fn rollback(
         )));
     }
     let _busy = ctl.busy()?;
+    // held until the broker has stopped (see `update`)
+    ctl.replacing(true)?;
     u.rollback = sub.to_owned();
-    u.save(d).map_err(LinkError::internal)?;
+    if let Err(e) = u.save(d) {
+        let _ = ctl.replacing(false);
+        return Err(LinkError::internal(e));
+    }
     ctl.record(
         sub,
         "update_rollback",
@@ -1501,10 +1541,7 @@ async fn publish(ctx: &LinkCtx, ctl: &Control) {
         ("update_available", Value::Bool(available)),
         ("update_state", Value::Str(state)),
         ("update_last", Value::Map(last)),
-        (
-            "update_mode",
-            Value::from(ctl.cfg.updates.mode.name()),
-        ),
+        ("update_mode", Value::from(ctl.cfg.updates.mode.name())),
         ("update_hint", Value::Str(hint)),
     ];
     if ctl.cfg.updates.standby {
@@ -1549,12 +1586,9 @@ async fn healthy(ctl: &Control, session: &Session, u: &UpdateFile) -> Result<(),
         } else {
             addr
         };
-        let up = tokio::time::timeout(
-            Duration::from_secs(2),
-            tokio::net::TcpStream::connect(addr),
-        )
-        .await
-        .is_ok_and(|r| r.is_ok());
+        let up = tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(addr))
+            .await
+            .is_ok_and(|r| r.is_ok());
         if !up {
             return Err(format!("the gateway does not listen on {addr}"));
         }
@@ -1807,6 +1841,41 @@ mod tests {
         }
     }
 
+    /// The update and the other jobs keep each other out, through the claim
+    /// of the package and link operations.
+    #[test]
+    fn an_update_and_another_job_exclude_each_other() {
+        let ctl = super::super::tests::control("broker-update-claims", false, |_| {});
+        let d = ctl.cfg.data_dir.clone();
+        assert_eq!(ctl.other_job(), None);
+        // a package operation: the update sees it and cannot take the broker
+        let claim = ctl.claim_package("pkg").unwrap();
+        assert!(ctl.other_job().is_some_and(|j| j.contains("package pkg")));
+        assert_eq!(ctl.replacing(true).unwrap_err().status, Status::Busy);
+        drop(claim);
+        // a restore of a link
+        let claim = ctl.claim_link("l1").unwrap();
+        assert!(ctl.other_job().is_some_and(|j| j.contains("link l1")));
+        drop(claim);
+        // a staged restore
+        std::fs::create_dir_all(d.join(crate::control::restore_broker::PENDING)).unwrap();
+        assert!(ctl.other_job().is_some_and(|j| j.contains("restore")));
+        std::fs::remove_dir_all(d.join(crate::control::restore_broker::PENDING)).unwrap();
+        // the update holds the broker: nothing else starts
+        ctl.replacing(true).unwrap();
+        assert_eq!(ctl.claim_package("pkg").err().unwrap().status, Status::Busy);
+        assert_eq!(ctl.claim_link("l1").err().unwrap().status, Status::Busy);
+        // an update that ended before the switch gives it back
+        ctl.replacing(false).unwrap();
+        drop(ctl.claim_package("pkg").unwrap());
+        // one update at a time
+        ctl.update.running.store(true, Ordering::SeqCst);
+        assert!(ctl
+            .other_job()
+            .is_some_and(|j| j.contains("update of the broker")));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn an_archive_is_fetched_from_its_url_or_beside_the_index() {
         let asset = |url: &str| Asset {
@@ -1824,8 +1893,11 @@ mod tests {
             "https://dl.example/wyrmd-0.2.0-x86_64-linux.tar.gz"
         );
         assert_eq!(
-            asset_url("https://dl.example/releases.json", &asset("https://cdn.example/a.tar.gz"))
-                .unwrap(),
+            asset_url(
+                "https://dl.example/releases.json",
+                &asset("https://cdn.example/a.tar.gz")
+            )
+            .unwrap(),
             "https://cdn.example/a.tar.gz"
         );
         assert!(asset_url("https://dl.example", &asset("")).is_err());
@@ -1839,9 +1911,8 @@ mod tests {
         std::fs::create_dir_all(&live).unwrap();
         let key = secret::load_or_create_key(&live.join("state.key")).unwrap();
         {
-            let mut s =
-                wyrm_state::Store::<crate::audit::AuditLog>::open(live.join("audit"), &key)
-                    .unwrap();
+            let mut s = wyrm_state::Store::<crate::audit::AuditLog>::open(live.join("audit"), &key)
+                .unwrap();
             s.apply(crate::audit::AuditRecord {
                 t: 1,
                 sub: "a".into(),
@@ -1858,8 +1929,8 @@ mod tests {
         assert!(!copy.join("flows").exists());
         let copied = secret::load_or_create_key(&copy.join("state.key")).unwrap();
         assert_eq!(*copied, *key);
-        let s = wyrm_state::Store::<crate::audit::AuditLog>::open(copy.join("audit"), &copied)
-            .unwrap();
+        let s =
+            wyrm_state::Store::<crate::audit::AuditLog>::open(copy.join("audit"), &copied).unwrap();
         assert_eq!(s.lsn(), 1);
         drop(s);
         // the scratch goes with its guard

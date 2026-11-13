@@ -603,8 +603,14 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     };
     assert_eq!(found.get("latest"), Some(&Value::from("0.2.0")));
     assert_eq!(found.get("update_available"), Some(&Value::Bool(true)));
-    assert_eq!(sys_str(site.port, "update_mode").await.as_deref(), Some("self"));
-    assert_eq!(sys_str(site.port, "update_state").await.as_deref(), Some("none"));
+    assert_eq!(
+        sys_str(site.port, "update_mode").await.as_deref(),
+        Some("self")
+    );
+    assert_eq!(
+        sys_str(site.port, "update_state").await.as_deref(),
+        Some("none")
+    );
     assert_eq!(
         sys_str(site.port, "update_hint").await.as_deref(),
         Some(""),
@@ -613,13 +619,20 @@ async fn a_broker_updates_itself_and_is_confirmed() {
 
     // the site name confirms; a dry run refuses the same way and does nothing
     let wrong = args(&[("confirm_site", "other".into())]);
-    let e = c.invoke_check(&node, "update", wrong.clone()).await.unwrap_err();
+    let e = c
+        .invoke_check(&node, "update", wrong.clone())
+        .await
+        .unwrap_err();
     assert!(e.message.contains("confirm_site"), "{}", e.message);
     let e = c.invoke_one(&node, "update", wrong).await.unwrap_err();
     assert!(e.message.contains("confirm_site"), "{}", e.message);
     let go = args(&[("confirm_site", SITE.into())]);
     c.invoke_check(&node, "update", go.clone()).await.unwrap();
-    assert_eq!(site.current(), "versions/0.1.0", "a dry run changes nothing");
+    assert_eq!(
+        site.current(),
+        "versions/0.1.0",
+        "a dry run changes nothing"
+    );
 
     let Some(Value::Map(answer)) = c.invoke_one(&node, "update", go.clone()).await.unwrap() else {
         panic!("update: a map");
@@ -638,8 +651,14 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     assert_eq!((u.from.as_str(), u.to.as_str()), ("0.1.0", "0.2.0"));
     assert_eq!(u.links, ["mock", "mockp"], "the links that must come back");
     assert!(u.moved().is_empty());
-    assert!(u.attempts >= 1, "the guard counted the start of the new version");
-    assert!(u.deadline > u.started, "the trial began when the new version started");
+    assert!(
+        u.attempts >= 1,
+        "the guard counted the start of the new version"
+    );
+    assert!(
+        u.deadline > u.started,
+        "the trial began when the new version started"
+    );
     // the guard is still the old version while the trial runs
     if u.in_trial() {
         assert_eq!(
@@ -663,7 +682,11 @@ async fn a_broker_updates_itself_and_is_confirmed() {
         release::sha256_file(&site.prefix.join("bin").join(release::GUARD)).unwrap(),
         release::sha256_file(&next_bin()).unwrap()
     );
-    assert_eq!(site.unit.exits(), [0], "the old version stopped cleanly, once");
+    assert_eq!(
+        site.unit.exits(),
+        [0],
+        "the old version stopped cleanly, once"
+    );
     // the pre-update backup is kept and pinned while a rollback is possible
     let job: serde_json::Value = serde_json::from_slice(
         &std::fs::read(site.data.join("backups").join(format!("{}.json", u.backup))).unwrap(),
@@ -684,7 +707,11 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     // on purpose, back to 0.1.0: the guard (now 0.2.0) does it at the next start
     let c = site.client().await;
     let e = c
-        .invoke_one(&node, "rollback_update", args(&[("confirm_site", "x".into())]))
+        .invoke_one(
+            &node,
+            "rollback_update",
+            args(&[("confirm_site", "x".into())]),
+        )
         .await
         .unwrap_err();
     assert!(e.message.contains("confirm_site"), "{}", e.message);
@@ -744,7 +771,10 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
         args(&[
             ("confirm_site", SITE.into()),
             ("upload", upload.into()),
-            ("release", Value::Str(String::from_utf8_lossy(doc).into_owned())),
+            (
+                "release",
+                Value::Str(String::from_utf8_lossy(doc).into_owned()),
+            ),
             ("signature", signature.into()),
         ])
     };
@@ -776,7 +806,11 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
         .invoke_one(
             &node,
             "update",
-            with(&older, &release::sign_release(&older, &release_key()), "none"),
+            with(
+                &older,
+                &release::sign_release(&older, &release_key()),
+                "none",
+            ),
         )
         .await
         .unwrap_err();
@@ -798,14 +832,20 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
         }
     })
     .await;
-    assert!(reason.contains("bytes") || reason.contains("SHA-256"), "{reason}");
+    assert!(
+        reason.contains("bytes") || reason.contains("SHA-256"),
+        "{reason}"
+    );
     assert_eq!(site.current(), "versions/0.1.0");
     assert!(!site.prefix.join("versions").join("0.3.0").exists());
     assert!(UpdateFile::load(&site.data).is_none());
 
     // what the old version has before the update
     let all_links = format!("{node}/allow_all_links");
-    assert_eq!(sys(site.port, "allow_all_links").await, Some(Value::Bool(false)));
+    assert_eq!(
+        sys(site.port, "allow_all_links").await,
+        Some(Value::Bool(false))
+    );
 
     // the real archive, in parts
     let id_up = upload(std::fs::read(stage.join(&file)).unwrap()).await;
@@ -826,7 +866,10 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
         .await
         .unwrap();
     drop(c);
-    assert_eq!(sys(site.port, "allow_all_links").await, Some(Value::Bool(true)));
+    assert_eq!(
+        sys(site.port, "allow_all_links").await,
+        Some(Value::Bool(true))
+    );
 
     // the trial ends without the link: 76, the guard, the old version
     site.wait_version("0.1.0").await;
@@ -839,17 +882,26 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
     );
     let u = site.update_file();
     assert_eq!(u.state, "rolled_back");
-    assert!(u.restored, "the registry is restored from the pre-update backup");
+    assert!(
+        u.restored,
+        "the registry is restored from the pre-update backup"
+    );
     assert!(u.reason.contains("mockp"), "{}", u.reason);
     // the control plane is the one of before the update
-    assert_eq!(sys(site.port, "allow_all_links").await, Some(Value::Bool(false)));
+    assert_eq!(
+        sys(site.port, "allow_all_links").await,
+        Some(Value::Bool(false))
+    );
     site.wait_links().await;
     let ops = audit_ops(site.port).await;
     let rolled = ops
         .iter()
         .find(|(o, _)| o == "update_rollback")
         .unwrap_or_else(|| panic!("no update_rollback in {ops:?}"));
-    assert!(rolled.1.contains("control plane restored: true"), "{rolled:?}");
+    assert!(
+        rolled.1.contains("control plane restored: true"),
+        "{rolled:?}"
+    );
     assert!(ops.iter().any(|(o, _)| o == "update_start"), "{ops:?}");
     let Some(Value::Map(last)) = sys(site.port, "update_last").await else {
         panic!("update_last: a map");
@@ -917,9 +969,13 @@ async fn a_standby_is_updated_before_the_active() {
         std::fs::create_dir_all(data).unwrap();
         wyrm_admin::keys::import(data, &bundle, PASS).unwrap();
     });
-    eventually("the standby follows and says what it runs", 120, || async move {
-        (sys_str(port, "standby_version").await.as_deref() == Some("0.1.0")).then_some(())
-    })
+    eventually(
+        "the standby follows and says what it runs",
+        120,
+        || async move {
+            (sys_str(port, "standby_version").await.as_deref() == Some("0.1.0")).then_some(())
+        },
+    )
     .await;
 
     let c = a.client().await;
@@ -945,7 +1001,11 @@ async fn a_standby_is_updated_before_the_active() {
         .await
         .unwrap_err();
     assert!(e.is(wyrm_core::Status::Busy), "{}", e.message);
-    assert!(e.message.contains("update the standby first"), "{}", e.message);
+    assert!(
+        e.message.contains("update the standby first"),
+        "{}",
+        e.message
+    );
     assert_eq!(a.current(), "versions/0.1.0");
 
     // the order for the standby
@@ -960,10 +1020,21 @@ async fn a_standby_is_updated_before_the_active() {
     })
     .await;
     assert_eq!(b.current(), "versions/0.2.0");
-    assert_eq!(a.current(), "versions/0.1.0", "the active still runs the old version");
+    assert_eq!(
+        a.current(),
+        "versions/0.1.0",
+        "the active still runs the old version"
+    );
     let u = b.update_file();
-    assert_eq!((u.state.as_str(), u.role.as_str()), ("confirmed", "standby"));
-    assert_eq!(b.unit.exits(), [0], "the standby stopped once, for its update");
+    assert_eq!(
+        (u.state.as_str(), u.role.as_str()),
+        ("confirmed", "standby")
+    );
+    assert_eq!(
+        b.unit.exits(),
+        [0],
+        "the standby stopped once, for its update"
+    );
     assert!(a.unit.exits().is_empty(), "the active did not stop for it");
     let ops = audit_ops(a.port).await;
     assert!(
@@ -974,7 +1045,9 @@ async fn a_standby_is_updated_before_the_active() {
 
     // now the active; the standby waits and does not take over
     let up = upload_parts(c.clone(), archive).await;
-    c.invoke_one(&node, "update", with(&up, None)).await.unwrap();
+    c.invoke_one(&node, "update", with(&up, None))
+        .await
+        .unwrap();
     drop(c);
     a.wait_version("0.2.0").await;
     a.wait_state("confirmed").await;
@@ -1081,8 +1154,14 @@ async fn external_mode_reports_only() {
     })
     .await;
     assert_eq!(sys_str(ext.port, "latest").await.as_deref(), Some("0.9.0"));
-    assert_eq!(sys_str(ext.port, "update_mode").await.as_deref(), Some("external"));
-    assert_eq!(sys_str(ext.port, "update_state").await.as_deref(), Some("none"));
+    assert_eq!(
+        sys_str(ext.port, "update_mode").await.as_deref(),
+        Some("external")
+    );
+    assert_eq!(
+        sys_str(ext.port, "update_state").await.as_deref(),
+        Some("none")
+    );
     let hint = sys_str(ext.port, "update_hint").await.unwrap();
     assert!(
         hint.contains("wyrmd 0.9.0") && hint.contains("docker compose pull"),
@@ -1091,7 +1170,10 @@ async fn external_mode_reports_only() {
     let e = c.invoke_one(&node, "update", go.clone()).await.unwrap_err();
     assert!(e.is(wyrm_core::Status::NotSupported), "{}", e.message);
     assert!(e.message.contains("updated outside"), "{}", e.message);
-    let e = c.invoke_check(&node, "update", go.clone()).await.unwrap_err();
+    let e = c
+        .invoke_check(&node, "update", go.clone())
+        .await
+        .unwrap_err();
     assert!(e.message.contains("updated outside"), "{}", e.message);
     // an index that the pinned key did not sign shows nothing
     drop(c);
@@ -1132,7 +1214,10 @@ async fn external_mode_reports_only() {
         .await
         .unwrap_err();
     assert!(e.message.contains("an entry is refused"), "{}", e.message);
-    assert_eq!(sys(ext.port, "update_available").await, Some(Value::Bool(false)));
+    assert_eq!(
+        sys(ext.port, "update_available").await,
+        Some(Value::Bool(false))
+    );
     assert_eq!(sys_str(ext.port, "latest").await.as_deref(), Some(""));
     drop(c);
     ext.stop().await;
@@ -1150,14 +1235,20 @@ async fn external_mode_reports_only() {
         .await
         .unwrap_err();
     assert!(e.message.contains("pinned release key"), "{}", e.message);
-    assert_eq!(sys(ext.port, "update_available").await, Some(Value::Bool(false)));
+    assert_eq!(
+        sys(ext.port, "update_available").await,
+        Some(Value::Bool(false))
+    );
     drop(c);
     ext.stop().await;
 
     // the default: off
     let off = Local::start("off", "").await;
     let c = client_on(off.port).await.unwrap();
-    assert_eq!(sys_str(off.port, "update_mode").await.as_deref(), Some("off"));
+    assert_eq!(
+        sys_str(off.port, "update_mode").await.as_deref(),
+        Some("off")
+    );
     let e = c.invoke_one(&node, "update", go.clone()).await.unwrap_err();
     assert!(e.is(wyrm_core::Status::NotSupported), "{}", e.message);
     assert!(e.message.contains("\"off\""), "{}", e.message);
@@ -1228,7 +1319,10 @@ fn release_index_refuses_what_does_not_verify() {
     let (r2, r3) = (packed("0.2.0"), packed("0.3.0"));
 
     // a release that is not signed, or signed by another key, starts no index
-    refused(&["index", "--new", "--key", &public, &r2, "releases.json"], "");
+    refused(
+        &["index", "--new", "--key", &public, &r2, "releases.json"],
+        "",
+    );
     ok(&["sign", &r2], Some(&"03".repeat(32)));
     refused(
         &["index", "--new", "--key", &public, &r2, "releases.json"],
@@ -1240,34 +1334,64 @@ fn release_index_refuses_what_does_not_verify() {
     refused(&["verify", &r2], "no release key is pinned");
     // no index there: only --new starts one
     refused(&["index", "--key", &public, &r2, "releases.json"], "--new");
-    ok(&["index", "--new", "--key", &public, &r2, "releases.json"], None);
-    refused(&["index", "--new", "--key", &public, &r2, "releases.json"], "exists");
+    ok(
+        &["index", "--new", "--key", &public, &r2, "releases.json"],
+        None,
+    );
+    refused(
+        &["index", "--new", "--key", &public, &r2, "releases.json"],
+        "exists",
+    );
     ok(&["sign", "--index", "releases.json"], Some(&seed));
-    ok(&["verify", "--index", "releases.json", "--key", &public], None);
+    ok(
+        &["verify", "--index", "releases.json", "--key", &public],
+        None,
+    );
     let good = std::fs::read(d.join("releases.json")).unwrap();
     let good_sig = std::fs::read(d.join("releases.json.sig")).unwrap();
     ok(&["sign", &r3], Some(&seed));
 
     // the old index without its signature
     std::fs::remove_file(d.join("releases.json.sig")).unwrap();
-    refused(&["index", "--key", &public, &r3, "releases.json"], "releases.json.sig");
+    refused(
+        &["index", "--key", &public, &r3, "releases.json"],
+        "releases.json.sig",
+    );
     assert_eq!(std::fs::read(d.join("releases.json")).unwrap(), good);
     // changed after it was signed: an entry planted in it
     let mut file: IndexFile = serde_json::from_slice(&good).unwrap();
     let evil = serde_json::to_string(&release_of(
-        &Identity { version: "9.9.9".into(), ..me.clone() },
-        Asset { file: format!("wyrmd-9.9.9-{}.tar.gz", me.target), sha256: "c".repeat(64), size: 1, url: String::new() },
+        &Identity {
+            version: "9.9.9".into(),
+            ..me.clone()
+        },
+        Asset {
+            file: format!("wyrmd-9.9.9-{}.tar.gz", me.target),
+            sha256: "c".repeat(64),
+            size: 1,
+            url: String::new(),
+        },
     ))
     .unwrap();
     file.releases.push(IndexEntry {
-        signature: release::sign_release(evil.as_bytes(), &ed25519_dalek::SigningKey::from_bytes(&[3; 32])),
+        signature: release::sign_release(
+            evil.as_bytes(),
+            &ed25519_dalek::SigningKey::from_bytes(&[3; 32]),
+        ),
         release: evil,
     });
     let planted = serde_json::to_vec(&file).unwrap();
     std::fs::write(d.join("releases.json"), &planted).unwrap();
     std::fs::write(d.join("releases.json.sig"), &good_sig).unwrap();
-    refused(&["index", "--key", &public, &r3, "releases.json"], "not added to");
-    assert_eq!(std::fs::read(d.join("releases.json")).unwrap(), planted, "left as it was");
+    refused(
+        &["index", "--key", &public, &r3, "releases.json"],
+        "not added to",
+    );
+    assert_eq!(
+        std::fs::read(d.join("releases.json")).unwrap(),
+        planted,
+        "left as it was"
+    );
     // signed as a whole by the real key all the same (a signer that did
     // not look): the planted entry still refuses it
     std::fs::write(
@@ -1275,7 +1399,10 @@ fn release_index_refuses_what_does_not_verify() {
         release::sign_index(&planted, &release_key()),
     )
     .unwrap();
-    refused(&["index", "--key", &public, &r3, "releases.json"], "an entry is refused");
+    refused(
+        &["index", "--key", &public, &r3, "releases.json"],
+        "an entry is refused",
+    );
     // signed by another key
     std::fs::write(d.join("releases.json"), &good).unwrap();
     std::fs::write(
@@ -1283,7 +1410,10 @@ fn release_index_refuses_what_does_not_verify() {
         release::sign_index(&good, &ed25519_dalek::SigningKey::from_bytes(&[3; 32])),
     )
     .unwrap();
-    refused(&["index", "--key", &public, &r3, "releases.json"], "pinned release key");
+    refused(
+        &["index", "--key", &public, &r3, "releases.json"],
+        "pinned release key",
+    );
 
     // the index as it was signed takes the next release; its old signature
     // goes, so an index that was not signed again is not served as signed
@@ -1316,8 +1446,12 @@ fn the_updates_section_is_validated() {
     };
     assert!(parse("").is_ok());
     assert!(parse(r#"mode: "self""#).is_ok());
-    assert!(parse(r#"mode: "auto""#).unwrap_err().contains("off, external or self"));
-    assert!(parse(r#"mode: "external""#).unwrap_err().contains("updates.channel"));
+    assert!(parse(r#"mode: "auto""#)
+        .unwrap_err()
+        .contains("off, external or self"));
+    assert!(parse(r#"mode: "external""#)
+        .unwrap_err()
+        .contains("updates.channel"));
     assert!(parse(r#"channel: "http://dl.example/releases.json""#)
         .unwrap_err()
         .contains("https://"));

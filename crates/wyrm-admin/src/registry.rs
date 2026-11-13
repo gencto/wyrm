@@ -619,6 +619,13 @@ pub struct PreviousDef {
     #[cbor(default)]
     #[serde(default)]
     pub changes_state: bool,
+    /// The restore points this update took: `(link, point id)`. A rollback
+    /// applies exactly these; a record written before the field existed has
+    /// none and falls back to the newest point at or before `replaced`.
+    #[n(4)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub points: Vec<(String, String)>,
 }
 
 /// Most keys of `new` and of `gone` kept in an [`UpdateReport`].
@@ -1967,6 +1974,7 @@ mod tests {
             keep_until: 700,
             replaced: 100,
             changes_state: true,
+            points: vec![("l1".into(), "20261113T101502Z".into())],
         }));
         new.last_update = Some(UpdateReport {
             from: "1.2.0".into(),

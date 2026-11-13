@@ -85,11 +85,7 @@ pub fn target() -> String {
     } else {
         ""
     };
-    format!(
-        "{}-{}{musl}",
-        std::env::consts::ARCH,
-        std::env::consts::OS
-    )
+    format!("{}-{}{musl}", std::env::consts::ARCH, std::env::consts::OS)
 }
 
 /// The identity of this build as far as this crate knows it: the stores of
@@ -100,10 +96,7 @@ pub fn built() -> Identity {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         target: target(),
         schemas: BTreeMap::from([
-            (
-                "registry".to_owned(),
-                crate::registry::Registry::SCHEMA,
-            ),
+            ("registry".to_owned(), crate::registry::Registry::SCHEMA),
             ("audit".to_owned(), crate::audit::AuditLog::SCHEMA),
         ]),
         replication: REPLICATION_PROTOCOL,
@@ -280,7 +273,10 @@ impl Release {
                 return Err(format!("target {t:?}: not a plain name"));
             }
             if !plain_name(&a.file, 128) || !a.file.ends_with(".tar.gz") {
-                return Err(format!("target {t}: file {:?}: a plain *.tar.gz name", a.file));
+                return Err(format!(
+                    "target {t}: file {:?}: a plain *.tar.gz name",
+                    a.file
+                ));
             }
             if a.sha256.len() != 64
                 || !a
@@ -394,7 +390,12 @@ fn signed_message(domain: &[u8], bytes: &[u8]) -> Vec<u8> {
 
 /// Does one line of `signature` (hex Ed25519 signatures, one a line) sign
 /// `bytes` under `domain` with one of `keys`?
-fn verify(domain: &[u8], bytes: &[u8], signature: &str, keys: &[VerifyingKey]) -> Result<(), String> {
+fn verify(
+    domain: &[u8],
+    bytes: &[u8],
+    signature: &str,
+    keys: &[VerifyingKey],
+) -> Result<(), String> {
     if keys.is_empty() {
         return Err(
             "no release key is pinned: this build has none and updates.keys is empty".into(),
@@ -665,12 +666,18 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
         if sum != want {
             return Err("archive: bad header checksum".into());
         }
-        let name_raw: Vec<u8> = header[..100].iter().copied().take_while(|b| *b != 0).collect();
+        let name_raw: Vec<u8> = header[..100]
+            .iter()
+            .copied()
+            .take_while(|b| *b != 0)
+            .collect();
         let name = String::from_utf8(name_raw).map_err(|_| "archive: a name is not UTF-8")?;
         let shown: String = name.chars().take(64).collect();
         // ustar's prefix field: a longer path, never ours
         if header[345] != 0 {
-            return Err(format!("archive: entry {shown:?}: a path, not a plain name"));
+            return Err(format!(
+                "archive: entry {shown:?}: a path, not a plain name"
+            ));
         }
         match header[156] {
             0 | b'0' => {}
@@ -703,9 +710,7 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
         let is_bin = name == BIN;
         let max = if is_bin { MAX_BINARY } else { MAX_EXTRA };
         if size > max {
-            return Err(format!(
-                "archive: {name} has {size} bytes, more than {max}"
-            ));
+            return Err(format!("archive: {name} has {size} bytes, more than {max}"));
         }
         let mode = octal(&header[100..108]).unwrap_or(0);
         if is_bin && (size == 0 || mode & 0o100 == 0) {
@@ -729,7 +734,8 @@ fn untar(src: &mut impl Read, dir: &Path) -> Result<Vec<String>, String> {
         out.sync_all().map_err(|e| io(&path, e))?;
         let pad = (512 - (size % 512)) % 512;
         if pad > 0 {
-            let n = read_full(src, &mut buf[..pad as usize]).map_err(|e| format!("archive: {e}"))?;
+            let n =
+                read_full(src, &mut buf[..pad as usize]).map_err(|e| format!("archive: {e}"))?;
             if n as u64 != pad {
                 return Err(format!("archive: cut off after {name}"));
             }
@@ -907,9 +913,9 @@ impl Layout {
     /// The layout of a guard: `exe` is `<prefix>/bin/wyrmd-guard`.
     pub fn of_guard(exe: &Path) -> Result<Self, String> {
         let exe = exe.canonicalize().map_err(|e| io(exe, e))?;
-        let bin = exe.parent().filter(|_| {
-            exe.file_name().and_then(|n| n.to_str()) == Some(GUARD)
-        });
+        let bin = exe
+            .parent()
+            .filter(|_| exe.file_name().and_then(|n| n.to_str()) == Some(GUARD));
         match bin {
             Some(b) if b.file_name().and_then(|n| n.to_str()) == Some("bin") => Ok(Self {
                 prefix: b
@@ -1173,7 +1179,11 @@ pub enum Guarded {
     /// No update in its trial, or the trial goes on.
     Nothing,
     /// `current` points at the old version again.
-    RolledBack { from: String, to: String, restored: bool },
+    RolledBack {
+        from: String,
+        to: String,
+        restored: bool,
+    },
     /// A rollback was due and cannot be done: the new version stays.
     Stuck(String),
 }
@@ -1382,11 +1392,7 @@ pub async fn run_binary(
     let tail = |b: &[u8]| {
         let s = String::from_utf8_lossy(b);
         let s = s.trim();
-        let start = s
-            .char_indices()
-            .rev()
-            .nth(799)
-            .map_or(0, |(i, _)| i);
+        let start = s.char_indices().rev().nth(799).map_or(0, |(i, _)| i);
         s[start..].to_owned()
     };
     if out.status.success() {
@@ -1566,7 +1572,10 @@ mod tests {
         let bytes = serde_json::to_vec(&release("0.2.0")).unwrap();
         let sig = sign_release(&bytes, &key(1));
         let pinned = [key(1).verifying_key()];
-        assert_eq!(read_release(&bytes, &sig, &pinned).unwrap().version, "0.2.0");
+        assert_eq!(
+            read_release(&bytes, &sig, &pinned).unwrap().version,
+            "0.2.0"
+        );
         // another key signed it
         let err = read_release(&bytes, &sign_release(&bytes, &key(2)), &pinned).unwrap_err();
         assert!(err.contains("pinned release key"), "{err}");
@@ -1695,7 +1704,9 @@ mod tests {
         assert!(bad(&|r| r.notes = "http://x".into()).contains("https"));
         assert!(bad(&|r| r.targets.clear()).contains("targets"));
         let t = "x86_64-linux";
-        assert!(bad(&|r| r.targets.get_mut(t).unwrap().file = "../x.tar.gz".into()).contains("file"));
+        assert!(
+            bad(&|r| r.targets.get_mut(t).unwrap().file = "../x.tar.gz".into()).contains("file")
+        );
         assert!(bad(&|r| r.targets.get_mut(t).unwrap().file = "x.zip".into()).contains("file"));
         assert!(bad(&|r| r.targets.get_mut(t).unwrap().sha256 = "A".repeat(64)).contains("sha256"));
         assert!(bad(&|r| r.targets.get_mut(t).unwrap().size = MAX_ARCHIVE + 1).contains("size"));
@@ -1797,8 +1808,14 @@ mod tests {
             let (path, asset) = asset_of(&d, &tar_gz(entries));
             let err = unpack(&path, &asset, &versions, "0.2.0").unwrap_err();
             assert!(err.contains(want), "{name}: {err}");
-            assert!(!versions.join("0.2.0").exists(), "{name}: a version is there");
-            assert!(!versions.join(".0.2.0.part").exists(), "{name}: a part is left");
+            assert!(
+                !versions.join("0.2.0").exists(),
+                "{name}: a version is there"
+            );
+            assert!(
+                !versions.join(".0.2.0.part").exists(),
+                "{name}: a part is left"
+            );
         };
         refuse(
             "traversal",
@@ -2045,9 +2062,14 @@ mod tests {
         assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
         // the three reasons
         for (name, f) in [
-            ("attempts", (&|u: &mut UpdateFile| u.attempts = 3) as &dyn Fn(&mut UpdateFile)),
+            (
+                "attempts",
+                (&|u: &mut UpdateFile| u.attempts = 3) as &dyn Fn(&mut UpdateFile),
+            ),
             ("deadline", &|u: &mut UpdateFile| u.deadline = now_s() - 1),
-            ("gave up", &|u: &mut UpdateFile| u.failed = "link plc1 is not back".into()),
+            ("gave up", &|u: &mut UpdateFile| {
+                u.failed = "link plc1 is not back".into()
+            }),
         ] {
             trial(f);
             let r = guard(&l, &data, "0.1.0").unwrap();
@@ -2095,13 +2117,19 @@ mod tests {
             u.backup = "site-x.wyrm-backup".into();
             u.backup_sha256 = "0".repeat(64);
         });
-        assert!(matches!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Stuck(_)));
+        assert!(matches!(
+            guard(&l, &data, "0.1.0").unwrap(),
+            Guarded::Stuck(_)
+        ));
         assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         assert_eq!(UpdateFile::load(&data).unwrap().state, "failed");
         // the old version is gone: the same
         trial(&|u| u.attempts = 3);
         std::fs::remove_dir_all(l.versions().join("0.1.0")).unwrap();
-        assert!(matches!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Stuck(_)));
+        assert!(matches!(
+            guard(&l, &data, "0.1.0").unwrap(),
+            Guarded::Stuck(_)
+        ));
         assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -2123,13 +2151,19 @@ mod tests {
         std::env::set_var("WYRM_TEST_LEAK", "leaked");
         let t = std::time::Duration::from_secs(10);
         // an argument with shell characters is one argument, not a command
-        let out = run_binary(&script, &["a b; echo x".into()], t).await.unwrap();
+        let out = run_binary(&script, &["a b; echo x".into()], t)
+            .await
+            .unwrap();
         assert_eq!(out.trim(), "env:none:a b; echo x");
         let err = run_binary(&script, &["bad".into()], t).await.unwrap_err();
         assert!(err.contains("broken"), "{err}");
-        let err = run_binary(&script, &["slow".into()], std::time::Duration::from_millis(300))
-            .await
-            .unwrap_err();
+        let err = run_binary(
+            &script,
+            &["slow".into()],
+            std::time::Duration::from_millis(300),
+        )
+        .await
+        .unwrap_err();
         assert!(err.contains("no answer"), "{err}");
         let _ = std::fs::remove_dir_all(&d);
     }
