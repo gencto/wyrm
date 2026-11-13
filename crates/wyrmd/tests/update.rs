@@ -303,8 +303,25 @@ fn release_key() -> ed25519_dalek::SigningKey {
     ed25519_dalek::SigningKey::from_bytes(&RELEASE_SEED)
 }
 
+/// An embedded and a process link.
+const LINKS: &str = r#"links: {
+    mock: { driver: "mock", params: { points: 4, rate_hz: 2, depth: 1, fanout: 2 } },
+    mockp: { driver: "mock", mode: "process", params: { points: 4, rate_hz: 2, depth: 1, fanout: 2 } },
+},"#;
+
 impl Site {
+    /// A site with the two links, serving.
     async fn start(name: &str, updates: &str) -> Self {
+        let site = Self::launch(name, updates, LINKS, |_| {});
+        site.wait_version("0.1.0").await;
+        site.wait_links().await;
+        site
+    }
+
+    /// The layout, the configuration (`updates`: more fields of that
+    /// section; `extra`: more top-level fields) and the unit; `before` runs
+    /// on the data directory before the first start.
+    fn launch(name: &str, updates: &str, extra: &str, before: impl FnOnce(&Path)) -> Self {
         let root = temp_dir(name);
         let (prefix, data) = (root.join("opt"), root.join("data"));
         let made = Command::new(env!("CARGO_BIN_EXE_wyrmd"))
@@ -315,7 +332,10 @@ impl Site {
             .unwrap();
         assert!(made.status.success(), "install-layout: {made:?}");
         let said = String::from_utf8_lossy(&made.stdout);
-        assert!(said.contains("ExecStartPre=") && said.contains("update-guard"), "{said}");
+        assert!(
+            said.contains("ExecStartPre=") && said.contains("update-guard"),
+            "{said}"
+        );
         let (port, tls) = (free_port(), free_port());
         let admin = hex::encode(
             ed25519_dalek::SigningKey::from_bytes(&SEED)
@@ -333,27 +353,22 @@ impl Site {
                     listen: ["tcp/127.0.0.1:{port}", "tls/127.0.0.1:{tls}"],
                     admin_keys: ["{admin}"],
                     metrics_interval_ms: 200,
-                    links: {{
-                        mock: {{ driver: "mock", params: {{ points: 4, rate_hz: 2, depth: 1, fanout: 2 }} }},
-                        mockp: {{ driver: "mock", mode: "process", params: {{ points: 4, rate_hz: 2, depth: 1, fanout: 2 }} }},
-                    }},
                     updates: {{ mode: "self", keys: ["{pinned}"], trial_s: 25, {updates} }},
+                    {extra}
                 }}"#,
                 data.display()
             ),
         )
         .unwrap();
+        before(&data);
         let unit = Unit::start(&prefix, &cfg);
-        let site = Self {
+        Self {
             root,
             prefix,
             data,
             port,
             unit,
-        };
-        site.wait_version("0.1.0").await;
-        site.wait_links().await;
-        site
+        }
     }
 
     async fn wait_version(&self, v: &str) {
@@ -484,6 +499,33 @@ fn channel_files(releases: Vec<Release>) -> BTreeMap<String, Arc<Vec<u8>>> {
         ("/releases.json".to_owned(), Arc::new(index)),
         ("/releases.json.sig".to_owned(), Arc::new(sig.into_bytes())),
     ])
+}
+
+/// Bring `bytes` to the broker in parts (the upload of the backups).
+async fn upload_parts(c: WyrmClient, bytes: Vec<u8>) -> String {
+    let backups = format!("wy/{SITE}/sys/backups");
+    let begin = args(&[("size", Value::UInt(bytes.len() as u64))]);
+    let Some(Value::Map(m)) = c
+        .invoke_one(&backups, "restore_begin", begin)
+        .await
+        .unwrap()
+    else {
+        panic!("restore_begin: a map");
+    };
+    let Some(Value::Str(id)) = m.get("upload").cloned() else {
+        panic!("restore_begin: upload");
+    };
+    let mut offset = 0u64;
+    for chunk in bytes.chunks(8 << 20) {
+        let part = args(&[
+            ("upload", id.clone().into()),
+            ("offset", Value::UInt(offset)),
+            ("data", Value::Bytes(chunk.to_vec())),
+        ]);
+        c.invoke_one(&backups, "restore_part", part).await.unwrap();
+        offset += chunk.len() as u64;
+    }
+    id
 }
 
 /// A good update from the releases index: the new version is fetched,
@@ -706,31 +748,7 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
         .unwrap_err();
     assert!(e.message.contains("never goes down"), "{}", e.message);
     // a signed release, an archive that is not its archive
-    let backups = format!("wy/{SITE}/sys/backups");
-    let upload = |bytes: Vec<u8>| {
-        let (c, backups) = (c.clone(), backups.clone());
-        async move {
-            let begin = args(&[("size", Value::UInt(bytes.len() as u64))]);
-            let Some(Value::Map(m)) = c.invoke_one(&backups, "restore_begin", begin).await.unwrap()
-            else {
-                panic!("restore_begin: a map");
-            };
-            let Some(Value::Str(id)) = m.get("upload").cloned() else {
-                panic!("restore_begin: upload");
-            };
-            let mut offset = 0u64;
-            for chunk in bytes.chunks(8 << 20) {
-                let part = args(&[
-                    ("upload", id.clone().into()),
-                    ("offset", Value::UInt(offset)),
-                    ("data", Value::Bytes(chunk.to_vec())),
-                ]);
-                c.invoke_one(&backups, "restore_part", part).await.unwrap();
-                offset += chunk.len() as u64;
-            }
-            id
-        }
-    };
+    let upload = |bytes: Vec<u8>| upload_parts(c.clone(), bytes);
     let junk = upload(b"not the archive".to_vec()).await;
     c.invoke_one(&node, "update", with(&doc, &signature, &junk))
         .await
@@ -820,6 +838,118 @@ async fn a_failed_trial_is_rolled_back_by_the_guard() {
     drop(site);
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(stage);
+}
+
+/// A standby pair (ADR 0036): the standby is updated first, on the
+/// active's order, and proven; only then the active updates.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_standby_is_updated_before_the_active() {
+    let _heavy = HEAVY.lock().await;
+    let id = next_identity();
+    let stage = temp_dir("pair-archive");
+    let file = format!("wyrmd-0.2.0-{}.tar.gz", id.target);
+    let asset = testkit::archive_of(&next_bin(), &[], &stage.join(&file)).unwrap();
+    let doc = serde_json::to_vec(&release_of(&id, asset)).unwrap();
+    let signature = release::sign_release(&doc, &release_key());
+    let archive = std::fs::read(stage.join(&file)).unwrap();
+
+    // a witness both hosts reach
+    let witness = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let wport = witness.local_addr().unwrap().port();
+    std::thread::spawn(move || for _ in witness.incoming() {});
+    let (a_quic, b_quic) = (free_port(), free_port());
+    let pair = |own: u16, peer: u16, primary: bool| {
+        format!(
+            r#"peers: {{ listen: "quic/127.0.0.1:{own}" }},
+               standby: {{ peer: "quic/127.0.0.1:{peer}", takeover_s: 3, primary: {primary},
+                          witness: ["127.0.0.1:{wport}"] }},"#
+        )
+    };
+    // the active: it starts alone and takes the role
+    let a = Site::launch("pair-a", "", &pair(a_quic, b_quic, true), |_| {});
+    a.wait_version("0.1.0").await;
+    // the standby: the site's keys, then it follows
+    const PASS: &[u8] = b"a passphrase for the pair";
+    let bundle = wyrm_admin::keys::export(&a.data, PASS).unwrap();
+    let b = Site::launch("pair-b", "", &pair(b_quic, a_quic, false), |data| {
+        std::fs::create_dir_all(data).unwrap();
+        wyrm_admin::keys::import(data, &bundle, PASS).unwrap();
+    });
+    let port = a.port;
+    eventually("the standby follows and says what it runs", 120, || async move {
+        (sys_str(port, "standby_version").await.as_deref() == Some("0.1.0")).then_some(())
+    })
+    .await;
+
+    let c = a.client().await;
+    let node = a.sys_node();
+    let with = |upload: &str, target: Option<&str>| {
+        let mut v = vec![
+            ("confirm_site", Value::from(SITE)),
+            ("upload", upload.into()),
+            (
+                "release",
+                Value::Str(String::from_utf8_lossy(&doc).into_owned()),
+            ),
+            ("signature", signature.as_str().into()),
+        ];
+        if let Some(t) = target {
+            v.push(("target", t.into()));
+        }
+        args(&v)
+    };
+    // the active does not go first
+    let e = c
+        .invoke_one(&node, "update", with("none", None))
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::Busy), "{}", e.message);
+    assert!(e.message.contains("update the standby first"), "{}", e.message);
+    assert_eq!(a.current(), "versions/0.1.0");
+
+    // the order for the standby
+    let up = upload_parts(c.clone(), archive.clone()).await;
+    c.invoke_one(&node, "update", with(&up, Some("standby")))
+        .await
+        .unwrap();
+    eventually("the standby runs 0.2.0, proven", 300, || async move {
+        (sys_str(port, "standby_update").await.as_deref() == Some("0.2.0 confirmed")
+            && sys_str(port, "standby_version").await.as_deref() == Some("0.2.0"))
+        .then_some(())
+    })
+    .await;
+    assert_eq!(b.current(), "versions/0.2.0");
+    assert_eq!(a.current(), "versions/0.1.0", "the active still runs the old version");
+    let u = b.update_file();
+    assert_eq!((u.state.as_str(), u.role.as_str()), ("confirmed", "standby"));
+    assert_eq!(b.unit.exits(), [0], "the standby stopped once, for its update");
+    assert!(a.unit.exits().is_empty(), "the active never stopped");
+    let ops = audit_ops(a.port).await;
+    assert!(
+        ops.iter()
+            .any(|(o, d)| o == "update_confirmed" && d.contains("the standby runs 0.2.0")),
+        "{ops:?}"
+    );
+
+    // now the active; the standby waits and does not take over
+    let up = upload_parts(c.clone(), archive).await;
+    c.invoke_one(&node, "update", with(&up, None)).await.unwrap();
+    drop(c);
+    a.wait_version("0.2.0").await;
+    a.wait_state("confirmed").await;
+    assert_eq!(a.current(), "versions/0.2.0");
+    assert_eq!(a.unit.exits(), [0]);
+    assert_eq!(b.unit.exits(), [0], "the standby kept following");
+    eventually("the standby follows the new active", 120, || async move {
+        (sys_str(port, "standby_version").await.as_deref() == Some("0.2.0")).then_some(())
+    })
+    .await;
+    let roots = [a.root.clone(), b.root.clone(), stage];
+    drop(b);
+    drop(a);
+    for r in roots {
+        let _ = std::fs::remove_dir_all(r);
+    }
 }
 
 /// A daemon in this process, stopped when dropped.
