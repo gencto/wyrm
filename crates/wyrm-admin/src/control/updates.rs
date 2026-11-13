@@ -29,7 +29,7 @@
 
 use super::{
     accepted, arg, arg_str, decode_params, encode_params, install_detail, now_s, outcome, packages,
-    rejected, str_param, Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
+    rejected, secret, str_param, Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
 };
 use crate::registry::{
     LinkDef, Op, Origin, PackageDef, PackageKind, PreviousDef, UpdateReport, UPDATE_CHECKING,
@@ -443,7 +443,382 @@ pub(super) async fn declare_restore_points(
     Ok(())
 }
 
+/// What holds a package in [`Control::updating`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Phase {
+    /// An operation changes it: an install, the first steps of an update, a
+    /// rollback, a removal, a restore of one of its links.
+    Working,
+    /// Its update is being checked (ADR 0048 §1.5); `stop`: who asked to
+    /// stop the check and roll back.
+    Checking { stop: Option<String> },
+}
+
+/// One operation on a package, from its first step to its last (ADR 0048
+/// §1.9): while it lives no other update, rollback, install, removal or
+/// restore of that package starts. Given back when it is dropped, whatever
+/// way the operation ends.
+pub(super) struct PackageClaim {
+    ctl: Arc<Control>,
+    name: String,
+}
+
+impl PackageClaim {
+    /// The health check starts: `rollback` may now ask it to stop.
+    fn checking(&self) {
+        if let Some(p) = self
+            .ctl
+            .updating
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get_mut(&self.name)
+        {
+            *p = Phase::Checking { stop: None };
+        }
+    }
+}
+
+impl Drop for PackageClaim {
+    fn drop(&mut self) {
+        self.ctl
+            .updating
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.name);
+    }
+}
+
+/// One restore that replaces a link (`install_backup`, the broker restore):
+/// nothing else stops, starts, backs up or replaces the link meanwhile.
+pub(super) struct LinkClaim {
+    ctl: Arc<Control>,
+    id: String,
+}
+
+impl Drop for LinkClaim {
+    fn drop(&mut self) {
+        self.ctl
+            .link_ops
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.id);
+    }
+}
+
+/// A rollback that began (ADR 0048 §1.6): written before anything changes
+/// and removed when it is done, so a broker that ended in between finishes
+/// it at its next start, before any link runs ([`Control::complete_rollbacks`]).
+#[derive(Debug, Clone, PartialEq, minicbor::Encode, minicbor::Decode)]
+pub(super) struct PendingRollback {
+    /// The package.
+    #[n(0)]
+    name: String,
+    /// The version that is rolled back.
+    #[n(1)]
+    from: String,
+    /// The record the registry gets: the kept version with its report.
+    #[n(2)]
+    to: PackageDef,
+    /// `(link, restore point)` of every link; `None`: the link has none.
+    #[n(3)]
+    points: Vec<(String, Option<String>)>,
+    /// The update changed the store format: a link whose data does not come
+    /// back must not run the kept version.
+    #[n(4)]
+    changes_state: bool,
+    #[n(5)]
+    sub: String,
+    #[n(6)]
+    reason: String,
+}
+
+/// What [`Control::finish_rollback`] did.
+#[derive(Debug, Default)]
+pub(super) struct RolledBack {
+    /// `<link> (<point>)` of each link whose data came back.
+    restored: Vec<String>,
+    /// What went wrong, for the audit and the caller.
+    problems: Vec<String>,
+    /// Links that must not start: held ([`Control::hold_link`]).
+    held: Vec<String>,
+}
+
+/// The restore point a rollback applies for `link`: the one the update
+/// itself took (`prev.points`), else, for a record written before the points
+/// were kept, the newest of that version taken at or before `prev.replaced`.
+fn point_for(
+    root: &std::path::Path,
+    link: &str,
+    package: &str,
+    prev: &PreviousDef,
+) -> Option<restore::Point> {
+    if let Some((_, id)) = prev.points.iter().find(|(l, _)| l == link) {
+        return restore::list(root, link).into_iter().find(|p| &p.id == id);
+    }
+    if !prev.points.is_empty() {
+        // the update took points, and none of this link (it came later)
+        return None;
+    }
+    restore::newest_before(root, link, prev.replaced, package, &prev.def.version)
+}
+
 impl Control {
+    /// Take package `name` for one operation; `busy` while another has it,
+    /// or while a backup copies the data of one of its links.
+    pub(super) fn claim_package(self: &Arc<Self>, name: &str) -> Result<PackageClaim, LinkError> {
+        {
+            let mut held = self.updating.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(phase) = held.get(name) {
+                return Err(busy_package(name, phase));
+            }
+            held.insert(name.to_owned(), Phase::Working);
+        }
+        let claim = PackageClaim {
+            ctl: self.clone(),
+            name: name.to_owned(),
+        };
+        // claimed first, then looked: a backup that starts now sees the claim
+        let links: Vec<String> = links_of(self, name).into_iter().map(|l| l.id).collect();
+        match self.backup_copies(&links) {
+            Some(e) => Err(e),
+            None => Ok(claim),
+        }
+    }
+
+    /// Take link `id` for a restore that replaces it; `busy` while another
+    /// restore has it or a backup copies its data.
+    pub(super) fn claim_link(self: &Arc<Self>, id: &str) -> Result<LinkClaim, LinkError> {
+        if !self
+            .link_ops
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(id.to_owned())
+        {
+            return Err(LinkError::new(
+                Status::Busy,
+                format!("link {id} is being restored; try again when it ends"),
+            ));
+        }
+        let claim = LinkClaim {
+            ctl: self.clone(),
+            id: id.to_owned(),
+        };
+        match self.backup_copies(&[id.to_owned()]) {
+            Some(e) => Err(e),
+            None => Ok(claim),
+        }
+    }
+
+    /// Is any package or link held by an operation now?
+    pub(super) fn any_claim(&self) -> bool {
+        !self
+            .updating
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty()
+            || !self
+                .link_ops
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty()
+    }
+
+    /// The `busy` of a link that an operation holds: a restore of it, or
+    /// any operation on its package.
+    pub(super) fn link_busy(&self, id: &str) -> Option<LinkError> {
+        if self
+            .link_ops
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(id)
+        {
+            return Some(LinkError::new(
+                Status::Busy,
+                format!("link {id} is being restored; try again when it ends"),
+            ));
+        }
+        self.link_updating(id)
+    }
+
+    fn rollback_dir(&self) -> PathBuf {
+        self.restore_root().join(".rollback")
+    }
+
+    fn rollback_file(&self, name: &str) -> PathBuf {
+        self.rollback_dir().join(format!("{name}.cbor"))
+    }
+
+    /// `data_dir/links/<id>/hold`: why the link must not start.
+    fn hold_file(&self, id: &str) -> Option<PathBuf> {
+        self.link_dir(id).ok().map(|d| d.join("hold"))
+    }
+
+    /// Why link `id` is held: its private data was not restored after a
+    /// rollback over a change of the store format, so the version it would
+    /// run cannot read what is there (ADR 0048 §1.6).
+    pub fn link_hold(&self, id: &str) -> Option<String> {
+        let text = std::fs::read_to_string(self.hold_file(id)?).ok()?;
+        Some(text.trim().to_owned()).filter(|t| !t.is_empty())
+    }
+
+    /// Hold link `id`: it is not started (at a start of the broker, by
+    /// `start`, by an update) until [`Control::release_hold`].
+    pub(super) fn hold_link(&self, id: &str, why: &str) {
+        let Some(path) = self.hold_file(id) else {
+            return;
+        };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Err(e) = secret::write_private(&path, why.as_bytes()) {
+            warn!(link = id, "hold: {e}");
+        }
+    }
+
+    /// Let a held link start again (its data was restored, or an operator
+    /// said so with `start {force: true}`); `true` when it was held.
+    pub(super) fn release_hold(&self, id: &str) -> bool {
+        self.hold_file(id)
+            .is_some_and(|p| std::fs::remove_file(p).is_ok())
+    }
+
+    /// The rollbacks that began and did not end.
+    fn pending_rollbacks(&self) -> Vec<PendingRollback> {
+        std::fs::read_dir(self.rollback_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "cbor"))
+            .filter_map(|e| minicbor::decode(&std::fs::read(e.path()).ok()?).ok())
+            .collect()
+    }
+
+    /// The rest of a rollback whose links are stopped: the registry names
+    /// the kept version again, then each link's private data comes back from
+    /// its restore point. Every step may run again (a broker that ended in
+    /// the middle): the registry is written only while it still names the
+    /// rolled-back version, and a restore point applies to whatever is
+    /// there. `Err`: the registry was not written and nothing changed.
+    /// Blocking.
+    pub(super) fn finish_rollback(&self, p: &PendingRollback) -> Result<RolledBack, String> {
+        let current = self.registry().packages.get(&p.name).cloned();
+        match &current {
+            None => {
+                self.clear_rollback(&p.name);
+                return Err(format!("no package {}", p.name));
+            }
+            Some(c) if c.version == p.to.version => {}
+            Some(c) if c.version == p.from => {
+                if p.to.kind == PackageKind::Wasm {
+                    self.publish_component(&p.to)?;
+                }
+                if let Err(e) = self.apply(Op::PutPackage(p.to.clone())) {
+                    if c.kind == PackageKind::Wasm {
+                        let _ = self.publish_component(c);
+                    }
+                    return Err(e.to_string());
+                }
+            }
+            Some(c) => {
+                self.clear_rollback(&p.name);
+                return Err(format!(
+                    "{} is at {} now, not at {}",
+                    p.name, c.version, p.from
+                ));
+            }
+        }
+        let mut out = RolledBack::default();
+        let known = self.registry().links;
+        for (id, point) in &p.points {
+            if !known.contains_key(id) {
+                continue;
+            }
+            let applied = match point {
+                Some(pid) => self.restore_point_apply(id, pid).map(|()| pid.clone()),
+                None => Err("no restore point".to_owned()),
+            };
+            match applied {
+                Ok(pid) => {
+                    self.release_hold(id);
+                    out.restored.push(format!("{id} ({pid})"));
+                }
+                Err(e) if p.changes_state => {
+                    let why = format!(
+                        "the rollback of {} {} to {} did not restore this link's data ({e}), \
+                         and {} cannot read the store format {} wrote. The link is not \
+                         started: restore it with Add a link ▸ From backup (a restore point \
+                         of data_dir/restore/{id} or a backup), or start it as it is with \
+                         start {{force: true}}",
+                        p.name, p.from, p.to.version, p.to.version, p.from
+                    );
+                    self.hold_link(id, &why);
+                    out.held.push(id.clone());
+                    out.problems
+                        .push(format!("{id}: {e}; the link is held, not started"));
+                }
+                Err(e) => out.problems.push(format!("{id}: {e}, its data stays")),
+            }
+        }
+        if p.from != p.to.version {
+            let mut gone = p.to.clone();
+            gone.version = p.from.clone();
+            let _ = std::fs::remove_dir_all(packages::dir(&self.packages_root(), &gone));
+        }
+        self.clear_rollback(&p.name);
+        Ok(out)
+    }
+
+    fn write_rollback(&self, p: &PendingRollback) -> Result<(), String> {
+        let dir = self.rollback_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let bytes = minicbor::to_vec(p).map_err(|e| e.to_string())?;
+        let path = self.rollback_file(&p.name);
+        secret::write_private(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn clear_rollback(&self, name: &str) {
+        let _ = std::fs::remove_file(self.rollback_file(name));
+        let _ = std::fs::remove_dir(self.rollback_dir());
+    }
+
+    /// At a start of the broker, before any link runs: finish the rollbacks
+    /// a broker that ended left in the middle (ADR 0048 §1.6).
+    pub(super) fn complete_rollbacks(&self) {
+        for p in self.pending_rollbacks() {
+            let (status, detail) = match self.finish_rollback(&p) {
+                Ok(done) => {
+                    let mut d = format!(
+                        "{} → {}: {}; finished at the start of the broker",
+                        p.from, p.to.version, p.reason
+                    );
+                    if !done.restored.is_empty() {
+                        d.push_str(&format!("; data restored: {}", done.restored.join(", ")));
+                    }
+                    if !done.problems.is_empty() {
+                        d.push_str(&format!("; {}", done.problems.join("; ")));
+                    }
+                    let st = if done.problems.is_empty() {
+                        Status::Ok
+                    } else {
+                        Status::InternalError
+                    };
+                    (st, d)
+                }
+                Err(e) => (
+                    Status::InternalError,
+                    format!(
+                        "{} → {}: not finished at the start of the broker: {e}",
+                        p.from, p.to.version
+                    ),
+                ),
+            };
+            if status != Status::Ok {
+                warn!(package = %p.name, "rollback: {detail}");
+            }
+            self.record(&p.sub, "update_rollback", &p.name, status, &detail);
+        }
+    }
+
     /// Where restore points are kept: `data_dir/restore/<link>/`.
     pub fn restore_root(&self) -> PathBuf {
         self.cfg.data_dir.join("restore")
@@ -491,6 +866,7 @@ impl Control {
         self.is_updating(name)
     }
 
+    /// Is package `name` held by any operation (not only a health check)?
     fn is_updating(&self, name: &str) -> bool {
         self.updating
             .lock()
@@ -498,21 +874,20 @@ impl Control {
             .contains_key(name)
     }
 
-    /// `busy` while the update of package `name` is being checked.
+    /// `busy` while an operation holds package `name`.
     pub(super) fn not_updating(&self, name: &str) -> Result<(), LinkError> {
-        if self.is_updating(name) {
-            return Err(LinkError::new(
-                Status::Busy,
-                format!(
-                    "the update of {name} is being checked (sys/packages/{name}/last_update); \
-                     try again when it ends, or stop it with rollback"
-                ),
-            ));
+        match self
+            .updating
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(name)
+        {
+            Some(phase) => Err(busy_package(name, phase)),
+            None => Ok(()),
         }
-        Ok(())
     }
 
-    /// The `busy` of a link whose package update is being checked.
+    /// The `busy` of a link whose package an operation holds.
     pub(super) fn link_updating(&self, id: &str) -> Option<LinkError> {
         let driver = self.registry().links.get(id)?.driver.clone();
         let name = driver.strip_prefix(packages::DRIVER_PREFIX)?;
@@ -521,12 +896,15 @@ impl Control {
 
     /// Who asked to stop the check of `name` and roll back.
     fn update_stop_requested(&self, name: &str) -> Option<String> {
-        self.updating
+        match self
+            .updating
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get(name)
-            .cloned()
-            .flatten()
+        {
+            Some(Phase::Checking { stop }) => stop.clone(),
+            _ => None,
+        }
     }
 
     /// Ask the running check of `name` to roll back now; `false`: none runs.
@@ -537,11 +915,11 @@ impl Control {
             .unwrap_or_else(|p| p.into_inner())
             .get_mut(name)
         {
-            Some(slot) => {
-                *slot = Some(sub.to_owned());
+            Some(Phase::Checking { stop }) => {
+                *stop = Some(sub.to_owned());
                 true
             }
-            None => false,
+            _ => false,
         }
     }
 
@@ -565,6 +943,23 @@ impl Control {
     }
 }
 
+/// The `busy` of a package that an operation holds.
+fn busy_package(name: &str, phase: &Phase) -> LinkError {
+    LinkError::new(
+        Status::Busy,
+        match phase {
+            Phase::Checking { .. } => format!(
+                "the update of {name} is being checked (sys/packages/{name}/last_update); \
+                 try again when it ends, or stop it with rollback"
+            ),
+            Phase::Working => format!(
+                "{name} is being installed, updated, rolled back or restored; try again \
+                 when it ends"
+            ),
+        },
+    )
+}
+
 /// One link of a package before its update.
 #[derive(Debug, Clone)]
 struct LinkBefore {
@@ -585,6 +980,9 @@ pub(super) struct UpdatePlan {
     sub: String,
     /// The time the check has left.
     left: Duration,
+    /// The package is this update's until the check ends, also while the
+    /// check waits for a rebuild of the router.
+    claim: PackageClaim,
 }
 
 impl UpdatePlan {
@@ -863,6 +1261,7 @@ impl Admin {
         opts: UpdateOpts,
         sub: &str,
         accept: bool,
+        claim: PackageClaim,
     ) -> Result<String, String> {
         let ctl = &self.ctl;
         let def = unpacked.def.clone();
@@ -906,16 +1305,25 @@ impl Admin {
             .as_deref()
             .is_some_and(|p| p.def.version == def.version && p.def.sha256 == def.sha256);
         if !reuse && packages::dir(&root, &def).exists() {
-            return Err(format!(
-                "{name} {} is on disk with other content",
-                def.version
-            ));
+            if old
+                .previous
+                .as_deref()
+                .is_some_and(|p| p.def.version == def.version)
+            {
+                return Err(format!(
+                    "{name} {} is on disk with other content",
+                    def.version
+                ));
+            }
+            // neither the installed version nor the kept one: what an
+            // install that ended before its registry record left behind
+            let _ = std::fs::remove_dir_all(packages::dir(&root, &def));
         }
 
         // Before anything stops: each link's keys and its restore point.
-        let now = now_s();
         let mut before = Vec::new();
         let mut points = Vec::new();
+        let mut point_ids = Vec::new();
         for l in &links {
             let keys = self.link_keys(&l.id).await;
             if opts.restore_point {
@@ -924,6 +1332,7 @@ impl Admin {
                     .take_restore_point(&l.id, &name, &old.version, listed, sub)
                     .await?;
                 points.push(format!("{} ({} B)", l.id, p.size));
+                point_ids.push((l.id.clone(), p.id));
             }
             before.push(LinkBefore {
                 id: l.id.clone(),
@@ -931,6 +1340,9 @@ impl Admin {
             });
         }
 
+        // The time of the update is taken after its restore points (they
+        // are named in `previous.points` too: a rollback applies those).
+        let now = now_s();
         // The new files beside the old ones, then the registry.
         if !reuse {
             unpacked.commit(&root)?;
@@ -957,6 +1369,7 @@ impl Admin {
             keep_until: now + ctl.keep_previous_s(),
             replaced: now,
             changes_state,
+            points: point_ids,
         }));
         new.last_update = Some(report.clone());
         let put = (|| {
@@ -1034,11 +1447,8 @@ impl Admin {
         if links.is_empty() {
             return Ok(m);
         }
-        // The check goes on by itself.
-        ctl.updating
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(name.clone(), None);
+        // The check goes on by itself, with the package still this update's.
+        claim.checking();
         let mut plan = UpdatePlan {
             name: name.clone(),
             report,
@@ -1047,6 +1457,7 @@ impl Admin {
             hot,
             sub: sub.to_owned(),
             left: Duration::ZERO,
+            claim,
         };
         plan.left = Duration::from_secs(plan.wait_s().into());
         let worker = self.worker();
@@ -1147,10 +1558,8 @@ impl Admin {
                 self.finish(&name, report, &plan.sub).await;
             }
         }
-        ctl.updating
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&name);
+        // the package is free again: `plan.claim` goes with the plan
+        drop(plan);
     }
 
     /// Store the end of an update that kept the new version, and audit it.
@@ -1229,13 +1638,7 @@ impl Admin {
         let restore_root = ctl.restore_root();
         let mut points = Vec::new();
         for l in &links {
-            let p = restore::newest_before(
-                &restore_root,
-                &l.id,
-                prev.replaced,
-                name,
-                &prev.def.version,
-            );
+            let p = point_for(&restore_root, &l.id, name, &prev);
             if p.is_none() && prev.changes_state {
                 return Err(format!(
                     "the update to {} changed the store format and link {} has no restore \
@@ -1243,63 +1646,57 @@ impl Admin {
                     cur.version, l.id, prev.def.version, prev.def.version
                 ));
             }
-            points.push((l.id.clone(), p));
-        }
-        for l in &links {
-            if let Err(e) = self.stop_link(&l.id, sub).await {
-                debug!(link = %l.id, "stop for rollback: {e}");
-            }
+            points.push((l.id.clone(), p.map(|p| p.id)));
         }
         report.result = UPDATE_ROLLED_BACK.into();
         report.reason = reason.to_owned();
         report.at = now_s();
         let mut back = prev.def.clone();
         back.last_update = Some(report);
-        let put = (|| {
-            if back.kind == PackageKind::Wasm {
-                ctl.publish_component(&back)?;
+        // Written before anything changes: a broker that ends from here on
+        // finishes the rollback at its next start, before any link runs.
+        let pending = PendingRollback {
+            name: name.to_owned(),
+            from: cur.version.clone(),
+            to: back.clone(),
+            points,
+            changes_state: prev.changes_state,
+            sub: sub.to_owned(),
+            reason: reason.to_owned(),
+        };
+        ctl.write_rollback(&pending)?;
+        for l in &links {
+            if let Err(e) = self.stop_link(&l.id, sub).await {
+                debug!(link = %l.id, "stop for rollback: {e}");
             }
-            ctl.apply(Op::PutPackage(back.clone()))
-                .map_err(|e| e.to_string())
-        })();
-        if let Err(e) = put {
-            // still on the new version: its links start again
-            if cur.kind == PackageKind::Wasm {
-                let _ = ctl.publish_component(&cur);
-            }
-            for l in &links {
-                let _ = self.start_link(&l.id, sub).await;
-            }
-            return Err(e);
         }
-
-        let (mut restored, mut problems) = (Vec::new(), Vec::new());
-        for (id, point) in points {
-            let Some(point) = point else {
-                problems.push(format!("{id}: no restore point, its data stays"));
-                continue;
-            };
-            let (c, l, pid) = (ctl.clone(), id.clone(), point.id.clone());
-            let applied = tokio::task::spawn_blocking(move || c.restore_point_apply(&l, &pid))
+        let done = {
+            let c = ctl.clone();
+            tokio::task::spawn_blocking(move || c.finish_rollback(&pending))
                 .await
                 .map_err(|e| e.to_string())
-                .and_then(|r| r);
-            match applied {
-                Ok(()) => restored.push(format!("{id} ({})", point.id)),
-                Err(e) => problems.push(format!("{id}: {e}")),
+                .and_then(|r| r)
+        };
+        let done = match done {
+            Ok(d) => d,
+            Err(e) => {
+                // still on the new version: its links start again
+                ctl.clear_rollback(name);
+                for l in &links {
+                    let _ = self.start_link(&l.id, sub).await;
+                }
+                return Err(e);
             }
-        }
-        for l in &links {
+        };
+        let mut problems = done.problems;
+        for l in links.iter().filter(|l| !done.held.contains(&l.id)) {
             if let Err(e) = self.start_link(&l.id, sub).await {
                 problems.push(format!("{}: not started ({})", l.id, e.message));
             }
         }
-        if cur.version != back.version {
-            let _ = std::fs::remove_dir_all(packages::dir(&root, &cur));
-        }
         let mut detail = format!("{} → {}: {reason}", cur.version, back.version);
-        if !restored.is_empty() {
-            detail.push_str(&format!("; data restored: {}", restored.join(", ")));
+        if !done.restored.is_empty() {
+            detail.push_str(&format!("; data restored: {}", done.restored.join(", ")));
         }
         if !problems.is_empty() {
             detail.push_str(&format!("; {}", problems.join("; ")));
@@ -1421,6 +1818,8 @@ impl Admin {
                 def.version, prev.def.version
             )))));
         }
+        // no check runs: this rollback is the one operation on the package
+        let _claim = self.ctl.claim_package(name)?;
         // the report of the update that is undone, when it is the last one
         let report = def
             .last_update
@@ -1591,6 +1990,7 @@ mod tests {
             keep_until,
             replaced: 100,
             changes_state: false,
+            points: Vec::new(),
         }));
         new.last_update = Some(UpdateReport {
             from: "1.0.0".into(),
@@ -1613,7 +2013,10 @@ mod tests {
     fn a_report_left_checking_is_closed_at_the_next_start() {
         let ctl = super::super::tests::control("upd-stale", false, |_| {});
         updated(&ctl, u64::MAX);
-        ctl.updating.lock().unwrap().insert("pkg".to_owned(), None);
+        ctl.updating
+            .lock()
+            .unwrap()
+            .insert("pkg".to_owned(), Phase::Checking { stop: None });
         close_stale(&ctl);
         let r = ctl.registry().packages["pkg"].last_update.clone().unwrap();
         assert_eq!(r.result, UPDATE_CHECKING, "its check runs");
@@ -1648,7 +2051,10 @@ mod tests {
         let old_dir = root.join("pkg/1.0.0");
         expire_previous(&ctl, 1_000);
         assert!(old_dir.is_dir() && ctl.registry().packages["pkg"].previous.is_some());
-        ctl.updating.lock().unwrap().insert("pkg".to_owned(), None);
+        ctl.updating
+            .lock()
+            .unwrap()
+            .insert("pkg".to_owned(), Phase::Working);
         expire_previous(&ctl, 1_001);
         assert!(old_dir.is_dir(), "kept while the update is being checked");
         ctl.updating.lock().unwrap().clear();
