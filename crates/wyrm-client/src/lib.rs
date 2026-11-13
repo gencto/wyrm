@@ -148,6 +148,18 @@ pub(crate) fn is_links_root(key: &str) -> bool {
     segs.len() == 3 && segs[0] == keyspace::ROOT && segs[2] == "downstream"
 }
 
+/// The request body of a `~set` of `v`, byte for byte as [`WyrmClient::set`] sends it: what a
+/// token's `args` claim binds (spec 04).
+pub fn set_payload(v: Value) -> Result<Vec<u8>> {
+    to_vec(&SetRequest { v }).map_err(|e| ClientError::new(Status::InternalError, e.to_string()))
+}
+
+/// The request body of an `~act/*` with `args`, byte for byte as [`WyrmClient::invoke`] sends
+/// it.
+pub fn invoke_payload(args: &Value) -> Result<Vec<u8>> {
+    to_vec(args).map_err(|e| ClientError::new(Status::InternalError, e.to_string()))
+}
+
 fn suffixed(node: &str, suffix: &str) -> String {
     format!("{node}/{suffix}")
 }
@@ -490,6 +502,20 @@ impl WyrmClient {
         Err(last.unwrap_or_else(|| ClientError::new(Status::Timeout, "no reply")))
     }
 
+    /// A node's document (`suffix` = `~state` or `~def`, spec 01) as its responder stores it:
+    /// canonical CBOR. Like `~meta`, asked again with a `ptok` on `permission_denied` (a
+    /// restricted node), so the caller's own rights decide.
+    pub async fn doc(&self, node: &str, suffix: &str) -> Result<Vec<u8>> {
+        let key = suffixed(node, suffix);
+        let r = match self.one(&key, None, Attachment::default(), false).await {
+            Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
+                self.one(&key, None, self.token_att(&key), false).await
+            }
+            r => r,
+        };
+        Ok(r?.payload)
+    }
+
     /// `view=keys`: descendant paths relative to `node`.
     pub async fn resolve(
         &self,
@@ -611,8 +637,7 @@ impl WyrmClient {
     /// Write `v` to `node/~set`.
     pub async fn set(&self, node: &str, v: impl Into<Value>) -> Result<()> {
         let key = suffixed(node, SUFFIX_SET);
-        let payload = to_vec(&SetRequest { v: v.into() })
-            .map_err(|e| ClientError::new(Status::InternalError, e.to_string()))?;
+        let payload = set_payload(v.into())?;
         self.one(&key, Some(payload), self.token_att(&key), true)
             .await
             .map(|_| ())
@@ -632,8 +657,7 @@ impl WyrmClient {
         args: Value,
     ) -> Result<EventStream<Result<Option<Value>>>> {
         let key = suffixed(node, &format!("~act/{action}"));
-        let payload =
-            to_vec(&args).map_err(|e| ClientError::new(Status::InternalError, e.to_string()))?;
+        let payload = invoke_payload(&args)?;
         let dropped = Arc::new(AtomicU64::new(0));
         #[cfg(test)]
         LIVE_REPLIES.fetch_add(1, Ordering::SeqCst);

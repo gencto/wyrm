@@ -14,7 +14,7 @@
 //! [`COMPACT_AT`] records (at start and while running, see [`compact`]):
 //! removed tasks then also leave the disk.
 
-use crate::tools::{OpKind, PlanOp};
+use crate::tools::{OpKind, PlanOp, StepResult};
 use crate::TaskState;
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -215,6 +215,10 @@ fn plan_op_value(op: &PlanOp) -> Value {
     if let Some(r) = &op.reason {
         m.insert("reason".to_owned(), Value::from(r.as_str()));
     }
+    // absent in records written before steps had results
+    if let Some(r) = &op.result {
+        m.insert("result".to_owned(), r.to_value());
+    }
     Value::Map(m)
 }
 
@@ -263,6 +267,7 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
         level,
         needs_approval: matches!(m.get("approval"), Some(Value::Bool(true))),
         reason: s("reason").ok(),
+        result: m.get("result").and_then(StepResult::from_value),
     })
 }
 
@@ -306,6 +311,10 @@ mod tests {
                 level: Perm::Config,
                 needs_approval: true,
                 reason: Some("why".into()),
+                result: Some(StepResult {
+                    status: crate::tools::StepStatus::Skipped,
+                    message: "not approved".into(),
+                }),
             }]),
             log: vec!["l".into()],
             error: None,
@@ -324,6 +333,10 @@ mod tests {
         assert_eq!(p[0].action.as_deref(), Some("go"));
         assert_eq!(p[0].level, Perm::Config);
         assert!(p[0].needs_approval);
+        assert_eq!(
+            p[0].result.as_ref().map(|r| r.status),
+            Some(crate::tools::StepStatus::Skipped)
+        );
         assert_eq!(encode_plan(&p), r.plan);
     }
 

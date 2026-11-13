@@ -1897,6 +1897,18 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             Status::Ok,
             &format!("write={write} config={config}"),
         ),
+        AuditEvent::Approved {
+            user,
+            task,
+            steps,
+            skipped,
+        } => ctl.record(
+            &format!("user:{user}"),
+            "approve",
+            &task,
+            Status::Ok,
+            &format!("signed={} skipped={skipped}", steps.join(",")),
+        ),
         e => ctl.record("gateway", "event", "", Status::Ok, &format!("{e:?}")),
     }
 }

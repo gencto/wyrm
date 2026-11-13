@@ -6793,6 +6793,7 @@ dependencies = [
  "wyrm-flow",
  "wyrm-gateway-client",
  "wyrm-history",
+ "wyrm-link-agent",
  "wyrm-link-mock",
  "wyrm-link-sdk",
  "wyrm-mcp",

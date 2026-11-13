@@ -1,13 +1,23 @@
 //! WebSocket protocol: binary frames, each one canonical CBOR map.
 //!
 //! Client → gateway:
-//! `{id: uint, op: tstr, key: tstr, value?, action?: tstr, args?, sub?: uint}`
+//! `{id: uint, op: tstr, key: tstr, value?, action?: tstr, args?, sub?: uint, suffix?: tstr}`
 //! with `op` one of `meta`, `children`, `list`, `subscribe`, `unsubscribe`,
-//! `set`, `invoke`, `history`. `key` is a full node key (`wy/<site>/…`, no
-//! suffix); `subscribe` takes a pattern (`*`, `**`). `unsubscribe` ends the
-//! `list` or `subscribe` stream whose request id is `sub`. `history` takes
-//! `args {from, to?, agg?, window?, limit?}` (spec 01 `~val?history=`) and
-//! answers `result: [[t, v, q] | [t_start, v], …]`.
+//! `set`, `invoke`, `check`, `history`, `doc`, `approve`. `key` is a full node
+//! key (`wy/<site>/…`, no suffix); `subscribe` takes a pattern (`*`, `**`).
+//! `unsubscribe` ends the `list` or `subscribe` stream whose request id is
+//! `sub`. `history` takes `args {from, to?, agg?, window?, limit?}` (spec 01
+//! `~val?history=`) and answers `result: [[t, v, q] | [t_start, v], …]`.
+//!
+//! `doc` reads a document of the node: `suffix` is `state` or `def` (the
+//! node's `~state` or `~def`, spec 01), `result` is the document's CBOR value,
+//! at most [`crate::approve::MAX_DOC`] bytes (`resource_exhausted` beyond).
+//! `approve` approves steps of an agent task (`key` =
+//! `…/downstream/<agent>/tasks/<id>`): `args {steps: [<request key>, …],
+//! plan: <plan_hash>}`; the gateway reads the stored plan and signs one token
+//! per named step with the user's rights ([`crate::approve`], ADR 0049);
+//! `result` is the link's answer `{task, state}`. A gateway older than these
+//! two answers `invalid_parameter` with `unknown op`.
 //!
 //! Gateway → client:
 //! * `{id, ok: true, result?}` / `{id, ok: false, error: {status, message}}`
@@ -29,11 +39,14 @@
 //! `children` ≥ list, `subscribe` ≥ read on some part of the pattern,
 //! `history` ≥ read on the point, `set`
 //! ≥ write, `invoke` ≥ read with the action's own level left to the
-//! responder), then sent with a fresh `ptok`. Samples and children the user
+//! responder, `doc` ≥ list on the node and on the document's key, with a
+//! restricted node left to the responder, `approve` as an `invoke` of
+//! `approve` plus the level of every step it signs), then sent with a fresh
+//! `ptok`. Samples and children the user
 //! may not see are dropped before they reach the socket.
 
 use crate::http::{bearer, ApiError, AppState};
-use crate::{AuditEvent, Gateway, Grants, Principal};
+use crate::{AuditEvent, Gateway, Grants, Principal, Refusal};
 use axum::body::Bytes;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
@@ -125,6 +138,75 @@ impl Conn {
     }
 }
 
+impl Conn {
+    /// `approve` of an agent task (ADR 0049, the rule in [`crate::approve`]): the plan is
+    /// read from the link with the user's own token, the user's grants are checked for every
+    /// step the client named, and only then is one token signed per step. A token made here
+    /// goes to the link alone, never to the client or a log.
+    async fn approve(
+        &self,
+        p: &Principal,
+        c: &WyrmClient,
+        req: &Req,
+    ) -> Result<Option<Value>, ClientError> {
+        use crate::approve::{Ask, Plan, MAX_DOC};
+        // a step the user may not approve is the gateway's own refusal: audited as one
+        let refused = |r: Refusal| {
+            if r.status == Status::PermissionDenied {
+                self.gw.audit(AuditEvent::Denied {
+                    user: p.name.clone(),
+                    op: req.op.clone(),
+                    key: req.key.clone(),
+                });
+            }
+            ClientError::new(r.status, r.message)
+        };
+        let ask = Ask::parse(req.args.as_ref()).map_err(refused)?;
+        let site = req.key.split('/').nth(1).unwrap_or_default();
+        let doc = c.doc(&req.key, "~state").await?;
+        if doc.len() > MAX_DOC {
+            return Err(ClientError::new(
+                Status::ResourceExhausted,
+                "the task record is larger than the gateway reads",
+            ));
+        }
+        let doc: Value = from_slice(&doc)
+            .map_err(|_| ClientError::new(Status::InvalidMessage, "the task record is not CBOR"))?;
+        let plan = Plan::parse(&doc, site).map_err(refused)?;
+        let (sign, skip) = plan
+            .select(&ask, |k| p.grants.perm(&self.gw.as_own(k)))
+            .map_err(refused)?;
+        let tokens = self.gw.tokens_for(p);
+        let mut approvals = BTreeMap::new();
+        for s in &sign {
+            let tok = tokens.approval(&s.key, s.level, s.body).ok_or_else(|| {
+                refused(Refusal::new(
+                    Status::PermissionDenied,
+                    format!("you may not approve: {}", s.key),
+                ))
+            })?;
+            approvals.insert(s.key.clone(), Value::Bytes(tok));
+        }
+        let skipped = skip.len();
+        let args = map([
+            ("approvals", Value::Map(approvals)),
+            (
+                "skip",
+                Value::Array(skip.into_iter().map(Value::Str).collect()),
+            ),
+            ("plan", Value::Str(plan.hash.clone())),
+        ]);
+        let r = c.invoke_one(&req.key, "approve", args).await?;
+        self.gw.audit(AuditEvent::Approved {
+            user: p.name.clone(),
+            task: req.key.clone(),
+            steps: sign.iter().map(|s| s.key.clone()).collect(),
+            skipped,
+        });
+        Ok(r)
+    }
+}
+
 struct Conn {
     gw: Arc<Gateway>,
     session: zenoh::Session,
@@ -141,6 +223,8 @@ struct Req {
     action: Option<String>,
     args: Option<Value>,
     sub: Option<u64>,
+    /// `doc`: which document, without its `~`.
+    suffix: Option<String>,
 }
 
 /// One frame from a client, whatever carries it.
@@ -367,6 +451,29 @@ impl Conn {
             }
             "history" => p.grants.perm(&format!("{own}/~val")) >= Perm::Read,
             "set" => p.grants.perm(&format!("{own}/~set")) >= Perm::Write,
+            // a document of the node: as `list` on it, and the token the responder gets is
+            // for the document's own key (a restricted node asks `list` there)
+            "doc" => match req.suffix.as_deref() {
+                Some(s @ ("state" | "def")) => {
+                    p.grants.perm(&format!("{own}/~meta")) >= Perm::List
+                        && p.grants.perm(&format!("{own}/~{s}")) >= Perm::List
+                }
+                _ => {
+                    self.send(err_frame(
+                        req.id,
+                        Status::InvalidParameter.code(),
+                        "suffix: state or def required",
+                    ))
+                    .await;
+                    return true;
+                }
+            },
+            // as an `invoke` of the task's `approve`; the link asks its level (`config`), and
+            // every step is checked against the user's grants before it is signed (ADR 0049)
+            "approve" => {
+                p.grants.perm(&format!("{own}/~meta")) >= Perm::List
+                    && p.grants.perm(&format!("{own}/~act/approve")) >= Perm::Read
+            }
             "invoke" | "check" => match req.action.as_deref() {
                 Some(a) if wyrm_core::keyspace::validate_segment(a).is_ok() => {
                     p.grants.perm(&format!("{own}/~act/{a}")) >= Perm::Read
@@ -468,6 +575,29 @@ impl Conn {
                         .collect();
                     ok_frame(id, Some(Value::Array(kids)))
                 }
+                Err(e) => client_err(id, &e),
+            },
+            "doc" => {
+                let suffix = format!("~{}", req.suffix.as_deref().unwrap_or_default());
+                match c.doc(&req.key, &suffix).await {
+                    Ok(b) if b.len() > crate::approve::MAX_DOC => err_frame(
+                        id,
+                        Status::ResourceExhausted.code(),
+                        "the document is larger than the gateway returns",
+                    ),
+                    Ok(b) => match from_slice::<Value>(&b) {
+                        Ok(v) => ok_frame(id, Some(v)),
+                        Err(_) => err_frame(
+                            id,
+                            Status::InvalidMessage.code(),
+                            "the document is not canonical CBOR",
+                        ),
+                    },
+                    Err(e) => client_err(id, &e),
+                }
+            }
+            "approve" => match self.approve(&p, &c, &req).await {
+                Ok(v) => ok_frame(id, v),
                 Err(e) => client_err(id, &e),
             },
             "set" => match req.value {
@@ -736,6 +866,7 @@ fn parse(bytes: &[u8]) -> Result<Req, (u64, String)> {
         return Err((id, "key required".into()));
     }
     let action = text(&mut m, "action")?;
+    let suffix = text(&mut m, "suffix")?;
     let sub = match m.remove("sub") {
         None => None,
         Some(Value::UInt(s)) => Some(s),
@@ -749,6 +880,7 @@ fn parse(bytes: &[u8]) -> Result<Req, (u64, String)> {
         action,
         args: m.remove("args"),
         sub,
+        suffix,
     })
 }
 

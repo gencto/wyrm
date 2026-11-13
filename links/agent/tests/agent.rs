@@ -882,3 +882,165 @@ async fn concurrent_asks_cannot_both_spend_the_last_budget() {
     );
     env.stop().await;
 }
+
+/// Read p0, propose `p0 := a` and `p1 := b`, finish.
+fn set_both_script(a: f64, b: f64) -> Vec<Json> {
+    vec![
+        tool_use(&[
+            ("t1", "node_meta", json!({"path": "downstream/mock/p0"})),
+            (
+                "t2",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0", "value": a, "reason": "first"}),
+            ),
+            (
+                "t3",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p1", "value": b, "reason": "second"}),
+            ),
+        ]),
+        end("Plan: set both."),
+    ]
+}
+
+fn plan_step(doc: &Value, i: usize) -> Value {
+    match doc {
+        Value::Map(m) => match m.get("plan") {
+            Some(Value::Array(a)) => a[i].clone(),
+            _ => panic!("no plan in {doc:?}"),
+        },
+        _ => panic!("not a record: {doc:?}"),
+    }
+}
+
+fn result_of(step: &Value) -> Option<(String, String)> {
+    let Value::Map(m) = step else { return None };
+    let r = m.get("result")?;
+    Some((field(r, "status")?, field(r, "message")?))
+}
+
+fn with(mut args: Value, k: &str, v: Value) -> Value {
+    if let Value::Map(m) = &mut args {
+        m.insert(k.to_owned(), v);
+    }
+    args
+}
+
+fn keys(k: &[&str]) -> Value {
+    Value::Array(k.iter().map(|k| Value::from(*k)).collect())
+}
+
+/// SHA-256 of a request body, as the `args` claim holds it.
+fn sha256(b: &[u8]) -> [u8; 32] {
+    let hex = wyrm_mcp::check::payload_sha256(b);
+    let mut out = [0u8; 32];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap();
+    }
+    out
+}
+
+/// docs/studio.md §10 item 6: a step the approver leaves out is never sent and is recorded
+/// as skipped; a step neither approved nor named in `skip` refuses the whole call.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn part_of_a_plan_runs_and_the_rest_is_recorded_as_skipped() {
+    let env = Env::start(params(&["downstream/mock"]), set_both_script(7.0, 9.0)).await;
+    let (id, _) = env.ask("set both").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(plan_len(&doc), 2);
+    let hash = field(&doc, "plan_hash").expect("plan_hash");
+    let step = plan_step(&doc, 0);
+    assert_eq!(field(&step, "node").as_deref(), Some(P0));
+    assert_eq!(field(&step, "op").as_deref(), Some("set"));
+    assert_eq!(result_of(&step), None);
+    let p1 = || {
+        let v = env.mock.as_ref().unwrap().ctx().last("p1").unwrap().v;
+        v.as_f64().unwrap()
+    };
+    let p1_before = p1();
+    let k0 = format!("{P0}/~set");
+    let k1 = "wy/test/downstream/mock/p1/~set".to_owned();
+    let human = env.human(Perm::Config);
+    let one = || approvals(&[(&k0, human_token("user:op", &k0))]);
+
+    // one step approved, the other forgotten: nothing runs
+    let e = env
+        .task_action(&human, &id, "approve", one())
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("missing approval"), "{e}");
+    // nothing approved at all
+    let none = with(approvals(&[]), "skip", keys(&[&k0, &k1]));
+    let e = env
+        .task_action(&human, &id, "approve", none)
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    // a step named in both lists, and a skip of something that is not a step
+    for skip in [k0.clone(), format!("{P0}x/~set")] {
+        let args = with(one(), "skip", keys(&[&skip, &k1]));
+        let e = env
+            .task_action(&human, &id, "approve", args)
+            .await
+            .unwrap_err();
+        assert!(e.is(Status::InvalidParameter), "{e}");
+    }
+    // an approval made for another plan
+    let args = with(
+        with(one(), "skip", keys(&[&k1])),
+        "plan",
+        Value::from("0".repeat(64)),
+    );
+    let e = env
+        .task_action(&human, &id, "approve", args)
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("read it again"), "{e}");
+    // an approval bound to other arguments is found before anything runs
+    let bound = SigningTokens::new(test_key(), SITE)
+        .subject("user:op")
+        .bound_to([3; 32])
+        .token(&k0)
+        .unwrap();
+    let args = with(approvals(&[(&k0, bound)]), "skip", keys(&[&k1]));
+    let e = env
+        .task_action(&human, &id, "approve", args)
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::PermissionDenied), "{e}");
+    env.wait_state(&id, "awaiting_approval").await;
+    assert_ne!(env.p0(), 7.0);
+
+    // the first step with a token for exactly its arguments, the second left out
+    let body = wyrm_client::set_payload(Value::Float(7.0)).unwrap();
+    let tok = SigningTokens::new(test_key(), SITE)
+        .subject("user:op")
+        .bound_to(sha256(&body))
+        .token(&k0)
+        .unwrap();
+    let args = with(
+        with(approvals(&[(&k0, tok)]), "skip", keys(&[&k1])),
+        "plan",
+        Value::from(hash.as_str()),
+    );
+    env.task_action(&human, &id, "approve", args).await.unwrap();
+    let doc = env.wait_state(&id, "done").await;
+    assert_eq!(env.p0(), 7.0);
+    assert_eq!(p1(), p1_before, "the skipped step was never sent");
+    assert_eq!(
+        result_of(&plan_step(&doc, 0)).map(|r| r.0).as_deref(),
+        Some("ok")
+    );
+    assert_eq!(
+        result_of(&plan_step(&doc, 1)),
+        Some(("skipped".to_owned(), "not approved".to_owned()))
+    );
+    assert_eq!(
+        field(&doc, "plan_hash"),
+        Some(hash),
+        "results do not move the hash"
+    );
+    env.stop().await;
+}

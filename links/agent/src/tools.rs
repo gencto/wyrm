@@ -171,6 +171,62 @@ pub struct PlanOp {
     pub level: Perm,
     pub needs_approval: bool,
     pub reason: Option<String>,
+    /// What the run did with the step; `None` until it reaches it (a step after a failed one
+    /// keeps `None`: it was never sent).
+    pub result: Option<StepResult>,
+}
+
+/// How one step of a run ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepStatus {
+    Ok,
+    Failed,
+    /// Left out by the approver (`approve {skip}`): never sent.
+    Skipped,
+}
+
+impl StepStatus {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<Self> {
+        [Self::Ok, Self::Failed, Self::Skipped]
+            .into_iter()
+            .find(|v| v.name() == s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepResult {
+    pub status: StepStatus,
+    /// The responder's answer in short, or its refusal.
+    pub message: String,
+}
+
+impl StepResult {
+    pub fn to_value(&self) -> Value {
+        Value::Map(BTreeMap::from([
+            ("status".to_owned(), Value::from(self.status.name())),
+            ("message".to_owned(), Value::from(self.message.as_str())),
+        ]))
+    }
+
+    pub fn from_value(v: &Value) -> Option<Self> {
+        let Value::Map(m) = v else { return None };
+        let s = |k: &str| match m.get(k) {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        };
+        Some(Self {
+            status: StepStatus::from_name(&s("status")?)?,
+            message: s("message").unwrap_or_default(),
+        })
+    }
 }
 
 impl PlanOp {
@@ -180,18 +236,58 @@ impl PlanOp {
         self.needs_approval || policy.mode.needs_approval(self.level)
     }
 
-    pub fn to_value(&self) -> Value {
+    /// The step as the task's `~state` shows it. `approval` is the bar of now
+    /// ([`requires_approval`](Self::requires_approval)): what `approve` will ask for.
+    pub fn to_value(&self, policy: &Policy) -> Value {
         let mut m = BTreeMap::new();
         m.insert("op".to_owned(), Value::from(self.op.name()));
+        m.insert("node".to_owned(), Value::from(self.node.as_str()));
         m.insert("key".to_owned(), Value::from(self.key.as_str()));
+        if let Some(a) = &self.action {
+            m.insert("action".to_owned(), Value::from(a.as_str()));
+        }
         m.insert("args".to_owned(), self.payload.clone());
         m.insert("level".to_owned(), Value::from(self.level.name()));
-        m.insert("approval".to_owned(), Value::Bool(self.needs_approval));
+        m.insert(
+            "approval".to_owned(),
+            Value::Bool(self.requires_approval(policy)),
+        );
         if let Some(r) = &self.reason {
             m.insert("reason".to_owned(), Value::from(r.as_str()));
         }
+        if let Some(r) = &self.result {
+            m.insert("result".to_owned(), r.to_value());
+        }
         Value::Map(m)
     }
+
+    /// The request body of the step, byte for byte as the run sends it: what a human
+    /// approval may be bound to (claim `args`, spec 04).
+    pub fn request_payload(&self) -> Result<Vec<u8>, String> {
+        match self.op {
+            OpKind::Set => wyrm_client::set_payload(self.payload.clone()),
+            OpKind::Invoke => wyrm_client::invoke_payload(&self.payload),
+        }
+        .map_err(|e| e.to_string())
+    }
+}
+
+/// What an approval of a plan is bound to (`~state.plan_hash`, `approve {plan}`): the SHA-256
+/// (hex) of the canonical CBOR of `[[op, key, args, level], …]` in plan order. Two plans with
+/// the same hash send the same requests at the same levels.
+pub fn plan_hash(plan: &[PlanOp]) -> String {
+    let steps = plan
+        .iter()
+        .map(|op| {
+            Value::Array(vec![
+                Value::from(op.op.name()),
+                Value::from(op.key.as_str()),
+                op.payload.clone(),
+                Value::from(op.level.name()),
+            ])
+        })
+        .collect();
+    check::payload_sha256(&wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap_or_default())
 }
 
 fn str_field<'a>(input: &'a Json, k: &str) -> Result<&'a str, String> {
@@ -271,6 +367,7 @@ pub async fn check_proposal(
         level,
         needs_approval: policy.mode.needs_approval(level),
         reason,
+        result: None,
     })
 }
 
@@ -599,7 +696,37 @@ mod tests {
             level: Perm::Write,
             needs_approval: false, // planned under mode `config`
             reason: None,
+            result: None,
         };
+        // the hash covers what is sent and at which level, not the model's words or the run
+        let h = plan_hash(std::slice::from_ref(&op));
+        assert_eq!(h.len(), 64);
+        let reworded = PlanOp {
+            reason: Some("because".into()),
+            result: Some(StepResult {
+                status: StepStatus::Ok,
+                message: "set ok".into(),
+            }),
+            ..op.clone()
+        };
+        assert_eq!(plan_hash(std::slice::from_ref(&reworded)), h);
+        for other in [
+            PlanOp {
+                payload: Value::Float(2.0),
+                ..op.clone()
+            },
+            PlanOp {
+                key: "wy/s/downstream/m/q/~set".into(),
+                ..op.clone()
+            },
+            PlanOp {
+                level: Perm::Config,
+                ..op.clone()
+            },
+        ] {
+            assert_ne!(plan_hash(std::slice::from_ref(&other)), h);
+        }
+        assert_ne!(plan_hash(&[op.clone(), op.clone()]), h);
         assert!(!op.requires_approval(&policy(&[], ApprovalMode::Config)));
         // the policy became stricter while the task was planning
         assert!(op.requires_approval(&policy(&[], ApprovalMode::Write)));

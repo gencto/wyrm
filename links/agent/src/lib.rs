@@ -6,8 +6,9 @@
 //! |---|---|
 //! | `~meta.cfg` | `model`, `budget_tokens_day`, `allowed_prefixes`, `require_approval`, … |
 //! | `~act/ask {task}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}` |
-//! | `tasks/<id>/~val` | `{state, ask, plan, log, error?, tokens}` |
-//! | `tasks/<id>/~act/approve {approvals}` | level `config`: `{<request key>: <base64 ptok>}` |
+//! | `tasks/<id>/~val` | `{state}` (public) |
+//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, log[], error?, tokens}` (restricted: `list`); a step is `{op, node, key, action?, args, level, approval, reason?, result?: {status: ok \| failed \| skipped, message}}` |
+//! | `tasks/<id>/~act/approve {approvals, skip?, plan?}` | level `config`: `approvals` = `{<request key>: <ptok, bytes or base64>}`, `skip` = request keys of the steps left out, `plan` = the `plan_hash` the approver read |
 //! | `tasks/<id>/~act/reject`, `cancel` | level `write` |
 //!
 //! States: `planning → awaiting_approval → running → done | failed`
@@ -37,7 +38,7 @@ pub mod tools;
 
 use crate::llm::{usage_tokens, AnthropicClient, LlmClient};
 use crate::store::{AgentStore, TaskRec};
-use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader};
+use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader, StepResult, StepStatus};
 use ed25519_dalek::SigningKey;
 use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, VecDeque};
@@ -367,14 +368,19 @@ impl Task {
 
     /// The full record, served as the `~state` document of the task node
     /// (restricted: readers need `list` on it). Never holds tokens.
-    fn to_value(&self) -> Value {
+    fn to_value(&self, policy: &Policy) -> Value {
         let mut m = BTreeMap::new();
         m.insert("state".to_owned(), Value::from(self.state.name()));
         m.insert("owner".to_owned(), Value::from(self.owner.as_str()));
         m.insert("ask".to_owned(), Value::from(self.ask.as_str()));
         m.insert(
             "plan".to_owned(),
-            Value::Array(self.plan.iter().map(PlanOp::to_value).collect()),
+            Value::Array(self.plan.iter().map(|op| op.to_value(policy)).collect()),
+        );
+        // what an approval names (`approve {plan}`): the reader approves this very plan
+        m.insert(
+            "plan_hash".to_owned(),
+            Value::from(tools::plan_hash(&self.plan)),
         );
         m.insert(
             "log".to_owned(),
@@ -665,13 +671,18 @@ impl Shared {
         force: bool,
         f: impl FnOnce(&mut Task) -> R,
     ) -> Option<R> {
+        let policy = self.policy();
         let (r, v, doc) = {
             let mut st = self.lock();
             let t = st.tasks.get_mut(id)?;
             let before = (t.state, t.plan.len(), t.error.is_some(), t.tokens);
             let r = f(t);
             let changed = before != (t.state, t.plan.len(), t.error.is_some(), t.tokens);
-            let out = (r, t.public_value(), wyrm_core::codec::to_vec(&t.to_value()));
+            let out = (
+                r,
+                t.public_value(),
+                wyrm_core::codec::to_vec(&t.to_value(&policy)),
+            );
             // Under the lock: records reach the WAL in the order they change.
             if force || changed {
                 st.save_task(id);
@@ -783,6 +794,8 @@ fn task_meta() -> NodeMeta {
             "approve".to_owned(),
             ActionMeta::new()
                 .param("approvals", ParamMeta::of(TypeCode::Map).required(true))
+                .param("skip", ParamMeta::of(TypeCode::Array))
+                .param("plan", ParamMeta::of(TypeCode::String))
                 .level(Perm::Config),
         ),
         (
@@ -1167,6 +1180,39 @@ impl Agent {
             };
             toks.insert(k.clone(), tok);
         }
+        if toks.is_empty() {
+            return Err(LinkError::invalid_parameter(
+                "approvals: no step is approved (reject the plan instead)",
+            ));
+        }
+        // Steps the approver leaves out, by request key. Each step that needs a human is
+        // named once, in `approvals` or here: one that is forgotten refuses the call.
+        let mut skip: Vec<String> = Vec::new();
+        match arg(&args, "skip") {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(items)) => {
+                for i in items {
+                    match i {
+                        Value::Str(k) if !toks.contains_key(k) && !skip.contains(k) => {
+                            skip.push(k.clone());
+                        }
+                        Value::Str(k) => {
+                            return Err(LinkError::invalid_parameter(format!(
+                                "skip: {k} is named twice"
+                            )))
+                        }
+                        _ => return Err(LinkError::invalid_parameter("skip: request keys")),
+                    }
+                }
+            }
+            Some(_) => return Err(LinkError::invalid_parameter("skip: array required")),
+        }
+        // The plan the approver read (`~state.plan_hash`); checked under the lock below.
+        let seen = match arg(&args, "plan") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(h)) => Some(h.clone()),
+            Some(_) => return Err(LinkError::invalid_parameter("plan: text required")),
+        };
         let site = sh.ctx.site().to_owned();
         let policy = sh.policy();
         // Check everything before anything changes; a failure keeps the task
@@ -1183,30 +1229,56 @@ impl Agent {
                     t.state.name()
                 )));
             }
-            if let Some(k) = toks.keys().find(|k| {
+            if seen
+                .as_ref()
+                .is_some_and(|h| *h != tools::plan_hash(&t.plan))
+            {
+                return Err(LinkError::invalid_parameter(
+                    "plan: the plan is not the one this approval was made for; read it again",
+                ));
+            }
+            if let Some(k) = toks.keys().chain(&skip).find(|k| {
                 !t.plan
                     .iter()
                     .any(|op| op.requires_approval(&policy) && &op.key == *k)
             }) {
                 return Err(LinkError::invalid_parameter(format!(
-                    "approval for {k}, which is not a plan step that needs one"
+                    "{k} is not a plan step that needs an approval"
                 )));
             }
             let mut per_op = Vec::with_capacity(t.plan.len());
             for op in &t.plan {
                 if !op.requires_approval(&policy) {
-                    per_op.push(None);
+                    per_op.push(Approval::NotNeeded);
+                    continue;
+                }
+                if skip.contains(&op.key) {
+                    per_op.push(Approval::Skip);
                     continue;
                 }
                 let tok = toks.remove(&op.key).ok_or_else(|| {
-                    LinkError::invalid_parameter(format!("missing approval for {}", op.key))
+                    LinkError::invalid_parameter(format!(
+                        "missing approval for {} (approve it or name it in skip)",
+                        op.key
+                    ))
                 })?;
-                // the plan's arguments were stored at `propose` and run from there: the
-                // approval need not be bound to them (it may be, claim `args`)
-                let info = wyrm_mcp::check::precheck_approval(&tok, &op.key, &site, op.level, None)
-                    .map_err(|e| {
-                        LinkError::new(Status::PermissionDenied, format!("{}: {e}", op.key))
-                    })?;
+                // The plan's arguments were stored at `propose` and run from there. An
+                // approval bound to arguments (claim `args`) must be bound to these: found
+                // here, before anything runs, not at the step.
+                let payload = match token_binds_args(&tok) {
+                    true => Some(op.request_payload().map_err(LinkError::internal)?),
+                    false => None,
+                };
+                let info = wyrm_mcp::check::precheck_approval(
+                    &tok,
+                    &op.key,
+                    &site,
+                    op.level,
+                    payload.as_deref(),
+                )
+                .map_err(|e| {
+                    LinkError::new(Status::PermissionDenied, format!("{}: {e}", op.key))
+                })?;
                 if info.sub != sub {
                     return Err(LinkError::new(
                         Status::PermissionDenied,
@@ -1216,10 +1288,11 @@ impl Agent {
                         ),
                     ));
                 }
-                per_op.push(Some(tok));
+                per_op.push(Approval::Token(tok));
             }
             per_op
         };
+        let skipped = skip.len();
         // Compare-and-set: only one approve can win.
         let won = sh
             .with_task(id, |t| {
@@ -1227,7 +1300,10 @@ impl Agent {
                     return false;
                 }
                 t.state = TaskState::Running;
-                t.push_log(format!("approved by {sub}"));
+                t.push_log(match skipped {
+                    0 => format!("approved by {sub}"),
+                    n => format!("approved by {sub}, {n} step(s) left out"),
+                });
                 true
             })
             .await
@@ -1573,10 +1649,37 @@ async fn decide(sh: &Shared, id: &str, sink: &mut Option<ReplySink>) {
     }
 }
 
-/// Run the plan. `approvals[i]` is the human token for step `i` (empty:
-/// none). A step that needs approval never goes out without one; a step
-/// sent with a token is never retried (tokens are single-use).
-async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Option<Vec<u8>>>) {
+/// What `approve` decided for one step of the plan.
+enum Approval {
+    /// The step runs with the agent's own key.
+    NotNeeded,
+    /// The human token for exactly this step.
+    Token(Vec<u8>),
+    /// The approver left the step out: it is never sent.
+    Skip,
+}
+
+/// Does an approval carry the `args` claim (spec 04: good for one request body only)?
+fn token_binds_args(tok: &[u8]) -> bool {
+    wyrm_core::ptok::split(tok)
+        .and_then(|p| wyrm_core::codec::from_slice::<wyrm_core::ptok::PtokClaims>(p.claims).ok())
+        .is_some_and(|c| c.args.is_some())
+}
+
+fn step_result(status: StepStatus, message: impl Into<String>) -> Option<StepResult> {
+    Some(StepResult {
+        status,
+        message: truncate(&message.into(), 500),
+    })
+}
+
+/// Run the plan. `approvals[i]` is what `approve` decided for step `i`
+/// (empty: no step needs a human). A step that needs approval never goes out
+/// without a token; one the approver left out is recorded as skipped and the
+/// run goes on; a step sent with a token is never retried (tokens are
+/// single-use). Every step the run reaches gets its `result`.
+async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Approval>) {
+    let mut approvals = approvals.into_iter();
     let plan = match sh.lock().tasks.get(&id) {
         Some(t) if t.state == TaskState::Running => t.plan.clone(),
         _ => return,
@@ -1591,12 +1694,35 @@ async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Option<Vec<u8>>>) {
             .await;
             return;
         }
-        let r = run_op(&sh, &policy, op, approvals.get(i).cloned().flatten()).await;
+        let token = match approvals.next().unwrap_or(Approval::NotNeeded) {
+            Approval::Skip => {
+                sh.with_task_saved(&id, |t| {
+                    t.push_log(format!("step {}: skipped, not approved", i + 1));
+                    if let Some(s) = t.plan.get_mut(i) {
+                        s.result = step_result(StepStatus::Skipped, "not approved");
+                    }
+                })
+                .await;
+                continue;
+            }
+            Approval::Token(tok) => Some(tok),
+            Approval::NotNeeded => None,
+        };
+        let r = run_op(&sh, &policy, op, token).await;
         let ok = r.is_ok();
         // Saved: a reader after a restart sees which steps went out.
-        sh.with_task_saved(&id, |t| match r {
-            Ok(line) => t.push_log(format!("step {}: {line}", i + 1)),
-            Err(e) => t.fail(format!("step {} ({}): {e}", i + 1, op.key)),
+        sh.with_task_saved(&id, |t| {
+            let result = match &r {
+                Ok(line) => step_result(StepStatus::Ok, line.as_str()),
+                Err(e) => step_result(StepStatus::Failed, e.as_str()),
+            };
+            if let Some(s) = t.plan.get_mut(i) {
+                s.result = result;
+            }
+            match r {
+                Ok(line) => t.push_log(format!("step {}: {line}", i + 1)),
+                Err(e) => t.fail(format!("step {} ({}): {e}", i + 1, op.key)),
+            }
         })
         .await;
         if !ok {
