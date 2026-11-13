@@ -19,7 +19,7 @@ Top to bottom, space-between:
 2. The large mark (§4.3, 220 × 130), then the headline `Every device, link and site` / `in one living tree.` (40/600, line height 1.12, letter-spacing −0.02 em; the second line `#F3A766`), then `Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.` (16, line height 1.6, `#A3ABAF`), gap 22, max width 520.
 3. Legend (12 `#8E979C`): teal 14 × 2 line `values flowing` · ember line `commands` · `The animation is decoration; it stops when the system asks for less motion.`
 
-Behind everything, the network (§4.1, §4.2), painted in a 900 × 900 space scaled to cover the hero (`BoxFit.cover`, centred).
+Behind everything, the network (§4.1, §4.2), painted in a 900 × 900 space scaled to cover the hero (`BoxFit.cover`, centred). **Owner remark 2026-11-13:** in a wide, short hero the nodes move up into the text, so the network fades out under the logo, the text block and the legend (erased 20 px around each, edge blurred 14): a node or an edge never crosses a letter.
 
 ## 3. Form
 Gap 22 between the blocks; fields gap 16; field label 13 `#C5CBCE`, gap 8 to the field.

@@ -28,7 +28,10 @@ enum LoginHeroSize {
 /// the legend, top to bottom with the space between them, over the living
 /// network (§4.1, §4.2). Padding 40 × 48, a radial glow, a `ground3` line on
 /// the right.
-class LoginHero extends StatelessWidget {
+///
+/// The network fades out under the logo, the text block and the legend
+/// (login.md §2), whatever the hero's shape: a node never crosses a letter.
+class LoginHero extends StatefulWidget {
   const LoginHero({
     this.size = LoginHeroSize.wide,
     this.underButtons = false,
@@ -48,8 +51,20 @@ class LoginHero extends StatelessWidget {
   static const glow = Color(0xFF1A1511);
 
   @override
+  State<LoginHero> createState() => _LoginHeroState();
+}
+
+class _LoginHeroState extends State<LoginHero> {
+  // The blocks the network keeps clear of, read by its painter after layout.
+  final GlobalKey _logo = GlobalKey();
+  final GlobalKey _text = GlobalKey();
+  final GlobalKey _legendRow = GlobalKey();
+
+  @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final size = widget.size;
+    final underButtons = widget.underButtons;
     final small = size == LoginHeroSize.small;
     final headline = size == LoginHeroSize.wide ? 40.0 : 28.0;
     final h1 = TextStyle(
@@ -68,18 +83,20 @@ class LoginHero extends StatelessWidget {
         padding: const EdgeInsets.only(right: 1),
         child: ClipRect(
           child: CustomPaint(
-            painter: _Glow(glow, c.ground0),
+            painter: _Glow(LoginHero.glow, c.ground0),
             child: Stack(
               fit: .expand,
               children: [
-                const Positioned.fill(child: _NetworkLayer()),
+                Positioned.fill(
+                  child: _NetworkLayer(quiet: [_logo, _text, _legendRow]),
+                ),
                 Padding(
                   // 220 high below 700 px: 24 around the logo and the mark.
                   padding: small
                       ? const EdgeInsets.all(24)
                       : EdgeInsets.fromLTRB(
                           48,
-                          underButtons ? 40 + buttonsClearance : 40,
+                          underButtons ? 40 + LoginHero.buttonsClearance : 40,
                           48,
                           40,
                         ),
@@ -87,8 +104,12 @@ class LoginHero extends StatelessWidget {
                     crossAxisAlignment: .start,
                     mainAxisAlignment: .spaceBetween,
                     children: [
-                      const Rise(child: WyrmLogo(large: true)),
+                      KeyedSubtree(
+                        key: _logo,
+                        child: const Rise(child: WyrmLogo(large: true)),
+                      ),
                       ConstrainedBox(
+                        key: _text,
                         constraints: const BoxConstraints(maxWidth: 520),
                         child: Column(
                           crossAxisAlignment: .start,
@@ -130,6 +151,7 @@ class LoginHero extends StatelessWidget {
                       ),
                       if (!small)
                         Rise(
+                          key: _legendRow,
                           order: 3,
                           child: Wrap(
                             spacing: 18,
@@ -206,7 +228,10 @@ class _Glow extends CustomPainter {
 
 /// The network behind the hero, its own loops (§4.1, §4.2).
 class _NetworkLayer extends StatefulWidget {
-  const _NetworkLayer();
+  const _NetworkLayer({required this.quiet});
+
+  /// The widgets the network fades out under.
+  final List<GlobalKey> quiet;
 
   @override
   State<_NetworkLayer> createState() => _NetworkLayerState();
@@ -220,6 +245,8 @@ class _NetworkLayerState extends State<_NetworkLayer>
     duration: Motion.packetsSlow,
   );
   late final _stars = AnimationController(vsync: this, duration: Motion.stars);
+
+  final GlobalKey _self = GlobalKey();
 
   List<AnimationController> get _loops => [_fast, _slow, _stars];
 
@@ -248,7 +275,10 @@ class _NetworkLayerState extends State<_NetworkLayer>
     final c = context.colors;
     return RepaintBoundary(
       child: CustomPaint(
+        key: _self,
         painter: _Network(
+          self: _self,
+          quiet: widget.quiet,
           fast: _fast,
           slow: _slow,
           stars: _stars,
@@ -278,8 +308,14 @@ class _NetworkLayerState extends State<_NetworkLayer>
 ///   core r 3 (4) at 0.9.
 ///
 /// Under reduced motion the packets are hidden and the stars at 0.5.
+///
+/// The picture is painted in a layer and erased, with a soft edge, where the
+/// [quiet] widgets lie: text stays clear of nodes and edges in a hero of any
+/// shape (a wide, short hero moves the nodes up into the text).
 class _Network extends CustomPainter {
   _Network({
+    required this.self,
+    required this.quiet,
     required this.fast,
     required this.slow,
     required this.stars,
@@ -291,6 +327,9 @@ class _Network extends CustomPainter {
     required this.node,
   }) : super(repaint: Listenable.merge([fast, slow, stars]));
 
+  /// The `CustomPaint` this painter draws on: the origin of [quiet]'s rects.
+  final GlobalKey self;
+  final List<GlobalKey> quiet;
   final Animation<double> fast;
   final Animation<double> slow;
   final Animation<double> stars;
@@ -302,6 +341,26 @@ class _Network extends CustomPainter {
   final Color node;
 
   static const _edgeInk = Color(0xFF2A2F33);
+
+  /// How far around a quiet widget the network is erased, and how soft the
+  /// edge of that is.
+  static const _quietMargin = 20.0;
+  static const _quietBlur = 14.0;
+
+  /// The rects of the laid-out [quiet] widgets in this painter's space.
+  /// Called while painting, so layout is done.
+  List<Rect> _quietRects() {
+    final own = self.currentContext?.findRenderObject();
+    if (own is! RenderBox || !own.attached) {
+      return const [];
+    }
+    return [
+      for (final key in quiet)
+        if (key.currentContext?.findRenderObject() case final RenderBox box
+            when box.attached && box.hasSize)
+          own.globalToLocal(box.localToGlobal(Offset.zero)) & box.size,
+    ];
+  }
 
   static const _nodes = [
     Offset(150, 640),
@@ -369,6 +428,10 @@ class _Network extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final k = math.max(size.width / 900, size.height / 900);
+    final clear = _quietRects();
+    if (clear.isNotEmpty) {
+      canvas.saveLayer(Offset.zero & size, Paint());
+    }
     canvas
       ..save()
       ..translate((size.width - 900 * k) / 2, (size.height - 900 * k) / 2)
@@ -443,6 +506,23 @@ class _Network extends CustomPainter {
         );
     }
     canvas.restore();
+
+    if (clear.isNotEmpty) {
+      final erase = Paint()
+        ..blendMode = .dstOut
+        ..color = const Color(0xFF000000)
+        ..maskFilter = const MaskFilter.blur(.normal, _quietBlur);
+      for (final r in clear) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            r.inflate(_quietMargin),
+            const Radius.circular(_quietMargin),
+          ),
+          erase,
+        );
+      }
+      canvas.restore();
+    }
   }
 
   @override
