@@ -144,6 +144,49 @@ pub fn dir(root: &Path, def: &PackageDef) -> PathBuf {
     root.join(&def.name).join(&def.version)
 }
 
+/// Remove what an install or a git fetch that never ended left under
+/// `root`: `.tmp-*` and `.git-*` directories, and every version directory
+/// that neither a package of `known` nor its kept previous version names
+/// (a broker that ended between the move of the files and the registry
+/// record; ADR 0048 §1). Call it at a start, before anything installs.
+/// Returns what it removed, relative to `root`.
+pub fn clean_orphans(
+    root: &Path,
+    known: &std::collections::BTreeMap<String, PackageDef>,
+) -> Vec<String> {
+    let mut removed = Vec::new();
+    let mut gone = |path: &Path| {
+        crate::nofollow::remove_any(path);
+        if let Ok(rel) = path.strip_prefix(root) {
+            removed.push(rel.to_string_lossy().into_owned());
+        }
+    };
+    for e in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with(".tmp-") || name.starts_with(".git-") {
+            gone(&e.path());
+            continue;
+        }
+        // the component store and anything else that is not a package
+        if name.starts_with('.') || !e.path().is_dir() {
+            continue;
+        }
+        let Some(def) = known.get(&name) else {
+            gone(&e.path());
+            continue;
+        };
+        let kept = def.previous.as_deref().map(|p| p.def.version.as_str());
+        for v in std::fs::read_dir(e.path()).into_iter().flatten().flatten() {
+            let version = v.file_name().to_string_lossy().into_owned();
+            if version != def.version && Some(version.as_str()) != kept {
+                gone(&v.path());
+            }
+        }
+    }
+    removed.sort();
+    removed
+}
+
 /// A checked package in a temp directory, not yet in place. Dropped
 /// without [`Unpacked::commit`], it removes the temp directory.
 pub struct Unpacked {
@@ -406,6 +449,71 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
 pub(crate) mod tests {
     use super::*;
     use std::io::Write;
+
+    /// Review of PR 72, item 10: a broker that ended between the move of a
+    /// package's files and its registry record leaves a version directory
+    /// nothing names; the next install of that version said "is on disk
+    /// with other content". A start removes what no record names.
+    #[test]
+    fn directories_no_record_names_are_removed_at_a_start() {
+        let root = std::env::temp_dir().join(format!("wyrm-pkg-orphans-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let put = |rel: &str| {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"x").unwrap();
+        };
+        let def = |name: &str, version: &str| PackageDef {
+            name: name.into(),
+            version: version.into(),
+            kind: PackageKind::Process,
+            entry: "run".into(),
+            args: Vec::new(),
+            sha256: "00".into(),
+            source: "zip".into(),
+            description: String::new(),
+            installed: 1,
+            requester: Vec::new(),
+            state: 1,
+            previous: None,
+            last_update: None,
+        };
+        let mut a = def("a", "1.1.0");
+        a.previous = Some(Box::new(crate::registry::PreviousDef {
+            def: def("a", "1.0.0"),
+            keep_until: u64::MAX,
+            replaced: 1,
+            changes_state: false,
+            points: Vec::new(),
+        }));
+        let known: std::collections::BTreeMap<String, PackageDef> = [a, def("b", "2.0.0")]
+            .into_iter()
+            .map(|d| (d.name.clone(), d))
+            .collect();
+        for rel in [
+            "a/1.1.0/run",
+            "a/1.0.0/run",
+            "a/1.2.0/run",
+            "b/2.0.0/run",
+            "b/2.1.0/run",
+            "c/1.0.0/run",
+            ".tmp-0123/run",
+            ".git-4567/x",
+            ".wasm/a.wasm",
+        ] {
+            put(rel);
+        }
+        assert_eq!(
+            clean_orphans(&root, &known),
+            [".git-4567", ".tmp-0123", "a/1.2.0", "b/2.1.0", "c"]
+        );
+        for kept in ["a/1.1.0/run", "a/1.0.0/run", "b/2.0.0/run", ".wasm/a.wasm"] {
+            assert!(root.join(kept).is_file(), "{kept}");
+        }
+        assert!(clean_orphans(&root, &known).is_empty());
+        // a root that is not there yet
+        assert!(clean_orphans(&root.join("none"), &known).is_empty());
+    }
     use zip::write::SimpleFileOptions;
 
     /// A zip of `(path, content, unix mode)` entries.

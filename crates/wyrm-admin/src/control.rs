@@ -781,6 +781,14 @@ impl Control {
         // restore of a link's data or of a rollback left (ADR 0048 §1.6, §3.5)
         ctl.recover_link_data();
         ctl.complete_rollbacks();
+        // and what an install that ended before its registry record left
+        let orphans = packages::clean_orphans(&ctl.packages_root(), &ctl.registry().packages);
+        if !orphans.is_empty() {
+            info!(
+                "packages: removed what no record names: {}",
+                orphans.join(", ")
+            );
+        }
         Ok((ctl, rx))
     }
 
