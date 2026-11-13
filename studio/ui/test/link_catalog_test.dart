@@ -170,4 +170,63 @@ void main() {
       greaterThan(tester.getBottomLeft(field).dy),
     );
   });
+
+  // The rights card's checkbox draws its ink on a Material of its own: in the
+  // tinted card a bare ListTile threw on every frame (Studio fault,
+  // 2026-11-13).
+  testWidgets('the rights checkbox builds without a fault, and ticks', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final ticks = <bool>[];
+    await tester.pumpWidget(
+      frame(
+        LinkInstallPage(
+          labels: labels.copyWithAccept('I accept these rights'),
+          steps: const [StepVm(title: 'Where', sub: 'now')],
+          step: 0,
+          answers: const [],
+          onClose: () {},
+          target: TargetPartVm(
+            brokers: const [],
+            modes: const [],
+            name: FieldVm(value: 'bot', onChanged: (_) {}),
+            keyPreview: ('wy/plant/downstream/', 'bot'),
+            nameRule: '',
+            rightsTitle: 'It asks for',
+            accept: FieldVm(value: false, onChanged: ticks.add),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('I accept these rights'));
+    expect(ticks, [true]);
+  });
+}
+
+extension on InstallLabels {
+  InstallLabels copyWithAccept(String accept) => InstallLabels(
+    crumb: crumb,
+    title: title,
+    needs: needs,
+    railLabel: railLabel,
+    railNote: railNote,
+    stepOf: stepOf,
+    question: question,
+    why: why,
+    answersTitle: answersTitle,
+    answersNote: answersNote,
+    back: back,
+    next: next,
+    onBroker: onBroker,
+    howItRuns: howItRuns,
+    linkName: linkName,
+    accept: accept,
+    checkedHere: checkedHere,
+    manifest: manifest,
+  );
 }

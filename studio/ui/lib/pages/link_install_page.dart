@@ -579,13 +579,19 @@ class _Center extends StatelessWidget {
                   style: const TextStyle(fontSize: 14, fontWeight: .w600),
                 ),
                 if (t.rights.isNotEmpty) FactGrid(facts: t.rights),
-                CheckboxListTile(
-                  value: a.value,
-                  onChanged: (v) => a.onChanged(v ?? false),
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: .leading,
-                  activeColor: c.ember,
-                  title: Text(l.accept, style: const TextStyle(fontSize: 14)),
+                // Its own Material: a ListTile paints its ink on the
+                // nearest one, which the tinted card would hide (a
+                // Flutter assertion in debug builds).
+                Material(
+                  type: .transparency,
+                  child: CheckboxListTile(
+                    value: a.value,
+                    onChanged: (v) => a.onChanged(v ?? false),
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: .leading,
+                    activeColor: c.ember,
+                    title: Text(l.accept, style: const TextStyle(fontSize: 14)),
+                  ),
                 ),
                 if (t.rightsNote case final n?)
                   Text(n, style: TextStyle(fontSize: 12, color: c.text3)),
