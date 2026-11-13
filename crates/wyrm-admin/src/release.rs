@@ -323,9 +323,7 @@ impl Release {
                 return Err(format!("target {t}: sha256: 64 lower-case hex digits"));
             }
             if !is_sha256(&a.bin_sha256) {
-                return Err(format!(
-                    "target {t}: bin_sha256: 64 lower-case hex digits"
-                ));
+                return Err(format!("target {t}: bin_sha256: 64 lower-case hex digits"));
             }
             if a.size == 0 || a.size > MAX_ARCHIVE {
                 return Err(format!(
@@ -1056,7 +1054,10 @@ impl Layout {
             let sig = String::from_utf8(sig).map_err(|_| "signature: not text".to_owned())?;
             let release = read_release(&doc, &sig, keys)?;
             if release.version != version {
-                return Err(format!("its release document is of wyrmd {}", release.version));
+                return Err(format!(
+                    "its release document is of wyrmd {}",
+                    release.version
+                ));
             }
             let asset = release
                 .targets
@@ -1067,12 +1068,7 @@ impl Layout {
             }
             Ok(())
         })();
-        found.map_err(|e| {
-            format!(
-                "wyrmd {version} in {} is not verified: {e}",
-                dir.display()
-            )
-        })
+        found.map_err(|e| format!("wyrmd {version} in {} is not verified: {e}", dir.display()))
     }
 
     /// [`Self::verify_hash`] of the binary of `version` as it is on disk (a
@@ -2084,13 +2080,19 @@ mod tests {
                     sha256: "a".repeat(64),
                     size: 10,
                     url: String::new(),
+                    bin_sha256: "b".repeat(64),
                 },
             )]),
         }
     }
 
-    /// Put `bytes` in a file and name it as an asset.
+    /// Put `bytes` in a file and name it as an asset whose binary is
+    /// `b"binary"`.
     fn asset_of(dir: &Path, bytes: &[u8]) -> (PathBuf, Asset) {
+        asset_with(dir, bytes, b"binary")
+    }
+
+    fn asset_with(dir: &Path, bytes: &[u8], bin: &[u8]) -> (PathBuf, Asset) {
         let path = dir.join("a.tar.gz");
         std::fs::write(&path, bytes).unwrap();
         let (sha256, size) = sha256_file(&path).unwrap();
@@ -2101,6 +2103,7 @@ mod tests {
                 sha256,
                 size,
                 url: String::new(),
+                bin_sha256: hex::encode(Sha256::digest(bin)),
             },
         )
     }
@@ -2145,6 +2148,8 @@ mod tests {
     fn index_bytes(releases: &[Release], signer: &SigningKey) -> Vec<u8> {
         let file = IndexFile {
             wyrmd_releases: FORMAT,
+            sequence: 7,
+            created: "2026-11-13".into(),
             releases: releases
                 .iter()
                 .map(|r| {
@@ -2214,18 +2219,55 @@ mod tests {
         let doc = serde_json::to_vec(&release("0.3.0")).unwrap();
         let err = index
             .clone()
-            .with(&doc, &sign_release(&doc, &key(2)), &pinned)
+            .with(&doc, &sign_release(&doc, &key(2)), &pinned, "")
             .unwrap_err();
         assert!(err.contains("pinned release key"), "{err}");
         let more = index
-            .with(&doc, &sign_release(&doc, &key(1)), &pinned)
+            .with(&doc, &sign_release(&doc, &key(1)), &pinned, "2026-11-14")
             .unwrap();
         assert_eq!(more.releases.len(), 2);
+        assert_eq!((more.sequence, more.created.as_str()), (8, "2026-11-14"));
         // a release of the same version replaces the entry
         let again = more
-            .with(&doc, &sign_release(&doc, &key(1)), &pinned)
+            .with(&doc, &sign_release(&doc, &key(1)), &pinned, "")
             .unwrap();
         assert_eq!(again.releases.len(), 2);
+        assert_eq!(again.sequence, 9);
+    }
+
+    /// An index carries a sequence: a host refuses one older than it has
+    /// read, so an old, validly signed index that is put back hides nothing.
+    #[test]
+    fn an_older_index_than_one_read_is_refused() {
+        let d = scratch("sequence");
+        let pinned = [key(1).verifying_key()];
+        let bytes = index_bytes(&[release("0.2.0")], &key(1));
+        let sig = sign_index(&bytes, &key(1));
+        // the channel file holds both; a changed index in it is refused
+        let channel = bundle(&bytes, &sig).unwrap();
+        let index = read_channel(&channel, &pinned).unwrap();
+        assert_eq!(index.sequence, 7);
+        let mut c: Channel = serde_json::from_slice(&channel).unwrap();
+        c.index = c.index.replace("\"sequence\":7", "\"sequence\":9");
+        assert!(read_channel(&serde_json::to_vec(&c).unwrap(), &pinned).is_err());
+        assert!(read_channel(b"{}", &pinned).is_err());
+        // an index without a sequence is none
+        let mut file: IndexFile = serde_json::from_slice(&bytes).unwrap();
+        file.sequence = 0;
+        let zero = serde_json::to_vec(&file).unwrap();
+        assert!(read_index(&zero, &sign_index(&zero, &key(1)), &pinned)
+            .unwrap_err()
+            .contains("sequence"));
+        // what a host has read
+        assert_eq!(seen_sequence(&d), 0);
+        note_sequence(&d, 7).unwrap();
+        note_sequence(&d, 7).unwrap();
+        note_sequence(&d, 9).unwrap();
+        assert_eq!(seen_sequence(&d), 9);
+        let err = note_sequence(&d, 8).unwrap_err();
+        assert!(err.contains("older than one this broker has read"), "{err}");
+        assert_eq!(seen_sequence(&d), 9);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -2289,6 +2331,17 @@ mod tests {
         let mut r = release("0.2.0");
         r.schemas.remove("audit");
         assert!(r.compatible(&me).unwrap_err().contains("does not name"));
+        // a store this version cannot put back after a failed update
+        let mut r = release("0.2.0");
+        r.schemas.insert("ledger".into(), 1);
+        let err = r.compatible(&me).unwrap_err();
+        assert!(
+            err.contains("\"ledger\"") && err.contains("by hand"),
+            "{err}"
+        );
+        let mut odd = me.clone();
+        odd.schemas.insert("ledger".into(), 1);
+        assert!(r.compatible(&odd).is_err());
         // a SCHEMA that moves up is fine and is named
         let mut r = release("0.2.0");
         r.schemas.insert("registry".into(), 20);
@@ -2318,7 +2371,7 @@ mod tests {
             tar_entry("./wyrmd", b'0', 0o700, b"#!/bin/sh\nexit 0\n"),
             tar_entry("LICENSE", b'0', 0o777, b"Apache-2.0"),
         ]);
-        let (path, asset) = asset_of(&d, &gz);
+        let (path, asset) = asset_with(&d, &gz, b"#!/bin/sh\nexit 0\n");
         let versions = d.join("versions");
         let bin = unpack(&path, &asset, &versions, "0.2.0").unwrap();
         assert_eq!(bin, versions.join("0.2.0").join("wyrmd"));
@@ -2569,8 +2622,9 @@ mod tests {
         std::fs::write(l.bin_of("0.2.0"), b"v2").unwrap();
         let data = d.join("data");
         std::fs::create_dir_all(&data).unwrap();
+        let run = || guard(&l, &data, "0.1.0", None).unwrap();
         // nothing to do without an update
-        assert_eq!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Nothing);
+        assert_eq!(run(), Guarded::Nothing);
         assert!(guard_stamp(&data).is_some_and(|t| t + 5 >= now_s()));
         let trial = |f: &dyn Fn(&mut UpdateFile)| {
             l.switch("0.2.0").unwrap();
@@ -2578,7 +2632,7 @@ mod tests {
                 from: "0.1.0".into(),
                 to: "0.2.0".into(),
                 state: "trial".into(),
-                deadline: now_s() + 600,
+                trial_s: 180,
                 ..Default::default()
             };
             f(&mut u);
@@ -2586,30 +2640,26 @@ mod tests {
         };
         // a trial that goes on is left alone, and its starts are counted:
         // the new version gets three, also when it cannot even start
-        trial(&|u| u.deadline = 0);
+        trial(&|_| {});
         for n in 1..=MAX_ATTEMPTS {
-            assert_eq!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Nothing);
+            assert_eq!(run(), Guarded::Nothing);
             assert_eq!(UpdateFile::load(&data).unwrap().attempts, n);
             assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         }
-        assert!(matches!(
-            guard(&l, &data, "0.1.0").unwrap(),
-            Guarded::RolledBack { .. }
-        ));
+        assert!(matches!(run(), Guarded::RolledBack { .. }));
         assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
-        // the three reasons
+        // the two reasons
         for (name, f) in [
             (
                 "attempts",
                 (&|u: &mut UpdateFile| u.attempts = 3) as &dyn Fn(&mut UpdateFile),
             ),
-            ("deadline", &|u: &mut UpdateFile| u.deadline = now_s() - 1),
             ("gave up", &|u: &mut UpdateFile| {
                 u.failed = "link plc1 is not back".into()
             }),
         ] {
             trial(f);
-            let r = guard(&l, &data, "0.1.0").unwrap();
+            let r = run();
             assert!(
                 matches!(&r, Guarded::RolledBack { from, restored: false, .. } if from == "0.1.0"),
                 "{name}: {r:?}"
@@ -2618,56 +2668,333 @@ mod tests {
             let u = UpdateFile::load(&data).unwrap();
             assert_eq!(u.state, "rolled_back", "{name}");
             assert!(!u.reason.is_empty() && !u.audited, "{name}");
-            // done once
-            assert_eq!(guard(&l, &data, "0.1.0").unwrap(), Guarded::Nothing);
         }
-        // a confirmed update is rolled back only when asked, and in time
+        // a confirmed update is rolled back only when asked
+        trial(&|u| u.state = "confirmed".into());
+        assert_eq!(run(), Guarded::Nothing);
+        assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
         trial(&|u| {
             u.state = "confirmed".into();
-            u.keep_until = now_s() + 600;
-        });
-        assert_eq!(guard(&l, &data, "0.2.0").unwrap(), Guarded::Nothing);
-        trial(&|u| {
-            u.state = "confirmed".into();
-            u.keep_until = now_s() - 1;
-            u.rollback = "user:eve".into();
-        });
-        assert_eq!(guard(&l, &data, "0.2.0").unwrap(), Guarded::Nothing);
-        trial(&|u| {
-            u.state = "confirmed".into();
-            u.keep_until = now_s() + 600;
             u.rollback = "user:ann".into();
         });
-        assert!(matches!(
-            guard(&l, &data, "0.2.0").unwrap(),
-            Guarded::RolledBack { .. }
-        ));
+        assert!(matches!(run(), Guarded::RolledBack { .. }));
         assert_eq!(
             UpdateFile::load(&data).unwrap().reason,
             "rolled back by user:ann"
         );
-        // a SCHEMA moved and the backup is gone: the new version stays
-        trial(&|u| {
-            u.attempts = 3;
-            u.from_schemas = BTreeMap::from([("registry".into(), 19)]);
-            u.to_schemas = BTreeMap::from([("registry".into(), 20)]);
-            u.backup = "site-x.wyrm-backup".into();
-            u.backup_sha256 = "0".repeat(64);
-        });
-        assert!(matches!(
-            guard(&l, &data, "0.1.0").unwrap(),
-            Guarded::Stuck(_)
-        ));
-        assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
-        assert_eq!(UpdateFile::load(&data).unwrap().state, "failed");
-        // the old version is gone: the same
+        // the old version is gone: the new one stays, and that is said
         trial(&|u| u.attempts = 3);
-        std::fs::remove_dir_all(l.versions().join("0.1.0")).unwrap();
-        assert!(matches!(
-            guard(&l, &data, "0.1.0").unwrap(),
-            Guarded::Stuck(_)
-        ));
+        std::fs::rename(l.versions().join("0.1.0"), d.join("away")).unwrap();
+        assert!(matches!(run(), Guarded::Stuck(_)));
         assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
+        let u = UpdateFile::load(&data).unwrap();
+        assert_eq!(u.state, "failed");
+        assert!(u.reason.contains("wyrmd 0.2.0 stays"), "{}", u.reason);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The clock decides nothing in a trial: a host that was off for longer
+    /// than the trial comes back into the trial it left.
+    #[cfg(unix)]
+    #[test]
+    fn downtime_is_not_a_failed_trial() {
+        let d = scratch("guard-clock");
+        let exe = d.join("built");
+        std::fs::write(&exe, b"v1").unwrap();
+        let l = Layout::install(&d.join("opt"), &exe, "0.1.0").unwrap();
+        std::fs::create_dir_all(l.versions().join("0.2.0")).unwrap();
+        std::fs::write(l.bin_of("0.2.0"), b"v2").unwrap();
+        l.switch("0.2.0").unwrap();
+        let data = d.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        // one start, 40 s of 180 run, then the host was off for a week
+        // (or its clock jumped a year ahead): the estimate is long past
+        for deadline in [now_s() - 7 * 86_400, 1, now_s() + 400 * 86_400] {
+            UpdateFile {
+                from: "0.1.0".into(),
+                to: "0.2.0".into(),
+                state: "trial".into(),
+                attempts: 1,
+                trial_s: 180,
+                ran_s: 40,
+                deadline,
+                started: now_s() - 8 * 86_400,
+                from_schemas: BTreeMap::from([("registry".into(), 20)]),
+                to_schemas: BTreeMap::from([("registry".into(), 21)]),
+                ..Default::default()
+            }
+            .save(&data)
+            .unwrap();
+            assert_eq!(guard(&l, &data, "0.1.0", None).unwrap(), Guarded::Nothing);
+            let u = UpdateFile::load(&data).unwrap();
+            assert_eq!((u.state.as_str(), u.attempts, u.ran_s), ("trial", 2, 40));
+            assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The old version and the pre-update backup do not go because a clock
+    /// without a battery showed a late time once.
+    #[test]
+    fn one_reading_of_the_clock_removes_nothing() {
+        let keep_until = 1_000_000;
+        let confirmed = || UpdateFile {
+            state: "confirmed".into(),
+            keep_until,
+            ..Default::default()
+        };
+        // in time: nothing, however often
+        let mut u = confirmed();
+        assert!(!u.expire(keep_until, true, 0));
+        assert!(!u.expire(keep_until - 5, false, 99_999));
+        // one start with the clock years ahead: counted, nothing removed
+        let mut u = confirmed();
+        assert!(!u.expire(keep_until + 10 * 365 * 86_400, true, 0));
+        assert_eq!(u.expired_starts, 1);
+        // the clock is right again: forgotten
+        assert!(!u.expire(keep_until - 1, true, 0));
+        assert_eq!(u.expired_starts, 0);
+        // past at two starts
+        assert!(!u.expire(keep_until + 1, true, 0));
+        assert!(u.expire(keep_until + 2, true, 0));
+        // or for a full hour of one run (the hourly look does not count starts)
+        let mut u = confirmed();
+        assert!(!u.expire(keep_until + 1, true, 0));
+        assert!(!u.expire(keep_until + 1800, false, 1800));
+        assert_eq!(u.expired_starts, 1);
+        assert!(u.expire(keep_until + 3601, false, 3600));
+        // never during a trial, whatever the clock says
+        let mut u = UpdateFile {
+            state: "trial".into(),
+            keep_until: 0,
+            ..Default::default()
+        };
+        assert!(!u.expire(u64::MAX, true, u64::MAX));
+        assert!(!u.expire(u64::MAX, true, u64::MAX));
+        // nor after a rollback that could not be done
+        u.state = "failed".into();
+        assert!(!u.expire(u64::MAX, true, u64::MAX));
+        // a rollback keeps nothing
+        u.state = "rolled_back".into();
+        assert!(u.expire(0, false, 0));
+    }
+
+    /// After a rollback the guard does not leave the broker on a version
+    /// that does not come up: three starts, then the other one.
+    #[cfg(unix)]
+    #[test]
+    fn a_version_that_does_not_come_up_after_a_rollback_is_changed() {
+        let d = scratch("guard-starts");
+        let exe = d.join("built");
+        std::fs::write(&exe, b"v1").unwrap();
+        let l = Layout::install(&d.join("opt"), &exe, "0.1.0").unwrap();
+        std::fs::create_dir_all(l.versions().join("0.2.0")).unwrap();
+        std::fs::write(l.bin_of("0.2.0"), b"v2").unwrap();
+        l.switch("0.2.0").unwrap();
+        let data = d.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        // the update moved a SCHEMA and its backup is gone: the old version
+        // is started all the same, on the state as it is
+        UpdateFile {
+            from: "0.1.0".into(),
+            to: "0.2.0".into(),
+            state: "trial".into(),
+            failed: "link plc1 is not back".into(),
+            from_schemas: BTreeMap::from([("registry".into(), 20)]),
+            to_schemas: BTreeMap::from([("registry".into(), 21)]),
+            stores: vec!["registry".into()],
+            backup: "site-x.wyrm-backup".into(),
+            backup_sha256: "0".repeat(64),
+            ..Default::default()
+        }
+        .save(&data)
+        .unwrap();
+        let run = || guard(&l, &data, "0.1.0", None).unwrap();
+        let r = run();
+        assert!(
+            matches!(&r, Guarded::Stuck(why) if why.contains("was not restored")),
+            "{r:?}"
+        );
+        assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
+        let u = UpdateFile::load(&data).unwrap();
+        assert_eq!(u.state, "failed");
+        assert!(
+            u.reason
+                .contains("wyrmd 0.1.0 runs on the state wyrmd 0.2.0 left"),
+            "{}",
+            u.reason
+        );
+        assert!(!u.restored && !u.settled);
+        // it does not come up (it cannot read that state): three starts
+        for n in 1..=MAX_ATTEMPTS {
+            assert_eq!(run(), Guarded::Nothing);
+            assert_eq!(UpdateFile::load(&data).unwrap().starts, n);
+            assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
+        }
+        // then the version that can read it
+        let r = run();
+        assert!(
+            matches!(&r, Guarded::Stuck(why) if why.contains("wyrmd 0.2.0 is current")),
+            "{r:?}"
+        );
+        assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
+        // and so on, three starts each, until one comes up and says so
+        for _ in 0..MAX_ATTEMPTS {
+            assert_eq!(run(), Guarded::Nothing);
+        }
+        assert!(matches!(run(), Guarded::Stuck(_)));
+        assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
+        let mut u = UpdateFile::load(&data).unwrap();
+        u.settled = true;
+        u.starts = 0;
+        u.save(&data).unwrap();
+        for _ in 0..10 {
+            assert_eq!(run(), Guarded::Nothing);
+        }
+        assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
+        assert_eq!(UpdateFile::load(&data).unwrap().starts, 0);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A broker that updates itself starts only a binary that a pinned key
+    /// signed, or that was put there by hand.
+    #[cfg(unix)]
+    #[test]
+    fn the_guard_starts_only_a_verified_binary() {
+        let d = scratch("guard-verify");
+        let exe = d.join("built");
+        std::fs::write(&exe, b"v1").unwrap();
+        let l = Layout::install(&d.join("opt"), &exe, "0.1.0").unwrap();
+        let data = d.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let pinned = [key(1).verifying_key()];
+        let run = || guard(&l, &data, "0.1.0", Some(&pinned));
+        // put there by hand: named with its hash in bin/trusted.json
+        assert_eq!(run().unwrap(), Guarded::Nothing);
+        l.verify("0.1.0", &pinned).unwrap();
+        // a release that was unpacked: its signed document names the hash
+        let signed_version = |version: &str, bin: &[u8], signer: &SigningKey, says: &str| {
+            let dir = l.versions().join(version);
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(BIN), bin).unwrap();
+            let mut r = release(says);
+            let asset = r.targets.remove("x86_64-linux").unwrap();
+            r.targets.insert(
+                target(),
+                Asset {
+                    bin_sha256: hex::encode(Sha256::digest(bin)),
+                    ..asset
+                },
+            );
+            let doc = serde_json::to_vec(&r).unwrap();
+            keep_release(&l.versions(), version, &doc, &sign_release(&doc, signer)).unwrap();
+        };
+        signed_version("0.2.0", b"v2", &key(1), "0.2.0");
+        l.verify("0.2.0", &pinned).unwrap();
+        l.switch("0.2.0").unwrap();
+        assert_eq!(run().unwrap(), Guarded::Nothing);
+        assert_eq!(l.current_version().as_deref(), Some("0.2.0"));
+
+        // the binary is replaced: not started; the other version of the
+        // update, which verifies, is
+        UpdateFile {
+            from: "0.1.0".into(),
+            to: "0.2.0".into(),
+            state: "confirmed".into(),
+            ..Default::default()
+        }
+        .save(&data)
+        .unwrap();
+        std::fs::write(l.bin_of("0.2.0"), b"evil").unwrap();
+        assert!(l
+            .verify("0.2.0", &pinned)
+            .unwrap_err()
+            .contains("not verified"));
+        assert_eq!(run().unwrap(), Guarded::Nothing);
+        assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
+        let u = UpdateFile::load(&data).unwrap();
+        assert_eq!(u.state, "failed");
+        assert!(
+            u.reason.contains("not verified") && u.reason.contains("wyrmd 0.1.0 is current"),
+            "{}",
+            u.reason
+        );
+        // both replaced: nothing is started, and the guard says why
+        std::fs::write(l.bin_of("0.1.0"), b"evil too").unwrap();
+        let err = run().unwrap_err();
+        assert!(err.contains("Nothing is started"), "{err}");
+        std::fs::write(l.bin_of("0.1.0"), b"v1").unwrap();
+        assert!(run().is_ok());
+
+        // what does not make a binary verified
+        let refused = |why: &str| {
+            let err = l.verify("0.2.0", &pinned).unwrap_err();
+            assert!(err.contains(why), "{err}");
+        };
+        // a release another key signed
+        signed_version("0.2.0", b"v2", &key(2), "0.2.0");
+        refused("pinned release key");
+        // a signed release of another version beside the binary
+        signed_version("0.2.0", b"v2", &key(1), "0.3.0");
+        refused("of wyrmd 0.3.0");
+        // no release document at all
+        signed_version("0.2.0", b"v2", &key(1), "0.2.0");
+        std::fs::remove_file(l.versions().join("0.2.0").join(RELEASE_DOC)).unwrap();
+        refused("not verified");
+        // the binary is a link to a file that would verify
+        signed_version("0.2.0", b"v2", &key(1), "0.2.0");
+        std::fs::rename(l.bin_of("0.2.0"), d.join("real")).unwrap();
+        std::os::unix::fs::symlink(d.join("real"), l.bin_of("0.2.0")).unwrap();
+        refused("not a plain file");
+        // no key pinned: nothing signed is trusted (the hand-put one still is)
+        std::fs::remove_file(l.bin_of("0.2.0")).unwrap();
+        std::fs::rename(d.join("real"), l.bin_of("0.2.0")).unwrap();
+        assert!(l.verify("0.2.0", &[]).is_err());
+        l.verify("0.1.0", &[]).unwrap();
+
+        // the guard a root step keeps: the verified binary of the current
+        // version, read once
+        l.switch("0.2.0").unwrap();
+        assert!(l.refresh_guard_verified(&pinned).unwrap());
+        assert_eq!(std::fs::read(l.guard()).unwrap(), b"v2");
+        assert!(
+            !l.refresh_guard_verified(&pinned).unwrap(),
+            "already that binary"
+        );
+        std::fs::write(l.bin_of("0.2.0"), b"evil").unwrap();
+        assert!(l.refresh_guard_verified(&pinned).is_err());
+        assert_eq!(
+            std::fs::read(l.guard()).unwrap(),
+            b"v2",
+            "the guard is left"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The archive may not bring the files the broker keeps beside the
+    /// binary, and the binary must be the one the signed release names.
+    #[test]
+    fn the_binary_in_an_archive_is_the_one_the_release_names() {
+        let d = scratch("binhash");
+        let versions = d.join("versions");
+        let good = tar_entry("wyrmd", b'0', 0o755, b"binary");
+        // the archive is the one of the release, the binary in it is not
+        let (path, mut asset) = asset_of(&d, &tar_gz(std::slice::from_ref(&good)));
+        asset.bin_sha256 = "0".repeat(64);
+        let err = unpack(&path, &asset, &versions, "0.2.0").unwrap_err();
+        assert!(err.contains("binary in the archive"), "{err}");
+        assert!(!versions.join("0.2.0").exists() && !versions.join(".0.2.0.part").exists());
+        for name in [RELEASE_DOC, RELEASE_SIG] {
+            let entries = [good.clone(), tar_entry(name, b'0', 0o644, b"{}")];
+            let (path, asset) = asset_of(&d, &tar_gz(&entries));
+            let err = unpack(&path, &asset, &versions, "0.2.0").unwrap_err();
+            assert!(err.contains("a file the broker writes"), "{err}");
+        }
+        // a release without the binary's hash is no release
+        let mut r = release("0.2.0");
+        r.targets.get_mut("x86_64-linux").unwrap().bin_sha256 = String::new();
+        assert!(r.check().unwrap_err().contains("bin_sha256"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

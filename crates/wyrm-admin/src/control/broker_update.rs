@@ -1968,6 +1968,171 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The guard ran before the process started; the daemon of a promoted
+    /// standby opens hours later.
+    #[test]
+    fn the_guard_is_looked_for_before_the_process_start() {
+        let (stamp, process_start) = (Some(50_000), 50_001);
+        assert!(guard_fresh(stamp, process_start));
+        // against the time the daemon opened on a promoted standby: stale,
+        // which refused every update until the process was started again
+        assert!(!guard_fresh(stamp, process_start + 6 * 3600));
+        // no guard, a guard of an earlier start, a stamp from the future
+        assert!(!guard_fresh(None, process_start));
+        assert!(!guard_fresh(Some(50_001 - 3600), process_start));
+        assert!(!guard_fresh(Some(50_001 + 60), process_start));
+        // the control plane uses the process start when `wyrmd` gives it
+        let ctl = super::super::tests::control("broker-update-guard-ran", false, |_| {});
+        release::stamp_guard(&ctl.cfg.data_dir, "0.1.0");
+        assert!(ctl.guard_ran(), "stamped just now, daemon opened just now");
+        assert_eq!(ctl.cfg.updates.process_start, None);
+    }
+
+    /// The guard's restore, on a real pre-update backup: a store that was
+    /// there comes back, a store that was not is moved aside, and a backup
+    /// that cannot be used leaves the old version to start on what is
+    /// there. The guard never returns an error for it.
+    #[cfg(unix)]
+    #[test]
+    fn a_rollback_restores_what_was_there_and_never_blocks_the_start() {
+        let ctl = super::super::tests::control("broker-update-restore", false, |_| {});
+        let d = ctl.cfg.data_dir.clone();
+        let pre_update = |seal: SealWith| {
+            ctl.backup_now(
+                BackupRequest {
+                    kind: Kind::Broker,
+                    sections: Vec::new(),
+                    links: None,
+                    link: None,
+                    history_days: None,
+                    seal,
+                    label: "pre-update".into(),
+                    pinned: true,
+                    remote: false,
+                    estimate: false,
+                },
+                "user:ann",
+            )
+            .unwrap()
+        };
+        let job = pre_update(SealWith::Broker);
+        assert_eq!(job.sealed, "broker");
+        let stores = release::stores_of(&d);
+        assert!(stores.contains(&"registry".to_owned()), "{stores:?}");
+        assert!(!stores.contains(&"users".to_owned()), "no gateway here");
+        // the layout: 0.1.0 put there by hand, 0.2.0 current, in its trial
+        let exe = d.join("built");
+        std::fs::write(&exe, b"v1").unwrap();
+        let l = Layout::install(&d.join("opt"), &exe, "0.1.0").unwrap();
+        std::fs::create_dir_all(l.versions().join("0.2.0")).unwrap();
+        std::fs::write(l.bin_of("0.2.0"), b"v2").unwrap();
+        let schemas = |registry: u32, users: u32| {
+            BTreeMap::from([
+                ("registry".to_owned(), registry),
+                ("users".to_owned(), users),
+            ])
+        };
+        let failed_trial = |backup: &backups::Job, sha: &str| {
+            l.switch("0.2.0").unwrap();
+            UpdateFile {
+                from: "0.1.0".into(),
+                to: "0.2.0".into(),
+                state: "trial".into(),
+                failed: "link plc1 is not back".into(),
+                from_schemas: schemas(20, 4),
+                to_schemas: schemas(21, 5),
+                stores: stores.clone(),
+                backup_id: backup.id.clone(),
+                backup: backup.file.clone(),
+                backup_sha256: sha.to_owned(),
+                ..Default::default()
+            }
+            .save(&d)
+            .unwrap();
+        };
+        // what the new version wrote: into the registry, and a users store
+        // that was not there before (this broker had no gateway)
+        std::fs::write(d.join("state/written-by-0.2.0"), b"x").unwrap();
+        std::fs::create_dir_all(d.join("gateway/users")).unwrap();
+        std::fs::write(d.join("gateway/users/wal.new"), b"x").unwrap();
+
+        failed_trial(&job, &job.sha256);
+        let r = release::guard(&l, &d, "0.1.0", None).unwrap();
+        assert!(
+            matches!(&r, release::Guarded::RolledBack { restored: true, .. }),
+            "{r:?}"
+        );
+        assert_eq!(l.current_version().as_deref(), Some("0.1.0"));
+        // the registry of before the update
+        assert!(!d.join("state/written-by-0.2.0").exists());
+        assert!(d.join("update.aside/state/written-by-0.2.0").is_file());
+        assert!(std::fs::read_dir(d.join("state")).unwrap().count() > 0);
+        // the store that was not there is not there again, and is kept aside
+        assert!(!d.join("gateway/users").exists());
+        assert!(d.join("update.aside/users/wal.new").is_file());
+        let u = UpdateFile::load(&d).unwrap();
+        assert_eq!((u.state.as_str(), u.restored), ("rolled_back", true));
+
+        // a backup that is gone, one that was changed (with its hash in
+        // update.json changed to match), one that is not sealed for this
+        // broker: the old version starts on the state as it is
+        let open = pre_update(SealWith::None);
+        let changed = {
+            let path = d.join("backups").join(&job.file);
+            let mut bytes = std::fs::read(&path).unwrap();
+            // through every file in it, the registry's among them
+            let (from, to) = (bytes.len() / 10, bytes.len() * 9 / 10);
+            for b in bytes[from..to].iter_mut().step_by(16) {
+                *b ^= 0xff;
+            }
+            std::fs::write(&path, &bytes).unwrap();
+            release::sha256_file(&path).unwrap().0
+        };
+        let gone = backups::Job {
+            file: "no-such.wyrm-backup".into(),
+            ..job.clone()
+        };
+        for (name, backup, sha) in [
+            ("gone", &gone, job.sha256.as_str()),
+            ("changed, hash not", &job, job.sha256.as_str()),
+            ("changed, hash too", &job, changed.as_str()),
+            ("not sealed", &open, open.sha256.as_str()),
+        ] {
+            std::fs::write(d.join("state/written-by-0.2.0"), b"x").unwrap();
+            failed_trial(backup, sha);
+            let r = release::guard(&l, &d, "0.1.0", None)
+                .unwrap_or_else(|e| panic!("{name}: the guard must not fail: {e}"));
+            assert!(
+                matches!(&r, release::Guarded::Stuck(why) if why.contains("was not restored")),
+                "{name}: {r:?}"
+            );
+            assert_eq!(l.current_version().as_deref(), Some("0.1.0"), "{name}");
+            assert!(
+                d.join("state/written-by-0.2.0").is_file(),
+                "{name}: the state is left as it is"
+            );
+            let u = UpdateFile::load(&d).unwrap();
+            assert_eq!(u.state, "failed", "{name}");
+            assert!(
+                u.reason.contains("link plc1 is not back"),
+                "{name}: {}",
+                u.reason
+            );
+            assert!(!u.restored && !u.audited, "{name}");
+        }
+        // the version that serves says it: sys shows `failed` with the reason
+        ctl.update_started();
+        let (_, _, state, last, _) = ctl.update_view();
+        assert_eq!(state, "failed");
+        assert!(
+            matches!(last.get("reason"), Some(Value::Str(r)) if r.contains("was not restored"))
+        );
+        assert!(ctl
+            .audit_tail(20)
+            .iter()
+            .any(|r| r.op == "update_rollback" && r.status == Status::InternalError.code()));
+    }
+
     #[test]
     fn an_archive_is_fetched_from_its_url_or_beside_the_index() {
         let asset = |url: &str| Asset {
@@ -1975,6 +2140,7 @@ mod tests {
             sha256: "a".repeat(64),
             size: 1,
             url: url.into(),
+            bin_sha256: "b".repeat(64),
         };
         assert_eq!(
             asset_url("https://dl.example/wyrmd/releases.json", &asset("")).unwrap(),

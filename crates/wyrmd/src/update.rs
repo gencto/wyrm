@@ -271,7 +271,9 @@ pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
     };
     let keys = release::pinned_keys(&cfg.updates.keys)?;
     layout.verify(me, &keys).map_err(|e| {
-        format!("{e}. This broker does not start: updates.mode \"self\" runs only a verified binary")
+        format!(
+            "{e}. This broker does not start: updates.mode \"self\" runs only a verified binary"
+        )
     })
 }
 
@@ -821,8 +823,8 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
         } => {
             let keys = release::pinned_keys(&key)?;
             let bytes = read(&index)?;
-            let sig = String::from_utf8(read(&sig_path(&index))?)
-                .map_err(|_| "signature: not text")?;
+            let sig =
+                String::from_utf8(read(&sig_path(&index))?).map_err(|_| "signature: not text")?;
             let checked = release::read_index(&bytes, &sig, &keys)?;
             std::fs::write(&channel, release::bundle(&bytes, &sig)?)?;
             println!(
