@@ -11108,6 +11108,35 @@ async fn backup_while_writing() {
     }
     assert!(env.ctl.backups().list().is_empty());
 
+    // Review of PR 72, item 9: a check and a restore of a backup are long
+    // actions from their first step: a broker that closes for a rebuild
+    // refuses them (`busy`, try again), and one that runs them is waited for.
+    env.ctl.quiesce(Duration::ZERO).await;
+    for (action, args) in [
+        ("restore_check", args_map(&[("upload", "none".into())])),
+        (
+            "restore_apply",
+            args_map(&[
+                ("upload", "none".into()),
+                ("mode", "add".into()),
+                ("sections", names(&["links"])),
+            ]),
+        ),
+    ] {
+        let e = c.invoke_one(&backups, action, args).await.unwrap_err();
+        assert!(e.is(wyrm_core::Status::Busy), "{action}: {e}");
+    }
+    env.ctl.reopen();
+    let e = c
+        .invoke_one(
+            &backups,
+            "restore_check",
+            args_map(&[("upload", "none".into())]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(wyrm_core::Status::NotFound), "{e}");
+
     let est = c
         .invoke_one(
             &backups,

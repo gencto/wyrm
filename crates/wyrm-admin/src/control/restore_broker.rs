@@ -1189,6 +1189,10 @@ impl Admin {
         remote: bool,
     ) -> wyrm_link_sdk::Result<Option<Value>> {
         let ctl = &self.ctl;
+        // A check reads the whole file and `add` installs links: a rebuild
+        // of the router waits for both, as for `replace` and any install,
+        // and neither starts on a broker that is closing for one.
+        let _busy = ctl.busy()?;
         let upload = arg_str(args, "upload")
             .filter(|u| !u.is_empty())
             .ok_or_else(|| LinkError::invalid_parameter("upload: required"))?
@@ -1276,7 +1280,6 @@ impl Admin {
                 replace_keys: false,
             })?;
         }
-        let _busy = ctl.busy().map_err(|e| e.message)?;
         // nothing else changes a package or a link while this is staged
         // (ADR 0048 §1.9); the flag stays until the broker stops
         ctl.replacing(true).map_err(|e| e.message)?;
