@@ -12947,3 +12947,84 @@ async fn link_backup_of_a_process_link() {
     upd_c2(&env, "u1 still runs").await;
     env.stop().await;
 }
+
+/// Review of PR 72, item 6: a staged restore whose stores do not open does
+/// not keep the broker from starting. The start that applied it puts the
+/// state before it back and ends; the next one runs on that state and
+/// audits the failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restore_that_does_not_open_is_undone() {
+    let dir = temp_dir("restore-undone");
+    let env = Env::start_in(&dir, MOCK).await;
+    env.stop().await;
+    let files = |d: &std::path::Path| -> BTreeMap<String, Vec<u8>> {
+        std::fs::read_dir(d)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| {
+                (
+                    e.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(e.path()).unwrap(),
+                )
+            })
+            .collect()
+    };
+    let state = files(&dir.join("history"));
+    assert!(state.contains_key("index.redb"));
+
+    // a history index that is no database, staged as a restore of `history`
+    let pending = dir.join("restore.pending");
+    std::fs::create_dir_all(pending.join("data/history/days")).unwrap();
+    std::fs::write(pending.join("data/history/index.redb"), vec![0xA5u8; 4096]).unwrap();
+    std::fs::write(
+        pending.join("plan.json"),
+        br#"{"by":"user:eve","backup":"e2e 2026-11-13T10:00:00Z","sections":["history"],"dirs":["history"]}"#,
+    )
+    .unwrap();
+
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let text = format!(
+        r#"{{ site: "{SITE}", data_dir: "{}",
+             listen: ["tcp/127.0.0.1:{}", "tls/127.0.0.1:{}"],
+             admin_keys: ["{}"], {MOCK} }}"#,
+        dir.display(),
+        free_port(),
+        free_port(),
+        hex::encode(key.verifying_key().to_bytes())
+    );
+    let cfg = Config::from_json5(&text).unwrap();
+    let e = match open_daemon(cfg, env!("CARGO_BIN_EXE_wyrmd").into()) {
+        Ok(_) => panic!("a history index of garbage opened"),
+        Err(e) => e.to_string(),
+    };
+    assert!(
+        e.contains("the restore was not applied") && e.contains("back in place"),
+        "{e}"
+    );
+    // everything is as it was, and the folder is set aside with the reason
+    assert_eq!(files(&dir.join("history")), state);
+    assert!(!pending.exists());
+    assert!(dir.join("restore.failed/plan.json").is_file());
+    assert!(!dir.join("restore.failed/data").exists());
+
+    // the supervisor's next start: the broker runs on the state before
+    let env = Env::start_in(&dir, MOCK).await;
+    assert!(env.ctl.registry().links.contains_key("mock"));
+    let audit = env.ctl.audit_tail(50);
+    let failed: Vec<_> = audit.iter().filter(|r| r.op == "restore_failed").collect();
+    assert_eq!(failed.len(), 1, "{audit:?}");
+    assert_eq!(failed[0].sub, "user:eve");
+    assert!(
+        failed[0].detail.contains("not applied"),
+        "{}",
+        failed[0].detail
+    );
+    assert!(!audit.iter().any(|r| r.op == "restore_applied"));
+    env.stop().await;
+    // said once
+    let env = Env::start_in(&dir, MOCK).await;
+    let again = env.ctl.audit_tail(100);
+    assert_eq!(again.iter().filter(|r| r.op == "restore_failed").count(), 1);
+    env.stop().await;
+}

@@ -36,8 +36,21 @@ const PENDING_TMP: &str = "restore.pending.tmp";
 const PLAN: &str = "plan.json";
 const STORAGE_TREE: &str = "storage.tree.cbor";
 const LINK_SECRETS: &str = "link-secrets.cbor";
-/// Written once the removals of a plan are done: they are not done twice.
-const REMOVED: &str = "removed";
+/// `data_dir/restore.failed`: a restore that was not applied, with its
+/// plan and the reason (`error.txt`); the state before it is in place.
+pub const FAILED: &str = "restore.failed";
+/// A restore that was applied and committed, being removed.
+const DONE: &str = "restore.done";
+/// What was there before the first change, written before it.
+const BEFORE: &str = "before.json";
+/// What the restore replaced, kept until it is committed: `old/<path>`.
+const OLD: &str = "old";
+/// The restore is being undone (with the reason): a start goes on with it.
+const UNDO: &str = "undo";
+const ERROR: &str = "error.txt";
+/// The failure was audited.
+const REPORTED: &str = "reported";
+const SECRETS_BIN: &str = "secrets.bin";
 
 /// The sections `mode: replace` puts in place (`config` is never restored).
 const REPLACEABLE: [&str; 7] = [
@@ -269,122 +282,370 @@ fn replace_gates(g: &Gates) -> Result<(), String> {
 /// The CA certificate among the key files: another one is another identity.
 const CA_FILE: &str = "pki/ca.pem";
 
-/// Put a restore staged in `data_dir/restore.pending` in place. Call it
-/// before any store of `data_dir` opens. `Ok(None)`: nothing was staged. A
-/// start that stopped halfway is taken up again by the next one: every
-/// step is done once.
-pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, String> {
-    // a staging that never finished
-    let _ = std::fs::remove_dir_all(data_dir.join(PENDING_TMP));
-    let pending = data_dir.join(PENDING);
-    if !pending.is_dir() {
-        return Ok(None);
+/// What was under `data_dir` before a staged restore changed anything.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct Before {
+    /// Paths the plan replaces that were there.
+    existed: Vec<String>,
+    /// Paths the plan removes that were there (set aside, never deleted).
+    moved: Vec<String>,
+    /// Every path the plan puts something at, in the order it does.
+    placed: Vec<String>,
+}
+
+/// A restore that was not applied ([`take_failure`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Failure {
+    pub by: String,
+    pub backup: String,
+    pub sections: Vec<String>,
+    pub error: String,
+}
+
+fn is_there(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok()
+}
+
+fn move_to(from: &Path, to: &Path) -> Result<(), String> {
+    if let Some(d) = to.parent() {
+        std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
     }
+    std::fs::rename(from, to).map_err(|e| io_err(to, e))
+}
+
+fn component_target(name: &str) -> String {
+    format!("packages/.wasm/{name}.wasm")
+}
+
+/// The plan of the folder, checked: every path relative and plain.
+fn read_plan(pending: &Path) -> Result<Plan, String> {
     let text = std::fs::read(pending.join(PLAN)).map_err(|e| io_err(&pending.join(PLAN), e))?;
     let plan: Plan = serde_json::from_slice(&text).map_err(|e| format!("{PLAN}: {e}"))?;
     for p in plan.remove.iter().chain(&plan.dirs).chain(&plan.files) {
         plan_path(p)?;
     }
-    let staged = pending.join("data");
-    if !pending.join(REMOVED).exists() {
-        for p in &plan.remove {
-            let at = data_dir.join(p);
-            if at.is_dir() {
-                std::fs::remove_dir_all(&at).map_err(|e| io_err(&at, e))?;
-            }
-        }
-        if plan.strip_link_certs {
-            for link in std::fs::read_dir(data_dir.join("links"))
+    for (name, entry) in &plan.components {
+        plan_path(entry)?;
+        wyrm_core::keyspace::validate_segment(name).map_err(|e| e.to_string())?;
+    }
+    Ok(plan)
+}
+
+/// What is there now, before anything of `plan` is done.
+fn look_before(data_dir: &Path, pending: &Path, plan: &Plan) -> Before {
+    let mut moved: Vec<String> = plan
+        .remove
+        .iter()
+        .filter(|p| is_there(&data_dir.join(p)))
+        .cloned()
+        .collect();
+    if plan.strip_link_certs {
+        for link in std::fs::read_dir(data_dir.join("links"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            for f in std::fs::read_dir(link.path())
                 .into_iter()
                 .flatten()
                 .flatten()
             {
-                for f in std::fs::read_dir(link.path())
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                {
-                    let name = f.file_name().to_string_lossy().into_owned();
-                    if f.path().is_file() && (name.ends_with(".pem") || name.ends_with(".key")) {
-                        std::fs::remove_file(f.path()).map_err(|e| io_err(&f.path(), e))?;
-                    }
+                let name = f.file_name().to_string_lossy().into_owned();
+                if f.path().is_file() && (name.ends_with(".pem") || name.ends_with(".key")) {
+                    moved.push(format!(
+                        "links/{}/{name}",
+                        link.file_name().to_string_lossy()
+                    ));
                 }
             }
         }
-        std::fs::write(pending.join(REMOVED), b"").map_err(|e| io_err(&pending, e))?;
     }
-    for p in plan.dirs.iter().chain(&plan.files) {
-        let (from, to) = (staged.join(p), data_dir.join(p));
+    moved.sort();
+    let mut placed: Vec<String> = plan.dirs.iter().chain(&plan.files).cloned().collect();
+    placed.extend(plan.components.iter().map(|(n, _)| component_target(n)));
+    for extra in [(STORAGE_TREE, "storage"), (LINK_SECRETS, SECRETS_BIN)] {
+        if pending.join(extra.0).is_file() && !placed.iter().any(|p| p == extra.1) {
+            placed.push(extra.1.to_owned());
+        }
+    }
+    // what a removal takes away is not there for what is placed after it
+    let gone = |p: &String| {
+        moved
+            .iter()
+            .any(|m| p == m || p.starts_with(&format!("{m}/")))
+    };
+    let existed = placed
+        .iter()
+        .filter(|p| is_there(&data_dir.join(p)) && !gone(p))
+        .cloned()
+        .collect();
+    Before {
+        existed,
+        moved,
+        placed,
+    }
+}
+
+/// Do the plan. Every step may run again after a start that stopped in it.
+/// What a step replaces or removes goes to `old/` first, never away.
+fn forward(data_dir: &Path, pending: &Path, plan: &Plan, before: &Before) -> Result<(), String> {
+    let (staged, old) = (pending.join("data"), pending.join(OLD));
+    let existed = |p: &str| before.existed.iter().any(|e| e == p);
+    // what is at `p` goes aside, once; a leftover of an earlier try goes
+    let aside = |p: &str| -> Result<(), String> {
+        let (to, keep) = (data_dir.join(p), old.join(p));
+        if !is_there(&to) {
+            return Ok(());
+        }
+        if existed(p) && !is_there(&keep) {
+            move_to(&to, &keep)
+        } else {
+            crate::nofollow::remove_any(&to);
+            Ok(())
+        }
+    };
+    for m in &before.moved {
+        let (at, keep) = (data_dir.join(m), old.join(m));
+        if is_there(&at) && !is_there(&keep) {
+            move_to(&at, &keep)?;
+        }
+    }
+    // a staging of an earlier build left the storage as its tree: built
+    // here, in the folder, before it is moved like any directory
+    let tree = pending.join(STORAGE_TREE);
+    let mut dirs = plan.dirs.clone();
+    if tree.is_file() {
+        let built = staged.join("storage");
+        crate::nofollow::remove_any(&built);
+        build_storage(&tree, &built)?;
+        if !dirs.iter().any(|d| d == "storage") {
+            dirs.push("storage".into());
+        }
+    }
+    for p in dirs.iter().chain(&plan.files) {
+        let from = staged.join(p);
         // moved already by a start that stopped after it
-        if !from.exists() {
+        if !is_there(&from) {
             continue;
         }
-        if to.is_dir() {
-            std::fs::remove_dir_all(&to).map_err(|e| io_err(&to, e))?;
-        } else if to.exists() {
-            std::fs::remove_file(&to).map_err(|e| io_err(&to, e))?;
-        }
+        aside(p)?;
+        move_to(&from, &data_dir.join(p))?;
+    }
+    for (name, entry) in &plan.components {
+        let target = component_target(name);
+        aside(&target)?;
+        let to = data_dir.join(&target);
         if let Some(d) = to.parent() {
             std::fs::create_dir_all(d).map_err(|e| io_err(d, e))?;
         }
-        std::fs::rename(&from, &to).map_err(|e| io_err(&to, e))?;
-    }
-    for (name, entry) in &plan.components {
-        plan_path(entry)?;
-        wyrm_core::keyspace::validate_segment(name).map_err(|e| e.to_string())?;
-        let store = data_dir.join("packages").join(".wasm");
-        std::fs::create_dir_all(&store).map_err(|e| io_err(&store, e))?;
-        let to = store.join(format!("{name}.wasm"));
         std::fs::copy(data_dir.join(entry), &to).map_err(|e| io_err(&to, e))?;
     }
-    // the storage is rebuilt from its tree; link secrets go into the store
-    // that is in place now (after `keys`, if they were replaced)
-    let tree = pending.join(STORAGE_TREE);
-    if tree.is_file() {
-        let bytes = std::fs::read(&tree).map_err(|e| io_err(&tree, e))?;
-        let changes = wyrm_core::codec::from_slice(&bytes)
-            .ok()
-            .and_then(replication::parse_changes)
-            .ok_or("storage tree: unreadable")?;
-        let dir = data_dir.join("storage");
-        if dir.is_dir() {
-            std::fs::remove_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
-        }
-        let store = wyrm_storage::Store::open(&dir)?;
-        store.apply(changes.put, Vec::new())?;
-        drop(store);
-        std::fs::remove_file(&tree).map_err(|e| io_err(&tree, e))?;
-    }
+    // link secrets go into the store that is in place now; the store as it
+    // was is kept first
     let secrets = pending.join(LINK_SECRETS);
     if secrets.is_file() {
+        let (at, keep) = (data_dir.join(SECRETS_BIN), old.join(SECRETS_BIN));
+        if existed(SECRETS_BIN) && !is_there(&keep) {
+            let bytes = Zeroizing::new(std::fs::read(&at).map_err(|e| io_err(&at, e))?);
+            secret::write_private(&keep, &bytes).map_err(|e| io_err(&keep, e))?;
+        }
         let bytes = Zeroizing::new(std::fs::read(&secrets).map_err(|e| io_err(&secrets, e))?);
-        let Value::Map(links) =
-            wyrm_core::codec::from_slice::<Value>(&bytes).map_err(|e| e.to_string())?
-        else {
-            return Err("link secrets: not a map".into());
-        };
+        let links = parse_link_secrets(&bytes)?;
         let store = crate::secrets::SecretStore::open(data_dir).map_err(|e| e.to_string())?;
-        for (link, v) in links {
-            let Value::Map(m) = v else { continue };
-            for (name, v) in m {
-                // a secret a broker makes for a link's identity is never
-                // taken from a backup (the staging dropped them already)
-                if broker_made_secret(&name) {
-                    continue;
-                }
-                if let Value::Bytes(b) = v {
-                    store.set(&link, &name, &b).map_err(|e| e.to_string())?;
-                }
+        for (link, m) in links {
+            for (name, b) in m {
+                store.set(&link, &name, &b).map_err(|e| e.to_string())?;
             }
         }
-        std::fs::remove_file(&secrets).map_err(|e| io_err(&secrets, e))?;
     }
-    std::fs::remove_dir_all(&pending).map_err(|e| io_err(&pending, e))?;
-    Ok(Some(Applied {
+    Ok(())
+}
+
+/// The link secrets a restore staged: `{link: {name: bytes}}`, without the
+/// ones a broker makes for a link's identity (never taken from a backup).
+fn parse_link_secrets(
+    bytes: &[u8],
+) -> Result<BTreeMap<String, BTreeMap<String, Zeroizing<Vec<u8>>>>, String> {
+    let Value::Map(links) =
+        wyrm_core::codec::from_slice::<Value>(bytes).map_err(|e| format!("link secrets: {e}"))?
+    else {
+        return Err("link secrets: not a map".into());
+    };
+    let mut out = BTreeMap::new();
+    for (link, v) in links {
+        crate::registry::validate_link_id(&link)?;
+        let Value::Map(m) = v else {
+            return Err(format!("link secrets: {link}: not a map"));
+        };
+        let mut of_link = BTreeMap::new();
+        for (name, v) in m {
+            if broker_made_secret(&name) {
+                continue;
+            }
+            let Value::Bytes(b) = v else {
+                return Err(format!("link secrets: {link}/{name}: not bytes"));
+            };
+            of_link.insert(name, Zeroizing::new(b));
+        }
+        out.insert(link, of_link);
+    }
+    Ok(out)
+}
+
+/// The storage of a backup (`storage/tree.cbor`) as a new store at `dir`.
+fn build_storage(tree: &Path, dir: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(tree).map_err(|e| io_err(tree, e))?;
+    let changes = wyrm_core::codec::from_slice(&bytes)
+        .ok()
+        .and_then(replication::parse_changes)
+        .ok_or("storage tree: unreadable")?;
+    let store = wyrm_storage::Store::open(dir)?;
+    store.apply(changes.put, Vec::new())?;
+    Ok(())
+}
+
+/// Put back what [`forward`] replaced or removed, then keep the folder as
+/// `restore.failed` with `why`. Every step may run again. `Err`: something
+/// could not be put back (the state is then neither the old nor the new).
+fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(), String> {
+    let old = pending.join(OLD);
+    if !pending.join(UNDO).exists() {
+        secret::write_private(&pending.join(UNDO), why.as_bytes())
+            .map_err(|e| io_err(pending, e))?;
+    }
+    for p in before.placed.iter().rev() {
+        let (to, keep) = (data_dir.join(p), old.join(p));
+        if before.existed.contains(p) {
+            // not set aside: never touched, or back already
+            if is_there(&keep) {
+                crate::nofollow::remove_any(&to);
+                move_to(&keep, &to)?;
+            }
+        } else {
+            crate::nofollow::remove_any(&to);
+        }
+    }
+    for m in before.moved.iter().rev() {
+        let (at, keep) = (data_dir.join(m), old.join(m));
+        if is_there(&keep) {
+            crate::nofollow::remove_any(&at);
+            move_to(&keep, &at)?;
+        }
+    }
+    set_failed(data_dir, pending, why)
+}
+
+/// The folder becomes `restore.failed`: its plan and the reason stay,
+/// everything else (opened keys and secrets among it) goes.
+fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> {
+    for name in ["data", OLD, LINK_SECRETS, STORAGE_TREE, BEFORE] {
+        crate::nofollow::remove_any(&pending.join(name));
+    }
+    secret::write_private(&pending.join(ERROR), why.as_bytes()).map_err(|e| io_err(pending, e))?;
+    let _ = std::fs::remove_file(pending.join(UNDO));
+    let failed = data_dir.join(FAILED);
+    crate::nofollow::remove_any(&failed);
+    std::fs::rename(pending, &failed).map_err(|e| io_err(&failed, e))
+}
+
+/// Put a restore staged in `data_dir/restore.pending` in place. Call it
+/// before any store of `data_dir` opens, then [`commit_pending`] once the
+/// stores opened, or [`undo_pending`] when they did not.
+///
+/// All or nothing (ADR 0048 §3.6): what the plan replaces or removes is
+/// set aside in the folder, never deleted, until the commit. `Ok(Some)`:
+/// the plan is in place. `Ok(None)`: nothing was staged, or the plan could
+/// not be applied: then everything is as it was before, the folder is
+/// `restore.failed` and [`take_failure`] says why, and the broker starts
+/// with the state it had. `Err`: the state before could not be put back
+/// either. A start that stopped halfway is taken up again by the next one.
+pub fn apply_pending(data_dir: &Path) -> Result<Option<Applied>, String> {
+    // a staging that never finished; a restore that was committed
+    let _ = std::fs::remove_dir_all(data_dir.join(PENDING_TMP));
+    let _ = std::fs::remove_dir_all(data_dir.join(DONE));
+    let pending = data_dir.join(PENDING);
+    if !pending.is_dir() {
+        return Ok(None);
+    }
+    let started = pending.join(BEFORE).exists();
+    let plan = match read_plan(&pending) {
+        Ok(plan) => plan,
+        // nothing was changed yet: the folder is set aside
+        Err(e) if !started => return set_failed(data_dir, &pending, &e).map(|()| None),
+        Err(e) => return Err(format!("{e}; the restore had begun: see {PENDING}")),
+    };
+    let before: Before = if started {
+        let text =
+            std::fs::read(pending.join(BEFORE)).map_err(|e| io_err(&pending.join(BEFORE), e))?;
+        serde_json::from_slice(&text).map_err(|e| format!("{BEFORE}: {e}"))?
+    } else {
+        let b = look_before(data_dir, &pending, &plan);
+        let text = serde_json::to_vec(&b).map_err(|e| e.to_string())?;
+        secret::write_private(&pending.join(BEFORE), &text).map_err(|e| io_err(&pending, e))?;
+        b
+    };
+    // an undo that a start stopped in goes on
+    if pending.join(UNDO).exists() {
+        let why = std::fs::read_to_string(pending.join(UNDO)).unwrap_or_default();
+        return undo(data_dir, &pending, &before, &why).map(|()| None);
+    }
+    match forward(data_dir, &pending, &plan, &before) {
+        Ok(()) => Ok(Some(Applied {
+            by: plan.by,
+            backup: plan.backup,
+            sections: plan.sections,
+        })),
+        Err(e) => undo(data_dir, &pending, &before, &e).map(|()| None),
+    }
+}
+
+/// The stores opened on what [`apply_pending`] put in place: the restore
+/// is committed and what it replaced goes. The plan is removed last (the
+/// folder is renamed first, then removed).
+pub fn commit_pending(data_dir: &Path) {
+    let pending = data_dir.join(PENDING);
+    if !pending.is_dir() {
+        return;
+    }
+    let done = data_dir.join(DONE);
+    let _ = std::fs::remove_dir_all(&done);
+    match std::fs::rename(&pending, &done) {
+        Ok(()) => {
+            let _ = std::fs::remove_dir_all(&done);
+        }
+        Err(e) => warn!("{}: {e}", pending.display()),
+    }
+}
+
+/// The stores did not open on what [`apply_pending`] put in place (`why`):
+/// everything goes back as it was before the restore, and the folder is
+/// kept as `restore.failed`. The next start runs on the old state.
+pub fn undo_pending(data_dir: &Path, why: &str) -> Result<(), String> {
+    let pending = data_dir.join(PENDING);
+    if !pending.is_dir() {
+        return Ok(());
+    }
+    let text = std::fs::read(pending.join(BEFORE)).map_err(|e| io_err(&pending.join(BEFORE), e))?;
+    let before: Before = serde_json::from_slice(&text).map_err(|e| format!("{BEFORE}: {e}"))?;
+    undo(data_dir, &pending, &before, why)
+}
+
+/// A restore that was not applied and was not reported yet: reported once
+/// (the caller audits it). The folder `restore.failed` stays for people.
+pub fn take_failure(data_dir: &Path) -> Option<Failure> {
+    let failed = data_dir.join(FAILED);
+    if !failed.is_dir() || failed.join(REPORTED).exists() {
+        return None;
+    }
+    let error = std::fs::read_to_string(failed.join(ERROR)).unwrap_or_default();
+    let plan = read_plan(&failed).unwrap_or_default();
+    let _ = std::fs::write(failed.join(REPORTED), b"");
+    Some(Failure {
         by: plan.by,
         backup: plan.backup,
         sections: plan.sections,
-    }))
+        error,
+    })
 }
 
 /// A broker backup read and checked.
@@ -646,6 +907,8 @@ impl Control {
         };
         let pending = d.join(PENDING);
         let _ = std::fs::remove_dir_all(&pending);
+        // an earlier restore that was not applied is forgotten
+        let _ = std::fs::remove_dir_all(d.join(FAILED));
         std::fs::rename(&tmp, &pending).map_err(|e| io_err(&pending, e))?;
         Ok(plan)
     }
@@ -739,7 +1002,13 @@ impl Control {
             plan.dirs.push("flows/artifacts".into());
         }
         if has("storage") && c.manifest.section("storage").is_some() {
-            r.extract("storage/tree.cbor", &tmp.join(STORAGE_TREE), None)?;
+            // the store is built here, from the tree: a tree that does not
+            // read refuses the restore now, not the start that applies it
+            let tree = tmp.join(STORAGE_TREE);
+            r.extract("storage/tree.cbor", &tree, None)?;
+            build_storage(&tree, &data.join("storage"))?;
+            std::fs::remove_file(&tree).map_err(|e| io_err(&tree, e))?;
+            plan.dirs.push("storage".into());
         }
         if has("history") && c.manifest.section("history").is_some() {
             let dir = data.join("history");
@@ -751,6 +1020,10 @@ impl Control {
                     _ => continue,
                 };
             }
+            // files that do not open would stop every start after the restore
+            wyrm_history::Store::open(&dir)
+                .map(drop)
+                .map_err(|e| format!("the history of the backup does not open: {e}"))?;
             plan.dirs.push("history".into());
         }
         if has("links") {
@@ -805,6 +1078,8 @@ impl Control {
                 let bytes = Zeroizing::new(
                     wyrm_core::codec::to_vec(&Value::Map(secrets)).map_err(|e| e.to_string())?,
                 );
+                // as the start that applies it will read it
+                parse_link_secrets(&bytes)?;
                 secret::write_private(&tmp.join(LINK_SECRETS), &bytes)
                     .map_err(|e| io_err(tmp, e))?;
             }
@@ -872,8 +1147,16 @@ impl Control {
                 ));
             }
         }
+        // the secret store of the backup opens with the key that comes with it
+        if keys && data.join(SECRETS_BIN).is_file() && data.join("secrets.key").is_file() {
+            crate::secrets::SecretStore::open(&data)
+                .map(drop)
+                .map_err(|e| format!("the secret store of the backup: {e}"))?;
+        }
         let text = serde_json::to_vec_pretty(&plan).map_err(|e| e.to_string())?;
         secret::write_private(&tmp.join(PLAN), &text).map_err(|e| io_err(tmp, e))?;
+        // as the start that applies it will read it
+        read_plan(tmp)?;
         Ok(plan)
     }
 }
@@ -1309,10 +1592,9 @@ mod tests {
         std::fs::write(p, data).unwrap();
     }
 
-    #[test]
-    fn a_pending_restore_is_applied_once_and_taken_up_again() {
-        let d = dir("apply");
-        assert_eq!(apply_pending(&d).unwrap(), None);
+    /// What is there, and a staged restore of the registry and the keys.
+    fn staged(name: &str) -> (PathBuf, PathBuf) {
+        let d = dir(name);
         // what is there: a store, a key, certificates of the old CA
         put(&d, "state/wal.1", b"old");
         put(&d, "state/snapshot", b"old");
@@ -1324,29 +1606,75 @@ mod tests {
         put(&d, "links/a/token", b"tok");
         put(&d, "links/a/data/framework.tree", b"old tree");
         put(&d, "history/days/x.redb", b"untouched");
-        // a staging that never finished is dropped
-        put(&d, "restore.pending.tmp/data/state/wal.1", b"half");
         let p = d.join(PENDING);
         put(&p, "data/state/wal.1", b"new");
         put(&p, "data/state.key", b"new key");
         put(&p, "data/pki/ca.pem", b"new ca");
         put(&p, "data/links/a/data/framework.tree", b"new tree");
+        put(&p, "data/links/b/data/framework.tree", b"tree of b");
         let plan = Plan {
             by: "user:eve".into(),
             backup: "plant 2026-11-13T10:00:00Z".into(),
             sections: vec!["control".into(), "keys".into()],
             remove: vec!["pki".into(), "operators".into()],
             strip_link_certs: true,
-            dirs: vec!["state".into(), "links/a/data".into()],
+            dirs: vec!["state".into(), "links/a/data".into(), "links/b/data".into()],
             files: vec!["state.key".into(), "pki/ca.pem".into()],
             components: Vec::new(),
         };
         std::fs::write(p.join(PLAN), serde_json::to_vec(&plan).unwrap()).unwrap();
-        // a start that stopped after the removals and the first move
-        std::fs::remove_dir_all(d.join("pki")).unwrap();
-        std::fs::write(p.join(REMOVED), b"").unwrap();
-        std::fs::remove_dir_all(d.join("state")).unwrap();
-        std::fs::rename(p.join("data/state"), d.join("state")).unwrap();
+        (d, p)
+    }
+
+    /// Every file under `d` with its content, the restore folders left out.
+    fn tree_of(d: &Path) -> BTreeMap<String, Vec<u8>> {
+        fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let rel = e.path().strip_prefix(root).unwrap().to_owned();
+                let top = rel
+                    .components()
+                    .next()
+                    .unwrap()
+                    .as_os_str()
+                    .to_string_lossy();
+                if top.starts_with("restore.") {
+                    continue;
+                }
+                if e.path().is_dir() {
+                    walk(root, &e.path(), out);
+                } else {
+                    out.insert(
+                        rel.to_string_lossy().into_owned(),
+                        std::fs::read(e.path()).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        walk(d, d, &mut out);
+        out
+    }
+
+    #[test]
+    fn a_pending_restore_is_applied_once_and_taken_up_again() {
+        let (d, p) = staged("apply");
+        // a staging that never finished is dropped
+        put(&d, "restore.pending.tmp/data/state/wal.1", b"half");
+        // a start that stopped after it set the old store aside and before
+        // it moved the new one in
+        let before = look_before(&d, &p, &read_plan(&p).unwrap());
+        assert_eq!(
+            before.moved,
+            ["links/a/a.key", "links/a/a.pem", "pki"],
+            "what is there of the removals"
+        );
+        assert_eq!(
+            before.existed,
+            ["state", "links/a/data", "state.key"],
+            "pki/ca.pem goes with pki; links/b is new"
+        );
+        std::fs::write(p.join(BEFORE), serde_json::to_vec(&before).unwrap()).unwrap();
+        move_to(&d.join("state"), &p.join("old/state")).unwrap();
 
         let applied = apply_pending(&d).unwrap().unwrap();
         assert_eq!(applied.by, "user:eve");
@@ -1361,6 +1689,7 @@ mod tests {
         assert_eq!(read("state.key").as_deref(), Some(&b"new key"[..]));
         assert_eq!(read("pki/ca.pem").as_deref(), Some(&b"new ca"[..]));
         assert_eq!(read("pki/broker.pem"), None, "a leaf of the old CA");
+        assert_eq!(read("links/a/a.pem"), None, "a certificate of the old CA");
         assert_eq!(
             read("links/a/data/framework.tree").as_deref(),
             Some(&b"new tree"[..])
@@ -1370,12 +1699,104 @@ mod tests {
             read("history/days/x.redb").as_deref(),
             Some(&b"untouched"[..])
         );
-        assert!(!p.exists() && !d.join(PENDING_TMP).exists());
+        assert!(!d.join(PENDING_TMP).exists());
+        // until the stores opened, what was replaced is kept; a start that
+        // stopped before the commit applies again and changes nothing
+        assert_eq!(std::fs::read(p.join("old/state/snapshot")).unwrap(), b"old");
+        let now = tree_of(&d);
+        assert!(apply_pending(&d).unwrap().is_some());
+        assert_eq!(tree_of(&d), now);
+        commit_pending(&d);
+        assert!(!p.exists() && !d.join(DONE).exists());
+        assert_eq!(tree_of(&d), now);
         assert_eq!(apply_pending(&d).unwrap(), None);
+        assert_eq!(take_failure(&d), None);
     }
 
-    /// Security review 2026-11-13, finding 2: a restore puts a file only
-    /// where its section defines a place.
+    /// Review of PR 72, item 6: a staged restore that cannot be applied, or
+    /// whose stores do not open, never keeps the broker from starting. The
+    /// state before it comes back whole, the folder is set aside with the
+    /// reason, and the failure is reported once.
+    #[test]
+    fn a_restore_that_fails_leaves_the_state_before_it() {
+        // 1. the stores do not open on what was put in place
+        let (d, p) = staged("undo");
+        let was = tree_of(&d);
+        assert!(apply_pending(&d).unwrap().is_some());
+        assert_ne!(tree_of(&d), was);
+        undo_pending(&d, "registry: schema 99").unwrap();
+        assert_eq!(tree_of(&d), was, "everything is as it was");
+        assert!(!p.exists());
+        let failed = d.join(FAILED);
+        assert!(failed.join(PLAN).is_file());
+        assert!(
+            !failed.join("data").exists() && !failed.join(OLD).exists(),
+            "no opened key stays in the folder"
+        );
+        // the next start runs on the old state and says what happened, once
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        let f = take_failure(&d).unwrap();
+        assert_eq!(
+            (f.by.as_str(), f.error.as_str()),
+            ("user:eve", "registry: schema 99")
+        );
+        assert_eq!(f.sections, ["control", "keys"]);
+        assert_eq!(take_failure(&d), None);
+
+        // 2. a step of the plan fails in the middle (a staged store that is
+        // not there to copy from): undone by the same start
+        let (d, p) = staged("midway");
+        let was = tree_of(&d);
+        let mut plan = read_plan(&p).unwrap();
+        plan.components = vec![("pkg".into(), "packages/pkg/1.0.0/app.wasm".into())];
+        std::fs::write(p.join(PLAN), serde_json::to_vec(&plan).unwrap()).unwrap();
+        assert_eq!(apply_pending(&d).unwrap(), None, "the broker starts");
+        assert_eq!(tree_of(&d), was);
+        let f = take_failure(&d).unwrap();
+        assert!(f.error.contains("pkg.wasm"), "{}", f.error);
+
+        // 3. an undo that a start stopped in goes on at the next start
+        let (d, p) = staged("undo-again");
+        let was = tree_of(&d);
+        assert!(apply_pending(&d).unwrap().is_some());
+        std::fs::write(p.join(UNDO), b"power").unwrap();
+        // half undone: one store is back already
+        crate::nofollow::remove_any(&d.join("state"));
+        move_to(&p.join("old/state"), &d.join("state")).unwrap();
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        assert_eq!(tree_of(&d), was);
+        assert_eq!(take_failure(&d).unwrap().error, "power");
+
+        // 4. a plan that does not read: nothing was changed, the folder is
+        // set aside and the broker starts
+        let (d, p) = staged("bad-plan");
+        let was = tree_of(&d);
+        std::fs::write(p.join(PLAN), b"{ not json").unwrap();
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        assert_eq!(tree_of(&d), was);
+        assert!(!p.exists() && d.join(FAILED).is_dir());
+        assert!(take_failure(&d).unwrap().error.contains(PLAN));
+        // a plan that names a path outside the data directory
+        let (d, p) = staged("bad-path");
+        let was = tree_of(&d);
+        let mut plan = read_plan(&p).unwrap();
+        plan.dirs.push("../outside".into());
+        std::fs::write(p.join(PLAN), serde_json::to_vec(&plan).unwrap()).unwrap();
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        assert_eq!(tree_of(&d), was);
+
+        // 5. link secrets that do not read
+        let (d, p) = staged("bad-secrets");
+        let was = tree_of(&d);
+        std::fs::write(p.join(LINK_SECRETS), b"\xff\xff").unwrap();
+        assert_eq!(apply_pending(&d).unwrap(), None);
+        let mut now = tree_of(&d);
+        // the secret key a first open of the store makes is no state
+        now.remove("secrets.key");
+        assert_eq!(now, was);
+        assert!(take_failure(&d).unwrap().error.contains("link secrets"));
+    }
+
     #[test]
     fn only_defined_paths_have_a_place() {
         for ok in [
@@ -1762,21 +2183,26 @@ mod tests {
     #[test]
     fn a_plan_cannot_reach_outside_the_data_dir() {
         for bad in ["../outside", "/etc/passwd", "state/../../x"] {
-            let d = dir("escape");
-            let p = d.join(PENDING);
-            put(&p, "data/x", b"x");
-            let plan = Plan {
-                dirs: vec![bad.into()],
-                ..Default::default()
-            };
-            std::fs::write(p.join(PLAN), serde_json::to_vec(&plan).unwrap()).unwrap();
-            assert!(apply_pending(&d).is_err(), "{bad}");
-            let plan = Plan {
-                remove: vec![bad.into()],
-                ..Default::default()
-            };
-            std::fs::write(p.join(PLAN), serde_json::to_vec(&plan).unwrap()).unwrap();
-            assert!(apply_pending(&d).is_err(), "{bad}");
+            for remove in [false, true] {
+                let d = dir("escape");
+                let p = d.join(PENDING);
+                put(&p, "data/x", b"x");
+                let plan = match remove {
+                    false => Plan {
+                        dirs: vec![bad.into()],
+                        ..Default::default()
+                    },
+                    true => Plan {
+                        remove: vec![bad.into()],
+                        ..Default::default()
+                    },
+                };
+                std::fs::write(p.join(PLAN), serde_json::to_vec(&plan).unwrap()).unwrap();
+                // refused before anything is touched; the broker starts
+                assert_eq!(apply_pending(&d).unwrap(), None, "{bad}");
+                assert!(!p.exists() && d.join(FAILED).is_dir(), "{bad}");
+                assert!(!d.join("x").exists(), "{bad}");
+            }
         }
     }
 }

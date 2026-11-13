@@ -1857,11 +1857,49 @@ impl Daemon {
     /// Open state and CA, apply `wyrmd.json5` links. `link_exe` hosts
     /// process links (`<link_exe> link <driver>`), normally this binary.
     pub fn open(cfg: Config, link_exe: PathBuf) -> Result<Self, Error> {
+        use wyrm_admin::control::restore_broker as restore;
         std::fs::create_dir_all(&cfg.data_dir)?;
         // A restore staged by `sys/backups/~act/restore_apply {mode: replace}`
-        // (ADR 0048 §3.6): put in place before any store opens.
-        let restored = wyrm_admin::control::restore_broker::apply_pending(&cfg.data_dir)
-            .map_err(|e| format!("restore.pending: {e}"))?;
+        // (ADR 0048 §3.6): put in place before any store opens, all of it or
+        // nothing. A plan that cannot be applied leaves the state as it was
+        // (`Ok(None)`) and this start goes on with it.
+        let data_dir = cfg.data_dir.clone();
+        let restored = restore::apply_pending(&data_dir).map_err(|e| {
+            format!("restore.pending: {e}. The state before the restore could not be put back")
+        })?;
+        let applied = restored.is_some();
+        match Self::open_stores(cfg, link_exe, restored) {
+            Ok(d) => {
+                // the stores opened on it: what the restore replaced goes
+                if applied {
+                    restore::commit_pending(&data_dir);
+                }
+                Ok(d)
+            }
+            // The stores did not open on what the restore put in place:
+            // everything goes back, and the next start (the supervisor's)
+            // runs on the state before it and reports the failure.
+            Err(e) if applied => match restore::undo_pending(&data_dir, &e.to_string()) {
+                Ok(()) => Err(format!(
+                    "the restore was not applied ({e}): the state before it is back in place, \
+                     start again"
+                )
+                .into()),
+                Err(u) => Err(format!(
+                    "the restore was not applied ({e}) and the state before it could not be \
+                     put back ({u}): see restore.pending"
+                )
+                .into()),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    fn open_stores(
+        cfg: Config,
+        link_exe: PathBuf,
+        restored: Option<wyrm_admin::control::restore_broker::Applied>,
+    ) -> Result<Self, Error> {
         let hmac = wyrm_admin::secret::load_or_create_key(&cfg.data_dir.join("flows.key"))?;
         let anchor = |name: &str| cfg.state_anchor_dir.as_ref().map(|d| d.join(name));
         if let Some(d) = &cfg.state_anchor_dir {
@@ -2043,6 +2081,24 @@ impl Daemon {
                 &r.backup,
                 wyrm_core::Status::Ok,
                 &format!("sections {}", r.sections.join(", ")),
+            );
+        }
+        // a restore that was not applied: said once, where people look
+        if let Some(f) = wyrm_admin::control::restore_broker::take_failure(&cfg.data_dir) {
+            tracing::error!(
+                by = %f.by, backup = %f.backup,
+                "the restore was not applied, the state before it is in place: {}", f.error
+            );
+            ctl.record(
+                &f.by,
+                "restore_failed",
+                &f.backup,
+                wyrm_core::Status::InternalError,
+                &format!(
+                    "sections {}; not applied, the state before it is in place: {}",
+                    f.sections.join(", "),
+                    f.error
+                ),
             );
         }
         Ok(Self {

@@ -125,9 +125,10 @@ Upload the `.wyrm-backup` (`restore_begin`, `restore_part`), then:
 - **`mode: add`** works live. Sections `links` and `storage`. Links that do not exist are installed as `install_backup` does; storage nodes that do not exist are added. Nothing is replaced. `dataflows` is skipped with a note: a flow is deployed with proofs of its deployer.
 - **`mode: replace`** takes `control`, `keys`, `dataflows`, `storage`, `history`, `links`, `packages`. A caller whose authority comes from an upstream (`allow_config`) is refused `replace` altogether, before the file is read: it would replace this site's control state, links and packages. `add` stays open to it, with its `accept`.
   1. The broker makes a `pre-restore` backup of the same sections.
-  2. It stages the sections in `data_dir/restore.pending` (written whole or not at all) and checks that each WAL opens with the keys that will be in place.
+  2. It stages the sections in `data_dir/restore.pending` (written whole or not at all) and checks all that the next start will read: each WAL opens with the keys that will be in place, the storage is built from its tree, the history files open, the secret store opens with its key.
   3. It answers, then stops. The supervisor starts it again (`Restart=always`).
-  4. The next start applies the folder before any store opens, then removes it. A start that stops halfway is taken up by the next one. The audit gets `restore_applied`.
+  4. The next start applies the folder before any store opens. What it replaces or removes is set aside in the folder, not deleted. When the stores have opened, the folder is removed and the audit gets `restore_applied`. A start that stops halfway is taken up by the next one.
+  5. A restore that cannot be applied does not stop the broker. When a step of the plan fails, or a store does not open on the restored state, the broker puts everything back as it was. It keeps the plan and the reason in `data_dir/restore.failed` (`plan.json`, `error.txt`) and runs on the state it had. The audit gets `restore_failed` once. If a store did not open, the start that tried ends with a message and the next start runs on the old state.
 - A backup of another site name is refused. Set `site` in `wyrmd.json5` to the backup's first.
 - A backup whose store SCHEMA is newer than this broker reads is refused.
 - **The `keys` section** is restored only through three gates, whatever the keys are (also the keys of this very broker): `backups.export_secrets: true` on the host, a caller of this site, and the passphrase.
