@@ -626,6 +626,14 @@ impl Control {
         let d = &self.cfg.data_dir;
         let tmp = d.join(PENDING_TMP);
         let _ = std::fs::remove_dir_all(&tmp);
+        // what the chosen sections open into must fit, before any of it is
+        self.room_for(super::restore::extract_need(
+            c.manifest
+                .sections
+                .iter()
+                .filter(|s| chosen.contains(&s.name) || s.name == "control")
+                .flat_map(|s| &s.files),
+        ))?;
         make_private_dir(&tmp)?;
         let staged = self.stage_sections(r, c, chosen, accept, by, &tmp);
         let plan = match staged {

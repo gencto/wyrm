@@ -24,7 +24,7 @@ use wyrm_wasm_host::ComponentWorld;
 
 // The format is the SDK's (ADR 0021): `wyr` builds what this checks.
 pub use wyrm_link_sdk::package::{platform, RepoEntry, MANIFEST, MAX_INDEX, MAX_ZIP};
-const MAX_UNPACKED: u64 = 256 << 20;
+pub(crate) const MAX_UNPACKED: u64 = 256 << 20;
 const MAX_FILES: usize = 1000;
 /// Driver name of a link that runs a package: `pkg:<package>`.
 pub const DRIVER_PREFIX: &str = "pkg:";

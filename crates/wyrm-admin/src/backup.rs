@@ -72,6 +72,18 @@ const SEAL_MAGIC: &[u8; 5] = b"WYBS1";
 const CHECK_TEXT: &[u8] = b"wyrm-backup-check";
 const SALT_LEN: usize = 16;
 const ID_LEN: usize = 16;
+/// Stored bytes a backup may declare for each byte of its own file, and what
+/// it may declare beyond that: a small upload cannot open into tens of GiB
+/// (deflate reaches 1000:1 on zeros; real stores stay far below this).
+pub const MAX_RATIO: u64 = 200;
+pub const RATIO_SLACK: u64 = 64 << 20;
+/// Most bytes of one package in a backup: what an install unpacks.
+pub const MAX_PACKAGE: u64 = crate::packages::MAX_UNPACKED;
+/// Most bytes of one flow artifact (an upload of `put_artifact`).
+pub const MAX_ARTIFACT: u64 = 64 << 20;
+/// Most bytes of one link's private data: what a link backup takes.
+pub const MAX_LINK_DATA: u64 = 8 << 30;
+
 /// The most Argon2id work a manifest may ask of this host: the key is
 /// derived before the manifest's MAC can be checked, so the parameters are
 /// an unauthenticated input. A broker writes the crate's defaults (19 MiB,
@@ -276,6 +288,47 @@ impl Manifest {
             "the manifest was changed after the backup was made (its MAC does not match)".to_owned()
         })?;
         Ok(key)
+    }
+
+    /// The bounds of what one part of a backup may open into, known before
+    /// a byte is extracted (ADR 0048 §3.1): each package, each flow
+    /// artifact, each link's private data. A sealed file is a little longer
+    /// than its content, so each bound has that much room.
+    pub fn caps(&self) -> Result<(), String> {
+        let room = |cap: u64| cap + cap / 1024 + 4096;
+        let mut groups: BTreeMap<(&str, &str), u64> = BTreeMap::new();
+        for f in self.sections.iter().flat_map(|s| &s.files) {
+            let segs: Vec<&str> = f.path.split('/').collect();
+            let group = match (self.kind, segs.as_slice()) {
+                (Kind::Broker, ["packages", name, ..]) => ("package", *name),
+                (Kind::Broker, ["links", id, "files", ..]) => ("link data", *id),
+                (Kind::Link, ["package", ..]) => ("package", ""),
+                (Kind::Broker, ["dataflows", "artifacts", ..]) => {
+                    if f.size > room(MAX_ARTIFACT) {
+                        return Err(format!(
+                            "{}: {} bytes (a flow artifact has at most {MAX_ARTIFACT})",
+                            f.path, f.size
+                        ));
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            let sum = groups.entry(group).or_default();
+            *sum = sum.saturating_add(f.size);
+        }
+        for ((what, name), size) in groups {
+            let cap = match what {
+                "package" => MAX_PACKAGE,
+                _ => MAX_LINK_DATA,
+            };
+            if size > room(cap) {
+                return Err(format!(
+                    "the {what} {name} of the backup holds {size} bytes (at most {cap})"
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Check what a manifest alone can show: version, section names of its
@@ -920,7 +973,10 @@ impl Reader<File> {
 }
 
 impl<R: Read + Seek> Reader<R> {
-    pub fn new(src: R, max_total: u64) -> Result<Self, String> {
+    pub fn new(mut src: R, max_total: u64) -> Result<Self, String> {
+        let len = src
+            .seek(std::io::SeekFrom::End(0))
+            .map_err(|e| format!("not a backup: {e}"))?;
         let mut zip = zip::ZipArchive::new(src).map_err(|e| format!("not a backup: {e}"))?;
         if zip.is_empty() || zip.len() > MAX_ENTRIES {
             return Err(format!(
@@ -953,6 +1009,16 @@ impl<R: Read + Seek> Reader<R> {
                 manifest.size()
             ));
         }
+        // before anything is extracted: what the file says it opens into
+        // is bounded by its own size and by what each part may be
+        if manifest.size() > len.saturating_mul(MAX_RATIO).saturating_add(RATIO_SLACK) {
+            return Err(format!(
+                "the backup is a file of {len} bytes that says it holds {}: more than \
+                 {MAX_RATIO} times its size, it is not opened",
+                manifest.size()
+            ));
+        }
+        manifest.caps()?;
         let files: BTreeMap<String, FileEntry> = manifest
             .sections
             .iter()
@@ -1578,6 +1644,79 @@ mod tests {
         let zip = zip_of(b"{}", &[]);
         assert!(Reader::new(Cursor::new(zip), 1 << 20).is_err());
         assert!(Reader::new(Cursor::new(b"not a zip".to_vec()), 1 << 20).is_err());
+    }
+
+    /// Review of PR 72, item 5: what a backup opens into is bounded before
+    /// a byte is extracted, by the size of the file itself and by what each
+    /// part may be; an entry longer than listed stops at the listed size.
+    #[test]
+    fn a_small_file_does_not_open_into_a_large_one() {
+        // 96 MiB of zeros deflate into a file of about 100 KiB
+        let zeros = vec![0u8; 96 << 20];
+        let m = manifest_with(&[("control/a", zeros.len() as u64, &zeros)]);
+        let zip = zip_of(&serde_json::to_vec(&m).unwrap(), &[("control/a", &zeros)]);
+        assert!(zip.len() < 1 << 20, "{} bytes", zip.len());
+        let e = Reader::new(Cursor::new(zip), 1 << 40).err().unwrap();
+        assert!(e.contains("times its size"), "{e}");
+        // within the slack a compressible file is taken (a fresh redb file)
+        let small = vec![0u8; 8 << 20];
+        let m = manifest_with(&[("control/a", small.len() as u64, &small)]);
+        let zip = zip_of(&serde_json::to_vec(&m).unwrap(), &[("control/a", &small)]);
+        Reader::new(Cursor::new(zip), 1 << 40).unwrap();
+
+        // each part has its own bound, whatever the whole is
+        let entry = |path: &str, size: u64| FileEntry {
+            path: path.into(),
+            size,
+            sha256: "0".repeat(64),
+            sealed: must_be_sealed(Kind::Broker, path),
+            exec: false,
+        };
+        let with = |name: &str, files: Vec<FileEntry>| {
+            let mut m = manifest_with(&[]);
+            m.sealed.how = "broker".into();
+            m.sections = vec![Section {
+                name: name.into(),
+                info: Default::default(),
+                files,
+            }];
+            m
+        };
+        let half = MAX_PACKAGE / 2 + (1 << 20);
+        let m = with(
+            "packages",
+            vec![
+                entry("packages/p/files/a", half),
+                entry("packages/p/files/b", half),
+            ],
+        );
+        assert!(m.caps().unwrap_err().contains("package p"));
+        let m = with(
+            "packages",
+            vec![
+                entry("packages/p/files/a", half),
+                entry("packages/q/files/b", half),
+            ],
+        );
+        m.caps().unwrap();
+        let m = with(
+            "dataflows",
+            vec![entry("dataflows/artifacts/ab/cd", MAX_ARTIFACT + (1 << 20))],
+        );
+        assert!(m.caps().unwrap_err().contains("flow artifact"));
+        let m = with(
+            "links",
+            vec![
+                entry("links/l1/files/a", MAX_LINK_DATA),
+                entry("links/l1/files/b", MAX_LINK_DATA / 512),
+            ],
+        );
+        assert!(m.caps().unwrap_err().contains("link data l1"));
+        let m = with("links", vec![entry("links/l1/files/a", MAX_LINK_DATA)]);
+        m.caps().unwrap();
+        let mut m = with("package", vec![entry("package/files/bin", MAX_PACKAGE * 2)]);
+        m.kind = Kind::Link;
+        assert!(m.caps().unwrap_err().contains("package"));
     }
 
     #[test]

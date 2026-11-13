@@ -56,6 +56,36 @@ pub struct Upload {
     pub busy: bool,
 }
 
+/// Room kept free on the disk of `data_dir` beyond what a restore opens.
+const KEEP_FREE: u64 = 64 << 20;
+
+/// The disk room `files` of a backup need to be opened: their bytes, and
+/// once more the largest sealed one (it is checked whole before it is
+/// opened), plus [`KEEP_FREE`].
+pub(super) fn extract_need<'a>(files: impl Iterator<Item = &'a format::FileEntry>) -> u64 {
+    let (mut sum, mut sealed) = (0u64, 0u64);
+    for f in files {
+        sum = sum.saturating_add(f.size);
+        if f.sealed {
+            sealed = sealed.max(f.size);
+        }
+    }
+    sum.saturating_add(sealed).saturating_add(KEEP_FREE)
+}
+
+/// `Err` when `need` bytes do not fit into `free_mib` (`None`: unknown on
+/// this host, nothing is refused).
+fn room(free_mib: Option<f64>, need: u64) -> Result<(), String> {
+    let want = need as f64 / f64::from(1 << 20);
+    match free_mib {
+        Some(free) if free < want => Err(format!(
+            "the backup opens into about {want:.0} MiB on the disk of data_dir, {free:.0} MiB \
+             are free: nothing of it is opened"
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// What a `.wyrm-link` holds, read and checked, its files opened into a
 /// private stage directory (removed with this value).
 pub(super) struct LinkRestore {
@@ -265,6 +295,13 @@ impl Control {
         }
     }
 
+    /// Before any file of a backup is opened: `need` bytes
+    /// ([`extract_need`]) must fit on the disk of `data_dir`. The upload
+    /// was checked against its own size only, and its content is larger.
+    pub(super) fn room_for(&self, need: u64) -> Result<(), String> {
+        room(disk_free_mib(&self.cfg.data_dir), need)
+    }
+
     /// The key of a backup read here: `None` for one without sealed files.
     pub(super) fn backup_key(
         &self,
@@ -315,6 +352,20 @@ impl Control {
         let def: LinkDef = minicbor::decode(&r.read(&lay.settings)?)
             .map_err(|e| format!("{}: {e}", lay.settings))?;
         crate::registry::validate_link_id(&def.id)?;
+        // what this link's parts open into must fit, before any of it is
+        let prefixes: Vec<String> = [&lay.data, &lay.package]
+            .into_iter()
+            .flatten()
+            .map(|b| format!("{b}/files/"))
+            .chain(lay.history.clone())
+            .collect();
+        self.room_for(extract_need(
+            manifest
+                .sections
+                .iter()
+                .flat_map(|s| &s.files)
+                .filter(|f| prefixes.iter().any(|p| f.path.starts_with(p))),
+        ))?;
         let backups = self.backups_dir();
         make_private_dir(&backups)?;
         let stage = StageDir::new(&backups)?;
@@ -1365,6 +1416,35 @@ mod tests {
         assert_eq!(tree(), b"TREE-backup");
         assert_eq!(secret("password").unwrap(), b"pw-backup");
         assert!(clean());
+    }
+
+    /// Review of PR 72, item 5: a restore opens nothing when what the
+    /// manifest declares does not fit on the disk.
+    #[test]
+    fn a_backup_that_does_not_fit_on_the_disk_is_not_opened() {
+        let f = |size: u64, sealed: bool| format::FileEntry {
+            path: "x/y".into(),
+            size,
+            sha256: String::new(),
+            sealed,
+            exec: false,
+        };
+        let files = [f(10 << 20, false), f(30 << 20, true), f(20 << 20, true)];
+        // every byte, the largest sealed file once more, and the reserve
+        assert_eq!(extract_need(files.iter()), (90 << 20) + KEEP_FREE);
+        assert_eq!(extract_need([].iter()), KEEP_FREE);
+        let huge = [f(u64::MAX, true), f(5, false)];
+        assert_eq!(extract_need(huge.iter()), u64::MAX, "no overflow");
+
+        assert!(room(Some(200.0), 150 << 20).is_ok());
+        let e = room(Some(100.0), 150 << 20).unwrap_err();
+        assert!(e.contains("150 MiB") && e.contains("100 MiB"), "{e}");
+        assert!(room(Some(1e9), u64::MAX).is_err());
+        assert!(room(None, u64::MAX).is_ok(), "unknown on this host");
+        // the real disk: a declared size no disk has
+        let ctl = super::super::tests::control("room", false, |_| {});
+        assert!(ctl.room_for(1 << 20).is_ok());
+        assert!(ctl.room_for(u64::MAX / 2).is_err());
     }
 
     #[test]
