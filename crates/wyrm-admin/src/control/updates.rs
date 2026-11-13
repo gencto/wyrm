@@ -396,6 +396,17 @@ pub(super) async fn declare_values(
                 str_param()
                     .display("Version")
                     .description("Default: the kept version (`previous`)"),
+            )
+            .param(
+                "restore_data",
+                ParamMeta::of(TypeCode::Bool)
+                    .display("Restore the links' data")
+                    .description(
+                        "Put each link's private data back to its restore point of the \
+                         update: what was configured since is lost. Default: true when the \
+                         update changed the store format (false is then refused) or did not \
+                         end well (links or nodes gone); else the links keep the data they have",
+                    ),
             ),
     )
     .await?;
@@ -530,6 +541,10 @@ pub(super) struct PendingRollback {
     sub: String,
     #[n(6)]
     reason: String,
+    /// The links keep the private data they have (`restore_data: false`).
+    #[n(7)]
+    #[cbor(default)]
+    keep_data: bool,
 }
 
 /// What [`Control::finish_rollback`] did.
@@ -774,7 +789,7 @@ impl Control {
         let mut out = RolledBack::default();
         let known = self.registry().links;
         for (id, point) in &p.points {
-            if !known.contains_key(id) {
+            if !known.contains_key(id) || p.keep_data {
                 continue;
             }
             let applied = match point {
@@ -995,6 +1010,27 @@ impl Control {
             .unwrap_or_else(|p| p.into_inner())
             .push(plan);
     }
+}
+
+/// Does a rollback put the links' private data back to the restore points
+/// of the update (ADR 0048 §1.6)? What the caller says (`asked`); else yes
+/// when the update changed the store format (the kept version cannot read
+/// what is there) or did not end well (`report`: links that did not come
+/// back, nodes that are gone: the new version may have damaged the data),
+/// and no for an update that ended well: the links keep the data they have,
+/// with all that was configured since. `Err`: `false` was asked for an
+/// update that changed the store format.
+fn restores_data(
+    asked: Option<bool>,
+    changes_state: bool,
+    report: &UpdateReport,
+) -> Result<bool, ()> {
+    let suspect = report.result != UPDATE_OK || report.gone > 0;
+    let restore = asked.unwrap_or(changes_state || suspect);
+    if changes_state && !restore {
+        return Err(());
+    }
+    Ok(restore)
 }
 
 /// The `busy` of a package that an operation holds.
@@ -1374,35 +1410,72 @@ impl Admin {
             let _ = std::fs::remove_dir_all(packages::dir(&root, &def));
         }
 
-        // Before anything stops: each link's keys and its restore point.
+        // Before anything stops: each link's keys.
         let mut before = Vec::new();
-        let mut points = Vec::new();
-        let mut point_ids = Vec::new();
         for l in &links {
-            let keys = self.link_keys(&l.id).await;
-            if opts.restore_point {
-                let listed = keys.as_ref().map(|k| k.iter().cloned().collect());
-                let p = self
-                    .take_restore_point(&l.id, &name, &old.version, listed, sub)
-                    .await?;
-                points.push(format!("{} ({} B)", l.id, p.size));
-                point_ids.push((l.id.clone(), p.id));
-            }
             before.push(LinkBefore {
                 id: l.id.clone(),
-                keys,
+                keys: self.link_keys(&l.id).await,
             });
+        }
+        // Each link's restore point. A point is a copy file by file: every
+        // file is whole (the stores write by rename), but the files of a
+        // link that runs are not of one moment. When the update changes the
+        // store format the point is the only way back, so the links stop
+        // for the copy; else the copy is taken while they run (ADR 0048
+        // §1.3). Whatever fails from here until the registry names the new
+        // version starts them again, on the old one.
+        let stopped = changes_state && opts.restore_point;
+        if stopped {
+            for l in &links {
+                if let Err(e) = self.stop_link(&l.id, sub).await {
+                    debug!(link = %l.id, "stop for the restore point: {e}");
+                }
+            }
+        }
+        let mut points = Vec::new();
+        let mut point_ids = Vec::new();
+        let mut taken = Ok(());
+        if opts.restore_point {
+            for (l, b) in links.iter().zip(&before) {
+                let listed = b.keys.as_ref().map(|k| k.iter().cloned().collect());
+                match self
+                    .take_restore_point(&l.id, &name, &old.version, listed, sub)
+                    .await
+                {
+                    Ok(p) => {
+                        points.push(format!("{} ({} B)", l.id, p.size));
+                        point_ids.push((l.id.clone(), p.id));
+                    }
+                    Err(e) => {
+                        taken = Err(e);
+                        break;
+                    }
+                }
+            }
+        }
+        // The new files beside the old ones.
+        let placed = taken.and_then(|()| {
+            if reuse {
+                drop(unpacked);
+                Ok(())
+            } else {
+                unpacked.commit(&root).map(|_| ())
+            }
+        });
+        if let Err(e) = placed {
+            if stopped {
+                for l in &links {
+                    let _ = self.start_link(&l.id, sub).await;
+                }
+            }
+            return Err(e);
         }
 
         // The time of the update is taken after its restore points (they
         // are named in `previous.points` too: a rollback applies those).
         let now = now_s();
-        // The new files beside the old ones, then the registry.
-        if !reuse {
-            unpacked.commit(&root)?;
-        } else {
-            drop(unpacked);
-        }
+        // Then the registry.
         let report = UpdateReport {
             from: old.version.clone(),
             to: def.version.clone(),
@@ -1440,6 +1513,11 @@ impl Admin {
             }
             if old.kind == PackageKind::Wasm {
                 let _ = ctl.publish_component(old);
+            }
+            if stopped {
+                for l in &links {
+                    let _ = self.start_link(&l.id, sub).await;
+                }
             }
             return Err(e);
         }
@@ -1590,8 +1668,9 @@ impl Admin {
         };
         match rollback {
             Some(reason) => {
+                // the update did not end well: what the new version wrote goes
                 if let Err(e) = self
-                    .roll_back(&name, &plan.sub, &reason, report.clone())
+                    .roll_back(&name, &plan.sub, &reason, report.clone(), Some(true))
                     .await
                 {
                     report.result = UPDATE_FAILED.into();
@@ -1666,6 +1745,7 @@ impl Admin {
         sub: &str,
         reason: &str,
         mut report: UpdateReport,
+        restore_data: Option<bool>,
     ) -> Result<String, String> {
         let ctl = &self.ctl;
         let cur = ctl
@@ -1689,9 +1769,22 @@ impl Admin {
             ));
         }
         let links = links_of(ctl, name);
+        let restore_data =
+            restores_data(restore_data, prev.changes_state, &report).map_err(|()| {
+                format!(
+                    "the update to {} changed the store format: {} cannot read the data the \
+                     links have now. Roll back with restore_data: true (what was configured \
+                     since the update is lost), or keep {}",
+                    cur.version, prev.def.version, cur.version
+                )
+            })?;
         let restore_root = ctl.restore_root();
         let mut points = Vec::new();
         for l in &links {
+            if !restore_data {
+                points.push((l.id.clone(), None));
+                continue;
+            }
             let p = point_for(&restore_root, &l.id, name, &prev);
             if p.is_none() && prev.changes_state {
                 return Err(format!(
@@ -1703,7 +1796,11 @@ impl Admin {
             points.push((l.id.clone(), p.map(|p| p.id)));
         }
         report.result = UPDATE_ROLLED_BACK.into();
-        report.reason = reason.to_owned();
+        report.reason = if restore_data {
+            format!("{reason}; the links' data is restored from before the update")
+        } else {
+            format!("{reason}; the links keep the data they have")
+        };
         report.at = now_s();
         let mut back = prev.def.clone();
         back.last_update = Some(report);
@@ -1717,6 +1814,7 @@ impl Admin {
             changes_state: prev.changes_state,
             sub: sub.to_owned(),
             reason: reason.to_owned(),
+            keep_data: !restore_data,
         };
         ctl.write_rollback(&pending)?;
         for l in &links {
@@ -1751,6 +1849,9 @@ impl Admin {
         let mut detail = format!("{} → {}: {reason}", cur.version, back.version);
         if !done.restored.is_empty() {
             detail.push_str(&format!("; data restored: {}", done.restored.join(", ")));
+        }
+        if !restore_data {
+            detail.push_str("; the links keep their data");
         }
         if !problems.is_empty() {
             detail.push_str(&format!("; {}", problems.join("; ")));
@@ -1847,6 +1948,11 @@ impl Admin {
             .get(name)
             .cloned()
             .ok_or_else(|| LinkError::not_found(name.to_owned()))?;
+        let restore_data = match arg(args, "restore_data") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => return Err(LinkError::invalid_parameter("restore_data: true or false")),
+        };
         let _busy = self.ctl.busy()?;
         let prev = match def.previous.as_deref() {
             Some(p) => p,
@@ -1890,7 +1996,13 @@ impl Admin {
                 ..UpdateReport::default()
             });
         let r = self
-            .roll_back(name, sub, &format!("rolled back by {sub}"), report)
+            .roll_back(
+                name,
+                sub,
+                &format!("rolled back by {sub}"),
+                report,
+                restore_data,
+            )
             .await;
         Ok(Some(outcome(r)))
     }
@@ -2254,6 +2366,7 @@ mod tests {
             changes_state: true,
             sub: "user:a".into(),
             reason: "test".into(),
+            keep_data: false,
         };
         let rollbacks = |ctl: &Control| {
             ctl.audit_tail(20)
@@ -2312,6 +2425,16 @@ mod tests {
         ctl.write_rollback(&soft).unwrap();
         ctl.complete_rollbacks();
         assert!(ctl.link_hold("l1").is_none());
+        // the links keep their data (`restore_data: false`): nothing is
+        // applied and nothing is a problem
+        std::fs::write(data.join("store"), b"kept").unwrap();
+        let mut keep = pending(&point.id);
+        keep.changes_state = false;
+        keep.keep_data = true;
+        ctl.write_rollback(&keep).unwrap();
+        ctl.complete_rollbacks();
+        assert_eq!(std::fs::read(data.join("store")).unwrap(), b"kept");
+        assert_eq!(rollbacks(&ctl).pop().unwrap().status, Status::Ok.code());
         // a restore of the data lifts a hold
         ctl.hold_link("l1", "held");
         ctl.write_rollback(&pending(&point.id)).unwrap();
@@ -2326,6 +2449,40 @@ mod tests {
         ctl.complete_rollbacks();
         assert_eq!(ctl.registry().packages["pkg"].version, "2.0.0");
         assert!(ctl.pending_rollbacks().is_empty());
+    }
+
+    /// Review of PR 72: a rollback by hand, days after an update that ended
+    /// well, does not replace what was configured since; the data goes back
+    /// when it must (the store format changed) or is suspect, or when asked.
+    #[test]
+    fn a_rollback_restores_data_only_when_it_must_or_is_asked() {
+        let report = |result: &str, gone: u32| UpdateReport {
+            result: result.into(),
+            gone,
+            ..UpdateReport::default()
+        };
+        let good = report(UPDATE_OK, 0);
+        assert_eq!(restores_data(None, false, &good), Ok(false));
+        assert_eq!(restores_data(Some(true), false, &good), Ok(true));
+        assert_eq!(restores_data(Some(false), false, &good), Ok(false));
+        // the store format changed: always, and `false` is refused
+        assert_eq!(restores_data(None, true, &good), Ok(true));
+        assert_eq!(restores_data(Some(true), true, &good), Ok(true));
+        assert_eq!(restores_data(Some(false), true, &good), Err(()));
+        // the update lost nodes, failed, or is still being checked
+        for bad in [
+            report(UPDATE_OK, 3),
+            report(UPDATE_FAILED, 0),
+            report(UPDATE_CHECKING, 0),
+        ] {
+            assert_eq!(restores_data(None, false, &bad), Ok(true), "{bad:?}");
+            assert_eq!(restores_data(Some(false), false, &bad), Ok(false));
+        }
+        // a rollback of an update this broker has no report of
+        assert_eq!(
+            restores_data(None, false, &UpdateReport::default()),
+            Ok(true)
+        );
     }
 
     /// What the new version asks for and a link lacks.
