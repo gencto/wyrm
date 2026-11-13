@@ -1101,6 +1101,19 @@ pub fn guard(layout: &Layout, data_dir: &Path, version: &str) -> Result<Guarded,
         return Ok(Guarded::Nothing);
     };
     let now = now_s();
+    if u.state == "trial" && layout.current_version().as_deref() == Some(u.from.as_str()) {
+        // the old version stopped before `current` moved: nothing ran
+        u.state = "rolled_back".into();
+        u.reason = format!("the broker stopped before wyrmd {} was made current", u.to);
+        u.ended = now;
+        u.audited = false;
+        u.save(data_dir)?;
+        return Ok(Guarded::RolledBack {
+            from: u.from,
+            to: u.to,
+            restored: false,
+        });
+    }
     let why = if u.state == "trial" {
         if !u.failed.is_empty() {
             Some(format!("wyrmd {} gave its trial up: {}", u.to, u.failed))
@@ -1153,7 +1166,7 @@ pub fn guard(layout: &Layout, data_dir: &Path, version: &str) -> Result<Guarded,
             );
             return stuck(&mut u, what);
         }
-        crate::control::restore_broker::restore_control_offline(data_dir, &backup, &moved)
+        restore_control(data_dir, &backup, &moved)
             .map_err(|e| format!("pre-update backup {}: {e}", u.backup))?;
         restored = true;
     }
@@ -1170,6 +1183,83 @@ pub fn guard(layout: &Layout, data_dir: &Path, version: &str) -> Result<Guarded,
         to: u.to,
         restored,
     })
+}
+
+/// The control-plane WAL stores: name in `schemas`, directory in a backup's
+/// `control` section, directory under `data_dir`.
+const CONTROL_STORES: [(&str, &str, &str); 4] = [
+    ("registry", "state", "state"),
+    ("flows", "flows", "flows/state"),
+    ("users", "users", "gateway/users"),
+    ("audit", "audit", "audit"),
+];
+
+/// Put the WALs of `stores` (names of `schemas`) back from the `control`
+/// section of the broker backup at `backup`, with the broker stopped. The
+/// files are read whole (size and SHA-256 of the manifest) into
+/// `data_dir/update.restore` first; then each store's directory is moved
+/// aside into `data_dir/update.aside` and replaced. A run that stopped
+/// halfway is done again from the start by the next one.
+pub fn restore_control(data_dir: &Path, backup: &Path, stores: &[String]) -> Result<(), String> {
+    use crate::backup as format;
+    let mut r = format::Reader::open(backup, 8 << 30)?;
+    if r.manifest().kind != format::Kind::Broker {
+        return Err("not a broker backup".into());
+    }
+    let listed: Vec<String> = r
+        .manifest()
+        .section("control")
+        .ok_or("the backup has no control section")?
+        .files
+        .iter()
+        .map(|f| f.path.clone())
+        .collect();
+    let stage = data_dir.join("update.restore");
+    if stage.symlink_metadata().is_ok() {
+        std::fs::remove_dir_all(&stage).map_err(|e| io(&stage, e))?;
+    }
+    new_dir(&stage, 0o700).map_err(|e| io(&stage, e))?;
+    let mut swaps = Vec::new();
+    for store in stores {
+        let (_, name, dir) = CONTROL_STORES
+            .iter()
+            .find(|(schema, _, _)| schema == store)
+            .ok_or_else(|| format!("{store}: not a control-plane store"))?;
+        let prefix = format!("control/{name}/");
+        let mut n = 0;
+        for path in listed.iter().filter(|p| p.starts_with(&prefix)) {
+            let file = &path[prefix.len()..];
+            if !plain_name(file, 128) {
+                return Err(format!("{path}: not a file of a WAL store"));
+            }
+            r.extract(path, &stage.join(name).join(file), None)?;
+            n += 1;
+        }
+        if n == 0 {
+            return Err(format!("the backup does not hold the store {store}"));
+        }
+        swaps.push((*name, *dir));
+    }
+    let aside = data_dir.join("update.aside");
+    if aside.symlink_metadata().is_ok() {
+        std::fs::remove_dir_all(&aside).map_err(|e| io(&aside, e))?;
+    }
+    new_dir(&aside, 0o700).map_err(|e| io(&aside, e))?;
+    for (name, dir) in swaps {
+        let live = data_dir.join(dir);
+        if live.symlink_metadata().is_ok() {
+            let to = aside.join(name);
+            std::fs::rename(&live, &to).map_err(|e| io(&live, e))?;
+        } else if let Some(parent) = live.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| io(parent, e))?;
+        }
+        std::fs::rename(stage.join(name), &live).map_err(|e| io(&live, e))?;
+        if let Some(parent) = live.parent() {
+            sync_dir(parent);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&stage);
+    Ok(())
 }
 
 /// Run `bin` with `args` and nothing of this process's environment, and

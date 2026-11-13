@@ -16,6 +16,7 @@ pub mod official;
 pub mod packages;
 pub mod peers;
 pub mod registry;
+pub mod release;
 pub mod restore_point;
 pub mod secret;
 pub mod secrets;
