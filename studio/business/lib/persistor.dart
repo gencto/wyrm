@@ -1,10 +1,12 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/ca_pin.dart';
 import 'package:models/panel_slot.dart';
 import 'package:storage/storage.dart';
 
 import 'redux/app_state.dart';
+import 'redux/discovery/models/discovery_state.dart';
 import 'redux/language/models/language_state.dart';
 import 'redux/login/models/login_state.dart';
 import 'redux/panels/models/panels_state.dart';
@@ -20,6 +22,12 @@ import 'redux/window/models/window_state.dart';
 /// whole state. With Remember off, the gateway, the user and the recent
 /// gateways are deleted and not written again
 /// (docs/design/specs/login.md §6).
+///
+/// The CAs pinned per gateway origin (ADR 0050 §2.3) are kept through
+/// [PinnedCas] whatever Remember says: a pin is a trust decision the person
+/// made after comparing a code, it holds no secret, and dropping it would
+/// ask for the code again at every start
+/// (docs/design/specs/unlock-discover.md, *Decided while building*).
 ///
 /// The session token is not stored: a gateway session lives in the WebSocket
 /// client of `AppDependencies`, which a restart does not bring back, so a
@@ -70,6 +78,7 @@ class AppPersistor extends Persistor<AppState> {
     final user = await _storage.get<String>(_userKey);
     final recent = await _storage.get<String>(_recentKey);
     final remember = await _storage.get<bool>(_rememberKey);
+    final pins = await PinnedCas(_storage).read();
     await _storage.delete(_legacyTokenKey);
     final widths = <PanelSlot, double>{};
     for (final MapEntry(key: slot, value: key) in _panelKeys.entries) {
@@ -90,6 +99,7 @@ class AppPersistor extends Persistor<AppState> {
         user == null &&
         recent == null &&
         remember == null &&
+        pins.isEmpty &&
         widths.isEmpty &&
         !framed) {
       return null;
@@ -105,6 +115,18 @@ class AppPersistor extends Persistor<AppState> {
         user: user,
         recent: _lines(recent),
         remember: remember ?? true,
+      ),
+      discovery: DiscoveryState(
+        pins: {
+          for (final p in pins)
+            p.origin: CaPin(
+              origin: p.origin,
+              ca: p.ca,
+              code: p.code,
+              site: p.site,
+              connectTo: p.connectTo,
+            ),
+        }.lock,
       ),
       panels: PanelsState(widths: widths.lock),
       window: framed
@@ -162,6 +184,20 @@ class AppPersistor extends Persistor<AppState> {
       now.remember ? _joined(now.recent) : null,
     );
 
+    final pins = newState.discovery.pins;
+    if (lastPersistedState?.discovery.pins != pins) {
+      await PinnedCas(_storage).write([
+        for (final p in pins.values)
+          PinnedCa(
+            origin: p.origin,
+            ca: p.ca,
+            code: p.code,
+            site: p.site,
+            connectTo: p.connectTo,
+          ),
+      ]);
+    }
+
     final widthsBefore = lastPersistedState?.panels.widths;
     final widths = newState.panels.widths;
     if (widthsBefore != widths) {
@@ -218,6 +254,7 @@ class AppPersistor extends Persistor<AppState> {
     _storage.delete(_recentKey),
     _storage.delete(_rememberKey),
     _storage.delete(_legacyTokenKey),
+    _storage.delete(PinnedCas.key),
     for (final key in _panelKeys.values) _storage.delete(key),
     for (final key in _windowKeys) _storage.delete(key),
   ]);

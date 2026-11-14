@@ -84,6 +84,9 @@ Widget login({
     onRetry: () {},
     onUseStandby: () {},
     tls: 'TLS · certificate of the plant CA',
+    // ADR 0050: the gateway field has `Find on this network` beside it
+    // (docs/design/specs/unlock-discover.md §4); the Login boards predate it.
+    onFind: () {},
     welcome: stage == 'welcome'
         ? const WelcomePanelVm(
             title: 'Welcome, olena',

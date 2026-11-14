@@ -34,6 +34,7 @@ dependencies:
   screen_retriever: ^0.2.2
   ui:
     path: ../ui
+  url_launcher: ^6.3.3
   window_manager: ^0.5.2
 
 dev_dependencies:

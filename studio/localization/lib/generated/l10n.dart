@@ -14571,6 +14571,585 @@ class S {
     );
   }
 
+  /// `Find on this network`
+  String get findOnNetwork {
+    return Intl.message(
+      'Find on this network',
+      name: 'findOnNetwork',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Gateways on this network`
+  String get discoverPanel {
+    return Intl.message(
+      'Gateways on this network',
+      name: 'discoverPanel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Looking on {where}…`
+  String discoverLooking(Object where) {
+    return Intl.message(
+      'Looking on $where…',
+      name: 'discoverLooking',
+      desc: '',
+      args: [where],
+    );
+  }
+
+  /// `{n, plural, =1{1 gateway on {where} · announced by DNS-SD} other{{n} gateways on {where} · announced by DNS-SD}}`
+  String discoverFound(int n, String where) {
+    return Intl.plural(
+      n,
+      one: '1 gateway on $where · announced by DNS-SD',
+      other: '$n gateways on $where · announced by DNS-SD',
+      name: 'discoverFound',
+      desc: '',
+      args: [n, where],
+    );
+  }
+
+  /// `{n, plural, =1{1 gateway on {range} · found by a range probe} other{{n} gateways on {range} · found by a range probe}}`
+  String discoverProbed(int n, String range) {
+    return Intl.plural(
+      n,
+      one: '1 gateway on $range · found by a range probe',
+      other: '$n gateways on $range · found by a range probe',
+      name: 'discoverProbed',
+      desc: '',
+      args: [n, range],
+    );
+  }
+
+  /// `Probing {range} on port {port}…`
+  String discoverProbing(Object range, Object port) {
+    return Intl.message(
+      'Probing $range on port $port…',
+      name: 'discoverProbing',
+      desc: '',
+      args: [range, port],
+    );
+  }
+
+  /// `this network`
+  String get thisNetwork {
+    return Intl.message(
+      'this network',
+      name: 'thisNetwork',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Look again`
+  String get lookAgain {
+    return Intl.message('Look again', name: 'lookAgain', desc: '', args: []);
+  }
+
+  /// `Nothing found`
+  String get discoverNothing {
+    return Intl.message(
+      'Nothing found',
+      name: 'discoverNothing',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No gateway answered on {where} in 8 s`
+  String discoverNoneTitle(Object where) {
+    return Intl.message(
+      'No gateway answered on $where in 8 s',
+      name: 'discoverNoneTitle',
+      desc: '',
+      args: [where],
+    );
+  }
+
+  /// `Multicast does not cross this network: guest Wi-Fi, a VPN, or a VLAN without an mDNS reflector.`
+  String get whyMulticast {
+    return Intl.message(
+      'Multicast does not cross this network: guest Wi-Fi, a VPN, or a VLAN without an mDNS reflector.',
+      name: 'whyMulticast',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio may not be allowed to see the local network. macOS: System Settings › Privacy & Security › Local Network.`
+  String get whyPermissionMac {
+    return Intl.message(
+      'Studio may not be allowed to see the local network. macOS: System Settings › Privacy & Security › Local Network.',
+      name: 'whyPermissionMac',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio may not be allowed to see the local network. iOS: Settings › Privacy & Security › Local Network.`
+  String get whyPermissionIos {
+    return Intl.message(
+      'Studio may not be allowed to see the local network. iOS: Settings › Privacy & Security › Local Network.',
+      name: 'whyPermissionIos',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio may not be allowed to see the local network.`
+  String get whyPermission {
+    return Intl.message(
+      'Studio may not be allowed to see the local network.',
+      name: 'whyPermission',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open settings`
+  String get openSettings {
+    return Intl.message(
+      'Open settings',
+      name: 'openSettings',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker may have gateway.announce off (hardened sites), or its gateway listens on loopback only.`
+  String get whyAnnounce {
+    return Intl.message(
+      'The broker may have gateway.announce off (hardened sites), or its gateway listens on loopback only.',
+      name: 'whyAnnounce',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `You can always type the address, or open a link or a code from the broker’s System page.`
+  String get whyType {
+    return Intl.message(
+      'You can always type the address, or open a link or a code from the broker’s System page.',
+      name: 'whyType',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Probe a range instead`
+  String get probeRangeTitle {
+    return Intl.message(
+      'Probe a range instead',
+      name: 'probeRangeTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Range`
+  String get probeRangeField {
+    return Intl.message('Range', name: 'probeRangeField', desc: '', args: []);
+  }
+
+  /// `Port`
+  String get probePortField {
+    return Intl.message('Port', name: 'probePortField', desc: '', args: []);
+  }
+
+  /// `Probe`
+  String get probeButton {
+    return Intl.message('Probe', name: 'probeButton', desc: '', args: []);
+  }
+
+  /// `One HTTPS request per address to /api/info, 16 at a time, at most 1024 addresses. Ask before probing a network that is not yours.`
+  String get probeNote {
+    return Intl.message(
+      'One HTTPS request per address to /api/info, 16 at a time, at most 1024 addresses. Ask before probing a network that is not yours.',
+      name: 'probeNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Write an IPv4 range, as 10.0.7.0/24.`
+  String get rangeBadText {
+    return Intl.message(
+      'Write an IPv4 range, as 10.0.7.0/24.',
+      name: 'rangeBadText',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Each part of an address is 0 to 255.`
+  String get rangeBadPart {
+    return Intl.message(
+      'Each part of an address is 0 to 255.',
+      name: 'rangeBadPart',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The prefix is 0 to 32.`
+  String get rangeBadPrefix {
+    return Intl.message(
+      'The prefix is 0 to 32.',
+      name: 'rangeBadPrefix',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `At most 1024 addresses: a /22 or smaller.`
+  String get rangeTooBig {
+    return Intl.message(
+      'At most 1024 addresses: a /22 or smaller.',
+      name: 'rangeTooBig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The port is 1 to 65535.`
+  String get portBad {
+    return Intl.message(
+      'The port is 1 to 65535.',
+      name: 'portBad',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `used before`
+  String get tagUsedBefore {
+    return Intl.message(
+      'used before',
+      name: 'tagUsedBefore',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `active + standby`
+  String get tagActiveStandby {
+    return Intl.message(
+      'active + standby',
+      name: 'tagActiveStandby',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `downstream of {up}`
+  String tagDownstreamOf(Object up) {
+    return Intl.message(
+      'downstream of $up',
+      name: 'tagDownstreamOf',
+      desc: '',
+      args: [up],
+    );
+  }
+
+  /// `new`
+  String get tagNew {
+    return Intl.message('new', name: 'tagNew', desc: '', args: []);
+  }
+
+  /// `plain http`
+  String get tagPlainHttp {
+    return Intl.message('plain http', name: 'tagPlainHttp', desc: '', args: []);
+  }
+
+  /// `{main} · standby {standby}`
+  String hostsWithStandby(Object main, Object standby) {
+    return Intl.message(
+      '$main · standby $standby',
+      name: 'hostsWithStandby',
+      desc: '',
+      args: [main, standby],
+    );
+  }
+
+  /// `wyrmd {version}`
+  String noteWyrmd(Object version) {
+    return Intl.message(
+      'wyrmd $version',
+      name: 'noteWyrmd',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `certificate of the {site} CA, pinned`
+  String notePinned(Object site) {
+    return Intl.message(
+      'certificate of the $site CA, pinned',
+      name: 'notePinned',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `certificate trusted by this computer`
+  String get noteTrusted {
+    return Intl.message(
+      'certificate trusted by this computer',
+      name: 'noteTrusted',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `signed by the {site} CA (known)`
+  String noteKnownAs(Object site) {
+    return Intl.message(
+      'signed by the $site CA (known)',
+      name: 'noteKnownAs',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `its own CA · check the code before you trust it`
+  String get noteNew {
+    return Intl.message(
+      'its own CA · check the code before you trust it',
+      name: 'noteNew',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `plain http on this computer`
+  String get notePlain {
+    return Intl.message(
+      'plain http on this computer',
+      name: 'notePlain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not offered: plain http off this computer is refused (insecure_plaintext).`
+  String get problemPlainHttp {
+    return Intl.message(
+      'Not offered: plain http off this computer is refused (insecure_plaintext).',
+      name: 'problemPlainHttp',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not offered: this wyrmd is older than Studio needs (no /api/info).`
+  String get problemNoInfo {
+    return Intl.message(
+      'Not offered: this wyrmd is older than Studio needs (no /api/info).',
+      name: 'problemNoInfo',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not offered: this gateway needs Studio {version} or newer.`
+  String problemStudioTooOld(Object version) {
+    return Intl.message(
+      'Not offered: this gateway needs Studio $version or newer.',
+      name: 'problemStudioTooOld',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `Not offered: the CA code it announced is not the code of its CA.`
+  String get problemCodeMismatch {
+    return Intl.message(
+      'Not offered: the CA code it announced is not the code of its CA.',
+      name: 'problemCodeMismatch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not offered: its certificate names neither this address nor a host name. Type its address.`
+  String get problemNoName {
+    return Intl.message(
+      'Not offered: its certificate names neither this address nor a host name. Type its address.',
+      name: 'problemNoName',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not offered: /api/info did not answer ({reason}).`
+  String problemNoAnswer(Object reason) {
+    return Intl.message(
+      'Not offered: /api/info did not answer ($reason).',
+      name: 'problemNoAnswer',
+      desc: '',
+      args: [reason],
+    );
+  }
+
+  /// `Not offered: this computer does not trust its certificate, and it sends no CA to check.`
+  String get problemNoCa {
+    return Intl.message(
+      'Not offered: this computer does not trust its certificate, and it sends no CA to check.',
+      name: 'problemNoCa',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `now`
+  String get seenNow {
+    return Intl.message('now', name: 'seenNow', desc: '', args: []);
+  }
+
+  /// `{s} s`
+  String seenAgo(Object s) {
+    return Intl.message('$s s', name: 'seenAgo', desc: '', args: [s]);
+  }
+
+  /// `{site} · picked from this network`
+  String pickedFrom(Object site) {
+    return Intl.message(
+      '$site · picked from this network',
+      name: 'pickedFrom',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `{site} · picked from this network · standby filled in`
+  String pickedWithStandby(Object site) {
+    return Intl.message(
+      '$site · picked from this network · standby filled in',
+      name: 'pickedWithStandby',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Type the address, or find one on this network.`
+  String get typeOrFind {
+    return Intl.message(
+      'Type the address, or find one on this network.',
+      name: 'typeOrFind',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `First time on {site} · check its certificate`
+  String trustTitle(Object site) {
+    return Intl.message(
+      'First time on $site · check its certificate',
+      name: 'trustTitle',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `{site}’s gateway uses its own CA, which this computer does not know. Compare the code with the one on the broker before you trust it; anyone on this network can announce a name.`
+  String trustWhy(Object site) {
+    return Intl.message(
+      '$site’s gateway uses its own CA, which this computer does not know. Compare the code with the one on the broker before you trust it; anyone on this network can announce a name.',
+      name: 'trustWhy',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `On the broker: System › Gateway › Certificate code, or {command} on its host.`
+  String trustWhere(Object command) {
+    return Intl.message(
+      'On the broker: System › Gateway › Certificate code, or $command on its host.',
+      name: 'trustWhere',
+      desc: '',
+      args: [command],
+    );
+  }
+
+  /// `It matches · trust {site}`
+  String trustMatches(Object site) {
+    return Intl.message(
+      'It matches · trust $site',
+      name: 'trustMatches',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `CA code`
+  String get trustCode {
+    return Intl.message('CA code', name: 'trustCode', desc: '', args: []);
+  }
+
+  /// `The gateway now sends another CA than the one shown. Nothing was trusted.`
+  String get trustRefusedChanged {
+    return Intl.message(
+      'The gateway now sends another CA than the one shown. Nothing was trusted.',
+      name: 'trustRefusedChanged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The code the gateway claims is not the code of its CA. Nothing was trusted.`
+  String get trustRefusedMismatch {
+    return Intl.message(
+      'The code the gateway claims is not the code of its CA. Nothing was trusted.',
+      name: 'trustRefusedMismatch',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The gateway’s certificate is not signed by this CA, or does not name {host}. Nothing was trusted.`
+  String trustRefusedChain(Object host) {
+    return Intl.message(
+      'The gateway’s certificate is not signed by this CA, or does not name $host. Nothing was trusted.',
+      name: 'trustRefusedChain',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `The gateway did not answer again. Nothing was trusted.`
+  String get trustRefusedNoAnswer {
+    return Intl.message(
+      'The gateway did not answer again. Nothing was trusted.',
+      name: 'trustRefusedNoAnswer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `TLS · {site} CA, not trusted yet`
+  String tlsNotTrusted(Object site) {
+    return Intl.message(
+      'TLS · $site CA, not trusted yet',
+      name: 'tlsNotTrusted',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `TLS · {site} CA, pinned on this computer`
+  String tlsPinned(Object site) {
+    return Intl.message(
+      'TLS · $site CA, pinned on this computer',
+      name: 'tlsPinned',
+      desc: '',
+      args: [site],
+    );
+  }
+
   /// `Answer, or ask something else…`
   String get hintPlanning {
     return Intl.message(

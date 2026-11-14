@@ -30,6 +30,9 @@ class BoxedFormField extends StatefulWidget {
     this.textInputAction,
     this.onSubmitted,
     this.onLeave,
+    this.hint,
+    this.border,
+    this.beside,
     super.key,
   });
 
@@ -59,6 +62,16 @@ class BoxedFormField extends StatefulWidget {
 
   /// The field lost the focus (the gateway is probed then).
   final VoidCallback? onLeave;
+
+  /// Shown in `text4` while the field is empty (`https://host:port`).
+  final String? hint;
+
+  /// The border's colour instead of `line2` (amber while a found gateway's
+  /// CA waits for its check); [alert] and an error still win.
+  final Color? border;
+
+  /// Beside the box, 8 to its right and as high (`Find on this network`).
+  final Widget? beside;
 
   @override
   State<BoxedFormField> createState() => _BoxedFormFieldState();
@@ -107,6 +120,17 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
     super.dispose();
   }
 
+  Widget _beside(Widget box) => switch (widget.beside) {
+    null => box,
+    final b => Row(
+      spacing: 8,
+      children: [
+        Expanded(child: box),
+        b,
+      ],
+    ),
+  };
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -139,84 +163,95 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
           spacing: 8,
           children: [
             Text(widget.label, style: TextStyle(fontSize: 13, color: c.text2)),
-            Container(
-              height: 46,
-              padding: EdgeInsets.only(
-                left: widget.leading == null ? 14 : 12,
-                right: widget.obscure ? 6 : (widget.leading == null ? 14 : 12),
-              ),
-              decoration: BoxDecoration(
-                color: c.ground2,
-                borderRadius: const BorderRadius.all(Radius.circular(10)),
-                border: .all(
-                  color: widget.alert || error != null ? c.badLine : c.line2,
+            _beside(
+              Container(
+                height: 46,
+                padding: EdgeInsets.only(
+                  left: widget.leading == null ? 14 : 12,
+                  right: widget.obscure
+                      ? 6
+                      : (widget.leading == null ? 14 : 12),
                 ),
-              ),
-              child: Row(
-                spacing: 10,
-                children: [
-                  ?widget.leading,
-                  Expanded(
-                    child: TextField(
-                      controller: _text,
-                      focusNode: _focus,
-                      enabled: widget.vm.enabled,
-                      obscureText: hidden,
-                      keyboardType: widget.keyboardType,
-                      autofillHints: widget.autofillHints,
-                      textInputAction: widget.textInputAction,
-                      style: style,
-                      cursorColor: c.ember,
-                      cursorHeight: widget.mono ? 16 : 18,
-                      inputFormatters: widget.mono
-                          ? [FilteringTextInputFormatter.deny('\n')]
-                          : null,
-                      // The box is drawn above: nothing of the theme's
-                      // input decoration inside it.
-                      decoration: InputDecoration(
-                        isCollapsed: true,
-                        filled: false,
-                        // The board's inputs without their own padding keep
-                        // the browser's 2 px on each side.
-                        contentPadding: widget.leading != null || widget.obscure
-                            ? const EdgeInsets.symmetric(horizontal: 2)
-                            : .zero,
-                        border: .none,
-                        enabledBorder: .none,
-                        focusedBorder: .none,
-                        disabledBorder: .none,
-                        errorBorder: .none,
-                        focusedErrorBorder: .none,
-                      ),
-                      onChanged: (v) {
-                        state.didChange(v.isEmpty ? null : v);
-                        widget.vm.onChanged(v.isEmpty ? null : v);
-                      },
-                      onSubmitted: widget.onSubmitted,
-                    ),
+                decoration: BoxDecoration(
+                  color: c.ground2,
+                  borderRadius: const BorderRadius.all(Radius.circular(10)),
+                  border: .all(
+                    color: widget.alert || error != null
+                        ? c.badLine
+                        : widget.border ?? c.line2,
                   ),
-                  ?widget.trailing,
-                  if (widget.obscure)
-                    SizedBox.square(
-                      dimension: 36,
-                      child: IconButton(
-                        padding: .zero,
-                        tooltip: _hidden
-                            ? S.current.showPassword
-                            : S.current.hidePassword,
-                        style: IconButton.styleFrom(
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(8)),
+                ),
+                child: Row(
+                  spacing: 10,
+                  children: [
+                    ?widget.leading,
+                    Expanded(
+                      child: TextField(
+                        controller: _text,
+                        focusNode: _focus,
+                        enabled: widget.vm.enabled,
+                        obscureText: hidden,
+                        keyboardType: widget.keyboardType,
+                        autofillHints: widget.autofillHints,
+                        textInputAction: widget.textInputAction,
+                        style: style,
+                        cursorColor: c.ember,
+                        cursorHeight: widget.mono ? 16 : 18,
+                        inputFormatters: widget.mono
+                            ? [FilteringTextInputFormatter.deny('\n')]
+                            : null,
+                        // The box is drawn above: nothing of the theme's
+                        // input decoration inside it.
+                        decoration: InputDecoration(
+                          isCollapsed: true,
+                          hintText: widget.hint,
+                          hintStyle: style.copyWith(color: c.text4),
+                          filled: false,
+                          // The board's inputs without their own padding keep
+                          // the browser's 2 px on each side.
+                          contentPadding:
+                              widget.leading != null || widget.obscure
+                              ? const EdgeInsets.symmetric(horizontal: 2)
+                              : .zero,
+                          border: .none,
+                          enabledBorder: .none,
+                          focusedBorder: .none,
+                          disabledBorder: .none,
+                          errorBorder: .none,
+                          focusedErrorBorder: .none,
+                        ),
+                        onChanged: (v) {
+                          state.didChange(v.isEmpty ? null : v);
+                          widget.vm.onChanged(v.isEmpty ? null : v);
+                        },
+                        onSubmitted: widget.onSubmitted,
+                      ),
+                    ),
+                    ?widget.trailing,
+                    if (widget.obscure)
+                      SizedBox.square(
+                        dimension: 36,
+                        child: IconButton(
+                          padding: .zero,
+                          tooltip: _hidden
+                              ? S.current.showPassword
+                              : S.current.hidePassword,
+                          style: IconButton.styleFrom(
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(8),
+                              ),
+                            ),
+                          ),
+                          onPressed: () => setState(() => _hidden = !_hidden),
+                          icon: CustomPaint(
+                            size: const Size.square(18),
+                            painter: _Eye(c.text4, slashed: !_hidden),
                           ),
                         ),
-                        onPressed: () => setState(() => _hidden = !_hidden),
-                        icon: CustomPaint(
-                          size: const Size.square(18),
-                          painter: _Eye(c.text4, slashed: !_hidden),
-                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
             if (error != null)
