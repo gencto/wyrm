@@ -139,9 +139,11 @@ sequenceDiagram
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(_Select)
     A1->>ST: dispatchSync(_ClearDraft)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchSync(AddTasksAction)
     A1-->>-VM: ActionStatus
 ```
@@ -212,9 +214,11 @@ sequenceDiagram
         A3->>ST: dispatchSync(AddTaskEventAction)
         A3->>ST: dispatchSync(_Select)
         A3->>ST: dispatchSync(_ClearDraft)
+        A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
         A3->>ST: dispatchSync(AddTaskEventAction)
         A3->>ST: dispatchSync(AddTaskEventAction)
         A3->>ST: dispatchSync(AddTaskEventAction)
+        A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
         A3->>ST: dispatchSync(AddTasksAction)
         A3-->>-VM: ActionStatus
     end

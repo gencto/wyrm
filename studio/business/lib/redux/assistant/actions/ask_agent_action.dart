@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
@@ -12,6 +14,7 @@ import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../tasks/actions/add_task_event_action.dart';
 import '../../tasks/actions/add_tasks_action.dart';
+import '../../tasks/actions/retrieve_task_record_action.dart';
 
 /// `<agent>` ▸ `ask {task}` (write): a stream of `{task, state}` then
 /// `{task, event, text}` rows (`text` from the model, `tool` it used to
@@ -84,6 +87,11 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
             _state(task, str(r['state']));
           case 'state':
             _state(task, text);
+            // The stream may be ahead of the task's `~val` (the gateway
+            // forwards the two on their own): the tasks service then sees
+            // no change of state and reads nothing. The record that goes
+            // with this state (its questions, its plan) is read here.
+            unawaited(dispatchAndWait(RetrieveTaskRecordAction(task)));
             dispatchSync(
               AddTaskEventAction(
                 task,
@@ -119,6 +127,10 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
         thing: 'assistant',
         write: true,
       );
+    }
+    if (id != null) {
+      // where the task stands now that its stream is over
+      await dispatchAndWait(RetrieveTaskRecordAction(id));
     }
     if (id == null) {
       // The stream ended without naming a task: nothing was started, and

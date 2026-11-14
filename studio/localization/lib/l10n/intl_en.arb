@@ -1782,5 +1782,7 @@
     "rejectPlanHint": "Reason",
     "followUpLeftOut": "Ask for the steps left out",
     "followUpAsk": "Do the steps that were left out of the plan of task {task}: {steps}.",
-    "doneLeftOutNote": "The task is done. Steps left out: {steps}. Ask for them as a follow-up; its plan is approved on its own."
+    "doneLeftOutNote": "The task is done. Steps left out: {steps}. Ask for them as a follow-up; its plan is approved on its own.",
+    "planCheckedPartly": "awaiting approval · {now} checked now, {atRun} when it runs",
+    "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds."
 }

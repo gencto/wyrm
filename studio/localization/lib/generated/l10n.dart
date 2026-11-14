@@ -14227,6 +14227,26 @@ class S {
       args: [steps],
     );
   }
+
+  /// `awaiting approval · {now} checked now, {atRun} when it runs`
+  String planCheckedPartly(Object now, Object atRun) {
+    return Intl.message(
+      'awaiting approval · $now checked now, $atRun when it runs',
+      name: 'planCheckedPartly',
+      desc: '',
+      args: [now, atRun],
+    );
+  }
+
+  /// `A secret argument is not shown. The approval is still for the value the plan holds.`
+  String get planSecretNote {
+    return Intl.message(
+      'A secret argument is not shown. The approval is still for the value the plan holds.',
+      name: 'planSecretNote',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
