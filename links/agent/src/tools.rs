@@ -143,34 +143,104 @@ pub fn node_key(site: &str, path: &str) -> Result<String, String> {
     Ok(key)
 }
 
+/// What one step of a plan does. `set` and `invoke` change the site; `wait`, `expect` and
+/// `sleep` only read (the plan proves itself) and need no approval. The names are the keys of
+/// a step in the `wyrm-agent run` plan format (`wyrm_mcp::gw::Step`, ADR 0033, 0049 §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpKind {
     Set,
     Invoke,
+    /// Wait until the node exists.
+    Wait,
+    /// Wait until the point's value passes a test.
+    Expect,
+    Sleep,
 }
 
 impl OpKind {
+    pub const ALL: [Self; 5] = [
+        Self::Set,
+        Self::Invoke,
+        Self::Wait,
+        Self::Expect,
+        Self::Sleep,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Set => "set",
             Self::Invoke => "invoke",
+            Self::Wait => "wait",
+            Self::Expect => "expect",
+            Self::Sleep => "sleep",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.name() == s)
+    }
+
+    /// Does the step send a `~set` or an `~act`?
+    pub fn changes(self) -> bool {
+        matches!(self, Self::Set | Self::Invoke)
+    }
+}
+
+/// How far a proposed step could be checked (ADR 0049 §8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Check {
+    /// Checked against the live tree when it was proposed.
+    #[default]
+    Now,
+    /// Its node does not exist yet (an earlier step makes it): checked when it runs.
+    AtRun,
+}
+
+impl Check {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Now => "now",
+            Self::AtRun => "at_run",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Self {
+        if s == "at_run" {
+            Self::AtRun
+        } else {
+            Self::Now
         }
     }
 }
 
-/// One validated plan step. `key` is the exact request key
-/// (`<node>/~set` or `<node>/~act/<action>`); approvals are keyed by it.
+/// Longest `wait`/`expect` timeout and `sleep` of a step, seconds (as `wyrm-agent run`).
+pub const MAX_STEP_WAIT_S: f64 = 600.0;
+
+/// One validated plan step. Its number `n` is its place in the plan, from 1.
 #[derive(Debug, Clone)]
 pub struct PlanOp {
     pub op: OpKind,
+    /// The node the step is about; empty for `sleep`.
     pub node: String,
+    /// The exact request key of a step that changes something (`<node>/~set` or
+    /// `<node>/~act/<action>`): what a human approval is for. The node key for `wait` and
+    /// `expect`, empty for `sleep`.
     pub key: String,
     pub action: Option<String>,
-    /// `~set` value, or the action's argument map.
+    /// `set`: the value; `invoke`: the argument map; `expect`: the test, a map with one of
+    /// `equals`, `min`/`max`, `changes` (empty: any value); else null.
     pub payload: Value,
+    /// `wait`/`expect`: the timeout; `sleep`: its length. Seconds.
+    pub seconds: Option<f64>,
+    /// The level the request needs; `read` for a step that changes nothing.
     pub level: Perm,
     pub needs_approval: bool,
     pub reason: Option<String>,
+    pub check: Check,
+    /// What the person must know before approving (a value at a limit).
+    pub warn: Option<String>,
+    /// The steps (by number) this one needs: skipped when one of them is.
+    pub after: Vec<usize>,
     /// What the run did with the step; `None` until it reaches it (a step after a failed one
     /// keeps `None`: it was never sent).
     pub result: Option<StepResult>,
@@ -181,7 +251,7 @@ pub struct PlanOp {
 pub enum StepStatus {
     Ok,
     Failed,
-    /// Left out by the approver (`approve {skip}`): never sent.
+    /// Left out by the approver, or a step that needs one left out: never sent.
     Skipped,
 }
 
@@ -204,8 +274,10 @@ impl StepStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepResult {
     pub status: StepStatus,
-    /// The responder's answer in short, or its refusal.
+    /// The responder's answer in short, or its refusal, or why it was skipped.
     pub message: String,
+    /// When the step ended, seconds since the Unix epoch (0: a record older than this field).
+    pub time: u64,
 }
 
 impl StepResult {
@@ -213,6 +285,7 @@ impl StepResult {
         Value::Map(BTreeMap::from([
             ("status".to_owned(), Value::from(self.status.name())),
             ("message".to_owned(), Value::from(self.message.as_str())),
+            ("time".to_owned(), Value::UInt(self.time)),
         ]))
     }
 
@@ -225,33 +298,77 @@ impl StepResult {
         Some(Self {
             status: StepStatus::from_name(&s("status")?)?,
             message: s("message").unwrap_or_default(),
+            time: match m.get("time") {
+                Some(Value::UInt(t)) => *t,
+                _ => 0,
+            },
         })
     }
 }
 
+/// The keys of a step in `~state` that are not part of what it does: left out of
+/// [`plan_hash`].
+pub const UNHASHED: [&str; 5] = ["approval", "check", "warn", "reason", "result"];
+
 impl PlanOp {
     /// The stricter of the value recorded at planning time and the current
-    /// policy: a policy change during planning never lowers the bar.
+    /// policy: a policy change during planning never lowers the bar. A step
+    /// that changes nothing never needs a human.
     pub fn requires_approval(&self, policy: &Policy) -> bool {
-        self.needs_approval || policy.mode.needs_approval(self.level)
+        self.op.changes() && (self.needs_approval || policy.mode.needs_approval(self.level))
     }
 
-    /// The step as the task's `~state` shows it. `approval` is the bar of now
-    /// ([`requires_approval`](Self::requires_approval)): what `approve` will ask for.
-    pub fn to_value(&self, policy: &Policy) -> Value {
+    /// The step in the `wyrm-agent run` plan format: `{"set": <node>, "value"}`,
+    /// `{"invoke": <node>, "action", "args"}`, `{"wait": <node>, "timeout_s"}`,
+    /// `{"expect": <node>, "equals" | "min"/"max" | "changes", "timeout_s"}`, `{"sleep_s"}`.
+    fn run_format(&self) -> BTreeMap<String, Value> {
         let mut m = BTreeMap::new();
-        m.insert("op".to_owned(), Value::from(self.op.name()));
-        m.insert("node".to_owned(), Value::from(self.node.as_str()));
-        m.insert("key".to_owned(), Value::from(self.key.as_str()));
-        if let Some(a) = &self.action {
-            m.insert("action".to_owned(), Value::from(a.as_str()));
+        let node = Value::from(self.node.as_str());
+        let secs = Value::Float(self.seconds.unwrap_or(0.0));
+        match self.op {
+            OpKind::Set => {
+                m.insert("set".to_owned(), node);
+                m.insert("value".to_owned(), self.payload.clone());
+            }
+            OpKind::Invoke => {
+                m.insert("invoke".to_owned(), node);
+                m.insert(
+                    "action".to_owned(),
+                    Value::from(self.action.as_deref().unwrap_or_default()),
+                );
+                m.insert("args".to_owned(), self.payload.clone());
+            }
+            OpKind::Wait => {
+                m.insert("wait".to_owned(), node);
+                m.insert("timeout_s".to_owned(), secs);
+            }
+            OpKind::Expect => {
+                m.insert("expect".to_owned(), node);
+                if let Value::Map(test) = &self.payload {
+                    m.extend(test.clone());
+                }
+                m.insert("timeout_s".to_owned(), secs);
+            }
+            OpKind::Sleep => {
+                m.insert("sleep_s".to_owned(), secs);
+            }
         }
-        m.insert("args".to_owned(), self.payload.clone());
-        m.insert("level".to_owned(), Value::from(self.level.name()));
+        m
+    }
+
+    /// The step as the task's `~state` shows it: the run format, its number `n`, `level`,
+    /// `after`, and what is said about it (`approval`: the bar of now, what `approve` will
+    /// ask for; `check`; `warn`; `reason`; `result`).
+    pub fn to_value(&self, n: usize, policy: &Policy) -> Value {
+        let mut m = self.hashed(n);
         m.insert(
             "approval".to_owned(),
             Value::Bool(self.requires_approval(policy)),
         );
+        m.insert("check".to_owned(), Value::from(self.check.name()));
+        if let Some(w) = &self.warn {
+            m.insert("warn".to_owned(), Value::from(w.as_str()));
+        }
         if let Some(r) = &self.reason {
             m.insert("reason".to_owned(), Value::from(r.as_str()));
         }
@@ -261,33 +378,72 @@ impl PlanOp {
         Value::Map(m)
     }
 
-    /// The request body of the step, byte for byte as the run sends it: what a human
-    /// approval may be bound to (claim `args`, spec 04).
+    /// What the step does, as [`plan_hash`] covers it: [`to_value`](Self::to_value) without
+    /// the keys of [`UNHASHED`].
+    fn hashed(&self, n: usize) -> BTreeMap<String, Value> {
+        let mut m = self.run_format();
+        m.insert("n".to_owned(), Value::UInt(n as u64));
+        m.insert("level".to_owned(), Value::from(self.level.name()));
+        if !self.after.is_empty() {
+            m.insert(
+                "after".to_owned(),
+                Value::Array(self.after.iter().map(|a| Value::UInt(*a as u64)).collect()),
+            );
+        }
+        m
+    }
+
+    /// The request body of a step that changes something, byte for byte as the run sends
+    /// it: what a human approval may be bound to (claim `args`, spec 04).
     pub fn request_payload(&self) -> Result<Vec<u8>, String> {
         match self.op {
             OpKind::Set => wyrm_client::set_payload(self.payload.clone()),
             OpKind::Invoke => wyrm_client::invoke_payload(&self.payload),
+            _ => return Err("the step sends no request".into()),
         }
         .map_err(|e| e.to_string())
+    }
+
+    /// One line for the log and the model: `set <node>`, `expect <node>`, `sleep 5 s`.
+    pub fn describe(&self) -> String {
+        match self.op {
+            OpKind::Sleep => format!("sleep {} s", self.seconds.unwrap_or(0.0)),
+            OpKind::Invoke => format!("invoke {}", self.key),
+            op => format!("{} {}", op.name(), self.node),
+        }
     }
 }
 
 /// What an approval of a plan is bound to (`~state.plan_hash`, `approve {plan}`): the SHA-256
-/// (hex) of the canonical CBOR of `[[op, key, args, level], …]` in plan order. Two plans with
-/// the same hash send the same requests at the same levels.
+/// (hex) of the canonical CBOR of the plan as `~state.plan` shows it, each step without the
+/// keys of [`UNHASHED`]. Two plans with the same hash send the same requests at the same
+/// levels, in the same order, with the same dependencies. The gateway and a client make the
+/// same hash from the `~state` they read, so an approval of another plan is refused.
 pub fn plan_hash(plan: &[PlanOp]) -> String {
     let steps = plan
         .iter()
-        .map(|op| {
-            Value::Array(vec![
-                Value::from(op.op.name()),
-                Value::from(op.key.as_str()),
-                op.payload.clone(),
-                Value::from(op.level.name()),
-            ])
-        })
+        .enumerate()
+        .map(|(i, op)| Value::Map(op.hashed(i + 1)))
         .collect();
     check::payload_sha256(&wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap_or_default())
+}
+
+/// The steps of `plan` that do not run when the steps in `unapproved` (numbers from 1) get no
+/// approval: those, and every step that needs one of them (`after`), with the step each one
+/// is skipped for (itself for an unapproved one).
+pub fn skipped(plan: &[PlanOp], unapproved: &[usize]) -> BTreeMap<usize, usize> {
+    let mut out: BTreeMap<usize, usize> = unapproved.iter().map(|n| (*n, *n)).collect();
+    // `after` names earlier steps only, so one pass in order settles every chain
+    for (i, op) in plan.iter().enumerate() {
+        let n = i + 1;
+        if out.contains_key(&n) {
+            continue;
+        }
+        if let Some(dep) = op.after.iter().find(|a| out.contains_key(a)) {
+            out.insert(n, *dep);
+        }
+    }
+    out
 }
 
 fn str_field<'a>(input: &'a Json, k: &str) -> Result<&'a str, String> {
@@ -296,79 +452,230 @@ fn str_field<'a>(input: &'a Json, k: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("`{k}` (string) is required"))
 }
 
+/// The `after` of a new step: what the model named, else the latest earlier step that
+/// changes something on the step's node or on a node above it (it makes or prepares what
+/// this step needs). `sleep` depends on the step before it.
+fn after_of(input: &Json, plan: &[PlanOp], op: OpKind, node: &str) -> Result<Vec<usize>, String> {
+    match input.get("after") {
+        None | Some(Json::Null) => {}
+        Some(Json::Array(a)) => {
+            let mut out = Vec::new();
+            for v in a {
+                let n = v
+                    .as_u64()
+                    .map(|n| n as usize)
+                    .filter(|n| (1..=plan.len()).contains(n))
+                    .ok_or_else(|| {
+                        format!(
+                            "`after`: numbers of earlier steps (1..{}) are expected",
+                            plan.len()
+                        )
+                    })?;
+                if !out.contains(&n) {
+                    out.push(n);
+                }
+            }
+            out.sort_unstable();
+            return Ok(out);
+        }
+        Some(_) => return Err("`after` must be an array of step numbers".into()),
+    }
+    if op == OpKind::Sleep {
+        return Ok(if plan.is_empty() {
+            Vec::new()
+        } else {
+            vec![plan.len()]
+        });
+    }
+    Ok(plan
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, p)| p.op.changes() && under(node, &p.node))
+        .map(|(i, _)| vec![i + 1])
+        .unwrap_or_default())
+}
+
+fn seconds(input: &Json, k: &str, default: f64) -> Result<f64, String> {
+    match input.get(k) {
+        None | Some(Json::Null) => Ok(default),
+        Some(v) => v
+            .as_f64()
+            .filter(|s| s.is_finite() && *s >= 0.0)
+            .map(|s| s.min(MAX_STEP_WAIT_S))
+            .ok_or_else(|| format!("`{k}` must be a number of seconds")),
+    }
+}
+
+/// The test of an `expect` step as a map: one of `equals`, `min`/`max`, `changes`; empty:
+/// any value.
+fn expect_test(input: &Json) -> Result<Value, String> {
+    let mut m = BTreeMap::new();
+    if let Some(v) = input.get("equals").filter(|v| !v.is_null()) {
+        m.insert("equals".to_owned(), json_to_value(v)?);
+    } else if input["changes"].as_bool() == Some(true) {
+        m.insert("changes".to_owned(), Value::Bool(true));
+    } else {
+        for k in ["min", "max"] {
+            if let Some(v) = input.get(k).filter(|v| !v.is_null()) {
+                let x = v
+                    .as_f64()
+                    .filter(|x| x.is_finite())
+                    .ok_or_else(|| format!("`{k}` must be a number"))?;
+                m.insert(k.to_owned(), Value::Float(x));
+            }
+        }
+    }
+    Ok(Value::Map(m))
+}
+
+/// A value at a limit of its point: the person should see it before approving.
+fn limit_warning(meta: &wyrm_core::NodeMeta, v: &Value) -> Option<String> {
+    let x = v.as_f64()?;
+    ["min", "max"].into_iter().find_map(|k| {
+        let bound = meta.cfg_value(k)?.as_f64()?;
+        (x == bound).then(|| format!("the value {x} is at the point's {k} ({bound})"))
+    })
+}
+
 /// Dry-run check of a proposal (the `wyrm-mcp` rules): node key, policy,
-/// `~meta` (type, enum, bounds, action schema), level, approval need.
+/// `~meta` (type, enum, bounds, action schema), level, approval need. `plan` is the plan so
+/// far: a step on a node that does not exist yet is taken when an earlier step may make it
+/// (`check: at_run`), and is then checked when it runs.
 pub async fn check_proposal(
     reader: &WyrmClient,
     policy: &Policy,
+    plan: &[PlanOp],
     input: &Json,
 ) -> Result<PlanOp, String> {
     let op = match str_field(input, "op")? {
-        "set" => OpKind::Set,
-        "invoke" => OpKind::Invoke,
         "flow_apply" => {
             return Err("flow_apply is not supported by this agent yet".into());
         }
-        other => return Err(format!("unknown op {other:?}; use set or invoke")),
+        other => OpKind::from_name(other).ok_or_else(|| {
+            format!("unknown op {other:?}; use set, invoke, wait, expect or sleep")
+        })?,
     };
-    let node = policy.node_key(str_field(input, "path")?)?;
-    policy.may_touch(&node)?;
     let reason = input["reason"]
         .as_str()
         .map(|s| s.chars().take(500).collect());
-    let meta = reader
-        .meta_expanded(&node)
-        .await
-        .map_err(|e| format!("{node}: {e}"))?;
-    let (key, action, payload, mut level) = match op {
-        OpKind::Set => {
-            let level = check::set_level(&meta)?;
+    let blank = PlanOp {
+        op,
+        node: String::new(),
+        key: String::new(),
+        action: None,
+        payload: Value::Null,
+        seconds: None,
+        level: Perm::Read,
+        needs_approval: false,
+        reason,
+        check: Check::Now,
+        warn: None,
+        after: Vec::new(),
+        result: None,
+    };
+    if op == OpKind::Sleep {
+        return Ok(PlanOp {
+            seconds: Some(seconds(input, "seconds", 1.0)?),
+            after: after_of(input, plan, op, "")?,
+            ..blank
+        });
+    }
+    let node = policy.node_key(str_field(input, "path")?)?;
+    let after = after_of(input, plan, op, &node)?;
+    if !op.changes() {
+        // a proof step reads: inside what the model may read, no approval
+        policy.may_read(&node)?;
+        return Ok(PlanOp {
+            key: node.clone(),
+            payload: match op {
+                OpKind::Expect => expect_test(input)?,
+                _ => Value::Null,
+            },
+            seconds: Some(seconds(input, "timeout_s", 10.0)?),
+            node,
+            after,
+            ..blank
+        });
+    }
+    policy.may_touch(&node)?;
+    let action = match op {
+        OpKind::Invoke => {
+            let a = str_field(input, "action")?.to_owned();
+            wyrm_core::keyspace::validate_segment(&a).map_err(|e| e.to_string())?;
+            Some(a)
+        }
+        _ => None,
+    };
+    let key = match &action {
+        Some(a) => format!("{node}/~act/{a}"),
+        None => format!("{node}/~set"),
+    };
+    let meta = match reader.meta_expanded(&node).await {
+        Ok(m) => Some(m),
+        // made by an earlier step: checked when it runs
+        Err(e) if e.is(wyrm_core::Status::NotFound) && !after.is_empty() => None,
+        Err(e) => return Err(format!("{node}: {e}")),
+    };
+    let (payload, mut level, warn) = match (&meta, &action) {
+        (Some(meta), None) => {
+            let level = check::set_level(meta)?;
             let v = json_to_value(input.get("value").ok_or("`value` is required for set")?)?;
             let v = check::coerce_enum(meta.ty, meta.enum_values.as_deref(), v);
-            check::validate_value(&meta, &v)?;
-            (format!("{node}/~set"), None, v, level)
+            check::validate_value(meta, &v)?;
+            let warn = limit_warning(meta, &v);
+            (v, level, warn)
         }
-        OpKind::Invoke => {
-            let action = str_field(input, "action")?.to_owned();
-            wyrm_core::keyspace::validate_segment(&action).map_err(|e| e.to_string())?;
-            let level = check::action_level(&meta, &action)?;
+        (Some(meta), Some(action)) => {
+            let level = check::action_level(meta, action)?;
             let act = meta
                 .actions
                 .as_ref()
-                .and_then(|a| a.get(&action))
+                .and_then(|a| a.get(action))
                 .cloned()
                 .unwrap_or_default();
-            let given = match input.get("args") {
-                None | Some(Json::Null) => BTreeMap::new(),
-                Some(Json::Object(o)) => o
-                    .iter()
-                    .map(|(k, v)| json_to_value(v).map(|v| (k.clone(), v)))
-                    .collect::<Result<_, _>>()?,
-                Some(_) => return Err("`args` must be an object".into()),
-            };
-            let args = check::prepare_args(&act.params, given)?;
-            (
-                format!("{node}/~act/{action}"),
-                Some(action),
-                Value::Map(args),
-                level,
-            )
+            let args = check::prepare_args(&act.params, given_args(input)?)?;
+            (Value::Map(args), level, None)
         }
+        // Unknown until the node exists: sent as given, at `write`. A node that then asks
+        // for more refuses the step; the token never gives more than was approved.
+        (None, None) => (
+            json_to_value(input.get("value").ok_or("`value` is required for set")?)?,
+            Perm::Write,
+            None,
+        ),
+        (None, Some(_)) => (Value::Map(given_args(input)?), Perm::Write, None),
     };
     if check::is_control_plane(&policy.site, &node) {
         level = Perm::Config;
     }
     Ok(PlanOp {
-        op,
         node,
         key,
         action,
         payload,
         level,
         needs_approval: policy.mode.needs_approval(level),
-        reason,
-        result: None,
+        check: if meta.is_some() {
+            Check::Now
+        } else {
+            Check::AtRun
+        },
+        warn,
+        after,
+        ..blank
     })
+}
+
+fn given_args(input: &Json) -> Result<BTreeMap<String, Value>, String> {
+    match input.get("args") {
+        None | Some(Json::Null) => Ok(BTreeMap::new()),
+        Some(Json::Object(o)) => o
+            .iter()
+            .map(|(k, v)| json_to_value(v).map(|v| (k.clone(), v)))
+            .collect(),
+        Some(_) => Err("`args` must be an object".into()),
+    }
 }
 
 /// Tool definitions for the Messages API (`tools`).
@@ -391,15 +698,30 @@ pub fn definitions() -> Json {
          "input_schema": {"type": "object", "properties": {"def": {"type": "object"}}, "required": ["def"]}},
         {"name": "spec", "description": "The normative WYRM spec: 01 keyspace, 02 meta, 03 val, 04 attachment, 05 methods, 06 flow-def, readme, tables, changelog. Without a section: the list.",
          "input_schema": {"type": "object", "properties": {"section": {"type": "string"}}}},
-        {"name": "propose", "description": "Add one change to the task plan. It is NOT executed now: it is checked against ~meta (type, enum, min/max, action schema) and the agent's allowed_prefixes, then shown to a human who approves or rejects the whole plan. op=set needs `value`; op=invoke needs `action` and `args`. An error result means the step was not added; fix it or explain why it is impossible. Read the node with node_meta first.",
+        {"name": "propose", "description": "Add one step to the task plan. It is NOT executed now: it is checked against ~meta (type, enum, min/max, action schema) and the agent's allowed_prefixes, then shown to a human who approves the steps they want. op=set needs `value`; op=invoke needs `action` and `args`. Prove the plan with steps that only read and need no approval: op=wait (until the node `path` exists), op=expect (until the value of `path` is `equals`, or within `min`/`max`, or `changes`; none of them: any value), op=sleep (`seconds`). The answer is {ok, n, check, warn?}: `check` is `now` (checked against the live tree) or `at_run` (the node does not exist yet; an earlier step makes it); show `warn` to the person. An error result means the step was not added; fix it or explain why it is impossible. Read the node with node_meta first.",
          "input_schema": {"type": "object", "properties": {
-            "op": {"type": "string", "enum": ["set", "invoke"]},
+            "op": {"type": "string", "enum": ["set", "invoke", "wait", "expect", "sleep"]},
             "path": path,
             "value": {"description": "New value for op=set (enum by name or index; binary as {\"$bytes\": \"<base64>\"})."},
             "action": {"type": "string", "description": "Action name for op=invoke."},
             "args": {"type": "object", "description": "Action arguments for op=invoke."},
+            "equals": {"description": "op=expect: the value to wait for."},
+            "min": {"type": "number"}, "max": {"type": "number"},
+            "changes": {"type": "boolean", "description": "op=expect: two different values are seen."},
+            "timeout_s": {"type": "number", "description": "op=wait/expect: seconds to wait (default 10, at most 600)."},
+            "seconds": {"type": "number", "description": "op=sleep."},
+            "after": {"type": "array", "items": {"type": "integer"}, "description": "Numbers of the earlier steps this step needs: it is skipped when the person leaves one of them out. Default: the latest earlier change on this node or a node above it."},
             "reason": {"type": "string", "description": "One sentence: why this step is needed."}
-         }, "required": ["op", "path"]}}
+         }, "required": ["op"]}},
+        {"name": "ask_user", "description": "Ask the person one question before you plan, when the task leaves a real choice open. At most 3 questions in one turn. Give up to 6 options; every option must name something you have read in the tree (a node, a value, a profile), never a guess. The task then waits; the answer comes back as this tool's result.",
+         "input_schema": {"type": "object", "properties": {
+            "question": {"type": "string"},
+            "options": {"type": "array", "items": {"type": "object", "properties": {
+                "id": {"type": "string"}, "label": {"type": "string"}, "detail": {"type": "string"}
+            }, "required": ["id", "label"]}},
+            "multiple": {"type": "boolean", "description": "Several options may be picked."},
+            "free_text": {"type": "boolean", "description": "The person may answer in their own words."}
+         }, "required": ["question"]}}
     ])
 }
 
@@ -697,15 +1019,28 @@ mod tests {
             needs_approval: false, // planned under mode `config`
             reason: None,
             result: None,
+            seconds: None,
+            check: Check::Now,
+            warn: None,
+            after: Vec::new(),
         };
-        // the hash covers what is sent and at which level, not the model's words or the run
+        // the hash covers what is sent, at which level and after what, not the model's words
+        // or the run
         let h = plan_hash(std::slice::from_ref(&op));
-        assert_eq!(h.len(), 64);
+        // the same vector as dart/wyrm_client/test/plan_hash_test.dart
+        assert_eq!(
+            h,
+            "08900496afc130ee83048251cb224b679cbfd06491270fa67d386c7dcc6cd60d"
+        );
         let reworded = PlanOp {
             reason: Some("because".into()),
+            warn: Some("at the limit".into()),
+            check: Check::AtRun,
+            needs_approval: true,
             result: Some(StepResult {
                 status: StepStatus::Ok,
                 message: "set ok".into(),
+                time: 5,
             }),
             ..op.clone()
         };
@@ -716,17 +1051,49 @@ mod tests {
                 ..op.clone()
             },
             PlanOp {
-                key: "wy/s/downstream/m/q/~set".into(),
+                node: "wy/s/downstream/m/q".into(),
                 ..op.clone()
             },
             PlanOp {
                 level: Perm::Config,
                 ..op.clone()
             },
+            PlanOp {
+                after: vec![1],
+                ..op.clone()
+            },
         ] {
             assert_ne!(plan_hash(std::slice::from_ref(&other)), h);
         }
         assert_ne!(plan_hash(&[op.clone(), op.clone()]), h);
+        // a step left out takes the steps that need it with it, along the whole chain
+        let chain = |after: &[usize]| PlanOp {
+            after: after.to_vec(),
+            ..op.clone()
+        };
+        let plan = [
+            chain(&[]),
+            chain(&[1]),
+            chain(&[]),
+            chain(&[2, 3]),
+            chain(&[3]),
+        ];
+        assert_eq!(
+            skipped(&plan, &[1]),
+            BTreeMap::from([(1, 1), (2, 1), (4, 2)])
+        );
+        assert_eq!(
+            skipped(&plan, &[3]),
+            BTreeMap::from([(3, 3), (4, 3), (5, 3)])
+        );
+        assert!(skipped(&plan, &[]).is_empty());
+        // a step that only reads never needs a human
+        let proof = PlanOp {
+            op: OpKind::Expect,
+            needs_approval: true,
+            ..op.clone()
+        };
+        assert!(!proof.requires_approval(&policy(&[], ApprovalMode::Write)));
         assert!(!op.requires_approval(&policy(&[], ApprovalMode::Config)));
         // the policy became stricter while the task was planning
         assert!(op.requires_approval(&policy(&[], ApprovalMode::Write)));

@@ -1,23 +1,27 @@
-//! Approvals of an agent task for a logged-in user (ADR 0049).
+//! Approvals of an agent task for a logged-in user (ADR 0049 §2–4).
 //!
 //! `approve` on `downstream/<agent>/tasks/<id>` takes one human `ptok` per step (ADR 0005).
-//! A user of the gateway holds no key, so the gateway signs those tokens with the user's
-//! rights, as it signs flow deploy proofs (ADR 0008). The rule, in the order it is checked:
+//! A user of the gateway holds no key, so on `invoke … approve {steps: [n…], plan}` the
+//! gateway signs those tokens with the user's rights, as it signs flow deploy proofs
+//! (ADR 0008). The rule, in the order it is checked:
 //!
 //! 1. the plan is the one the agent link stores: the gateway reads `tasks/<id>/~state` itself
-//!    with the user's own token; the client names steps by request key and nothing else of a
-//!    step comes from the client;
+//!    with the user's own token; the client names steps by number and nothing else of a
+//!    step comes from the client (`approvals` in the arguments means a caller with its own
+//!    keys: the call then goes through as it is);
 //! 2. the task is `awaiting_approval`, and the hash of the plan the gateway read (made here
 //!    from its steps, not taken from the record) is the hash the client made from the plan
 //!    the user saw (`args.plan`); the link checks the hash against its own plan again when
 //!    it takes the approval;
 //! 3. every named step is a step of that plan that needs a human, named once;
 //! 4. the user's grants give every named step at least the level it needs; if one does not,
-//!    the whole call is refused, the answer names those steps, and no token is made;
+//!    the whole call is refused before anything is sent, the answer names the step and the
+//!    right that is missing, and no token is made;
 //! 5. one token per named step: subject the user, the single grant exactly the step's request
 //!    key, `max` the level the step needs (never the user's whole level), `args` the SHA-256 of
 //!    the step's request body, a fresh `jti`, `exp` in [`APPROVAL_TTL`];
-//! 6. the steps of the plan that need a human and were not named go to the link as `skip`.
+//! 6. the link gets `approvals {"<n>": token}` and `plan`; a step that needs a human and was
+//!    not named gets no token, and the link skips it and the steps that need it.
 
 use crate::Refusal;
 use sha2::{Digest, Sha256};
@@ -31,15 +35,28 @@ pub const APPROVAL_TTL: Duration = Duration::from_secs(300);
 pub const MAX_DOC: usize = 1024 * 1024;
 /// Steps one `approve` may name (the agent link keeps at most 50 in a plan).
 pub const MAX_STEPS: usize = 64;
+/// The keys of a step in `~state` that say something about it and are no part of what it
+/// does (`links/agent` `tools::UNHASHED`): left out of the plan's hash.
+const UNHASHED: [&str; 5] = ["approval", "check", "warn", "reason", "result"];
 
 /// One step of the stored plan, as far as an approval needs it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Step {
-    /// The request key: `<node>/~set` or `<node>/~act/<action>`.
-    pub key: String,
-    pub level: Perm,
+    /// Its number in the plan, from 1.
+    pub n: usize,
+    /// What a token for it is for; `None`: the step sends nothing (`wait`, `expect`,
+    /// `sleep`).
+    pub request: Option<Request>,
     /// Does the step need a human (the link's bar of now)?
     pub approval: bool,
+}
+
+/// The request of a step that changes something.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Request {
+    /// `<node>/~set` or `<node>/~act/<action>`.
+    pub key: String,
+    pub level: Perm,
     /// SHA-256 of the request body the run will send.
     pub body: [u8; 32],
 }
@@ -52,10 +69,10 @@ pub(crate) struct Plan {
     pub steps: Vec<Step>,
 }
 
-/// What the client asks for: `args {steps: [<request key>, …], plan: <plan_hash>}`.
+/// What the client asks for: `args {steps: [<n>, …], plan: <plan hash>}`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Ask {
-    pub steps: Vec<String>,
+    pub steps: Vec<usize>,
     pub plan: String,
 }
 
@@ -70,17 +87,22 @@ fn text<'a>(m: &'a BTreeMap<String, Value>, k: &str) -> Option<&'a str> {
     }
 }
 
+/// Is this `approve` the form of a gateway user (`steps`), for the gateway to sign? With
+/// `approvals` the caller brings its own tokens and the gateway adds nothing.
+pub(crate) fn asks_for_tokens(args: &Value) -> bool {
+    matches!(args, Value::Map(m) if m.contains_key("steps") && !m.contains_key("approvals"))
+}
+
 impl Ask {
-    pub fn parse(args: Option<&Value>) -> Result<Self, Refusal> {
-        let Some(Value::Map(m)) = args else {
+    pub fn parse(args: &Value) -> Result<Self, Refusal> {
+        let Value::Map(m) = args else {
             return Err(bad("args: {steps, plan} required"));
         };
         if let Some(k) = m.keys().find(|k| !matches!(k.as_str(), "steps" | "plan")) {
-            // `approvals` above all: a token never comes from the client
             return Err(bad(format!("args.{k}: only steps and plan are taken")));
         }
         let Some(Value::Array(items)) = m.get("steps") else {
-            return Err(bad("args.steps: an array of request keys required"));
+            return Err(bad("args.steps: an array of step numbers required"));
         };
         if items.is_empty() {
             return Err(bad(
@@ -90,17 +112,21 @@ impl Ask {
         if items.len() > MAX_STEPS {
             return Err(bad(format!("args.steps: at most {MAX_STEPS}")));
         }
-        let mut steps: Vec<String> = Vec::with_capacity(items.len());
+        let mut steps: Vec<usize> = Vec::with_capacity(items.len());
         for i in items {
-            match i {
-                Value::Str(k) if !steps.contains(k) => steps.push(k.clone()),
-                Value::Str(k) => return Err(bad(format!("args.steps: {k} is named twice"))),
-                _ => return Err(bad("args.steps: an array of request keys required")),
+            let n = match i {
+                Value::UInt(n) => usize::try_from(*n).ok().filter(|n| *n >= 1),
+                _ => None,
             }
+            .ok_or_else(|| bad("args.steps: step numbers (from 1) required"))?;
+            if steps.contains(&n) {
+                return Err(bad(format!("args.steps: step {n} is named twice")));
+            }
+            steps.push(n);
         }
-        let plan = text(m, "plan")
-            .filter(|h| !h.is_empty())
-            .ok_or_else(|| bad("args.plan: the plan_hash of the plan you read is required"))?;
+        let plan = text(m, "plan").filter(|h| !h.is_empty()).ok_or_else(|| {
+            bad("args.plan: the hash of the plan you read is required (plan_hash)")
+        })?;
         Ok(Self {
             steps,
             plan: plan.to_owned(),
@@ -109,33 +135,27 @@ impl Ask {
 }
 
 fn level_of(name: &str) -> Option<Perm> {
-    Perm::ALL
-        .iter()
-        .copied()
-        .find(|p| p.name() == name)
-        .filter(|p| *p >= Perm::Write)
-}
-
-/// Is `key` the request key of a `set` or `invoke` on a plain node key of `site`? No
-/// wildcard and no other `~` segment: the key becomes a token's grant.
-fn request_key_ok(site: &str, op: &str, key: &str) -> bool {
-    let node = match op {
-        "set" => key.strip_suffix("/~set"),
-        "invoke" => key.rsplit_once("/~act/").and_then(|(node, action)| {
-            wyrm_core::keyspace::validate_segment(action)
-                .is_ok()
-                .then_some(node)
-        }),
-        _ => None,
-    };
-    node.is_some_and(|n| crate::ws::check_key(site, n, false).is_ok())
+    Perm::ALL.iter().copied().find(|p| p.name() == name)
 }
 
 /// The hash of a plan (`links/agent` `tools::plan_hash`): SHA-256, in hex, of the canonical
-/// CBOR of `[[op, key, args, level], …]` in plan order. The link, the gateway and the client
-/// each make it from the plan they hold; an approval goes through only when all three agree.
-fn plan_hash(steps: &Value) -> Option<String> {
-    let bytes = wyrm_core::codec::to_vec(steps).ok()?;
+/// CBOR of the plan as `~state.plan` shows it, each step without the keys of [`UNHASHED`].
+/// The link, the gateway and the client each make it from the plan they hold; an approval
+/// goes through only when all three agree.
+pub fn plan_hash(plan: &[Value]) -> Option<String> {
+    let steps = plan
+        .iter()
+        .map(|s| match s {
+            Value::Map(m) => Some(Value::Map(
+                m.iter()
+                    .filter(|(k, _)| !UNHASHED.contains(&k.as_str()))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let bytes = wyrm_core::codec::to_vec(&Value::Array(steps)).ok()?;
     Some(
         Sha256::digest(&bytes)
             .iter()
@@ -144,9 +164,51 @@ fn plan_hash(steps: &Value) -> Option<String> {
     )
 }
 
+impl Request {
+    /// The request of a step in the `wyrm-agent run` format: `{set: <node>, value}` or
+    /// `{invoke: <node>, action, args}`. The node must be a plain node key of `site` (no
+    /// wildcard, no `~` segment): the request key becomes a token's grant. `Ok(None)`: a
+    /// step that sends nothing.
+    fn of(s: &BTreeMap<String, Value>, site: &str) -> Result<Option<Self>, &'static str> {
+        let (node, suffix, body) = if let Some(node) = text(s, "set") {
+            let v = s.get("value").cloned().unwrap_or(Value::Null);
+            (node, "~set".to_owned(), wyrm_client::set_payload(v))
+        } else if let Some(node) = text(s, "invoke") {
+            let action = text(s, "action").ok_or("no action")?;
+            wyrm_core::keyspace::validate_segment(action).map_err(|_| "a bad action name")?;
+            let args = s.get("args").cloned().unwrap_or(Value::Null);
+            (
+                node,
+                format!("~act/{action}"),
+                wyrm_client::invoke_payload(&args),
+            )
+        } else if ["wait", "expect", "sleep_s"]
+            .iter()
+            .any(|k| s.contains_key(*k))
+        {
+            return Ok(None);
+        } else {
+            return Err("not one of set, invoke, wait, expect, sleep_s");
+        };
+        if crate::ws::check_key(site, node, false).is_err() {
+            return Err("its key is not a node of this site");
+        }
+        let level = text(s, "level")
+            .and_then(level_of)
+            .filter(|p| *p >= Perm::Write)
+            .ok_or("no level of write or config")?;
+        let body = body.map_err(|_| "its arguments do not encode")?;
+        Ok(Some(Self {
+            key: format!("{node}/{suffix}"),
+            level,
+            body: Sha256::digest(&body).into(),
+        }))
+    }
+}
+
 impl Plan {
     /// Read a task's `~state` document (`links/agent`). `site` is the site of the task: every
-    /// step must be a request on a node of it.
+    /// step that changes something must be a request on a node of it.
     pub fn parse(doc: &Value, site: &str) -> Result<Self, Refusal> {
         let old = || {
             Refusal::new(
@@ -158,56 +220,32 @@ impl Plan {
             return Err(old());
         };
         let state = text(m, "state").ok_or_else(old)?.to_owned();
-        // absent on an agent link older than partial approvals: it could not take `skip`
+        // absent on an agent link older than ADR 0049: it knows no step numbers
         let claimed = text(m, "plan_hash").ok_or_else(old)?;
         let Some(Value::Array(items)) = m.get("plan") else {
             return Err(old());
         };
         let mut steps: Vec<Step> = Vec::with_capacity(items.len());
-        let mut hashed = Vec::with_capacity(items.len());
         for (i, s) in items.iter().enumerate() {
-            let broken = |what: &str| {
-                Refusal::new(
-                    Status::InternalError,
-                    format!("plan step {}: {what}", i + 1),
-                )
-            };
+            let n = i + 1;
+            let broken =
+                |what: &str| Refusal::new(Status::InternalError, format!("plan step {n}: {what}"));
             let Value::Map(s) = s else {
                 return Err(broken("not a map"));
             };
-            let op = text(s, "op").ok_or_else(|| broken("no op"))?;
-            let key = text(s, "key").ok_or_else(|| broken("no key"))?;
-            if !request_key_ok(site, op, key) {
-                return Err(broken("its key is not a request on a node of this site"));
+            if s.get("n") != Some(&Value::UInt(n as u64)) {
+                return Err(broken("its number is not its place"));
             }
-            let level = text(s, "level")
-                .and_then(level_of)
-                .ok_or_else(|| broken("no level of write or config"))?;
-            if steps.iter().any(|s| s.key == key) {
-                return Err(broken("a second step on one key"));
-            }
-            let args = s.get("args").cloned().unwrap_or(Value::Null);
-            hashed.push(Value::Array(vec![
-                Value::from(op),
-                Value::from(key),
-                args.clone(),
-                Value::from(level.name()),
-            ]));
-            let body = match op {
-                "set" => wyrm_client::set_payload(args),
-                _ => wyrm_client::invoke_payload(&args),
-            }
-            .map_err(|_| broken("its arguments do not encode"))?;
+            let request = Request::of(s, site).map_err(broken)?;
             steps.push(Step {
-                key: key.to_owned(),
-                level,
-                approval: matches!(s.get("approval"), Some(Value::Bool(true))),
-                body: Sha256::digest(&body).into(),
+                n,
+                approval: request.is_some() && matches!(s.get("approval"), Some(Value::Bool(true))),
+                request,
             });
         }
         // The hash is made here from the plan as read, never taken from the record: the
         // approval is for these very requests, whatever the link says its hash is.
-        let hash = plan_hash(&Value::Array(hashed))
+        let hash = plan_hash(items)
             .ok_or_else(|| Refusal::new(Status::InternalError, "the plan does not encode"))?;
         if hash != claimed {
             return Err(Refusal::new(
@@ -218,13 +256,13 @@ impl Plan {
         Ok(Self { state, hash, steps })
     }
 
-    /// Rules 2–4 and 6 of the module: the steps to sign and the request keys to skip.
-    /// `may(key)` is the user's level on a request key.
+    /// Rules 2–4 of the module: the steps to sign, each with its request. `may(key)` is the
+    /// user's level on a request key.
     pub fn select(
         &self,
         ask: &Ask,
         may: impl Fn(&str) -> Perm,
-    ) -> Result<(Vec<&Step>, Vec<String>), Refusal> {
+    ) -> Result<Vec<(usize, &Request)>, Refusal> {
         if self.state != "awaiting_approval" {
             return Err(bad(format!(
                 "task is {}, not awaiting_approval",
@@ -237,35 +275,47 @@ impl Plan {
             ));
         }
         let mut sign = Vec::with_capacity(ask.steps.len());
-        for k in &ask.steps {
-            match self.steps.iter().find(|s| &s.key == k) {
-                Some(s) if s.approval => sign.push(s),
+        for n in &ask.steps {
+            match self.steps.get(n - 1) {
+                Some(Step {
+                    approval: true,
+                    request: Some(r),
+                    ..
+                }) => sign.push((*n, r)),
                 Some(_) => {
                     return Err(bad(format!(
-                        "{k} needs no approval: the agent runs it with its own key"
+                        "step {n} needs no approval: the agent runs it itself"
                     )))
                 }
-                None => return Err(bad(format!("{k} is not a step of the plan"))),
+                None => return Err(bad(format!("the plan has no step {n}"))),
             }
         }
         let denied: Vec<String> = sign
             .iter()
-            .filter(|s| may(&s.key) < s.level)
-            .map(|s| format!("{} (needs {})", s.key, s.level.name()))
+            .filter_map(|(n, r)| {
+                let have = may(&r.key);
+                (have < r.level).then(|| {
+                    format!(
+                        "step {n} needs {} on {}; you have {}",
+                        r.level.name(),
+                        r.key,
+                        have.name()
+                    )
+                })
+            })
             .collect();
         if !denied.is_empty() {
-            return Err(Refusal::new(
-                Status::PermissionDenied,
-                format!("you may not approve: {}", denied.join(", ")),
-            ));
+            return Err(Refusal::new(Status::PermissionDenied, denied.join("; ")));
         }
-        let skip = self
-            .steps
+        Ok(sign)
+    }
+
+    /// The steps that need a human and are not in `named`.
+    pub fn left_out(&self, named: &[usize]) -> usize {
+        self.steps
             .iter()
-            .filter(|s| s.approval && !ask.steps.contains(&s.key))
-            .map(|s| s.key.clone())
-            .collect();
-        Ok((sign, skip))
+            .filter(|s| s.approval && !named.contains(&s.n))
+            .count()
     }
 }
 
@@ -277,160 +327,152 @@ mod tests {
         Value::Map(f.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
     }
 
-    fn step(op: &str, key: &str, level: &str, approval: bool) -> Value {
+    fn with(mut v: Value, k: &str, x: Value) -> Value {
+        if let Value::Map(m) = &mut v {
+            m.insert(k.to_owned(), x);
+        }
+        v
+    }
+
+    fn set(n: u64, node: &str, level: &str, approval: bool) -> Value {
         map([
-            ("op", Value::from(op)),
-            ("key", Value::from(key)),
-            ("args", Value::Float(1.0)),
+            ("n", Value::UInt(n)),
+            ("set", Value::from(node)),
+            ("value", Value::Float(1.0)),
             ("level", Value::from(level)),
             ("approval", Value::Bool(approval)),
+            ("check", Value::from("now")),
+        ])
+    }
+
+    fn invoke(n: u64, node: &str, action: &str, level: &str) -> Value {
+        map([
+            ("n", Value::UInt(n)),
+            ("invoke", Value::from(node)),
+            ("action", Value::from(action)),
+            ("args", Value::Float(1.0)),
+            ("level", Value::from(level)),
+            ("approval", Value::Bool(true)),
         ])
     }
 
     /// A record whose `plan_hash` is the hash of its steps, as an honest link writes it.
     fn record(state: &str, steps: Vec<Value>) -> Value {
-        let field = |s: &Value, k: &str| match s {
-            Value::Map(m) => m.get(k).cloned().unwrap_or(Value::Null),
-            _ => Value::Null,
-        };
-        let hashed = steps
-            .iter()
-            .map(|s| Value::Array(["op", "key", "args", "level"].map(|k| field(s, k)).into()))
-            .collect();
         map([
             ("state", Value::from(state)),
-            (
-                "plan_hash",
-                Value::from(plan_hash(&Value::Array(hashed)).unwrap()),
-            ),
+            ("plan_hash", Value::from(plan_hash(&steps).unwrap())),
             ("plan", Value::Array(steps)),
         ])
     }
 
-    /// The link's word is not taken for the hash: a record that shows one plan under the
-    /// hash of another is refused, as is a plan with two steps on one key.
-    #[test]
-    fn the_hash_is_made_from_the_plan_as_read() {
-        let honest = record("awaiting_approval", vec![step("set", A, "write", true)]);
-        let p = Plan::parse(&honest, "s").unwrap();
-        assert_eq!(p.hash.len(), 64);
-        let Value::Map(mut m) = honest else {
-            unreachable!()
-        };
-        // other arguments under the old hash
-        let mut other = step("set", A, "write", true);
-        if let Value::Map(s) = &mut other {
-            s.insert("args".into(), Value::Float(9999.0));
-        }
-        m.insert("plan".into(), Value::Array(vec![other]));
-        let e = Plan::parse(&Value::Map(m), "s").unwrap_err();
-        assert_eq!(e.status, Status::InternalError);
-        assert!(e.message.contains("plan_hash"), "{}", e.message);
-        // the model's words and the run's results are not part of it
-        let mut reworded = step("set", A, "write", true);
-        if let Value::Map(s) = &mut reworded {
-            s.insert("reason".into(), Value::from("because"));
-            s.insert("result".into(), map([("status", Value::from("ok"))]));
-        }
-        let q = Plan::parse(&record("done", vec![reworded]), "s").unwrap();
-        assert_eq!(q.hash, p.hash);
-        let twice = record(
-            "awaiting_approval",
-            vec![step("set", A, "write", true), step("set", A, "write", true)],
-        );
-        assert!(Plan::parse(&twice, "s").is_err());
-    }
-
-    const A: &str = "wy/s/downstream/m/a/~set";
-    const B: &str = "wy/s/downstream/m/b/~act/go";
-    const C: &str = "wy/s/downstream/m/c/~set";
+    const A: &str = "wy/s/downstream/m/a";
+    const B: &str = "wy/s/downstream/m/b";
+    const C: &str = "wy/s/downstream/m/c";
 
     fn plan() -> Plan {
-        Plan::parse(
+        let mut p = Plan::parse(
             &record(
                 "awaiting_approval",
                 vec![
-                    step("set", A, "write", true),
-                    step("invoke", B, "config", true),
-                    step("set", C, "write", false),
+                    set(1, A, "write", true),
+                    invoke(2, B, "go", "config"),
+                    set(3, C, "write", false),
+                    map([
+                        ("n", Value::UInt(4)),
+                        ("expect", Value::from(A)),
+                        ("equals", Value::Float(1.0)),
+                        ("level", Value::from("read")),
+                        // a link that says a proof needs a human is not believed
+                        ("approval", Value::Bool(true)),
+                    ]),
+                    // two steps on one key are two steps
+                    set(5, A, "write", true),
                 ],
             ),
             "s",
         )
-        .unwrap()
+        .unwrap();
+        p.hash = "h1".into();
+        p
     }
 
-    fn ask(steps: &[&str], plan: &str) -> Ask {
+    fn ask(steps: &[usize], plan: &str) -> Ask {
         Ask {
-            steps: steps.iter().map(|s| (*s).to_owned()).collect(),
+            steps: steps.to_vec(),
             plan: plan.to_owned(),
         }
     }
 
     #[test]
     fn the_client_names_steps_and_nothing_else() {
-        let ok = map([
-            ("steps", Value::Array(vec![Value::from(A)])),
-            ("plan", Value::from("h1")),
-        ]);
-        assert_eq!(Ask::parse(Some(&ok)).unwrap(), ask(&[A], "h1"));
+        let steps = |s: Vec<Value>| ("steps", Value::Array(s));
+        let h = ("plan", Value::from("h1"));
+        let ok = map([steps(vec![Value::UInt(2), Value::UInt(1)]), h.clone()]);
+        assert!(asks_for_tokens(&ok));
+        assert_eq!(Ask::parse(&ok).unwrap(), ask(&[2, 1], "h1"));
         for bad in [
             Value::Null,
-            map([("steps", Value::Array(vec![Value::from(A)]))]),
+            map([steps(vec![Value::UInt(1)])]),
+            map([steps(Vec::new()), h.clone()]),
+            map([steps(vec![Value::UInt(1), Value::UInt(1)]), h.clone()]),
+            map([steps(vec![Value::UInt(0)]), h.clone()]),
             map([
-                ("steps", Value::Array(Vec::new())),
-                ("plan", Value::from("h1")),
+                steps(vec![Value::from("wy/s/downstream/m/a/~set")]),
+                h.clone(),
             ]),
             map([
-                ("steps", Value::Array(vec![Value::from(A), Value::from(A)])),
-                ("plan", Value::from("h1")),
-            ]),
-            map([
-                ("steps", Value::Array(vec![Value::UInt(0)])),
-                ("plan", Value::from("h1")),
-            ]),
-            // a token of the client's own making
-            map([
-                ("steps", Value::Array(vec![Value::from(A)])),
-                ("plan", Value::from("h1")),
-                ("approvals", map([(A, Value::Bytes(vec![1]))])),
+                steps(vec![Value::UInt(1)]),
+                h.clone(),
+                ("skip", Value::Null),
             ]),
         ] {
-            let e = Ask::parse(Some(&bad)).unwrap_err();
+            let e = Ask::parse(&bad).unwrap_err();
             assert_eq!(e.status, Status::InvalidParameter, "{bad:?}");
         }
-        assert!(Ask::parse(None).is_err());
+        // a caller with its own tokens: the gateway adds nothing and takes nothing away
+        let own = map([
+            steps(vec![Value::UInt(1)]),
+            ("approvals", map([("1", Value::Bytes(vec![1]))])),
+        ]);
+        assert!(!asks_for_tokens(&own));
+        assert!(!asks_for_tokens(&map([(
+            "approvals",
+            Value::Map(BTreeMap::new())
+        )])));
     }
 
     #[test]
     fn a_stored_step_is_a_request_on_a_node_of_the_site() {
         let p = plan();
-        assert_eq!(p.steps.len(), 3);
+        assert_eq!(p.steps.len(), 5);
+        let r = |i: usize| p.steps[i].request.as_ref().unwrap();
+        assert_eq!(r(0).key, format!("{A}/~set"));
         assert_eq!(
-            (p.steps[1].level, p.steps[1].approval),
-            (Perm::Config, true)
+            (r(1).key.as_str(), r(1).level, p.steps[1].approval),
+            ("wy/s/downstream/m/b/~act/go", Perm::Config, true)
         );
         // the body is what the run sends: a `~set` wraps its value, an action does not
-        assert_ne!(p.steps[0].body, p.steps[1].body);
-        assert_eq!(p.steps[0].body, p.steps[2].body);
-        for (op, key, level) in [
-            ("set", "wy/other/downstream/m/a/~set", "write"),
-            ("set", "wy/s/downstream/*/a/~set", "write"),
-            ("set", "wy/s/downstream/**/~set", "write"),
-            ("set", "wy/s/downstream/m/a", "write"),
-            ("set", "wy/s/downstream/m/a/~act/go", "write"),
-            ("invoke", "wy/s/downstream/m/a/~set", "write"),
-            ("invoke", "wy/s/downstream/m/~act/x/~act/go", "write"),
-            ("invoke", "wy/s/downstream/m/a/~act/*", "write"),
-            ("deploy", A, "write"),
-            ("set", A, "read"),
-            ("set", A, "admin"),
+        assert_ne!(r(0).body, r(1).body);
+        assert_eq!(r(0).body, r(2).body);
+        assert_eq!((&p.steps[3].request, p.steps[3].approval), (&None, false));
+        for step in [
+            set(1, "wy/other/downstream/m/a", "write", true),
+            set(1, "wy/s/downstream/*/a", "write", true),
+            set(1, "wy/s/downstream/**", "write", true),
+            set(1, "wy/s/downstream/m/a/~set", "write", true),
+            invoke(1, "wy/s/downstream/m/~act/x", "go", "write"),
+            invoke(1, A, "*", "write"),
+            invoke(1, A, "a/b", "write"),
+            set(1, A, "read", true),
+            set(1, A, "admin", true),
+            set(2, A, "write", true),
+            map([("n", Value::UInt(1)), ("deploy", Value::from(A))]),
         ] {
-            let doc = record("awaiting_approval", vec![step(op, key, level, true)]);
+            let doc = record("awaiting_approval", vec![step.clone()]);
             let e = Plan::parse(&doc, "s").unwrap_err();
-            assert_eq!(e.status, Status::InternalError, "{op} {key} {level}");
+            assert_eq!(e.status, Status::InternalError, "{step:?}");
         }
-        // not a task of a link that knows `skip` and `plan`
+        // not a task of a link that knows step numbers and `plan`
         let old = map([
             ("state", Value::from("awaiting_approval")),
             ("plan", Value::Array(Vec::new())),
@@ -445,44 +487,90 @@ mod tests {
         );
     }
 
+    /// The link's word is not taken for the hash: a record that shows one plan under the
+    /// hash of another is refused.
+    #[test]
+    fn the_hash_is_made_from_the_plan_as_read() {
+        let honest = record("awaiting_approval", vec![set(1, A, "write", true)]);
+        let p = Plan::parse(&honest, "s").unwrap();
+        // the same vector as links/agent (tools tests) and dart/wyrm_client
+        let vector = [map([
+            ("n", Value::UInt(1)),
+            ("set", Value::from("wy/s/downstream/m/p")),
+            ("value", Value::Float(1.0)),
+            ("level", Value::from("write")),
+        ])];
+        assert_eq!(
+            plan_hash(&vector).unwrap(),
+            "08900496afc130ee83048251cb224b679cbfd06491270fa67d386c7dcc6cd60d"
+        );
+        // other arguments under the old hash
+        let Value::Map(mut m) = honest else {
+            unreachable!()
+        };
+        let other = with(set(1, A, "write", true), "value", Value::Float(9999.0));
+        m.insert("plan".into(), Value::Array(vec![other]));
+        let e = Plan::parse(&Value::Map(m), "s").unwrap_err();
+        assert_eq!(e.status, Status::InternalError);
+        assert!(e.message.contains("plan_hash"), "{}", e.message);
+        // the model's words, the checks and the run's results are not part of it; the
+        // dependencies are
+        let mut reworded = set(1, A, "write", false);
+        for (k, v) in [
+            ("reason", Value::from("because")),
+            ("warn", Value::from("at the limit")),
+            ("check", Value::from("at_run")),
+            ("result", map([("status", Value::from("ok"))])),
+        ] {
+            reworded = with(reworded, k, v);
+        }
+        let q = Plan::parse(&record("done", vec![reworded.clone()]), "s").unwrap();
+        assert_eq!(q.hash, p.hash);
+        let after = with(reworded, "after", Value::Array(vec![Value::UInt(1)]));
+        let q = Plan::parse(&record("done", vec![after]), "s").unwrap();
+        assert_ne!(q.hash, p.hash);
+    }
+
     #[test]
     fn only_ticked_steps_within_the_users_rights_are_signed() {
-        let mut p = plan();
-        p.hash = "h1".into();
+        let p = plan();
         let config = |_: &str| Perm::Config;
         let write = |_: &str| Perm::Write;
+        let numbers = |s: &[(usize, &Request)]| s.iter().map(|(n, _)| *n).collect::<Vec<_>>();
 
-        let (sign, skip) = p.select(&ask(&[A, B], "h1"), config).unwrap();
+        let sign = p.select(&ask(&[1, 2, 5], "h1"), config).unwrap();
+        assert_eq!(numbers(&sign), [1, 2, 5]);
+        assert_eq!(p.left_out(&[1, 2, 5]), 0);
+        // steps left out get no token; the one that needs no human is not one of them
+        let sign = p.select(&ask(&[1], "h1"), write).unwrap();
+        assert_eq!(numbers(&sign), [1]);
+        assert_eq!(p.left_out(&[1]), 2);
+
+        // a `config` step for a user with `write`: refused whole, the step and the right named
+        let e = p.select(&ask(&[1, 2], "h1"), write).unwrap_err();
+        assert_eq!(e.status, Status::PermissionDenied);
         assert_eq!(
-            sign.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(),
-            [A, B]
+            e.message,
+            "step 2 needs config on wy/s/downstream/m/b/~act/go; you have write"
         );
-        assert!(skip.is_empty());
-        // the step left out goes to the link as skipped; the one that needs no human is neither
-        let (sign, skip) = p.select(&ask(&[A], "h1"), write).unwrap();
-        assert_eq!(sign.len(), 1);
-        assert_eq!(skip, [B]);
-
-        // a `config` step for a user with `write`: refused whole, the step named
-        let e = p.select(&ask(&[A, B], "h1"), write).unwrap_err();
-        assert_eq!(e.status, Status::PermissionDenied);
-        assert!(
-            e.message.contains(B) && e.message.contains("config"),
-            "{}",
-            e.message
-        );
-        assert!(!e.message.contains(A), "{}", e.message);
         // a step outside the user's grants
-        let only_b = |k: &str| if k == B { Perm::Config } else { Perm::Read };
-        let e = p.select(&ask(&[A, B], "h1"), only_b).unwrap_err();
+        let only_b = |k: &str| {
+            if k.starts_with(B) {
+                Perm::Config
+            } else {
+                Perm::Read
+            }
+        };
+        let e = p.select(&ask(&[1, 2], "h1"), only_b).unwrap_err();
         assert_eq!(e.status, Status::PermissionDenied);
-        assert!(e.message.contains(A), "{}", e.message);
+        assert!(e.message.starts_with("step 1 needs write"), "{}", e.message);
 
-        // an unknown step, a step that needs no human, a changed plan, a task not waiting
+        // an unknown step, steps that need no human, a changed plan, a task not waiting
         for (a, want) in [
-            (ask(&["wy/s/downstream/m/x/~set"], "h1"), "not a step"),
-            (ask(&[C], "h1"), "needs no approval"),
-            (ask(&[A], "h2"), "read it again"),
+            (ask(&[9], "h1"), "no step 9"),
+            (ask(&[3], "h1"), "needs no approval"),
+            (ask(&[4], "h1"), "needs no approval"),
+            (ask(&[1], "h2"), "read it again"),
         ] {
             let e = p.select(&a, config).unwrap_err();
             assert_eq!(e.status, Status::InvalidParameter);
@@ -490,7 +578,7 @@ mod tests {
         }
         let mut done = p.clone();
         done.state = "running".into();
-        let e = done.select(&ask(&[A], "h1"), config).unwrap_err();
+        let e = done.select(&ask(&[1], "h1"), config).unwrap_err();
         assert_eq!(e.status, Status::InvalidParameter);
     }
 }

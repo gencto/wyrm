@@ -14,8 +14,8 @@
 //! [`COMPACT_AT`] records (at start and while running, see [`compact`]):
 //! removed tasks then also leave the disk.
 
-use crate::tools::{OpKind, PlanOp, StepResult};
-use crate::TaskState;
+use crate::tools::{Check, OpKind, PlanOp, StepResult};
+use crate::{Question, TaskState};
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -215,27 +215,121 @@ fn plan_op_value(op: &PlanOp) -> Value {
     if let Some(r) = &op.reason {
         m.insert("reason".to_owned(), Value::from(r.as_str()));
     }
-    // absent in records written before steps had results
+    // The keys below are absent in records written before ADR 0049: read with defaults.
     if let Some(r) = &op.result {
         m.insert("result".to_owned(), r.to_value());
+    }
+    if let Some(s) = op.seconds {
+        m.insert("seconds".to_owned(), Value::Float(s));
+    }
+    if op.check != Check::Now {
+        m.insert("check".to_owned(), Value::from(op.check.name()));
+    }
+    if let Some(w) = &op.warn {
+        m.insert("warn".to_owned(), Value::from(w.as_str()));
+    }
+    if !op.after.is_empty() {
+        m.insert(
+            "after".to_owned(),
+            Value::Array(op.after.iter().map(|a| Value::UInt(*a as u64)).collect()),
+        );
     }
     Value::Map(m)
 }
 
-pub fn encode_plan(plan: &[PlanOp]) -> Vec<u8> {
-    wyrm_core::codec::to_vec(&Value::Array(plan.iter().map(plan_op_value).collect()))
-        .unwrap_or_default()
+/// What a task holds beside its plan (ADR 0049). It is kept inside the record's `plan`
+/// bytes, so the record itself keeps the shape older snapshots were written with.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Extras {
+    pub questions: Vec<Question>,
+    pub parent: Option<String>,
+    pub context: Vec<String>,
 }
 
-pub fn decode_plan(b: &[u8]) -> Result<Vec<PlanOp>, String> {
+impl Extras {
+    fn is_empty(&self) -> bool {
+        self.questions.is_empty() && self.parent.is_none() && self.context.is_empty()
+    }
+}
+
+/// The plan as persisted: the array of its steps, or, with [`Extras`], a map
+/// `{steps, questions?, parent?, context?}`.
+pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
+    let steps = Value::Array(plan.iter().map(plan_op_value).collect());
+    let v = if extras.is_empty() {
+        steps
+    } else {
+        let mut m = BTreeMap::from([("steps".to_owned(), steps)]);
+        if !extras.questions.is_empty() {
+            m.insert(
+                "questions".to_owned(),
+                Value::Array(extras.questions.iter().map(Question::to_value).collect()),
+            );
+        }
+        if let Some(p) = &extras.parent {
+            m.insert("parent".to_owned(), Value::from(p.as_str()));
+        }
+        if !extras.context.is_empty() {
+            m.insert(
+                "context".to_owned(),
+                Value::Array(
+                    extras
+                        .context
+                        .iter()
+                        .map(|k| Value::from(k.as_str()))
+                        .collect(),
+                ),
+            );
+        }
+        Value::Map(m)
+    };
+    wyrm_core::codec::to_vec(&v).unwrap_or_default()
+}
+
+pub fn decode_plan(b: &[u8]) -> Result<(Vec<PlanOp>, Extras), String> {
     if b.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Extras::default()));
     }
     let v: Value = wyrm_core::codec::from_slice(b).map_err(|e| format!("plan: {e}"))?;
-    let Value::Array(items) = v else {
-        return Err("plan: not an array".into());
+    let steps = |items: &[Value]| {
+        items
+            .iter()
+            .map(plan_op_from)
+            .collect::<Result<Vec<_>, _>>()
     };
-    items.iter().map(plan_op_from).collect()
+    match v {
+        // a record written before ADR 0049
+        Value::Array(items) => Ok((steps(&items)?, Extras::default())),
+        Value::Map(m) => {
+            let plan = match m.get("steps") {
+                Some(Value::Array(items)) => steps(items)?,
+                _ => return Err("plan: no steps".into()),
+            };
+            let texts = |k: &str| match m.get(k) {
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::Str(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let extras = Extras {
+                questions: match m.get("questions") {
+                    Some(Value::Array(a)) => a.iter().filter_map(Question::from_value).collect(),
+                    _ => Vec::new(),
+                },
+                parent: match m.get("parent") {
+                    Some(Value::Str(p)) => Some(p.clone()),
+                    _ => None,
+                },
+                context: texts("context"),
+            };
+            Ok((plan, extras))
+        }
+        _ => Err("plan: not an array".into()),
+    }
 }
 
 fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
@@ -246,11 +340,8 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
         Some(Value::Str(s)) => Ok(s.clone()),
         _ => Err(format!("plan step: {k} missing")),
     };
-    let op = match s("op")?.as_str() {
-        "set" => OpKind::Set,
-        "invoke" => OpKind::Invoke,
-        other => return Err(format!("plan step: op {other:?}")),
-    };
+    let op = s("op")?;
+    let op = OpKind::from_name(&op).ok_or_else(|| format!("plan step: op {op:?}"))?;
     let level = match m.get("level") {
         Some(Value::UInt(c)) => u8::try_from(*c)
             .ok()
@@ -268,19 +359,24 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
         needs_approval: matches!(m.get("approval"), Some(Value::Bool(true))),
         reason: s("reason").ok(),
         result: m.get("result").and_then(StepResult::from_value),
+        seconds: m.get("seconds").and_then(Value::as_f64),
+        check: Check::from_name(&s("check").unwrap_or_default()),
+        warn: s("warn").ok(),
+        after: match m.get("after") {
+            Some(Value::Array(a)) => a
+                .iter()
+                .filter_map(|n| match n {
+                    Value::UInt(n) => usize::try_from(*n).ok(),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
     })
 }
 
 pub fn state_from_name(n: &str) -> Option<TaskState> {
-    [
-        TaskState::Planning,
-        TaskState::AwaitingApproval,
-        TaskState::Running,
-        TaskState::Done,
-        TaskState::Failed,
-    ]
-    .into_iter()
-    .find(|s| s.name() == n)
+    TaskState::ALL.iter().copied().find(|s| s.name() == n)
 }
 
 #[cfg(test)]
@@ -302,20 +398,28 @@ mod tests {
             state: "done".into(),
             owner: "user:op".into(),
             ask: "x".into(),
-            plan: encode_plan(&[PlanOp {
-                op: OpKind::Invoke,
-                node: "wy/s/downstream/m/p".into(),
-                key: "wy/s/downstream/m/p/~act/go".into(),
-                action: Some("go".into()),
-                payload: Value::Map(BTreeMap::from([("a".to_owned(), Value::UInt(1))])),
-                level: Perm::Config,
-                needs_approval: true,
-                reason: Some("why".into()),
-                result: Some(StepResult {
-                    status: crate::tools::StepStatus::Skipped,
-                    message: "not approved".into(),
-                }),
-            }]),
+            plan: encode_plan(
+                &[PlanOp {
+                    op: OpKind::Invoke,
+                    node: "wy/s/downstream/m/p".into(),
+                    key: "wy/s/downstream/m/p/~act/go".into(),
+                    action: Some("go".into()),
+                    payload: Value::Map(BTreeMap::from([("a".to_owned(), Value::UInt(1))])),
+                    level: Perm::Config,
+                    needs_approval: true,
+                    reason: Some("why".into()),
+                    result: Some(StepResult {
+                        status: crate::tools::StepStatus::Skipped,
+                        message: "not approved".into(),
+                        time: 7,
+                    }),
+                    seconds: None,
+                    check: Check::AtRun,
+                    warn: Some("at the limit".into()),
+                    after: vec![1],
+                }],
+                &Extras::default(),
+            ),
             log: vec!["l".into()],
             error: None,
             tokens: 5,
@@ -327,7 +431,8 @@ mod tests {
     #[test]
     fn plan_round_trip() {
         let r = rec(1);
-        let p = decode_plan(&r.plan).unwrap();
+        let (p, extras) = decode_plan(&r.plan).unwrap();
+        assert_eq!(extras, Extras::default());
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].op, OpKind::Invoke);
         assert_eq!(p[0].action.as_deref(), Some("go"));
@@ -337,7 +442,43 @@ mod tests {
             p[0].result.as_ref().map(|r| r.status),
             Some(crate::tools::StepStatus::Skipped)
         );
-        assert_eq!(encode_plan(&p), r.plan);
+        assert_eq!(
+            (p[0].check, p[0].after.as_slice()),
+            (Check::AtRun, &[1][..])
+        );
+        assert_eq!(encode_plan(&p, &extras), r.plan);
+        // questions, the parent and the context travel inside the plan bytes
+        let more = Extras {
+            questions: vec![Question {
+                id: "q1".into(),
+                text: "which unit?".into(),
+                options: vec![crate::Choice {
+                    id: "a".into(),
+                    label: "unit 3".into(),
+                    detail: "behind tcp-line2".into(),
+                }],
+                multiple: false,
+                free_text: true,
+                answer: Some(Value::Array(vec![Value::from("a")])),
+            }],
+            parent: Some("t1-1".into()),
+            context: vec!["wy/s/downstream/m".into()],
+        };
+        let (q, back) = decode_plan(&encode_plan(&p, &more)).unwrap();
+        assert_eq!((q.len(), back), (1, more));
+        // a record written before ADR 0049 (no result, check, warn, after, seconds) still reads
+        let old = Value::Array(vec![Value::Map(BTreeMap::from([
+            ("op".to_owned(), Value::from("set")),
+            ("node".to_owned(), Value::from("wy/s/downstream/m/p")),
+            ("key".to_owned(), Value::from("wy/s/downstream/m/p/~set")),
+            ("payload".to_owned(), Value::Float(1.0)),
+            ("level".to_owned(), Value::UInt(Perm::Write.code().into())),
+            ("approval".to_owned(), Value::Bool(true)),
+        ]))]);
+        let (p, _) = decode_plan(&wyrm_core::codec::to_vec(&old).unwrap()).unwrap();
+        assert_eq!(p[0].op, OpKind::Set);
+        assert_eq!((p[0].check, p[0].result.clone()), (Check::Now, None));
+        assert!(p[0].after.is_empty() && p[0].warn.is_none() && p[0].seconds.is_none());
     }
 
     #[test]

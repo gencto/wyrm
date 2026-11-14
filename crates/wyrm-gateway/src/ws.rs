@@ -3,21 +3,22 @@
 //! Client → gateway:
 //! `{id: uint, op: tstr, key: tstr, value?, action?: tstr, args?, sub?: uint, suffix?: tstr}`
 //! with `op` one of `meta`, `children`, `list`, `subscribe`, `unsubscribe`,
-//! `set`, `invoke`, `check`, `history`, `doc`, `approve`. `key` is a full node
+//! `set`, `invoke`, `check`, `history`, `doc`. `key` is a full node
 //! key (`wy/<site>/…`, no suffix); `subscribe` takes a pattern (`*`, `**`).
 //! `unsubscribe` ends the `list` or `subscribe` stream whose request id is
 //! `sub`. `history` takes `args {from, to?, agg?, window?, limit?}` (spec 01
 //! `~val?history=`) and answers `result: [[t, v, q] | [t_start, v], …]`.
 //!
-//! `doc` reads a document of the node: `suffix` is `state` or `def` (the
-//! node's `~state` or `~def`, spec 01), `result` is the document's CBOR value,
-//! at most [`crate::approve::MAX_DOC`] bytes (`resource_exhausted` beyond).
-//! `approve` approves steps of an agent task (`key` =
-//! `…/downstream/<agent>/tasks/<id>`): `args {steps: [<request key>, …],
-//! plan: <plan_hash>}`; the gateway reads the stored plan and signs one token
-//! per named step with the user's rights ([`crate::approve`], ADR 0049);
-//! `result` is the link's answer `{task, state}`. A gateway older than these
-//! two answers `invalid_parameter` with `unknown op`.
+//! `doc` reads a document of the node: `suffix` is `~state` or `~def` (spec
+//! 01), `result` is the document's CBOR value, at most
+//! [`crate::approve::MAX_DOC`] bytes (`resource_exhausted` beyond). A gateway
+//! older than the op answers `invalid_parameter` with `unknown op`.
+//!
+//! `invoke` of `approve` on an agent task (`…/downstream/<agent>/tasks/<id>`)
+//! with `args {steps: [<n>, …], plan: <plan hash>}`: the gateway reads the
+//! stored plan and signs one token per named step with the user's rights
+//! ([`crate::approve`], ADR 0049); the link gets `{approvals, plan}`. With
+//! `approvals` in the arguments the call goes through as it is.
 //!
 //! Gateway → client:
 //! * `{id, ok: true, result?}` / `{id, ok: false, error: {status, message}}`
@@ -40,9 +41,8 @@
 //! `history` ≥ read on the point, `set`
 //! ≥ write, `invoke` ≥ read with the action's own level left to the
 //! responder, `doc` ≥ list on the node and on the document's key, with a
-//! restricted node left to the responder, `approve` as an `invoke` of
-//! `approve` plus the level of every step it signs), then sent with a fresh
-//! `ptok`. Samples and children the user
+//! restricted node left to the responder; an `approve {steps}` also needs
+//! the level of every step it signs), then sent with a fresh `ptok`. Samples and children the user
 //! may not see are dropped before they reach the socket.
 
 use crate::http::{bearer, ApiError, AppState};
@@ -139,31 +139,33 @@ impl Conn {
 }
 
 impl Conn {
-    /// `approve` of an agent task (ADR 0049, the rule in [`crate::approve`]): the plan is
-    /// read from the link with the user's own token, the user's grants are checked for every
-    /// step the client named, and only then is one token signed per step. A token made here
-    /// goes to the link alone, never to the client or a log.
-    async fn approve(
+    /// `approve {steps, plan}` of an agent task from a user (ADR 0049 §2, the rule in
+    /// [`crate::approve`]): the plan is read from the link with the user's own token, the
+    /// user's grants are checked for every step the client named, and only then is one
+    /// token signed per step. The arguments the link gets: `{approvals: {"<n>": token},
+    /// plan}`. A token made here goes to the link alone, never to the client or a log.
+    async fn approval_args(
         &self,
         p: &Principal,
         c: &WyrmClient,
-        req: &Req,
-    ) -> Result<Option<Value>, ClientError> {
+        key: &str,
+        args: &Value,
+    ) -> Result<Value, ClientError> {
         use crate::approve::{Ask, Plan, MAX_DOC};
         // a step the user may not approve is the gateway's own refusal: audited as one
         let refused = |r: Refusal| {
             if r.status == Status::PermissionDenied {
                 self.gw.audit(AuditEvent::Denied {
                     user: p.name.clone(),
-                    op: req.op.clone(),
-                    key: req.key.clone(),
+                    op: "approve".into(),
+                    key: key.to_owned(),
                 });
             }
             ClientError::new(r.status, r.message)
         };
-        let ask = Ask::parse(req.args.as_ref()).map_err(refused)?;
-        let site = req.key.split('/').nth(1).unwrap_or_default();
-        let doc = c.doc(&req.key, "~state").await?;
+        let ask = Ask::parse(args).map_err(refused)?;
+        let site = key.split('/').nth(1).unwrap_or_default();
+        let doc = c.doc(key, "~state").await?;
         if doc.len() > MAX_DOC {
             return Err(ClientError::new(
                 Status::ResourceExhausted,
@@ -173,37 +175,30 @@ impl Conn {
         let doc: Value = from_slice(&doc)
             .map_err(|_| ClientError::new(Status::InvalidMessage, "the task record is not CBOR"))?;
         let plan = Plan::parse(&doc, site).map_err(refused)?;
-        let (sign, skip) = plan
+        let sign = plan
             .select(&ask, |k| p.grants.perm(&self.gw.as_own(k)))
             .map_err(refused)?;
         let tokens = self.gw.tokens_for(p);
         let mut approvals = BTreeMap::new();
-        for s in &sign {
-            let tok = tokens.approval(&s.key, s.level, s.body).ok_or_else(|| {
+        for (n, r) in &sign {
+            let tok = tokens.approval(&r.key, r.level, r.body).ok_or_else(|| {
                 refused(Refusal::new(
                     Status::PermissionDenied,
-                    format!("you may not approve: {}", s.key),
+                    format!("step {n}: you have no right on {}", r.key),
                 ))
             })?;
-            approvals.insert(s.key.clone(), Value::Bytes(tok));
+            approvals.insert(n.to_string(), Value::Bytes(tok));
         }
-        let skipped = skip.len();
-        let args = map([
-            ("approvals", Value::Map(approvals)),
-            (
-                "skip",
-                Value::Array(skip.into_iter().map(Value::Str).collect()),
-            ),
-            ("plan", Value::Str(plan.hash.clone())),
-        ]);
-        let r = c.invoke_one(&req.key, "approve", args).await?;
         self.gw.audit(AuditEvent::Approved {
             user: p.name.clone(),
-            task: req.key.clone(),
-            steps: sign.iter().map(|s| s.key.clone()).collect(),
-            skipped,
+            task: key.to_owned(),
+            steps: sign.iter().map(|(_, r)| r.key.clone()).collect(),
+            skipped: plan.left_out(&ask.steps),
         });
-        Ok(r)
+        Ok(map([
+            ("approvals", Value::Map(approvals)),
+            ("plan", Value::Str(plan.hash)),
+        ]))
     }
 }
 
@@ -223,7 +218,7 @@ struct Req {
     action: Option<String>,
     args: Option<Value>,
     sub: Option<u64>,
-    /// `doc`: which document, without its `~`.
+    /// `doc`: which document (`~state`, `~def`).
     suffix: Option<String>,
 }
 
@@ -454,26 +449,20 @@ impl Conn {
             // a document of the node: as `list` on it, and the token the responder gets is
             // for the document's own key (a restricted node asks `list` there)
             "doc" => match req.suffix.as_deref() {
-                Some(s @ ("state" | "def")) => {
+                Some(s @ ("~state" | "~def")) => {
                     p.grants.perm(&format!("{own}/~meta")) >= Perm::List
-                        && p.grants.perm(&format!("{own}/~{s}")) >= Perm::List
+                        && p.grants.perm(&format!("{own}/{s}")) >= Perm::List
                 }
                 _ => {
                     self.send(err_frame(
                         req.id,
                         Status::InvalidParameter.code(),
-                        "suffix: state or def required",
+                        "suffix: ~state or ~def required",
                     ))
                     .await;
                     return true;
                 }
             },
-            // as an `invoke` of the task's `approve`; the link asks its level (`config`), and
-            // every step is checked against the user's grants before it is signed (ADR 0049)
-            "approve" => {
-                p.grants.perm(&format!("{own}/~meta")) >= Perm::List
-                    && p.grants.perm(&format!("{own}/~act/approve")) >= Perm::Read
-            }
             "invoke" | "check" => match req.action.as_deref() {
                 Some(a) if wyrm_core::keyspace::validate_segment(a).is_ok() => {
                     p.grants.perm(&format!("{own}/~act/{a}")) >= Perm::Read
@@ -578,8 +567,10 @@ impl Conn {
                 Err(e) => client_err(id, &e),
             },
             "doc" => {
-                let suffix = format!("~{}", req.suffix.as_deref().unwrap_or_default());
-                match c.doc(&req.key, &suffix).await {
+                match c
+                    .doc(&req.key, req.suffix.as_deref().unwrap_or_default())
+                    .await
+                {
                     Ok(b) if b.len() > crate::approve::MAX_DOC => err_frame(
                         id,
                         Status::ResourceExhausted.code(),
@@ -596,10 +587,6 @@ impl Conn {
                     Err(e) => client_err(id, &e),
                 }
             }
-            "approve" => match self.approve(&p, &c, &req).await {
-                Ok(v) => ok_frame(id, v),
-                Err(e) => client_err(id, &e),
-            },
             "set" => match req.value {
                 None => err_frame(id, Status::InvalidParameter.code(), "value required"),
                 Some(v) => match c.set(&req.key, v).await {
@@ -632,6 +619,13 @@ impl Conn {
                 {
                     let site = req.key.split('/').nth(1).unwrap_or_default().to_owned();
                     self.add_flow_proofs(&c, &site, &mut args);
+                }
+                // a user approves steps of an agent's plan: the gateway signs them (ADR 0049)
+                if action == "approve" && crate::approve::asks_for_tokens(&args) {
+                    match self.approval_args(&p, &c, &req.key, &args).await {
+                        Ok(signed) => args = signed,
+                        Err(e) => return self.send(client_err(id, &e)).await,
+                    }
                 }
                 match c.invoke(&req.key, &action, args).await {
                     Err(e) => client_err(id, &e),

@@ -398,7 +398,7 @@ async fn ask_plan_approve_done() {
     let key = format!("{P0}/~set");
     let r = env
         .task_action(
-            &env.human(Perm::Config),
+            &env.human(Perm::Write),
             &id,
             "approve",
             approvals(&[(&key, human_token("user:op", &key))]),
@@ -492,17 +492,18 @@ async fn budget_exhausted() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn approve_needs_config_and_the_same_human() {
+async fn approve_needs_write_and_the_same_human() {
     let env = Env::start(params(&["downstream/mock"]), set_p0_script(42.0)).await;
     let before = env.p0();
     let (id, _) = env.ask("set p0 to 42").await.unwrap();
     env.wait_state(&id, "awaiting_approval").await;
     let key = format!("{P0}/~set");
 
-    // Caller with write only: refused by the SDK before the driver runs.
+    // Caller with read only: refused by the SDK before the driver runs. `write` on the task
+    // is enough (ADR 0049 §3): the tokens decide what a person may approve.
     let e = env
         .task_action(
-            &env.human(Perm::Write),
+            &env.human(Perm::Read),
             &id,
             "approve",
             approvals(&[(&key, human_token("user:op", &key))]),
@@ -514,7 +515,7 @@ async fn approve_needs_config_and_the_same_human() {
     // Approval minted by someone else than the approver.
     let e = env
         .task_action(
-            &env.human(Perm::Config),
+            &env.human(Perm::Write),
             &id,
             "approve",
             approvals(&[(&key, human_token("user:other", &key))]),
@@ -526,7 +527,7 @@ async fn approve_needs_config_and_the_same_human() {
     // An AI subject cannot approve.
     let e = env
         .task_action(
-            &env.human(Perm::Config),
+            &env.human(Perm::Write),
             &id,
             "approve",
             approvals(&[(&key, human_token("ai:x", &key))]),
@@ -539,7 +540,7 @@ async fn approve_needs_config_and_the_same_human() {
     let other = format!("{P0}x/~set");
     let e = env
         .task_action(
-            &env.human(Perm::Config),
+            &env.human(Perm::Write),
             &id,
             "approve",
             approvals(&[
@@ -621,9 +622,12 @@ async fn read_tools_stay_inside_the_prefixes_and_tasks_are_restricted() {
     assert!(vals["downstream/agent/tasks"]["error"].is_string());
     assert_eq!(r[4]["is_error"], false);
 
-    // The public ~val carries the state only; the record needs `list`.
+    // The public ~val carries the state and where the run is; the record needs `list`.
     let pv = env.task(&id);
-    assert!(matches!(&pv, Value::Map(m) if m.len() == 1));
+    assert!(
+        matches!(&pv, Value::Map(m) if m.keys().all(|k| ["state", "step", "of"].contains(&k.as_str()))),
+        "{pv:?}"
+    );
     let e = env.doc_with(&id, None).await.unwrap_err();
     assert!(e.contains("PermissionDenied"), "{e}");
     let rec = env.doc(&id).await;
@@ -724,51 +728,6 @@ async fn slow_model_keeps_the_ask_stream_alive() {
         field(items.last().unwrap(), "state").as_deref(),
         Some("awaiting_approval")
     );
-    env.wait_state(&id, "awaiting_approval").await;
-    env.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn one_step_per_key_and_only_the_asker_may_cancel() {
-    let script = vec![
-        tool_use(&[
-            (
-                "t1",
-                "propose",
-                json!({"op": "set", "path": "downstream/mock/p0", "value": 1}),
-            ),
-            (
-                "t2",
-                "propose",
-                json!({"op": "set", "path": "downstream/mock/p0", "value": 2}),
-            ),
-        ]),
-        end("Plan: set p0."),
-    ];
-    let env = Env::start(params(&["downstream/mock"]), script).await;
-    let (id, _) = env.ask("set p0").await.unwrap();
-    let rec = env.wait_state(&id, "awaiting_approval").await;
-    assert_eq!(plan_len(&rec), 1);
-    let seen = env.llm.seen();
-    let r = &seen[1]["messages"][2]["content"][1];
-    assert_eq!(r["is_error"], true);
-    assert!(r["content"].as_str().unwrap().contains("one step per key"));
-
-    // Another writer may neither cancel nor reject the task.
-    let stranger = WyrmClient::new(env.session.clone())
-        .with_timeout(Duration::from_secs(5))
-        .with_tokens(Arc::new(
-            SigningTokens::new(test_key(), SITE)
-                .subject("user:x")
-                .max(Perm::Write),
-        ));
-    for a in ["cancel", "reject"] {
-        let e = env
-            .task_action(&stranger, &id, a, Value::Map(BTreeMap::new()))
-            .await
-            .unwrap_err();
-        assert!(e.is(Status::PermissionDenied), "{a}: {e}");
-    }
     env.wait_state(&id, "awaiting_approval").await;
     env.stop().await;
 }
@@ -883,24 +842,97 @@ async fn concurrent_asks_cannot_both_spend_the_last_budget() {
     env.stop().await;
 }
 
-/// Read p0, propose `p0 := a` and `p1 := b`, finish.
-fn set_both_script(a: f64, b: f64) -> Vec<Json> {
-    vec![
+/// ADR 0049 §4: approvals are named by step number, so two steps on one key both work; by
+/// request key only when one step alone has it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_steps_on_one_key_and_only_the_asker_may_cancel() {
+    let script = vec![
         tool_use(&[
-            ("t1", "node_meta", json!({"path": "downstream/mock/p0"})),
+            (
+                "t1",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 1}),
+            ),
             (
                 "t2",
                 "propose",
-                json!({"op": "set", "path": "downstream/mock/p0", "value": a, "reason": "first"}),
-            ),
-            (
-                "t3",
-                "propose",
-                json!({"op": "set", "path": "downstream/mock/p1", "value": b, "reason": "second"}),
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 2}),
             ),
         ]),
-        end("Plan: set both."),
-    ]
+        end("Plan: set p0 twice."),
+    ];
+    let env = Env::start(params(&["downstream/mock"]), script).await;
+    let (id, _) = env.ask("set p0").await.unwrap();
+    let rec = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(plan_len(&rec), 2);
+    // ADR 0049 §8: what `propose` answers
+    let seen = env.llm.seen();
+    let r = &seen[1]["messages"][2]["content"][1];
+    assert_eq!(r["is_error"], false);
+    let a: Json = serde_json::from_str(r["content"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        (&a["ok"], &a["n"], &a["check"]),
+        (&json!(true), &json!(2), &json!("now"))
+    );
+    // the second change on the node needs the first
+    assert_eq!(a["after"], json!([1]));
+
+    // Another writer may neither cancel nor reject the task.
+    let stranger = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(
+            SigningTokens::new(test_key(), SITE)
+                .subject("user:x")
+                .max(Perm::Write),
+        ));
+    for a in ["cancel", "reject"] {
+        let e = env
+            .task_action(&stranger, &id, a, Value::Map(BTreeMap::new()))
+            .await
+            .unwrap_err();
+        assert!(e.is(Status::PermissionDenied), "{a}: {e}");
+    }
+    env.wait_state(&id, "awaiting_approval").await;
+
+    let key = format!("{P0}/~set");
+    let human = env.human(Perm::Write);
+    // the key names two steps
+    let e = env
+        .task_action(
+            &human,
+            &id,
+            "approve",
+            approvals(&[(&key, human_token("user:op", &key))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("several steps"), "{e}");
+    // a step number the plan does not have
+    let e = env
+        .task_action(
+            &human,
+            &id,
+            "approve",
+            approvals(&[("3", human_token("user:op", &key))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    env.task_action(
+        &human,
+        &id,
+        "approve",
+        approvals(&[
+            ("1", human_token("user:op", &key)),
+            ("2", human_token("user:op", &key)),
+        ]),
+    )
+    .await
+    .unwrap();
+    env.wait_state(&id, "done").await;
+    assert_eq!(env.p0(), 2.0, "both steps ran, in order");
+    env.stop().await;
 }
 
 fn plan_step(doc: &Value, i: usize) -> Value {
@@ -926,8 +958,11 @@ fn with(mut args: Value, k: &str, v: Value) -> Value {
     args
 }
 
-fn keys(k: &[&str]) -> Value {
-    Value::Array(k.iter().map(|k| Value::from(*k)).collect())
+fn get<'a>(v: &'a Value, k: &str) -> &'a Value {
+    match v {
+        Value::Map(m) => m.get(k).unwrap_or(&Value::Null),
+        _ => &Value::Null,
+    }
 }
 
 /// SHA-256 of a request body, as the `args` claim holds it.
@@ -940,58 +975,188 @@ fn sha256(b: &[u8]) -> [u8; 32] {
     out
 }
 
-/// docs/studio.md §10 item 6: a step the approver leaves out is never sent and is recorded
-/// as skipped; a step neither approved nor named in `skip` refuses the whole call.
+/// The model asks which point, then plans: set p0, wait, expect; set p1, expect.
+fn ask_then_plan_script() -> Vec<Json> {
+    vec![
+        tool_use(&[(
+            "q",
+            "ask_user",
+            json!({"question": "Which point first?", "options": [
+                {"id": "p0", "label": "point 0", "detail": "downstream/mock/p0"},
+                {"id": "p1", "label": "point 1"},
+            ]}),
+        )]),
+        tool_use(&[
+            (
+                "t1",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 7, "reason": "first"}),
+            ),
+            (
+                "t2",
+                "propose",
+                json!({"op": "wait", "path": "downstream/mock/p0", "timeout_s": 5}),
+            ),
+            (
+                "t3",
+                "propose",
+                json!({"op": "expect", "path": "downstream/mock/p0", "equals": 7, "timeout_s": 5}),
+            ),
+            (
+                "t4",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p1", "value": 9, "reason": "second"}),
+            ),
+            (
+                "t5",
+                "propose",
+                json!({"op": "expect", "path": "downstream/mock/p1", "equals": 9, "timeout_s": 5}),
+            ),
+        ]),
+        end("Plan: set both and prove it."),
+    ]
+}
+
+/// ADR 0049, "Consequences": ask → ask_user → answer → plan → partial approve (one step
+/// skipped, its dependant skipped) → wait/expect → done. Also what stays refused: an
+/// approval of another plan, one bound to other arguments, one from a caller without the
+/// level of the step.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn part_of_a_plan_runs_and_the_rest_is_recorded_as_skipped() {
-    let env = Env::start(params(&["downstream/mock"]), set_both_script(7.0, 9.0)).await;
-    let (id, _) = env.ask("set both").await.unwrap();
+async fn ask_answer_plan_partial_approve_prove_done() {
+    let env = Env::start(params(&["downstream/mock"]), ask_then_plan_script()).await;
+    let human = env.human(Perm::Write);
+    let (id, items) = env.ask("set the points").await.unwrap();
+    assert_eq!(
+        field(items.last().unwrap(), "state").as_deref(),
+        Some("awaiting_answer"),
+        "the ask stream ends when the model asks back: {items:?}"
+    );
+    let doc = env.wait_state(&id, "awaiting_answer").await;
+    let Value::Array(qs) = get(&doc, "questions") else {
+        panic!("questions: {doc:?}")
+    };
+    assert_eq!(qs.len(), 1);
+    assert_eq!(field(&qs[0], "id").as_deref(), Some("q1"));
+    assert_eq!(field(&qs[0], "text").as_deref(), Some("Which point first?"));
+    assert!(matches!(get(&qs[0], "options"), Value::Array(o) if o.len() == 2));
+
+    // an option the question does not have; a question that does not wait; another caller
+    let answers = |q: &str, v: Value| {
+        Value::Map(BTreeMap::from([(
+            "answers".to_owned(),
+            Value::Map(BTreeMap::from([(q.to_owned(), v)])),
+        )]))
+    };
+    let pick = |o: &str| Value::Array(vec![Value::from(o)]);
+    for bad in [
+        answers("q1", pick("p9")),
+        answers("q2", pick("p0")),
+        answers(
+            "q1",
+            Value::Array(vec![Value::from("p0"), Value::from("p1")]),
+        ),
+        answers("q1", Value::from("my own words")),
+        Value::Map(BTreeMap::new()),
+    ] {
+        let e = env
+            .task_action(&human, &id, "answer", bad)
+            .await
+            .unwrap_err();
+        assert!(e.is(Status::InvalidParameter), "{e}");
+    }
+    let stranger = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(
+            SigningTokens::new(test_key(), SITE)
+                .subject("user:x")
+                .max(Perm::Write),
+        ));
+    let e = env
+        .task_action(&stranger, &id, "answer", answers("q1", pick("p0")))
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::PermissionDenied), "{e}");
+    env.wait_state(&id, "awaiting_answer").await;
+
+    // the answer resumes the model; its stream carries the progress and ends with the state
+    let mut s = human
+        .invoke(
+            &format!("wy/test/downstream/agent/tasks/{id}"),
+            "answer",
+            answers("q1", pick("p0")),
+        )
+        .await
+        .unwrap();
+    let mut items = Vec::new();
+    while let Some(i) = s.next().await {
+        if let Some(v) = i.unwrap() {
+            items.push(v);
+        }
+    }
+    assert_eq!(
+        field(items.last().unwrap(), "state").as_deref(),
+        Some("awaiting_approval"),
+        "{items:?}"
+    );
+    // the model got the answer as the result of its question
+    let seen = env.llm.seen();
+    let r = &seen[1]["messages"][2]["content"][0];
+    assert_eq!(r["tool_use_id"], "q");
+    assert_eq!(r["content"], "point 0 (p0)");
+
     let doc = env.wait_state(&id, "awaiting_approval").await;
-    assert_eq!(plan_len(&doc), 2);
+    assert_eq!(plan_len(&doc), 5);
     let hash = field(&doc, "plan_hash").expect("plan_hash");
     let step = plan_step(&doc, 0);
-    assert_eq!(field(&step, "node").as_deref(), Some(P0));
-    assert_eq!(field(&step, "op").as_deref(), Some("set"));
+    // the plan is in the `wyrm-agent run` format
+    assert_eq!(field(&step, "set").as_deref(), Some(P0));
+    assert_eq!(get(&step, "value"), &Value::UInt(7));
+    assert_eq!(get(&step, "n"), &Value::UInt(1));
+    assert_eq!(get(&step, "approval"), &Value::Bool(true));
+    assert_eq!(field(&step, "check").as_deref(), Some("now"));
     assert_eq!(result_of(&step), None);
+    let proof = plan_step(&doc, 2);
+    assert_eq!(field(&proof, "expect").as_deref(), Some(P0));
+    assert_eq!(get(&proof, "equals"), &Value::UInt(7));
+    assert_eq!(get(&proof, "approval"), &Value::Bool(false));
+    assert_eq!(field(&proof, "level").as_deref(), Some("read"));
+    assert_eq!(get(&proof, "after"), &Value::Array(vec![Value::UInt(1)]));
+    assert_eq!(
+        get(&plan_step(&doc, 4), "after"),
+        &Value::Array(vec![Value::UInt(4)])
+    );
+    // the public value says where the task is, and nothing the model wrote
+    let pv = env.task(&id);
+    assert_eq!(get(&pv, "of"), &Value::UInt(5));
+    assert_eq!(get(&pv, "step"), &Value::UInt(0));
+
     let p1 = || {
         let v = env.mock.as_ref().unwrap().ctx().last("p1").unwrap().v;
         v.as_f64().unwrap()
     };
     let p1_before = p1();
     let k0 = format!("{P0}/~set");
-    let k1 = "wy/test/downstream/mock/p1/~set".to_owned();
-    let human = env.human(Perm::Config);
-    let one = || approvals(&[(&k0, human_token("user:op", &k0))]);
+    let one = || approvals(&[("1", human_token("user:op", &k0))]);
 
-    // one step approved, the other forgotten: nothing runs
-    let e = env
-        .task_action(&human, &id, "approve", one())
-        .await
-        .unwrap_err();
-    assert!(e.is(Status::InvalidParameter), "{e}");
-    assert!(e.message.contains("missing approval"), "{e}");
     // nothing approved at all
-    let none = with(approvals(&[]), "skip", keys(&[&k0, &k1]));
     let e = env
-        .task_action(&human, &id, "approve", none)
+        .task_action(&human, &id, "approve", approvals(&[]))
         .await
         .unwrap_err();
     assert!(e.is(Status::InvalidParameter), "{e}");
-    // a step named in both lists, and a skip of something that is not a step
-    for skip in [k0.clone(), format!("{P0}x/~set")] {
-        let args = with(one(), "skip", keys(&[&skip, &k1]));
-        let e = env
-            .task_action(&human, &id, "approve", args)
-            .await
-            .unwrap_err();
-        assert!(e.is(Status::InvalidParameter), "{e}");
-    }
+    // an approval of a step that only reads
+    let e = env
+        .task_action(
+            &human,
+            &id,
+            "approve",
+            approvals(&[("3", human_token("user:op", &k0))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
     // an approval made for another plan
-    let args = with(
-        with(one(), "skip", keys(&[&k1])),
-        "plan",
-        Value::from("0".repeat(64)),
-    );
+    let args = with(one(), "plan", Value::from("0".repeat(64)));
     let e = env
         .task_action(&human, &id, "approve", args)
         .await
@@ -1004,43 +1169,235 @@ async fn part_of_a_plan_runs_and_the_rest_is_recorded_as_skipped() {
         .bound_to([3; 32])
         .token(&k0)
         .unwrap();
-    let args = with(approvals(&[(&k0, bound)]), "skip", keys(&[&k1]));
     let e = env
-        .task_action(&human, &id, "approve", args)
+        .task_action(&human, &id, "approve", approvals(&[("1", bound)]))
         .await
         .unwrap_err();
     assert!(e.is(Status::PermissionDenied), "{e}");
+    // a token below the level of the step: the person may not approve it
+    let weak = SigningTokens::new(test_key(), SITE)
+        .subject("user:op")
+        .max(Perm::Read)
+        .token(&k0)
+        .unwrap();
+    let e = env
+        .task_action(&human, &id, "approve", approvals(&[("1", weak)]))
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::PermissionDenied), "{e}");
+    assert!(e.message.contains("step 1"), "{e}");
     env.wait_state(&id, "awaiting_approval").await;
     assert_ne!(env.p0(), 7.0);
 
-    // the first step with a token for exactly its arguments, the second left out
-    let body = wyrm_client::set_payload(Value::Float(7.0)).unwrap();
+    // step 1 with a token for exactly its arguments; step 4 left out, step 5 needs it
+    let body = wyrm_client::set_payload(Value::UInt(7)).unwrap();
     let tok = SigningTokens::new(test_key(), SITE)
         .subject("user:op")
         .bound_to(sha256(&body))
         .token(&k0)
         .unwrap();
-    let args = with(
-        with(approvals(&[(&k0, tok)]), "skip", keys(&[&k1])),
-        "plan",
-        Value::from(hash.as_str()),
-    );
+    let args = with(approvals(&[("1", tok)]), "plan", Value::from(hash.as_str()));
     env.task_action(&human, &id, "approve", args).await.unwrap();
     let doc = env.wait_state(&id, "done").await;
     assert_eq!(env.p0(), 7.0);
     assert_eq!(p1(), p1_before, "the skipped step was never sent");
+    let status = |i: usize| result_of(&plan_step(&doc, i)).unwrap();
+    assert_eq!(status(0).0, "ok");
+    assert_eq!(status(1).0, "ok", "wait: {:?}", status(1));
+    assert_eq!(status(2).0, "ok", "expect: {:?}", status(2));
     assert_eq!(
-        result_of(&plan_step(&doc, 0)).map(|r| r.0).as_deref(),
-        Some("ok")
+        status(3),
+        ("skipped".to_owned(), "skipped by user:op".to_owned())
     );
     assert_eq!(
-        result_of(&plan_step(&doc, 1)),
-        Some(("skipped".to_owned(), "not approved".to_owned()))
+        status(4),
+        ("skipped".to_owned(), "skipped: needs step 4".to_owned())
     );
+    assert!(matches!(get(get(&plan_step(&doc, 0), "result"), "time"), Value::UInt(t) if *t > 0));
     assert_eq!(
         field(&doc, "plan_hash"),
         Some(hash),
         "results do not move the hash"
+    );
+    // progress in the public value (ADR 0049 §7)
+    let pv = env.task(&id);
+    assert_eq!(field(&pv, "state").as_deref(), Some("done"));
+    assert_eq!(
+        (get(&pv, "step"), get(&pv, "of")),
+        (&Value::UInt(5), &Value::UInt(5))
+    );
+    assert_eq!(get(get(&pv, "last"), "n"), &Value::UInt(5));
+    assert_eq!(get(get(&pv, "last"), "ok"), &Value::Bool(true));
+    // the tokens used today are readable (ADR 0049 §10)
+    let used = env.agent.as_ref().unwrap().ctx().last("budget_used_today");
+    assert!(used.unwrap().v.as_f64().unwrap() > 0.0);
+    env.stop().await;
+}
+
+/// A cancelled question ends the task; a failed proof stops the run and says where.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_question_can_be_cancelled_and_a_failed_proof_stops_the_run() {
+    let env = Env::start(params(&["downstream/mock"]), ask_then_plan_script()).await;
+    let human = env.human(Perm::Write);
+    let (id, _) = env.ask("set the points").await.unwrap();
+    env.wait_state(&id, "awaiting_answer").await;
+    env.task_action(&human, &id, "cancel", Value::Map(BTreeMap::new()))
+        .await
+        .unwrap();
+    env.wait_state(&id, "failed").await;
+    env.stop().await;
+
+    // the value never becomes what the plan expects; a step on a node that an earlier
+    // step was to make is checked when it runs
+    let script = vec![
+        tool_use(&[
+            (
+                "t1",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 3}),
+            ),
+            (
+                "t2",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0/made", "value": 1}),
+            ),
+            (
+                "t3",
+                "propose",
+                json!({"op": "expect", "path": "downstream/mock/p0", "min": 100, "timeout_s": 0.5, "after": []}),
+            ),
+            ("t4", "propose", json!({"op": "sleep", "seconds": 0.1})),
+            // a node nothing makes
+            (
+                "t5",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/nowhere", "value": 1, "after": []}),
+            ),
+        ]),
+        end("Plan."),
+    ];
+    let env = Env::start(params(&["downstream/mock"]), script).await;
+    let human = env.human(Perm::Write);
+    let (id, _) = env.ask("set and prove").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(
+        plan_len(&doc),
+        4,
+        "the step on a node nothing makes is refused"
+    );
+    assert_eq!(
+        field(&plan_step(&doc, 1), "check").as_deref(),
+        Some("at_run")
+    );
+    let seen = env.llm.seen();
+    let refused = &seen[1]["messages"][2]["content"][4];
+    assert_eq!(refused["is_error"], true, "{refused}");
+    let k0 = format!("{P0}/~set");
+    // only step 1: step 2 (at_run, needs 1) is left out; the proof fails
+    env.task_action(
+        &human,
+        &id,
+        "approve",
+        approvals(&[("1", human_token("user:op", &k0))]),
+    )
+    .await
+    .unwrap();
+    let doc = env.wait_state(&id, "failed").await;
+    assert_eq!(result_of(&plan_step(&doc, 0)).unwrap().0, "ok");
+    assert_eq!(result_of(&plan_step(&doc, 1)).unwrap().0, "skipped");
+    let (st, msg) = result_of(&plan_step(&doc, 2)).unwrap();
+    assert_eq!(st, "failed");
+    assert!(msg.contains("not as expected"), "{msg}");
+    assert_eq!(result_of(&plan_step(&doc, 3)), None, "never reached");
+    let pv = env.task(&id);
+    assert_eq!(get(get(&pv, "last"), "n"), &Value::UInt(3));
+    assert_eq!(get(get(&pv, "last"), "ok"), &Value::Bool(false));
+    assert!(field(&doc, "error").unwrap().contains("step 3"));
+    env.stop().await;
+}
+
+/// ADR 0049 §9: a follow-up ask hands the model the task it follows; attached keys are read
+/// first, inside the agent's bounds and the asker's rights.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_follow_up_ask_carries_its_parent_and_the_attached_keys() {
+    let mut script = set_p0_script(42.0);
+    script.push(end("Nothing more to do."));
+    let env = Env::start(params(&["downstream/mock"]), script).await;
+    let human = env.human(Perm::Write);
+    let (id, _) = env.ask("set p0 to 42").await.unwrap();
+    env.wait_state(&id, "awaiting_approval").await;
+    let ask = |extra: Vec<(&str, Value)>| {
+        let mut m = BTreeMap::from([("task".to_owned(), Value::from("and now undo it"))]);
+        for (k, v) in extra {
+            m.insert(k.to_owned(), v);
+        }
+        Value::Map(m)
+    };
+    let agent = "wy/test/downstream/agent";
+    let keys = |k: &[&str]| Value::Array(k.iter().map(|k| Value::from(*k)).collect());
+    // a parent that is not there; a key outside what the agent may read; a key the asker
+    // may not read; a parent of somebody else
+    for (args, want) in [
+        (ask(vec![("parent", Value::from("t0-0"))]), Status::NotFound),
+        (
+            ask(vec![("context", keys(&["sys/links"]))]),
+            Status::InvalidParameter,
+        ),
+    ] {
+        let e = human.invoke_one(agent, "ask", args).await.unwrap_err();
+        assert!(e.is(want), "{e}");
+    }
+    let narrow = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(
+            SigningTokens::new(test_key(), SITE)
+                .subject("user:x")
+                .grants(vec![wyrm_core::ptok::Grant {
+                    k: "wy/test/downstream/agent/**".into(),
+                    p: Perm::Write,
+                }]),
+        ));
+    let e = narrow
+        .invoke_one(agent, "ask", ask(vec![("context", keys(&[P0]))]))
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::PermissionDenied), "{e}");
+    let e = narrow
+        .invoke_one(
+            agent,
+            "ask",
+            ask(vec![("parent", Value::from(id.as_str()))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::PermissionDenied), "{e}");
+
+    let args = ask(vec![
+        ("parent", Value::from(id.as_str())),
+        ("context", keys(&["downstream/mock/p1"])),
+    ]);
+    let mut s = human.invoke(agent, "ask", args).await.unwrap();
+    let mut next = None;
+    while let Some(i) = s.next().await {
+        if let Some(v) = i.unwrap() {
+            next = field(&v, "task").or(next);
+        }
+    }
+    let next = next.unwrap();
+    let doc = env.wait_state(&next, "done").await;
+    assert_eq!(field(&doc, "parent"), Some(id.clone()));
+    assert_eq!(
+        get(&doc, "context"),
+        &Value::Array(vec![Value::from("wy/test/downstream/mock/p1")])
+    );
+    let seen = env.llm.seen();
+    let first = seen[2]["messages"][0]["content"].as_str().unwrap();
+    assert!(first.starts_with("and now undo it"), "{first}");
+    assert!(first.contains("set p0 to 42"), "the parent's ask: {first}");
+    assert!(first.contains("awaiting_approval"), "{first}");
+    assert!(
+        first.contains("wy/test/downstream/mock/p1: meta"),
+        "{first}"
     );
     env.stop().await;
 }

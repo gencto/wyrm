@@ -51,11 +51,11 @@ impl Env {
             "flows_only",
             vec![("wy/{site}/dataflows/**".into(), Perm::Config)],
         );
-        // may approve tasks of the agent; writes on one branch of the devices and on flows
+        // writes on the agent (asks, approves), on one branch of the devices and on flows
         roles.insert(
             "approver",
             vec![
-                ("wy/{site}/downstream/agent/**".into(), Perm::Config),
+                ("wy/{site}/downstream/agent/**".into(), Perm::Write),
                 ("wy/{site}/downstream/mock/g1/**".into(), Perm::Read),
                 ("wy/{site}/downstream/mock/**".into(), Perm::Write),
                 ("wy/{site}/dataflows/**".into(), Perm::Write),
@@ -1406,7 +1406,7 @@ impl wyrm_link_agent::llm::LlmClient for ScriptedLlm {
 const AGENT: &str = "wy/test/downstream/agent";
 
 /// An agent link whose model proposes: `g0/p0 := 42` (write), `g1/p1 := 7` (write) and a
-/// flow deploy (config).
+/// flow deploy (config), then a proof of each point.
 async fn spawn_agent(env: &Env) -> LinkHandle<wyrm_link_agent::Agent> {
     use serde_json::json;
     let propose = |id: &str, input: serde_json::Value| json!({"type": "tool_use", "id": id, "name": "propose", "input": input});
@@ -1416,6 +1416,8 @@ async fn spawn_agent(env: &Env) -> LinkHandle<wyrm_link_agent::Agent> {
             propose("t1", json!({"op": "set", "path": "downstream/mock/g0/p0", "value": 42.5, "reason": "asked"})),
             propose("t2", json!({"op": "set", "path": "downstream/mock/g1/p1", "value": 7, "reason": "asked"})),
             propose("t3", json!({"op": "invoke", "path": "dataflows", "action": "deploy", "args": {"def": def}, "reason": "asked"})),
+            propose("t4", json!({"op": "expect", "path": "downstream/mock/g0/p0", "equals": 42.5, "timeout_s": 5})),
+            propose("t5", json!({"op": "expect", "path": "downstream/mock/g1/p1", "equals": 7, "timeout_s": 5})),
         ], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 10}}),
         json!({"content": [{"type": "text", "text": "Plan: three steps."}], "stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 10}}),
     ];
@@ -1449,22 +1451,25 @@ fn err_message(reply: &Value) -> String {
     text(get(reply, "error"), "message")
 }
 
-fn approve_args(steps: &[&str], plan: &str) -> Vec<(&'static str, Value)> {
-    vec![(
-        "args",
-        map([
-            (
-                "steps",
-                Value::Array(steps.iter().map(|s| Value::from(*s)).collect()),
-            ),
-            ("plan", Value::from(plan)),
-        ]),
-    )]
+fn approve_args(steps: &[u64], plan: &str) -> Vec<(&'static str, Value)> {
+    vec![
+        ("action", Value::from("approve")),
+        (
+            "args",
+            map([
+                (
+                    "steps",
+                    Value::Array(steps.iter().map(|s| Value::UInt(*s)).collect()),
+                ),
+                ("plan", Value::from(plan)),
+            ]),
+        ),
+    ]
 }
 
-/// docs/studio.md §10 items 1, 6 and 11 (ADR 0049): a user reads a task's record with `doc`
-/// and approves the steps they tick; the gateway signs those steps only, within the user's
-/// grants, for the plan the link stores.
+/// ADR 0049 §1–4 (docs/studio.md §10 items 1, 6 and 11): a user reads a task's record with
+/// `doc` and approves the steps they tick; the gateway signs those steps only, within the
+/// user's grants, for the plan the link stores; `write` on the task is enough to approve.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     let env = Env::start("approve", wyrm_gateway::SESSION_TTL).await;
@@ -1504,30 +1509,33 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     assert_eq!(text(get(&r, "result"), "state"), "awaiting_approval");
     let task = format!("{AGENT}/tasks/{id}");
 
-    // item 11: the record through `doc`
-    let state = vec![("suffix", Value::from("state"))];
+    // §1: the record through `doc`
+    let state = vec![("suffix", Value::from("~state"))];
     let r = root.call("doc", &task, state.clone()).await;
     assert!(is_ok(&r), "{r:?}");
     let rec = get(&r, "result").clone();
     assert_eq!(text(&rec, "state"), "awaiting_approval");
     assert_eq!(text(&rec, "ask"), "set two points");
-    let hash = text(&rec, "plan_hash");
     let Value::Array(plan) = get(&rec, "plan") else {
         panic!("plan: {rec:?}")
     };
-    assert_eq!(plan.len(), 3, "{plan:?}");
+    assert_eq!(plan.len(), 5, "{plan:?}");
+    // the hash a client makes from the plan it shows is the link's
+    let hash = wyrm_gateway::approve::plan_hash(plan).unwrap();
+    assert_eq!(text(&rec, "plan_hash"), hash);
     let (k0, k1) = (format!("{ROOT}/g0/p0/~set"), format!("{ROOT}/g1/p1/~set"));
     let k2 = format!("wy/{SITE}/dataflows/~act/deploy");
-    assert_eq!(text(&plan[0], "key"), k0);
-    assert_eq!(get(&plan[0], "args"), &Value::Float(42.5));
+    assert_eq!(text(&plan[0], "set"), format!("{ROOT}/g0/p0"));
+    assert_eq!(get(&plan[0], "value"), &Value::Float(42.5));
     assert_eq!(text(&plan[0], "level"), "write");
     assert_eq!(get(&plan[0], "approval"), &Value::Bool(true));
-    assert_eq!(text(&plan[2], "key"), k2);
+    assert_eq!(text(&plan[2], "invoke"), format!("wy/{SITE}/dataflows"));
     assert_eq!(text(&plan[2], "action"), "deploy");
     assert_eq!(text(&plan[2], "level"), "config");
+    assert_eq!(text(&plan[3], "expect"), format!("{ROOT}/g0/p0"));
 
     // a closed set of documents; a node without one; a user without `list` on the node
-    for bad in [None, Some("meta"), Some("val"), Some("~state")] {
+    for bad in [None, Some("~meta"), Some("~val"), Some("state")] {
         let extra = bad.map(|s| vec![("suffix", Value::from(s))]);
         let r = root.call("doc", &task, extra.unwrap_or_default()).await;
         assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{bad:?}");
@@ -1540,49 +1548,53 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     let mut fo = env.ws(&fo).await;
     let r = fo.call("doc", &task, state.clone()).await;
     assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
-    let r = fo.call("approve", &task, approve_args(&[&k0], &hash)).await;
+    let r = fo.call("invoke", &task, approve_args(&[1], &hash)).await;
     assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
 
     // the client names steps of the stored plan and nothing else
-    let unknown = format!("{ROOT}/g0/p2/~set");
     for (steps, plan_hash, want) in [
-        (vec![unknown.as_str()], hash.as_str(), "not a step"),
-        (vec![k0.as_str()], "0000", "read it again"),
+        (vec![9], hash.as_str(), "no step 9"),
+        (vec![4], hash.as_str(), "needs no approval"),
+        (vec![1], "0000", "read it again"),
         (vec![], hash.as_str(), "no step"),
     ] {
         let r = root
-            .call("approve", &task, approve_args(&steps, plan_hash))
+            .call("invoke", &task, approve_args(&steps, plan_hash))
             .await;
         assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
         assert!(err_message(&r).contains(want), "{r:?}");
     }
-    let forged = vec![(
-        "args",
-        map([
-            ("steps", Value::Array(vec![Value::from(k0.as_str())])),
-            ("plan", Value::from(hash.as_str())),
-            ("approvals", map([(k1.as_str(), Value::Bytes(vec![1; 80]))])),
-        ]),
-    )];
-    let r = root.call("approve", &task, forged).await;
-    assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
+    // a token of the client's own making goes to the link as it is, and the link refuses it
+    let forged = vec![
+        ("action", Value::from("approve")),
+        (
+            "args",
+            map([
+                ("steps", Value::Array(vec![Value::UInt(1)])),
+                ("plan", Value::from(hash.as_str())),
+                ("approvals", map([("1", Value::Bytes(vec![1; 80]))])),
+            ]),
+        ),
+    ];
+    let r = root.call("invoke", &task, forged).await;
+    assert!(!is_ok(&r), "{r:?}");
 
-    // item 1: a step outside the user's grants, and a config step for a user with write:
-    // refused whole, the steps named, nothing signed or run
+    // §2: a step outside the user's grants, and a config step for a user with write:
+    // refused whole before anything is sent, the step and the missing right named
     let ap = env.add_user(&admin, "ap", &["approver"]).await;
     let mut ap = env.ws(&ap).await;
-    let r = ap
-        .call("approve", &task, approve_args(&[&k0, &k1], &hash))
-        .await;
+    let r = ap.call("invoke", &task, approve_args(&[1, 2], &hash)).await;
     assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
-    let m = err_message(&r);
-    assert!(m.contains(&k1) && !m.contains(&k0), "{m}");
-    let r = ap
-        .call("approve", &task, approve_args(&[&k0, &k2], &hash))
-        .await;
+    assert_eq!(
+        err_message(&r),
+        format!("step 2 needs write on {k1}; you have read")
+    );
+    let r = ap.call("invoke", &task, approve_args(&[1, 3], &hash)).await;
     assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
-    let m = err_message(&r);
-    assert!(m.contains(&k2) && m.contains("needs config"), "{m}");
+    assert_eq!(
+        err_message(&r),
+        format!("step 3 needs config on {k2}; you have write")
+    );
     assert!(env.audit.lock().unwrap().iter().any(
         |e| matches!(e, AuditEvent::Denied { op, user, .. } if op == "approve" && user == "ap")
     ));
@@ -1594,12 +1606,13 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     };
     assert_ne!(p0(), 42.5);
 
-    // items 1 and 6: the one ticked step runs with the user's rights, the others are skipped
-    let r = ap.call("approve", &task, approve_args(&[&k0], &hash)).await;
+    // §3 and §4: `write` on the task is enough; the one ticked step runs with the user's
+    // rights, the others are skipped, and so is the proof that needs one of them
+    let r = ap.call("invoke", &task, approve_args(&[1], &hash)).await;
     assert!(is_ok(&r), "{r:?}");
     assert_eq!(text(get(&r, "result"), "state"), "running");
     let mut rec = Value::Null;
-    for _ in 0..200 {
+    for _ in 0..400 {
         let r = ap.call("doc", &task, state.clone()).await;
         rec = get(&r, "result").clone();
         if text(&rec, "state") != "running" {
@@ -1612,10 +1625,17 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     let Value::Array(plan) = get(&rec, "plan") else {
         panic!("plan: {rec:?}")
     };
-    let status = |i: usize| text(get(&plan[i], "result"), "status");
+    let result = |i: usize| {
+        let r = get(&plan[i], "result");
+        (text(r, "status"), text(r, "message"))
+    };
+    assert_eq!(result(0).0, "ok");
+    assert_eq!(result(1), ("skipped".into(), "skipped by user:ap".into()));
+    assert_eq!(result(2), ("skipped".into(), "skipped by user:ap".into()));
+    assert_eq!(result(3).0, "ok", "the proof of step 1: {:?}", result(3));
     assert_eq!(
-        (status(0), status(1), status(2)),
-        ("ok".into(), "skipped".into(), "skipped".into())
+        result(4),
+        ("skipped".into(), "skipped: needs step 2".into())
     );
     let Value::Array(log) = get(&rec, "log") else {
         panic!("log: {rec:?}")
@@ -1631,7 +1651,7 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
             if user == "ap" && steps == std::slice::from_ref(&k0) && *skipped == 2
     )));
     // a second approve finds a task that no longer waits
-    let r = ap.call("approve", &task, approve_args(&[&k0], &hash)).await;
+    let r = ap.call("invoke", &task, approve_args(&[1], &hash)).await;
     assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
 
     agent.stop().await;
