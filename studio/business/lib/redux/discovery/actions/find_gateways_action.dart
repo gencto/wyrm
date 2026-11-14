@@ -1,4 +1,3 @@
-import '../../../wyrm/discovery.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'begin_find_action.dart';
@@ -22,7 +21,3 @@ class FindGatewaysAction extends Action {
     return state.copyWith.discovery(scanning: false, ended: true);
   }
 }
-
-/// The local network as the panel names it: `en0 (10.0.7.0/24)`.
-String? networkLabel(LocalNetwork? net) =>
-    net == null ? null : '${net.interface} (${net.subnet})';
