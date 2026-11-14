@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Biometrics on every platform</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>body{margin:0;background:#0E1113}</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 40px 48px; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; gap: 40px; -webkit-font-smoothing: antialiased">
+
+<!-- Phones -->
+<div style="flex: none; display: flex; gap: 24px">
+<sc-for list="{{phones}}" as="p" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 10px; align-items: center">
+<div style="position: relative; width: 300px; height: 640px; border-radius: 42px; border: 8px solid #1D2226; background: #0E1113; overflow: hidden; display: flex; flex-direction: column; padding: 56px 22px 22px; box-sizing: border-box; gap: 18px">
+<span style="position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 90px; height: 24px; border-radius: 12px; background: #000"></span>
+<span style="display: flex; align-items: center; gap: 8px"><svg width="30" height="18" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="#E8893A"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle></svg><span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.08em">WYRM</span></span>
+<span style="font-size: 22px; font-weight: 600">Welcome back</span>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #252B30; background: #13171A"><span style="width: 34px; height: 34px; border-radius: 50%; background: #2A1F16; color: #F3A766; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600">OL</span><span style="display: flex; flex-direction: column; gap: 2px; font-size: 13px"><span>olena · engineer</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">plant.local:8446</span></span></div>
+<span style="flex: 1"></span>
+<div style="border-radius: {{p.sheetR}}; background: {{p.sheetBg}}; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; font-family: {{p.font}}">
+<span style="font-size: 15px; font-weight: 600">{{p.title}}</span>
+<span style="font-size: 12px; color: #A3ABAF">Sign in to plant as olena</span>
+<span style="width: 60px; height: 60px; border-radius: 50%; border: 2px solid {{p.accent}}; color: {{p.accent}}; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{p.face}}" hint-placeholder-val="{{true}}"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></sc-if>
+<sc-if value="{{p.finger}}" hint-placeholder-val="{{false}}"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"></path></svg></sc-if>
+</span>
+<span style="font-size: 12px; color: #8E979C">{{p.hint}}</span>
+<span style="font-size: 13px; color: {{p.accent}}">{{p.alt}}</span>
+</div>
+</div>
+<span style="font-size: 13px; color: #A3ABAF">{{p.caption}}</span>
+</div>
+</sc-for>
+</div>
+
+<!-- Matrix -->
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 24px; font-weight: 600">Biometric unlock on every platform</span><span style="color: #A3ABAF; line-height: 1.5">The same flow everywhere: a key made in the device’s secure hardware, opened by the system’s own prompt, proves to the gateway who is here. Studio never stores a password and never sees a fingerprint or a face.</span></div>
+<div style="border: 1px solid #1D2226; border-radius: 12px; overflow: hidden">
+<div style="display: grid; grid-template-columns: 104px 136px 1.25fr 1fr; gap: 0; background: #13171A; font-size: 12px; color: #8E979C; text-transform: uppercase; letter-spacing: 0.05em"><span style="padding: 10px 12px">Platform</span><span style="padding: 10px 12px">Called in Studio</span><span style="padding: 10px 12px">Key and prompt</span><span style="padding: 10px 12px">Falls back to / ends when</span></div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 104px 136px 1.25fr 1fr; border-top: 1px solid #1D2226; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere">
+<span style="padding: 12px; font-weight: 600">{{r.p}}</span>
+<span style="padding: 12px; color: {{r.nameInk}}">{{r.n}}</span>
+<span style="padding: 12px; color: #C5CBCE">{{r.k}}</span>
+<span style="padding: 12px; color: #A3ABAF">{{r.f}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
+<sc-for list="{{rules}}" as="u" hint-placeholder-count="6"><div style="padding: 12px 14px; border-radius: 10px; border: 1px solid #1D2226; background: #13171A; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; font-weight: 600; color: {{u.ink}}">{{u.t}}</span><span style="font-size: 12px; color: #A3ABAF; line-height: 1.5">{{u.d}}</span></div></sc-for>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', ACC = '#E8893A';
+    const phones = [
+      { title: 'Face ID', hint: 'Look at the iPhone', alt: 'Use the password', caption: 'iPhone · Face ID (Touch ID on older ones)', face: true, finger: false, accent: ACC, sheetBg: '#2A2D30', sheetR: '22px', font: "-apple-system, 'IBM Plex Sans', sans-serif" },
+      { title: 'Unlock WYRM Studio', hint: 'Touch the fingerprint sensor', alt: 'Use the password', caption: 'Android · BiometricPrompt, strong class only', face: false, finger: true, accent: TEAL, sheetBg: '#1F2326', sheetR: '26px 26px 18px 18px', font: "Roboto, 'IBM Plex Sans', sans-serif" }
+    ];
+    const R = [
+      ['macOS', 'Touch ID', 'P-256 key in the Secure Enclave, access control biometryCurrentSet; LocalAuthentication prompt. Apple Watch unlock is not offered (it is not biometric).', 'Password of the gateway. Ends when fingerprints are added or removed.'],
+      ['Windows', 'Windows Hello', 'Key in the TPM through Windows Hello (KeyCredentialManager); face, fingerprint or the Hello PIN, as the PC is set up.', 'Password of the gateway. Ends when Hello is reset or the PC leaves the account.'],
+      ['iOS · iPadOS', 'Face ID / Touch ID', 'Secure Enclave key, biometryCurrentSet; NSFaceIDUsageDescription text.', 'Password of the gateway (never the iPhone passcode by default). Ends when faces or fingers change.'],
+      ['Android', 'Fingerprint / face', 'Android Keystore key (StrongBox when there is one), BIOMETRIC_STRONG, setInvalidatedByBiometricEnrollment. A face unlock of class 2 cannot open a key, so it is not offered.', 'Password of the gateway; the screen PIN only if plant allows it (allow_device_credential). Ends on a new enrollment.'],
+      ['Linux', '— not offered', 'No system prompt can bind a key (fprintd has no key store). Studio remembers the gateway and the user only.', 'Password each time; the idle lock asks for the password too.'],
+      ['Kiosk · web', '— not offered', 'Kiosk sessions are a gateway token for one view (no person). A future web build uses passkeys (WebAuthn), the same server side.', '—']
+    ];
+    const rows = R.map((r) => ({ p: r[0], n: r[1], k: r[2], f: r[3], nameInk: r[1].startsWith('—') ? '#5A6168' : '#F3A766' }));
+    const U = [
+      ['The gateway decides', 'gateway.devices: on/off, max per user, password every N days, idle lock limit, step-up for config, device PIN allowed. Studio shows what is allowed and never more.', ACC],
+      ['One key per user, gateway and device', 'Registered with a session that just used the password. Works on the standby too (the users store is replicated). Other sites are reached through it, never with their own key.', TEAL],
+      ['Ends on its own', 'New fingerprints or faces, a password change, a removed device, policy off, 30 days without the password: each gives its own message and a way back.', AMBER],
+      ['A failure is never a dead end', 'Cancel or 3 misses → the password field, with the user filled. OS lockout → the same. No hardware → never offered.', TEAL],
+      ['Step-up and lock reuse the key', 'Confirming a config change signs that request’s hash; the idle lock signs a fresh challenge. Without biometrics both ask for the password.', TEAL],
+      ['Visible and revocable', 'Account › Security lists your devices; Access › Users shows everyone’s; audit records device_added, device_login, step_up, device_removed.', ACC]
+    ];
+    const rules = U.map((u) => ({ t: u[0], d: u[1], ink: u[2] }));
+    return { phones, rows, rules };
+  }
+}
+</script>
+</body>
+</html>

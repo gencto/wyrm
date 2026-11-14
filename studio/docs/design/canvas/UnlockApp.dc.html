@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Lock, confirm, devices</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+*{scrollbar-width:thin;scrollbar-color:#2F373D transparent}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+@keyframes wy-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.wy-spinner{animation:wy-spin .9s linear infinite;transform-origin:center}
+.wy-rise{animation:wy-rise .5s cubic-bezier(.2,.7,.2,1) both}
+@media (prefers-reduced-motion:reduce){.wy-spinner,.wy-rise{animation:none!important}}
+</style>
+</helmet>
+<div style="position: relative; height: 100vh; min-height: 1000px; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; overflow: hidden; -webkit-font-smoothing: antialiased">
+
+<!-- The Studio shell behind (simplified) -->
+<div aria-hidden="{{shellHidden}}" style="position: absolute; inset: 0; display: flex; flex-direction: column; filter: {{shellFilter}}">
+<header style="height: 52px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 18px; border-bottom: 1px solid #1D2226; background: #0E1113">
+<span style="display: flex; align-items: center; gap: 8px"><svg width="30" height="18" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="#E8893A"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle></svg><span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 14px; letter-spacing: 0.08em">WYRM</span></span>
+<span style="height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid #2F373D; display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>plant <span style="color: #8E979C">via edge · central</span></span>
+<nav style="display: flex; gap: 16px; font-size: 13px; color: #A3ABAF"><span style="color: #ECE9E1; box-shadow: inset 0 -2px 0 #E8893A; padding: 16px 0">Explorer</span><span style="padding: 16px 0">Links</span><span style="padding: 16px 0">Flows</span><span style="padding: 16px 0">History</span><span style="padding: 16px 0">Access</span><span style="padding: 16px 0">Sites</span><span style="padding: 16px 0">Assistant</span><span style="padding: 16px 0">System</span></nav>
+<span style="margin-left: auto; height: 30px; padding: 0 12px; border-radius: 8px; background: #2A1F16; color: #F3A766; display: flex; align-items: center; font-size: 13px">Review and apply · 3</span>
+<span style="width: 30px; height: 30px; border-radius: 50%; background: #2A1F16; color: #F3A766; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600">OL</span>
+</header>
+<div style="flex: 1; display: flex; min-height: 0">
+<aside style="width: 340px; border-right: 1px solid #1D2226; padding: 14px 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px">
+<sc-for list="{{tree}}" as="t" hint-placeholder-count="10"><span style="padding: 6px 16px 6px {{t.pad}}; color: {{t.ink}}; background: {{t.bg}}; display: flex; gap: 8px"><span style="color: #5A6168">{{t.chev}}</span>{{t.n}}</span></sc-for>
+</aside>
+<section style="flex: 1; padding: 22px 28px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8E979C">wy/plant/downstream/modbus/tcp-line2/ahu1</span>
+<span style="font-size: 22px; font-weight: 600">ahu1</span>
+<sc-for list="{{vals}}" as="v" hint-placeholder-count="6"><div style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 14px; border-radius: 8px; background: #13171A; border: 1px solid #1D2226"><span style="flex: 1">{{v.n}}</span><span style="font-family: 'IBM Plex Mono', monospace; color: {{v.ink}}">{{v.v}}</span></div></sc-for>
+</section>
+</div>
+</div>
+
+<!-- Locked after idle -->
+<sc-if value="{{isLock}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: rgba(14,17,19,0.72); display: flex; align-items: center; justify-content: center">
+<div role="dialog" aria-label="Studio is locked" class="wy-rise" style="width: 420px; padding: 32px; border-radius: 16px; border: 1px solid #252B30; background: #13171A; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; box-shadow: 0 30px 80px rgba(0,0,0,0.5)">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8E979C" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 11h12v9H6zM8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 22px; font-weight: 600">Studio is locked</span><span style="color: #A3ABAF; line-height: 1.5">olena on plant · locked after 15 min without use. Values and the tree stay hidden; links, flows and the session keep running.</span></div>
+<button type="button" onClick="{{unlock}}" aria-label="Unlock with Touch ID" style="position: relative; width: 92px; height: 92px; border-radius: 50%; border: 1.5px solid #5A3E25; background: #1E1813; color: #F3A766; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"></path></svg></button>
+<span style="font-size: 15px; font-weight: 600">Unlock with Touch ID</span>
+<span style="font-size: 12px; color: #8E979C">3 changes are waiting in Review and apply; they are kept.</span>
+<div style="display: flex; gap: 20px; font-size: 13px"><button type="button" onClick="{{unlock}}" style="border: 0; background: transparent; padding: 0; color: #C5CBCE; font-family: inherit; font-size: 13px; text-decoration: underline; cursor: pointer">Use the password</button><button type="button" onClick="{{unlock}}" style="border: 0; background: transparent; padding: 0; color: #C5CBCE; font-family: inherit; font-size: 13px; text-decoration: underline; cursor: pointer">Log out</button></div>
+</div>
+</div>
+</sc-if>
+
+<!-- Confirm a config change (step-up) -->
+<sc-if value="{{isStepUp}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: rgba(8,10,11,0.6); display: flex; align-items: center; justify-content: center">
+<div role="dialog" aria-label="Confirm it is you" class="wy-rise" style="width: 520px; border-radius: 14px; border: 1px solid #2F373D; background: #13171A; box-shadow: 0 30px 80px rgba(0,0,0,0.5); display: flex; flex-direction: column">
+<div style="padding: 22px 24px 6px; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 20px; font-weight: 600">Confirm it is you</span><span style="color: #A3ABAF; line-height: 1.5">Apply 3 changes on plant. Two of them are config, and plant asks for a fresh confirmation before config changes.</span></div>
+<ul style="list-style: none; margin: 10px 24px; padding: 0; border: 1px solid #1D2226; border-radius: 10px">
+<sc-for list="{{changes}}" as="c" hint-placeholder-count="3"><li style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: {{c.top}}; font-size: 13px"><span style="padding: 2px 8px; border-radius: 6px; background: {{c.lvlBg}}; color: {{c.lvlInk}}; font-size: 11px">{{c.lvl}}</span><span style="flex: 1">{{c.t}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8E979C">{{c.k}}</span></li></sc-for>
+</ul>
+<div style="display: flex; align-items: center; gap: 14px; margin: 6px 24px 0; padding: 14px; border-radius: 10px; background: #1E1813; border: 1px solid #5A3E25">
+<span style="flex: none; width: 48px; height: 48px; border-radius: 50%; border: 1.5px solid {{suRing}}; display: flex; align-items: center; justify-content: center; color: #F3A766; position: relative"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"></path></svg></span>
+<span style="flex: 1; font-size: 13px; color: #C5CBCE; line-height: 1.45">{{suText}}</span>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 18px 24px; margin-top: 12px; border-top: 1px solid #1D2226">
+<button type="button" onClick="{{usePw}}" style="border: 0; background: transparent; padding: 0; color: #C5CBCE; font-family: inherit; font-size: 13px; text-decoration: underline; cursor: pointer">Use the password</button>
+<span style="flex: 1"></span>
+<button type="button" style="height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 14px; cursor: pointer">Cancel</button>
+<button type="button" onClick="{{confirm}}" style="height: 38px; padding: 0 16px; border-radius: 8px; border: 0; background: {{suBtnBg}}; color: #0E1113; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">{{suBtn}}</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<!-- Account › Security -->
+<sc-if value="{{isDevices}}" hint-placeholder-val="{{true}}">
+<div style="position: absolute; inset: 0; background: rgba(8,10,11,0.6); display: flex; align-items: center; justify-content: center">
+<div role="dialog" aria-label="Security" class="wy-rise" style="width: 680px; max-height: 900px; border-radius: 14px; border: 1px solid #2F373D; background: #13171A; box-shadow: 0 30px 80px rgba(0,0,0,0.5); display: flex; flex-direction: column; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 12px; padding: 20px 24px; border-bottom: 1px solid #1D2226"><span style="font-size: 20px; font-weight: 600">Security</span><span style="color: #8E979C">olena · plant</span><span style="margin-left: auto; color: #8E979C; font-size: 18px">×</span></div>
+<div style="padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; overflow: auto">
+<span style="font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">On this Mac</span>
+<sc-for list="{{opts}}" as="o" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid #1D2226; background: #0E1113">
+<div style="flex: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14px">{{o.t}}</span><span style="font-size: 12px; color: #8E979C; line-height: 1.45">{{o.d}}</span></div>
+<sc-if value="{{o.isToggle}}" hint-placeholder-val="{{true}}"><button type="button" role="switch" aria-checked="{{o.on}}" onClick="{{o.flip}}" disabled="{{o.locked}}" style="width: 40px; height: 22px; border-radius: 11px; border: 0; background: {{o.track}}; position: relative; cursor: pointer; opacity: {{o.op}}"><span style="position: absolute; top: 3px; left: {{o.knob}}; width: 16px; height: 16px; border-radius: 50%; background: #ECE9E1"></span></button></sc-if>
+<sc-if value="{{o.isSelect}}" hint-placeholder-val="{{false}}"><span style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; display: flex; align-items: center; gap: 8px; font-size: 13px">{{o.v}} <span style="color: #8E979C">▾</span></span></sc-if>
+</div>
+</sc-for>
+<span style="font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C; padding-top: 6px">Your devices on plant</span>
+<div style="border: 1px solid #1D2226; border-radius: 10px">
+<sc-for list="{{devices}}" as="d" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: {{d.top}}">
+<span style="width: 34px; height: 34px; border-radius: 8px; background: #1D2226; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #C5CBCE">{{d.os}}</span>
+<div style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px">{{d.n}} <span style="color: {{d.tagInk}}; font-size: 12px">{{d.tag}}</span></span><span style="font-size: 12px; color: #8E979C">{{d.d}}</span></div>
+<button type="button" onClick="{{d.remove}}" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A4249; background: transparent; color: {{d.btnInk}}; font-family: inherit; font-size: 12px; cursor: pointer">{{d.btn}}</button>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: #8E979C; line-height: 1.5"><span style="flex: 1">plant’s policy: devices on · up to 5 · password every 30 days · confirm config changes. An administrator sees and removes devices in Access › Users.</span><button type="button" style="height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #5A3328; background: transparent; color: #F0A28D; font-family: inherit; font-size: 12px; cursor: pointer; flex: none">Sign out everywhere</button></div>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"devices","options":["lock","stepup","devices"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { (this._t || []).forEach((t) => clearTimeout(t)); }
+  renderVals() {
+    const st = this.state || {};
+    const pr = this.props;
+    const set = (o) => this.setState(o);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F';
+    const stage = st.stage || pr.stage || 'devices';
+    this._t = this._t || [];
+    const locked = stage === 'lock' && !st.unlocked;
+    const tree = [['plant', 16, '▾', 1], ['downstream', 30, '▾', 0], ['modbus', 44, '▾', 0], ['tcp-line2', 58, '▾', 0], ['ahu1', 72, '', 2], ['ahu-old', 72, '', 0], ['s7', 44, '▸', 0], ['bacnet', 44, '▸', 0], ['dataflows', 30, '▸', 0], ['storage', 30, '▸', 0]]
+      .map((t) => ({ n: t[0], pad: t[1] + 'px', chev: t[2], ink: t[3] === 2 ? '#ECE9E1' : '#A3ABAF', bg: t[3] === 2 ? '#1E1813' : 'transparent' }));
+    const vals = [['supply_temp', '21.6 °C', TEAL], ['return_temp', '24.1 °C', '#ECE9E1'], ['fan_speed', '62 %', '#ECE9E1'], ['valve_pos', '38 %', '#ECE9E1'], ['filter_dp', '112 Pa', '#ECE9E1'], ['alarm', 'false', '#8E979C']].map((v) => ({ n: v[0], v: v[1], ink: v[2] }));
+    const C = [['config', 'add_device ahu2', 'tcp-line2'], ['config', 'add_watch_path supply_temp', 'sys/history/1min'], ['write', 'set fan_speed = 70 %', 'ahu1/fan_speed']];
+    const changes = C.map((c, i) => ({ lvl: c[0], t: c[1], k: c[2], top: i ? '1px solid #1D2226' : '0', lvlBg: c[0] === 'config' ? '#33201B' : '#22282D', lvlInk: c[0] === 'config' ? '#F0A28D' : '#A3ABAF' }));
+    const suState = st.su || 'ready';
+    const suText = { ready: 'Touch ID signs this one request: plant gets a proof bound to these 3 changes, and stays confirmed on this Mac for 5 minutes.', busy: 'Waiting for Touch ID…', done: '✓ Confirmed · applying 3 changes' }[suState];
+    const sw = (on, locked) => ({ on: on ? 'true' : 'false', track: on ? '#E8893A' : '#3A4249', knob: on ? '21px' : '3px', op: locked ? '0.55' : '1', locked });
+    const bio = st.bio !== undefined ? st.bio : true;
+    const opts = [
+      Object.assign({ t: 'Unlock with Touch ID', d: 'A key in this Mac’s Secure Enclave, added 3 Nov. Off removes the key here and this Mac from your devices.', isToggle: true, isSelect: false, v: '', flip: () => set({ bio: !bio }) }, sw(bio, false)),
+      { t: 'Lock Studio after', d: 'Hides the tree and values; the session and Review and apply are kept. plant allows at most 30 min.', isToggle: false, isSelect: true, v: '15 min', on: 'false', track: '', knob: '', op: '1', locked: false, flip: () => {} },
+      Object.assign({ t: 'Confirm before config changes', d: 'Set by plant (gateway.devices.step_up: config); you cannot turn it off here.', isToggle: true, isSelect: false, v: '', flip: () => {} }, sw(true, true))
+    ];
+    const gone = st.gone || {};
+    const D = [['mac', 'MacBook Pro · Studio', 'this device', TEAL, 'Touch ID · used now · added 3 Nov', 'Turn off'], ['iOS', 'iPhone 15 · Studio', '', '', 'Face ID · 2 days ago · added 28 Oct', 'Remove'], ['win', 'ENG-LAPTOP-07 · Studio', 'password due in 4 days', AMBER, 'Windows Hello · 26 days ago', 'Remove'], ['and', 'Pixel 8 · Studio', 'removed by ivan', CORAL, 'fingerprint · removed 12 Nov · signs in with the password only', 'Forget']];
+    const devices = D.filter((d) => !gone[d[1]]).map((d, i) => ({ os: d[0], n: d[1], tag: d[2], tagInk: d[3], d: d[4], btn: d[5], btnInk: d[5] === 'Turn off' ? '#ECE9E1' : '#F0A28D', top: i ? '1px solid #1D2226' : '0', remove: () => { if (d[5] !== 'Turn off') set({ gone: Object.assign({}, gone, { [d[1]]: true }) }); } }));
+    return {
+      tree, vals, changes, opts, devices,
+      shellHidden: locked ? 'true' : 'false', shellFilter: locked ? 'blur(14px) saturate(0.6)' : 'none',
+      isLock: locked, isStepUp: stage === 'stepup', isDevices: stage === 'devices',
+      unlock: () => set({ unlocked: true }),
+      suText, suRing: suState === 'busy' ? '#E8893A' : '#5A3E25', suBtn: suState === 'done' ? 'Confirmed' : 'Confirm with Touch ID', suBtnBg: suState === 'done' ? TEAL : '#E8893A',
+      confirm: () => { set({ su: 'busy' }); this._t.push(setTimeout(() => this.setState({ su: 'done' }), 900)); },
+      usePw: () => set({ su: 'ready' })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -19,6 +19,7 @@ The boards do not render on their own (they run inside the canvas). Read them as
 | Add a link, official | `AddLinkB00`, `AddLinkO1`–`O4`, `AddLinkB10` | §7.3 |
 | Add a link, custom | `AddLinkC1`–`C4b` | §7.3 |
 | Who controls what | `LinksRemote`, `LinksQuarantine`, `SitesChainQ`, `SitesStar`, `SitesTwoUp` | §7.2, §7.5 |
+| Unlock and find | `UnlockOffer`, `Unlock` (clickable), `UnlockPrompt`, `UnlockWindows`, `UnlockFallback`, `UnlockChanged`, `UnlockSignedOut`, `UnlockLinux`, `UnlockLock`, `UnlockStepUp`, `UnlockApp`, `UnlockPlatforms`, `Discover` (clickable), `DiscoverScan`, `DiscoverTrust`, `DiscoverNone` | `specs/unlock-discover.md`, ADR 0050 |
 | Assistant | `AssistantAsk`, `Assistant` (clickable), `AssistantRun`, `AssistantDone`, `AssistantFailed`, `AssistantRights`, `AssistantDrawer` | `specs/assistant.md`, ADR 0049 |
 | Design system | `DesignSystem` (tokens, type, components, scrollbars), `Icons`, `PropertySheet` | §6 |
 | Trend chart | `Trend` (clickable: tooltip, zoom, marker, brush), `TrendHover`, `TrendZoomed`, `TrendPinned`, `TrendGap`; mounted by `History` | `specs/trend.md` |

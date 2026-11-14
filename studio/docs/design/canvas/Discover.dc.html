@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Find a gateway</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+a:hover{color:#F3A766}
+*{scrollbar-width:thin;scrollbar-color:#2F373D transparent}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2F373D;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#4A535A}::-webkit-scrollbar-track{background:transparent}
+@keyframes wy-crawl{0%,100%{transform:translateY(0) scale(1);opacity:.4}35%{transform:translateY(-6px) scale(1.28);opacity:1}70%{transform:translateY(0) scale(1);opacity:.7}}
+@keyframes wy-breathe{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.18);opacity:1}}
+@keyframes wy-flow{to{stroke-dashoffset:-160}}
+@keyframes wy-draw{from{stroke-dashoffset:420}to{stroke-dashoffset:0}}
+@keyframes wy-twinkle{0%,100%{opacity:.25}50%{opacity:.9}}
+@keyframes wy-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+@keyframes wy-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+@keyframes wy-bar{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+.wy-crawl>span{display:block;border-radius:50%;animation:wy-crawl 1.1s ease-in-out infinite}
+.wy-crawl>span:nth-child(2){animation-delay:.11s}.wy-crawl>span:nth-child(3){animation-delay:.22s}.wy-crawl>span:nth-child(4){animation-delay:.33s}.wy-crawl>span:nth-child(5){animation-delay:.44s}
+.wy-mark circle{transform-box:fill-box;transform-origin:center;animation:wy-breathe 3.2s ease-in-out infinite}
+.wy-mark circle:nth-of-type(2){animation-delay:.25s}.wy-mark circle:nth-of-type(3){animation-delay:.5s}.wy-mark circle:nth-of-type(4){animation-delay:.75s}.wy-mark circle:nth-of-type(5){animation-delay:1s}
+.wy-spine{stroke-dasharray:420;animation:wy-draw 1.6s ease-out both}
+.wy-packet{stroke-dasharray:3 157;animation:wy-flow 4.8s linear infinite}
+.wy-packet.slow{animation-duration:7.5s}.wy-packet.late{animation-delay:-2.4s}
+.wy-star{animation:wy-twinkle 3.6s ease-in-out infinite}
+.wy-rise{animation:wy-rise .6s cubic-bezier(.2,.7,.2,1) both}
+.wy-rise.d1{animation-delay:.08s}.wy-rise.d2{animation-delay:.16s}.wy-rise.d3{animation-delay:.24s}.wy-rise.d4{animation-delay:.32s}
+.wy-shake{animation:wy-shake .45s both}
+.wy-spinner{animation:wy-spin .9s linear infinite;transform-origin:center}
+.wy-bar{animation:wy-bar 1.4s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.wy-crawl>span,.wy-mark circle,.wy-spine,.wy-packet,.wy-star,.wy-rise,.wy-shake,.wy-spinner,.wy-bar{animation:none!important}}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-wrap: wrap; overflow: hidden; -webkit-font-smoothing: antialiased">
+<!-- Hero: the network, alive -->
+<section aria-label="WYRM Studio" style="position: relative; flex: 1 1 560px; min-width: 0; min-height: 420px; display: flex; flex-direction: column; justify-content: space-between; padding: 40px 48px; box-sizing: border-box; background: radial-gradient(120% 90% at 20% 30%, #1A1511 0%, #0E1113 60%); border-right: 1px solid #1D2226; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 900 900" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%">
+<g fill="#252B30"><sc-for list="{{stars}}" as="s" hint-placeholder-count="30"><circle class="wy-star" cx="{{s.x}}" cy="{{s.y}}" r="{{s.r}}" style="animation-delay: {{s.d}}"></circle></sc-for></g>
+<g fill="none" stroke="#2A2F33" stroke-width="1.2"><sc-for list="{{edges}}" as="e" hint-placeholder-count="10"><path d="{{e.d}}"></path></sc-for></g>
+<g fill="none" stroke-width="2.4" stroke-linecap="round"><sc-for list="{{edges}}" as="e" hint-placeholder-count="10"><path class="{{e.cls}}" d="{{e.d}}" stroke="{{e.c}}"></path></sc-for></g>
+<g><sc-for list="{{nodes}}" as="n" hint-placeholder-count="9"><circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.r}}" fill="#13171A" stroke="{{n.c}}" stroke-width="1.6"></circle><circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.core}}" fill="{{n.c}}" opacity="0.9"></circle></sc-for></g>
+</svg>
+
+<a href="#form" style="position: relative; display: flex; align-items: center; gap: 12px; color: #ECE9E1; text-decoration: none" class="wy-rise">
+<svg width="44" height="26" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="#E8893A"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 18px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 15px; color: #A3ABAF">Studio</span>
+</a>
+
+<div style="position: relative; display: flex; flex-direction: column; gap: 22px; max-width: 520px">
+<svg class="wy-mark" width="220" height="130" viewBox="0 0 220 130" aria-hidden="true">
+<path class="wy-spine" d="M20 85 C 45 50, 65 45, 70 45 S 105 25, 115 30 S 155 40, 165 55 S 190 95, 200 100" fill="none" stroke="#5A3E25" stroke-width="2" stroke-linecap="round"></path>
+<circle cx="20" cy="85" r="14" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="65" cy="45" r="17" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="115" cy="30" r="20" fill="#E8893A"></circle>
+<circle cx="165" cy="55" r="17" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="200" cy="100" r="14" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+</svg>
+<h1 class="wy-rise d1" style="margin: 0; font-size: 40px; line-height: 1.12; font-weight: 600; letter-spacing: -0.02em">Every device, link and site<br><span style="color: #F3A766">in one living tree.</span></h1>
+<p class="wy-rise d2" style="margin: 0; font-size: 16px; line-height: 1.6; color: #A3ABAF">Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.</p>
+</div>
+
+<div class="wy-rise d3" style="position: relative; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #8E979C">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #6CC4B0"></span>values flowing</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #E8893A"></span>commands</span>
+<span>The animation is decoration; it stops when the system asks for less motion.</span>
+</div>
+</section>
+
+<!-- Form panel: find a gateway on this network -->
+<main id="form" style="position: relative; flex: 0 1 560px; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 40px 32px; box-sizing: border-box; background: #0E1113">
+<div style="width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 20px">
+<div class="wy-rise" style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">Log in</h2>
+<p style="margin: 0; color: #A3ABAF">to a broker’s gateway. Your role there decides what you can change.</p>
+</div>
+
+<div class="wy-rise d1" style="display: flex; flex-direction: column; gap: 8px">
+<label for="gw" style="font-size: 13px; color: #C5CBCE">Gateway</label>
+<div style="display: flex; gap: 8px">
+<div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border-radius: 10px; border: 1px solid {{gwBorder}}; background: #161A1D; box-sizing: border-box">
+<span style="width: 8px; height: 8px; flex: none; border-radius: 50%; background: {{gwDot}}; box-shadow: 0 0 0 4px {{gwHalo}}"></span>
+<input id="gw" type="url" value="{{gwUrl}}" placeholder="https://host:port" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px">
+</div>
+<button type="button" onClick="{{find}}" aria-pressed="{{panelOpen}}" style="flex: none; height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid {{findBorder}}; background: {{findBg}}; color: {{findInk}}; font-family: inherit; font-size: 13px; display: flex; align-items: center; gap: 8px; cursor: pointer">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14"></path></svg>Find on this network</button>
+</div>
+<span style="font-size: 12px; color: {{gwNoteInk}}">{{gwNote}}</span>
+</div>
+
+<sc-if value="{{panelOpen}}" hint-placeholder-val="{{true}}">
+<section aria-label="Gateways on this network" class="wy-rise" style="display: flex; flex-direction: column; border-radius: 12px; border: 1px solid #252B30; background: #13171A; overflow: hidden">
+<div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #1D2226">
+<sc-if value="{{scanning}}" hint-placeholder-val="{{false}}"><svg class="wy-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E8893A" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if>
+<span style="flex: 1; font-size: 13px; color: #C5CBCE">{{panelTitle}}</span>
+<button type="button" onClick="{{find}}" style="border: 0; background: transparent; padding: 0; color: #8E979C; font-family: inherit; font-size: 12px; text-decoration: underline; cursor: pointer">Look again</button>
+</div>
+
+<sc-if value="{{hasRows}}" hint-placeholder-val="{{true}}">
+<div role="listbox" aria-label="Found gateways" style="display: flex; flex-direction: column">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="4">
+<button type="button" role="option" aria-selected="{{r.sel}}" onClick="{{r.pick}}" disabled="{{r.off}}" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 0; border-top: {{r.top}}; border-left: 2px solid {{r.edge}}; background: {{r.bg}}; color: #ECE9E1; font-family: inherit; text-align: left; cursor: pointer; opacity: {{r.op}}">
+<span style="width: 8px; height: 8px; flex: none; border-radius: 50%; background: {{r.dot}}"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600">{{r.site}}<sc-for list="{{r.tags}}" as="g" hint-placeholder-count="1"><span style="padding: 1px 7px; border-radius: 6px; background: {{g.bg}}; color: {{g.ink}}; font-size: 11px; font-weight: 500">{{g.t}}</span></sc-for></span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8E979C; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{r.hosts}}</span>
+<span style="font-size: 12px; color: {{r.noteInk}}">{{r.note}}</span>
+</span>
+<span style="font-size: 11px; color: #5A6168; text-align: right">{{r.seen}}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isNone}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 12px; padding: 14px">
+<span style="font-size: 14px; color: #F0A28D">No gateway answered on Wi-Fi “Guest-5G” in 8 s</span>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #C5CBCE">
+<sc-for list="{{why}}" as="w" hint-placeholder-count="4"><li style="display: flex; gap: 10px; line-height: 1.45"><span style="flex: none; width: 6px; height: 6px; margin-top: 7px; border-radius: 50%; background: {{w.dot}}"></span><span>{{w.t}}<sc-if value="{{w.hasBtn}}" hint-placeholder-val="{{false}}"> <button type="button" style="border: 0; background: transparent; padding: 0; color: #F3A766; font-family: inherit; font-size: 13px; text-decoration: underline; cursor: pointer">{{w.btn}}</button></sc-if></span></li></sc-for>
+</ul>
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid #1D2226">
+<span style="font-size: 13px; color: #C5CBCE">Probe a range instead</span>
+<div style="display: flex; gap: 8px">
+<input type="text" value="10.0.7.0/24" aria-label="Range" style="flex: 1; height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none">
+<input type="text" value="8446" aria-label="Port" style="width: 70px; height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none">
+<button type="button" onClick="{{probe}}" style="height: 38px; padding: 0 14px; border-radius: 8px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Probe</button>
+</div>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">One HTTPS request per address to /api/info, 16 at a time, at most 1024 addresses. Ask before probing a network that is not yours.</span>
+</div>
+</div>
+</sc-if>
+</section>
+</sc-if>
+
+<sc-if value="{{isTrust}}" hint-placeholder-val="{{false}}">
+<section role="dialog" aria-label="Check the certificate" class="wy-rise" style="display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: 12px; border: 1px solid #6A5A2A; background: #1A1810">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #E2C15A"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"></path><path d="M12 9v4M12 16h.01"></path></svg>First time on lab · check its certificate</span>
+<span style="font-size: 13px; color: #C5CBCE; line-height: 1.5">lab’s gateway uses its own CA, which this computer does not know. Compare the code with the one on the broker before you trust it; anyone on this network can announce a name.</span>
+<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 12px; border-radius: 10px; background: #0E1113; border: 1px solid #252B30">
+<sc-for list="{{fp}}" as="x" hint-placeholder-count="8"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; letter-spacing: 0.08em; text-align: center; color: #ECE9E1">{{x}}</span></sc-for>
+</div>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">On the broker: System › Gateway › Certificate code, or <code style="color: #C5CBCE">wyrmd ca fingerprint</code> on its host. On a phone: scan the code from that page.</span>
+<div style="display: flex; gap: 10px">
+<button type="button" onClick="{{trust}}" style="flex: 1; height: 42px; border-radius: 10px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer">It matches · trust lab</button>
+<button type="button" onClick="{{cancelTrust}}" style="height: 42px; padding: 0 16px; border-radius: 10px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 14px; cursor: pointer">Cancel</button>
+</div>
+</section>
+</sc-if>
+
+<form onSubmit="{{submit}}" class="wy-rise d2" style="display: flex; flex-direction: column; gap: 16px; opacity: {{formOp}}">
+<div style="display: flex; gap: 12px">
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px"><label for="user" style="font-size: 13px; color: #C5CBCE">User</label><input id="user" type="text" value="olena" style="width: 100%; min-width: 0; height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-family: inherit; font-size: 15px; outline: none; box-sizing: border-box"></div>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px"><label for="pw" style="font-size: 13px; color: #C5CBCE">Password</label><input id="pw" type="password" value="correct-horse" style="width: 100%; min-width: 0; height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid #2F373D; background: #161A1D; color: #ECE9E1; font-family: inherit; font-size: 15px; letter-spacing: 0.2em; outline: none; box-sizing: border-box"></div>
+</div>
+<button type="submit" style="height: 50px; border-radius: 10px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer">Log in</button>
+</form>
+
+<div class="wy-rise d4" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 14px; border-top: 1px solid #1D2226; font-size: 12px; color: #8E979C">
+<span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{{tlsInk}}" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 11h12v9H6zM8 11V7a4 4 0 0 1 8 0v4"></path></svg>{{tlsLine}}</span>
+<span>{{standbyLine}}</span>
+<span style="margin-left: auto">Studio 1.0 · English</span>
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"found","options":["scan","found","trust","none"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { (this._t || []).forEach((t) => clearTimeout(t)); }
+  renderVals() {
+    const st = this.state || {};
+    const pr = this.props;
+    const set = (o) => this.setState(o);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', ACC = '#E8893A', GREY = '#5A6168';
+    const stage = st.stage || pr.stage || 'found';
+    const sel = st.sel !== undefined ? st.sel : (stage === 'trust' ? 'lab' : null);
+    const trusted = st.trusted || {};
+    this._t = this._t || [];
+
+    // Hero network: decorative, seeded so it is the same every time
+    let seed = 7; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    const stars = Array.from({ length: 34 }, () => ({ x: Math.round(rnd() * 900), y: Math.round(rnd() * 900), r: (0.8 + rnd() * 1.4).toFixed(1), d: (rnd() * 3.6).toFixed(2) + 's' }));
+    const N = [[150, 640], [300, 560], [470, 610], [620, 520], [770, 600], [380, 740], [560, 760], [700, 720], [240, 780]];
+    const nodes = N.map((p, i) => ({ x: p[0], y: p[1], r: i === 2 ? 11 : 8, core: i === 2 ? 4 : 3, c: i === 2 ? ACC : (i % 3 === 0 ? '#3A4249' : TEAL) }));
+    const E = [[0, 1], [1, 2], [2, 3], [3, 4], [1, 5], [5, 6], [6, 7], [2, 6], [0, 8], [8, 5], [4, 7]];
+    const edges = E.map((e, i) => { const a = N[e[0]], b = N[e[1]], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - 40;
+      return { d: 'M' + a[0] + ' ' + a[1] + ' Q ' + mx + ' ' + my + ' ' + b[0] + ' ' + b[1], c: i % 4 === 3 ? ACC : TEAL, cls: 'wy-packet' + (i % 2 ? ' slow' : '') + (i % 3 === 0 ? ' late' : '') }; });
+
+    const tag = (t, kind) => ({ t, bg: { ok: '#15302A', warn: '#3A3418', bad: '#33201B', info: '#22282D', acc: '#2A1F16' }[kind], ink: { ok: TEAL, warn: AMBER, bad: '#F0A28D', info: '#C5CBCE', acc: '#F3A766' }[kind] });
+    const G = [
+      { id: 'plant', site: 'plant', url: 'https://plant.local:8446', standby: 'edge.local:8444', hosts: 'plant.local:8446 · standby edge.local:8444', tags: [tag('used before', 'ok'), tag('active + standby', 'acc')], note: 'wyrmd 0.9.4 · certificate of the plant CA, pinned', noteInk: '#8E979C', dot: TEAL, seen: 'now', known: true },
+      { id: 'line3', site: 'line3', url: 'https://10.0.7.31:8446', standby: '', hosts: '10.0.7.31:8446 · reaches plant', tags: [tag('downstream of plant', 'info')], note: 'wyrmd 0.9.4 · signed by the plant CA (known)', noteInk: '#8E979C', dot: TEAL, seen: '2 s', known: true },
+      { id: 'lab', site: 'lab', url: 'https://lab-bench.local:8446', standby: '', hosts: 'lab-bench.local:8446', tags: [tag('new', 'warn')], note: 'wyrmd 0.9.2 · its own CA · check the code before you trust it', noteInk: AMBER, dot: AMBER, seen: '3 s', known: false },
+      { id: 'old', site: 'test-rig', url: '', standby: '', hosts: 'http://10.0.7.88:8080', tags: [tag('plain http', 'bad')], note: 'Not offered: plain http off this computer is refused (insecure_plaintext). wyrmd 0.7.0 is older than Studio supports (0.9).', noteInk: '#F0A28D', dot: CORAL, seen: '5 s', known: false, off: true }
+    ];
+    const scanning = stage === 'scan';
+    const shown = scanning ? G.slice(0, Math.min(G.length, st.n || 2)) : G;
+    const rows = shown.map((g, i) => { const on = sel === g.id;
+      return { site: g.site, hosts: g.hosts, tags: g.tags, note: g.note, noteInk: g.noteInk, dot: g.dot, seen: g.seen, sel: on ? 'true' : 'false', off: !!g.off,
+        top: i ? '1px solid #1D2226' : '0', edge: on ? ACC : 'transparent', bg: on ? '#1E1813' : 'transparent', op: g.off ? '0.6' : '1',
+        pick: () => { if (g.off) return; set({ sel: g.id, stage: g.known || trusted[g.id] ? 'found' : 'trust' }); } };
+    });
+    const g = G.find((x) => x.id === sel);
+    const panelOpen = stage !== 'trust' && st.closed !== true;
+    const find = () => { set({ stage: 'scan', n: 1, closed: false, sel: null }); this._t.push(setTimeout(() => this.setState({ n: 3 }), 600)); this._t.push(setTimeout(() => this.setState({ stage: 'found' }), 1300)); };
+    const why = [
+      { t: 'Multicast does not cross this network: guest Wi-Fi, a VPN, or a VLAN without an mDNS reflector.', dot: AMBER, hasBtn: false, btn: '' },
+      { t: 'Studio may not be allowed to see the local network. macOS: System Settings › Privacy & Security › Local Network.', dot: AMBER, hasBtn: true, btn: 'Open settings' },
+      { t: 'The broker may have gateway.announce off (hardened sites), or its gateway listens on loopback only.', dot: GREY, hasBtn: false, btn: '' },
+      { t: 'You can always type the address, or open a link or a code from the broker’s System page.', dot: TEAL, hasBtn: false, btn: '' }
+    ];
+    const fp = ['4F2A', '91C0', 'D7E3', '5B18', 'A0C4', '7E29', '3D6F', 'B812'];
+    const gwUrl = g && g.url ? g.url : (stage === 'none' ? '' : 'https://plant.local:8446');
+    return {
+      stars, nodes, edges, rows, why, fp,
+      panelOpen, scanning, hasRows: stage !== 'none', isNone: stage === 'none', isTrust: stage === 'trust',
+      panelTitle: scanning ? 'Looking on Wi-Fi “Plant-OT” (10.0.7.0/24)…' : (stage === 'none' ? 'Nothing found' : '4 gateways on Wi-Fi “Plant-OT” · announced by DNS-SD'),
+      gwUrl, gwBorder: g && !g.known && !trusted[g.id] ? '#6A5A2A' : '#2F373D',
+      gwDot: stage === 'none' ? GREY : (g && !g.known && !trusted[g.id] ? AMBER : TEAL), gwHalo: stage === 'none' ? 'transparent' : 'rgba(108,196,176,0.15)',
+      gwNote: g ? (g.site + ' · picked from this network' + (g.standby ? ' · standby filled in' : '')) : (stage === 'none' ? 'Type the address, or find one on this network.' : 'plant · answered in 12 ms'), gwNoteInk: '#8E979C',
+      findBorder: panelOpen ? '#5A3E25' : '#2F373D', findBg: panelOpen ? '#1E1813' : 'transparent', findInk: panelOpen ? '#F6C59A' : '#ECE9E1',
+      find, probe: () => set({ stage: 'scan', n: 1 }),
+      trust: () => set({ stage: 'found', trusted: Object.assign({}, trusted, { lab: true }), sel: 'lab' }), cancelTrust: () => set({ stage: 'found', sel: null }),
+      formOp: stage === 'trust' ? '0.4' : '1',
+      tlsInk: g && g.id === 'lab' && !trusted.lab ? AMBER : TEAL,
+      tlsLine: g && g.id === 'lab' ? (trusted.lab ? 'TLS · lab CA, pinned on this computer' : 'TLS · lab CA, not trusted yet') : 'TLS · certificate of the plant CA',
+      standbyLine: g && g.standby ? 'Standby: ' + g.standby : 'Add a standby gateway',
+      submit: (e) => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>
