@@ -207,6 +207,18 @@ impl ApiError {
         )
     }
 
+    /// A valid session that is not a person's own login ([`Principal::is_person`]): no
+    /// WebSocket for it (ADR 0049).
+    pub(crate) fn not_a_person() -> Self {
+        let mut e = Self::new(
+            StatusCode::FORBIDDEN,
+            Status::PermissionDenied,
+            "this session is not a person's login: log in with the password or a device",
+        );
+        e.extra.push(("code", Value::from("person_required")));
+        e
+    }
+
     fn forbidden() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
@@ -484,9 +496,16 @@ async fn login(
 
 async fn ws_ticket(State(st): State<AppState>, headers: HeaderMap) -> ApiResult {
     let session = bearer(&headers).ok_or_else(ApiError::unauthenticated)?;
+    let p = st
+        .gw
+        .authenticate(&session)
+        .ok_or_else(ApiError::unauthenticated)?;
+    if !p.is_person() {
+        return Err(ApiError::not_a_person());
+    }
     let (ticket, exp) = st
         .gw
-        .ws_ticket(&session)
+        .ticket_for(p, &session)
         .ok_or_else(ApiError::unauthenticated)?;
     Ok(cbor(
         StatusCode::OK,

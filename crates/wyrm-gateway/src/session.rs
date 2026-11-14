@@ -51,6 +51,18 @@ pub enum Amr {
 }
 
 impl Amr {
+    /// The person proved who they are for this session (password or device key). Only such
+    /// a session opens a WebSocket, gets an agent's plan approved or passes a step-up
+    /// (ADR 0049): the decision is by how the session was made, not by the transport it
+    /// came over. No wildcard arm: a new method is not a person until it is written here.
+    #[allow(clippy::match_like_matches_macro)] // exhaustive on purpose: no `_` arm
+    pub fn is_person(self) -> bool {
+        match self {
+            Amr::Password | Amr::Device => true,
+            Amr::OAuth => false,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Amr::Password => "pwd",
@@ -251,6 +263,18 @@ mod tests {
             amr: Amr::Device,
             auth_at: 120,
             dev: Some("d1".into()),
+        }
+    }
+
+    /// A person's methods are the password and the device key; an MCP access token is not.
+    #[test]
+    fn only_a_password_or_a_device_is_a_person() {
+        for (amr, person) in [
+            (Amr::Password, true),
+            (Amr::Device, true),
+            (Amr::OAuth, false),
+        ] {
+            assert_eq!(amr.is_person(), person, "{}", amr.name());
         }
     }
 

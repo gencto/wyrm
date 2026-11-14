@@ -94,6 +94,10 @@ pub(crate) async fn upgrade(
     let Some(p) = p else {
         return ApiError::unauthenticated().into_response();
     };
+    // a ticket is made for a person alone; a bearer is checked here (ADR 0049)
+    if !p.is_person() {
+        return ApiError::not_a_person().into_response();
+    }
     let Some(slot) = st.gw.socket_slot(&p.name) else {
         return ApiError::new(
             axum::http::StatusCode::TOO_MANY_REQUESTS,
@@ -166,7 +170,11 @@ impl Conn {
         // A person's own session and a task of an agent link of this site, by the broker's
         // registry: an MCP client approves nothing, and no other link that serves a
         // plan-shaped document gets a token of the user.
-        crate::approve::gate(self.human, self.gw.agent_task(key).is_some()).map_err(refused)?;
+        crate::approve::gate(
+            self.human && p.is_person(),
+            self.gw.agent_task(key).is_some(),
+        )
+        .map_err(refused)?;
         let ask = Ask::parse(args).map_err(refused)?;
         let site = key.split('/').nth(1).unwrap_or_default();
         let doc = c.doc(key, "~state").await?;
@@ -244,7 +252,7 @@ struct Conn {
     out: mpsc::Sender<Out>,
     grants: watch::Sender<Arc<Grants>>,
     inflight: Arc<Semaphore>,
-    /// A person's own login (see [`serve_frames`]).
+    /// A person's own login over a person's transport (see [`serve_frames`]).
     human: bool,
 }
 
@@ -298,12 +306,14 @@ async fn run(st: AppState, p: Principal, socket: WebSocket) {
 /// The protocol over any frame transport: an axum socket, or the in-process
 /// pipe of the MCP endpoint (ADR 0041).
 ///
-/// `human`: the session is a person's own login, not an MCP client's token: only such a
-/// session gets approvals of an agent's plan signed (ADR 0049).
+/// `transport_human`: the transport is one a person uses (`/api/ws`), not the pipe of an
+/// MCP client. The connection counts as a person's only when the principal's own login is
+/// a person's too ([`Principal::is_person`]): only then are approvals of an agent's plan
+/// signed (ADR 0049). Neither alone opens the gate.
 pub(crate) async fn serve_frames<St, Si>(
     st: AppState,
     p: Principal,
-    human: bool,
+    transport_human: bool,
     stream: St,
     sink: Si,
 ) where
@@ -336,7 +346,7 @@ pub(crate) async fn serve_frames<St, Si>(
         out: out_tx.clone(),
         grants: watch::channel(Arc::new(p.grants.clone())).0,
         inflight: Arc::new(Semaphore::new(MAX_INFLIGHT)),
-        human,
+        human: transport_human && p.is_person(),
     });
     let claims = p.claims.clone();
     let left = Duration::from_secs(claims.exp.saturating_sub(crate::session::now_s()));
@@ -1110,5 +1120,115 @@ mod tests {
         let bad = to_vec(&map([("id", Value::UInt(3)), ("op", Value::from("meta"))])).unwrap();
         assert_eq!(parse(&bad).err().unwrap().0, 3);
         assert!(parse(b"\xff").is_err());
+    }
+
+    /// The approve gate is the transport AND the principal's login (ADR 0049): a session
+    /// made by OAuth (an MCP client) that reaches the frames over a person's transport is
+    /// still refused, before anything is read. A password session over the same
+    /// transport passes the gate (and stops later, at the task record nobody serves).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn only_a_persons_login_passes_the_approve_gate() {
+        use crate::session::{self, Amr, SessionClaims};
+        let dir = std::env::temp_dir().join(format!("wyrm-gateway-ws-gate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let site = wyrm_link_sdk::harness::SITE;
+        let cfg = crate::GatewayConfig::new(site, &dir, "127.0.0.1:0".parse().unwrap());
+        let gw = Gateway::open(cfg, b"test state key").unwrap();
+        assert!(gw.ensure_admin("root", "admin password").unwrap());
+        gw.set_agent_links(vec!["agent".into()]);
+        let zs = zenoh::open(wyrm_link_sdk::harness::isolated_config())
+            .await
+            .unwrap();
+        let (_stop_tx, stop) = watch::channel(false);
+        let st = AppState {
+            gw: gw.clone(),
+            session: zs.clone(),
+            stop,
+        };
+        let task = format!("wy/{site}/downstream/agent/tasks/1");
+        let frame = to_vec(&map([
+            ("id", Value::UInt(1)),
+            ("op", Value::from("invoke")),
+            ("key", Value::from(task.as_str())),
+            ("action", Value::from("approve")),
+            (
+                "args",
+                map([
+                    ("steps", Value::Array(vec![Value::UInt(1)])),
+                    ("plan", Value::from("x")),
+                ]),
+            ),
+        ]))
+        .unwrap();
+        let gen = gw.user("root").unwrap().gen;
+        let now = session::now_s();
+        let principal = |amr: Amr| {
+            gw.resolve(SessionClaims {
+                sub: "root".into(),
+                roles: vec!["admin".into()],
+                exp: now + 60,
+                iat: now,
+                jti: session::new_jti(),
+                gen,
+                amr,
+                auth_at: now,
+                dev: None,
+            })
+            .unwrap()
+        };
+        // the reply to the one frame, over a transport that says "a person" (`true`)
+        let reply = |p: Principal| {
+            let (st, frame) = (st.clone(), frame.clone());
+            async move {
+                let (in_tx, in_rx) = mpsc::channel::<WsIn>(4);
+                let (out_tx, mut out_rx) = mpsc::channel::<WsOut>(4);
+                let stream = Box::pin(futures_util::stream::unfold(in_rx, |mut rx| async {
+                    rx.recv().await.map(|m| (m, rx))
+                }));
+                let sink = Box::pin(futures_util::sink::unfold(
+                    out_tx,
+                    |tx, o: WsOut| async move {
+                        let _ = tx.send(o).await;
+                        Ok::<_, std::convert::Infallible>(tx)
+                    },
+                ));
+                let served = tokio::spawn(serve_frames(st, p, true, stream, sink));
+                in_tx.send(WsIn::Binary(frame)).await.unwrap();
+                let got = tokio::time::timeout(Duration::from_secs(10), out_rx.recv())
+                    .await
+                    .expect("a reply")
+                    .expect("an open pipe");
+                drop(in_tx);
+                let _ = served.await;
+                let WsOut::Binary(b) = got else {
+                    panic!("a frame, not a close")
+                };
+                from_slice::<Value>(&b).unwrap()
+            }
+        };
+        let message = |v: &Value| match v {
+            Value::Map(m) => match m.get("error") {
+                Some(Value::Map(e)) => (e.get("status").cloned(), e.get("message").cloned()),
+                _ => panic!("an error frame: {v:?}"),
+            },
+            _ => panic!("a map: {v:?}"),
+        };
+        let (status, text) = message(&reply(principal(Amr::OAuth)).await);
+        assert_eq!(
+            status,
+            Some(Value::UInt(Status::PermissionDenied.code().into()))
+        );
+        assert!(
+            matches!(&text, Some(Value::Str(s)) if s.contains("for a person")),
+            "{text:?}"
+        );
+        // a password session passes the gate: the refusal comes later, from the record
+        let (_, text) = message(&reply(principal(Amr::Password)).await);
+        assert!(
+            !matches!(&text, Some(Value::Str(s)) if s.contains("for a person")),
+            "{text:?}"
+        );
+        zs.close().await.unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -10,7 +10,8 @@
 //! * `POST /api/ws-ticket` (bearer session) → `{ticket, exp}`: single use,
 //!   30 s, so the long-lived session never appears in a URL
 //! * `GET /api/ws?ticket=…` (or `Authorization: Bearer`) — binary CBOR
-//!   frames (64 KiB each), see [`ws`]
+//!   frames (64 KiB each), see [`ws`]; both only for a person's own login
+//!   (password or device, [`Amr::is_person`]), else 403 `person_required`
 //! * `POST /api/invoke?key=…&action=…` (bearer session), body = CBOR `args`
 //!   → `{result}`: one invoke of an action with an `editor: file` parameter
 //!   whose arguments do not fit a frame (64 MiB, ADR 0011); key, grant and
@@ -314,6 +315,13 @@ pub struct Principal {
     pub claims: SessionClaims,
 }
 
+impl Principal {
+    /// The session is a person's own login ([`Amr::is_person`]).
+    pub fn is_person(&self) -> bool {
+        self.claims.amr.is_person()
+    }
+}
+
 pub struct Gateway {
     cfg: GatewayConfig,
     users: Mutex<Store<UserDb>>,
@@ -519,9 +527,18 @@ impl Gateway {
         true
     }
 
-    /// A single-use WebSocket ticket for a valid `session` token.
+    /// A single-use WebSocket ticket for a valid `session` token of a person's own login
+    /// ([`Principal::is_person`]); `None` for any other.
     pub fn ws_ticket(&self, session: &str) -> Option<(String, u64)> {
         let p = self.authenticate(session)?;
+        self.ticket_for(p, session)
+    }
+
+    /// A ticket for `p`, the principal of `session`; `None` unless `p` is a person.
+    pub(crate) fn ticket_for(&self, p: Principal, session: &str) -> Option<(String, u64)> {
+        if !p.is_person() {
+            return None;
+        }
         let now = session::now_s();
         let mut raw = [0u8; 16];
         getrandom::fill(&mut raw).ok()?;
@@ -563,7 +580,7 @@ impl Gateway {
         if session::now_s() >= k.exp {
             return None;
         }
-        self.authenticate(&k.session)
+        self.authenticate(&k.session).filter(Principal::is_person)
     }
 
     pub fn site(&self) -> &str {

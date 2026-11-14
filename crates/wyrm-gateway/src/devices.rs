@@ -654,7 +654,7 @@ impl Gateway {
     /// The session proved who the person is in the last [`FRESH_S`]: its login (password or
     /// device), a step-up, or the password again. An MCP token never has.
     pub(crate) fn confirmed(&self, p: &Principal) -> bool {
-        if p.claims.amr == Amr::OAuth {
+        if !p.claims.amr.is_person() {
             return false;
         }
         let (now, fresh) = (session::now_s(), self.cfg.devices.fresh_s);
@@ -676,7 +676,10 @@ impl Gateway {
             return Ok(());
         }
         let request = self.nonces.request_hash(request);
-        let nonce = (p.claims.amr != Amr::OAuth)
+        let nonce = p
+            .claims
+            .amr
+            .is_person()
             .then(|| {
                 self.nonces.issue(
                     &Purpose::Confirm {
@@ -780,7 +783,7 @@ impl Gateway {
         signature: &[u8],
         ip: IpAddr,
     ) -> Result<String, Refused> {
-        if p.claims.amr == Amr::OAuth {
+        if !p.claims.amr.is_person() {
             return Err(Refused::Code("password_required"));
         }
         if !self.cfg.devices.enabled {
@@ -966,7 +969,7 @@ impl Gateway {
             jti: p.claims.jti,
             request: request32,
         };
-        if p.claims.amr == Amr::OAuth {
+        if !p.claims.amr.is_person() {
             return Err(self.bare(device, Some(&p.name), ip, "bad_nonce"));
         }
         self.spend(nonce, &ours, now, device, Some(&p.name), ip)?;
@@ -1008,7 +1011,7 @@ impl Gateway {
         password: Zeroizing<String>,
         ip: IpAddr,
     ) -> Result<(), Refused> {
-        if p.claims.amr == Amr::OAuth {
+        if !p.claims.amr.is_person() {
             return Err(Refused::Code("password_required"));
         }
         self.check_limit(&p.name, ip)
