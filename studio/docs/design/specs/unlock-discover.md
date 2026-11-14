@@ -77,7 +77,7 @@ The system prompt opens on the button, on Enter, and on its own once when the wi
   - `plain http` (coral, row disabled) and versions below `min_studio` (disabled, with the reason).
 
   Picking a row fills the gateway field and the standby, and the status line says `<site> · picked from this network · standby filled in`.
-- **Trust (`DiscoverTrust`).** For a row tagged `new`, an amber card replaces the panel: `First time on <site> · check its certificate`, one line on why, the code in a 4 × 2 grid of mono groups, and where to find it on the broker. `It matches · trust <site>` pins that CA for that origin in `storage`; `Cancel` goes back to the list. Until then the form below is dimmed (40 %) and the footer reads `TLS · <site> CA, not trusted yet`.
+- **Trust (`DiscoverTrust`).** For a row tagged `new`, an amber card replaces the panel: `First time on <site> · check its certificate`, one line on why, the code in a 4 × 2 grid of mono groups, and where to find it on the broker. `It matches · trust <site>` pins that CA for that origin in `storage`; `Cancel` goes back to the list. Until then the form below is dimmed (40 %) and the footer reads `TLS · <site> CA, not trusted yet`. The code shown is SHA-256 of the received `ca` DER (first 16 bytes), computed by Studio. `ca_fp` and the TXT `fp` come from a server not yet trusted, so they never decide trust: a row whose `ca_fp` or `fp` differs is refused. The pin is stored only after a second read under that CA alone (§7 items 2–3; security review of PR 86, M2).
 - **Nothing (`DiscoverNone`).** `No gateway answered on Wi-Fi "<ssid>" in 8 s`, with four reasons:
   - multicast blocked;
   - no local-network permission, with `Open settings` (macOS, iOS);
