@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/plan_step.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -16,10 +17,19 @@ import 'add_tasks_action.dart';
 /// remembers that documents are not readable (`assistant.docs`) and shows
 /// its note instead of the plan. A record the user may not read (somebody
 /// else's task) leaves the task as it is.
-class RetrieveTaskRecordAction extends Action with WaitingAction {
+///
+/// The reads of one task run one after the other, in the order they were
+/// dispatched (`Sequential`, a queue per task). Every move of the task
+/// starts a read, the gateway answers each in a task of its own, and the
+/// record replaces the task whole: a read sent before `done` that answered
+/// after the one sent after it would leave the task `running` for good.
+class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
   RetrieveTaskRecordAction(this.id) : super(quiet: true);
 
   final String id;
+
+  @override
+  Object? sequentialKeyParams() => (RetrieveTaskRecordAction, id);
 
   @override
   Future<AppState?> reduce() async {

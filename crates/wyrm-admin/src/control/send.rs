@@ -312,7 +312,7 @@ impl Sending {
             let _ = self.call("upload_abort", abort).await;
         }
         let ctl = &self.ctl;
-        ctl.backups().update(&self.id, |j| match &r {
+        ctl.backups().sent(&self.id, |j| match &r {
             Ok(()) => {
                 j.send_status = "done".into();
                 j.send_progress = 100;
@@ -326,7 +326,6 @@ impl Sending {
         if let Some(j) = ctl.backups().get(&self.id) {
             ctl.save_job(&j);
         }
-        ctl.backups().sending(false);
         match &r {
             Ok(()) => {
                 info!(backup = %self.id, to = %self.to.shown(), "backup sent");

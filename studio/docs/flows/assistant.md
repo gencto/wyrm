@@ -53,7 +53,7 @@ sequenceDiagram
     A3-->>-VM: ActionStatus
     alt tasks.selectedTask
         VM->>+A4: dispatchAndWait
-        Note over A4: WaitingAction · async
+        Note over A4: WaitingAction · Sequential · async
         A4->>ST: copyWith(assistant.docs)
         A4->>ST: dispatchSync(AddTasksAction)
         A4-->>-VM: ActionStatus
@@ -97,7 +97,7 @@ sequenceDiagram
     VM->>A1: dispatchSync
     A1->>ST: copyWith(tasks.selectedTask)
     VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
+    Note over A2: WaitingAction · Sequential · async
     A2->>ST: copyWith(assistant.docs)
     A2->>ST: dispatchSync(AddTasksAction)
     A2-->>-VM: ActionStatus

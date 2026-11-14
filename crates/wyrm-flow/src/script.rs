@@ -1,6 +1,10 @@
 //! rhai sandbox (wiki "Скриптинг rhai"): no I/O, no `eval`/`import`, strict
 //! variables (only declared inputs and `state`), 10 000 operations, 8 call
 //! levels, 4 KiB strings, 1024-item arrays, 10 ms per call.
+//!
+//! The 10 ms are time the script itself takes: CPU time of the thread that runs it. Time
+//! the host kept that thread off a core is not the script's, and a sample is never dropped
+//! for it.
 
 use rhai::{Dynamic, Engine, Scope, AST};
 use std::cell::Cell;
@@ -11,7 +15,67 @@ use wyrm_core::Value;
 const TIMEOUT: Duration = Duration::from_millis(10);
 
 thread_local! {
-    static STARTED: Cell<Option<Instant>> = const { Cell::new(None) };
+    static STARTED: Cell<Option<Started>> = const { Cell::new(None) };
+}
+
+/// The start of one call: the wall clock is the cheap check, the thread's CPU time decides.
+#[derive(Clone, Copy)]
+struct Started {
+    wall: Instant,
+    cpu: Option<Duration>,
+}
+
+impl Started {
+    fn now() -> Self {
+        Self {
+            wall: Instant::now(),
+            cpu: thread_cpu(),
+        }
+    }
+
+    /// True once the call used more than [`TIMEOUT`]. A call cannot use more CPU time than
+    /// went by, so the CPU clock (a system call) is read only after the wall clock is past
+    /// the limit.
+    fn late(&self) -> bool {
+        if self.wall.elapsed() <= TIMEOUT {
+            return false;
+        }
+        match (self.cpu, thread_cpu()) {
+            (Some(from), Some(now)) => now.saturating_sub(from) > TIMEOUT,
+            // no thread CPU clock on this platform (wasm32, NetBSD, illumos, Windows):
+            // the wall clock is all there is
+            _ => true,
+        }
+    }
+}
+
+/// CPU time this thread has used so far.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "dragonfly"
+))]
+fn thread_cpu() -> Option<Duration> {
+    let t = rustix::time::clock_gettime(rustix::time::ClockId::ThreadCPUTime);
+    Some(Duration::new(
+        u64::try_from(t.tv_sec).ok()?,
+        u32::try_from(t.tv_nsec).ok()?,
+    ))
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "dragonfly"
+)))]
+fn thread_cpu() -> Option<Duration> {
+    None
 }
 
 fn now_ms() -> i64 {
@@ -35,7 +99,7 @@ pub fn engine() -> Engine {
     e.disable_symbol("eval");
     e.disable_symbol("import");
     e.on_progress(|_ops| {
-        let late = STARTED.with(|s| s.get().is_some_and(|t| t.elapsed() > TIMEOUT));
+        let late = STARTED.with(|s| s.get().is_some_and(|t| t.late()));
         late.then(|| Dynamic::from("timeout"))
     });
     e.on_print(|_| {});
@@ -64,7 +128,7 @@ pub fn compile(engine: &Engine, expr: &str, names: &[&str]) -> Result<AST, Strin
         .map_err(|e| e.to_string())
 }
 
-/// Evaluate with a wall-clock limit. `vars` become variables; `state` is
+/// Evaluate within [`TIMEOUT`] of the thread's CPU time. `vars` become variables; `state` is
 /// read and written back.
 pub fn eval(
     engine: &Engine,
@@ -77,7 +141,7 @@ pub fn eval(
         scope.push_dynamic(k, v);
     }
     scope.push_dynamic("state", Dynamic::from_map(std::mem::take(state)));
-    STARTED.with(|s| s.set(Some(Instant::now())));
+    STARTED.with(|s| s.set(Some(Started::now())));
     let r = engine.eval_ast_with_scope::<Dynamic>(&mut scope, ast);
     STARTED.with(|s| s.set(None));
     if let Some(m) = scope.get_value::<rhai::Map>("state") {
@@ -165,5 +229,34 @@ mod tests {
             from_dynamic(&to_dynamic(&Value::Float(2.5))),
             Value::Float(2.5)
         );
+    }
+
+    /// A thread that the host keeps off its core is not a slow script: the limit counts
+    /// the thread's CPU time. (On a loaded CI runner the wall clock ended a three-operation
+    /// expression and its sample was dropped.)
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "dragonfly"
+    ))]
+    #[test]
+    fn time_off_the_core_is_not_the_scripts() {
+        let mut e = engine();
+        // stands for a preemption: wall time goes by, the thread uses no CPU
+        e.register_fn("off_core", || std::thread::sleep(TIMEOUT * 3));
+        let ast = compile(&e, "off_core(); 1 + 2", &[]).unwrap();
+        let mut st = rhai::Map::new();
+        let r = eval(&e, &ast, vec![], &mut st).expect("not a timeout");
+        assert_eq!(r.as_int().unwrap(), 3);
+        // a script that does use its 10 ms still ends
+        let ast = compile(&e, "off_core(); loop { }", &[]).unwrap();
+        e.set_max_operations(0);
+        let from = Instant::now();
+        let err = eval(&e, &ast, vec![], &mut st).unwrap_err();
+        assert!(err.contains("terminated"), "{err}");
+        assert!(from.elapsed() < Duration::from_secs(5));
     }
 }

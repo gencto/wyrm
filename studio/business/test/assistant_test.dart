@@ -296,6 +296,22 @@ void main() {
     expect(s.state.tasks.table['t-1']!.state, TaskState.running);
   });
 
+  test('reads of one record answer in the order they were sent', () async {
+    await withAgent();
+    // the read sent while the task ran answers after the one sent once it
+    // was done (the gateway serves each read in a task of its own)
+    api.docsInTurn['$agent/tasks/t-1 ~state'] = [
+      (const Duration(milliseconds: 60), record('running')),
+      (Duration.zero, record('done')),
+    ];
+
+    final first = s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    final second = s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    await Future.wait([first, second]);
+
+    expect(s.state.tasks.table['t-1']!.state, TaskState.done);
+  });
+
   test('a secret argument of a step is named from the action meta', () async {
     await withAgent();
     api
