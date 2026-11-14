@@ -49,7 +49,8 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
     try {
       await for (final r in deps.wyrm.askAgent(agent, ask, parent: parent)) {
         final task = str(r['task']);
-        if (task == null) {
+        // another site was viewed meanwhile: its table is not this agent's
+        if (task == null || assistant.agent != agent) {
           continue;
         }
         if (id == null) {
@@ -128,11 +129,11 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
         write: true,
       );
     }
-    if (id != null) {
+    if (id != null && assistant.agent == agent) {
       // where the task stands now that its stream is over
       await dispatchAndWait(RetrieveTaskRecordAction(id));
     }
-    if (id == null) {
+    if (id == null && assistant.agent == agent) {
       // The stream ended without naming a task: nothing was started, and
       // the ask stays in the box (an agent without its API key does this).
       throw StudioException.said(

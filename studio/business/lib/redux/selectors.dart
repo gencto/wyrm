@@ -135,10 +135,16 @@ mixin Selectors {
 
 /// The approval of a task as the logged-in user may give it.
 extension TaskApproval on Selectors {
-  /// The user decides for [t]: its asker, or `config` on the agent link.
+  /// The user decides for [t]: its asker, or `config` on its `approve`.
+  /// The link takes the level of the token on
+  /// `<agent>/tasks/<id>/~act/approve` (first match, [SelectSite.levelSigned]),
+  /// not the highest grant on the link.
   bool decidesFor(AgentTask t) {
     final agent = assistant.agent;
-    return askedByUser(t) || (agent != null && site.can('config', agent));
+    return askedByUser(t) ||
+        (agent != null &&
+            levelRank(site.levelSigned('$agent/tasks/${t.id}/~act/approve')) >=
+                levelRank('config'));
   }
 
   /// The logged-in user asked [t] (the record's owner is `user:<name>`).
@@ -470,6 +476,20 @@ extension type SelectSite(AppState _state) {
       }
     }
     return levels[best];
+  }
+
+  /// The level a token the gateway mints for [key] carries: the first
+  /// grant whose pattern matches it decides, as at the gateway and at the
+  /// link (spec 04, `wyrm_core::ptok::level_on`), so a `none` before a
+  /// wider grant denies. Use it where a link acts on the token's level
+  /// (the agent's `approve`); [levelOn] is the highest matching grant.
+  String levelSigned(String key) {
+    for (final g in _state.site.grants) {
+      if (keyMatches(g.key, key)) {
+        return levels[levelRank(g.level).clamp(0, levels.length - 1)];
+      }
+    }
+    return levels.first;
   }
 
   /// The user has at least [level] on [key].
@@ -944,6 +964,9 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns isApproving
   bool get isApproving => _state.wait.isWaitingForType<ApproveTaskAction>();
+
+  /// Returns shown
+  bool get shown => _state.assistant.shown;
 }
 
 extension type SelectChanges(AppState _state) {

@@ -29,35 +29,38 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as RetrieveLinksAction
-    participant A2 as RetrieveAgentAction
-    participant A3 as RetrieveTasksAction
-    participant A4 as RetrieveTaskRecordAction
+    participant A1 as SetShownAction
+    participant A2 as LoadAssistantAction
     participant ST as AppState
 
     User->>UI: onShow
     UI->>VM: onShow()
-    alt links.table.isEmpty
-        VM->>+A1: dispatchAndWait
-        Note over A1: WaitingAction · async
-        A1->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
-        A1-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.shown)
     VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(assistant.agent, assistant.cfg)
+    Note over A2: async
+    A2->>ST: dispatchAndWait(RetrieveLinksAction)
+    A2->>ST: dispatchAndWait(RetrieveAgentAction)
+    A2->>ST: dispatchAndWait(RetrieveTasksAction)
+    A2->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A2-->>-VM: ActionStatus
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: copyWith(tasks.table, tasks.view)
-    A3-->>-VM: ActionStatus
-    alt tasks.selectedTask
-        VM->>+A4: dispatchAndWait
-        Note over A4: WaitingAction · Sequential · async
-        A4->>ST: copyWith(assistant.docs)
-        A4->>ST: dispatchSync(AddTasksAction)
-        A4-->>-VM: ActionStatus
-    end
+```
+
+## onHide
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetShownAction
+    participant ST as AppState
+
+    User->>UI: onHide
+    UI->>VM: onHide()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.shown)
 ```
 
 ## onNew
@@ -232,7 +235,8 @@ sequenceDiagram
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onTick` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
-| `onShow` | `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction`, `RetrieveTaskRecordAction` ? | `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view`, `assistant.docs` |
+| `onShow` | `SetShownAction`, `LoadAssistantAction` | `assistant.shown` |
+| `onHide` | `SetShownAction` | `assistant.shown` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |

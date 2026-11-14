@@ -1784,5 +1784,7 @@
     "followUpAsk": "Do the steps that were left out of the plan of task {task}: {steps}.",
     "doneLeftOutNote": "The task is done. Steps left out: {steps}. Ask for them as a follow-up; its plan is approved on its own.",
     "planCheckedPartly": "awaiting approval · {now} checked now, {atRun} when it runs",
-    "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds."
+    "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds.",
+    "stepByAgent": "runs with the agent's key: this mode needs no person for it, and it cannot be left out",
+    "approveByAgent": "{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}"
 }

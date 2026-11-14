@@ -20,6 +20,10 @@ class RetrieveTasksAction extends Action with WaitingAction {
     } on WyrmException {
       ids = const [];
     }
+    // another site was viewed meanwhile: these are its agent's tasks
+    if (assistant.agent != agent) {
+      return null;
+    }
     final table = state.tasks.table;
     final tasks = [
       for (final c in ids) table[c.name] ?? AgentTask(id: c.name),

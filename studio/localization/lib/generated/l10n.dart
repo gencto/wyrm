@@ -14247,6 +14247,29 @@ class S {
       args: [],
     );
   }
+
+  /// `runs with the agent's key: this mode needs no person for it, and it cannot be left out`
+  String get stepByAgent {
+    return Intl.message(
+      'runs with the agent\'s key: this mode needs no person for it, and it cannot be left out',
+      name: 'stepByAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}`
+  String approveByAgent(num n) {
+    return Intl.plural(
+      n,
+      one: '1 step without a tick changes something and runs with the agent\'s own key; it cannot be left out. Reject the plan to stop it.',
+      other:
+          '$n steps without a tick change something and run with the agent\'s own key; they cannot be left out. Reject the plan to stop them.',
+      name: 'approveByAgent',
+      desc: '',
+      args: [n],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {
