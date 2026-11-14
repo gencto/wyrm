@@ -51,6 +51,16 @@ impl Env {
             "flows_only",
             vec![("wy/{site}/dataflows/**".into(), Perm::Config)],
         );
+        // writes on the agent (asks, approves), on one branch of the devices and on flows
+        roles.insert(
+            "approver",
+            vec![
+                ("wy/{site}/downstream/agent/**".into(), Perm::Write),
+                ("wy/{site}/downstream/mock/g1/**".into(), Perm::Read),
+                ("wy/{site}/downstream/mock/**".into(), Perm::Write),
+                ("wy/{site}/dataflows/**".into(), Perm::Write),
+            ],
+        );
         let mut cfg = GatewayConfig::new(SITE, temp_dir(name), "127.0.0.1:0".parse().unwrap());
         cfg.session_ttl = ttl;
         cfg.roles = roles;
@@ -1376,4 +1386,368 @@ async fn sockets_per_user_are_bounded() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(again.is_some(), "a closed socket frees its place");
+}
+
+/// A model that answers from a script (no network).
+struct ScriptedLlm(Mutex<std::collections::VecDeque<serde_json::Value>>);
+
+impl wyrm_link_agent::llm::LlmClient for ScriptedLlm {
+    fn messages(&self, _body: serde_json::Value) -> wyrm_link_agent::llm::LlmFuture<'_> {
+        let r = self
+            .0
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| "script exhausted".to_owned());
+        Box::pin(async move { r })
+    }
+}
+
+const AGENT: &str = "wy/test/downstream/agent";
+
+/// An agent link whose model proposes: `g0/p0 := 42` (write), `g1/p1 := 7` (write) and a
+/// flow deploy (config), then a proof of each point.
+async fn spawn_agent(env: &Env) -> LinkHandle<wyrm_link_agent::Agent> {
+    use serde_json::json;
+    let propose = |id: &str, input: serde_json::Value| json!({"type": "tool_use", "id": id, "name": "propose", "input": input});
+    let def = json!({"id": "shed", "nodes": {"a": {"type": "subscribe", "key": "downstream/mock/g0/p0"}}, "edges": []});
+    let script = vec![
+        json!({"content": [
+            propose("t1", json!({"op": "set", "path": "downstream/mock/g0/p0", "value": 42.5, "reason": "asked"})),
+            propose("t2", json!({"op": "set", "path": "downstream/mock/g1/p1", "value": 7, "reason": "asked"})),
+            propose("t3", json!({"op": "invoke", "path": "dataflows", "action": "deploy", "args": {"def": def}, "reason": "asked"})),
+            propose("t4", json!({"op": "expect", "path": "downstream/mock/g0/p0", "equals": 42.5, "timeout_s": 5})),
+            propose("t5", json!({"op": "expect", "path": "downstream/mock/g1/p1", "equals": 7, "timeout_s": 5})),
+        ], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 10}}),
+        json!({"content": [{"type": "text", "text": "Plan: three steps."}], "stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 10}}),
+    ];
+    env.gw.set_agent_links(vec!["agent".into()]);
+    let mut lc = LinkConfig::new(SITE, "agent");
+    lc.admin_keys = vec![env.gw.verifying_key()];
+    lc.answer_val = true;
+    let params = wyrm_link_agent::AgentParams {
+        allowed_prefixes: vec!["downstream/mock".into(), "dataflows".into()],
+        ..Default::default()
+    };
+    wyrm_link_sdk::spawn::<wyrm_link_agent::Agent>(
+        env.session.clone(),
+        lc,
+        wyrm_link_agent::AgentConfig {
+            params,
+            llm: Some(Arc::new(ScriptedLlm(Mutex::new(script.into())))),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+fn text(v: &Value, k: &str) -> String {
+    match get(v, k) {
+        Value::Str(s) => s.clone(),
+        other => panic!("{k}: {other:?} in {v:?}"),
+    }
+}
+
+fn err_message(reply: &Value) -> String {
+    text(get(reply, "error"), "message")
+}
+
+fn approve_args(steps: &[u64], plan: &str) -> Vec<(&'static str, Value)> {
+    vec![
+        ("action", Value::from("approve")),
+        (
+            "args",
+            map([
+                (
+                    "steps",
+                    Value::Array(steps.iter().map(|s| Value::UInt(*s)).collect()),
+                ),
+                ("plan", Value::from(plan)),
+            ]),
+        ),
+    ]
+}
+
+/// ADR 0049 §1–4 (docs/studio.md §10 items 1, 6 and 11): a user reads a task's record with
+/// `doc` and approves the steps they tick; the gateway signs those steps only, within the
+/// user's grants, for the plan the link stores; `write` on the task is enough to approve.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
+    let env = Env::start("approve", wyrm_gateway::SESSION_TTL).await;
+    let dir = temp_dir("approve-flows");
+    let host = wyrm_flow::FlowHost::open(&dir, b"flow-test-hmac-key", SITE).unwrap();
+    let mut lc = LinkConfig::new(SITE, "dataflows");
+    lc.root = Some(format!("wy/{SITE}/dataflows"));
+    lc.admin_keys = vec![env.gw.verifying_key()];
+    let engine = wyrm_link_sdk::spawn::<wyrm_flow::Engine>(
+        env.session.clone(),
+        lc,
+        wyrm_flow::EngineStart {
+            host,
+            admin_keys: vec![env.gw.verifying_key()],
+            proof_keys: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let agent = spawn_agent(&env).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    let mut root = env.ws(&admin).await;
+
+    // Ask: the stream ends with the task and its state
+    let r = root
+        .call(
+            "invoke",
+            AGENT,
+            vec![
+                ("action", Value::from("ask")),
+                ("args", map([("task", Value::from("set two points"))])),
+            ],
+        )
+        .await;
+    assert!(is_ok(&r), "{r:?}");
+    let id = text(get(&r, "result"), "task");
+    assert_eq!(text(get(&r, "result"), "state"), "awaiting_approval");
+    let task = format!("{AGENT}/tasks/{id}");
+
+    // §1: the record through `doc`
+    let state = vec![("suffix", Value::from("~state"))];
+    let r = root.call("doc", &task, state.clone()).await;
+    assert!(is_ok(&r), "{r:?}");
+    let rec = get(&r, "result").clone();
+    assert_eq!(text(&rec, "state"), "awaiting_approval");
+    assert_eq!(text(&rec, "ask"), "set two points");
+    let Value::Array(plan) = get(&rec, "plan") else {
+        panic!("plan: {rec:?}")
+    };
+    assert_eq!(plan.len(), 5, "{plan:?}");
+    // the hash a client makes from the plan it shows is the link's
+    let hash = wyrm_gateway::approve::plan_hash(plan).unwrap();
+    assert_eq!(text(&rec, "plan_hash"), hash);
+    let (k0, k1) = (format!("{ROOT}/g0/p0/~set"), format!("{ROOT}/g1/p1/~set"));
+    let k2 = format!("wy/{SITE}/dataflows/~act/deploy");
+    assert_eq!(text(&plan[0], "set"), format!("{ROOT}/g0/p0"));
+    assert_eq!(get(&plan[0], "value"), &Value::Float(42.5));
+    assert_eq!(text(&plan[0], "level"), "write");
+    assert_eq!(get(&plan[0], "approval"), &Value::Bool(true));
+    assert_eq!(text(&plan[2], "invoke"), format!("wy/{SITE}/dataflows"));
+    assert_eq!(text(&plan[2], "action"), "deploy");
+    assert_eq!(text(&plan[2], "level"), "config");
+    assert_eq!(text(&plan[3], "expect"), format!("{ROOT}/g0/p0"));
+
+    // a closed set of documents; a node without one; a user without `list` on the node
+    for bad in [None, Some("~meta"), Some("~val"), Some("state")] {
+        let extra = bad.map(|s| vec![("suffix", Value::from(s))]);
+        let r = root.call("doc", &task, extra.unwrap_or_default()).await;
+        assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{bad:?}");
+    }
+    let r = root
+        .call("doc", &format!("{ROOT}/g0/p0"), state.clone())
+        .await;
+    assert_eq!(err_status(&r), Some(Status::NotSupported), "{r:?}");
+    let fo = env.add_user(&admin, "fo", &["flows_only"]).await;
+    let mut fo = env.ws(&fo).await;
+    let r = fo.call("doc", &task, state.clone()).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    let r = fo.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+
+    // only a task of a link the broker calls an agent: while the gateway does not know
+    // this link as one, whatever it serves gets no token of the user
+    env.gw.set_agent_links(Vec::new());
+    let r = root.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    assert!(err_message(&r).contains("agent link"), "{r:?}");
+    env.gw.set_agent_links(vec!["mock".into()]);
+    let r = root.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    env.gw.set_agent_links(vec!["agent".into()]);
+    // a key that is not a task node of it
+    for key in [
+        AGENT.to_owned(),
+        format!("{task}/x"),
+        format!("{ROOT}/tasks/{id}"),
+    ] {
+        let r = root.call("invoke", &key, approve_args(&[1], &hash)).await;
+        assert_eq!(
+            err_status(&r),
+            Some(Status::PermissionDenied),
+            "{key}: {r:?}"
+        );
+    }
+
+    // the client names steps of the stored plan and nothing else
+    for (steps, plan_hash, want) in [
+        (vec![9], hash.as_str(), "no step 9"),
+        (vec![4], hash.as_str(), "sends nothing"),
+        (vec![1], "0000", "read it again"),
+        (vec![], hash.as_str(), "no step"),
+    ] {
+        let r = root
+            .call("invoke", &task, approve_args(&steps, plan_hash))
+            .await;
+        assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
+        assert!(err_message(&r).contains(want), "{r:?}");
+    }
+    // a token of the client's own making goes to the link as it is, and the link refuses it
+    let forged = vec![
+        ("action", Value::from("approve")),
+        (
+            "args",
+            map([
+                ("steps", Value::Array(vec![Value::UInt(1)])),
+                ("plan", Value::from(hash.as_str())),
+                ("approvals", map([("1", Value::Bytes(vec![1; 80]))])),
+            ]),
+        ),
+    ];
+    let r = root.call("invoke", &task, forged).await;
+    assert!(!is_ok(&r), "{r:?}");
+
+    // §2: a step outside the user's grants, and a config step for a user with write:
+    // refused whole before anything is sent, the step and the missing right named
+    let ap = env.add_user(&admin, "ap", &["approver"]).await;
+    let mut ap = env.ws(&ap).await;
+    let r = ap.call("invoke", &task, approve_args(&[1, 2], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    assert_eq!(
+        err_message(&r),
+        format!("step 2 needs write on {k1}; you have read")
+    );
+    let r = ap.call("invoke", &task, approve_args(&[1, 3], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    assert_eq!(
+        err_message(&r),
+        format!("step 3 needs config on {k2}; you have write")
+    );
+    assert!(env.audit.lock().unwrap().iter().any(
+        |e| matches!(e, AuditEvent::Denied { op, user, .. } if op == "approve" && user == "ap")
+    ));
+    let r = ap.call("doc", &task, state.clone()).await;
+    assert_eq!(text(get(&r, "result"), "state"), "awaiting_approval");
+    let p0 = || {
+        let v = env.link.as_ref().unwrap().ctx().last("g0/p0").unwrap().v;
+        v.as_f64().unwrap()
+    };
+    assert_ne!(p0(), 42.5);
+
+    // §3 and §4: `write` on the task is enough; the one ticked step runs with the user's
+    // rights, the others are skipped, and so is the proof that needs one of them
+    let r = ap.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert!(is_ok(&r), "{r:?}");
+    assert_eq!(text(get(&r, "result"), "state"), "running");
+    let mut rec = Value::Null;
+    for _ in 0..400 {
+        let r = ap.call("doc", &task, state.clone()).await;
+        rec = get(&r, "result").clone();
+        if text(&rec, "state") != "running" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(text(&rec, "state"), "done", "{rec:?}");
+    assert_eq!(p0(), 42.5);
+    let Value::Array(plan) = get(&rec, "plan") else {
+        panic!("plan: {rec:?}")
+    };
+    let result = |i: usize| {
+        let r = get(&plan[i], "result");
+        (text(r, "status"), text(r, "message"))
+    };
+    assert_eq!(result(0).0, "ok");
+    assert_eq!(result(1), ("skipped".into(), "skipped by user:ap".into()));
+    assert_eq!(result(2), ("skipped".into(), "skipped by user:ap".into()));
+    assert_eq!(result(3).0, "ok", "the proof of step 1: {:?}", result(3));
+    assert_eq!(
+        result(4),
+        ("skipped".into(), "skipped: needs step 2".into())
+    );
+    let Value::Array(log) = get(&rec, "log") else {
+        panic!("log: {rec:?}")
+    };
+    assert!(
+        log.iter()
+            .any(|l| matches!(l, Value::Str(s) if s.contains("approved by user:ap"))),
+        "{log:?}"
+    );
+    assert!(env.audit.lock().unwrap().iter().any(|e| matches!(
+        e,
+        AuditEvent::Approved { user, steps, skipped, .. }
+            if user == "ap" && steps == std::slice::from_ref(&k0) && *skipped == 2
+    )));
+    // a second approve finds a task that no longer waits
+    let r = ap.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
+
+    agent.stop().await;
+    engine.stop().await;
+    env.stop().await;
+}
+
+/// ADR 0049 rule 5: an approval is a token for exactly one request key, capped at the level
+/// the step needs, bound to its request body, short-lived, the user as its subject.
+#[test]
+fn an_approval_token_is_for_one_step_and_one_body() {
+    let mut cfg = GatewayConfig::new(
+        SITE,
+        temp_dir("approval-token"),
+        "127.0.0.1:0".parse().unwrap(),
+    );
+    cfg.downstream_sites = vec!["edge".into()];
+    let gw = Gateway::open(cfg, b"k").unwrap();
+    let p = wyrm_gateway::Principal {
+        name: "eng".into(),
+        roles: vec!["engineer".into()],
+        grants: RoleTable::default().grants(SITE, &["engineer".into()]),
+        claims: wyrm_gateway::SessionClaims {
+            sub: "eng".into(),
+            roles: vec!["engineer".into()],
+            exp: u64::MAX,
+            iat: 0,
+            jti: [0; 16],
+            gen: 0,
+        },
+    };
+    let claims = |tok: Vec<u8>| -> wyrm_core::PtokClaims {
+        let parts = wyrm_core::ptok::split(&tok).unwrap();
+        from_slice(parts.claims).unwrap()
+    };
+    let t = gw.tokens_for(&p);
+    let key = format!("wy/{SITE}/downstream/m/p/~set");
+    let a = claims(t.approval(&key, Perm::Write, [7; 32]).unwrap());
+    assert_eq!(a.sub, "user:eng");
+    assert_eq!(a.site, SITE);
+    assert_eq!(a.grants.len(), 1);
+    assert_eq!(a.grants[0].k, key);
+    // an engineer has config there; the approval carries the step's level and no more
+    assert_eq!(a.max, Perm::Write);
+    assert_eq!(a.args, Some([7; 32]));
+    assert_eq!(a.auth, None, "a `~set` token names no further rights");
+    assert_eq!(a.exp - a.iat, wyrm_gateway::approve::APPROVAL_TTL.as_secs());
+    let b = claims(t.approval(&key, Perm::Write, [7; 32]).unwrap());
+    assert_ne!(a.jti, b.jti, "single use: a new jti each");
+    // a site below: its own name, the user with ours
+    let d = claims(
+        t.approval("wy/edge/downstream/m/p/~act/go", Perm::Config, [1; 32])
+            .unwrap(),
+    );
+    assert_eq!((d.site.as_str(), d.max), ("edge", Perm::Config));
+    assert_eq!(d.sub, format!("user:eng@{SITE}"));
+    assert_eq!(d.grants[0].k, "wy/edge/downstream/m/p/~act/go");
+    // out of the user's grants or out of reach: no token at all
+    assert!(t
+        .approval(&format!("wy/{SITE}/sys/~act/x"), Perm::Config, [0; 32])
+        .is_none());
+    assert!(t
+        .approval("wy/other/downstream/m/p/~set", Perm::Write, [0; 32])
+        .is_none());
+    // a viewer: the token cannot give more than the user's own level
+    let mut v = p.clone();
+    v.grants = RoleTable::default().grants(SITE, &["viewer".into()]);
+    let c = claims(
+        gw.tokens_for(&v)
+            .approval(&key, Perm::Config, [0; 32])
+            .unwrap(),
+    );
+    assert_eq!(c.grants[0].p.min(c.max), Perm::Read);
 }

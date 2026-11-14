@@ -5,12 +5,15 @@
 //! | key | what |
 //! |---|---|
 //! | `~meta.cfg` | `model`, `budget_tokens_day`, `allowed_prefixes`, `require_approval`, … |
-//! | `~act/ask {task}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}` |
-//! | `tasks/<id>/~val` | `{state, ask, plan, log, error?, tokens}` |
-//! | `tasks/<id>/~act/approve {approvals}` | level `config`: `{<request key>: <base64 ptok>}` |
+//! | `budget_used_today` | LLM tokens used this UTC day |
+//! | `~act/ask {task, parent?, context?}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}`; `parent` = a task this one follows, `context` = keys the asker attached |
+//! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, text}}` (public) |
+//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, parent?, context[]?, step, log[], error?, tokens}` (restricted: `list`); a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn?, reason?, result?: {status: ok \| failed \| skipped, message, time}` |
+//! | `tasks/<id>/~act/approve {approvals, plan?}` | level `write`: `approvals` = `{<step number> \| <request key>: <ptok, bytes or base64>}`, one human token per step at the step's level; a step that needs one and gets none is skipped, with the steps that need it; `plan` = the `plan_hash` the approver read |
+//! | `tasks/<id>/~act/answer {answers?, text?}` | level `write`, stream like `ask`: `answers` = `{<question id>: [<option id>] \| text}` |
 //! | `tasks/<id>/~act/reject`, `cancel` | level `write` |
 //!
-//! States: `planning → awaiting_approval → running → done | failed`
+//! States: `planning (⇄ awaiting_answer) → awaiting_approval → running → done | failed`
 //! (`reject` and `cancel` end in `failed` with `error`).
 //!
 //! Safety does not rest on the model. The model only reads (read-only tools)
@@ -37,7 +40,7 @@ pub mod tools;
 
 use crate::llm::{usage_tokens, AnthropicClient, LlmClient};
 use crate::store::{AgentStore, TaskRec};
-use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader};
+use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader, StepResult, StepStatus};
 use ed25519_dalek::SigningKey;
 use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, VecDeque};
@@ -52,6 +55,7 @@ use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_link_sdk::{
     now_us, Caller, Fields, FromParams, Link, LinkCtx, LinkError, ReplySink, Result,
 };
+use wyrm_mcp::json::{meta_to_json, sample_to_json};
 use zeroize::Zeroizing;
 
 /// Kept tasks; the oldest finished ones are removed beyond this.
@@ -61,8 +65,18 @@ const MAX_TASK_AGE_S: u64 = 30 * 86_400;
 /// Error of a task that was planning or running when the link stopped.
 pub const INTERRUPTED: &str = "interrupted by restart";
 const MAX_LOG: usize = 200;
+/// The value under the link's root with the LLM tokens used this UTC day.
+const BUDGET_NODE: &str = "budget_used_today";
 const MAX_PLAN: usize = 50;
 const MAX_ASK_CHARS: usize = 8000;
+/// Keys one `ask` may attach (`context`).
+const MAX_CONTEXT: usize = 16;
+/// Questions the model may ask in one turn, options of one question, questions of a task.
+const MAX_QUESTIONS_TURN: usize = 3;
+const MAX_OPTIONS: usize = 6;
+const MAX_QUESTIONS: usize = 30;
+/// Bytes of an answer in the person's own words.
+const MAX_ANSWER: usize = 2000;
 /// Tool result text sent back to the model.
 const MAX_TOOL_RESULT: usize = 16_000;
 /// Most results kept from a streaming action during execution.
@@ -76,11 +90,14 @@ const SYSTEM: &str = "You are the WYRM agent: an operator assistant for an IoT b
 IOT-DSA semantics. Node keys are `wy/<site>/downstream/<link>/<path>`; paths may be given relative \
 to the site (`downstream/<link>/<path>`). Explore with tree_list, tree_resolve, node_meta and \
 value_get; device models are profiles named `<vendor>:<model>` (profiles tool) whose attr holds \
-the model data. You cannot change anything yourself: call `propose` once per change (op=set or \
-op=invoke). Every proposal is checked and then shown to a human, who approves or rejects the \
-whole plan. Propose only what the task needs; read a node's ~meta before you propose a change \
-to it. When you are done, answer with a short summary of the plan, or of what you found if no \
-change is needed.";
+the model data. You cannot change anything yourself: call `propose` once per step. A step that \
+changes something is op=set or op=invoke; it is checked and then shown to a human, who approves \
+the steps they want. A step left out is skipped, and so is every step that needs it (`after`). \
+Prove the plan with steps that only read: op=wait (a node exists), op=expect (a value), \
+op=sleep. When the task leaves a real choice open, ask the person with `ask_user` before you \
+plan; offer only options you have read in the tree. Propose only what the task needs; read a \
+node's ~meta before you propose a change to it. When you are done, answer with a short summary \
+of the plan, or of what you found if no change is needed.";
 
 /// Agent link parameters (`~def.params`).
 #[derive(Debug, Clone, PartialEq)]
@@ -251,30 +268,108 @@ impl FromParams for AgentConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskState {
-    Planning,
-    AwaitingApproval,
-    Running,
-    Done,
-    Failed,
+wyrm_core::wire_enum! {
+    /// The states of a task (`tasks/<id>` `~val.state`, by name).
+    pub enum TaskState {
+        Planning = 0 => "planning",
+        AwaitingApproval = 1 => "awaiting_approval",
+        Running = 2 => "running",
+        Done = 3 => "done",
+        Failed = 4 => "failed",
+        /// The model asked the person (`ask_user`); `answer` resumes it (ADR 0049 §5).
+        AwaitingAnswer = 5 => "awaiting_answer",
+    }
 }
 
 impl TaskState {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Planning => "planning",
-            Self::AwaitingApproval => "awaiting_approval",
-            Self::Running => "running",
-            Self::Done => "done",
-            Self::Failed => "failed",
-        }
-    }
-
     fn finished(self) -> bool {
         matches!(self, Self::Done | Self::Failed)
     }
 }
+
+/// One option of a [`Question`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Choice {
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+}
+
+/// What the model asked the person (`ask_user`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Question {
+    /// `q1`, `q2`, …: unique in the task.
+    pub id: String,
+    pub text: String,
+    pub options: Vec<Choice>,
+    pub multiple: bool,
+    pub free_text: bool,
+    /// The picked option ids (an array) or the person's own words (text).
+    pub answer: Option<Value>,
+}
+
+impl Question {
+    pub fn to_value(&self) -> Value {
+        let mut m = BTreeMap::new();
+        m.insert("id".to_owned(), Value::from(self.id.as_str()));
+        m.insert("text".to_owned(), Value::from(self.text.as_str()));
+        m.insert(
+            "options".to_owned(),
+            Value::Array(
+                self.options
+                    .iter()
+                    .map(|o| {
+                        map_value(vec![
+                            ("id", Value::from(o.id.as_str())),
+                            ("label", Value::from(o.label.as_str())),
+                            ("detail", Value::from(o.detail.as_str())),
+                        ])
+                    })
+                    .collect(),
+            ),
+        );
+        m.insert("multiple".to_owned(), Value::Bool(self.multiple));
+        m.insert("free_text".to_owned(), Value::Bool(self.free_text));
+        if let Some(a) = &self.answer {
+            m.insert("answer".to_owned(), a.clone());
+        }
+        Value::Map(m)
+    }
+
+    pub fn from_value(v: &Value) -> Option<Self> {
+        let Value::Map(m) = v else { return None };
+        let s = |m: &BTreeMap<String, Value>, k: &str| match m.get(k) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => String::new(),
+        };
+        let options = match m.get("options") {
+            Some(Value::Array(a)) => a
+                .iter()
+                .filter_map(|o| match o {
+                    Value::Map(o) => Some(Choice {
+                        id: s(o, "id"),
+                        label: s(o, "label"),
+                        detail: s(o, "detail"),
+                    }),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        Some(Self {
+            id: s(m, "id"),
+            text: s(m, "text"),
+            options,
+            multiple: matches!(m.get("multiple"), Some(Value::Bool(true))),
+            free_text: matches!(m.get("free_text"), Some(Value::Bool(true))),
+            answer: m.get("answer").cloned(),
+        })
+    }
+}
+
+/// An answer on its way to the planner: the answers by question id (already in the task's
+/// record) and the stream of the `answer` call, which carries the progress from here on.
+type Answered = ReplySink;
 
 fn now_s() -> u64 {
     SystemTime::now()
@@ -301,6 +396,19 @@ struct Task {
     /// The planning or executing task; aborted by `cancel` (while planning)
     /// and by `stop`.
     worker: Option<tokio::task::AbortHandle>,
+    /// What the model asked, in order; the last ones wait while the task is
+    /// `awaiting_answer`.
+    questions: Vec<Question>,
+    /// The task this one follows (`ask {parent}`).
+    parent: Option<String>,
+    /// Keys the person attached (`ask {context}`).
+    context: Vec<String>,
+    /// The step that runs or ran last, from 1 (0: none yet).
+    step: usize,
+    /// The latest finished step: its number and how it ended.
+    last: Option<(usize, StepStatus)>,
+    /// The planner waits here for `answer`; not persisted (a restart ends the wait).
+    answer: Option<tokio::sync::oneshot::Sender<Answered>>,
 }
 
 impl Task {
@@ -309,7 +417,14 @@ impl Task {
             state: self.state.name().to_owned(),
             owner: self.owner.clone(),
             ask: self.ask.clone(),
-            plan: store::encode_plan(&self.plan),
+            plan: store::encode_plan(
+                &self.plan,
+                &store::Extras {
+                    questions: self.questions.clone(),
+                    parent: self.parent.clone(),
+                    context: self.context.clone(),
+                },
+            ),
             log: self.log.clone(),
             error: self.error.clone(),
             tokens: self.tokens,
@@ -322,11 +437,18 @@ impl Task {
     /// resumed: it becomes `failed` ([`INTERRUPTED`]). `Err`: unreadable.
     fn from_rec(r: &TaskRec) -> std::result::Result<Self, String> {
         let state = store::state_from_name(&r.state).ok_or("unknown state")?;
+        let (plan, extras) = store::decode_plan(&r.plan)?;
         let mut t = Self {
             owner: r.owner.clone(),
             ask: r.ask.clone(),
             state,
-            plan: store::decode_plan(&r.plan)?,
+            plan,
+            questions: extras.questions,
+            parent: extras.parent,
+            context: extras.context,
+            step: 0,
+            last: None,
+            answer: None,
             log: r.log.clone(),
             error: r.error.clone(),
             tokens: r.tokens,
@@ -335,8 +457,23 @@ impl Task {
             cancel: false,
             worker: None,
         };
-        if matches!(state, TaskState::Planning | TaskState::Running) {
+        // a waiting question cannot be resumed either: the model's turns were in memory
+        if matches!(
+            state,
+            TaskState::Planning | TaskState::Running | TaskState::AwaitingAnswer
+        ) {
             t.fail(INTERRUPTED);
+        }
+        // where the run stood, from the results it left
+        if let Some((i, r)) = t
+            .plan
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, op)| op.result.as_ref().map(|r| (i, r)))
+        {
+            t.step = i + 1;
+            t.last = Some((i + 1, r.status));
         }
         Ok(t)
     }
@@ -359,22 +496,73 @@ impl Task {
         self.state = TaskState::Failed;
     }
 
-    /// Public `~val`: the state only. `~val` is broadcast and answered
-    /// without a token, so model output never goes there.
+    /// Public `~val`: `{state, step, of, last?}` (ADR 0049 §7). `~val` is broadcast and
+    /// answered without a token, to anyone who may read the link, while the record is
+    /// restricted. So it holds numbers and the link's own fixed words only: `last` is
+    /// `{n, ok, result}` of the latest finished step, `result` one of `ok`, `failed`,
+    /// `skipped`. No text of a result, no value read, no node key, no ask, no owner: those
+    /// are in `~state`.
     fn public_value(&self) -> Value {
-        map_value(vec![("state", Value::from(self.state.name()))])
+        let mut kv = vec![
+            ("state", Value::from(self.state.name())),
+            ("step", Value::UInt(self.step as u64)),
+            ("of", Value::UInt(self.plan.len() as u64)),
+        ];
+        if let Some((n, status)) = &self.last {
+            kv.push((
+                "last",
+                map_value(vec![
+                    ("n", Value::UInt(*n as u64)),
+                    ("ok", Value::Bool(*status != StepStatus::Failed)),
+                    ("result", Value::from(status.name())),
+                ]),
+            ));
+        }
+        map_value(kv)
     }
 
     /// The full record, served as the `~state` document of the task node
     /// (restricted: readers need `list` on it). Never holds tokens.
-    fn to_value(&self) -> Value {
+    fn to_value(&self, policy: &Policy) -> Value {
         let mut m = BTreeMap::new();
         m.insert("state".to_owned(), Value::from(self.state.name()));
         m.insert("owner".to_owned(), Value::from(self.owner.as_str()));
         m.insert("ask".to_owned(), Value::from(self.ask.as_str()));
         m.insert(
             "plan".to_owned(),
-            Value::Array(self.plan.iter().map(PlanOp::to_value).collect()),
+            Value::Array(
+                self.plan
+                    .iter()
+                    .enumerate()
+                    .map(|(i, op)| op.to_value(i + 1, policy))
+                    .collect(),
+            ),
+        );
+        if !self.questions.is_empty() {
+            m.insert(
+                "questions".to_owned(),
+                Value::Array(self.questions.iter().map(Question::to_value).collect()),
+            );
+        }
+        if let Some(p) = &self.parent {
+            m.insert("parent".to_owned(), Value::from(p.as_str()));
+        }
+        if !self.context.is_empty() {
+            m.insert(
+                "context".to_owned(),
+                Value::Array(
+                    self.context
+                        .iter()
+                        .map(|k| Value::from(k.as_str()))
+                        .collect(),
+                ),
+            );
+        }
+        m.insert("step".to_owned(), Value::UInt(self.step as u64));
+        // what an approval names (`approve {plan}`): the reader approves this very plan
+        m.insert(
+            "plan_hash".to_owned(),
+            Value::from(tools::plan_hash(&self.plan)),
         );
         m.insert(
             "log".to_owned(),
@@ -665,13 +853,27 @@ impl Shared {
         force: bool,
         f: impl FnOnce(&mut Task) -> R,
     ) -> Option<R> {
+        let policy = self.policy();
         let (r, v, doc) = {
             let mut st = self.lock();
             let t = st.tasks.get_mut(id)?;
-            let before = (t.state, t.plan.len(), t.error.is_some(), t.tokens);
+            let mark = |t: &Task| {
+                (
+                    t.state,
+                    t.plan.len(),
+                    t.error.is_some(),
+                    t.tokens,
+                    t.questions.len(),
+                )
+            };
+            let before = mark(t);
             let r = f(t);
-            let changed = before != (t.state, t.plan.len(), t.error.is_some(), t.tokens);
-            let out = (r, t.public_value(), wyrm_core::codec::to_vec(&t.to_value()));
+            let changed = before != mark(t);
+            let out = (
+                r,
+                t.public_value(),
+                wyrm_core::codec::to_vec(&t.to_value(&policy)),
+            );
             // Under the lock: records reach the WAL in the order they change.
             if force || changed {
                 st.save_task(id);
@@ -694,6 +896,23 @@ impl Shared {
             debug!("publish task {id}: {e}");
         }
         Some(r)
+    }
+
+    /// Was `cancel` asked for the running task `id` (or is the task gone)?
+    fn cancelled(&self, id: &str) -> bool {
+        self.lock().tasks.get(id).is_none_or(|t| t.cancel)
+    }
+
+    /// The tokens used today as the value `budget_used_today` (ADR 0049 §10).
+    async fn publish_budget(&self) {
+        let used = self.lock().budget.used();
+        if let Err(e) = self
+            .ctx
+            .update(BUDGET_NODE, Value::UInt(used), Quality::Good, now_us())
+            .await
+        {
+            debug!("publish {BUDGET_NODE}: {e}");
+        }
     }
 
     fn state_of(&self, id: &str) -> Option<TaskState> {
@@ -781,9 +1000,25 @@ fn task_meta() -> NodeMeta {
     m.actions = Some(BTreeMap::from([
         (
             "approve".to_owned(),
+            // `write` on the task: what a person may approve is decided by the tokens, one
+            // per step at the level the step needs (ADR 0049 §3)
             ActionMeta::new()
-                .param("approvals", ParamMeta::of(TypeCode::Map).required(true))
-                .level(Perm::Config),
+                // Two forms: `approvals` from a caller with its own key, or `steps` from a
+                // user of the gateway, which signs them and sends `approvals` (ADR 0049 §2)
+                .param("approvals", ParamMeta::of(TypeCode::Map))
+                .param("steps", ParamMeta::of(TypeCode::Array))
+                .param("plan", ParamMeta::of(TypeCode::String))
+                .level(Perm::Write),
+        ),
+        (
+            "answer".to_owned(),
+            ActionMeta::new()
+                .param("answers", ParamMeta::of(TypeCode::Map))
+                .param("text", ParamMeta::of(TypeCode::String))
+                .result(ActionResult::Stream)
+                .stream(true)
+                .level(Perm::Write)
+                .timeout_ms(ASK_TIMEOUT_MS),
         ),
         (
             "reject".to_owned(),
@@ -933,6 +1168,8 @@ impl Link for Agent {
             "ask",
             ActionMeta::new()
                 .param("task", ParamMeta::of(TypeCode::String).required(true))
+                .param("parent", ParamMeta::of(TypeCode::String))
+                .param("context", ParamMeta::of(TypeCode::Array))
                 .result(ActionResult::Stream)
                 .stream(true)
                 .level(Perm::Write)
@@ -948,6 +1185,11 @@ impl Link for Agent {
             plain,
             state: Mutex::new(state),
         });
+        shared
+            .ctx
+            .declare_node(BUDGET_NODE, NodeMeta::number().unit("tokens"))
+            .await?;
+        shared.publish_budget().await;
         let ids: Vec<String> = shared.lock().order.iter().cloned().collect();
         for id in ids {
             shared
@@ -1000,6 +1242,10 @@ impl Link for Agent {
                     return Err(LinkError::not_supported(format!("{p} {a}")));
                 };
                 let id = id.to_owned();
+                if a == "answer" {
+                    // a stream, like `ask`: the planner goes on writing to it
+                    return self.answer(&id, args, who, out).await;
+                }
                 let r = match a {
                     "approve" => self.approve(&id, args, who).await?,
                     "reject" => self.reject(&id, args, who).await?,
@@ -1069,8 +1315,59 @@ impl Agent {
         }
         let sub = caller_sub(who);
         let params = sh.params();
-        let (id, evict, first) = {
+        let policy = sh.policy();
+        // Keys the person attached (ADR 0049 §9): inside what the agent may read, and inside
+        // what the asker may read: the model must not read for them what they may not.
+        let mut context: Vec<String> = Vec::new();
+        match arg(&args, "context") {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(items)) if items.len() <= MAX_CONTEXT => {
+                for i in items {
+                    let Value::Str(k) = i else {
+                        return Err(LinkError::invalid_parameter("context: node keys"));
+                    };
+                    let node = policy
+                        .node_key(k)
+                        .and_then(|n| policy.may_read(&n).map(|()| n))
+                        .map_err(|e| LinkError::invalid_parameter(format!("context: {e}")))?;
+                    if who.perm_on(&format!("{node}/~val")) < Perm::Read {
+                        return Err(LinkError::new(
+                            Status::PermissionDenied,
+                            format!("context: you may not read {node}"),
+                        ));
+                    }
+                    if !context.contains(&node) {
+                        context.push(node);
+                    }
+                }
+            }
+            Some(_) => {
+                return Err(LinkError::invalid_parameter(format!(
+                    "context: an array of at most {MAX_CONTEXT} node keys"
+                )))
+            }
+        }
+        let parent = match arg(&args, "parent") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(p)) => Some(p.clone()),
+            Some(_) => return Err(LinkError::invalid_parameter("parent: a task id")),
+        };
+        let (id, evict, first, earlier) = {
             let mut st = sh.lock();
+            // The task this one follows: the asker of it, or a config caller (as for cancel).
+            let earlier = match &parent {
+                None => None,
+                Some(p) => {
+                    let t = st
+                        .tasks
+                        .get(p)
+                        .ok_or_else(|| LinkError::not_found(format!("parent: task {p}")))?;
+                    if !may_manage(t, who) {
+                        return Err(not_owner());
+                    }
+                    Some(brief(p, t, &policy))
+                }
+            };
             // The check and the reservation for the first LLM call are one
             // step: two concurrent asks cannot both pass on the last tokens.
             let committed = st.budget.used().saturating_add(st.budget.reserved);
@@ -1108,10 +1405,16 @@ impl Agent {
                     seq,
                     cancel: false,
                     worker: None,
+                    questions: Vec::new(),
+                    parent: parent.clone(),
+                    context: context.clone(),
+                    step: 0,
+                    last: None,
+                    answer: None,
                 },
             );
             st.save_task(&id);
-            (id, evict, first)
+            (id, evict, first, earlier)
         };
         let first = Reserved {
             sh: sh.clone(),
@@ -1134,9 +1437,93 @@ impl Agent {
                 ("state", Value::from("planning")),
             ]))
             .await;
-        let h = tokio::spawn(plan_task(sh.clone(), llm, id.clone(), text, out, first));
+        let brief = Brief {
+            text,
+            earlier,
+            context,
+        };
+        let h = tokio::spawn(plan_task(sh.clone(), llm, id.clone(), brief, out, first));
         if let Some(t) = sh.lock().tasks.get_mut(&id) {
             t.worker = Some(h.abort_handle());
+        }
+        Ok(())
+    }
+
+    /// `answer {answers?, text?}` (ADR 0049 §5): the answers to the questions that wait, by
+    /// question id (`[<option id>, …]` or the person's own words), or `text` alone: their
+    /// own words for the whole card. The planner goes on, and its progress comes on this
+    /// call's stream, as it does on `ask`.
+    async fn answer(&mut self, id: &str, args: Value, who: &Caller, out: ReplySink) -> Result<()> {
+        let sh = self.shared.clone();
+        let sub = caller_sub(who);
+        let given = match arg(&args, "answers") {
+            None | Some(Value::Null) => BTreeMap::new(),
+            Some(Value::Map(m)) => m.clone(),
+            Some(_) => return Err(LinkError::invalid_parameter("answers: map required")),
+        };
+        let words = match arg(&args, "text") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(s)) if !s.trim().is_empty() => Some(truncate(s.trim(), MAX_ANSWER)),
+            Some(_) => return Err(LinkError::invalid_parameter("text: non-empty text")),
+        };
+        if given.is_empty() && words.is_none() {
+            return Err(LinkError::invalid_parameter("answers or text required"));
+        }
+        let tx = sh
+            .with_task_saved(id, |t| {
+                if !may_manage(t, who) {
+                    return Err(not_owner());
+                }
+                if t.state != TaskState::AwaitingAnswer {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "task is {}, not awaiting_answer",
+                        t.state.name()
+                    )));
+                }
+                // Checked whole before anything is kept.
+                let mut checked: Vec<(usize, Value)> = Vec::new();
+                for (qid, a) in &given {
+                    let Some(i) = t
+                        .questions
+                        .iter()
+                        .position(|q| &q.id == qid && q.answer.is_none())
+                    else {
+                        return Err(LinkError::invalid_parameter(format!(
+                            "answers: {qid} is not a question that waits"
+                        )));
+                    };
+                    checked.push((i, check_answer(&t.questions[i], a)?));
+                }
+                let Some(tx) = t.answer.take() else {
+                    return Err(LinkError::internal(
+                        "the task does not wait for an answer any more",
+                    ));
+                };
+                for (i, a) in checked {
+                    t.questions[i].answer = Some(a);
+                }
+                // a question left open gets the person's own words, or no answer
+                for q in t.questions.iter_mut().filter(|q| q.answer.is_none()) {
+                    q.answer = Some(match &words {
+                        Some(w) => Value::from(w.as_str()),
+                        None => Value::Array(Vec::new()),
+                    });
+                }
+                t.state = TaskState::Planning;
+                t.push_log(format!("answered by {sub}"));
+                Ok(tx)
+            })
+            .await
+            .ok_or_else(|| LinkError::not_found(format!("task {id}")))??;
+        let _ = out
+            .reply(map_value(vec![
+                ("task", Value::from(id)),
+                ("state", Value::from("planning")),
+            ]))
+            .await;
+        if tx.send(out).is_err() {
+            // the planner is gone (the link is stopping)
+            sh.with_task(id, |t| t.fail(INTERRUPTED)).await;
         }
         Ok(())
     }
@@ -1151,9 +1538,18 @@ impl Agent {
             ));
         }
         let Some(Value::Map(given)) = arg(&args, "approvals") else {
-            return Err(LinkError::invalid_parameter("approvals: map required"));
+            // `steps` alone is the form of a gateway user: the gateway makes `approvals`
+            // of it. Here it came from a caller no gateway signs for.
+            return Err(LinkError::invalid_parameter(
+                if arg(&args, "steps").is_some() {
+                    "steps: only a gateway signs the steps of its user; a caller with its \
+                     own key sends approvals {<step>: <ptok>}"
+                } else {
+                    "approvals: map required"
+                },
+            ));
         };
-        let mut toks: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut toks: Vec<(String, Vec<u8>)> = Vec::new();
         for (k, v) in given {
             let tok = match v {
                 Value::Bytes(b) => b.clone(),
@@ -1165,8 +1561,19 @@ impl Agent {
                     )))
                 }
             };
-            toks.insert(k.clone(), tok);
+            toks.push((k.clone(), tok));
         }
+        if toks.is_empty() {
+            return Err(LinkError::invalid_parameter(
+                "approvals: no step is approved (reject the plan instead)",
+            ));
+        }
+        // The plan the approver read (`~state.plan_hash`); checked under the lock below.
+        let seen = match arg(&args, "plan") {
+            None | Some(Value::Null) => None,
+            Some(Value::Str(h)) => Some(h.clone()),
+            Some(_) => return Err(LinkError::invalid_parameter("plan: text required")),
+        };
         let site = sh.ctx.site().to_owned();
         let policy = sh.policy();
         // Check everything before anything changes; a failure keeps the task
@@ -1183,43 +1590,115 @@ impl Agent {
                     t.state.name()
                 )));
             }
-            if let Some(k) = toks.keys().find(|k| {
-                !t.plan
-                    .iter()
-                    .any(|op| op.requires_approval(&policy) && &op.key == *k)
-            }) {
-                return Err(LinkError::invalid_parameter(format!(
-                    "approval for {k}, which is not a plan step that needs one"
-                )));
+            if seen
+                .as_ref()
+                .is_some_and(|h| *h != tools::plan_hash(&t.plan))
+            {
+                return Err(LinkError::invalid_parameter(
+                    "plan: the plan is not the one this approval was made for; read it again",
+                ));
             }
+            // `approve` is `write` on the task (ADR 0049 §3), so the caller may be a stranger
+            // to it. The asker, or a caller with `config` on the link, decides for the task:
+            // steps that need no human run with the agent's key, as they would have without
+            // an approval. Anybody else decides only for what they sign: every step that
+            // changes something needs their own token, and one without it is skipped, never
+            // run with the agent's key on their word.
+            let manages = may_manage(t, who);
+            let needs_token =
+                |op: &PlanOp| op.op.changes() && (!manages || op.requires_approval(&policy));
+            // An approval names its step by number (ADR 0049 §4), or by request key when
+            // one step alone has that key.
+            let mut by_step: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
+            for (k, tok) in toks {
+                let n = step_named(&t.plan, &k).map_err(LinkError::invalid_parameter)?;
+                // a token for a step that needs none is taken: the step then runs with it
+                if !t.plan[n - 1].op.changes() {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "step {n} ({k}) sends nothing: it takes no approval"
+                    )));
+                }
+                if by_step.insert(n, tok).is_some() {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "step {n} is approved twice"
+                    )));
+                }
+            }
+            // The steps left out, and those that need one of them, do not run.
+            let unapproved: Vec<usize> = (1..=t.plan.len())
+                .filter(|n| needs_token(&t.plan[n - 1]) && !by_step.contains_key(n))
+                .collect();
+            let skip = tools::skipped(&t.plan, &unapproved);
             let mut per_op = Vec::with_capacity(t.plan.len());
-            for op in &t.plan {
-                if !op.requires_approval(&policy) {
-                    per_op.push(None);
+            for (i, op) in t.plan.iter().enumerate() {
+                let n = i + 1;
+                let tok = by_step.remove(&n);
+                if let Some(dep) = skip.get(&n) {
+                    if tok.is_some() {
+                        return Err(LinkError::invalid_parameter(format!(
+                            "step {n} needs step {dep}, which is not approved"
+                        )));
+                    }
+                    per_op.push(Approval::Skip(if *dep == n {
+                        format!("skipped by {sub}")
+                    } else {
+                        format!("skipped: needs step {dep}")
+                    }));
                     continue;
                 }
-                let tok = toks.remove(&op.key).ok_or_else(|| {
-                    LinkError::invalid_parameter(format!("missing approval for {}", op.key))
+                let Some(tok) = tok else {
+                    per_op.push(Approval::NotNeeded);
+                    continue;
+                };
+                // The plan's arguments were stored at `propose` and run from there. An
+                // approval bound to arguments (claim `args`) must be bound to these: found
+                // here, before anything runs, not at the step.
+                let payload = match token_binds_args(&tok) {
+                    true => Some(op.request_payload().map_err(LinkError::internal)?),
+                    false => None,
+                };
+                let info = wyrm_mcp::check::precheck_approval(
+                    &tok,
+                    &op.key,
+                    &site,
+                    op.level,
+                    payload.as_deref(),
+                )
+                .map_err(|e| {
+                    LinkError::new(
+                        Status::PermissionDenied,
+                        format!("step {n} ({}): {e}", op.key),
+                    )
                 })?;
-                // the plan's arguments were stored at `propose` and run from there: the
-                // approval need not be bound to them (it may be, claim `args`)
-                let info = wyrm_mcp::check::precheck_approval(&tok, &op.key, &site, op.level, None)
-                    .map_err(|e| {
-                        LinkError::new(Status::PermissionDenied, format!("{}: {e}", op.key))
-                    })?;
                 if info.sub != sub {
                     return Err(LinkError::new(
                         Status::PermissionDenied,
                         format!(
-                            "approval for {} is from {:?}; it must come from the approver {:?}",
-                            op.key, info.sub, sub
+                            "approval for step {n} is from {:?}; it must come from the approver {:?}",
+                            info.sub, sub
                         ),
                     ));
                 }
-                per_op.push(Some(tok));
+                // The token was made now and the step is sent after the waits before it:
+                // one that cannot live that long is refused here, while the person can
+                // still leave the step for a follow-up.
+                let waits = tools::waits_before(&t.plan, n, |k| skip.contains_key(&k));
+                if waits > 0.0 && waits + tools::APPROVAL_MARGIN_S > info.expires_in_s as f64 {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "step {n} may be sent {waits} s after this approval (the waits before \
+                         it), and its approval is good for {} s: leave it out and ask for it \
+                         as a follow-up when this plan is done",
+                        info.expires_in_s
+                    )));
+                }
+                per_op.push(Approval::Token(tok));
             }
             per_op
         };
+        let skipped = per_op
+            .iter()
+            .filter(|a| matches!(a, Approval::Skip(_)))
+            .count();
         // Compare-and-set: only one approve can win.
         let won = sh
             .with_task(id, |t| {
@@ -1227,7 +1706,10 @@ impl Agent {
                     return false;
                 }
                 t.state = TaskState::Running;
-                t.push_log(format!("approved by {sub}"));
+                t.push_log(match skipped {
+                    0 => format!("approved by {sub}"),
+                    n => format!("approved by {sub}, {n} step(s) left out"),
+                });
                 true
             })
             .await
@@ -1283,10 +1765,11 @@ impl Agent {
             .shared
             .with_task(id, |t| match t.state {
                 _ if !may_manage(t, who) => Err(not_owner()),
-                TaskState::Planning => {
+                TaskState::Planning | TaskState::AwaitingAnswer => {
                     if let Some(h) = t.worker.take() {
                         h.abort();
                     }
+                    t.answer = None;
                     t.fail(format!("cancelled by {sub}"));
                     Ok(TaskState::Failed)
                 }
@@ -1329,20 +1812,175 @@ async fn progress(sink: &mut Option<ReplySink>, id: &str, event: &str, text: &st
     }
 }
 
+/// What a task starts from: the ask, the task it follows, and the keys the person attached.
+struct Brief {
+    text: String,
+    /// The parent task in short ([`brief`]).
+    earlier: Option<String>,
+    context: Vec<String>,
+}
+
+/// A task for the model of a follow-up ask (ADR 0049 §9): its ask, state, plan with the
+/// results, and error. Bounded; the plan is the model's own earlier output and tree text.
+fn brief(id: &str, t: &Task, policy: &Policy) -> String {
+    let plan: Vec<Json> = t
+        .plan
+        .iter()
+        .enumerate()
+        .map(|(i, op)| wyrm_mcp::json::value_to_json(&op.to_value(i + 1, policy)))
+        .collect();
+    let j = json!({
+        "task": id,
+        "ask": t.ask,
+        "state": t.state.name(),
+        "plan": plan,
+        "error": t.error,
+    });
+    truncate(&j.to_string(), MAX_TOOL_RESULT)
+}
+
+/// The step an approval names: its number (`"3"`), or its request key when one step alone
+/// has that key.
+fn step_named(plan: &[PlanOp], k: &str) -> std::result::Result<usize, String> {
+    if let Ok(n) = k.parse::<usize>() {
+        return if (1..=plan.len()).contains(&n) {
+            Ok(n)
+        } else {
+            Err(format!("approvals: the plan has no step {n}"))
+        };
+    }
+    let mut hits = plan
+        .iter()
+        .enumerate()
+        .filter(|(_, op)| op.op.changes() && op.key == k)
+        .map(|(i, _)| i + 1);
+    match (hits.next(), hits.next()) {
+        (Some(n), None) => Ok(n),
+        (Some(_), Some(_)) => Err(format!(
+            "approvals: {k} is the key of several steps; name them by number"
+        )),
+        _ => Err(format!("approvals: {k} is not a plan step")),
+    }
+}
+
+/// An answer to `q` as it is kept: the picked option ids, or the person's own words.
+fn check_answer(q: &Question, a: &Value) -> Result<Value> {
+    match a {
+        Value::Str(s) if q.free_text && !s.trim().is_empty() => {
+            Ok(Value::from(truncate(s.trim(), MAX_ANSWER)))
+        }
+        Value::Str(_) => Err(LinkError::invalid_parameter(format!(
+            "answers.{}: pick one of its options",
+            q.id
+        ))),
+        Value::Array(ids) => {
+            let mut picked: Vec<Value> = Vec::new();
+            for i in ids {
+                match i {
+                    Value::Str(o) if q.options.iter().any(|c| &c.id == o) => {
+                        if !picked.contains(i) {
+                            picked.push(i.clone());
+                        }
+                    }
+                    _ => {
+                        return Err(LinkError::invalid_parameter(format!(
+                            "answers.{}: not one of its options",
+                            q.id
+                        )))
+                    }
+                }
+            }
+            if picked.is_empty() || (picked.len() > 1 && !q.multiple) {
+                return Err(LinkError::invalid_parameter(format!(
+                    "answers.{}: {} expected",
+                    q.id,
+                    if q.multiple {
+                        "one option or more"
+                    } else {
+                        "one option"
+                    }
+                )));
+            }
+            Ok(Value::Array(picked))
+        }
+        _ => Err(LinkError::invalid_parameter(format!(
+            "answers.{}: option ids or text",
+            q.id
+        ))),
+    }
+}
+
+/// The answer to `q` as the model gets it: the labels of the picked options, or the words.
+fn answer_text(q: &Question) -> String {
+    match &q.answer {
+        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Array(ids)) if !ids.is_empty() => ids
+            .iter()
+            .filter_map(|i| match i {
+                Value::Str(i) => q.options.iter().find(|o| &o.id == i),
+                _ => None,
+            })
+            .map(|o| format!("{} ({})", o.label, o.id))
+            .collect::<Vec<_>>()
+            .join("; "),
+        _ => "(no answer)".to_owned(),
+    }
+}
+
+/// A question of the model (`ask_user`) as a [`Question`] without its id.
+fn question_of(input: &Json) -> std::result::Result<Question, String> {
+    let text = input["question"].as_str().unwrap_or("").trim();
+    if text.is_empty() {
+        return Err("`question` (text) is required".into());
+    }
+    let mut options: Vec<Choice> = Vec::new();
+    for o in input["options"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+    {
+        let id = o["id"].as_str().unwrap_or("").trim();
+        let label = o["label"].as_str().unwrap_or("").trim();
+        if id.is_empty() || label.is_empty() {
+            return Err("every option needs `id` and `label`".into());
+        }
+        if options.iter().any(|c| c.id == id) {
+            return Err(format!("option id {id:?} is used twice"));
+        }
+        options.push(Choice {
+            id: truncate(id, 64),
+            label: truncate(label, 200),
+            detail: truncate(o["detail"].as_str().unwrap_or("").trim(), 300),
+        });
+    }
+    if options.len() > MAX_OPTIONS {
+        return Err(format!("at most {MAX_OPTIONS} options"));
+    }
+    Ok(Question {
+        id: String::new(),
+        text: truncate(text, 500),
+        // with nothing to pick, the person can only write
+        free_text: input["free_text"].as_bool().unwrap_or(false) || options.is_empty(),
+        multiple: input["multiple"].as_bool().unwrap_or(false),
+        options,
+        answer: None,
+    })
+}
+
 /// The planning loop of one task, then the decision what happens next.
 async fn plan_task(
     sh: Arc<Shared>,
     llm: Arc<dyn LlmClient>,
     id: String,
-    text: String,
+    brief: Brief,
     out: ReplySink,
     first: Reserved,
 ) {
     let mut sink = Some(out);
-    let r = plan_loop(&sh, llm.as_ref(), &id, &text, &mut sink, first).await;
+    let r = plan_loop(&sh, llm.as_ref(), &id, brief, &mut sink, first).await;
     if let Err(e) = r {
         sh.with_task(&id, |t| {
-            if t.state == TaskState::Planning {
+            if matches!(t.state, TaskState::Planning | TaskState::AwaitingAnswer) {
                 t.fail(e.clone());
             }
         })
@@ -1364,11 +2002,40 @@ async fn plan_task(
     }
 }
 
+/// The first message of a task: the ask, then the task it follows and what the person
+/// attached, each read now (`context` keys were checked against the asker's rights).
+async fn first_message(reader: &Reader<'_>, brief: &Brief) -> String {
+    let mut m = brief.text.clone();
+    if let Some(e) = &brief.earlier {
+        m.push_str("\n\nThis follows an earlier task (its ask, plan with results, error):\n");
+        m.push_str(e);
+    }
+    if !brief.context.is_empty() {
+        m.push_str("\n\nThe person attached these nodes (read them first):");
+        for k in &brief.context {
+            let meta = match reader.client.meta(k).await {
+                Ok(meta) => meta_to_json(&meta).to_string(),
+                Err(e) => format!("{{\"error\": {:?}}}", e.to_string()),
+            };
+            let val = match reader.read_val(k).await {
+                Ok(s) => sample_to_json(&s).to_string(),
+                Err(_) => "null".to_owned(),
+            };
+            m.push_str(&format!(
+                "\n- {k}: meta {} value {}",
+                truncate(&meta, 2000),
+                truncate(&val, 500)
+            ));
+        }
+    }
+    m
+}
+
 async fn plan_loop(
     sh: &Arc<Shared>,
     llm: &dyn LlmClient,
     id: &str,
-    text: &str,
+    brief: Brief,
     sink: &mut Option<ReplySink>,
     first: Reserved,
 ) -> std::result::Result<(), String> {
@@ -1388,7 +2055,8 @@ async fn plan_loop(
         policy.mode.name()
     );
     let tools = tools::definitions();
-    let mut messages = vec![json!({ "role": "user", "content": text })];
+    let mut messages =
+        vec![json!({ "role": "user", "content": first_message(&reader, &brief).await })];
     for turn in 0..params.max_turns {
         if sh.state_of(id) != Some(TaskState::Planning) {
             return Ok(());
@@ -1434,6 +2102,7 @@ async fn plan_loop(
         };
         let used = usage_tokens(&resp);
         reserved.settle(used);
+        sh.publish_budget().await;
         sh.with_task(id, |t| t.tokens += used).await;
         let content = resp["content"].clone();
         let blocks = content.as_array().cloned().unwrap_or_default();
@@ -1458,12 +2127,24 @@ async fn plan_loop(
             other => return Err(format!("unexpected stop_reason {other:?}")),
         }
         let mut results = Vec::new();
+        // the questions of this turn: (tool call, question id)
+        let mut asked: Vec<(Json, String)> = Vec::new();
         for b in blocks.iter().filter(|b| b["type"] == "tool_use") {
             let name = b["name"].as_str().unwrap_or("");
             let input = &b["input"];
             let tool_id = b["id"].clone();
             let r = if name == "propose" {
                 propose(sh, &policy, id, input).await
+            } else if name == "ask_user" {
+                match ask_user(sh, id, input, asked.len()).await {
+                    Ok(q) => {
+                        progress(sink, id, "question", &q.text).await;
+                        asked.push((tool_id, q.id));
+                        // its result is the person's answer, below
+                        continue;
+                    }
+                    Err(e) => Err(e),
+                }
             } else {
                 match reader.call(name, input).await {
                     Some(r) => r,
@@ -1489,6 +2170,55 @@ async fn plan_loop(
                 "is_error": is_error,
             }));
         }
+        if !asked.is_empty() {
+            // The task waits for the person. The stream that brought the ask ends here;
+            // the stream of `answer` carries the progress from then on.
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let n = asked.len();
+            let waits = sh
+                .with_task_saved(id, |t| {
+                    if t.state != TaskState::Planning {
+                        return false;
+                    }
+                    t.state = TaskState::AwaitingAnswer;
+                    t.answer = Some(tx);
+                    t.push_log(format!("asked {n} question(s)"));
+                    true
+                })
+                .await
+                .unwrap_or(false);
+            if !waits {
+                return Ok(());
+            }
+            progress(sink, id, "state", TaskState::AwaitingAnswer.name()).await;
+            if let Some(s) = sink.take() {
+                let _ = s
+                    .done(Some(map_value(vec![
+                        ("task", Value::from(id)),
+                        ("state", Value::from(TaskState::AwaitingAnswer.name())),
+                    ])))
+                    .await;
+            }
+            // cancelled, or the link stops: the sender is dropped
+            let Ok(answered) = rx.await else {
+                return Ok(());
+            };
+            *sink = Some(answered);
+            for (tool_id, qid) in asked {
+                let text = sh
+                    .lock()
+                    .tasks
+                    .get(id)
+                    .and_then(|t| t.questions.iter().find(|q| q.id == qid).map(answer_text))
+                    .unwrap_or_else(|| "(no answer)".to_owned());
+                results.push(json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": truncate(&text, MAX_TOOL_RESULT),
+                    "is_error": false,
+                }));
+            }
+        }
         if results.is_empty() {
             return Err("stop_reason tool_use without tool calls".into());
         }
@@ -1498,46 +2228,65 @@ async fn plan_loop(
     Err(format!("no final answer after {} turns", params.max_turns))
 }
 
+/// `ask_user`: one more question of this turn (`so_far` asked before it).
+async fn ask_user(
+    sh: &Shared,
+    id: &str,
+    input: &Json,
+    so_far: usize,
+) -> std::result::Result<Question, String> {
+    if so_far >= MAX_QUESTIONS_TURN {
+        return Err(format!(
+            "at most {MAX_QUESTIONS_TURN} questions in one turn"
+        ));
+    }
+    let mut q = question_of(input)?;
+    sh.with_task_saved(id, |t| {
+        if t.questions.len() >= MAX_QUESTIONS {
+            return Err(format!("this task already asked {MAX_QUESTIONS} questions"));
+        }
+        q.id = format!("q{}", t.questions.len() + 1);
+        t.questions.push(q.clone());
+        Ok(q)
+    })
+    .await
+    .unwrap_or_else(|| Err("the task is gone".to_owned()))
+}
+
 async fn propose(
     sh: &Shared,
     policy: &Policy,
     id: &str,
     input: &Json,
 ) -> std::result::Result<Json, String> {
-    if sh
-        .lock()
-        .tasks
-        .get(id)
-        .is_some_and(|t| t.plan.len() >= MAX_PLAN)
-    {
-        return Err(format!("the plan already has {MAX_PLAN} steps"));
-    }
-    let op = check_proposal(&sh.reader, policy, input).await?;
-    // One approval token per request key, and tokens are single-use.
-    if sh
-        .lock()
-        .tasks
-        .get(id)
-        .is_some_and(|t| t.plan.iter().any(|o| o.key == op.key))
-    {
-        return Err(format!(
-            "the plan already has a step for {}; use one step per key",
-            op.key
-        ));
-    }
-    let summary = json!({
-        "added": true,
-        "key": op.key,
+    let plan = match sh.lock().tasks.get(id) {
+        Some(t) if t.plan.len() >= MAX_PLAN => {
+            return Err(format!("the plan already has {MAX_PLAN} steps"))
+        }
+        Some(t) => t.plan.clone(),
+        None => return Err("the task is gone".into()),
+    };
+    let op = check_proposal(&sh.reader, policy, &plan, input).await?;
+    let n = plan.len() + 1;
+    // ADR 0049 §8: how far the step was checked, and what the person must see
+    let mut answer = json!({
+        "ok": true,
+        "n": n,
+        "check": op.check.name(),
         "level": op.level.name(),
-        "requires_approval": op.needs_approval,
+        "requires_approval": op.requires_approval(policy),
+        "after": op.after,
     });
-    let line = format!("proposed {} {}", op.op.name(), op.key);
+    if let Some(w) = &op.warn {
+        answer["warn"] = w.as_str().into();
+    }
+    let line = format!("proposed {}", op.describe());
     sh.with_task(id, |t| {
         t.push_log(line);
         t.plan.push(op);
     })
     .await;
-    Ok(summary)
+    Ok(answer)
 }
 
 /// After planning: re-check the plan, then `done` (nothing to do),
@@ -1552,6 +2301,7 @@ async fn decide(sh: &Shared, id: &str, sink: &mut Option<ReplySink>) {
             if let Some(e) = t
                 .plan
                 .iter()
+                .filter(|op| op.op.changes())
                 .find_map(|op| policy.may_touch(&op.node).err())
             {
                 t.fail(e);
@@ -1573,30 +2323,87 @@ async fn decide(sh: &Shared, id: &str, sink: &mut Option<ReplySink>) {
     }
 }
 
-/// Run the plan. `approvals[i]` is the human token for step `i` (empty:
-/// none). A step that needs approval never goes out without one; a step
-/// sent with a token is never retried (tokens are single-use).
-async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Option<Vec<u8>>>) {
+/// What `approve` decided for one step of the plan.
+enum Approval {
+    /// The step runs without a human token: with the agent's own key, or it only reads.
+    NotNeeded,
+    /// The human token for exactly this step.
+    Token(Vec<u8>),
+    /// The step is never sent, and why: the approver left it out, or it needs a step that
+    /// was left out.
+    Skip(String),
+}
+
+/// Does an approval carry the `args` claim (spec 04: good for one request body only)?
+fn token_binds_args(tok: &[u8]) -> bool {
+    wyrm_core::ptok::split(tok)
+        .and_then(|p| wyrm_core::codec::from_slice::<wyrm_core::ptok::PtokClaims>(p.claims).ok())
+        .is_some_and(|c| c.args.is_some())
+}
+
+fn step_result(status: StepStatus, message: impl Into<String>) -> Option<StepResult> {
+    Some(StepResult {
+        status,
+        message: truncate(&message.into(), 500),
+        time: now_s(),
+    })
+}
+
+/// Run the plan. `approvals[i]` is what `approve` decided for step `i`
+/// (empty: no step needs a human). A step that needs approval never goes out
+/// without a token; one that was left out, or needs one that was, is recorded
+/// as skipped and the run goes on; a step sent with a token is never retried
+/// (tokens are single-use). Every step the run reaches gets its `result`, and
+/// the task's `~val` says where the run is (`step`, `of`, `last`).
+async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Approval>) {
+    let mut approvals = approvals.into_iter();
     let plan = match sh.lock().tasks.get(&id) {
         Some(t) if t.state == TaskState::Running => t.plan.clone(),
         _ => return,
     };
     let policy = sh.policy();
     for (i, op) in plan.iter().enumerate() {
-        let cancelled = sh.lock().tasks.get(&id).is_none_or(|t| t.cancel);
-        if cancelled {
+        let n = i + 1;
+        if sh.cancelled(&id) {
             sh.with_task(&id, |t| {
-                t.fail(format!("cancelled before step {}", i + 1));
+                t.fail(format!("cancelled before step {n}"));
             })
             .await;
             return;
         }
-        let r = run_op(&sh, &policy, op, approvals.get(i).cloned().flatten()).await;
+        let token = match approvals.next().unwrap_or(Approval::NotNeeded) {
+            Approval::Skip(why) => {
+                sh.with_task_saved(&id, |t| {
+                    t.push_log(format!("step {n}: {why}"));
+                    t.step = n;
+                    t.last = Some((n, StepStatus::Skipped));
+                    if let Some(s) = t.plan.get_mut(i) {
+                        s.result = step_result(StepStatus::Skipped, why);
+                    }
+                })
+                .await;
+                continue;
+            }
+            Approval::Token(tok) => Some(tok),
+            Approval::NotNeeded => None,
+        };
+        sh.with_task(&id, |t| t.step = n).await;
+        let r = run_op(&sh, &policy, &id, op, token).await;
         let ok = r.is_ok();
         // Saved: a reader after a restart sees which steps went out.
-        sh.with_task_saved(&id, |t| match r {
-            Ok(line) => t.push_log(format!("step {}: {line}", i + 1)),
-            Err(e) => t.fail(format!("step {} ({}): {e}", i + 1, op.key)),
+        sh.with_task_saved(&id, |t| {
+            let (status, text) = match &r {
+                Ok(line) => (StepStatus::Ok, line.as_str()),
+                Err(e) => (StepStatus::Failed, e.as_str()),
+            };
+            t.last = Some((n, status));
+            if let Some(s) = t.plan.get_mut(i) {
+                s.result = step_result(status, text);
+            }
+            match r {
+                Ok(line) => t.push_log(format!("step {n}: {line}")),
+                Err(e) => t.fail(format!("step {n} ({}): {e}", op.describe())),
+            }
         })
         .await;
         if !ok {
@@ -1612,13 +2419,153 @@ async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Option<Vec<u8>>>) {
     .await;
 }
 
-async fn run_op(
+/// A step proposed before its node existed (`check: at_run`), checked now against the live
+/// `~meta` as `propose` checks: the request is the one that was approved, so a node that
+/// asks for a higher level, or for other arguments, stops the step before it is sent.
+async fn check_at_run(
     sh: &Shared,
     policy: &Policy,
     op: &PlanOp,
+) -> std::result::Result<(), String> {
+    let meta = sh
+        .reader
+        .meta_expanded(&op.node)
+        .await
+        .map_err(|e| format!("{}: {e}", op.node))?;
+    let check = wyrm_mcp::check::is_control_plane(&policy.site, &op.node);
+    let need = match &op.action {
+        None => {
+            wyrm_mcp::check::validate_value(&meta, &op.payload)?;
+            wyrm_mcp::check::set_level(&meta)?
+        }
+        Some(a) => {
+            let params = meta
+                .actions
+                .as_ref()
+                .and_then(|acts| acts.get(a))
+                .map(|act| act.params.clone())
+                .unwrap_or_default();
+            let given = match &op.payload {
+                Value::Map(m) => m.clone(),
+                _ => BTreeMap::new(),
+            };
+            if Value::Map(wyrm_mcp::check::prepare_args(&params, given)?) != op.payload {
+                return Err(
+                    "the action takes these arguments in another form; plan it again".into(),
+                );
+            }
+            wyrm_mcp::check::action_level(&meta, a)?
+        }
+    };
+    let need = if check { Perm::Config } else { need };
+    if need > op.level {
+        return Err(format!(
+            "the node asks {} for this; the step was planned at {}",
+            need.name(),
+            op.level.name()
+        ));
+    }
+    Ok(())
+}
+
+/// Does `v` pass the test of an `expect` step? `first` is the first value seen (`changes`).
+fn passes(test: &Value, v: &Value, first: &Value) -> bool {
+    let Value::Map(t) = test else { return true };
+    if let Some(want) = t.get("equals") {
+        return v == want || (v.as_f64().is_some() && v.as_f64() == want.as_f64());
+    }
+    if t.contains_key("changes") {
+        return v != first;
+    }
+    if t.contains_key("min") || t.contains_key("max") {
+        let bound = |k: &str| t.get(k).and_then(Value::as_f64);
+        return v.as_f64().is_some_and(|x| {
+            bound("min").is_none_or(|lo| x >= lo) && bound("max").is_none_or(|hi| x <= hi)
+        });
+    }
+    true
+}
+
+/// A proof step (`wait`, `expect`, `sleep`): reads only, with the agent's reader, inside
+/// what the model may read. Polled, so `cancel` ends it within a moment.
+async fn run_proof(
+    sh: &Shared,
+    policy: &Policy,
+    id: &str,
+    op: &PlanOp,
+) -> std::result::Result<String, String> {
+    const POLL: Duration = Duration::from_millis(250);
+    let secs = op.seconds.unwrap_or(0.0).clamp(0.0, tools::MAX_STEP_WAIT_S);
+    let end = tokio::time::Instant::now() + Duration::from_secs_f64(secs);
+    let left = || tokio::time::Instant::now() < end;
+    if op.op == tools::OpKind::Sleep {
+        while left() {
+            if sh.cancelled(id) {
+                return Err("cancelled".into());
+            }
+            tokio::time::sleep(POLL.min(end - tokio::time::Instant::now())).await;
+        }
+        return Ok(format!("slept {secs} s"));
+    }
+    policy.may_read(&op.node)?;
+    let site = sh.ctx.site().to_owned();
+    let reader = Reader {
+        client: &sh.reader,
+        policy,
+        site: &site,
+        timeout: Duration::from_secs(2),
+    };
+    let mut first: Option<Value> = None;
+    let mut last = "nothing".to_owned();
+    loop {
+        if sh.cancelled(id) {
+            return Err("cancelled".into());
+        }
+        match op.op {
+            tools::OpKind::Wait => {
+                if sh
+                    .reader
+                    .meta(&op.node)
+                    .await
+                    .is_ok_and(|m| m != NodeMeta::default())
+                {
+                    return Ok(format!("{} is there", op.node));
+                }
+            }
+            _ => {
+                if let Ok(s) = reader.read_val(&op.node).await {
+                    let seen = first.get_or_insert_with(|| s.v.clone());
+                    last = truncate(&wyrm_mcp::json::value_to_json(&s.v).to_string(), 120);
+                    if passes(&op.payload, &s.v, seen) {
+                        return Ok(format!("{} is {last}", op.node));
+                    }
+                }
+            }
+        }
+        if !left() {
+            return Err(match op.op {
+                tools::OpKind::Wait => format!("{}: not there after {secs} s", op.node),
+                _ => format!("{}: not as expected after {secs} s (last {last})", op.node),
+            });
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+async fn run_op(
+    sh: &Shared,
+    policy: &Policy,
+    id: &str,
+    op: &PlanOp,
     approval: Option<Vec<u8>>,
 ) -> std::result::Result<String, String> {
+    if !op.op.changes() {
+        return run_proof(sh, policy, id, op).await;
+    }
     policy.may_touch(&op.node)?;
+    if op.check == tools::Check::AtRun {
+        check_at_run(sh, policy, op).await?;
+    }
     let (client, by) = match approval {
         Some(tok) => {
             // Audited as `<human>/ai:<link>`: approved by a person, sent by
@@ -1648,7 +2595,7 @@ async fn run_op(
                 .map_err(|e| e.to_string())?;
             Ok(format!("set {} ok ({by})", op.key))
         }
-        tools::OpKind::Invoke => {
+        _ => {
             let action = op.action.as_deref().unwrap_or_default();
             let mut s = client
                 .invoke(&op.node, action, op.payload.clone())
@@ -1682,6 +2629,29 @@ mod tests {
             tokens: 3,
             created: 1,
             seq: 4,
+        }
+    }
+
+    /// What `approve` says of itself is what its callers send: a client that checks
+    /// arguments against `~meta` takes the form of a gateway user and the form of a caller
+    /// with its own key (review of ADR 0049: `approvals` was required, `steps` unknown).
+    #[test]
+    fn the_meta_of_approve_takes_both_forms() {
+        let meta = task_meta();
+        let approve = &meta.actions.as_ref().unwrap()["approve"];
+        assert_eq!(approve.level, Some(Perm::Write));
+        let args = |kv: Vec<(&str, Value)>| -> BTreeMap<String, Value> {
+            kv.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
+        };
+        for form in [
+            args(vec![
+                ("steps", Value::Array(vec![Value::UInt(1)])),
+                ("plan", Value::from("h")),
+            ]),
+            args(vec![("approvals", Value::Map(BTreeMap::new()))]),
+        ] {
+            let r = wyrm_mcp::check::prepare_args(&approve.params, form.clone());
+            assert_eq!(r, Ok(form));
         }
     }
 
