@@ -1,5 +1,7 @@
 # Log in
 
+Biometric unlock, the idle lock, step-up and *Find on this network* are in `unlock-discover.md` (ADR 0050).
+
 Boards: `Login` (clickable: Log in plays the whole sequence), `LoginSigning`, `LoginWrong`, `LoginUnreachable`, `LoginWelcome`. Source: `../canvas/Login.dc.html` (the four frames mount it with `stage=…`). The page replaces the template's `LogInPage` layout; its fields and `LogInAction` stay.
 
 ## 1. Regions
@@ -73,7 +75,7 @@ The board's welcome has no step list; the owner asked for one, so that moving be
 Timings: each step waits at most 2 s, the whole welcome at most 5 s (one deadline for all five) and at least 600 ms. A step that runs out of time goes on in the background and its line ends in `· later`, with an open grey ring. When the deadline comes before a step starts, that step and the ones after it start at once and Studio opens without them. Every preload read is quiet: a failure (no rights on `sys`, say) opens no dialog; the workspace that needs the data reads it again when it opens, and that read shows its errors as usual.
 
 ## 6. Gateway probe
-On open, on a recent chip and on leaving the URL field: a `GET <gateway>/api/me` without a session, timed. A 401 means the gateway is there: `<host> · answered in <n> ms`. Anything else in 5 s: unreachable. The board's line also shows the site and the wyrmd version; a gateway tells those only after login today, so before login show the host and the time (a public `/api/info` would be a gateway change, `docs/studio.md` §10 item 13).
+On open, on a recent chip and on leaving the URL field: a `GET <gateway>/api/me` without a session, timed. A 401 means the gateway is there: `<host> · answered in <n> ms`. Anything else in 5 s: unreachable. The board's line also shows the site and the wyrmd version; a gateway tells those only after login today, so before login show the host and the time (a public `/api/info` would be a gateway change, `docs/studio.md` §10 item 13; proposed in ADR 0050 §2.2).
 
 Recent gateways: the last five URLs that logged in, from `storage`; their dots are the last probe result. `Remember` keeps the URL list and the user, never the password. A standby URL is stored with the main one as a comma list and logged in with `WyrmGateway.loginAny`.
 

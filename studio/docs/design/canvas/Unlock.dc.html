@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WYRM Studio — Unlock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Unbounded:wght@600;700&amp;display=swap">
+<style>
+body{margin:0;background:#0E1113}
+a:hover{color:#F3A766}
+*{scrollbar-width:thin;scrollbar-color:#2F373D transparent}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2F373D;border-radius:8px}::-webkit-scrollbar-thumb:hover{background:#4A535A}::-webkit-scrollbar-track{background:transparent}
+@keyframes wy-crawl{0%,100%{transform:translateY(0) scale(1);opacity:.4}35%{transform:translateY(-6px) scale(1.28);opacity:1}70%{transform:translateY(0) scale(1);opacity:.7}}
+@keyframes wy-breathe{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.18);opacity:1}}
+@keyframes wy-flow{to{stroke-dashoffset:-160}}
+@keyframes wy-draw{from{stroke-dashoffset:420}to{stroke-dashoffset:0}}
+@keyframes wy-twinkle{0%,100%{opacity:.25}50%{opacity:.9}}
+@keyframes wy-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes wy-spin{to{transform:rotate(360deg)}}
+@keyframes wy-shake{10%,90%{transform:translateX(-1px)}20%,80%{transform:translateX(2px)}30%,50%,70%{transform:translateX(-4px)}40%,60%{transform:translateX(4px)}}
+@keyframes wy-bar{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+.wy-crawl>span{display:block;border-radius:50%;animation:wy-crawl 1.1s ease-in-out infinite}
+.wy-crawl>span:nth-child(2){animation-delay:.11s}.wy-crawl>span:nth-child(3){animation-delay:.22s}.wy-crawl>span:nth-child(4){animation-delay:.33s}.wy-crawl>span:nth-child(5){animation-delay:.44s}
+.wy-mark circle{transform-box:fill-box;transform-origin:center;animation:wy-breathe 3.2s ease-in-out infinite}
+.wy-mark circle:nth-of-type(2){animation-delay:.25s}.wy-mark circle:nth-of-type(3){animation-delay:.5s}.wy-mark circle:nth-of-type(4){animation-delay:.75s}.wy-mark circle:nth-of-type(5){animation-delay:1s}
+.wy-spine{stroke-dasharray:420;animation:wy-draw 1.6s ease-out both}
+.wy-packet{stroke-dasharray:3 157;animation:wy-flow 4.8s linear infinite}
+.wy-packet.slow{animation-duration:7.5s}.wy-packet.late{animation-delay:-2.4s}
+.wy-star{animation:wy-twinkle 3.6s ease-in-out infinite}
+.wy-rise{animation:wy-rise .6s cubic-bezier(.2,.7,.2,1) both}
+.wy-rise.d1{animation-delay:.08s}.wy-rise.d2{animation-delay:.16s}.wy-rise.d3{animation-delay:.24s}.wy-rise.d4{animation-delay:.32s}
+.wy-shake{animation:wy-shake .45s both}
+.wy-spinner{animation:wy-spin .9s linear infinite;transform-origin:center}
+.wy-bar{animation:wy-bar 1.4s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.wy-crawl>span,.wy-mark circle,.wy-spine,.wy-packet,.wy-star,.wy-rise,.wy-shake,.wy-spinner,.wy-bar{animation:none!important}}
+</style>
+</helmet>
+<div style="position: relative; min-height: 100vh; background: #0E1113; color: #ECE9E1; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; display: flex; flex-wrap: wrap; overflow: hidden; -webkit-font-smoothing: antialiased">
+<!-- Hero: the network, alive -->
+<section aria-label="WYRM Studio" style="position: relative; flex: 1 1 560px; min-width: 0; min-height: 420px; display: flex; flex-direction: column; justify-content: space-between; padding: 40px 48px; box-sizing: border-box; background: radial-gradient(120% 90% at 20% 30%, #1A1511 0%, #0E1113 60%); border-right: 1px solid #1D2226; overflow: hidden">
+<svg aria-hidden="true" viewBox="0 0 900 900" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%">
+<g fill="#252B30"><sc-for list="{{stars}}" as="s" hint-placeholder-count="30"><circle class="wy-star" cx="{{s.x}}" cy="{{s.y}}" r="{{s.r}}" style="animation-delay: {{s.d}}"></circle></sc-for></g>
+<g fill="none" stroke="#2A2F33" stroke-width="1.2"><sc-for list="{{edges}}" as="e" hint-placeholder-count="10"><path d="{{e.d}}"></path></sc-for></g>
+<g fill="none" stroke-width="2.4" stroke-linecap="round"><sc-for list="{{edges}}" as="e" hint-placeholder-count="10"><path class="{{e.cls}}" d="{{e.d}}" stroke="{{e.c}}"></path></sc-for></g>
+<g><sc-for list="{{nodes}}" as="n" hint-placeholder-count="9"><circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.r}}" fill="#13171A" stroke="{{n.c}}" stroke-width="1.6"></circle><circle cx="{{n.x}}" cy="{{n.y}}" r="{{n.core}}" fill="{{n.c}}" opacity="0.9"></circle></sc-for></g>
+</svg>
+
+<a href="#form" style="position: relative; display: flex; align-items: center; gap: 12px; color: #ECE9E1; text-decoration: none" class="wy-rise">
+<svg width="44" height="26" viewBox="0 0 44 26" aria-hidden="true"><circle cx="4" cy="17" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="13" cy="9" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="23" cy="6" r="4" fill="#E8893A"></circle><circle cx="33" cy="11" r="3.5" fill="none" stroke="#E8893A" stroke-width="2"></circle><circle cx="40" cy="20" r="3" fill="none" stroke="#E8893A" stroke-width="2"></circle></svg>
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 18px; letter-spacing: 0.08em">WYRM</span>
+<span style="font-size: 15px; color: #A3ABAF">Studio</span>
+</a>
+
+<div style="position: relative; display: flex; flex-direction: column; gap: 22px; max-width: 520px">
+<svg class="wy-mark" width="220" height="130" viewBox="0 0 220 130" aria-hidden="true">
+<path class="wy-spine" d="M20 85 C 45 50, 65 45, 70 45 S 105 25, 115 30 S 155 40, 165 55 S 190 95, 200 100" fill="none" stroke="#5A3E25" stroke-width="2" stroke-linecap="round"></path>
+<circle cx="20" cy="85" r="14" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="65" cy="45" r="17" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="115" cy="30" r="20" fill="#E8893A"></circle>
+<circle cx="165" cy="55" r="17" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+<circle cx="200" cy="100" r="14" fill="#0E1113" stroke="#E8893A" stroke-width="5"></circle>
+</svg>
+<h1 class="wy-rise d1" style="margin: 0; font-size: 40px; line-height: 1.12; font-weight: 600; letter-spacing: -0.02em">Every device, link and site<br><span style="color: #F3A766">in one living tree.</span></h1>
+<p class="wy-rise d2" style="margin: 0; font-size: 16px; line-height: 1.6; color: #A3ABAF">Browse what your brokers hold, add links, let devices in, connect sites and build flows. Nothing changes until you apply it.</p>
+</div>
+
+<div class="wy-rise d3" style="position: relative; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #8E979C">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #6CC4B0"></span>values flowing</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #E8893A"></span>commands</span>
+<span>The animation is decoration; it stops when the system asks for less motion.</span>
+</div>
+</section>
+
+<!-- Form panel: biometric unlock -->
+<main id="form" style="position: relative; flex: 0 1 520px; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 40px 32px; box-sizing: border-box; background: #0E1113">
+<div style="width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 22px">
+
+<sc-if value="{{isOffer}}" hint-placeholder-val="{{false}}">
+<div class="wy-rise" style="display: flex; flex-direction: column; gap: 18px">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #6CC4B0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Logged in to plant as olena · engineer</span>
+<div style="display: flex; align-items: center; justify-content: center; width: 84px; height: 84px; border-radius: 24px; background: #1E1813; border: 1px solid #5A3E25; color: #F3A766">
+<sc-if value="{{iconFinger}}" hint-placeholder-val="{{true}}"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M2 16h.01"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"></path></svg></sc-if>
+<sc-if value="{{iconFace}}" hint-placeholder-val="{{false}}"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></sc-if>
+<sc-if value="{{iconKey}}" hint-placeholder-val="{{false}}"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M10.85 12.15 19 4M18 5l2 2M15 8l2 2"></path></svg></sc-if>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">{{offerTitle}}</h2>
+<p style="margin: 0; color: #A3ABAF; line-height: 1.55">{{offerText}}</p>
+</div>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #C5CBCE">
+<sc-for list="{{offerFacts}}" as="f" hint-placeholder-count="3"><li style="display: flex; gap: 10px; line-height: 1.45"><span style="flex: none; width: 6px; height: 6px; margin-top: 7px; border-radius: 50%; background: {{f.dot}}"></span><span>{{f.t}}</span></li></sc-for>
+</ul>
+<sc-if value="{{canOffer}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<button type="button" onClick="{{enable}}" style="height: 50px; border-radius: 10px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer">{{enableLabel}}</button>
+<div style="display: flex; gap: 10px">
+<button type="button" onClick="{{skip}}" style="flex: 1; height: 42px; border-radius: 10px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 14px; cursor: pointer">Not now</button>
+<button type="button" onClick="{{skip}}" style="flex: 1; height: 42px; border-radius: 10px; border: 1px solid #252B30; background: transparent; color: #A3ABAF; font-family: inherit; font-size: 14px; cursor: pointer">Don’t ask on this computer</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{cannotOffer}}" hint-placeholder-val="{{false}}">
+<button type="button" onClick="{{skip}}" style="height: 50px; border-radius: 10px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer">Open Studio</button>
+</sc-if>
+<span style="font-size: 12px; color: #8E979C; line-height: 1.5">{{policyLine}}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{isAccount}}" hint-placeholder-val="{{true}}">
+<div class="wy-rise" style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.01em">{{accTitle}}</h2>
+<p style="margin: 0; color: #A3ABAF">{{accSub}}</p>
+</div>
+
+<sc-if value="{{hasNotice}}" hint-placeholder-val="{{false}}">
+<div role="status" class="wy-rise" style="display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 10px; border: 1px solid {{noticeBorder}}; background: {{noticeBg}}">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: {{noticeInk}}">{{noticeTitle}}</span>
+<span style="font-size: 13px; color: #A3ABAF; line-height: 1.5">{{noticeText}}</span>
+<sc-if value="{{showReasons}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Why (prototype)" style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px">
+<sc-for list="{{reasons}}" as="r" hint-placeholder-count="4"><button type="button" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid {{r.border}}; background: {{r.bg}}; color: {{r.ink}}; font-family: inherit; font-size: 12px; cursor: pointer">{{r.t}}</button></sc-for>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<div class="wy-rise d1" style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; border: 1px solid #252B30; background: #13171A">
+<span style="flex: none; width: 44px; height: 44px; border-radius: 50%; background: #2A1F16; color: #F3A766; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px">OL</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<span style="font-size: 15px; font-weight: 600">olena <span style="font-weight: 400; color: #A3ABAF">· engineer on plant</span></span>
+<span style="display: flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8E979C"><span style="width: 6px; height: 6px; border-radius: 50%; background: #6CC4B0"></span>plant.local:8446 + standby</span>
+</div>
+<span style="font-size: 12px; color: #8E979C; text-align: right">{{lastUsed}}</span>
+</div>
+
+<sc-if value="{{showBio}}" hint-placeholder-val="{{true}}">
+<div class="wy-rise d2" style="display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 6px 0">
+<button type="button" onClick="{{unlock}}" aria-label="{{unlockLabel}}" style="position: relative; width: 104px; height: 104px; border-radius: 50%; border: 1.5px solid {{bioRing}}; background: {{bioBg}}; color: {{bioInk}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<sc-if value="{{iconFinger}}" hint-placeholder-val="{{true}}"><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M2 16h.01"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"></path></svg></sc-if>
+<sc-if value="{{iconFace}}" hint-placeholder-val="{{false}}"><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></sc-if>
+<sc-if value="{{bioBusy}}" hint-placeholder-val="{{false}}"><svg class="wy-spinner" width="116" height="116" viewBox="0 0 24 24" fill="none" stroke="#E8893A" stroke-width="0.8" stroke-linecap="round" aria-hidden="true" style="position: absolute; inset: -7px"><path d="M12 1.5a10.5 10.5 0 1 0 10.5 10.5"></path></svg></sc-if>
+</button>
+<span style="font-size: 15px; font-weight: 600">{{unlockLabel}}</span>
+<span style="font-size: 12px; color: {{bioNoteInk}}">{{bioNote}}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{showPw}}" hint-placeholder-val="{{false}}">
+<form onSubmit="{{submitPw}}" class="wy-rise d2" style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="pw" style="font-size: 13px; color: #C5CBCE">Password for olena</label>
+<div style="display: flex; align-items: center; height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid #5A3E25; background: #161A1D; box-sizing: border-box">
+<input id="pw" type="password" value="correct-horse" autocomplete="current-password" style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #ECE9E1; font-family: inherit; font-size: 15px; letter-spacing: 0.2em">
+</div>
+</div>
+<sc-if value="{{showReEnable}}" hint-placeholder-val="{{true}}">
+<label style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #C5CBCE"><input type="checkbox" checked="{{reEnable}}" onChange="{{toggleReEnable}}" style="width: 16px; height: 16px; accent-color: #E8893A">{{reEnableLabel}}</label>
+</sc-if>
+<button type="submit" style="height: 50px; border-radius: 10px; border: 0; background: #E8893A; color: #0E1113; font-family: inherit; font-size: 16px; font-weight: 600; cursor: pointer">Log in</button>
+</form>
+</sc-if>
+
+<div class="wy-rise d3" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px; font-size: 13px">
+<sc-if value="{{showUsePw}}" hint-placeholder-val="{{true}}"><button type="button" onClick="{{usePw}}" style="border: 0; background: transparent; padding: 0; color: #C5CBCE; font-family: inherit; font-size: 13px; text-decoration: underline; cursor: pointer">Use the password</button></sc-if>
+<button type="button" onClick="{{other}}" style="border: 0; background: transparent; padding: 0; color: #C5CBCE; font-family: inherit; font-size: 13px; text-decoration: underline; cursor: pointer">Another account or gateway</button>
+</div>
+
+<div class="wy-rise d4" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 14px; border-top: 1px solid #1D2226; font-size: 12px; color: #8E979C">
+<span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6CC4B0" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 11h12v9H6zM8 11V7a4 4 0 0 1 8 0v4"></path></svg>{{keyLine}}</span>
+<span style="margin-left: auto">Studio 1.0 · English</span>
+</div>
+</sc-if>
+</div>
+
+<!-- The system's own prompt (drawn by the OS, shown here for the flow) -->
+<sc-if value="{{isPrompt}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: rgba(8,10,11,0.55); display: flex; align-items: center; justify-content: center">
+<div role="dialog" aria-label="{{osTitle}}" style="width: 300px; padding: 22px 22px 18px; border-radius: {{osRadius}}; background: {{osBg}}; border: 1px solid {{osBorder}}; box-shadow: 0 24px 60px rgba(0,0,0,0.55); display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; font-family: {{osFont}}">
+<span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #8E979C">{{osTitle}}</span>
+<span style="width: 64px; height: 64px; border-radius: 50%; border: 2px solid {{osAccent}}; color: {{osAccent}}; display: flex; align-items: center; justify-content: center">
+<sc-if value="{{iconFinger}}" hint-placeholder-val="{{true}}"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"></path><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"></path><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M9 6.8a6 6 0 0 1 9 5.2c0 .47 0 1.17-.02 2"></path></svg></sc-if>
+<sc-if value="{{iconFace}}" hint-placeholder-val="{{false}}"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><path d="M9 9h.01"></path><path d="M15 9h.01"></path></svg></sc-if>
+</span>
+<span style="font-size: 14px; color: #ECE9E1; line-height: 1.45"><b>WYRM Studio</b> wants to sign in to <b>plant</b> as <b>olena</b>.</span>
+<span style="font-size: 12px; color: #A3ABAF">{{osHint}}</span>
+<div style="display: flex; gap: 8px; width: 100%; padding-top: 4px">
+<button type="button" onClick="{{cancelPrompt}}" style="flex: 1; height: 32px; border-radius: 7px; border: 1px solid #3A4249; background: transparent; color: #ECE9E1; font-family: inherit; font-size: 13px; cursor: pointer">Cancel</button>
+<button type="button" onClick="{{passPrompt}}" style="flex: 1; height: 32px; border-radius: 7px; border: 0; background: {{osAccent}}; color: #0E1113; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">{{osOk}}</button>
+</div>
+<span style="font-size: 11px; color: #5A6168">prototype: drawn by the system, not by Studio</span>
+</div>
+</div>
+</sc-if>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stage":{"editor":"enum","default":"unlock","options":["offer","unlock","prompt","fallback","changed","signedout"]},"platform":{"editor":"enum","default":"mac","options":["mac","windows","linux","ios","android"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { (this._t || []).forEach((t) => clearTimeout(t)); }
+  renderVals() {
+    const st = this.state || {};
+    const pr = this.props;
+    const set = (o) => this.setState(o);
+    const TEAL = '#6CC4B0', AMBER = '#E2C15A', CORAL = '#E07A5F', ACC = '#E8893A';
+    const stage = st.stage || pr.stage || 'unlock';
+    const platform = st.platform || pr.platform || 'mac';
+    const reason = st.reason || 'revoked';
+    const reEnable = st.reEnable !== undefined ? st.reEnable : true;
+    this._t = this._t || [];
+
+    // Hero network: decorative, seeded so it is the same every time
+    let seed = 7; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    const stars = Array.from({ length: 34 }, () => ({ x: Math.round(rnd() * 900), y: Math.round(rnd() * 900), r: (0.8 + rnd() * 1.4).toFixed(1), d: (rnd() * 3.6).toFixed(2) + 's' }));
+    const N = [[150, 640], [300, 560], [470, 610], [620, 520], [770, 600], [380, 740], [560, 760], [700, 720], [240, 780]];
+    const nodes = N.map((p, i) => ({ x: p[0], y: p[1], r: i === 2 ? 11 : 8, core: i === 2 ? 4 : 3, c: i === 2 ? ACC : (i % 3 === 0 ? '#3A4249' : TEAL) }));
+    const E = [[0, 1], [1, 2], [2, 3], [3, 4], [1, 5], [5, 6], [6, 7], [2, 6], [0, 8], [8, 5], [4, 7]];
+    const edges = E.map((e, i) => { const a = N[e[0]], b = N[e[1]], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - 40;
+      return { d: 'M' + a[0] + ' ' + a[1] + ' Q ' + mx + ' ' + my + ' ' + b[0] + ' ' + b[1], c: i % 4 === 3 ? ACC : TEAL, cls: 'wy-packet' + (i % 2 ? ' slow' : '') + (i % 3 === 0 ? ' late' : '') }; });
+
+    const P = {
+      mac: { name: 'Touch ID', icon: 'finger', store: 'this Mac’s Secure Enclave', device: 'this Mac', osTitle: 'Touch ID', osHint: 'Touch the sensor to allow this.', osOk: 'Simulate a touch', osBg: '#2A2D30', osBorder: '#3E4246', osRadius: '14px', osFont: "-apple-system, 'IBM Plex Sans', sans-serif", osAccent: '#E8893A' },
+      windows: { name: 'Windows Hello', icon: 'face', store: 'this PC’s TPM', device: 'this PC', osTitle: 'Windows Security', osHint: 'Face, fingerprint or your Windows Hello PIN.', osOk: 'Simulate Hello', osBg: '#202020', osBorder: '#3A3A3A', osRadius: '8px', osFont: "'Segoe UI', 'IBM Plex Sans', sans-serif", osAccent: '#6CC4B0' },
+      linux: { name: 'biometrics', icon: 'key', store: '', device: 'this computer', osTitle: '', osHint: '', osOk: '', osBg: '#202020', osBorder: '#3A3A3A', osRadius: '8px', osFont: 'inherit', osAccent: ACC },
+      ios: { name: 'Face ID', icon: 'face', store: 'this iPhone’s Secure Enclave', device: 'this iPhone', osTitle: 'Face ID', osHint: 'Look at the iPhone.', osOk: 'Simulate a look', osBg: '#2A2D30', osBorder: '#3E4246', osRadius: '14px', osFont: "-apple-system, 'IBM Plex Sans', sans-serif", osAccent: ACC },
+      android: { name: 'fingerprint', icon: 'finger', store: 'this phone’s hardware keystore', device: 'this phone', osTitle: 'Unlock WYRM Studio', osHint: 'Touch the fingerprint sensor.', osOk: 'Simulate a touch', osBg: '#1F2326', osBorder: '#353B40', osRadius: '20px', osFont: "Roboto, 'IBM Plex Sans', sans-serif", osAccent: TEAL }
+    }[platform];
+    const noBio = platform === 'linux';
+    const ui = (stage === 'unlock' || stage === 'prompt') && noBio ? 'fallback' : stage;
+
+    const R = {
+      revoked: ['Removed by an administrator', 'ivan removed ' + P.device + ' from your devices on 12 Nov. Log in with the password; you can turn ' + P.name + ' on again after.', true],
+      due: ['plant asks for the password every 30 days', 'It was 30 days since the last password here. ' + P.name + ' works again after this login.', true],
+      changed: ['Your password changed', 'A new password signs out every device. Log in with the new one.', true],
+      off: ['plant no longer allows unlocking with biometrics', 'An administrator turned devices off on this gateway. Studio removed its key; log in with the password.', false]
+    };
+    const notices = {
+      fallback: noBio
+        ? ['No biometric unlock on this computer', 'Linux has no system prompt Studio can bind a key to, so this computer always asks for the password.', '#2F373D', '#13171A', '#C5CBCE', false]
+        : [P.name + ' did not match 3 times', 'Log in with the password. ' + P.name + ' stays on for the next time.', '#6A5A2A', '#1A1810', AMBER, false],
+      changed: [P.name + ' was turned off for this account', 'The ' + (P.icon === 'face' ? 'faces' : 'fingerprints') + ' on ' + P.device + ' changed, so the key Studio kept no longer opens. Someone with the new ' + (P.icon === 'face' ? 'face' : 'finger') + ' cannot sign in as you.', '#6A5A2A', '#1A1810', AMBER, false],
+      signedout: [R[reason][0], R[reason][1], '#5A3328', '#1C1513', '#F0A28D', true]
+    };
+    const n = notices[ui];
+    const reasons = [['revoked', 'removed'], ['due', '30 days'], ['changed', 'password changed'], ['off', 'policy off']].map((r) => { const on = r[0] === reason;
+      return { t: r[1], on: on ? 'true' : 'false', border: on ? '#5A3E25' : '#2F373D', bg: on ? '#1E1813' : 'transparent', ink: on ? '#F6C59A' : '#A3ABAF', pick: () => set({ reason: r[0] }) }; });
+
+    const showPw = ui === 'fallback' || ui === 'changed' || ui === 'signedout';
+    const canReEnable = !noBio && !(ui === 'signedout' && !R[reason][2]);
+    const unlock = () => { set({ stage: 'prompt' }); };
+    const passPrompt = () => { set({ stage: 'unlock', busy: true }); this._t.push(setTimeout(() => this.setState({ busy: false, stage: 'unlock', ok: true }), 900)); };
+    const bioBusy = !!st.busy;
+
+    const offerFacts = noBio
+      ? [{ t: 'Studio remembers the gateway and the user, never the password.', dot: TEAL }, { t: 'On a computer with a fingerprint reader, use macOS or Windows to unlock with it.', dot: '#5A6168' }]
+      : [{ t: 'One key for olena on plant, made inside ' + P.store + '. It never leaves it; Studio never keeps your password.', dot: TEAL },
+        { t: 'Works with plant and its standby edge.local. Other gateways ask for their own.', dot: TEAL },
+        { t: 'It ends when the ' + (P.icon === 'face' ? 'faces' : 'fingerprints') + ' here change, when your password changes, or when an administrator removes this device.', dot: AMBER },
+        { t: 'plant asks for the password once every 30 days.', dot: '#5A6168' }];
+
+    return {
+      stars, nodes, edges, reasons,
+      iconFinger: P.icon === 'finger', iconFace: P.icon === 'face', iconKey: P.icon === 'key',
+      isOffer: ui === 'offer', isAccount: ui !== 'offer', isPrompt: stage === 'prompt' && !noBio,
+      canOffer: !noBio, cannotOffer: noBio,
+      offerTitle: noBio ? 'This computer has no biometric unlock' : 'Unlock with ' + P.name + ' next time?',
+      offerText: noBio ? 'Studio can only bind a key to Touch ID, Face ID, Windows Hello or an Android fingerprint. Here it will ask for the password each time.' : 'Instead of the password, ' + P.name + ' opens a key that proves to plant it is you on ' + P.device + '.',
+      offerFacts, enableLabel: 'Use ' + P.name, policyLine: 'plant allows it: biometric devices on, up to 5 per user (gateway.devices). You can turn it off in the account menu › Security.',
+      accTitle: ui === 'unlock' || ui === 'prompt' ? 'Welcome back' : 'Log in',
+      accSub: ui === 'unlock' || ui === 'prompt' ? 'Unlock to open the tree of plant.' : 'to plant’s gateway.',
+      hasNotice: !!n, noticeTitle: n ? n[0] : '', noticeText: n ? n[1] : '', noticeBorder: n ? n[2] : '#2F373D', noticeBg: n ? n[3] : '#13171A', noticeInk: n ? n[4] : '#C5CBCE', showReasons: n ? n[5] : false,
+      lastUsed: noBio ? 'password' : P.name + ' · 2 h ago',
+      showBio: !showPw, showPw, showUsePw: !showPw,
+      unlockLabel: 'Unlock with ' + P.name, unlock, bioBusy,
+      bioRing: bioBusy ? '#E8893A' : '#5A3E25', bioBg: '#1E1813', bioInk: '#F3A766',
+      bioNote: st.ok ? '✓ Signed in · opening the tree…' : (bioBusy ? 'Checking the key with plant…' : 'Or press Enter'), bioNoteInk: st.ok ? TEAL : '#8E979C',
+      showReEnable: canReEnable, reEnable, toggleReEnable: () => set({ reEnable: !reEnable }),
+      reEnableLabel: 'Turn ' + P.name + ' on again after I log in',
+      submitPw: (e) => { if (e && e.preventDefault) e.preventDefault(); set({ stage: 'unlock', busy: false, ok: true }); },
+      usePw: () => set({ stage: 'fallback' }), other: () => set({ stage: 'unlock', ok: false }),
+      keyLine: noBio || ui === 'changed' || ui === 'signedout' ? 'TLS · certificate of the plant CA' : 'Key in ' + P.store + ' · added 3 Nov',
+      enable: () => set({ stage: 'unlock', ok: false }), skip: () => set({ stage: 'unlock', ok: false }),
+      osTitle: P.osTitle, osHint: P.osHint, osOk: P.osOk, osBg: P.osBg, osBorder: P.osBorder, osRadius: P.osRadius, osFont: P.osFont, osAccent: P.osAccent,
+      cancelPrompt: () => set({ stage: 'unlock' }), passPrompt
+    };
+  }
+}
+</script>
+</body>
+</html>

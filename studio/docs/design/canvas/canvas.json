@@ -881,6 +881,138 @@
    "h": 900,
    "title": "Restore from a backup · checks, sections, replace or add",
    "expand": "fill"
+  },
+  "UnlockOffer.dc.html": {
+   "x": 0,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 1 · After the first password: offer Touch ID",
+   "expand": "fill"
+  },
+  "Unlock.dc.html": {
+   "x": 1520,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 2 · Welcome back (clickable: unlock → prompt → in)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "UnlockPrompt.dc.html": {
+   "x": 3040,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 3 · The system prompt (macOS)",
+   "expand": "fill"
+  },
+  "UnlockWindows.dc.html": {
+   "x": 4560,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 3 · The system prompt (Windows Hello)",
+   "expand": "fill"
+  },
+  "UnlockFallback.dc.html": {
+   "x": 6080,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 4 · 3 misses or cancel → password",
+   "expand": "fill"
+  },
+  "UnlockChanged.dc.html": {
+   "x": 7600,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 5 · Fingerprints changed → key gone",
+   "expand": "fill"
+  },
+  "UnlockSignedOut.dc.html": {
+   "x": 9120,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · 6 · Signed out by the gateway (4 reasons, clickable)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "UnlockLinux.dc.html": {
+   "x": 10640,
+   "y": 21020,
+   "w": 1440,
+   "h": 1000,
+   "title": "Unlock · Linux: never offered",
+   "expand": "fill"
+  },
+  "UnlockLock.dc.html": {
+   "x": 0,
+   "y": 22120,
+   "w": 1440,
+   "h": 1000,
+   "title": "Inside Studio · locked after idle",
+   "expand": "fill"
+  },
+  "UnlockStepUp.dc.html": {
+   "x": 1520,
+   "y": 22120,
+   "w": 1440,
+   "h": 1000,
+   "title": "Inside Studio · confirm a config change (step-up)",
+   "expand": "fill"
+  },
+  "UnlockApp.dc.html": {
+   "x": 3040,
+   "y": 22120,
+   "w": 1440,
+   "h": 1000,
+   "title": "Inside Studio · Account › Security, your devices (clickable)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "UnlockPlatforms.dc.html": {
+   "x": 4560,
+   "y": 22120,
+   "w": 1440,
+   "h": 1300,
+   "title": "Biometrics on every platform: names, keys, fallbacks, rules",
+   "expand": "fill"
+  },
+  "Discover.dc.html": {
+   "x": 0,
+   "y": 23620,
+   "w": 1440,
+   "h": 1000,
+   "title": "Find · gateways on this network (clickable: pick, Look again)",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "DiscoverScan.dc.html": {
+   "x": 1520,
+   "y": 23620,
+   "w": 1440,
+   "h": 1000,
+   "title": "Find · looking",
+   "expand": "fill"
+  },
+  "DiscoverTrust.dc.html": {
+   "x": 3040,
+   "y": 23620,
+   "w": 1440,
+   "h": 1000,
+   "title": "Find · first time: compare the certificate code",
+   "expand": "fill"
+  },
+  "DiscoverNone.dc.html": {
+   "x": 4560,
+   "y": 23620,
+   "w": 1440,
+   "h": 1000,
+   "title": "Find · nothing found: why, and probe a range",
+   "expand": "fill"
   }
  },
  "order": [
@@ -984,7 +1116,23 @@
   "Backup.dc.html",
   "BackupProgress.dc.html",
   "BackupDone.dc.html",
-  "BackupRestore.dc.html"
+  "BackupRestore.dc.html",
+  "UnlockOffer.dc.html",
+  "Unlock.dc.html",
+  "UnlockPrompt.dc.html",
+  "UnlockWindows.dc.html",
+  "UnlockFallback.dc.html",
+  "UnlockChanged.dc.html",
+  "UnlockSignedOut.dc.html",
+  "UnlockLinux.dc.html",
+  "UnlockLock.dc.html",
+  "UnlockStepUp.dc.html",
+  "UnlockApp.dc.html",
+  "UnlockPlatforms.dc.html",
+  "Discover.dc.html",
+  "DiscoverScan.dc.html",
+  "DiscoverTrust.dc.html",
+  "DiscoverNone.dc.html"
  ],
  "notes": {
   "t-screens": {
@@ -1305,6 +1453,20 @@
    "text": "Updates, restore points, backups",
    "kind": "title1",
    "maxW": 7520
+  },
+  "t-access": {
+   "x": 0,
+   "y": 20760,
+   "text": "Log in, part 2: biometric unlock on every platform, and finding a gateway on this network",
+   "kind": "title1",
+   "maxW": 12000
+  },
+  "n-access": {
+   "x": 12160,
+   "y": 21020,
+   "w": 560,
+   "fill": "orange",
+   "text": "What this decides\n\n• Biometrics never replace the gateway's check: a key made in secure hardware (Secure Enclave, TPM, Android Keystore) signs a gateway challenge; the gateway keeps only its public half per user and device.\n• The gateway's policy (gateway.devices) says if it is allowed, how many devices, password every N days, idle lock, step-up for config.\n• Every way it can end has its own message and a way back to the password.\n• Linux and the kiosk never offer it.\n\nFind on this network: wyrmd announces its gateway by DNS-SD (_wyrm._tcp); Studio lists sites, pairs active + standby, pins a new CA only after the person compares its code."
   }
  },
  "designSystems": []
