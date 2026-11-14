@@ -451,6 +451,21 @@ async fn claude_signs_in_and_works_through_the_mcp_endpoint() {
         json!({ "read_only": false, "allow_config": false })
     );
 
+    // approving an agent's plan is for a person (ADR 0049): refused before anything is
+    // read or sent, a dry run too
+    for dry_run in [true, false] {
+        let (e, r) = env
+            .call(
+                &access,
+                &sid,
+                "action_invoke",
+                json!({ "path": "downstream/agent/tasks/1", "action": "approve",
+                        "args": { "steps": [1], "plan": "h" }, "dry_run": dry_run }),
+            )
+            .await;
+        assert!(e && r.as_str().unwrap().contains("for a person"), "{r}");
+    }
+
     let (e, w) = env
         .call(
             &access,

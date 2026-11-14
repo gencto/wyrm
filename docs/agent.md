@@ -118,6 +118,28 @@ is the hash of the plan you read: SHA-256 (hex) of the canonical CBOR of `~state
 step without `approval`, `check`, `warn`, `reason`, `result` (`planHash` in `wyrm_client`).
 A step outside your grants refuses the whole call and names the step and the right.
 
+The gateway signs only:
+
+- for a person's own session. A session of an MCP client (the Claude connector, `/mcp`) is
+  refused, and the connector itself never sends `approve` for a task: approve in Studio.
+- for a task of an agent link of the gateway's own site, as the broker's registry knows it
+  (driver `agent`). A task on a downstream site is refused for now: approve it through that
+  site's gateway, or with your own tokens.
+
+### An approval does not wait
+
+An approval token is made when you approve and is good for a few minutes (5 min from the
+gateway; never more than 15 min, spec 04). The run sends each step in its turn, after the
+waits of the proof steps before it. So:
+
+- The link takes no step that needs a person into a plan when the waits before it
+  (`wait`/`expect` timeouts, `sleep`) add up to more than 240 s. The model is told to shorten
+  the waits or to end the plan there.
+- ▸ **Approve** is refused, and the task keeps waiting, when a token cannot outlive the waits
+  before its step plus 30 s. Leave the step out; it is `skipped`.
+- Ask for the rest as a follow-up (`ask {parent}`) when the plan is done, and approve it then.
+  A token is never made for later.
+
 The gateway op `doc {key, suffix: "~state"}` reads the record.
 
 ### What a task shows

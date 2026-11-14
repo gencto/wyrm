@@ -1425,6 +1425,94 @@ async fn a_follow_up_ask_carries_its_parent_and_the_attached_keys() {
     env.stop().await;
 }
 
+/// Review of ADR 0049 §2: an approval is a short-lived token made when the person approves
+/// and spent when its step is sent. A step that needs a person is not taken into a plan
+/// behind waits longer than an approval lives, and an approval that cannot outlive the
+/// waits before its step is refused while the task still waits (the person leaves the
+/// step for a follow-up), never found dead at the step.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_approval_must_outlive_the_waits_before_its_step() {
+    let set = |v: u64| json!({"op": "set", "path": "downstream/mock/p1", "value": v});
+    let script = vec![
+        // 1. a sleep longer than an approval lives: the set after it is not taken
+        tool_use(&[
+            ("t0", "propose", set(5)),
+            ("t1", "propose", json!({"op": "sleep", "seconds": 250})),
+            ("t2", "propose", set(6)),
+        ]),
+        end("Plan."),
+        // 2. a wait an approval of 5 min outlives, and one of 60 s does not
+        tool_use(&[
+            (
+                "t1",
+                "propose",
+                json!({"op": "wait", "path": "downstream/mock/p0", "timeout_s": 40}),
+            ),
+            ("t2", "propose", set(7)),
+        ]),
+        end("Plan."),
+    ];
+    let env = Env::start(params(&["downstream/mock"]), script).await;
+    let human = env.human(Perm::Config);
+    let k1 = "wy/test/downstream/mock/p1/~set";
+
+    let (id, _) = env.ask("sleep, then set").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(plan_len(&doc), 2, "the second set is no step: {doc:?}");
+    // the model is told why, in the answer to its proposal
+    let refusal = env.llm.seen()[1].to_string();
+    assert!(
+        refusal.contains("add up to 250 s") && refusal.contains("follow-up"),
+        "{refusal}"
+    );
+
+    let (id, _) = env.ask("wait, then set").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(plan_len(&doc), 2);
+    // the tokens of this file live 60 s: 40 s of waits and the margin do not fit
+    let e = env
+        .task_action(
+            &human,
+            &id,
+            "approve",
+            approvals(&[("2", human_token("user:op", k1))]),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    assert!(
+        e.message.contains("step 2 may be sent 40 s after") && e.message.contains("follow-up"),
+        "{e}"
+    );
+    assert_eq!(
+        field(&env.task(&id), "state").as_deref(),
+        Some("awaiting_approval")
+    );
+    // one that lives as long as the gateway's does
+    let long = SigningTokens::new(test_key(), SITE)
+        .subject("user:op")
+        .ttl(Duration::from_secs(300))
+        .token(k1)
+        .unwrap();
+    env.task_action(&human, &id, "approve", approvals(&[("2", long)]))
+        .await
+        .unwrap();
+    env.wait_state(&id, "done").await;
+
+    // `steps` alone is the form of a gateway user: no gateway signed these
+    let args = Value::Map(BTreeMap::from([(
+        "steps".to_owned(),
+        Value::Array(vec![Value::UInt(1)]),
+    )]));
+    let e = env
+        .task_action(&human, &id, "approve", args)
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    assert!(e.message.contains("gateway"), "{e}");
+    env.stop().await;
+}
+
 /// Review of ADR 0049 §3: `approve` is `write` on the task, so a caller who is neither the
 /// asker nor a `config` caller may call it. Such a caller decides only for the steps they
 /// sign: a step without their token is skipped, never run with the agent's key. The asker

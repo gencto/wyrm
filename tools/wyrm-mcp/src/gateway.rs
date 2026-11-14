@@ -352,6 +352,20 @@ impl GatewayMcp {
         r
     }
 
+    /// Approving a plan of the agent link is a human act (ADR 0049): this connector never
+    /// asks the gateway to sign the steps of a plan (`approve {steps}`), whatever its
+    /// switches are. The level of `approve` is `write`, but the steps it lets run may be
+    /// `config`, and they would run in the person's name.
+    fn no_approvals(key: &str, action: &str) -> Result<(), String> {
+        if action == "approve" && key.split('/').rev().nth(1) == Some("tasks") {
+            return Err(format!(
+                "{key}: approving a plan is for a person. Nothing was sent: ask the person to \
+                 read the plan and approve it in Studio."
+            ));
+        }
+        Ok(())
+    }
+
     /// The session's switches, before anything is sent. `level` is what the request needs.
     fn gate(&self, s: &Session, key: &str, level: Perm) -> Result<(), String> {
         if s.read_only {
@@ -528,6 +542,7 @@ impl GatewayMcp {
         let sess = self.live(ext).await?;
         let (c, me) = (sess.conn.clone(), sess.me.clone());
         let key = full_key(&me.site, &p.path, false)?;
+        Self::no_approvals(&key, &p.action)?;
         let m = c.meta(&key).await.map_err(|e| e.to_string())?;
         if m == NodeMeta::default() {
             return Err(format!("{key}: no such node (or not visible to this user)"));
@@ -589,6 +604,7 @@ impl GatewayMcp {
         };
         Ok(match step {
             Step::Invoke { key, action, .. } => {
+                Self::no_approvals(key, action)?;
                 let (k, m) = meta(key.clone()).await?;
                 // a node that is not there yet: the strictest level until it is
                 let level = crate::check::action_level(&m, action).unwrap_or(Perm::Config);
@@ -869,6 +885,18 @@ mod tests {
             assert!(full_key("edge", bad, false).is_err(), "{bad}");
         }
         assert!(full_key("edge", "down*/x", true).is_err());
+    }
+
+    /// ADR 0049: the connector never asks for the steps of an agent's plan to be signed.
+    #[test]
+    fn approving_a_plan_is_not_for_the_connector() {
+        let task = "wy/edge/downstream/agent/tasks/7";
+        let e = GatewayMcp::no_approvals(task, "approve").unwrap_err();
+        assert!(e.contains("for a person"), "{e}");
+        // the other actions of a task, and an `approve` of something that is no task
+        assert!(GatewayMcp::no_approvals(task, "reject").is_ok());
+        assert!(GatewayMcp::no_approvals(task, "cancel").is_ok());
+        assert!(GatewayMcp::no_approvals("wy/edge/downstream/erp/orders", "approve").is_ok());
     }
 
     #[test]

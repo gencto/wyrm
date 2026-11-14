@@ -93,6 +93,12 @@ impl Caller {
     /// token carries the rights of a person (`auth`, spec 04), their grant
     /// there. The token's own `grants` are left out: a client narrows them to
     /// the request key. No token, nothing.
+    ///
+    /// The person's grants are read as every evaluator reads grants (spec 04,
+    /// `wyrm_core::ptok::level_on`): the first grant that touches `key`
+    /// decides, so a `none` before a wider grant is a `none` here too. The
+    /// signer's scopes are caps, not grants: the widest scope that covers
+    /// `key` counts.
     pub fn perm_on(&self, key: &str) -> Perm {
         let Some(c) = &self.claims else {
             return Perm::None;
@@ -111,12 +117,9 @@ impl Caller {
         };
         let person = match &c.auth {
             None => Perm::Config,
-            Some(auth) => auth
-                .iter()
-                .filter(|g| keyexpr::new(&g.k).is_ok_and(|g| g.intersects(ke)))
-                .map(|g| g.p)
-                .max()
-                .unwrap_or(Perm::None),
+            Some(auth) => {
+                wyrm_core::ptok::level_on(auth.iter().map(|g| (g.k.as_str(), g.p)), ke.as_str())
+            }
         };
         c.max.min(cap).min(person)
     }
@@ -419,6 +422,25 @@ mod tests {
         assert_eq!(user.perm_on("wy/s/storage/dvpsm/cmd"), Perm::Write);
         assert_eq!(user.perm_on("wy/s/storage"), Perm::None, "the user's grant");
         assert_eq!(Caller::default().perm_on("wy/s/storage"), Perm::None);
+        // a `none` before a wider grant decides (first match), as at the gateway
+        let mut c = claims(Vec::new(), Perm::Config);
+        c.auth = Some(vec![
+            Grant {
+                k: "wy/s/downstream/plc1/**".into(),
+                p: Perm::None,
+            },
+            Grant {
+                k: "wy/s/downstream/**".into(),
+                p: Perm::Write,
+            },
+        ]);
+        let denied = Caller {
+            claims: Some(c),
+            signer: None,
+            ..Caller::default()
+        };
+        assert_eq!(denied.perm_on("wy/s/downstream/plc1/p/~val"), Perm::None);
+        assert_eq!(denied.perm_on("wy/s/downstream/plc2/p/~val"), Perm::Write);
     }
 
     fn g(k: &str, p: Perm) -> Grant {
