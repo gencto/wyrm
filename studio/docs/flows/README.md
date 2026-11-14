@@ -27,7 +27,7 @@ flowchart LR
     frxBack(["◀ back"])
 
     studio ==>|"onLogOut (replace)"| logIn
-    studio ==>|"onUnlock (replace) [state.session.token == null]"| logIn
+    studio ==>|"onUnlock (replace) [currentState().session.token == null]"| logIn
     explorer -->|"onTapFlowEditor"| flowEditor
     links -->|"onTapLinkInstall"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor

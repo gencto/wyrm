@@ -69,14 +69,24 @@ class OfferDeviceAction extends Action {
         d.reEnable &&
         d.refusal != UnlockRefusal.devicesOff &&
         d.refusal != UnlockRefusal.passwordDue;
+    // Everything of the user just logged in, who may not be the one the
+    // page read when it opened (`Another account or gateway`).
     final base = d.copyWith(
       policy: policy,
       keyId: record.alias,
       deviceId: record.deviceId,
+      added: record.added,
+      lastUsed: record.lastUsed,
+      keySite: info?.site ?? site.name ?? d.keySite,
+      keyRole: site.role ?? (record.role.isEmpty ? null : record.role),
+      lockAfter: record.lockAfter,
+      dontAsk: record.dontAsk,
+      offered: record.offered,
       stale: false,
       refusal: null,
       reason: null,
     );
+    deps.idleLock.arm(Duration(minutes: record.lockAfter));
     if (back && on && d.available && !record.usable) {
       dispatchSync(_Device(base.copyWith(stage: UnlockStage.none)));
       await enable();

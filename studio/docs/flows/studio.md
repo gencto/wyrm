@@ -267,7 +267,7 @@ sequenceDiagram
     A1->>ST: dispatchSync(SetLoginProgressAction)
     A1->>ST: dispatchSync(SetLoginProgressAction)
     A1-->>-R1: ActionStatus
-    alt state.session.token == null
+    alt currentState().session.token == null
         R1->>NAV: GoAction.replace LogInRoute
     end
 ```

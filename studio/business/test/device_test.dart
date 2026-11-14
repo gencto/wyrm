@@ -27,6 +27,7 @@ import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/login_failure.dart';
@@ -637,21 +638,50 @@ void main() {
       expect(depsOf(s).idleLock.delay, const Duration(minutes: 15));
     });
 
-    test(
-      'the clock locks after the delay and starts again on a touch',
-      () async {
+    test('the clock locks after the delay and starts again on a touch', () {
+      fakeAsync((time) {
         var idle = 0;
         final clock = IdleLockService(listener: _Count(() => idle++))
-          ..arm(const Duration(milliseconds: 40));
-        await Future<void>.delayed(const Duration(milliseconds: 25));
+          ..arm(const Duration(minutes: 5));
+        time.elapse(const Duration(minutes: 4));
         clock.touch();
-        await Future<void>.delayed(const Duration(milliseconds: 25));
-        expect(idle, 0);
-        await Future<void>.delayed(const Duration(milliseconds: 40));
+        time.elapse(const Duration(minutes: 4));
+        expect(idle, 0, reason: 'the touch started it again');
+        time.elapse(const Duration(minutes: 1, seconds: 1));
         expect(idle, 1);
         clock.arm(Duration.zero);
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+        time.elapse(const Duration(hours: 1));
         expect(idle, 1, reason: 'off');
+      });
+    });
+
+    test(
+      "another user's login takes that user's record, not the page's",
+      () async {
+        final c = _Computer();
+        // admin keeps a 15 min lock and Don't ask; ivan 5 min.
+        await c.records.write(
+          _origin,
+          _user,
+          const DeviceRecord(lockAfter: 15, dontAsk: true, offered: true),
+        );
+        await c.records.write(
+          _origin,
+          'ivan',
+          const DeviceRecord(lockAfter: 5),
+        );
+        final s = await c.started();
+        expect(s.state.device.lockAfter, 15);
+
+        await s.dispatchAndWait(SetUserAction('ivan'));
+        await s.dispatchAndWait(SetPasswordAction('wyrm-demo-1'));
+        await s.dispatchAndWait(LogInAction());
+        await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+
+        expect(s.state.device.lockAfter, 5);
+        expect(s.state.device.dontAsk, isFalse);
+        expect(s.state.device.stage, UnlockStage.offer, reason: "ivan's first");
+        expect(depsOf(s).idleLock.delay, const Duration(minutes: 5));
       },
     );
   });

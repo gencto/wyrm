@@ -165,7 +165,7 @@ sequenceDiagram
 
     User->>UI: onOfferUse
     UI->>VM: onOfferUse()
-    alt state.device.available
+    alt currentState().device.available
         VM->>+A1: dispatchAndWait
         Note over A1: async
         A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
