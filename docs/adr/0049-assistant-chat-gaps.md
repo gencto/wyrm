@@ -80,6 +80,20 @@ Studio built `specs/assistant.md` §2 steps 1–4 and found three cards without 
 
 Tests: `links/agent/tests/agent.rs` `a_stopped_run_gets_ways_out_and_a_step_gets_fixes`, `a_suggestion_is_bounded_and_inside_the_askers_rights`, `a_follow_up_replaces_a_task_that_waits_for_a_person`; `crates/wyrm-gateway` `a_replaced_plan_is_not_signed_and_suggestions_are_read_through_doc` and the unit test of `approve::Plan::select`; `dart/wyrm_client/test/agent_test.dart`.
 
+## Amendment 2 (2026-11-14): what the model found
+
+Studio built `specs/assistant.md` §2 step 6 and found one more card without data: the rows of *What I found* in the Explorer drawer (board `AssistantDrawer`). The model's findings were only its text. The owner delegated the design (ADR 0029). One tool, one record field and one count close it; no `spec/` text changed.
+
+- **A model tool `found {path, label, detail?}`** adds one row to the task's record: `~state.findings[] = {key, label, detail}`. It is in the planning turns and in the turn after a stopped run (both only read). One row per node, in the order the model noted them.
+- **The model's words, no verdict.** `label` and `detail` are model text: a client shows them as plain text, never as a link, a check or a button. A row carries no mark good or bad. The board's ✓ and ✕ are drawn by the client from the node's live value (its quality), read with the viewer's own rights; without a value the row has no mark. So a mark is never the model's claim.
+- **Bounded.** At most 12 findings in a task; `label` ≤ 80 bytes, `detail` ≤ 300 bytes (longer text is cut); a second finding on the same node is refused to the model.
+- **Inside the asker's rights, as the rows of a suggestion.** The key is a plain node key of the task's site (no wildcard, no `~` segment) that the agent may read (`allowed_prefixes`, `pub/**`) and that the asker may read (`Caller::perm_on(<node>/~val)` ≥ `read` over the grants of their token's `auth`). Fail closed: unknown rights (a token without `auth`, a restart) or rights past their token's `exp` refuse the finding, and the model says it in its answer instead. The same rule as amendment 1, from one helper (`Task::live_rights`).
+- **Texts stay in the record.** The public `~val` gains `findings` (their count, absent at 0) and no word of them, so a reader of `~val` learns that the record changed, not what it says. Studio reads them through `doc` with the reader's rights.
+- **They stay.** A finding says what was read, not what to do: unlike suggestions, findings are kept when the task fails (reject, cancel, replaced, a stopped run). They are no part of the plan and not in its hash.
+- **Old records.** `findings` lives in the record's `plan` bytes beside the fields of amendment 1 (store schema 1 unchanged). A record without it reads as no findings (test `a_task_written_before_the_findings_still_loads`, fixed bytes of the richest record of the version before). A link of the version before skips the key. The gateway is not touched: `doc` passes the record through, and no gateway code reads findings.
+
+Tests: `links/agent/tests/agent.rs` `findings_are_bounded_inside_the_askers_rights_and_stay`; store unit tests; `dart/wyrm_client/test/agent_test.dart` (`TaskFinding`, `findingCount`).
+
 ## Consequences
 
 - One gateway op (`doc`), one gateway rewrite of `approve` (like flow proofs), and agent link changes in `store.rs` (task schema: `questions`, `after`, per-step `result`; old tasks read with defaults) and `lib.rs` (`ask_user`, `answer`, `awaiting_answer`, `wait`/`expect`, `~val` progress).

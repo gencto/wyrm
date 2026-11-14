@@ -130,6 +130,24 @@ Ask needs a token with `auth` too.
 
 You can stop the turn after a run: ▸ **Cancel** while `reviewing`. The task stays `failed`.
 
+### What the model found
+
+The model may note what it read about a node (its tool `found`, in planning and in the turn
+after a run). The record holds it as `findings[]`: `{key, label, detail}`, one per node, in
+the order the model noted them. Studio shows them as the rows of *What I found* in the
+Explorer drawer.
+
+- `label` and `detail` are the model's words. Show them as plain text, never as a check.
+- A finding has no mark good or bad. A client that marks a row takes the mark from the
+  node's live value, read with the viewer's own rights.
+- `key` is a plain node key of the task's site that the agent may read and that the asker of
+  the task may read. It is checked like a row of a suggestion: against the asker's rights
+  from their token's `auth`, only until its `exp`. Without them the finding is refused.
+- Limits: 12 findings in a task, `label` 80 bytes, `detail` 300 bytes (longer text is cut). A
+  second finding on the same node is refused.
+- A finding runs nothing and is no part of the plan (not in its hash). A task that fails keeps
+  its findings: they say what was read.
+
 ### A replaced plan
 
 A follow-up Ask (`parent`) of a task in `awaiting_approval` or `awaiting_answer` takes its
@@ -183,8 +201,8 @@ The gateway op `doc {key, suffix: "~state"}` reads the record.
 
 | Key | Who reads | What |
 |---|---|---|
-| `tasks/<id>/~val` | read on the link | `{state, step, of, last: {n, ok, result}, suggestions?, reviewing?, replaced_by?}`: numbers, fixed words and task ids only (`suggestions` is a count) |
-| `tasks/<id>/~state` | `list` on the task | the ask, owner, plan with results, questions, suggestions, `replaced_by`, `review`, log, error |
+| `tasks/<id>/~val` | read on the link | `{state, step, of, last: {n, ok, result}, suggestions?, findings?, reviewing?, replaced_by?}`: numbers, fixed words and task ids only (`suggestions` and `findings` are counts) |
+| `tasks/<id>/~state` | `list` on the task | the ask, owner, plan with results, questions, suggestions, findings, `replaced_by`, `review`, log, error |
 | `budget_used_today` | read on the link | LLM tokens used this UTC day |
 | `sys/links/<id>` ▸ `secrets` | `config` | the names of the link's secrets, never a value |
 
@@ -213,7 +231,7 @@ profiles, flow definitions. Anyone who can write such text can try to steer the 
 (prompt injection). Use these modes only with narrow `allowed_prefixes`, and only where
 every write there is safe to make without review (security review AI-4, ADR 0031).
 
-ОБЕРЕЖНО: the `reason` and `model_warn` of a step, a question's text, a suggestion, `review`
+ОБЕРЕЖНО: the `reason` and `model_warn` of a step, a question's text, a suggestion, a finding, `review`
 and the model's log lines come from the model too. Before you approve, read each step's key
 and arguments in `plan`, not only the reason.
 

@@ -14,7 +14,7 @@
 //! [`COMPACT_AT`] records (at start and while running, see [`compact`]):
 //! removed tasks then also leave the disk.
 
-use crate::tools::{Check, OpKind, PlanOp, StepResult, Suggestion};
+use crate::tools::{Check, Finding, OpKind, PlanOp, StepResult, Suggestion};
 use crate::{Question, TaskState};
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -253,6 +253,9 @@ pub struct Extras {
     pub replaced_by: Option<String>,
     /// What the model found after the run stopped.
     pub review: Option<String>,
+    /// What the model read about nodes (`found`; absent in records written before the
+    /// second amendment of 2026-11-14).
+    pub findings: Vec<Finding>,
 }
 
 impl Extras {
@@ -263,11 +266,12 @@ impl Extras {
             && self.suggestions.is_empty()
             && self.replaced_by.is_none()
             && self.review.is_none()
+            && self.findings.is_empty()
     }
 }
 
 /// The plan as persisted: the array of its steps, or, with [`Extras`], a map
-/// `{steps, questions?, parent?, context?, suggestions?, replaced_by?, review?}`.
+/// `{steps, questions?, parent?, context?, suggestions?, replaced_by?, review?, findings?}`.
 pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
     let steps = Value::Array(plan.iter().map(plan_op_value).collect());
     let v = if extras.is_empty() {
@@ -312,6 +316,12 @@ pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
         }
         if let Some(r) = &extras.review {
             m.insert("review".to_owned(), Value::from(r.as_str()));
+        }
+        if !extras.findings.is_empty() {
+            m.insert(
+                "findings".to_owned(),
+                Value::Array(extras.findings.iter().map(Finding::to_value).collect()),
+            );
         }
         Value::Map(m)
     };
@@ -364,6 +374,10 @@ pub fn decode_plan(b: &[u8]) -> Result<(Vec<PlanOp>, Extras), String> {
                 },
                 replaced_by: text("replaced_by"),
                 review: text("review"),
+                findings: match m.get("findings") {
+                    Some(Value::Array(a)) => a.iter().filter_map(Finding::from_value).collect(),
+                    _ => Vec::new(),
+                },
             };
             Ok((plan, extras))
         }
@@ -493,6 +507,16 @@ mod tests {
             (Some("at the limit"), Some("read by another loop"))
         );
         assert_eq!(encode_plan(&p, &extras), r.plan);
+        // a task with findings only keeps them (the plan bytes become a map)
+        let found = Extras {
+            findings: vec![Finding {
+                key: "wy/s/downstream/m/p".into(),
+                label: "p".into(),
+                detail: String::new(),
+            }],
+            ..Extras::default()
+        };
+        assert_eq!(decode_plan(&encode_plan(&p, &found)).unwrap().1, found);
         // questions, the parent and the context travel inside the plan bytes
         let more = Extras {
             questions: vec![Question {
@@ -523,6 +547,11 @@ mod tests {
             }],
             replaced_by: Some("t1-3".into()),
             review: Some("the device does not answer".into()),
+            findings: vec![Finding {
+                key: "wy/s/downstream/m/u3".into(),
+                label: "unit 3".into(),
+                detail: "bad since 03:12".into(),
+            }],
         };
         let (q, back) = decode_plan(&encode_plan(&p, &more)).unwrap();
         assert_eq!((q.len(), back), (1, more.clone()));
@@ -532,6 +561,7 @@ mod tests {
             suggestions: Vec::new(),
             replaced_by: None,
             review: None,
+            findings: Vec::new(),
             ..more
         };
         let (_, back) = decode_plan(&encode_plan(&p, &before)).unwrap();
@@ -618,6 +648,86 @@ mod tests {
             },
             "no suggestions, not replaced, no review"
         );
+    }
+
+    /// A WAL record of a task written before the findings (2026-11-14, later the same
+    /// day): the plan as a map `{steps, suggestions, replaced_by, review}`, the richest
+    /// record of that version. Fixed bytes, as above.
+    #[test]
+    fn a_task_written_before_the_findings_still_loads() {
+        let plan = Value::Map(BTreeMap::from([
+            (
+                "steps".to_owned(),
+                Value::Array(vec![Value::Map(BTreeMap::from([
+                    ("op".to_owned(), Value::from("set")),
+                    ("node".to_owned(), Value::from("wy/s/downstream/m/p")),
+                    ("key".to_owned(), Value::from("wy/s/downstream/m/p/~set")),
+                    ("payload".to_owned(), Value::Float(1.0)),
+                    ("level".to_owned(), Value::UInt(Perm::Write.code().into())),
+                    ("approval".to_owned(), Value::Bool(true)),
+                ]))]),
+            ),
+            (
+                "suggestions".to_owned(),
+                Value::Array(vec![Value::Map(BTreeMap::from([
+                    ("id".to_owned(), Value::from("s1")),
+                    ("label".to_owned(), Value::from("Try unit 4")),
+                    ("detail".to_owned(), Value::from("3 is in use")),
+                    ("changes".to_owned(), Value::UInt(1)),
+                    ("step".to_owned(), Value::UInt(1)),
+                    (
+                        "rows".to_owned(),
+                        Value::Array(vec![Value::Map(BTreeMap::from([
+                            ("key".to_owned(), Value::from("wy/s/downstream/m/u4")),
+                            ("label".to_owned(), Value::from("unit 4")),
+                            ("detail".to_owned(), Value::from("")),
+                        ]))]),
+                    ),
+                ]))]),
+            ),
+            ("replaced_by".to_owned(), Value::from("t1-3")),
+            ("review".to_owned(), Value::from("no answer")),
+        ]));
+        let put = Op::Put(
+            "t1-2".into(),
+            TaskRec {
+                state: "failed".into(),
+                owner: "user:op".into(),
+                ask: "set p".into(),
+                plan: wyrm_core::codec::to_vec(&plan).unwrap(),
+                log: vec!["asked by user:op".into()],
+                error: Some("replaced by t1-3".into()),
+                tokens: 20,
+                created: 1,
+                seq: 2,
+            },
+        );
+        const OLD: &str =
+            "8200826474312d3289666661696c656467757365723a6f70657365742070590101a465737465\
+            707381a6626f7063736574636b6579781877792f732f646f776e73747265616d2f6d2f702f7e\
+            736574646e6f64657377792f732f646f776e73747265616d2f6d2f70656c6576656c03677061\
+            796c6f6164f93c0068617070726f76616cf566726576696577696e6f20616e737765726b7265\
+            706c616365645f62796474312d336b73756767657374696f6e7381a662696462733164726f77\
+            7381a3636b65797477792f732f646f776e73747265616d2f6d2f7534656c6162656c66756e69\
+            7420346664657461696c60647374657001656c6162656c6a54727920756e6974203466646574\
+            61696c6b3320697320696e20757365676368616e67657301817061736b656420627920757365\
+            723a6f70707265706c616365642062792074312d33140102";
+        let old: String = OLD.split_whitespace().collect();
+        let bytes = hex::decode(old).unwrap();
+        // the fixed bytes are what the task above encodes to
+        assert_eq!(minicbor::to_vec(&put).unwrap(), bytes);
+        let Op::Put(_, rec) = minicbor::decode::<Op>(&bytes).unwrap() else {
+            panic!("not a put")
+        };
+        let (steps, extras) = decode_plan(&rec.plan).unwrap();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(extras.suggestions.len(), 1);
+        assert_eq!(extras.suggestions[0].rows[0].key, "wy/s/downstream/m/u4");
+        assert_eq!(
+            (extras.replaced_by.as_deref(), extras.review.as_deref()),
+            (Some("t1-3"), Some("no answer"))
+        );
+        assert!(extras.findings.is_empty(), "no findings");
     }
 
     #[test]
