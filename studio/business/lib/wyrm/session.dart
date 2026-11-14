@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -87,6 +88,55 @@ abstract interface class WyrmSession {
   /// Disables or enables a user.
   Future<void> setUserDisabled(String name, {required bool disabled});
 
+  // ---- ADR 0050: device keys and the step-up ----
+
+  /// Registers a new device key of this user; [sign] signs the register
+  /// nonce with the new key. Returns the gateway's device id. Needs a
+  /// password check in the last 5 minutes (`password_required`).
+  Future<String> registerDevice({
+    required String site,
+    required String user,
+    required String name,
+    required String platform,
+    required String alg,
+    required Uint8List publicKey,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  });
+
+  /// An idle unlock: a device login that keeps this session.
+  Future<void> unlock({
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  });
+
+  /// A step-up with the device key for the `confirm_required` refusal [e].
+  Future<void> confirmWithDevice({
+    required WyrmException e,
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  });
+
+  /// A step-up with the password (also an idle unlock without a key, and a
+  /// fresh password check before a registration); a wrong one throws
+  /// `bad_password`.
+  Future<void> confirmWithPassword(String password);
+
+  /// The devices of this user.
+  Future<List<GatewayDevice>> devices();
+
+  /// The devices of [name] (admin).
+  Future<List<GatewayDevice>> userDevices(String name);
+
+  /// Turns off, forgets or (an admin, another user's) removes a device.
+  Future<void> removeDevice(String id);
+
+  /// Ends every session of the user and signs out every device.
+  Future<void> signOutEverywhere();
+
   /// Close the client and the HTTP connection.
   Future<void> close();
 }
@@ -110,11 +160,30 @@ final class GatewayProbe {
 
 /// Opens a [WyrmSession]: the first of the gateways that accepts the login.
 abstract interface class WyrmLogin {
+  /// A password login. [device] names this computer's device key, so the
+  /// gateway notes that it saw the password (`password_due` clears).
   Future<WyrmSession> open(
     List<Uri> gateways, {
     required String user,
     required String password,
+    String? device,
   });
+
+  /// A device login on [gateway] (ADR 0050 §1.2): a challenge, the bytes
+  /// [sign] gives for it (the OS prompt), the session. A refusal throws a
+  /// [WyrmException] with its `code`.
+  Future<WyrmSession> openWithDevice(
+    Uri gateway, {
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  });
+
+  /// `GET /api/info` of [gateway] without a session, or null when it does
+  /// not answer it (no gateway there, or one older than ADR 0050). Never
+  /// throws.
+  Future<GatewayInfo?> info(Uri gateway, {Duration timeout});
 
   /// Asks [gateway] for `/api/me` without a session and times the answer. A
   /// 401 means a gateway is there; anything else within [timeout] is no
@@ -123,20 +192,64 @@ abstract interface class WyrmLogin {
 }
 
 /// The real login: `WyrmGateway.loginAny` and a reconnecting client.
+///
+/// Every `HttpClient` it opens comes from [_client], the one place a
+/// gateway's trust (a pinned CA, ADR 0050 §2.3) plugs in.
 final class GatewayLogin implements WyrmLogin {
   const GatewayLogin();
+
+  HttpClient _client({Duration? timeout}) {
+    final c = HttpClient();
+    if (timeout != null) {
+      c.connectionTimeout = timeout;
+    }
+    return c;
+  }
 
   @override
   Future<WyrmSession> open(
     List<Uri> gateways, {
     required String user,
     required String password,
+    String? device,
   }) async {
     final gw = await WyrmGateway.loginAny(
       gateways,
       user: user,
       password: password,
+      device: device,
+      http: _client(),
     );
+    return _session(gw);
+  }
+
+  @override
+  Future<WyrmSession> openWithDevice(
+    Uri gateway, {
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) async {
+    final http = _client();
+    final WyrmGateway gw;
+    try {
+      gw = await WyrmGateway.loginWithDevice(
+        gateway,
+        site: site,
+        user: user,
+        device: device,
+        sign: sign,
+        http: http,
+      );
+    } catch (_) {
+      http.close(force: true);
+      rethrow;
+    }
+    return _session(gw);
+  }
+
+  Future<WyrmSession> _session(WyrmGateway gw) async {
     try {
       final client = await gw.client();
       return _GatewaySession(gw, client);
@@ -147,11 +260,26 @@ final class GatewayLogin implements WyrmLogin {
   }
 
   @override
+  Future<GatewayInfo?> info(
+    Uri gateway, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final http = _client(timeout: timeout);
+    try {
+      return await WyrmGateway.info(gateway, http: http).timeout(timeout);
+    } on Object {
+      return null;
+    } finally {
+      http.close(force: true);
+    }
+  }
+
+  @override
   Future<GatewayProbe> probe(
     Uri gateway, {
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    final http = HttpClient()..connectionTimeout = timeout;
+    final http = _client(timeout: timeout);
     final watch = Stopwatch()..start();
     try {
       final req = await http
@@ -231,6 +359,64 @@ final class _GatewaySession implements WyrmSession {
   @override
   Future<void> setUserDisabled(String name, {required bool disabled}) =>
       _gw.setUserDisabled(name, disabled);
+
+  @override
+  Future<String> registerDevice({
+    required String site,
+    required String user,
+    required String name,
+    required String platform,
+    required String alg,
+    required Uint8List publicKey,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => _gw.registerDevice(
+    site: site,
+    user: user,
+    name: name,
+    platform: platform,
+    alg: alg,
+    publicKey: publicKey,
+    sign: sign,
+  );
+
+  @override
+  Future<void> unlock({
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => _gw.unlock(site: site, user: user, device: device, sign: sign);
+
+  @override
+  Future<void> confirmWithDevice({
+    required WyrmException e,
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => _gw.confirmWithDevice(
+    e: e,
+    site: site,
+    user: user,
+    device: device,
+    sign: sign,
+  );
+
+  @override
+  Future<void> confirmWithPassword(String password) =>
+      _gw.confirmWithPassword(password);
+
+  @override
+  Future<List<GatewayDevice>> devices() => _gw.devices();
+
+  @override
+  Future<List<GatewayDevice>> userDevices(String name) => _gw.userDevices(name);
+
+  @override
+  Future<void> removeDevice(String id) => _gw.removeDevice(id);
+
+  @override
+  Future<void> signOutEverywhere() => _gw.signOutEverywhere();
 
   @override
   Future<void> close() async {

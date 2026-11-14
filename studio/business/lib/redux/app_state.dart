@@ -7,6 +7,7 @@ import 'backups/models/backups_state.dart';
 import 'broker_update/models/broker_update_state.dart';
 import 'changes/models/changes_state.dart';
 import 'connectivity/models/connectivity_state.dart';
+import 'device/models/device_state.dart';
 import 'flow_editor/models/flow_editor_state.dart';
 import 'flows/models/flows_state.dart';
 import 'historian/models/historian_state.dart';
@@ -63,6 +64,7 @@ abstract class AppState with _$AppState {
     required UpdatesState updates,
     required BackupsState backups,
     required BrokerUpdateState brokerUpdate,
+    required DeviceState device,
     required Wait wait,
   }) = _AppState;
 
@@ -94,6 +96,7 @@ abstract class AppState with _$AppState {
     updates: UpdatesState(),
     backups: BackupsState(),
     brokerUpdate: BrokerUpdateState(),
+    device: DeviceState(),
     wait: Wait.empty,
   );
 }

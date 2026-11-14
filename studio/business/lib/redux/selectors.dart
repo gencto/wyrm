@@ -7,6 +7,7 @@ import 'package:models/audit_entry.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/device_policy_info.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
@@ -16,6 +17,7 @@ import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
+import 'package:models/key_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
@@ -40,10 +42,14 @@ import 'package:models/send_link.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/standby_state.dart';
+import 'package:models/step_up_request.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/studio_notice.dart';
 import 'package:models/task_event.dart';
 import 'package:models/traffic_sample.dart';
+import 'package:models/unlock_refusal.dart';
+import 'package:models/unlock_stage.dart';
+import 'package:models/user_device.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
@@ -61,6 +67,7 @@ import 'backups/actions/retrieve_backups_action.dart';
 import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
+import 'device/actions/load_device_action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
 import 'historian/actions/load_trend_window_action.dart';
@@ -132,6 +139,7 @@ mixin Selectors {
   SelectUpdates get updates => SelectUpdates(state);
   SelectBackups get backups => SelectBackups(state);
   SelectBrokerUpdate get brokerUpdate => SelectBrokerUpdate(state);
+  SelectDevice get device => SelectDevice(state);
 }
 
 /// The approval of a task as the logged-in user may give it.
@@ -1344,4 +1352,87 @@ extension type SelectBrokerUpdate(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<UpdateBrokerAction>();
+}
+
+extension type SelectDevice(AppState _state) {
+  /// Returns available
+  bool get available => _state.device.available;
+
+  /// Returns kind
+  KeyKind get kind => _state.device.kind;
+
+  /// Returns name
+  String? get name => _state.device.name;
+
+  /// Returns keyId
+  String? get keyId => _state.device.keyId;
+
+  /// Returns deviceId
+  String? get deviceId => _state.device.deviceId;
+
+  /// Returns added
+  int get added => _state.device.added;
+
+  /// Returns lastUsed
+  int get lastUsed => _state.device.lastUsed;
+
+  /// Returns keySite
+  String? get keySite => _state.device.keySite;
+
+  /// Returns stale
+  bool get stale => _state.device.stale;
+
+  /// Returns lockAfter
+  int get lockAfter => _state.device.lockAfter;
+
+  /// Returns dontAsk
+  bool get dontAsk => _state.device.dontAsk;
+
+  /// Returns offered
+  bool get offered => _state.device.offered;
+
+  /// Returns noticed
+  bool get noticed => _state.device.noticed;
+
+  /// Returns policy
+  DevicePolicyInfo? get policy => _state.device.policy;
+
+  /// Returns stage
+  UnlockStage get stage => _state.device.stage;
+
+  /// Returns refusal
+  UnlockRefusal? get refusal => _state.device.refusal;
+
+  /// Returns reason
+  String? get reason => _state.device.reason;
+
+  /// Returns reEnable
+  bool get reEnable => _state.device.reEnable;
+
+  /// Returns autoPrompted
+  bool get autoPrompted => _state.device.autoPrompted;
+
+  /// Returns locked
+  bool get locked => _state.device.locked;
+
+  /// Returns lockError
+  String? get lockError => _state.device.lockError;
+
+  /// Returns stepUp
+  StepUpRequest? get stepUp => _state.device.stepUp;
+
+  /// Returns devices
+  IList<UserDevice> get devices => _state.device.devices;
+
+  /// Returns userDevices
+  IMap<String, IList<UserDevice>> get userDevices => _state.device.userDevices;
+
+  /// Returns needPassword
+  bool get needPassword => _state.device.needPassword;
+
+  /// Returns securityError
+  String? get securityError => _state.device.securityError;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<LoadDeviceAction>();
 }

@@ -50,7 +50,12 @@ Future<AppState?> readAccess(Action a) async {
   try {
     users = [
       for (final u in await session.users())
-        UserInfo(name: u.name, roles: u.roles.lock, disabled: u.disabled),
+        UserInfo(
+          name: u.name,
+          roles: u.roles.lock,
+          disabled: u.disabled,
+          devices: u.devices,
+        ),
     ];
   } on WyrmException {
     // Not an administrator of the gateway.
