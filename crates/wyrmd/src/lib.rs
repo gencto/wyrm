@@ -2190,6 +2190,12 @@ impl Daemon {
         &mut self,
         mut shutdown: std::pin::Pin<&mut impl Future<Output = ()>>,
     ) -> Result<(), Error> {
+        // Long actions are closed by this loop alone, before a rebuild, and
+        // opened again by it once the next broker is up. A first start opens
+        // nothing: the listeners answer before `Broker::start` returns (by
+        // Zenoh's `scouting/delay`, 500 ms), so an unasked `reopen` there
+        // would undo a `quiesce` taken meanwhile.
+        let mut closed = false;
         loop {
             if let Some(ep) = &self.cfg.peers.listen {
                 if !wait_udp_free(ep, QUIC_PORT_WAIT).await {
@@ -2207,7 +2213,9 @@ impl Daemon {
                 self.gateway.as_ref(),
             )
             .await?;
-            self.ctl.reopen();
+            if std::mem::take(&mut closed) {
+                self.ctl.reopen();
+            }
             self.ctl.release_standby();
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
@@ -2230,6 +2238,7 @@ impl Daemon {
                 }
                 // A package install in flight finishes on this broker; new
                 // ones answer `busy` until the next broker is up.
+                closed = true;
                 self.ctl.quiesce(Duration::from_secs(180)).await;
                 // Fail closed: an old runtime that did not close may keep
                 // sessions under the old ACL, so the daemon ends and its
