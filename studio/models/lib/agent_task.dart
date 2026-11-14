@@ -18,5 +18,14 @@ abstract class AgentTask with _$AgentTask {
     @Default(IListConst([])) IList<String> log,
     String? error,
     @Default(0) int tokens,
+
+    /// The hash of [plan] as it was read: what an approval is bound to.
+    String? planHash,
+
+    /// The task this one follows.
+    String? parent,
+
+    /// The record (`~state`) was read; before that only the state is known.
+    @Default(false) bool recorded,
   }) = _AgentTask;
 }

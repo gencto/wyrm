@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
@@ -11,15 +13,19 @@ import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
+import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/labels.dart';
+import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/plan_step.dart';
 import 'package:models/task_event.dart';
 import 'package:models/task_state.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
@@ -31,6 +37,9 @@ import 'package:ui/pages/assistant_page.dart';
 import '../common/tab_visibility.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+
+/// What a secret argument of a plan step is shown as.
+const secretMask = '••••••';
 
 @RoutePage()
 class AssistantPageConnector extends StatelessWidget {
@@ -53,6 +62,7 @@ class AssistantPageConnector extends StatelessWidget {
         status: vm.status,
         taskKey: vm.taskKey,
         events: vm.events,
+        plan: vm.plan,
         card: vm.card,
         onButton: (b) => vm.onButton(context, b),
         draft: vm.draft,
@@ -116,7 +126,8 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
               if (agent != null)
                 ConversationEventVm(kind: .text, text: S.current.noTasks),
             ]
-          : _conversation(events),
+          : _conversation(events.isEmpty ? _fromLog(task) : events),
+      plan: task == null || task.plan.isEmpty ? null : _plan(task),
       card: task == null ? null : _card(task, cancelReason),
       draft: assistant.draft ?? '',
       askReason: agent == null
@@ -170,7 +181,10 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         dispatchSync(SetSelectedTaskAction(null));
         dispatchSync(SetPanelAction('task'));
       },
-      onTask: (t) => dispatchSync(SetSelectedTaskAction(t)),
+      onTask: (t) {
+        dispatchSync(SetSelectedTaskAction(t));
+        unawaited(dispatchAndWait(RetrieveTaskRecordAction(t)));
+      },
       onDraft: (t) => dispatchSync(SetDraftAction(t)),
       onAsk: () => unawaited(dispatchAndWait(AskAgentAction())),
       onPanel: (p) => dispatchSync(SetPanelAction(p)),
@@ -217,7 +231,99 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     }
     await dispatchAndWait(RetrieveAgentAction());
     await dispatchAndWait(RetrieveTasksAction());
+    if (tasks.selectedTask case final id?) {
+      await dispatchAndWait(RetrieveTaskRecordAction(id));
+    }
   }
+
+  /// The conversation of a task asked in another session, from its record:
+  /// the ask, then the log (`model: …` lines as the model's, `proposed …`
+  /// and the like as what it did, `failed: …` as the error).
+  static List<TaskEvent> _fromLog(AgentTask t) => [
+    if (t.ask.isNotEmpty) TaskEvent(kind: 'ask', text: t.ask),
+    for (final l in t.log)
+      if (l.startsWith('model: '))
+        TaskEvent(kind: 'text', text: l.substring(7))
+      else if (l.startsWith('failed: '))
+        TaskEvent(kind: 'error', text: l.substring(8))
+      else if (!l.startsWith('asked by '))
+        TaskEvent(kind: 'note', text: l),
+  ];
+
+  /// The task's plan as it is approved: every step with its full key and
+  /// every argument (docs/agent.md: never only the model's reason).
+  PlanCardVm _plan(AgentTask t) => PlanCardVm(
+    title: S.current.planSteps(t.plan.length),
+    state: t.state == .awaitingApproval
+        ? switch (planChecks(t.plan)) {
+            (now: _, atRun: 0) => S.current.planChecked,
+            (:final now, :final atRun) => S.current.planCheckedPartly(
+              now,
+              atRun,
+            ),
+          }
+        : _stateLabel(t.state),
+    stateTone: _tone(t.state),
+    note: S.current.planWhyNote,
+    steps: [for (final s in t.plan) _step(s)],
+  );
+
+  static PlanStepVm _step(PlanStep s) {
+    final changes = s.op == 'set' || s.op == 'invoke';
+    return PlanStepVm(
+      n: s.n,
+      verb: s.op.toUpperCase(),
+      action: s.action,
+      target: s.op == 'sleep'
+          ? S.current.planSleep(_num(s.seconds ?? 0))
+          : s.key,
+      level: s.level,
+      changes: changes,
+      args: [
+        for (final e in s.args.entries)
+          (
+            e.key,
+            // a secret is not shown; the approval is still bound to it
+            s.secret.contains(e.key) ? secretMask : _shown(e.value),
+          ),
+        if (s.op != 'sleep')
+          if (s.seconds case final sec?)
+            ('timeout', S.current.planSleep(_num(sec))),
+      ],
+      check: changes
+          ? (s.check == 'at_run' ? S.current.checkAtRun : S.current.checkNow)
+          : null,
+      checked: s.check != 'at_run',
+      argsNote: s.secret.isEmpty ? null : S.current.planSecretNote,
+      warn: s.warn,
+      why: s.reason,
+      note: s.after.isEmpty
+          ? null
+          : s.after.map((n) => S.current.planNeedsStep(n)).join(' · '),
+      result: s.result == null
+          ? null
+          : '${s.result!.status} · ${s.result!.message}',
+      resultTone: switch (s.result?.status) {
+        'ok' => .good,
+        'failed' => .bad,
+        _ => .neutral,
+      },
+    );
+  }
+
+  static String _num(double v) =>
+      v == v.truncateToDouble() ? '${v.toInt()}' : '$v';
+
+  /// A value of a step as it is sent, whole: text as it is, anything else
+  /// as JSON.
+  static String _shown(Object? v) => switch (v) {
+    final String s => s,
+    _ => jsonEncode(v, toEncodable: _bytes),
+  };
+
+  /// Binary in a value: its length (JSON has no bytes).
+  static Object? _bytes(Object? v) =>
+      v is Uint8List ? '<${v.length} bytes>' : '$v';
 
   List<TaskSectionVm> _sections(String? selected) {
     final now = <TaskItemVm>[];
@@ -232,6 +338,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         title: _title(t),
         state: _stateLabel(t.state),
         tone: _tone(t.state),
+        detail: _detail(t),
         selected: t.id == selected,
       );
       (t.state == .done || t.state == .failed ? earlier : now).add(item);
@@ -279,6 +386,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           tone: _tone(_stateOf(e.text)),
         ),
         'error' => ConversationEventVm(kind: .error, text: e.text),
+        'note' => ConversationEventVm(kind: .state, text: e.text),
         _ => ConversationEventVm(kind: .text, text: e.text),
       });
     }
@@ -296,7 +404,8 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     return switch (t.state) {
       .awaitingApproval => TaskCardVm(
         title: S.current.planCard,
-        note: S.current.planNote,
+        // a gateway older than `doc` cannot show the plan: the old note
+        note: assistant.docs ? S.current.planWaiting : S.current.planNote,
         caution: true,
         buttons: [
           TaskButtonVm(
@@ -327,6 +436,26 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         caution: true,
       ),
     };
+  }
+
+  /// Who asked and how it ended, under a task's name.
+  String? _detail(AgentTask t) {
+    if (!t.recorded) {
+      return null;
+    }
+    final failedAt = t.plan
+        .where((s) => s.result?.status == 'failed')
+        .map((s) => s.n)
+        .firstOrNull;
+    final parts = [
+      if (t.owner.isNotEmpty && t.owner != 'user:${site.user}')
+        S.current.taskBy(t.owner.replaceFirst('user:', '')),
+      if (failedAt != null)
+        S.current.taskFailedAt(failedAt)
+      else if (t.state == .done && t.plan.isEmpty)
+        S.current.taskNoChanges,
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   static TaskState _stateOf(String s) => switch (s) {
@@ -362,6 +491,7 @@ class _Vm extends Vm {
     required this.status,
     required this.taskKey,
     required this.events,
+    required this.plan,
     required this.card,
     required this.draft,
     required this.askReason,
@@ -386,6 +516,7 @@ class _Vm extends Vm {
            status,
            taskKey,
            events,
+           plan,
            card,
            draft,
            askReason,
@@ -403,6 +534,7 @@ class _Vm extends Vm {
   final StatusPillVm? status;
   final String? taskKey;
   final List<ConversationEventVm> events;
+  final PlanCardVm? plan;
   final TaskCardVm? card;
   final String draft;
   final String? askReason;

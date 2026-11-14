@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../assistant/conversation.dart';
+import '../assistant/plan_card.dart';
 import '../assistant/task_list.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
@@ -85,6 +86,8 @@ class AssistantPage extends StatelessWidget {
     this.title,
     this.status,
     this.taskKey,
+    this.plan,
+    this.onTick,
     this.card,
     this.askReason,
     this.empty,
@@ -105,6 +108,12 @@ class AssistantPage extends StatelessWidget {
   /// `tasks/t-0142`.
   final String? taskKey;
   final List<ConversationEventVm> events;
+
+  /// The task's plan, above its card; null while it is not known.
+  final PlanCardVm? plan;
+
+  /// A step of [plan] was ticked; null: the plan is only shown.
+  final void Function(int n, {required bool ticked})? onTick;
   final TaskCardVm? card;
   final ValueChanged<String> onButton;
 
@@ -204,9 +213,16 @@ class AssistantPage extends StatelessWidget {
           Expanded(
             child: Conversation(
               events: events,
-              trailing: card == null
+              trailing: plan == null && card == null
                   ? null
-                  : _Card(vm: card!, onButton: onButton),
+                  : Column(
+                      crossAxisAlignment: .stretch,
+                      children: [
+                        if (plan case final p?) PlanCard(vm: p, onTick: onTick),
+                        if (card case final k?)
+                          _Card(vm: k, onButton: onButton),
+                      ],
+                    ),
             ),
           ),
           _Composer(

@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
@@ -74,11 +75,10 @@ Widget assistantPlan() => AssistantPage(
       tone: Tone.warn,
     ),
   ],
+  plan: assistantPlanCard(),
   card: const TaskCardVm(
     title: 'Plan',
-    note:
-        "The plan is in the task's record. Studio shows it when the "
-        'gateway can read documents.',
+    note: 'The plan waits for approval. Nothing runs before it.',
     caution: true,
     buttons: [
       TaskButtonVm(id: 'reject', label: 'Reject'),
@@ -113,4 +113,49 @@ Widget assistantPlan() => AssistantPage(
   panelNote:
       'Reading needs no approval. What it reads stays inside your rights '
       'and its own.',
+);
+
+/// The plan of [assistantPlan]: a config step, a step checked when it runs
+/// with a warning, and a proof. [ticks] gives the changing steps a tick.
+PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
+  title: 'Plan · 3 steps',
+  state: 'awaiting approval · 1 checked now, 1 when it runs',
+  note:
+      'The lines after “why” and the warnings come from the model. Read the '
+      'key and the arguments of each step: they are what runs.',
+  steps: [
+    PlanStepVm(
+      n: 1,
+      verb: 'INVOKE',
+      action: 'add_device',
+      target: 'wy/plant/downstream/modbus/tcp-line2',
+      level: 'config',
+      changes: true,
+      args: const [('name', 'ahu2'), ('slave_id', '3'), ('poll_s', '5')],
+      check: 'checked against the live tree',
+      why: 'the unit the operator named, with the points of ahu1',
+      ticked: ticks?[0],
+    ),
+    PlanStepVm(
+      n: 2,
+      verb: 'SET',
+      target: 'wy/plant/downstream/modbus/tcp-line2/ahu2/supply_sp',
+      level: 'write',
+      changes: true,
+      args: const [('value', '21.5')],
+      check: 'checked when it runs: an earlier step makes this node',
+      checked: false,
+      warn: "the value 21.5 is at the point's max (21.5)",
+      note: 'needs step 1',
+      ticked: ticks?[1],
+    ),
+    const PlanStepVm(
+      n: 3,
+      verb: 'EXPECT',
+      target: 'wy/plant/downstream/modbus/tcp-line2/ahu2/supply_sp',
+      level: 'read',
+      args: [('equals', '21.5'), ('timeout', '10 s')],
+      note: 'needs step 2',
+    ),
+  ],
 );

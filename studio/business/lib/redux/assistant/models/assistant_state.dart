@@ -10,5 +10,6 @@ abstract class AssistantState with _$AssistantState {
     @Default('task') String panel,
     String? agent,
     @Default(IMapConst({})) IMap<String, String> cfg,
+    @Default(true) bool docs,
   }) = _AssistantState;
 }

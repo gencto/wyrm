@@ -16,6 +16,7 @@ final class TaskItemVm extends Equatable {
     required this.title,
     required this.state,
     required this.tone,
+    this.detail,
     this.selected = false,
   });
 
@@ -27,10 +28,13 @@ final class TaskItemVm extends Equatable {
   /// `awaiting approval`, `done`, `failed`.
   final String state;
   final Tone tone;
+
+  /// Who asked and how it ended (`by olena · failed at step 3`).
+  final String? detail;
   final bool selected;
 
   @override
-  List<Object?> get props => [id, title, state, tone, selected];
+  List<Object?> get props => [id, title, state, tone, detail, selected];
 }
 
 /// A titled group of tasks (`NOW`, `EARLIER`).
@@ -140,6 +144,13 @@ class _Task extends StatelessWidget {
                     Text(vm.id, style: mono(size: 11, color: c.text4)),
                   ],
                 ),
+                if (vm.detail case final d?)
+                  Text(
+                    d,
+                    maxLines: 1,
+                    overflow: .ellipsis,
+                    style: TextStyle(fontSize: 12, color: c.text3),
+                  ),
               ],
             ),
           ),

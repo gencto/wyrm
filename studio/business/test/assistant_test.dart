@@ -11,7 +11,9 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
+import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
+import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -143,6 +145,217 @@ void main() {
       api.calls.last.toString(),
       contains('$agent/tasks/t-1 ▸ cancel'),
     );
+  });
+
+  Value record(String state) => Value.from({
+    'state': state,
+    'owner': 'user:olena',
+    'ask': 'add ahu2',
+    'plan': [
+      {
+        'n': 1,
+        'invoke': 'wy/central/downstream/modbus/tcp',
+        'action': 'add_device',
+        'args': {'name': 'ahu2', 'unit': 3},
+        'level': 'config',
+        'approval': true,
+        'check': 'now',
+        'reason': 'the device the operator asked for',
+      },
+      {
+        'n': 2,
+        'set': 'wy/central/downstream/modbus/tcp/ahu2/sp',
+        'value': 21.5,
+        'level': 'write',
+        'after': [1],
+        'approval': true,
+        'check': 'at_run',
+        'warn': 'at the limit',
+      },
+      {
+        'n': 3,
+        'expect': 'wy/central/downstream/modbus/tcp/ahu2/sp',
+        'equals': 21.5,
+        'timeout_s': 10.0,
+        'level': 'read',
+        'after': [2],
+        'approval': false,
+        'check': 'now',
+        'result': {'status': 'skipped', 'message': 'skipped: needs step 2'},
+      },
+    ],
+    'plan_hash': 'the link says so',
+    'log': ['asked by user:olena', 'model: I looked at line 2.'],
+    'tokens': 12,
+  });
+
+  test('the record of a task is read through doc', () async {
+    await withAgent();
+    api.docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval');
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+    final t = s.state.tasks.table['t-1']!;
+    expect(t.recorded, isTrue);
+    expect(t.state, TaskState.awaitingApproval);
+    expect(t.owner, 'user:olena');
+    expect(t.log, hasLength(2));
+    expect(t.plan, hasLength(3));
+    final [a, b, c] = t.plan.toList();
+    expect(
+      (a.op, a.key, a.action),
+      (
+        'invoke',
+        'wy/central/downstream/modbus/tcp',
+        'add_device',
+      ),
+    );
+    expect(a.args.unlock, {'name': 'ahu2', 'unit': 3});
+    expect(
+      (a.level, a.approval, a.reason),
+      (
+        'config',
+        true,
+        'the device the operator asked for',
+      ),
+    );
+    expect((b.op, b.check, b.warn), ('set', 'at_run', 'at the limit'));
+    expect(b.args.unlock, {'value': 21.5});
+    expect(b.after, [1]);
+    expect((c.op, c.seconds), ('expect', 10.0));
+    expect(c.args.unlock, {'equals': 21.5});
+    expect(c.result?.status, 'skipped');
+    // the hash is made from the plan as read, not taken from the record
+    expect(t.planHash, hasLength(64));
+    expect(t.planHash, planHash(record('done')['plan']));
+  });
+
+  test('a gateway without doc: asked once, then the note stays', () async {
+    await withAgent();
+    api.errors['$agent/tasks/t-1 ~state'] = WyrmException.of(
+      Status.invalidParameter,
+      'unknown op "doc"',
+    );
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(s.state.assistant.docs, isFalse);
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(api.calls.where((c) => c.op == 'doc'), hasLength(1));
+  });
+
+  test('a record the user may not read leaves the task as it is', () async {
+    await withAgent();
+    api.errors['$agent/tasks/t-1 ~state'] = WyrmException.of(
+      Status.permissionDenied,
+      'permission denied',
+    );
+
+    final status = await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(status.originalError, isNull);
+    expect(s.state.assistant.docs, isTrue);
+    expect(s.state.tasks.table['t-1'], isNull);
+  });
+
+  test('the ask stream reaches a state before ~val does: the record is read '
+      'all the same', () async {
+    await withAgent();
+    // no `~val` sample arrives in this test: only the stream says the state
+    api.streamed.add('$agent ▸ ask');
+    s.dispatchSync(SetDraftAction('add ahu2'));
+    final asked = s.dispatchAndWait(AskAgentAction());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final stream = api.opened['$agent ▸ ask']!.single
+      ..add(Value.from({'task': 't-1', 'state': 'planning'}));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    api.docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval');
+    stream.add(
+      Value.from({
+        'task': 't-1',
+        'event': 'state',
+        'text': 'awaiting_approval',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    // while the stream is still open the plan is already there
+    final t = s.state.tasks.table['t-1']!;
+    expect(t.state, TaskState.awaitingApproval);
+    expect(t.recorded, isTrue);
+    expect(t.plan, hasLength(3));
+
+    // and the end of the stream reads where the task stands
+    api.docs['$agent/tasks/t-1 ~state'] = record('running');
+    await stream.close();
+    await asked;
+    expect(s.state.tasks.table['t-1']!.state, TaskState.running);
+  });
+
+  test('reads of one record answer in the order they were sent', () async {
+    await withAgent();
+    // the read sent while the task ran answers after the one sent once it
+    // was done (the gateway serves each read in a task of its own)
+    api.docsInTurn['$agent/tasks/t-1 ~state'] = [
+      (const Duration(milliseconds: 60), record('running')),
+      (Duration.zero, record('done')),
+    ];
+
+    final first = s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    final second = s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    await Future.wait([first, second]);
+
+    expect(s.state.tasks.table['t-1']!.state, TaskState.done);
+  });
+
+  test('a secret argument of a step is named from the action meta', () async {
+    await withAgent();
+    api
+      ..docs['$agent/tasks/t-1 ~state'] = Value.from({
+        'state': 'awaiting_approval',
+        'plan': [
+          {
+            'n': 1,
+            'invoke': 'wy/central/downstream/http',
+            'action': 'add_connection',
+            'args': {'name': 'erp', 'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+          },
+          {
+            'n': 2,
+            'invoke': 'wy/central/downstream/http/erp',
+            'action': 'set_password',
+            'args': {'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+            'check': 'at_run',
+          },
+        ],
+      })
+      ..metas['wy/central/downstream/http'] = NodeMeta(
+        actions: {
+          'add_connection': ActionMeta(
+            params: {
+              'name': ParamMeta(),
+              'password': ParamMeta(editor: 'password'),
+            },
+          ),
+        },
+      );
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+    final [a, b] = s.state.tasks.table['t-1']!.plan.toList();
+    expect(a.secret, {'password'});
+    // the node of step 2 does not exist yet: its schema is not known
+    expect(b.secret, isEmpty);
+  });
+
+  test('how far a plan was checked counts the steps that change something', () {
+    final plan = agentTaskOf('t', record('awaiting_approval')).plan;
+    // step 1 now, step 2 when it runs, step 3 only reads
+    expect(planChecks(plan), (now: 1, atRun: 1));
+    expect(planChecks(plan.take(1)), (now: 1, atRun: 0));
   });
 
   test('approve refuses until the gateway signs approvals', () async {

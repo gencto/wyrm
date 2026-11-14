@@ -900,6 +900,9 @@ extension type SelectAssistant(AppState _state) {
 
   /// The agent is answering an ask.
   bool get isAsking => _state.wait.isWaitingForType<AskAgentAction>();
+
+  /// Returns docs
+  bool get docs => _state.assistant.docs;
 }
 
 extension type SelectChanges(AppState _state) {
