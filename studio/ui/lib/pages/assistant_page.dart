@@ -1,71 +1,29 @@
-import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../assistant/assistant_composer.dart';
 import '../assistant/choices_card.dart';
 import '../assistant/conversation.dart';
 import '../assistant/more_rows_card.dart';
 import '../assistant/plan_card.dart';
 import '../assistant/result_card.dart';
+import '../assistant/rights_panel.dart';
 import '../assistant/run_card.dart';
 import '../assistant/stopped_card.dart';
+import '../assistant/task_card.dart';
 import '../assistant/task_list.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
-import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../theme/extensions/colors.dart';
-import '../theme/radii.dart';
 import '../theme/typography.dart';
 
-/// A button under the selected task (Approve, Reject, Cancel).
-final class TaskButtonVm extends Equatable {
-  const TaskButtonVm({
-    required this.id,
-    required this.label,
-    this.primary = false,
-    this.danger = false,
-    this.disabledReason,
-  });
-
-  final String id;
-  final String label;
-  final bool primary;
-  final bool danger;
-  final String? disabledReason;
-
-  @override
-  List<Object?> get props => [id, label, primary, danger, disabledReason];
-}
-
-/// The card that closes the conversation: what the task waits for, a
-/// note (why the plan is not shown yet), and its buttons.
-final class TaskCardVm extends Equatable {
-  const TaskCardVm({
-    required this.title,
-    required this.note,
-    this.caution = false,
-    this.buttons = const [],
-  });
-
-  final String title;
-  final String note;
-
-  /// The note asks for attention (a plan that waits, a task that failed):
-  /// it is drawn on the warning tint. Else it is plain grey text.
-  final bool caution;
-  final List<TaskButtonVm> buttons;
-
-  @override
-  List<Object?> get props => [title, note, caution, buttons];
-}
+export '../assistant/assistant_composer.dart' show ChipVm;
+export '../assistant/task_card.dart' show TaskButtonVm, TaskCardVm;
 
 /// One `kind  key` row of WHAT IT READ.
 typedef ReadRow = (String kind, String key);
-
-/// One `@` chip of the composer: the node's full key and what is shown.
-typedef ChipVm = (String key, String label);
 
 /// Board *Assistant*: tasks on the left, the selected task's conversation
 /// with its card and the ask box in the middle, *This task* and *What it
@@ -116,6 +74,10 @@ class AssistantPage extends StatelessWidget {
     this.addChipLabel,
     this.addChipReason,
     this.onAddChip,
+    this.rights,
+    this.onMode,
+    this.onRemovePrefix,
+    this.onAddPrefix,
     this.empty,
     this.emptyAction,
     this.onEmptyAction,
@@ -196,6 +158,12 @@ class AssistantPage extends StatelessWidget {
   final String readsLabel;
   final List<ReadRow> reads;
   final String panelNote;
+
+  /// *What it may do*: shown in place of [facts] and [reads].
+  final RightsPanelVm? rights;
+  final ValueChanged<String>? onMode;
+  final ValueChanged<String>? onRemovePrefix;
+  final VoidCallback? onAddPrefix;
 
   final String? empty;
   final String? emptyAction;
@@ -310,12 +278,12 @@ class AssistantPage extends StatelessWidget {
                         if (stopped case final st?)
                           StoppedCard(vm: st, onPick: onWay),
                         if (card case final k?)
-                          _Card(vm: k, onButton: onButton),
+                          TaskCard(vm: k, onButton: onButton),
                       ],
                     ),
             ),
           ),
-          _Composer(
+          AssistantComposer(
             draft: draft,
             hint: askHint,
             label: askLabel,
@@ -345,7 +313,15 @@ class AssistantPage extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.all(18),
               children: [
-                FactGrid(facts: facts, labelWidth: 96),
+                if (rights case final r?)
+                  RightsPanel(
+                    vm: r,
+                    onMode: onMode,
+                    onRemovePrefix: onRemovePrefix,
+                    onAddPrefix: onAddPrefix,
+                  )
+                else
+                  FactGrid(facts: facts, labelWidth: 96),
                 if (reads.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   SectionLabel(readsLabel),
@@ -389,259 +365,6 @@ class AssistantPage extends StatelessWidget {
           left,
           Expanded(child: middle),
           right,
-        ],
-      ),
-    );
-  }
-}
-
-class _Card extends StatelessWidget {
-  const _Card({required this.vm, required this.onButton});
-
-  final TaskCardVm vm;
-  final ValueChanged<String> onButton;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      margin: const EdgeInsets.only(left: 42),
-      // the note's band ends at the card's rounded corners
-      clipBehavior: .antiAlias,
-      decoration: BoxDecoration(
-        color: c.ground1,
-        border: Border.all(color: c.line2),
-        borderRadius: Radii.card,
-      ),
-      child: Column(
-        crossAxisAlignment: .stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-            child: SectionLabel(vm.title),
-          ),
-          Container(
-            color: vm.caution ? c.warnTint : null,
-            padding: vm.caution
-                ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
-                : const EdgeInsets.fromLTRB(14, 0, 14, 12),
-            child: Text(
-              vm.note,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.45,
-                color: vm.caution ? c.warn : c.text3,
-              ),
-            ),
-          ),
-          if (vm.buttons.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: .end,
-                children: [
-                  for (final b in vm.buttons)
-                    if (b.primary)
-                      Button.primary(
-                        label: b.label,
-                        disabledReason: b.disabledReason,
-                        onPressed: b.disabledReason == null
-                            ? () => onButton(b.id)
-                            : null,
-                      )
-                    else if (b.danger)
-                      Button.danger(
-                        label: b.label,
-                        disabledReason: b.disabledReason,
-                        onPressed: b.disabledReason == null
-                            ? () => onButton(b.id)
-                            : null,
-                      )
-                    else
-                      Button.secondary(
-                        label: b.label,
-                        disabledReason: b.disabledReason,
-                        onPressed: b.disabledReason == null
-                            ? () => onButton(b.id)
-                            : null,
-                      ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The ask box: a field that keeps the draft, and Ask (Cmd+Enter).
-class _Composer extends StatefulWidget {
-  const _Composer({
-    required this.draft,
-    required this.hint,
-    required this.label,
-    required this.onDraft,
-    required this.onAsk,
-    this.reason,
-    this.chips = const [],
-    this.onChipRemove,
-    this.addChipLabel,
-    this.addChipReason,
-    this.onAddChip,
-  });
-
-  final String draft;
-  final String hint;
-  final String label;
-  final String? reason;
-  final ValueChanged<String> onDraft;
-  final VoidCallback onAsk;
-  final List<ChipVm> chips;
-  final ValueChanged<String>? onChipRemove;
-  final String? addChipLabel;
-  final String? addChipReason;
-  final VoidCallback? onAddChip;
-
-  @override
-  State<_Composer> createState() => _ComposerState();
-}
-
-class _ComposerState extends State<_Composer> {
-  late final _text = TextEditingController(text: widget.draft);
-
-  @override
-  void didUpdateWidget(_Composer old) {
-    super.didUpdateWidget(old);
-    if (widget.draft != _text.text) {
-      _text.text = widget.draft;
-    }
-  }
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  bool get _can => widget.reason == null && widget.draft.trim().isNotEmpty;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final add = widget.addChipLabel;
-    final box = Row(
-      crossAxisAlignment: .end,
-      spacing: 10,
-      children: [
-        Expanded(
-          child: CallbackShortcuts(
-            bindings: {
-              const SingleActivator(.enter, meta: true): () {
-                if (_can) {
-                  widget.onAsk();
-                }
-              },
-            },
-            child: TextField(
-              controller: _text,
-              enabled: widget.reason == null,
-              minLines: 1,
-              maxLines: 6,
-              onChanged: widget.onDraft,
-              style: TextStyle(fontSize: 14, color: c.text1),
-              decoration: InputDecoration(
-                hintText: widget.reason ?? widget.hint,
-                isDense: true,
-              ),
-            ),
-          ),
-        ),
-        Button.primary(
-          label: widget.label,
-          disabledReason: widget.reason,
-          onPressed: _can ? widget.onAsk : null,
-        ),
-      ],
-    );
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: c.line1)),
-      ),
-      child: Column(
-        crossAxisAlignment: .stretch,
-        spacing: 8,
-        children: [
-          if (widget.chips.isNotEmpty || add != null)
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              crossAxisAlignment: .center,
-              children: [
-                for (final (key, label) in widget.chips)
-                  Tooltip(
-                    message: key,
-                    child: Container(
-                      height: 24,
-                      padding: const EdgeInsets.only(left: 8, right: 2),
-                      decoration: BoxDecoration(
-                        color: c.ground3,
-                        border: Border.all(color: c.line2),
-                        borderRadius: Radii.chip,
-                      ),
-                      child: Row(
-                        mainAxisSize: .min,
-                        children: [
-                          Text(
-                            '@ $label',
-                            style: mono(size: 12, color: c.text1),
-                          ),
-                          InkWell(
-                            onTap: widget.onChipRemove == null
-                                ? null
-                                : () => widget.onChipRemove!(key),
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: AppIcon(
-                                'ui_close',
-                                size: 12,
-                                color: c.text3,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                if (add != null)
-                  Tooltip(
-                    message: widget.addChipReason ?? '',
-                    child: InkWell(
-                      onTap: widget.addChipReason == null
-                          ? widget.onAddChip
-                          : null,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 3,
-                        ),
-                        child: Text(
-                          add,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: widget.addChipReason == null
-                                ? c.text2
-                                : c.text4,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          box,
         ],
       ),
     );

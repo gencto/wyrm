@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -239,8 +241,15 @@ class _PlanCardState extends State<PlanCard> {
                 spacing: 10,
                 children: [
                   Expanded(child: SectionLabel(vm.title)),
+                  // never wider than the row leaves beside the title and
+                  // the toggle (the drawer is narrow)
                   ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: box.maxWidth * 0.6),
+                    constraints: BoxConstraints(
+                      maxWidth: math.max(
+                        0,
+                        math.min(box.maxWidth * 0.6, box.maxWidth - 150),
+                      ),
+                    ),
                     child: Text(
                       vm.state,
                       textAlign: .right,

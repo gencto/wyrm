@@ -106,6 +106,8 @@ void main() {
     ('assistant_more', 1100.0, assistantMore),
     ('assistant_replaced', 940.0, assistantReplaced),
     ('assistant_reviewing', 940.0, () => assistantFailed(reviewing: true)),
+    ('assistant_rights', 1400.0, assistantRights),
+    ('assistant_drawer', 940.0, assistantDrawer),
   ]) {
     testWidgets(name, (tester) async {
       tester.view.physicalSize = Size(1364, height);

@@ -52,6 +52,8 @@ A closed catalogue in `ui/lib/assistant/`, each a dumb widget with its own Vm (`
 ## 5. Explorer drawer (⌘J)
 Right drawer 420 over Explorer, header `Assistant · tasks/<id>`, *Open full* (Assistant tab, same task), ×. The ask starts with the selected node as a chip. Cards are the same catalogue in compact density; the suggested step uses `PlanStepCard` with **Approve and run** and a second button the model may offer: the first suggestion without `step` (`~state.suggestions`). While the task is `awaiting_approval`, the button opens that suggestion's `detail` as a draft to copy (*Ask ivan first*: the message to ivan): Studio sends no `ask`, so the plan stays approvable, and nothing is sent to ivan. After the task has ended, the button is a follow-up ask like any way out (`askSuggestion`). The mini timeline is `Trend` compact on the point with the audit marks (`sys/audit/<link>`, config).
 
+Built (step 6): ⌘J / Ctrl+J in Explorer opens and closes the drawer (`AssistantDrawerConnector`, the tab's own view-model); opening it puts the Explorer selection as the first `@` chip. The drawer shows the task selected in the Assistant (one selection for both), its conversation, the ChoicesCard, the PlanCard with its ticks and fixes, the RunCard, the StoppedCard, and the task's card with Approve and the second button. The second button leaves out a suggestion with rows (it needs ticks the drawer does not show). Not built: the *What I found* rows and the mini timeline. The rows have no data: the model's findings are its text, not structured rows. The timeline needs a compact `Trend` with audit marks, which is a separate piece of work. Explorer's inspector beside the drawer already shows the point's history.
+
 ## 6. Data and calls
 | UI | Read | Call |
 |---|---|---|
@@ -63,7 +65,8 @@ Right drawer 420 over Explorer, header `Assistant · tasks/<id>`, *Open full* (A
 | Answer | `~state.questions[]` | `invoke(tasks/<id>, answer, {answers})` |
 | Approve | `~state.plan[]` | `invoke(tasks/<id>, approve, {steps: [n…], plan: planHash(plan)})` — the gateway adds the tokens. A user who is not the asker and has no `config` on the agent link ticks every step that changes something: an unticked one is skipped |
 | Reject / Cancel | — | `reject {reason}`, `cancel` |
-| What it may do | agent root `cfg`, value `budget_used_today`; `invoke(sys/links/<id>, secrets)` (names, config) | `sys/links/<id>` edit params (config) for modes and prefixes |
+| What it may do | agent root `cfg`, value `budget_used_today` (watched while the panel is shown); `invoke(sys/links/<id>, secrets)` (names, config; without config the key is *not known*) | `sys/links/<id>` ▸ `update {params}` (config) for modes and prefixes: staged with the other changes, the whole params from the staged update or the newest revision (`history`), applied in Review |
+| Trend of the ResultCard | the last key a step set or proved | Explorer: that point selected, the History tab (`OpenTrendAction`) |
 
 Errors follow `errors.md`: a refused approve names the step and the right missing (*step 4 needs config on sys/history/**; you have write*); a lost stream re-reads the record instead of retrying the ask.
 
@@ -76,6 +79,6 @@ Errors follow `errors.md`: a refused approve names the step and the right missin
 - [ ] Save as a plan (`wyrm-agent run` format).
 - [x] Composer hints, `@` chips, + from Explorer (the Explorer selection; no key picker yet).
 - [x] Ways out, fixes on a step, *Same for more units?*, a replaced plan (step 5).
-- [ ] What it may do: modes, prefix chips, budget, secret set/not set; copy fix for *Never*.
-- [ ] Explorer drawer ⌘J.
+- [x] What it may do: modes, prefix chips, budget, secret set/not set; copy fix for *Never* (step 6).
+- [x] Explorer drawer ⌘J (step 6; without *What I found* rows and the mini timeline).
 - [ ] `frx doctor`, `dart analyze`; goldens for the 7 boards.

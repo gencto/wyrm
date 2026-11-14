@@ -14,6 +14,7 @@ const shownCfg = [
   'allowed_prefixes',
   'budget_tokens_day',
   'api_key_ref',
+  'api_base',
 ];
 
 /// Finds the agent link of the site on screen (a link of driver `agent`),
@@ -32,21 +33,35 @@ class RetrieveAgentAction extends Action with WaitingAction {
         .firstOrNull;
     if (id == null) {
       deps.agentTasks.follow(null);
-      return state.copyWith.assistant(agent: null, cfg: const IMapConst({}));
+      return state.copyWith.assistant(
+        agent: null,
+        cfg: const IMapConst({}),
+        prefixes: const IListConst([]),
+        secrets: null,
+      );
     }
     final key = '$root/downstream/$id';
     var cfg = const <String, String>{};
+    var prefixes = const <String>[];
     try {
       final m = await deps.wyrm.meta(key);
       cfg = {
         for (final e in (m.cfg ?? const <String, Value>{}).entries)
           if (shownCfg.contains(e.key)) e.key: _shown(e.value),
       };
+      prefixes = switch (m.cfg?['allowed_prefixes']) {
+        VArray(:final v) => [for (final p in v) ?str(p)],
+        _ => const [],
+      };
     } on WyrmException {
       // The agent's meta needs list rights on it.
     }
     deps.agentTasks.follow(key);
-    return state.copyWith.assistant(agent: key, cfg: cfg.lock);
+    return state.copyWith.assistant(
+      agent: key,
+      cfg: cfg.lock,
+      prefixes: prefixes.lock,
+    );
   }
 
   static String _shown(Value v) => switch (toDart(v)) {

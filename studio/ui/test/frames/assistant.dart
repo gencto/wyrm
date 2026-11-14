@@ -1,10 +1,13 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:ui/assistant/assistant_composer.dart';
+import 'package:ui/assistant/assistant_drawer.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
+import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/run_card.dart';
 import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
@@ -369,6 +372,7 @@ Widget _assistant({
   String askHint =
       'Ask for a change, or a question about the network (Cmd+Enter)',
   String? detail,
+  RightsPanelVm? rights,
   ChoicesCardVm? choices,
   String state = 'awaiting approval',
   Tone tone = Tone.warn,
@@ -470,8 +474,12 @@ Widget _assistant({
     TabItemVm(id: 'task', label: 'This task'),
     TabItemVm(id: 'rights', label: 'What it may do'),
   ],
-  panel: 'task',
+  panel: rights == null ? 'task' : 'rights',
   onPanel: (_) {},
+  rights: rights,
+  onMode: (_) {},
+  onRemovePrefix: (_) {},
+  onAddPrefix: () {},
   facts: [
     const FactVm(label: 'Task', value: 'tasks/t-0142', mono: true),
     FactVm(label: 'State', value: state),
@@ -529,4 +537,155 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
       note: 'needs step 2',
     ),
   ],
+);
+
+/// Board *AssistantRights*: what the agent may do; a mode change is staged.
+Widget assistantRights() => _assistant(
+  plan: assistantPlanCard(ticks: const [true, true]),
+  onTick: (_, {required ticked}) {},
+  card: const TaskCardVm(
+    title: 'Plan',
+    note:
+        'Signs one token per ticked step with your rights (engineer). '
+        'Unticked steps are left out.',
+  ),
+  rights: const RightsPanelVm(
+    modesLabel: 'Who approves',
+    modes: [
+      ModeVm(
+        id: 'write',
+        label: 'Every step',
+        detail: 'A person approves each set and invoke. Recommended.',
+        selected: true,
+      ),
+      ModeVm(
+        id: 'config',
+        label: 'Only config steps',
+        detail:
+            "Write steps run at once with the agent's own key; config steps "
+            'wait for a person.',
+      ),
+      ModeVm(
+        id: 'never',
+        label:
+            'Never — write steps run at once; config steps still wait for a '
+            'person',
+        detail:
+            "The agent runs config steps only with a person's token, as in "
+            '“Only config steps”. Text in the tree can steer the plan.',
+      ),
+    ],
+    prefixesLabel: 'Where it may propose changes',
+    prefixes: [
+      ('wy/plant/downstream/modbus', 'downstream/modbus'),
+      ('wy/plant/sys/history', 'sys/history'),
+      ('wy/plant/dataflows', 'dataflows'),
+    ],
+    prefixesNote:
+        'allowed_prefixes · outside them a step is refused at the check.',
+    addPrefix: '+ prefix',
+    facts: [
+      FactVm(label: 'Model', value: 'claude-sonnet-5-5', mono: true),
+      FactVm(label: 'Today', value: '182 k of 1 M tokens'),
+      FactVm(
+        label: 'API key secret',
+        value: 'set · never shown',
+        code: 'anthropic_api_key',
+      ),
+      FactVm(label: 'Sent to', value: 'api.anthropic.com', mono: true),
+    ],
+    note:
+        'These are params of the agent link (needs config). A pick is staged '
+        'and runs when you apply it in Review. Changing where the key is sent '
+        'deletes the key; enter it again after.',
+    staged:
+        "A change of the agent's params is staged. It runs when you apply it "
+        'in Review.',
+  ),
+);
+
+/// Board *AssistantDrawer*: the Assistant over Explorer about the selected
+/// node; the plan waits, and the second button is the model's draft.
+Widget assistantDrawer() => Builder(
+  builder: (context) => Stack(
+    children: [
+      const Positioned.fill(child: ColoredBox(color: Color(0xFF0E1113))),
+      Positioned(
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 420,
+        child: AssistantDrawer(
+          title: 'Assistant',
+          taskKey: 'tasks/t-0141',
+          openFull: 'Open full',
+          closeLabel: 'Close (Cmd+J)',
+          onOpenFull: () {},
+          onClose: () {},
+          events: const [
+            ConversationEventVm(kind: .ask, text: 'Why is the valve bad?'),
+            ConversationEventVm(
+              kind: .text,
+              text:
+                  'The connection and plc1 are fine; only valve fails. Its '
+                  'offset was changed 7 minutes before it went bad.',
+            ),
+            ConversationEventVm(
+              kind: .reads,
+              reads: ['read · tree', 'read · get', 'read · audit'],
+            ),
+          ],
+          plan: const PlanCardVm(
+            title: 'Plan · 1 step',
+            state: 'awaiting approval · checked',
+            steps: [
+              PlanStepVm(
+                n: 1,
+                verb: 'INVOKE',
+                action: 'edit',
+                target: 'wy/plant/downstream/modbus/tcp-boiler/plc1/valve',
+                level: 'config',
+                changes: true,
+                args: [('offset', '11')],
+                check: 'checked against the live tree',
+                why: 'it read well at 11 until the edit',
+                ticked: true,
+              ),
+            ],
+          ),
+          onTick: (_, {required ticked}) {},
+          card: const TaskCardVm(
+            title: 'Plan',
+            note:
+                'Signs one token per ticked step with your rights (engineer).',
+            buttons: [
+              TaskButtonVm(id: 'reject', label: 'Reject'),
+              TaskButtonVm(
+                id: 'approve',
+                label: 'Approve 1 change and run',
+                primary: true,
+              ),
+              TaskButtonVm(id: 'second', label: 'Ask ivan first'),
+            ],
+          ),
+          onButton: (_) {},
+          composer: AssistantComposer(
+            draft: '',
+            hint: 'Ask to change the plan, e.g. “skip step 4”…',
+            label: 'Ask',
+            onDraft: (_) {},
+            onAsk: () {},
+            chips: const [
+              (
+                'wy/plant/downstream/modbus/tcp-boiler/plc1/valve',
+                'modbus/tcp-boiler/plc1/valve',
+              ),
+            ],
+            addChipLabel: '+ from Explorer',
+            dense: true,
+          ),
+        ),
+      ),
+    ],
+  ),
 );

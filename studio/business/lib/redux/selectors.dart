@@ -1010,6 +1010,15 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns revealed
   IMap<String, ISet<int>> get revealed => _state.assistant.revealed;
+
+  /// Returns drawer
+  bool get drawer => _state.assistant.drawer;
+
+  /// Returns prefixes
+  IList<String> get prefixes => _state.assistant.prefixes;
+
+  /// Returns secrets
+  ISet<String>? get secrets => _state.assistant.secrets;
 }
 
 extension type SelectChanges(AppState _state) {
