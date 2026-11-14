@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod announce;
 pub mod arbiter;
 pub mod cli;
 pub mod standby;
@@ -186,6 +187,11 @@ const CONFIG_SHOWN: &[&str] = &[
     "gateway.admin_user",
     "gateway.mcp.public_url",
     "gateway.mcp.redirect_uris",
+    "gateway.tls_ca",
+    "gateway.devices.step_up",
+    "gateway.devices.origins",
+    "gateway.announce.interfaces",
+    "gateway.announce.pair",
     "uplink.net",
     "standby.peer",
     "standby.witness",
@@ -461,6 +467,150 @@ pub struct GatewaySection {
     /// OAuth 2.1 server (ADR 0041 stage B). Absent = off.
     #[serde(default)]
     pub mcp: Option<GatewayMcpSection>,
+    /// The CA certificate (PEM) the gateway's certificate chains to, whose code the Trust
+    /// screen compares (ADR 0050 §2). Default: the last certificate of `tls_cert` when it
+    /// holds a chain, else the site CA when it issued the gateway's certificate.
+    #[serde(default)]
+    pub tls_ca: Option<PathBuf>,
+    /// Device keys and the step-up (ADR 0050 §1.6). Absent: the defaults.
+    #[serde(default)]
+    pub devices: Option<GatewayDevicesSection>,
+    /// The DNS-SD announce (ADR 0050 §2.1). Absent: on when the gateway listens off
+    /// loopback.
+    #[serde(default)]
+    pub announce: Option<GatewayAnnounceSection>,
+}
+
+/// `gateway.devices` (ADR 0050 §1.6).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GatewayDevicesSection {
+    /// `false` refuses device logins and keeps the records (default true).
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Devices that can log in, per user, 1 … 20 (default 5).
+    #[serde(default)]
+    pub max_per_user: Option<u32>,
+    /// A device sees the password at least this often, 1 … 365 days (default 30).
+    #[serde(default)]
+    pub password_every_days: Option<u32>,
+    /// Studio's idle lock may be set up to this, 1 … 1440 minutes (default 30).
+    #[serde(default)]
+    pub idle_lock_max_min: Option<u32>,
+    /// `"config"`: every request at `config` level needs a session confirmed in the last
+    /// 5 minutes; `"none"` (default).
+    #[serde(default)]
+    pub step_up: Option<String>,
+    /// A screen PIN or a computer's login password may stand in for biometrics (default
+    /// false).
+    #[serde(default)]
+    pub allow_device_credential: Option<bool>,
+    /// Origins a device key may sign for (`https://host[:port]`); default the names of
+    /// the gateway's certificate on its port. List the standby's too when it has its own.
+    #[serde(default)]
+    pub origins: Vec<String>,
+}
+
+/// `gateway.announce` (ADR 0050 §2.1).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GatewayAnnounceSection {
+    /// Default true; hardened sites turn it off.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Interface names to announce on (default: those the gateway listens on).
+    #[serde(default)]
+    pub interfaces: Vec<String>,
+    /// The other gateway of a standby pair, `host:port` (default: the host of
+    /// `standby.peer` with this gateway's port).
+    #[serde(default)]
+    pub pair: Option<String>,
+}
+
+impl GatewayDevicesSection {
+    /// The policy the gateway runs with, bounds checked.
+    pub fn policy(&self) -> Result<wyrm_gateway::DevicePolicy, Error> {
+        let d = wyrm_gateway::DevicePolicy::default();
+        let within = |what: &str, v: Option<u32>, lo: u32, hi: u32, def: u64| match v {
+            None => Ok(def),
+            Some(v) if (lo..=hi).contains(&v) => Ok(v.into()),
+            Some(v) => Err(format!("gateway.devices.{what}: {v} is not in {lo} … {hi}")),
+        };
+        let step_up = match self.step_up.as_deref() {
+            None | Some("none") => wyrm_gateway::StepUp::None,
+            Some("config") => wyrm_gateway::StepUp::Config,
+            Some(o) => {
+                return Err(format!("gateway.devices.step_up: {o:?} is not config or none").into())
+            }
+        };
+        for o in &self.origins {
+            if wyrm_gateway::devices::parse_origin(o).is_none() {
+                return Err(
+                    format!("gateway.devices.origins: {o:?} is not scheme://host[:port]").into(),
+                );
+            }
+        }
+        Ok(wyrm_gateway::DevicePolicy {
+            enabled: self.enabled.unwrap_or(d.enabled),
+            max_per_user: within(
+                "max_per_user",
+                self.max_per_user,
+                1,
+                20,
+                d.max_per_user as u64,
+            )? as usize,
+            password_every_days: within(
+                "password_every_days",
+                self.password_every_days,
+                1,
+                365,
+                d.password_every_days,
+            )?,
+            idle_lock_max_min: within(
+                "idle_lock_max_min",
+                self.idle_lock_max_min,
+                1,
+                1440,
+                d.idle_lock_max_min,
+            )?,
+            step_up,
+            allow_device_credential: self.allow_device_credential.unwrap_or(false),
+            origins: self.origins.clone(),
+            ..d
+        })
+    }
+}
+
+/// The DER of the CA the gateway's certificate chains to (ADR 0050 §2): `tls_ca`, else the
+/// last certificate of `tls_cert` when it holds a chain, else the site CA when it issued the
+/// gateway's certificate. `None` without TLS or when none of these is known. Never creates
+/// a CA. The one source of `ca_fp` (`/api/info`), the `fp` TXT key and `wyrmd ca
+/// fingerprint`.
+pub fn gateway_ca(cfg: &Config) -> Option<Vec<u8>> {
+    use rustls_pki_types::pem::PemObject;
+    use rustls_pki_types::CertificateDer;
+    let g = cfg.gateway.as_ref()?;
+    let certs = |path: &std::path::Path| -> Vec<Vec<u8>> {
+        CertificateDer::pem_file_iter(path)
+            .map(|it| it.filter_map(Result::ok).map(|c| c.to_vec()).collect())
+            .unwrap_or_default()
+    };
+    if let Some(ca) = &g.tls_ca {
+        return certs(ca).into_iter().next();
+    }
+    let chain = certs(g.tls_cert.as_ref()?);
+    if chain.len() > 1 {
+        return chain.last().cloned();
+    }
+    let leaf = chain.first()?;
+    let site = certs(&cfg.data_dir.join("pki").join("ca.pem"))
+        .into_iter()
+        .next()?;
+    let (_, l) = x509_parser::parse_x509_certificate(leaf).ok()?;
+    let (_, c) = x509_parser::parse_x509_certificate(&site).ok()?;
+    (l.issuer().as_raw() == c.subject().as_raw()
+        && l.verify_signature(Some(c.public_key())).is_ok())
+    .then_some(site)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -890,6 +1040,9 @@ impl Config {
                     .into())
                 }
                 _ => return Err("gateway: set both tls_cert and tls_key".into()),
+            }
+            if let Some(d) = &g.devices {
+                d.policy()?;
             }
         }
         for (id, l) in &cfg.links {
@@ -1351,6 +1504,7 @@ impl Broker {
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (install, quarantine)
             g.set_downstream_sites(ctl.peers().reachable());
+            g.set_upstream_sites(ctl.peers().upstream.clone());
             // which links are agents is the registry's word, never a link's own (ADR 0049)
             g.set_agent_links(
                 ctl.registry()
@@ -1825,6 +1979,14 @@ fn open_gateway(cfg: &Config, g: &GatewaySection, bootstrap: bool) -> Result<Arc
         }
         gc.mcp = Some(mc);
     }
+    if let Some(d) = &g.devices {
+        gc.devices = d.policy()?;
+    }
+    gc.info = wyrm_gateway::InfoConfig {
+        ca: gateway_ca(cfg),
+        pair: announce::pair_of(cfg),
+        up: cfg.peers.upstream.iter().map(|u| u.site.clone()).collect(),
+    };
     let gw = Gateway::open(gc, &hmac).map_err(|e| format!("gateway: {e}"))?;
     if !bootstrap {
         return Ok(gw);
@@ -1927,6 +2089,57 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             &task,
             Status::Ok,
             &format!("signed={} skipped={skipped}", steps.join(",")),
+        ),
+        // device keys (ADR 0050): ids, names and codes, never a key, nonce or signature
+        AuditEvent::DeviceAdded {
+            user,
+            device,
+            name,
+            platform,
+            ip,
+        } => ctl.record(
+            &format!("user:{user}"),
+            "device_added",
+            &device,
+            Status::Ok,
+            &format!("{ip} {platform} {name}"),
+        ),
+        AuditEvent::DeviceLogin { user, device, ip } => ctl.record(
+            &format!("user:{user}"),
+            "device_login",
+            &device,
+            Status::Ok,
+            &ip.to_string(),
+        ),
+        AuditEvent::DeviceRefused {
+            user,
+            device,
+            ip,
+            code,
+        } => ctl.record(
+            &user.map_or_else(|| "gateway".to_owned(), |u| format!("user:{u}")),
+            "device_refused",
+            &device,
+            Status::PermissionDenied,
+            &format!("{ip} {code}"),
+        ),
+        AuditEvent::StepUp {
+            user,
+            method,
+            request,
+        } => ctl.record(
+            &format!("user:{user}"),
+            "step_up",
+            &request,
+            Status::Ok,
+            method,
+        ),
+        AuditEvent::DeviceRemoved { user, device, by } => ctl.record(
+            &by,
+            "device_removed",
+            &device,
+            Status::Ok,
+            &format!("user:{user}"),
         ),
         e => ctl.record("gateway", "event", "", Status::Ok, &format!("{e:?}")),
     }
@@ -2331,6 +2544,90 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 mod tests {
     use super::*;
 
+    /// One certificate code everywhere (ADR 0050): `/api/info` `ca_fp`, the `fp` TXT key and
+    /// `wyrmd ca fingerprint` all come from [`gateway_ca`]: the site CA that issued the
+    /// gateway's certificate, the last of a chain, or `tls_ca`.
+    #[test]
+    fn one_certificate_code_everywhere() {
+        use rustls_pki_types::pem::PemObject;
+        let dir = std::env::temp_dir().join(format!("wyrmd-cacode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data");
+        let pki = wyrm_admin::secret::Pki::open_or_create(&data.join("pki")).unwrap();
+        let f = pki
+            .issue(
+                "gateway",
+                &["127.0.0.1".into(), "gw.plant.example".into()],
+                true,
+                &dir,
+                "gw",
+            )
+            .unwrap();
+        let ca_der = rustls_pki_types::CertificateDer::from_pem_file(pki.ca_path())
+            .unwrap()
+            .to_vec();
+        let cfg_of = |extra: &str| {
+            Config::from_json5(&format!(
+                r#"{{ site: "plant", data_dir: {:?}, gateway: {{ listen: "127.0.0.1:0",
+                    tls_cert: {:?}, tls_key: {:?} {extra} }} }}"#,
+                data, f.cert, f.key
+            ))
+            .unwrap()
+        };
+        let cfg = cfg_of("");
+        let der = gateway_ca(&cfg).expect("the site CA issued it");
+        assert_eq!(der, ca_der);
+        let fp = wyrm_gateway::devices::ca_fingerprint(&der);
+        let txt = announce::txt("plant", true, gateway_ca(&cfg).as_deref(), None, &[]);
+        assert!(txt.contains(&("fp".to_owned(), fp.clone())));
+        let gw = open_gateway(&cfg, cfg.gateway.as_ref().unwrap(), false).unwrap();
+        let info = gw.info();
+        let Value::Map(m) = &info else { panic!() };
+        assert_eq!(m.get("ca_fp"), Some(&Value::Str(fp.clone())));
+        assert_eq!(m.get("ca"), Some(&Value::Bytes(ca_der.clone())));
+        drop(gw);
+        // a chain in tls_cert: its last certificate
+        let chain = dir.join("chain.pem");
+        let mut pem = std::fs::read(&f.cert).unwrap();
+        pem.extend(std::fs::read(pki.ca_path()).unwrap());
+        std::fs::write(&chain, pem).unwrap();
+        let mut c = cfg_of("");
+        c.gateway.as_mut().unwrap().tls_cert = Some(chain);
+        assert_eq!(gateway_ca(&c), Some(ca_der.clone()));
+        // tls_ca names it; a leaf no CA known issued has no code
+        let mut c = cfg_of("");
+        c.gateway.as_mut().unwrap().tls_ca = Some(f.cert.clone());
+        assert_ne!(gateway_ca(&c), Some(ca_der));
+        let mut c = cfg_of("");
+        c.data_dir = dir.join("elsewhere");
+        assert_eq!(gateway_ca(&c), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn device_policy_is_checked() {
+        let p = |d: &str| {
+            Config::from_json5(&format!(
+                r#"{{ site: "s", gateway: {{ listen: "127.0.0.1:8443", devices: {d} }} }}"#
+            ))
+        };
+        let ok =
+            p(r#"{ step_up: "config", max_per_user: 3, origins: ["https://gw.example:8443"] }"#)
+                .unwrap();
+        let pol = ok.gateway.unwrap().devices.unwrap().policy().unwrap();
+        assert_eq!(pol.step_up, wyrm_gateway::StepUp::Config);
+        assert_eq!((pol.max_per_user, pol.password_every_days), (3, 30));
+        for bad in [
+            r#"{ step_up: "always" }"#,
+            r#"{ password_every_days: 0 }"#,
+            r#"{ max_per_user: 50 }"#,
+            r#"{ origins: ["gw.example"] }"#,
+            r#"{ nonsense: 1 }"#,
+        ] {
+            assert!(p(bad).is_err(), "{bad}");
+        }
+    }
+
     /// The structs `wyrmd.json5` is read into, each with the key path of
     /// its fields.
     const CONFIG_STRUCTS: &[(&str, &str)] = &[
@@ -2342,6 +2639,8 @@ mod tests {
         ("SchedulerSection", "scheduler"),
         ("GatewaySection", "gateway"),
         ("GatewayMcpSection", "gateway.mcp"),
+        ("GatewayDevicesSection", "gateway.devices"),
+        ("GatewayAnnounceSection", "gateway.announce"),
         ("PeersSection", "peers"),
         ("PackagesSection", "packages"),
         ("UpstreamPeer", "peers.upstream"),

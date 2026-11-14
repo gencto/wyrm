@@ -1157,6 +1157,9 @@ fn downstream_sites_map_to_own_roles() {
             iat: 0,
             jti: [0; 16],
             gen: 0,
+            amr: wyrm_gateway::Amr::Password,
+            auth_at: 0,
+            dev: None,
         },
     };
     let mut p = p;
@@ -1843,6 +1846,9 @@ fn an_approval_token_is_for_one_step_and_one_body() {
             iat: 0,
             jti: [0; 16],
             gen: 0,
+            amr: wyrm_gateway::Amr::Password,
+            auth_at: 0,
+            dev: None,
         },
     };
     let claims = |tok: Vec<u8>| -> wyrm_core::PtokClaims {

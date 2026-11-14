@@ -116,9 +116,58 @@ impl LoginLimiter {
     }
 }
 
+/// Requests per address in a fixed window, for the public routes that answer without a
+/// password (`/api/info`, device challenges): what `LoginLimiter` is for failures.
+pub struct RequestLimiter {
+    max: u32,
+    window: Duration,
+    seen: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+}
+
+impl RequestLimiter {
+    pub fn new(max: u32, window: Duration) -> Self {
+        Self {
+            max: max.max(1),
+            window,
+            seen: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Count one request of `ip`; `false` past `max` in its window. With the table full,
+    /// an address not in it is refused until records expire.
+    pub fn allowed(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let mut m = self.seen.lock().unwrap_or_else(|p| p.into_inner());
+        if !m.contains_key(&ip) && m.len() >= MAX_RECORDS {
+            let window = self.window;
+            m.retain(|_, (t, _)| now.duration_since(*t) < window);
+            if m.len() >= MAX_RECORDS {
+                return false;
+            }
+        }
+        let e = m.entry(ip).or_insert((now, 0));
+        if now.duration_since(e.0) >= self.window {
+            *e = (now, 0);
+        }
+        e.1 += 1;
+        e.1 <= self.max
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requests_per_address() {
+        let l = RequestLimiter::new(2, Duration::from_millis(50));
+        let a: IpAddr = "10.0.0.1".parse().unwrap();
+        assert!(l.allowed(a) && l.allowed(a));
+        assert!(!l.allowed(a));
+        assert!(l.allowed("10.0.0.2".parse().unwrap()));
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(l.allowed(a), "a new window");
+    }
 
     #[test]
     fn per_user_and_ip() {

@@ -4301,6 +4301,9 @@ async fn two_brokers_over_quic() {
                 iat: 0,
                 jti: [0; 16],
                 gen: 0,
+                amr: wyrm_gateway::Amr::Password,
+                auth_at: 0,
+                dev: None,
             },
         };
         WyrmClient::new(session.clone())

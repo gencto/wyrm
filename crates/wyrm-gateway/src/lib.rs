@@ -17,10 +17,13 @@
 //!   the file parameter are checked before the body is read
 //! * user management (`config` on `wy/<site>/sys/**`): `GET|POST /api/users`,
 //!   `POST /api/users/{name}/password|roles|disabled`, `DELETE /api/users/{name}`
+//! * `GET /api/info` (public): what a log-in page needs before a login (ADR 0050 §2.2)
+//! * device keys and the step-up (ADR 0050 §1): see [`devices`]
 
 #![forbid(unsafe_code)]
 
 pub mod approve;
+pub mod devices;
 mod http;
 mod limit;
 #[cfg(feature = "mcp")]
@@ -32,9 +35,10 @@ pub mod session;
 pub mod users;
 pub mod ws;
 
+pub use devices::{DevicePolicy, StepUp};
 pub use oauth::McpConfig;
 pub use roles::{with_grant, Grants, RoleTable};
-pub use session::SessionClaims;
+pub use session::{Amr, SessionClaims};
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use session::SessionKey;
@@ -57,6 +61,12 @@ pub const SESSION_TTL: Duration = Duration::from_secs(8 * 3600);
 /// Failed logins per user and address in [`LOGIN_WINDOW`].
 pub const LOGIN_FAILURES: usize = 5;
 pub const LOGIN_WINDOW: Duration = Duration::from_secs(60);
+/// `GET /api/info` requests per address and minute.
+pub const INFO_PER_MIN: u32 = 60;
+/// `POST /api/device/challenge` requests per address and minute.
+pub const CHALLENGES_PER_MIN: u32 = 30;
+/// The oldest Studio this gateway serves (`min_studio` of `/api/info`).
+pub const MIN_STUDIO: &str = "1.0.0";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -96,6 +106,22 @@ pub struct GatewayConfig {
     /// The remote MCP endpoint `/mcp` with its OAuth 2.1 server (ADR 0041
     /// stage B); `None` = off.
     pub mcp: Option<McpConfig>,
+    /// Device keys and the step-up (ADR 0050 §1.6).
+    pub devices: DevicePolicy,
+    /// What `GET /api/info` tells beyond the site (ADR 0050 §2.2).
+    pub info: InfoConfig,
+}
+
+/// The parts of `GET /api/info` the broker knows (ADR 0050 §2).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InfoConfig {
+    /// DER of the CA the gateway's certificate chains to: `ca` and `ca_fp` (for a client
+    /// that pins it after a person compared the code).
+    pub ca: Option<Vec<u8>>,
+    /// The other broker of a standby pair, `host:port` of its gateway.
+    pub pair: Option<String>,
+    /// The upstream sites of this broker.
+    pub up: Vec<String>,
 }
 
 impl GatewayConfig {
@@ -112,6 +138,8 @@ impl GatewayConfig {
             anchor_init: false,
             downstream_sites: Vec::new(),
             mcp: None,
+            devices: DevicePolicy::default(),
+            info: InfoConfig::default(),
         }
     }
 }
@@ -239,6 +267,40 @@ pub enum AuditEvent {
         steps: Vec<String>,
         skipped: usize,
     },
+    /// A device key was registered (ADR 0050): its id, name and platform, never the key.
+    DeviceAdded {
+        user: String,
+        device: String,
+        name: String,
+        platform: String,
+        ip: IpAddr,
+    },
+    DeviceLogin {
+        user: String,
+        device: String,
+        ip: IpAddr,
+    },
+    /// A device request refused: `code` is the refusal code, or for a bare refusal what was
+    /// wrong (`unknown_device`, `bad_signature`, `bad_nonce`, `bad_registration`,
+    /// `rate_limited`). `user` when the device is known.
+    DeviceRefused {
+        user: Option<String>,
+        device: String,
+        ip: IpAddr,
+        code: &'static str,
+    },
+    /// A session confirmed with `method` `device` or `password`; `request` the hex hash the
+    /// device signed (empty for the password).
+    StepUp {
+        user: String,
+        method: &'static str,
+        request: String,
+    },
+    DeviceRemoved {
+        user: String,
+        device: String,
+        by: String,
+    },
 }
 
 type AuditHook = Arc<dyn Fn(AuditEvent) + Send + Sync>;
@@ -282,6 +344,16 @@ pub struct Gateway {
     agent_links: RwLock<Vec<String>>,
     /// Open WebSockets and the request bucket of each user (review GW-2).
     per_user: Mutex<std::collections::HashMap<String, UserUse>>,
+    /// Live device challenges (ADR 0050).
+    pub(crate) challenges: devices::Challenges,
+    /// Step-ups and password checks of sessions after their login.
+    pub(crate) fresh: devices::Fresh,
+    pub(crate) challenge_limit: limit::RequestLimiter,
+    pub(crate) info_limit: limit::RequestLimiter,
+    /// The DNS and IP names of the gateway's certificate (default device origins).
+    pub(crate) cert_names: Vec<String>,
+    /// Upstream sites for `/api/info` (starts as `cfg.info.up`).
+    up_sites: RwLock<Vec<String>>,
 }
 
 /// What one user holds over all their sockets.
@@ -373,6 +445,10 @@ impl Gateway {
             ));
         }
         let signing = load_or_create_key(&cfg.dir.join("gateway.key"))?;
+        let cert_names = match &cfg.tls {
+            Some((cert, _)) => devices::cert_names(&std::fs::read(cert)?),
+            None => Vec::new(),
+        };
         Ok(Arc::new(Self {
             session_key: SessionKey::derive(hmac_key),
             oauth: match &cfg.mcp {
@@ -392,6 +468,12 @@ impl Gateway {
             sites: Arc::new(watch::channel(Arc::default()).0),
             agent_links: RwLock::new(Vec::new()),
             per_user: Mutex::new(Default::default()),
+            challenges: Default::default(),
+            fresh: Default::default(),
+            challenge_limit: limit::RequestLimiter::new(CHALLENGES_PER_MIN, LOGIN_WINDOW),
+            info_limit: limit::RequestLimiter::new(INFO_PER_MIN, LOGIN_WINDOW),
+            cert_names,
+            up_sites: RwLock::new(cfg.info.up.clone()),
             cfg,
         }))
     }
@@ -510,6 +592,43 @@ impl Gateway {
         })
     }
 
+    /// The upstream sites `/api/info` names (the broker's peers above).
+    pub fn set_upstream_sites(&self, sites: Vec<String>) {
+        *self.up_sites.write().unwrap_or_else(|p| p.into_inner()) = sites;
+    }
+
+    /// `GET /api/info` (ADR 0050 §2.2): no user, no key, nothing a session would tell.
+    pub fn info(&self) -> wyrm_core::Value {
+        use wyrm_core::Value;
+        let mut m = std::collections::BTreeMap::from([
+            ("site".to_owned(), Value::from(self.cfg.site.as_str())),
+            ("version".to_owned(), Value::from(env!("CARGO_PKG_VERSION"))),
+            ("tls".to_owned(), Value::Bool(self.cfg.tls.is_some())),
+            ("role".to_owned(), Value::from("active")),
+            ("devices".to_owned(), self.cfg.devices.to_value()),
+            ("min_studio".to_owned(), Value::from(MIN_STUDIO)),
+            (
+                "up".to_owned(),
+                Value::Array(
+                    self.up_sites
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .iter()
+                        .map(|s| Value::from(s.as_str()))
+                        .collect(),
+                ),
+            ),
+        ]);
+        if let Some(ca) = self.cfg.info.ca.as_ref().filter(|_| self.cfg.tls.is_some()) {
+            m.insert("ca_fp".into(), Value::Str(devices::ca_fingerprint(ca)));
+            m.insert("ca".into(), Value::Bytes(ca.clone()));
+        }
+        if let Some(p) = &self.cfg.info.pair {
+            m.insert("pair".into(), Value::from(p.as_str()));
+        }
+        Value::Map(m)
+    }
+
     /// Downstream sites reached through the gateway (the broker's peers).
     pub fn set_downstream_sites(&self, sites: Vec<String>) {
         *self
@@ -582,7 +701,7 @@ impl Gateway {
         }
     }
 
-    fn store(&self) -> std::sync::MutexGuard<'_, Store<UserDb>> {
+    pub(crate) fn store(&self) -> std::sync::MutexGuard<'_, Store<UserDb>> {
         self.users.lock().unwrap_or_else(|p| p.into_inner())
     }
 
@@ -772,6 +891,15 @@ impl Gateway {
         if u.disabled || u.gen != claims.gen || session::now_s() >= claims.exp {
             return None;
         }
+        // a device login ends with its device (removed, forgotten, signed out)
+        if let Some(id) = &claims.dev {
+            let store = self.store();
+            let db = store.state();
+            let d = db.devices.get(id)?;
+            if d.user != claims.sub || !db.device_active(d) {
+                return None;
+            }
+        }
         Some(Principal {
             name: claims.sub.clone(),
             grants: self.grants_of(&u.roles),
@@ -803,9 +931,14 @@ impl Gateway {
         &self,
         user: &str,
         password: Zeroizing<String>,
+        device: Option<&str>,
         ip: IpAddr,
     ) -> Result<(String, u64), LoginError> {
         let (roles, gen) = self.verify_login(user, password, ip)?;
+        // the device saw the password: its `password_due` starts again (ADR 0050)
+        if let Some(d) = device {
+            self.password_seen(user, d);
+        }
         let iat = session::now_s();
         let exp = iat + self.cfg.session_ttl.as_secs().max(1);
         let claims = SessionClaims {
@@ -815,6 +948,9 @@ impl Gateway {
             iat,
             jti: session::new_jti(),
             gen,
+            amr: session::Amr::Password,
+            auth_at: iat,
+            dev: None,
         };
         Ok((self.session_key.mint(&claims), exp))
     }

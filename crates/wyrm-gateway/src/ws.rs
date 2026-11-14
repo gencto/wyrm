@@ -544,9 +544,70 @@ impl Conn {
         true
     }
 
+    /// `step_up: config` (ADR 0050 §1.3): a `set` on a point writable at `config`, or an
+    /// `invoke` of an action at `config`, by a session not confirmed in the last 5 minutes
+    /// is refused with `confirm_required`. Only for a user who holds `config` there (anyone
+    /// else is refused by the responder anyway); a node whose `~meta` cannot be read counts
+    /// as `config`.
+    async fn needs_step_up(&self, p: &Principal, c: &WyrmClient, req: &Req) -> Option<Value> {
+        if !self.gw.step_up_on() || self.gw.confirmed(p) {
+            return None;
+        }
+        let own = self.gw.as_own(&req.key);
+        let at_config = match req.op.as_str() {
+            "set" if p.grants.perm(&format!("{own}/~set")) >= Perm::Config => {
+                match c.meta(&req.key).await {
+                    Ok(m) => m.writable == Some(wyrm_core::meta::Writable::Config),
+                    Err(_) => true,
+                }
+            }
+            "invoke" => {
+                let action = req.action.as_deref().unwrap_or_default();
+                if p.grants.perm(&format!("{own}/~act/{action}")) < Perm::Config {
+                    return None;
+                }
+                match c.meta_expanded(&req.key).await {
+                    Ok(m) => m
+                        .actions
+                        .as_ref()
+                        .and_then(|a| a.get(action))
+                        .is_none_or(|a| a.level.unwrap_or(Perm::Read) >= Perm::Config),
+                    Err(_) => true,
+                }
+            }
+            _ => false,
+        };
+        if !at_config {
+            return None;
+        }
+        let mut what = BTreeMap::from([
+            ("op".to_owned(), Value::from(req.op.as_str())),
+            ("key".to_owned(), Value::from(req.key.as_str())),
+        ]);
+        for (k, v) in [
+            ("value", req.value.clone()),
+            ("action", req.action.clone().map(Value::Str)),
+            ("args", req.args.clone()),
+        ] {
+            if let Some(v) = v {
+                what.insert(k.to_owned(), v);
+            }
+        }
+        let refused = self.gw.step_up(p, &Value::Map(what)).err()?;
+        self.gw.audit(AuditEvent::Denied {
+            user: p.name.clone(),
+            op: "confirm_required".into(),
+            key: req.key.clone(),
+        });
+        Some(refused_frame(req.id, refused))
+    }
+
     async fn one_shot(&self, p: Principal, req: Req) {
         let c = self.client(&p);
         let id = req.id;
+        if let Some(frame) = self.needs_step_up(&p, &c, &req).await {
+            return self.send(frame).await;
+        }
         let frame = match req.op.as_str() {
             "meta" => match c.meta(&req.key).await {
                 Ok(mut m) => {
@@ -919,6 +980,31 @@ fn err_frame(id: u64, status: u8, message: &str) -> Value {
                 ("message", Value::from(message)),
             ]),
         ),
+    ])
+}
+
+/// An error frame of a gateway refusal with its `code` (ADR 0050): `confirm_required`
+/// carries `nonce` (to sign) and `request` (the hash).
+fn refused_frame(id: u64, r: crate::devices::Refused) -> Value {
+    use crate::devices::Refused;
+    let mut error = BTreeMap::from([
+        (
+            "status".to_owned(),
+            Value::UInt(Status::PermissionDenied.code().into()),
+        ),
+        ("message".to_owned(), Value::from("confirm this request")),
+    ]);
+    if let Refused::ConfirmRequired { nonce, request } = r {
+        error.insert("code".into(), Value::from("confirm_required"));
+        if let Some(n) = nonce {
+            error.insert("nonce".into(), Value::Bytes(n.to_vec()));
+        }
+        error.insert("request".into(), Value::Bytes(request.to_vec()));
+    }
+    map([
+        ("id", Value::UInt(id)),
+        ("ok", Value::Bool(false)),
+        ("error", Value::Map(error)),
     ])
 }
 

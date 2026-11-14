@@ -1,5 +1,6 @@
 //! HTTP(S) server: routes, CBOR bodies, bearer auth, TLS (rustls + ring).
 
+use crate::devices::{Purpose, Refused};
 use crate::users::MAX_PASSWORD;
 use crate::{AuditEvent, Error, Gateway, LoginError, Principal};
 use axum::body::Bytes;
@@ -131,9 +132,18 @@ fn tls_config(
 fn router(st: AppState) -> Router {
     let r: Router<AppState> = Router::new()
         .route("/api/login", post(login))
+        .route("/api/info", get(info))
         .route("/api/me", get(me))
+        .route("/api/me/sign-out", post(sign_out))
+        .route("/api/confirm", post(confirm_password))
+        .route("/api/device/challenge", post(device_challenge))
+        .route("/api/device/login", post(device_login))
+        .route("/api/device/confirm", post(device_confirm))
+        .route("/api/devices", get(my_devices).post(add_device))
+        .route("/api/devices/{id}", delete(remove_device))
         .route("/api/users", get(list_users).post(add_user))
         .route("/api/users/{name}", delete(remove_user))
+        .route("/api/users/{name}/devices", get(user_devices))
         .route("/api/users/{name}/password", post(set_password))
         .route("/api/users/{name}/roles", post(set_roles))
         .route("/api/users/{name}/disabled", post(set_disabled))
@@ -169,12 +179,14 @@ fn router(st: AppState) -> Router {
     r.with_state(st)
 }
 
-/// Error body: `{status: <spec-04 code>, message}`.
+/// Error body: `{status: <spec-04 code>, message, code?, …}`; `code` names a refusal a
+/// client acts on (ADR 0050: `device_removed`, `confirm_required`, …).
 #[derive(Debug)]
 pub(crate) struct ApiError {
     http: StatusCode,
     status: Status,
     message: String,
+    extra: Vec<(&'static str, Value)>,
 }
 
 impl ApiError {
@@ -183,6 +195,7 @@ impl ApiError {
             http,
             status,
             message: message.into(),
+            extra: Vec::new(),
         }
     }
 
@@ -227,15 +240,64 @@ impl From<Error> for ApiError {
     }
 }
 
+impl From<Refused> for ApiError {
+    fn from(r: Refused) -> Self {
+        let coded = |code: &'static str, message: &str| {
+            let mut e = Self::new(StatusCode::FORBIDDEN, Status::PermissionDenied, message);
+            e.extra.push(("code", Value::from(code)));
+            e
+        };
+        match r {
+            Refused::Bare => Self::new(
+                StatusCode::UNAUTHORIZED,
+                Status::PermissionDenied,
+                "device not accepted",
+            ),
+            Refused::Code(c) => coded(
+                c,
+                match c {
+                    "device_removed" => "this device was removed",
+                    "password_changed" => "the password changed: log in with it",
+                    "password_due" => "log in with the password: it is due on this device",
+                    "devices_off" => "device keys are off on this gateway",
+                    "password_required" => "log in with the password first",
+                    "too_many_devices" => "this user has as many devices as the gateway allows",
+                    "bad_password" => "wrong password",
+                    _ => "refused",
+                },
+            ),
+            Refused::ConfirmRequired { nonce, request } => {
+                let mut e = coded("confirm_required", "confirm this request");
+                if let Some(n) = nonce {
+                    e.extra.push(("nonce", Value::Bytes(n.to_vec())));
+                }
+                e.extra.push(("request", Value::Bytes(request.to_vec())));
+                e
+            }
+            Refused::RateLimited => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                Status::RateLimited,
+                "too many requests",
+            ),
+            Refused::Busy => Self::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "busy"),
+            Refused::Bad(m) => Self::bad(m),
+            Refused::NotFound => {
+                Self::new(StatusCode::NOT_FOUND, Status::NotFound, "no such device")
+            }
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        cbor(
-            self.http,
-            &map([
-                ("status", Value::UInt(self.status.code().into())),
-                ("message", Value::Str(self.message)),
-            ]),
-        )
+        let mut m = BTreeMap::from([
+            ("status".to_owned(), Value::UInt(self.status.code().into())),
+            ("message".to_owned(), Value::Str(self.message)),
+        ]);
+        for (k, v) in self.extra {
+            m.insert(k.to_owned(), v);
+        }
+        cbor(self.http, &Value::Map(m))
     }
 }
 
@@ -273,6 +335,42 @@ fn text(m: &mut BTreeMap<String, Value>, k: &str) -> Result<String, ApiError> {
         Some(Value::Str(s)) => Ok(s),
         _ => Err(ApiError::bad(format!("{k}: text required"))),
     }
+}
+
+fn opt_text(m: &mut BTreeMap<String, Value>, k: &str) -> Result<Option<String>, ApiError> {
+    match m.remove(k) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Str(s)) => Ok(Some(s)),
+        _ => Err(ApiError::bad(format!("{k}: text required"))),
+    }
+}
+
+fn bytes(m: &mut BTreeMap<String, Value>, k: &str) -> Result<Vec<u8>, ApiError> {
+    match m.remove(k) {
+        Some(Value::Bytes(b)) => Ok(b),
+        _ => Err(ApiError::bad(format!("{k}: bytes required"))),
+    }
+}
+
+/// The request a step-up names, for HTTP: `{method, path, body}`.
+fn http_request(method: &str, path: &str, body: &[u8]) -> Value {
+    map([
+        ("method", Value::from(method)),
+        ("path", Value::from(path)),
+        ("body", Value::Bytes(body.to_vec())),
+    ])
+}
+
+/// Refuse a `config`-level change of a session that is not confirmed (`step_up: config`).
+fn step_up(gw: &Gateway, p: &Principal, request: Value) -> Result<(), ApiError> {
+    gw.step_up(p, &request).map_err(|r| {
+        gw.audit(AuditEvent::Denied {
+            user: p.name.clone(),
+            op: "confirm_required".into(),
+            key: String::new(),
+        });
+        ApiError::from(r)
+    })
 }
 
 fn roles(m: &mut BTreeMap<String, Value>) -> Result<Vec<String>, ApiError> {
@@ -331,7 +429,12 @@ async fn login(
     let mut m = body_map(&body)?;
     let user = text(&mut m, "user")?;
     let password = Zeroizing::new(text(&mut m, "password")?);
-    if user.len() > 64 || password.len() > MAX_PASSWORD {
+    // the device this login is on (ADR 0050): its `password_due` starts again
+    let device = opt_text(&mut m, "device")?;
+    if user.len() > 64
+        || password.len() > MAX_PASSWORD
+        || device.as_ref().is_some_and(|d| d.len() > 64)
+    {
         return Err(ApiError::bad("user or password too long"));
     }
     // A locked caller never waits for (or holds) a hashing permit.
@@ -342,9 +445,11 @@ async fn login(
                 ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
             })?;
             let gw = st.gw.clone();
-            tokio::task::spawn_blocking(move || gw.login(&user, password, peer.ip()))
-                .await
-                .map_err(|_| Error::Rejected("login task failed".into()))?
+            tokio::task::spawn_blocking(move || {
+                gw.login(&user, password, device.as_deref(), peer.ip())
+            })
+            .await
+            .map_err(|_| Error::Rejected("login task failed".into()))?
         }
     };
     match r {
@@ -537,8 +642,18 @@ async fn check_invoke(
         )));
     }
     // The action's own level, before 64 MiB arrive (the link checks again).
-    if p.grants.perm(&act_key) < am.level.unwrap_or(Perm::Read).max(Perm::Read) {
+    let level = am.level.unwrap_or(Perm::Read).max(Perm::Read);
+    if p.grants.perm(&act_key) < level {
         return Err(deny());
+    }
+    // a config action of a session not confirmed (ADR 0050 §1.3)
+    if level >= Perm::Config {
+        let req = map([
+            ("op", Value::from("invoke")),
+            ("key", Value::from(key.as_str())),
+            ("action", Value::from(action.as_str())),
+        ]);
+        step_up(gw, p, req)?;
     }
     Ok(c)
 }
@@ -579,7 +694,9 @@ async fn list_users(State(st): State<AppState>, _: Admin) -> ApiResult {
         .list_users()
         .into_iter()
         .map(|(name, roles, disabled)| {
+            let devices = st.gw.active_devices(&name) as u64;
             map([
+                ("devices", Value::UInt(devices)),
                 ("name", Value::Str(name)),
                 (
                     "roles",
@@ -617,6 +734,7 @@ async fn hashing<T: Send + 'static>(
 }
 
 async fn add_user(State(st): State<AppState>, Admin(by): Admin, body: Bytes) -> ApiResult {
+    step_up(&st.gw, &by, http_request("POST", "/api/users", &body))?;
     let mut m = body_map(&body)?;
     let name = text(&mut m, "name")?;
     let password = Zeroizing::new(text(&mut m, "password")?);
@@ -633,6 +751,11 @@ async fn set_password(
     Path(name): Path<String>,
     body: Bytes,
 ) -> ApiResult {
+    step_up(
+        &st.gw,
+        &by,
+        http_request("POST", &format!("/api/users/{name}/password"), &body),
+    )?;
     let mut m = body_map(&body)?;
     let password = Zeroizing::new(text(&mut m, "password")?);
     let n = name.clone();
@@ -647,6 +770,11 @@ async fn set_roles(
     Path(name): Path<String>,
     body: Bytes,
 ) -> ApiResult {
+    step_up(
+        &st.gw,
+        &by,
+        http_request("POST", &format!("/api/users/{name}/roles"), &body),
+    )?;
     let roles = roles(&mut body_map(&body)?)?;
     st.gw.set_roles(&name, roles)?;
     changed(&st.gw, &by, &name, "roles");
@@ -659,6 +787,11 @@ async fn set_disabled(
     Path(name): Path<String>,
     body: Bytes,
 ) -> ApiResult {
+    step_up(
+        &st.gw,
+        &by,
+        http_request("POST", &format!("/api/users/{name}/disabled"), &body),
+    )?;
     let Some(Value::Bool(disabled)) = body_map(&body)?.remove("disabled") else {
         return Err(ApiError::bad("disabled: bool required"));
     };
@@ -677,7 +810,216 @@ async fn remove_user(
     Admin(by): Admin,
     Path(name): Path<String>,
 ) -> ApiResult {
+    step_up(
+        &st.gw,
+        &by,
+        http_request("DELETE", &format!("/api/users/{name}"), &[]),
+    )?;
     st.gw.remove_user(&name)?;
     changed(&st.gw, &by, &name, "remove");
+    Ok(ok())
+}
+
+async fn info(State(st): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>) -> ApiResult {
+    if !st.gw.info_limit.allowed(peer.ip()) {
+        return Err(Refused::RateLimited.into());
+    }
+    Ok(cbor(StatusCode::OK, &st.gw.info()))
+}
+
+/// `POST /api/me/sign-out`: sign out everywhere (every session, every device key).
+async fn sign_out(State(st): State<AppState>, Auth(p): Auth) -> ApiResult {
+    st.gw.end_sessions(&p.name)?;
+    changed(&st.gw, &p, &p.name, "sign_out");
+    Ok(ok())
+}
+
+/// `POST /api/device/challenge {device}` → `{nonce, exp}`; with a bearer session
+/// `{purpose: "register" | "confirm"}` instead.
+async fn device_challenge(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult {
+    let mut m = body_map(&body)?;
+    let purpose = match opt_text(&mut m, "purpose")?.as_deref() {
+        None | Some("login") => {
+            let device = text(&mut m, "device")?;
+            if device.is_empty() || device.len() > 64 {
+                return Err(ApiError::bad("device: 1 to 64 bytes"));
+            }
+            Purpose::Login { device }
+        }
+        Some(which @ ("register" | "confirm")) => {
+            let p = bearer(&headers)
+                .and_then(|t| st.gw.authenticate(&t))
+                .ok_or_else(ApiError::unauthenticated)?;
+            let (user, jti) = (p.name, p.claims.jti);
+            if which == "register" {
+                Purpose::Register { user, jti }
+            } else {
+                Purpose::Confirm { user, jti }
+            }
+        }
+        Some(_) => return Err(ApiError::bad("purpose: login, register or confirm")),
+    };
+    let (nonce, exp) = st.gw.device_challenge(purpose, peer.ip())?;
+    Ok(cbor(
+        StatusCode::OK,
+        &map([
+            ("nonce", Value::Bytes(nonce.to_vec())),
+            ("exp", Value::UInt(exp)),
+        ]),
+    ))
+}
+
+/// `POST /api/devices {name, platform, alg, public_key, attestation?, origin, nonce,
+/// signature}` → `{device}`.
+async fn add_device(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Auth(p): Auth,
+    body: Bytes,
+) -> ApiResult {
+    let mut m = body_map(&body)?;
+    let name = text(&mut m, "name")?;
+    let platform = text(&mut m, "platform")?;
+    let alg = text(&mut m, "alg")?;
+    let public_key = bytes(&mut m, "public_key")?;
+    let attestation = match m.remove("attestation") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bytes(b)) => Some(b),
+        _ => return Err(ApiError::bad("attestation: bytes")),
+    };
+    let origin = text(&mut m, "origin")?;
+    let nonce = bytes(&mut m, "nonce")?;
+    let signature = bytes(&mut m, "signature")?;
+    let id = st.gw.register_device(
+        &p,
+        &name,
+        &platform,
+        &alg,
+        &public_key,
+        attestation,
+        &origin,
+        &nonce,
+        &signature,
+        peer.ip(),
+    )?;
+    Ok(cbor(StatusCode::OK, &map([("device", Value::Str(id))])))
+}
+
+/// `POST /api/device/login {device, origin, nonce, signature, session?}` → `{session, exp}`.
+async fn device_login(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    body: Bytes,
+) -> ApiResult {
+    let mut m = body_map(&body)?;
+    let device = text(&mut m, "device")?;
+    let origin = text(&mut m, "origin")?;
+    let nonce = bytes(&mut m, "nonce")?;
+    let signature = bytes(&mut m, "signature")?;
+    let keep = opt_text(&mut m, "session")?.map(Zeroizing::new);
+    let (session, exp) = st.gw.device_login(
+        &device,
+        &origin,
+        &nonce,
+        &signature,
+        keep.as_ref().map(|s| s.as_str()),
+        peer.ip(),
+    )?;
+    Ok(cbor(
+        StatusCode::OK,
+        &map([("session", Value::Str(session)), ("exp", Value::UInt(exp))]),
+    ))
+}
+
+/// `POST /api/device/confirm {device, origin, nonce, request, signature}`.
+async fn device_confirm(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Auth(p): Auth,
+    body: Bytes,
+) -> ApiResult {
+    let mut m = body_map(&body)?;
+    let device = text(&mut m, "device")?;
+    let origin = text(&mut m, "origin")?;
+    let nonce = bytes(&mut m, "nonce")?;
+    let request = bytes(&mut m, "request")?;
+    let signature = bytes(&mut m, "signature")?;
+    st.gw.confirm_device(
+        &p,
+        &device,
+        &origin,
+        &nonce,
+        &request,
+        &signature,
+        peer.ip(),
+    )?;
+    Ok(ok())
+}
+
+/// `POST /api/confirm {password}`.
+async fn confirm_password(
+    State(st): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Auth(p): Auth,
+    body: Bytes,
+) -> ApiResult {
+    let password = Zeroizing::new(text(&mut body_map(&body)?, "password")?);
+    if password.len() > MAX_PASSWORD {
+        return Err(ApiError::bad("password too long"));
+    }
+    let _permit =
+        st.gw.hashing.acquire().await.map_err(|_| {
+            ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, "stopping")
+        })?;
+    let gw = st.gw.clone();
+    tokio::task::spawn_blocking(move || gw.confirm_password(&p, password, peer.ip()))
+        .await
+        .map_err(|_| ApiError::from(Error::Rejected("confirm task failed".into())))??;
+    Ok(ok())
+}
+
+async fn my_devices(State(st): State<AppState>, Auth(p): Auth) -> ApiResult {
+    let rows = st.gw.devices_of(&p.name, p.claims.dev.as_deref());
+    Ok(cbor(StatusCode::OK, &Value::Array(rows)))
+}
+
+async fn user_devices(State(st): State<AppState>, _: Admin, Path(name): Path<String>) -> ApiResult {
+    if st.gw.user(&name).is_none() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            Status::NotFound,
+            format!("no user {name}"),
+        ));
+    }
+    Ok(cbor(
+        StatusCode::OK,
+        &Value::Array(st.gw.devices_of(&name, None)),
+    ))
+}
+
+/// `DELETE /api/devices/{id}`: its owner turns it off; an admin removes another user's
+/// device (a `config` change: the step-up applies).
+async fn remove_device(
+    State(st): State<AppState>,
+    Auth(p): Auth,
+    Path(id): Path<String>,
+) -> ApiResult {
+    let theirs = st
+        .gw
+        .devices_owner(&id)
+        .is_some_and(|owner| owner != p.name);
+    if theirs && st.gw.is_admin(&p) {
+        step_up(
+            &st.gw,
+            &p,
+            http_request("DELETE", &format!("/api/devices/{id}"), &[]),
+        )?;
+    }
+    st.gw.remove_device(&p, &id)?;
     Ok(ok())
 }

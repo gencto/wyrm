@@ -29,6 +29,44 @@ pub struct SessionClaims {
     pub jti: [u8; 16],
     /// User generation at login (see `users::User::gen`).
     pub gen: u64,
+    /// How the session was made (ADR 0050).
+    pub amr: Amr,
+    /// When the person last proved who they are for this session: the password or the
+    /// device key at login (seconds since the epoch).
+    pub auth_at: u64,
+    /// The device key a device login used: the session ends when that device is removed.
+    pub dev: Option<String>,
+}
+
+/// How a session was made. Tokens from before ADR 0050 carry none and are password logins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Amr {
+    /// `POST /api/login` with the password.
+    Password,
+    /// `POST /api/device/login` with a device key.
+    Device,
+    /// An access token of the MCP endpoint (ADR 0041): never registers a device or passes a
+    /// step-up.
+    OAuth,
+}
+
+impl Amr {
+    pub fn name(self) -> &'static str {
+        match self {
+            Amr::Password => "pwd",
+            Amr::Device => "dev",
+            Amr::OAuth => "oauth",
+        }
+    }
+
+    fn of(s: &str) -> Option<Self> {
+        Some(match s {
+            "pwd" => Amr::Password,
+            "dev" => Amr::Device,
+            "oauth" => Amr::OAuth,
+            _ => return None,
+        })
+    }
 }
 
 pub fn now_s() -> u64 {
@@ -80,7 +118,7 @@ impl SessionKey {
 }
 
 fn encode(c: &SessionClaims) -> Value {
-    Value::Map(BTreeMap::from([
+    let mut m = BTreeMap::from([
         ("sub".to_owned(), Value::from(c.sub.as_str())),
         (
             "roles".to_owned(),
@@ -90,7 +128,13 @@ fn encode(c: &SessionClaims) -> Value {
         ("iat".to_owned(), Value::UInt(c.iat)),
         ("jti".to_owned(), Value::Bytes(c.jti.to_vec())),
         ("gen".to_owned(), Value::UInt(c.gen)),
-    ]))
+        ("amr".to_owned(), Value::from(c.amr.name())),
+        ("auth_at".to_owned(), Value::UInt(c.auth_at)),
+    ]);
+    if let Some(d) = &c.dev {
+        m.insert("dev".to_owned(), Value::from(d.as_str()));
+    }
+    Value::Map(m)
 }
 
 fn decode(v: &Value) -> Option<SessionClaims> {
@@ -108,6 +152,17 @@ fn decode(v: &Value) -> Option<SessionClaims> {
     let Some(Value::Bytes(jti)) = m.get("jti") else {
         return None;
     };
+    // absent in tokens from before ADR 0050: a password login at `iat`
+    let amr = match m.get("amr") {
+        None => Amr::Password,
+        Some(Value::Str(s)) => Amr::of(s)?,
+        Some(_) => return None,
+    };
+    let dev = match m.get("dev") {
+        None => None,
+        Some(Value::Str(s)) => Some(s.clone()),
+        Some(_) => return None,
+    };
     Some(SessionClaims {
         sub: sub.clone(),
         roles: roles
@@ -121,6 +176,12 @@ fn decode(v: &Value) -> Option<SessionClaims> {
         iat: uint("iat")?,
         jti: jti.as_slice().try_into().ok()?,
         gen: uint("gen")?,
+        auth_at: match m.get("auth_at") {
+            None => uint("iat")?,
+            Some(_) => uint("auth_at")?,
+        },
+        amr,
+        dev,
     })
 }
 
@@ -187,7 +248,28 @@ mod tests {
             iat: 100,
             jti: [3; 16],
             gen: 1,
+            amr: Amr::Device,
+            auth_at: 120,
+            dev: Some("d1".into()),
         }
+    }
+
+    #[test]
+    fn tokens_before_adr_0050_are_password_logins() {
+        let k = SessionKey::derive(b"state key");
+        let mut v = encode(&claims(200));
+        if let Value::Map(m) = &mut v {
+            for f in ["amr", "auth_at", "dev"] {
+                m.remove(f);
+            }
+        }
+        let mut tok = vec![SESSION_VERSION];
+        tok.extend(wyrm_core::codec::to_vec(&v).unwrap());
+        let mut mac = k.mac();
+        mac.update(&tok);
+        tok.extend(mac.finalize().into_bytes());
+        let c = k.verify(&URL_SAFE_NO_PAD.encode(tok), 150).unwrap();
+        assert_eq!((c.amr, c.auth_at, c.dev), (Amr::Password, 100, None));
     }
 
     #[test]

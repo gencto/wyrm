@@ -933,6 +933,9 @@ pub(crate) fn session_claims(a: &Access) -> crate::SessionClaims {
         iat: a.iat,
         jti: a.jti,
         gen: a.gen,
+        amr: crate::Amr::OAuth,
+        auth_at: a.iat,
+        dev: None,
     }
 }
 
