@@ -47,6 +47,7 @@ class LoadDeviceAction extends Action with WaitingAction {
       added: record.added,
       lastUsed: record.lastUsed,
       keySite: info?.site ?? (record.site.isEmpty ? null : record.site),
+      keyRole: record.role.isEmpty ? null : record.role,
       stale: record.stale,
       lockAfter: record.lockAfter,
       dontAsk: record.dontAsk,

@@ -94,6 +94,7 @@ class TopBar extends StatelessWidget {
     this.onProblems,
     this.onLanguage,
     this.onTheme,
+    this.onSecurity,
     this.compact = false,
     this.labels = const TopBarLabels(),
     this.window = const WindowBarVm(),
@@ -112,6 +113,9 @@ class TopBar extends StatelessWidget {
   /// A language or a theme picked in the account menu.
   final ValueChanged<String>? onLanguage;
   final ValueChanged<ThemeMode>? onTheme;
+
+  /// `Security` in the account menu (ADR 0050, board `UnlockApp`).
+  final VoidCallback? onSecurity;
 
   /// Below 800 px: no search field (the icon opens it), no wordmark text.
   final bool compact;
@@ -169,6 +173,7 @@ class TopBar extends StatelessWidget {
               onLogOut: onLogOut,
               onLanguage: onLanguage ?? (_) {},
               onTheme: onTheme ?? (_) {},
+              onSecurity: onSecurity,
             ),
           ],
         ),
@@ -405,12 +410,14 @@ class _Account extends StatelessWidget {
     required this.onLogOut,
     required this.onLanguage,
     required this.onTheme,
+    this.onSecurity,
   });
 
   final TopBarVm vm;
   final VoidCallback onLogOut;
   final ValueChanged<String> onLanguage;
   final ValueChanged<ThemeMode> onTheme;
+  final VoidCallback? onSecurity;
 
   @override
   Widget build(BuildContext context) {
@@ -441,6 +448,7 @@ class _Account extends StatelessWidget {
             onLanguage: onLanguage,
             onTheme: onTheme,
             onLogOut: onLogOut,
+            onSecurity: onSecurity,
           ).ignore();
         },
         child: Container(

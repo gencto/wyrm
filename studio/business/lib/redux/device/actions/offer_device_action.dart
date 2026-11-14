@@ -54,6 +54,10 @@ class OfferDeviceAction extends Action {
       );
       await records.write(account.origin, account.user, record);
     }
+    if (record.usable && (site.role ?? '').isNotEmpty) {
+      record = record.copyWith(role: site.role);
+      await records.write(account.origin, account.user, record);
+    }
     final d = state.device;
     var policy = d.policy;
     if (policy == null) {

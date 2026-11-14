@@ -41,6 +41,8 @@ import '../dialogs/error_dialogs.dart';
 import '../errors.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+import 'lock_overlay_connector.dart';
+import 'security_dialog_connector.dart';
 
 /// The eight workspaces, in rail order (docs/studio.md §7.1).
 const List<PageRouteInfo> _tabs = [
@@ -104,100 +106,106 @@ class StudioPageConnector extends StatelessWidget {
           },
           child: Focus(
             autofocus: true,
-            child: StudioShell(
-              selected: tabs.activeIndex,
-              onSelect: tabs.setActiveIndex,
-              more: S.current.more,
-              offline: vm.connected ? null : S.current.offline,
-              rail: [
-                for (var i = 0; i < _tabs.length; i++)
-                  RailItemVm(
-                    icon: _icons[i],
-                    label: _labels[i],
-                    badge: i == 1 ? vm.quarantineBadge : null,
+            // The idle lock covers the whole shell (ADR 0050 §1.4).
+            child: LockOverlayConnector(
+              onLogOut: vm.onLogOut,
+              child: StudioShell(
+                selected: tabs.activeIndex,
+                onSelect: tabs.setActiveIndex,
+                more: S.current.more,
+                offline: vm.connected ? null : S.current.offline,
+                rail: [
+                  for (var i = 0; i < _tabs.length; i++)
+                    RailItemVm(
+                      icon: _icons[i],
+                      label: _labels[i],
+                      badge: i == 1 ? vm.quarantineBadge : null,
+                    ),
+                ],
+                topBar: (compact) => TopBar(
+                  vm: vm.topBar,
+                  window: vm.window,
+                  compact: compact,
+                  labels: TopBarLabels(
+                    search: S.current.searchHint,
+                    review: S.current.reviewAndApply,
+                    reviewShort: S.current.review,
                   ),
-              ],
-              topBar: (compact) => TopBar(
-                vm: vm.topBar,
-                window: vm.window,
-                compact: compact,
-                labels: TopBarLabels(
-                  search: S.current.searchHint,
-                  review: S.current.reviewAndApply,
-                  reviewShort: S.current.review,
+                  onSite: vm.onSite,
+                  onSearch: () => _search(context, vm, tabs),
+                  onReview: vm.onReview,
+                  onLogOut: vm.onLogOut,
+                  onSecurity: () =>
+                      unawaited(SecurityDialogConnector.show(context)),
+                  onProblems: vm.onProblems,
+                  onLanguage: vm.onLanguage,
+                  onTheme: vm.onTheme,
                 ),
-                onSite: vm.onSite,
-                onSearch: () => _search(context, vm, tabs),
-                onReview: vm.onReview,
-                onLogOut: vm.onLogOut,
-                onProblems: vm.onProblems,
-                onLanguage: vm.onLanguage,
-                onTheme: vm.onTheme,
-              ),
-              side: !vm.problemsOpen
-                  ? null
-                  : FaultBoundary(
-                      panel: .drawer,
-                      child: ProblemsDrawer(
-                        problems: vm.problems,
-                        labels: ProblemsLabels(
-                          title: S.current.problemsTitle,
-                          clear: S.current.problemsClear,
-                          close: S.current.problemsClose,
-                          note: S.current.problemsNote,
-                          empty: S.current.problemsEmpty,
-                          details: S.current.errDetails,
-                          retry: S.current.errTryAgain,
-                          shown: S.current.problemsShown,
+                side: !vm.problemsOpen
+                    ? null
+                    : FaultBoundary(
+                        panel: .drawer,
+                        child: ProblemsDrawer(
+                          problems: vm.problems,
+                          labels: ProblemsLabels(
+                            title: S.current.problemsTitle,
+                            clear: S.current.problemsClear,
+                            close: S.current.problemsClose,
+                            note: S.current.problemsNote,
+                            empty: S.current.problemsEmpty,
+                            details: S.current.errDetails,
+                            retry: S.current.errTryAgain,
+                            shown: S.current.problemsShown,
+                          ),
+                          onClose: vm.onProblems,
+                          onClear: vm.onClearProblems,
+                          onRetry: vm.onRetryProblem,
+                          onDetails: (id) =>
+                              unawaited(showProblemDetails(context, id)),
                         ),
-                        onClose: vm.onProblems,
-                        onClear: vm.onClearProblems,
-                        onRetry: vm.onRetryProblem,
-                        onDetails: (id) =>
-                            unawaited(showProblemDetails(context, id)),
                       ),
-                    ),
-              onScrim: vm.onCloseReview,
-              drawerTop: vm.window.trailing > 0 ? WindowControls.height : 0,
-              drawer: !vm.reviewOpen
-                  ? null
-                  : ReviewPanel(
-                      cards: vm.cards,
-                      error: vm.reviewError,
-                      applying: vm.applying,
-                      labels: ReviewLabels(
-                        title: S.current.stagedChanges(vm.cards.length),
-                        rights: vm.rights,
-                        apply: S.current.applyChanges(vm.allowed),
-                        ask: vm.blocked == 0
-                            ? null
-                            : S.current.askAdminFor(vm.blocked),
-                        askReason: S.current.askAdminReason,
-                        discard: S.current.discardAll,
-                        empty: S.current.nothingStaged,
-                        note: S.current.reviewNote(vm.audit),
-                        audit: vm.audit,
-                        refused: S.current.brokerRefused,
-                        close: S.current.closeLabel,
+                onScrim: vm.onCloseReview,
+                drawerTop: vm.window.trailing > 0 ? WindowControls.height : 0,
+                drawer: !vm.reviewOpen
+                    ? null
+                    : ReviewPanel(
+                        cards: vm.cards,
+                        error: vm.reviewError,
+                        applying: vm.applying,
+                        labels: ReviewLabels(
+                          title: S.current.stagedChanges(vm.cards.length),
+                          rights: vm.rights,
+                          apply: S.current.applyChanges(vm.allowed),
+                          ask: vm.blocked == 0
+                              ? null
+                              : S.current.askAdminFor(vm.blocked),
+                          askReason: S.current.askAdminReason,
+                          discard: S.current.discardAll,
+                          empty: S.current.nothingStaged,
+                          note: S.current.reviewNote(vm.audit),
+                          audit: vm.audit,
+                          refused: S.current.brokerRefused,
+                          close: S.current.closeLabel,
+                        ),
+                        onApply: vm.onApply,
+                        onDiscard: vm.onDiscard,
+                        onClose: vm.onCloseReview,
+                        onRemove: vm.onRemoveChange,
                       ),
-                      onApply: vm.onApply,
-                      onDiscard: vm.onDiscard,
-                      onClose: vm.onCloseReview,
-                      onRemove: vm.onRemoveChange,
-                    ),
-              // Stale while revalidate (docs/studio.md §6.7): the
-              // workspace keeps its content while it reads again.
-              child: RefreshFrame(
-                refreshing: vm.refreshing.contains(
-                  Workspace.values[tabs.activeIndex],
-                ),
-                label: S.current.updating,
-                // A workspace that throws while it builds is replaced by
-                // a card; the shell and the other tabs keep working
-                // (docs/design/specs/errors.md §5).
-                child: FaultBoundary(
-                  panel: .workspace,
-                  child: child,
+                // Stale while revalidate (docs/studio.md §6.7): the
+                // workspace keeps its content while it reads again.
+                child: RefreshFrame(
+                  refreshing: vm.refreshing.contains(
+                    Workspace.values[tabs.activeIndex],
+                  ),
+                  label: S.current.updating,
+                  // A workspace that throws while it builds is replaced by
+                  // a card; the shell and the other tabs keep working
+                  // (docs/design/specs/errors.md §5).
+                  child: FaultBoundary(
+                    panel: .workspace,
+                    child: child,
+                  ),
                 ),
               ),
             ),

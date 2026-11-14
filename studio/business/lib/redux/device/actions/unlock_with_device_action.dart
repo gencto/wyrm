@@ -96,7 +96,7 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
         sign: sign,
       );
       final opened = await openedSession(this, session, account.user, gateway);
-      await _used(account.origin, account.user);
+      await _used(account.origin, account.user, role: opened.site.role);
       return opened.copyWith(
         login: opened.login.copyWith(
           password: null,
@@ -172,9 +172,13 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
     throw const _Unreachable();
   }
 
-  Future<void> _used(String origin, String user) async {
+  Future<void> _used(String origin, String user, {String? role}) async {
     final r = await deps.deviceRecords.read(origin, user);
-    await deps.deviceRecords.write(origin, user, r.copyWith(lastUsed: nowS()));
+    await deps.deviceRecords.write(
+      origin,
+      user,
+      r.copyWith(lastUsed: nowS(), role: role),
+    );
   }
 
   Future<AppState> _stopped(

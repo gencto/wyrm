@@ -10,7 +10,6 @@
 @Timeout(Duration(minutes: 2))
 library;
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -34,7 +33,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:storage/storage.dart';
-import 'package:wyrm_client/wyrm_client.dart';
 
 void main() {
   final bin = Platform.environment['WYRM_GATEWAY_DEV'];

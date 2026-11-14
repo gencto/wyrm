@@ -11,8 +11,11 @@ import 'package:business/redux/access/actions/set_selected_action.dart';
 import 'package:business/redux/access/actions/set_shown_action.dart';
 import 'package:business/redux/access/actions/set_tab_action.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/device/actions/remove_device_action.dart';
+import 'package:business/redux/device/actions/retrieve_user_devices_action.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/user_device.dart';
 import 'package:ui/buttons/action_row.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/detail_inspector.dart';
@@ -29,6 +32,7 @@ import 'package:ui/tables/row_table.dart';
 import '../common/every.dart';
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
+import '../common/unlock.dart';
 
 const _levels = ['none', 'list', 'read', 'write', 'config'];
 
@@ -76,6 +80,7 @@ class AccessPageConnector extends StatelessWidget {
               : [
                   ColumnVm(S.current.colUser, flex: 2),
                   ColumnVm(S.current.colRoles, flex: 3),
+                  ColumnVm(S.current.colDevices),
                   ColumnVm(S.current.colState),
                 ],
           rows: vm.rows,
@@ -105,6 +110,9 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
     final home = site.home ?? '';
     final sel = a.selected;
     final u = a.users.where((x) => x.name == sel).firstOrNull;
+    final devicesOfU = u == null
+        ? const <UserDevice>[]
+        : state.device.userDevices[u.name]?.unlock ?? const <UserDevice>[];
     final sysReason = site.needs('config', '$home/sys');
     final roles = {
       for (final g in a.grants)
@@ -136,6 +144,8 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
                   cells: [
                     CellVm(title: x.name, strong: true),
                     CellVm(title: x.roles.join(', ')),
+                    // Devices that can log in (ADR 0050 §1.5).
+                    CellVm(title: '${x.devices}', monospace: true),
                     CellVm(
                       title: x.disabled
                           ? S.current.userDisabled
@@ -209,6 +219,39 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
                     ),
                   ],
                 ),
+                // The user's devices, each with Remove (Forget once an
+                // administrator removed it), ADR 0050 §1.5.
+                ActionGroupVm(
+                  label: S.current.groupDevices,
+                  actions: [
+                    for (final dv in devicesOfU)
+                      ActionRowVm(
+                        id: 'device:${dv.id}',
+                        icon: 'action_trash',
+                        title: dv.state == 'removed'
+                            ? [
+                                dv.name,
+                                S.current.securityRemovedBy(
+                                  (dv.removedBy ?? '').replaceFirst(
+                                    'user:',
+                                    '',
+                                  ),
+                                ),
+                              ].join(' · ')
+                            : dv.name,
+                        description: S.current.deviceLine(
+                          dv.platform,
+                          dv.lastUsed == 0
+                              ? S.current.securityAdded(shortDate(dv.added))
+                              : agoOf(dv.lastUsed),
+                        ),
+                        code: dv.state == 'removed'
+                            ? S.current.securityForget
+                            : S.current.securityRemove,
+                        tone: Tone.bad,
+                      ),
+                  ],
+                ),
                 ActionGroupVm(
                   label: S.current.groupRemove,
                   actions: [
@@ -235,12 +278,37 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
       onRow: (id) {
         if (!id.startsWith('grant:')) {
           dispatchSync(SetSelectedAction(id));
+          unawaited(
+            dispatchAndWait(RetrieveUserDevicesAction(id, quiet: true)),
+          );
         }
       },
       onAction: (context, action) async {
         final roleChoices = roles.isEmpty
             ? const ['admin', 'engineer', 'operator', 'viewer']
             : roles.toList();
+        if (action.startsWith('device:') && u != null) {
+          final id = action.substring('device:'.length);
+          final dv = devicesOfU.where((x) => x.id == id).firstOrNull;
+          if (dv == null) {
+            return;
+          }
+          final forget = dv.state == 'removed';
+          if (await ConfirmDialog.ask(
+            context,
+            title: forget
+                ? S.current.deviceForgetTitle(dv.name)
+                : S.current.deviceRemoveTitle(dv.name),
+            message: forget
+                ? S.current.deviceForgetText
+                : S.current.deviceRemoveText(u.name),
+            confirm: forget ? S.current.securityForget : S.current.remove,
+            cancel: S.current.cancel,
+          )) {
+            await dispatchAndWait(RemoveDeviceAction(id, user: u.name));
+          }
+          return;
+        }
         switch (action) {
           case 'add-user':
             await _form(

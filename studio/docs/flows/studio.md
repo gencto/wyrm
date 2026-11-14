@@ -244,6 +244,89 @@ sequenceDiagram
     A1->>ST: copyWith(theme.mode)
 ```
 
+## LockOverlay ▸ onUnlock
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant R1 as LockOverlayConnector
+    participant A1 as UnlockWithDeviceAction
+    participant ST as AppState
+    participant NAV as Router
+
+    User->>UI: LockOverlay ▸ onUnlock
+    UI->>R1: onUnlock()
+    R1->>+A1: dispatchAndWait
+    Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: copyWith(device.autoPrompted)
+    A1->>ST: dispatchSync(_Stage)
+    A1->>ST: dispatchSync(_Stage)
+    A1->>ST: dispatchSync(SetLoginProgressAction)
+    A1->>ST: dispatchSync(SetLoginProgressAction)
+    A1->>ST: dispatchSync(SetLoginProgressAction)
+    A1-->>-R1: ActionStatus
+    alt state.session.token == null
+        R1->>NAV: GoAction.replace LogInRoute
+    end
+```
+
+## LockOverlay ▸ onPassword
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant R1 as LockOverlayConnector
+    participant A1 as UnlockWithPasswordAction
+    participant ST as AppState
+
+    User->>UI: LockOverlay ▸ onPassword
+    UI->>R1: onPassword()
+    R1->>+A1: dispatchAndWait
+    Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: copyWith(device.lockError)
+    A1-->>-R1: ActionStatus
+```
+
+## LockOverlay ▸ onLogOut
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant R1 as LockOverlayConnector
+    participant A1 as LogOutAction
+    participant ST as AppState
+    participant NAV as Router
+
+    User->>UI: LockOverlay ▸ onLogOut
+    UI->>R1: onLogOut()
+    R1->>+A1: dispatchAndWait
+    Note over A1: WaitingAction · async
+    A1->>ST: copyWith(login.password)
+    A1-->>-R1: ActionStatus
+    R1->>NAV: GoAction.replace LogInRoute
+```
+
+## LockOverlay ▸ onActivity
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant R1 as LockOverlayConnector
+    participant A1 as NoteActivityAction
+
+    User->>UI: LockOverlay ▸ onActivity
+    UI->>R1: onActivity()
+    R1->>A1: dispatchSync
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
 - `StudioPageConnector` — 1 dispatch
@@ -263,6 +346,10 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onLogOut` | `LogOutAction`, `GoAction.replace` | `login.password` |
 | `onLanguage` | `SetLanguageAction` | `language.locale` |
 | `onTheme` | `SetThemeModeAction` | `theme.mode` |
+| `LockOverlay ▸ onUnlock` | `UnlockWithDeviceAction`, `GoAction.replace` ? | `device.autoPrompted` |
+| `LockOverlay ▸ onPassword` | `UnlockWithPasswordAction` | `device.lockError` |
+| `LockOverlay ▸ onLogOut` | `LogOutAction`, `GoAction.replace` | `login.password` |
+| `LockOverlay ▸ onActivity` | `NoteActivityAction` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

@@ -8,6 +8,7 @@ import 'base_key_value_storage.dart';
 final class DeviceRecord {
   const DeviceRecord({
     this.site = '',
+    this.role = '',
     this.deviceId,
     this.alias,
     this.added = 0,
@@ -20,6 +21,9 @@ final class DeviceRecord {
 
   /// The gateway's site (it is in every message the key signs).
   final String site;
+
+  /// The user's role there at the last login, for the account card.
+  final String role;
 
   /// The gateway's id of the device record (`POST /api/devices`).
   final String? deviceId;
@@ -47,6 +51,7 @@ final class DeviceRecord {
 
   DeviceRecord copyWith({
     String? site,
+    String? role,
     String? Function()? deviceId,
     String? Function()? alias,
     int? added,
@@ -57,6 +62,7 @@ final class DeviceRecord {
     int? lockAfter,
   }) => DeviceRecord(
     site: site ?? this.site,
+    role: role ?? this.role,
     deviceId: deviceId == null ? this.deviceId : deviceId(),
     alias: alias == null ? this.alias : alias(),
     added: added ?? this.added,
@@ -69,6 +75,7 @@ final class DeviceRecord {
 
   Map<String, Object?> _toMap() => {
     if (site.isNotEmpty) 'site': site,
+    if (role.isNotEmpty) 'role': role,
     'deviceId': ?deviceId,
     'alias': ?alias,
     if (added > 0) 'added': added,
@@ -88,6 +95,7 @@ final class DeviceRecord {
     bool b(String k) => v[k] == true;
     return DeviceRecord(
       site: s('site') ?? '',
+      role: s('role') ?? '',
       deviceId: s('deviceId'),
       alias: s('alias'),
       added: n('added'),
@@ -125,7 +133,7 @@ final class DeviceRecords {
       return {
         for (final MapEntry(:key, :value)
             in (jsonDecode(text) as Map<String, Object?>).entries)
-          if (DeviceRecord._of(value) case final r?) key: r,
+          key: ?DeviceRecord._of(value),
       };
     } on Object {
       return {};

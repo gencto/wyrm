@@ -10,6 +10,8 @@ import '../containers/discover_panel.dart';
 import '../containers/login_hero.dart';
 import '../containers/rise.dart';
 import '../containers/shake.dart';
+import '../containers/unlock_offer.dart';
+import '../containers/unlock_panel.dart';
 import '../containers/welcome_panel.dart';
 import '../forms/base_form.dart';
 import '../indicators/arc_spinner.dart';
@@ -67,6 +69,16 @@ class LogInPage extends StatefulWidget {
     this.trust,
     this.onTrust,
     this.onCancelTrust,
+    this.offer,
+    this.onOfferUse,
+    this.onOfferNotNow,
+    this.onOfferDontAsk,
+    this.unlock,
+    this.reEnable,
+    this.onUnlock,
+    this.onAutoUnlock,
+    this.onUsePassword,
+    this.onAnotherAccount,
     this.tlsTone = Tone.good,
     super.key,
   });
@@ -166,6 +178,28 @@ class LogInPage extends StatefulWidget {
   /// trusted yet.
   final Tone tlsTone;
 
+  /// After a password login: `Unlock with <name> next time?` (board
+  /// `UnlockOffer`) in place of the form, before the welcome.
+  final UnlockOfferVm? offer;
+  final VoidCallback? onOfferUse;
+  final VoidCallback? onOfferNotNow;
+  final VoidCallback? onOfferDontAsk;
+
+  /// A device key is in play (boards `Unlock`, `UnlockFallback`,
+  /// `UnlockChanged`, `UnlockSignedOut`, `UnlockLinux`): the account form
+  /// in place of the fields. Its password is [password].
+  final UnlockPanelVm? unlock;
+  final FieldVm<bool>? reEnable;
+
+  /// The round button and Enter; null while the key cannot be tried.
+  final VoidCallback? onUnlock;
+
+  /// The page's own prompt, once, when the window has or gets the focus
+  /// (unlock-discover.md §2); the business side makes it once.
+  final VoidCallback? onAutoUnlock;
+  final VoidCallback? onUsePassword;
+  final VoidCallback? onAnotherAccount;
+
   @override
   State<LogInPage> createState() => _LogInPageState();
 }
@@ -173,10 +207,41 @@ class LogInPage extends StatefulWidget {
 class _LogInPageState extends State<LogInPage> {
   final _passwordFocus = FocusNode();
   var _standbyOpen = false;
+  AppLifecycleListener? _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // The window gets the focus: the one prompt the page opens by itself.
+    _lifecycle = AppLifecycleListener(onResume: _auto);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (state == null || state == AppLifecycleState.resumed) {
+        _auto();
+      }
+    });
+  }
+
+  void _auto() {
+    final u = widget.unlock;
+    if (mounted && u != null && !u.password && widget.onUnlock != null) {
+      widget.onAutoUnlock?.call();
+    }
+  }
 
   @override
   void didUpdateWidget(LogInPage old) {
     super.didUpdateWidget(old);
+    // The unlock form came after the page opened (the device record is
+    // read after the first frame).
+    if (widget.unlock != null && old.unlock == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final state = WidgetsBinding.instance.lifecycleState;
+        if (state == null || state == AppLifecycleState.resumed) {
+          _auto();
+        }
+      });
+    }
     // Focus back in the password once the refused log-in is over: while it
     // runs the field is disabled and cannot take the focus.
     final settled = widget.wrong && !widget.isWaiting;
@@ -191,6 +256,7 @@ class _LogInPageState extends State<LogInPage> {
 
   @override
   void dispose() {
+    _lifecycle?.dispose();
     _passwordFocus.dispose();
     super.dispose();
   }
@@ -285,12 +351,38 @@ class _LogInPageState extends State<LogInPage> {
         constraints: BoxConstraints(maxWidth: _finding ? 460 : 420),
         child: AnimatedSwitcher(
           duration: reduceMotion(context) ? .zero : Motion.fadeOut,
-          child: switch (widget.welcome) {
-            final vm? => Rise(
+          child: switch ((widget.welcome, widget.offer, widget.unlock)) {
+            (final vm?, _, _) => Rise(
               key: const ValueKey('welcome'),
               child: WelcomePanel(vm: vm),
             ),
-            null => KeyedSubtree(
+            (null, final offer?, _) => KeyedSubtree(
+              key: const ValueKey('offer'),
+              child: UnlockOffer(
+                vm: offer,
+                onUse: widget.onOfferUse ?? () {},
+                onNotNow: widget.onOfferNotNow ?? () {},
+                onDontAsk: widget.onOfferDontAsk ?? () {},
+              ),
+            ),
+            (null, null, final unlock?) => KeyedSubtree(
+              key: const ValueKey('unlock'),
+              child: UnlockPanel(
+                vm: unlock,
+                passwordField: widget.password,
+                reEnableField: widget.reEnable,
+                onUnlock: widget.onUnlock,
+                onLogIn: widget.onPressedLogIn,
+                onAnother: widget.onAnotherAccount ?? () {},
+                onUsePassword: widget.onUsePassword,
+                busy: widget.isWaiting,
+                wrong: widget.wrong,
+                unreachable: widget.unreachable,
+                onRetry: widget.onRetry,
+                onUseStandby: widget.onUseStandby,
+              ),
+            ),
+            _ => KeyedSubtree(
               key: const ValueKey('form'),
               child: _fields(context),
             ),

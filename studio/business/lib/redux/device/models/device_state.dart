@@ -38,5 +38,6 @@ abstract class DeviceState with _$DeviceState {
     @Default(IMapConst({})) IMap<String, IList<UserDevice>> userDevices,
     @Default(false) bool needPassword,
     String? securityError,
+    String? keyRole,
   }) = _DeviceState;
 }

@@ -101,6 +101,7 @@ sequenceDiagram
     participant VM as LogInPageConnector
     participant A1 as SetGatewayAction
     participant A2 as ProbeGatewayAction
+    participant A3 as LoadDeviceAction
     participant ST as AppState
 
     User->>UI: onRecent
@@ -111,6 +112,10 @@ sequenceDiagram
     Note over A2: WaitingAction · async
     A2->>ST: copyWith(login.probes)
     A2-->>-VM: ActionStatus
+    VM->>+A3: dispatchAndWait
+    Note over A3: WaitingAction · async
+    A3->>ST: copyWith(device.available, device.kind, device.name, device.noticed)
+    A3-->>-VM: ActionStatus
 ```
 
 ## remember.onChanged
@@ -145,6 +150,116 @@ sequenceDiagram
     UI->>VM: onUseStandby()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(login.gateway)
+```
+
+## onOfferUse
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as DeclineOfferAction
+    participant ST as AppState
+
+    User->>UI: onOfferUse
+    UI->>VM: onOfferUse()
+    alt state.device.available
+        VM->>+A1: dispatchAndWait
+        Note over A1: async
+        A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
+        A1-->>-VM: ActionStatus
+    end
+```
+
+## onOfferNotNow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as DeclineOfferAction
+    participant ST as AppState
+
+    User->>UI: onOfferNotNow
+    UI->>VM: onOfferNotNow()
+    VM->>+A1: dispatchAndWait
+    Note over A1: async
+    A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
+    A1-->>-VM: ActionStatus
+```
+
+## onOfferDontAsk
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as DeclineOfferAction
+    participant ST as AppState
+
+    User->>UI: onOfferDontAsk
+    UI->>VM: onOfferDontAsk()
+    VM->>+A1: dispatchAndWait
+    Note over A1: async
+    A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
+    A1-->>-VM: ActionStatus
+```
+
+## reEnable.onChanged
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as SetReEnableAction
+    participant ST as AppState
+
+    User->>UI: reEnable.onChanged
+    UI->>VM: reEnable()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(device.reEnable)
+```
+
+## onUsePassword
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as UsePasswordAction
+    participant ST as AppState
+
+    User->>UI: onUsePassword
+    UI->>VM: onUsePassword()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(device.stage, device.reason, device.autoPrompted)
+```
+
+## onAnotherAccount
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as ForgetAccountAction
+    participant ST as AppState
+
+    User->>UI: onAnotherAccount
+    UI->>VM: onAnotherAccount()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(device, login)
 ```
 
 ## onFind
@@ -305,7 +420,7 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `LogInPageConnector` — 5 dispatches
+- `LogInPageConnector` — 9 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -314,9 +429,15 @@ _Not drawn — these files dispatch outside any interaction:_
 | `user.onChanged` | `SetUserAction` | `login.user` |
 | `password.onChanged` | `SetPasswordAction` | `login.password` |
 | `onGatewayLeave` | `ProbeGatewayAction` | `login.probes` |
-| `onRecent` | `SetGatewayAction`, `ProbeGatewayAction` | `login.gateway`, `login.probes` |
+| `onRecent` | `SetGatewayAction`, `ProbeGatewayAction`, `LoadDeviceAction` | `login.gateway`, `login.probes`, `device.available, device.kind, device.name, device.noticed` |
 | `remember.onChanged` | `SetRememberAction` | `login.remember` |
 | `onUseStandby` | `SetGatewayAction` | `login.gateway` |
+| `onOfferUse` | `DeclineOfferAction` ? | `device.stage, device.offered, device.dontAsk` |
+| `onOfferNotNow` | `DeclineOfferAction` | `device.stage, device.offered, device.dontAsk` |
+| `onOfferDontAsk` | `DeclineOfferAction` | `device.stage, device.offered, device.dontAsk` |
+| `reEnable.onChanged` | `SetReEnableAction` | `device.reEnable` |
+| `onUsePassword` | `UsePasswordAction` | `device.stage, device.reason, device.autoPrompted` |
+| `onAnotherAccount` | `ForgetAccountAction` | `device, login` |
 | `onFind` | `CloseDiscoveryAction`, `FindGatewaysAction` | `discovery.open, discovery.scanning, discovery.scan, discovery.trustPending, discovery.trustRefused`, `discovery.scanning, discovery.ended` |
 | `discover.onChanged` | `SetRangeAction`, `SetRangePortAction` | `discovery.range`, `discovery.rangePort` |
 | `onLookAgain` | `FindGatewaysAction` | `discovery.scanning, discovery.ended` |

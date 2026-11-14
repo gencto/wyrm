@@ -72,6 +72,7 @@ class EnableDeviceAction extends Action with WaitingAction {
         account.user,
         r.copyWith(
           site: site,
+          role: this.site.role,
           deviceId: () => id,
           alias: () => alias,
           added: now,

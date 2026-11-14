@@ -1439,6 +1439,9 @@ extension type SelectDevice(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<LoadDeviceAction>();
+
+  /// Returns keyRole
+  String? get keyRole => _state.device.keyRole;
 }
 
 extension type SelectDiscovery(AppState _state) {

@@ -40,6 +40,7 @@ class AccountMenu extends StatefulWidget {
     required this.onLanguage,
     required this.onTheme,
     required this.onLogOut,
+    this.onSecurity,
     super.key,
   });
 
@@ -47,6 +48,10 @@ class AccountMenu extends StatefulWidget {
   final ValueChanged<String> onLanguage;
   final ValueChanged<ThemeMode> onTheme;
   final VoidCallback onLogOut;
+
+  /// `Security` (ADR 0050, board `UnlockApp`): above `Log out`; null hides
+  /// it.
+  final VoidCallback? onSecurity;
 
   /// Opens the menu under the avatar whose bottom right corner is [at]
   /// (global).
@@ -57,6 +62,7 @@ class AccountMenu extends StatefulWidget {
     required ValueChanged<String> onLanguage,
     required ValueChanged<ThemeMode> onTheme,
     required VoidCallback onLogOut,
+    VoidCallback? onSecurity,
   }) => showDialog<void>(
     context: context,
     barrierColor: Colors.transparent,
@@ -75,6 +81,12 @@ class AccountMenu extends StatefulWidget {
                 Navigator.of(context).pop();
                 onLogOut();
               },
+              onSecurity: onSecurity == null
+                  ? null
+                  : () {
+                      Navigator.of(context).pop();
+                      onSecurity();
+                    },
             ),
           ),
         ],
@@ -179,6 +191,19 @@ class _AccountMenuState extends State<AccountMenu> {
                 ),
               ),
               Divider(height: 21, color: c.line1),
+              if (widget.onSecurity case final security?)
+                InkWell(
+                  onTap: security,
+                  child: Container(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    alignment: .centerLeft,
+                    child: Text(
+                      s.securityMenu,
+                      style: TextStyle(fontSize: 14, color: c.text1),
+                    ),
+                  ),
+                ),
               InkWell(
                 onTap: widget.onLogOut,
                 child: Container(
