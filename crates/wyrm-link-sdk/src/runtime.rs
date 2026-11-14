@@ -43,6 +43,8 @@ const QUEUE_DEPTH: usize = 256;
 /// dropped, which ends it at once with no reply, and the requester can try again.
 const QUERY_DEPTH: usize = 4096;
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long `stop` waits for the answers of the requests the driver has finished.
+const ANSWER_WAIT: Duration = Duration::from_secs(2);
 const LIST_LIMIT_MAX: usize = 1000;
 
 /// Host-side settings of one link instance.
@@ -126,6 +128,62 @@ impl LinkConfig {
     }
 }
 
+/// The `set` and plain `invoke` requests whose answer has not left yet. Each is answered by
+/// a task of its own, after the driver: [`LinkHandle::stop`] waits for them, so a host that
+/// closes the session next (a router rebuild) does not cut an answer off.
+#[derive(Default)]
+struct InFlight {
+    n: atomic::AtomicUsize,
+    idle: tokio::sync::Notify,
+}
+
+impl InFlight {
+    fn enter(self: &Arc<Self>) -> Answering {
+        self.n.fetch_add(1, atomic::Ordering::SeqCst);
+        Answering {
+            of: self.clone(),
+            counted: atomic::AtomicBool::new(true),
+        }
+    }
+
+    /// Returns when no request waits for its answer.
+    async fn idle(&self) {
+        loop {
+            // registered before the count is read: a request that ends in between wakes it
+            let idle = self.idle.notified();
+            tokio::pin!(idle);
+            idle.as_mut().enable();
+            if self.n.load(atomic::Ordering::SeqCst) == 0 {
+                return;
+            }
+            idle.await;
+        }
+    }
+}
+
+/// One request of [`InFlight`], until it is dropped (its answer was sent) or released.
+struct Answering {
+    of: Arc<InFlight>,
+    counted: atomic::AtomicBool,
+}
+
+impl Answering {
+    /// A stream is not waited for: it ends when its requester or its driver ends it.
+    fn release(&self) {
+        if self.counted.swap(false, atomic::Ordering::SeqCst)
+            && self.of.n.fetch_sub(1, atomic::Ordering::SeqCst) == 1
+        {
+            self.of.idle.notify_waiters();
+        }
+    }
+}
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 enum Cmd<C> {
     Set {
         path: String,
@@ -165,6 +223,7 @@ pub struct LinkHandle<L: Link> {
     ctx: LinkCtx,
     verifier: Arc<Verifier>,
     cmd: mpsc::Sender<Cmd<L::Config>>,
+    in_flight: Arc<InFlight>,
     query_task: JoinHandle<()>,
     actor: JoinHandle<()>,
     watcher: Option<JoinHandle<()>>,
@@ -193,13 +252,36 @@ impl<L: Link> LinkHandle<L> {
     }
 
     /// Stop taking requests, run `Link::stop` (≤ 10 s), drop liveliness. When it returns,
-    /// the driver value is dropped too (whatever it owned is released).
+    /// the queryable is undeclared and the driver value is dropped (whatever it owned is
+    /// released): a link started again at once on the same key is the only one that answers.
+    /// The requests the driver has finished are answered by then (streams apart), so the
+    /// session may be closed next.
     pub async fn stop(mut self) {
         self.query_task.abort();
         self.ctx.close();
+        // An abort only asks: the task is dropped when a worker gets to it, and one in
+        // the middle of a poll runs on to its next wait. Until then its queryable is
+        // declared: a request sent after `stop` returned would reach it beside the new
+        // link's, be held (its copy in the old queue) or be refused with `driver stopped`.
+        // So wait for the task's end (at most the rest of one poll).
+        if tokio::time::timeout(STOP_TIMEOUT, &mut self.query_task)
+            .await
+            .is_err()
+        {
+            warn!("the link's query task did not end");
+        }
         let (tx, rx) = oneshot::channel();
         if self.cmd.send(Cmd::Stop { tx }).await.is_ok() {
             let _ = rx.await;
+        }
+        // The driver is gone: every request it took has its result (or none), and the task
+        // of each sends the answer. They run beside the driver's, so one may not have got
+        // to it yet (a worker held by the driver's next request kept it waiting).
+        if tokio::time::timeout(ANSWER_WAIT, self.in_flight.idle())
+            .await
+            .is_err()
+        {
+            warn!("the link stopped with requests not answered");
         }
         self.token.take();
     }
@@ -297,7 +379,9 @@ pub async fn spawn<L: Link>(
             .then(|| format!("{}/{}/sys/audit/{}", keyspace::ROOT, cfg.site, cfg.link)),
         audit_suppressed: Default::default(),
         next_rid: AtomicU32::new(1),
+        in_flight: Default::default(),
     });
+    let in_flight = shared.in_flight.clone();
     let profiles = shared.profiles.clone();
     let (psession, psite) = (session.clone(), cfg.site.clone());
     let overlays = cfg.overlays.then(|| {
@@ -354,6 +438,7 @@ pub async fn spawn<L: Link>(
         ctx,
         verifier,
         cmd: tx,
+        in_flight,
         query_task,
         actor,
         watcher,
@@ -592,6 +677,7 @@ struct Shared<C> {
     audit_key: Option<String>,
     audit_suppressed: std::sync::atomic::AtomicU64,
     next_rid: AtomicU32,
+    in_flight: Arc<InFlight>,
 }
 
 /// `queryable` stays declared as long as this runs.
@@ -841,8 +927,10 @@ impl<C: Send + 'static> Shared<C> {
             }
             SUFFIX_SET => {
                 let sh = self.clone();
+                let answering = self.in_flight.enter();
                 tokio::spawn(
                     async move {
+                        let _answering = answering;
                         let att = match sh.set(&q, &path).await {
                             Ok(()) => status_att(Status::Ok),
                             Err(e) => sh.fail(e),
@@ -856,9 +944,10 @@ impl<C: Send + 'static> Shared<C> {
                 Some(action) => {
                     let sh = self.clone();
                     let action = action.to_owned();
+                    let answering = self.in_flight.enter();
                     tokio::spawn(
                         async move {
-                            if let Err(e) = sh.invoke(&q, &path, &action).await {
+                            if let Err(e) = sh.invoke(&q, &path, &action, &answering).await {
                                 let att = sh.fail(e);
                                 reply_here(&q, Vec::new(), att, true).await;
                             }
@@ -1209,7 +1298,13 @@ impl<C: Send + 'static> Shared<C> {
     }
 
     /// Replies itself on success; `Err` → the caller sends one error reply.
-    async fn invoke(&self, q: &Query, path: &str, action: &str) -> Result<()> {
+    async fn invoke(
+        &self,
+        q: &Query,
+        path: &str,
+        action: &str,
+        answering: &Answering,
+    ) -> Result<()> {
         Metrics::inc(&self.ctx.0.metrics.invokes_in);
         let args = q
             .payload()
@@ -1234,7 +1329,10 @@ impl<C: Send + 'static> Shared<C> {
                     .limit(Some(&caller), path)
                     .and_then(|()| bound_args(&caller, &args))
                 {
-                    Ok(()) => self.invoke_authorized(q, path, action, att, caller).await,
+                    Ok(()) => {
+                        self.invoke_authorized(q, path, action, att, caller, answering)
+                            .await
+                    }
                     Err(e) => Err(e),
                 };
                 (sub, r)
@@ -1256,6 +1354,7 @@ impl<C: Send + 'static> Shared<C> {
         action: &str,
         att: Attachment,
         caller: Caller,
+        answering: &Answering,
     ) -> Result<()> {
         let (act, invokable) = {
             let tree = self.ctx.tree();
@@ -1311,6 +1410,9 @@ impl<C: Send + 'static> Shared<C> {
             return Ok(());
         }
         let stream = act.stream == Some(true) || act.result == Some(ActionResult::Stream);
+        if stream {
+            answering.release();
+        }
         let timeout = act
             .timeout_ms
             .map(|ms| Duration::from_millis(ms.into()))

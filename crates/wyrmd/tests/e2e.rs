@@ -11282,23 +11282,24 @@ async fn backup_while_writing() {
     assert!(job.sections.contains(&"control".to_owned()), "always made");
     assert!(job.expires > job.created + 6 * 86_400);
 
-    // the tree shows it
+    // The tree shows it. A job's values are published one after another
+    // (`status` first, `size` last), so `done` alone does not say that the
+    // others are there yet: wait for all three.
     let node = format!("{backups}/{id}");
-    let status = eventually("status in the tree", 10, || async {
-        last_val(&c, &format!("{node}/status"))
-            .await
-            .filter(|v| *v == Value::from("done"))
+    eventually("the finished job in the tree", 10, || async {
+        let shown = [
+            ("status", Value::from("done")),
+            ("sha256", Value::from(job.sha256.clone())),
+            ("size", Value::UInt(job.size)),
+        ];
+        for (name, want) in shown {
+            if last_val(&c, &format!("{node}/{name}")).await != Some(want) {
+                return None;
+            }
+        }
+        Some(())
     })
     .await;
-    assert_eq!(status, Value::from("done"));
-    assert_eq!(
-        last_val(&c, &format!("{node}/sha256")).await,
-        Some(Value::from(job.sha256.clone()))
-    );
-    assert_eq!(
-        last_val(&c, &format!("{node}/size")).await,
-        Some(Value::UInt(job.size))
-    );
 
     // read back in small parts: the same bytes as the file, its SHA-256
     let bytes = download_backup(&c, &id, 4096).await;
