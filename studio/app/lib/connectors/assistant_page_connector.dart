@@ -10,6 +10,7 @@ import 'package:business/redux/assistant/actions/load_assistant_action.dart';
 import 'package:business/redux/assistant/actions/pick_suggestion_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_secrets_action.dart';
+import 'package:business/redux/assistant/actions/retrieve_timeline_audit_action.dart';
 import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
@@ -22,7 +23,9 @@ import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/assistant/actions/set_watched_action.dart';
 import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
+import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/nodes/actions/set_history_window_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/answer_task_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
@@ -32,6 +35,8 @@ import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/save_plan_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
+import 'package:business/wyrm/context_keys.dart';
+import 'package:business/wyrm/history_steps.dart';
 import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
@@ -40,8 +45,13 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/audit_entry.dart';
+import 'package:models/hist_point.dart';
+import 'package:models/node_info.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/quality.dart';
 import 'package:models/task_event.dart';
+import 'package:models/task_finding.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
@@ -49,6 +59,7 @@ import 'package:ui/assistant/assistant_composer.dart';
 import 'package:ui/assistant/assistant_drawer.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/found_card.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
@@ -59,15 +70,19 @@ import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/reason_dialog.dart';
+import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/pages/assistant_page.dart';
 
 import '../common/files.dart';
 import '../common/tab_visibility.dart';
+import '../common/trend.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -127,7 +142,7 @@ class AssistantPageConnector extends StatelessWidget {
         onChipRemove: vm.onChipRemove,
         addChipLabel: vm.answering ? null : S.current.addFromExplorer,
         addChipReason: vm.addChipReason,
-        onAddChip: vm.onAddChip,
+        onAddChip: () => vm.onAddChip(context),
         onDraft: vm.onDraft,
         onAsk: vm.onAsk,
         askNote: vm.replaces,
@@ -162,8 +177,44 @@ class AssistantDrawerConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
+    // the drawer watches the keys of its findings (their marks) while the
+    // tab is hidden, and reads the selected point's timeline
+    onInitialBuild: (context, store, vm) {
+      if (!store.state.assistant.shown) {
+        store.dispatchSync(SetWatchedAction(vm.watch.lock));
+      }
+      _readTimeline(store, vm.timelinePoint);
+    },
+    onWillChange: (context, store, before, now) {
+      if (!store.state.assistant.shown &&
+          !AssistantPageConnector._sameKeys(before.watch, now.watch)) {
+        store.dispatchSync(SetWatchedAction(now.watch.lock));
+      }
+      if (before.timelinePoint != now.timelinePoint) {
+        _readTimeline(store, now.timelinePoint);
+      }
+    },
+    onDispose: (store) {
+      if (!store.state.assistant.shown) {
+        store.dispatchSync(SetWatchedAction(const IListConst([])));
+      }
+    },
     builder: _drawer,
   );
+
+  /// The history of [point] (shared with Explorer › History, the same
+  /// point) and its audit marks, unless they were read for it already.
+  static void _readTimeline(Store<AppState> store, String? point) {
+    if (point == null) {
+      return;
+    }
+    if (store.state.nodes.historyKey != point) {
+      unawaited(store.dispatchAndWait(RetrieveHistoryAction(point)));
+    }
+    if (store.state.assistant.timelineKey != point) {
+      unawaited(store.dispatchAndWait(RetrieveTimelineAuditAction(point)));
+    }
+  }
 }
 
 Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
@@ -192,6 +243,9 @@ Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
   onNewTask: vm.taskKey == null ? null : vm.onNewTask,
   onButton: (b) => vm.onButton(context, b),
   empty: vm.empty,
+  found: vm.found,
+  onTimelineWindow: vm.onTimelineWindow,
+  onTimelineReset: vm.onTimelineReset,
   composer: AssistantComposer(
     draft: vm.draft,
     hint: vm.answering ? vm.askHint : S.current.drawerHint,
@@ -203,7 +257,7 @@ Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
     onChipRemove: vm.onChipRemove,
     addChipLabel: vm.answering ? null : S.current.addFromExplorer,
     addChipReason: vm.addChipReason,
-    onAddChip: vm.onAddChip,
+    onAddChip: () => vm.onAddChip(context),
     dense: true,
   ),
 );
@@ -317,7 +371,18 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         // *Today* of What it may do: the budget the agent used, while
         // that panel is shown
         if (agent != null && rights) '$agent/budget_used_today',
+        // the marks of *What I found* in the drawer: the nodes' live values
+        if (assistant.drawer && task != null)
+          for (final f in task.findings)
+            if (!_touched(task).contains(f.key)) f.key,
       ],
+      found: assistant.drawer ? _found(task) : null,
+      timelinePoint: assistant.drawer ? _timelinePoint() : null,
+      onTimelineWindow: (a, b) {
+        final (start, end) = _historyRange(nodes.historyKey);
+        dispatchSync(SetHistoryWindowAction(trendWindow(a, b, start, end)));
+      },
+      onTimelineReset: () => dispatchSync(SetHistoryWindowAction(null)),
       card: task == null ? null : _card(task, cancelReason, choices),
       second: task == null ? null : _secondTile(task),
       rights: rights ? _rights() : null,
@@ -351,12 +416,12 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       askHint: _hint(task),
       chips: [for (final k in assistant.chips) (k, _short(k))],
       onChipRemove: (k) => dispatchSync(SetChipAction(k, on: false)),
-      addChipReason: offered == null ? S.current.addFromExplorerNone : null,
-      onAddChip: () {
-        if (offered != null) {
-          dispatchSync(SetChipAction(offered));
-        }
-      },
+      addChipReason: site.root == null
+          ? S.current.addFromExplorerNone
+          : assistant.chips.length >= maxContextKeys
+          ? S.current.pickKeyFull('$maxContextKeys')
+          : null,
+      onAddChip: (context) => _pickKey(context, offered),
       askReason: agent == null
           ? S.current.noAgent
           : (site.needs('write', agent) ??
@@ -1381,6 +1446,209 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     _ => S.current.hintDone,
   };
 
+  /// *+ from Explorer*: a key picker over the nodes Explorer has read on
+  /// the site on screen (the selection first), or a key typed in full or
+  /// below the site. Only plain node keys of this site are offered; the
+  /// pick is an `@` chip.
+  Future<void> _pickKey(BuildContext context, String? selected) async {
+    final root = site.root;
+    if (root == null || assistant.chips.length >= maxContextKeys) {
+      return;
+    }
+    final chips = assistant.chips.toSet();
+    final point = nodes.point;
+    final first = [
+      ?selected,
+      if (point != null && point != selected && !chips.contains(point)) point,
+    ].where((k) => contextKey(root, k) != null).toList();
+    SearchEntryVm entry(String k, {String? detail}) => SearchEntryVm(
+      id: k,
+      title: switch (nodes.table[k]) {
+        NodeInfo(:final display?, :final name)
+            when display.trim().isNotEmpty && display != name =>
+          display,
+        final n => n?.name ?? _short(k),
+      },
+      icon: AppIcon.nodeName(
+        key: k,
+        root: root,
+        profile: nodes.table[k]?.profile,
+        type: nodes.table[k]?.type,
+      ),
+      detail: detail ?? _short(k),
+    );
+    final picked = await SearchPalette.show(
+      context,
+      hint: S.current.pickKeyHint(root.split('/').last),
+      entries: [
+        for (final k in first) entry(k, detail: S.current.pickKeySelected),
+        for (final k in nodes.view.take(400))
+          if (!first.contains(k) &&
+              !chips.contains(k) &&
+              contextKey(root, k) == k)
+            entry(k),
+      ],
+      goTo: (text) {
+        final k = text.contains('/') ? contextKey(root, text) : null;
+        return k == null || chips.contains(k)
+            ? null
+            : SearchEntryVm(
+                id: k,
+                title: S.current.pickKeyTyped(_short(k)),
+                icon: 'ui_chevron_right',
+              );
+      },
+    );
+    if (picked != null && contextKey(root, picked) == picked) {
+      dispatchSync(SetChipAction(picked));
+    }
+  }
+
+  /// The point the drawer's mini timeline shows: the one selected in
+  /// Explorer's points, on the site on screen.
+  String? _timelinePoint() {
+    final p = nodes.point;
+    return p != null && site.root != null && p.startsWith('${site.root}/')
+        ? p
+        : null;
+  }
+
+  /// The range of the history read for [key] in µs (as Explorer's).
+  (int, int) _historyRange(String? key) {
+    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final rows = nodes.historyKey == key && key != null
+        ? nodes.history
+        : const IListConst<HistPoint>([]);
+    final e = trendRangeEnd(nodes.historyAt, [rows.lastOrNull?.time]);
+    return (e - span.inMicroseconds, e);
+  }
+
+  /// *What I found* (the task's findings, each marked from its node's live
+  /// value) and the mini timeline of the drawer's point with the audit
+  /// records on it (spec assistant.md §5).
+  FoundCardVm? _found(AgentTask? task) {
+    final rows = [
+      for (final f in task?.findings ?? const IListConst<TaskFinding>([]))
+        _foundRow(f),
+    ];
+    final point = _timelinePoint();
+    if (rows.isEmpty && point == null) {
+      return null;
+    }
+    final root = site.root ?? '';
+    final canAudit = site.can('config', '$root/sys/audit');
+    final audit = assistant.timelineKey == point
+        ? assistant.timelineAudit
+        : const IListConst<AuditEntry>([]);
+    return FoundCardVm(
+      title: S.current.foundTitle,
+      note: S.current.foundNote,
+      rows: rows,
+      timelineLabel: point == null
+          ? null
+          : S.current.timelineLabel(
+              nodes.table[point]?.display ?? point.split('/').last,
+              nodes.historyRange,
+            ),
+      timeline: point == null ? null : _timeline(point, audit),
+      auditLabel: S.current.timelineAudit,
+      audit: [
+        for (final a in audit.take(5))
+          FoundAuditVm(
+            time: _clock(a.time),
+            text: S.current.timelineAuditLine(
+              a.who,
+              a.op,
+              _short(a.key),
+            ),
+            bad: a.status != 0,
+          ),
+      ],
+      auditNote: !canAudit
+          ? S.current.auditNeeds
+          : assistant.timelineKey == point && audit.isEmpty
+          ? S.current.timelineAuditNone
+          : null,
+    );
+  }
+
+  FoundRowVm _foundRow(TaskFinding f) {
+    final q = live.values[f.key]?.quality;
+    return FoundRowVm(
+      label: f.label,
+      detail: f.detail,
+      node: _short(f.key),
+      mark: switch (q) {
+        Quality.good => .good,
+        Quality.bad => .bad,
+        _ => .none,
+      },
+      markLabel: switch (q) {
+        Quality.good => S.current.foundGood,
+        Quality.bad => S.current.foundBad,
+        Quality.uncertain => S.current.foundUncertain,
+        null => S.current.foundNoValue,
+      },
+    );
+  }
+
+  /// The point's compact trend: the rows Explorer reads for it, no brush,
+  /// the audit records as marks.
+  TrendVm _timeline(String point, IList<AuditEntry> audit) {
+    final (rs, re) = _historyRange(point);
+    final w = nodes.historyWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final read = nodes.historyKey == point;
+    final rows = read ? nodes.history : const IListConst<HistPoint>([]);
+    final info = nodes.table[point];
+    return TrendVm(
+      title: info?.display ?? point.split('/').last,
+      series: [
+        TrendSeriesVm(
+          id: point,
+          name: point.split('/').last,
+          label: info?.display ?? '',
+          color: TrendColor.byIndex(0),
+          unit: info?.unit ?? '',
+          decimals: trendDecimals(rows),
+          samples: trendSamples(rows),
+          overview: trendSamples(rows),
+        ),
+      ],
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      rollup: rollupText(null),
+      minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
+      endsNow: true,
+      following: w?.end == null,
+      loading: !read || (rows.isEmpty && nodes.historyLoading),
+      empty: S.current.noHistory,
+      card: false,
+      legend: false,
+      hint: false,
+      brush: false,
+      plotHeight: 64,
+      marks: [
+        for (final a in audit.reversed)
+          TrendMark(
+            a.time.microsecondsSinceEpoch,
+            S.current.timelineAuditLine(a.who, a.op, _short(a.key)),
+          ),
+      ],
+      format: trendFormat(),
+    );
+  }
+
+  static String _clock(DateTime t) {
+    final l = t.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(l.hour)}:${two(l.minute)}';
+  }
+
   /// A key as it is shown in a chip: below the site, without `downstream/`.
   static String _short(String key) {
     final below = key.split('/').skip(2).join('/');
@@ -1477,6 +1745,10 @@ class _Vm extends Vm {
     required this.onChipRemove,
     required this.addChipReason,
     required this.onAddChip,
+    required this.found,
+    required this.timelinePoint,
+    required this.onTimelineWindow,
+    required this.onTimelineReset,
     required this.askReason,
     required this.panel,
     required this.facts,
@@ -1516,6 +1788,8 @@ class _Vm extends Vm {
            askHint,
            chips,
            addChipReason,
+           found,
+           timelinePoint,
            askReason,
            panel,
            facts,
@@ -1573,7 +1847,17 @@ class _Vm extends Vm {
   final List<ChipVm> chips;
   final ValueChanged<String> onChipRemove;
   final String? addChipReason;
-  final VoidCallback onAddChip;
+
+  /// *+ from Explorer*: the key picker.
+  final Future<void> Function(BuildContext context) onAddChip;
+
+  /// The drawer's *What I found* and mini timeline; null when closed.
+  final FoundCardVm? found;
+
+  /// The point the drawer's timeline shows (the Explorer point).
+  final String? timelinePoint;
+  final void Function(int start, int end) onTimelineWindow;
+  final VoidCallback onTimelineReset;
   final String? askReason;
   final String panel;
   final List<FactVm> facts;

@@ -16,7 +16,7 @@ Boards (canvas row *Assistant*, y 9700): `AssistantAsk` (1 · it asks back), `As
 | `StoppedCard` (code, what it read, three ways out with tags *1 change* / *2 changes* / *nothing*) | — | the card; each way out is a follow-up ask | §9 `parent` |
 | Composer with `@` chips and *+ from Explorer*, hint per state | text box, disabled with a reason when there is no agent | chips, the per-state hint | §9 `context` |
 | What it may do: This task facts, What it read, Who approves (3 modes), prefixes as chips with *+ prefix*, Model, Today, API key, Sent to | `cfg` keys as facts, reads of this session | modes as a picker, prefix chips (edit = `sys/links/<id>` edit params, config), *Today* with used / budget, *set / not set* | §10 `budget_used_today`, `secrets` |
-| Explorer drawer (⌘J): ask about the selection, *What I found* rows, mini timeline, audit line, suggested step, *Approve and run*, *Ask ivan first* | — | the drawer | §1, §2, §9 |
+| Explorer drawer (⌘J): ask about the selection, *What I found* rows, mini timeline, audit line, suggested step, *Approve and run*, *Ask ivan first* | — | the drawer | §1, §2, §9; findings: amendment 2 |
 
 Copy fix: the board's third approval mode says *Never — everything runs without a person*. The agent's `never` still asks a person for every `config` step (`ApprovalMode::Never` = like `config`). Studio says **Never — write steps run at once; config steps still wait for a person**.
 
@@ -46,7 +46,7 @@ A closed catalogue in `ui/lib/assistant/`, each a dumb widget with its own Vm (`
 
 ## 4. Composer and context
 - Hint per state: `planning` *Answer, or ask something else…*; `awaiting_approval` *Ask to change the plan, e.g. "skip step 4"…*; `running` *You can write while it runs…*; `done` *What next?*; `failed` *Tell it what you know about <node>…*.
-- `@` chips: the Explorer selection when the tab opened from Explorer, chips added by *+ from Explorer*; sent as `context`, cleared when the ask is taken. Removing a chip removes the key. Built: *+ from Explorer* adds the node selected in Explorer (of the site on screen); there is no key picker of its own yet.
+- `@` chips: the Explorer selection when the tab opened from Explorer, chips added by *+ from Explorer*; sent as `context`, cleared when the ask is taken. Removing a chip removes the key. Built: *+ from Explorer* opens a key picker (the ⌘K palette, board `assistant_key_picker` golden): the Explorer selection and point first (*selected in Explorer*), then the nodes Explorer has read on the site on screen, filtered as you type; a key typed in full or below the site is offered as *Attach <key>*. Only plain node keys of that site are offered (no other site, no `~` segment, no wildcard: `contextKey`), never a chip twice, and at most 16 chips (the agent link's `context` limit): at 16 the button is disabled with the reason.
 - A message while a task is selected follows it (`ask {parent}`) when the user may (the asker, or `config` on the agent's `ask`); else it is a new task. While the task waits for approval, the new task replaces its plan (the hint says so); the old plan is shown as *replaced* (`replaced_by` in its `~val` and record; the broker refuses its approve). *New task* starts a task without a parent.
 
 ## 5. Explorer drawer (⌘J)
@@ -54,7 +54,9 @@ Right drawer 420 over Explorer, header `Assistant · tasks/<id>`, *Open full* (A
 
 Built (step 6, after review): a question typed in the drawer is a task of its own (no `parent`): it never follows or replaces the task on screen; *New task* clears the drawer. The second button is drawn as the model's tile (its words, *… · its guess*, *a draft to copy · sends nothing* or the follow-up note with the caution of `config`/`never`) under *The assistant suggests*, never as a system button. In the tab, a message that would replace a waiting plan (the user may follow it) keeps the warning *Sending asks for a new plan…* above the box while typing; when the user may not follow the task, the hint is the plain ask hint and the message starts a task of its own.
 
-Built (step 6): ⌘J / Ctrl+J in Explorer opens and closes the drawer (`AssistantDrawerConnector`, the tab's own view-model); opening it puts the Explorer selection as the first `@` chip. The drawer shows the task selected in the Assistant (one selection for both), its conversation, the ChoicesCard, the PlanCard with its ticks and fixes, the RunCard, the StoppedCard, and the task's card with Approve and the second button. The second button leaves out a suggestion with rows (it needs ticks the drawer does not show). Not built: the *What I found* rows and the mini timeline. The rows have no data: the model's findings are its text, not structured rows. The timeline needs a compact `Trend` with audit marks, which is a separate piece of work. Explorer's inspector beside the drawer already shows the point's history.
+Built (step 6): ⌘J / Ctrl+J in Explorer opens and closes the drawer (`AssistantDrawerConnector`, the tab's own view-model); opening it puts the Explorer selection as the first `@` chip. The drawer shows the task selected in the Assistant (one selection for both), its conversation, the ChoicesCard, the PlanCard with its ticks and fixes, the RunCard, the StoppedCard, and the task's card with Approve and the second button. The second button leaves out a suggestion with rows (it needs ticks the drawer does not show).
+
+Built (step 7, golden `assistant_drawer_found`): **What I found** (`FoundCard`) is the task's `~state.findings[] {key, label, detail}` (model tool `found`, ADR 0049 amendment 2), one row per node: the model's `label` and `detail` as plain text (no marks read, no links, nothing tappable), the node's key under them. The ✓ / ✕ of the board is never the model's: each row is marked from its node's live value (quality `good` ✓, `bad` ✕, else a grey dot), watched while the drawer is open and read with the viewer's rights; the tooltip says *good now*, *bad now*, *uncertain now* or *no value read*. A note under the rows says so. The **mini timeline** is the point selected in Explorer (`nodes.point`, on the site on screen): a compact `Trend` (no brush, no legend, plot 64 px; `TrendVm.brush`, `TrendVm.marks`) of the history Explorer › History reads for that point (`RetrieveHistoryAction`, the user's own session: the viewer's rights; the same range and window), with each `sys/audit` record on the point or below it as a mark (`RetrieveTimelineAuditAction`, `assistant.timelineAudit`, kept apart from Explorer › Audit) and the newest five as lines *From sys/audit* (`03:05 user:ivan · invoke …/valve/~act/edit`, a refusal in the bad tint). The audit tail needs `config` on `sys/audit`: without it nothing is read and the card says *The audit needs config on sys/audit.* The board's *Offset 11 → 12* has no data behind it: the audit keeps a call's arguments only as SHA-256, so the line names who, the op and the key. The card is drawn when the task has findings or a point is selected.
 
 ## 6. Data and calls
 | UI | Read | Call |
@@ -68,6 +70,9 @@ Built (step 6): ⌘J / Ctrl+J in Explorer opens and closes the drawer (`Assistan
 | Approve | `~state.plan[]` | `invoke(tasks/<id>, approve, {steps: [n…], plan: planHash(plan)})` — the gateway adds the tokens. A user who is not the asker and has no `config` on the agent link ticks every step that changes something: an unticked one is skipped |
 | Reject / Cancel | — | `reject {reason}`, `cancel` |
 | What it may do | agent root `cfg`, value `budget_used_today` (watched while the panel is shown); `invoke(sys/links/<id>, secrets)` (names, config; without config the key is *not known*); a staged update of this link (by its full key) shows the mode and prefixes as they will be | `sys/links/<id>` ▸ `update {params}` (config) for modes and prefixes: staged with the other changes as `params:<full link key>`, each edit made on the staged params (else the newest revision, `history`, read now; nothing is staged without it), an edit back to the revision unstages it; the Review card shows the whole link key and each param that changes (*was → will be*) |
+| Drawer: What I found | `~val.findings` (count; a change re-reads the record); `~state.findings[] {key, label, detail}`; the live value of each `key` (watched while the drawer is open) | — |
+| Drawer: mini timeline | `history(<point>)` with the user's session (Explorer › History's read); `sys/audit` ▸ `tail {n: 500}` filtered to the point (needs `config` on `sys/audit`) | — |
+| + from Explorer | Explorer's read nodes (`nodes.view`), the selection, the point | — (a chip is `ask {context}`) |
 | Trend of the ResultCard | the last key a step set or proved | Explorer: that point selected, the History tab (`OpenTrendAction`) |
 
 Errors follow `errors.md`: a refused approve names the step and the right missing (*step 4 needs config on sys/history/**; you have write*); a lost stream re-reads the record instead of retrying the ask.
@@ -79,8 +84,8 @@ Errors follow `errors.md`: a refused approve names the step and the right missin
 - [ ] Ticks, partial approve, dependants skipped, Approve through the gateway, refusal per step.
 - [ ] RunCard from `~val`; ResultCard; StoppedCard with ways out.
 - [ ] Save as a plan (`wyrm-agent run` format).
-- [x] Composer hints, `@` chips, + from Explorer (the Explorer selection; no key picker yet).
+- [x] Composer hints, `@` chips, + from Explorer with a key picker (step 7).
 - [x] Ways out, fixes on a step, *Same for more units?*, a replaced plan (step 5).
 - [x] What it may do: modes, prefix chips, budget, secret set/not set; copy fix for *Never* (step 6).
-- [x] Explorer drawer ⌘J (step 6; without *What I found* rows and the mini timeline).
+- [x] Explorer drawer ⌘J (step 6); *What I found* rows and the mini timeline with audit marks (step 7).
 - [ ] `frx doctor`, `dart analyze`; goldens for the 7 boards.

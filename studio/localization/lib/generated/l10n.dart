@@ -16886,6 +16886,136 @@ class S {
       args: [],
     );
   }
+
+  /// `What I found · read only`
+  String get foundTitle {
+    return Intl.message(
+      'What I found · read only',
+      name: 'foundTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The words are the assistant's. Each mark is the node's live value now, read with your rights.`
+  String get foundNote {
+    return Intl.message(
+      'The words are the assistant\'s. Each mark is the node\'s live value now, read with your rights.',
+      name: 'foundNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `good now`
+  String get foundGood {
+    return Intl.message('good now', name: 'foundGood', desc: '', args: []);
+  }
+
+  /// `bad now`
+  String get foundBad {
+    return Intl.message('bad now', name: 'foundBad', desc: '', args: []);
+  }
+
+  /// `no value read`
+  String get foundNoValue {
+    return Intl.message(
+      'no value read',
+      name: 'foundNoValue',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{point} · last {range}`
+  String timelineLabel(String point, String range) {
+    return Intl.message(
+      '$point · last $range',
+      name: 'timelineLabel',
+      desc: '',
+      args: [point, range],
+    );
+  }
+
+  /// `From sys/audit`
+  String get timelineAudit {
+    return Intl.message(
+      'From sys/audit',
+      name: 'timelineAudit',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No changes of this point in the last 500 records of sys/audit.`
+  String get timelineAuditNone {
+    return Intl.message(
+      'No changes of this point in the last 500 records of sys/audit.',
+      name: 'timelineAuditNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{who} · {op} {key}`
+  String timelineAuditLine(String who, String op, String key) {
+    return Intl.message(
+      '$who · $op $key',
+      name: 'timelineAuditLine',
+      desc: '',
+      args: [who, op, key],
+    );
+  }
+
+  /// `Add a node of {site} as @ chip: filter, or type its key`
+  String pickKeyHint(String site) {
+    return Intl.message(
+      'Add a node of $site as @ chip: filter, or type its key',
+      name: 'pickKeyHint',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Attach {key}`
+  String pickKeyTyped(String key) {
+    return Intl.message(
+      'Attach $key',
+      name: 'pickKeyTyped',
+      desc: '',
+      args: [key],
+    );
+  }
+
+  /// `selected in Explorer`
+  String get pickKeySelected {
+    return Intl.message(
+      'selected in Explorer',
+      name: 'pickKeySelected',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n} keys are attached, the most one ask takes. Remove one first.`
+  String pickKeyFull(String n) {
+    return Intl.message(
+      '$n keys are attached, the most one ask takes. Remove one first.',
+      name: 'pickKeyFull',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `uncertain now`
+  String get foundUncertain {
+    return Intl.message(
+      'uncertain now',
+      name: 'foundUncertain',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

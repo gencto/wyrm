@@ -3,6 +3,7 @@ import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_result.dart';
 import 'package:models/task_event.dart';
+import 'package:models/task_finding.dart';
 import 'package:models/task_option.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_row.dart';
@@ -10,14 +11,15 @@ import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 import 'package:wyrm_client/wyrm_client.dart' as wc;
 import 'package:wyrm_client/wyrm_client.dart'
-    hide TaskRow, TaskSuggestion, replacedBy;
+    hide TaskFinding, TaskRow, TaskSuggestion, replacedBy;
 
 import 'values.dart';
 
 /// `tasks/<id>` `~state` of the agent link as an [AgentTask]:
 /// `{state, ask, owner, plan[], plan_hash, parent?, log[], error?, tokens,
-/// suggestions[]?, replaced_by?, review?, reviewing?}` (ADR 0049 and its
-/// amendment; the last four read by `wyrm_client`'s own helpers). The
+/// suggestions[]?, replaced_by?, review?, reviewing?, findings[]?}` (ADR
+/// 0049 and its amendments; the last five read by `wyrm_client`'s own
+/// helpers). The
 /// plan's hash is made here from the plan as read, so an approval names
 /// the plan that is shown.
 AgentTask agentTaskOf(String id, Value v) => AgentTask(
@@ -61,6 +63,10 @@ AgentTask agentTaskOf(String id, Value v) => AgentTask(
   replacedBy: wc.replacedBy(v),
   review: wc.reviewOf(v),
   reviewing: wc.isReviewing(v),
+  findings: [
+    for (final f in wc.TaskFinding.of(v))
+      TaskFinding(key: f.key, label: f.label, detail: f.detail),
+  ].lock,
   recorded: true,
 );
 

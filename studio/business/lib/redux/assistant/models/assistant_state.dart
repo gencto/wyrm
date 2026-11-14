@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/audit_entry.dart';
 
 part 'assistant_state.freezed.dart';
 
@@ -22,5 +23,7 @@ abstract class AssistantState with _$AssistantState {
     @Default(false) bool drawer,
     @Default(IListConst([])) IList<String> prefixes,
     ISet<String>? secrets,
+    String? timelineKey,
+    @Default(IListConst([])) IList<AuditEntry> timelineAudit,
   }) = _AssistantState;
 }

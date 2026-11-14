@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../frames/assistant.dart';
@@ -16,6 +17,7 @@ void main() {
     test('goldens', () {}, skip: 'goldens are compared on macOS');
     return;
   }
+  setUpAll(() => S.load(const Locale('en')));
 
   testWidgets('assistant plan', (tester) async {
     tester.view.physicalSize = const Size(1364, 1400);
@@ -108,6 +110,8 @@ void main() {
     ('assistant_reviewing', 940.0, () => assistantFailed(reviewing: true)),
     ('assistant_rights', 1400.0, assistantRights),
     ('assistant_drawer', 940.0, assistantDrawer),
+    ('assistant_drawer_found', 1000.0, assistantDrawerFound),
+    ('assistant_key_picker', 700.0, assistantKeyPicker),
   ]) {
     testWidgets(name, (tester) async {
       tester.view.physicalSize = Size(1364, height);

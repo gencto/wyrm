@@ -101,6 +101,36 @@ class TaskSuggestion {
   }
 }
 
+/// What the model read about one node (`~state.findings`, ADR 0049
+/// amendment 2 of 2026-11-14): a row of *What I found*. [label] and [detail]
+/// are the model's words, shown as plain text; [key] is a node the agent link
+/// checked the task's asker may read. A mark good or bad is never the
+/// model's: a client takes it from the node's live value, read with its own
+/// rights.
+class TaskFinding {
+  /// The full node key.
+  final String key;
+  final String label;
+  final String detail;
+  const TaskFinding({required this.key, required this.label, this.detail = ''});
+
+  /// The findings of a task's `~state` [record], in the order the model
+  /// noted them; empty for a record of an agent link older than the field.
+  static List<TaskFinding> of(Value? record) {
+    final list = record?['findings'];
+    if (list is! VArray) return const [];
+    return [
+      for (final f in list.v)
+        if (f is VMap && _text(f['key']).isNotEmpty)
+          TaskFinding(key: _text(f['key']), label: _text(f['label']), detail: _text(f['detail'])),
+    ];
+  }
+}
+
+/// How many findings the task holds, from its public `~val` (the texts are
+/// in the record, read with `doc`).
+int findingCount(Value? value) => switch (value?['findings']) { VInt(:final v) => v, _ => 0 };
+
 /// The follow-up task that took the place of a task that waited for a person
 /// (`replaced_by` in its `~state` record and in its public `~val`); null
 /// when the task was not replaced. The plan of a replaced task is shown as

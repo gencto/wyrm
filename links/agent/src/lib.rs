@@ -7,8 +7,8 @@
 //! | `~meta.cfg` | `model`, `budget_tokens_day`, `allowed_prefixes`, `require_approval`, … |
 //! | `budget_used_today` | LLM tokens used this UTC day |
 //! | `~act/ask {task, parent?, context?}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}`; `parent` = a task this one follows (one that waits for a person is replaced by it), `context` = keys the asker attached |
-//! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, result}, suggestions?, reviewing?, replaced_by?}` (public: numbers, fixed words and task ids only) |
-//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn? (the link's finding), model_warn? (the model's words), reason?, result?: {status: ok \| failed \| skipped, message, time}` |
+//! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, result}, suggestions?, findings?, reviewing?, replaced_by?}` (public: numbers, fixed words and task ids only) |
+//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, findings[]?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`, a finding `{key, label, detail}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn? (the link's finding), model_warn? (the model's words), reason?, result?: {status: ok \| failed \| skipped, message, time}` |
 //! | `tasks/<id>/~act/approve {approvals, plan?}` | level `write`: `approvals` = `{<step number> \| <request key>: <ptok, bytes or base64>}`, one human token per step at the step's level; a step that needs one and gets none is skipped, with the steps that need it; `plan` = the `plan_hash` the approver read |
 //! | `tasks/<id>/~act/answer {answers?, text?}` | level `write`, stream like `ask`: `answers` = `{<question id>: [<option id>] \| text}` |
 //! | `tasks/<id>/~act/reject`, `cancel` | level `write`; `cancel` also ends the review turn after a stopped run |
@@ -20,6 +20,9 @@
 //! for a step's warning, the same change for more nodes, and, after a run stopped at a
 //! step, the ways out the model found in one more read-only turn (`review_turns`).
 //! Nothing runs because of a suggestion: the person who picks one sends a follow-up `ask`.
+//! What the model read about nodes (tool `found`, in planning and in that turn) is in
+//! `~state.findings`: the rows of *What I found*, one per node, each a node the asker of
+//! the task may read.
 //!
 //! Safety does not rest on the model. The model only reads (read-only tools)
 //! and proposes; a proposal is checked against `~meta`, `allowed_prefixes`
@@ -46,7 +49,8 @@ pub mod tools;
 use crate::llm::{usage_tokens, AnthropicClient, LlmClient};
 use crate::store::{AgentStore, TaskRec};
 use crate::tools::{
-    check_proposal, ApprovalMode, PlanOp, Policy, Reader, StepResult, StepStatus, Suggestion,
+    check_proposal, ApprovalMode, Finding, PlanOp, Policy, Reader, StepResult, StepStatus,
+    Suggestion,
 };
 use ed25519_dalek::SigningKey;
 use serde_json::{json, Value as Json};
@@ -107,8 +111,9 @@ op=sleep. When the task leaves a real choice open, ask the person with `ask_user
 plan; offer only options you have read in the tree. Propose only what the task needs; read a \
 node's ~meta before you propose a change to it. When a step carries a risk you read in the \
 tree, say it in the step's `warn` and offer its fixes with `suggest` (`step` = its number). \
-When the same change fits more nodes you read, offer them with `suggest` and `rows`. A \
-suggestion runs nothing: the person who picks it asks you again. When you are done, answer \
+When the same change fits more nodes you read, offer them with `suggest` and `rows`. When \
+the person asks what is wrong or how something stands, note each node you read that matters \
+with `found` (one per node). A suggestion runs nothing: the person who picks it asks you again. When you are done, answer \
 with a short summary of the plan, or of what you found if no change is needed.";
 
 /// The turn after a run stopped at a step: the model reads and offers ways out.
@@ -118,8 +123,8 @@ anything and you cannot plan now. Read what tells why the step failed (tree_list
 value_get), then offer the person at most 3 ways out with `suggest`: `label` as on a button, \
 `detail` in one or two sentences, `changes` = how many changes it would take (0: it changes \
 nothing, for example leave it as it is or only look further). Offer only what you read in the \
-tree. A way out runs nothing: the person who picks it asks you again and approves that plan. \
-End with one or two sentences on what you found.";
+tree. Note each node you read that tells why with `found` (one per node). A way out runs \
+nothing: the person who picks it asks you again and approves that plan. End with one or two sentences on what you found.";
 
 /// Agent link parameters (`~def.params`).
 #[derive(Debug, Clone, PartialEq)]
@@ -449,6 +454,9 @@ struct Task {
     review: Option<String>,
     /// The turn after a stopped run is on; not persisted (a restart ends it).
     reviewing: bool,
+    /// What the model read about nodes (`found`): rows of *What I found*. Bounded, kept
+    /// when the task fails (they say what was read, not what to do).
+    findings: Vec<Finding>,
     /// The asker's rights (spec 04 `auth`) as their latest call on the task carried them
     /// (`ask`, then their own `answer` or `approve`): what they may read bounds the rows of
     /// a suggestion, and only until that token's `exp` ([`asker_rights`]). `None`: not
@@ -471,6 +479,7 @@ impl Task {
                     suggestions: self.suggestions.clone(),
                     replaced_by: self.replaced_by.clone(),
                     review: self.review.clone(),
+                    findings: self.findings.clone(),
                 },
             ),
             log: self.log.clone(),
@@ -497,6 +506,7 @@ impl Task {
             suggestions: extras.suggestions,
             replaced_by: extras.replaced_by,
             review: extras.review,
+            findings: extras.findings,
             reviewing: false,
             rights: None,
             step: 0,
@@ -531,6 +541,16 @@ impl Task {
         Ok(t)
     }
 
+    /// The asker's rights while their token lives: a node is never checked against rights
+    /// that are unknown (no `auth`, a restart) or past their `exp` (fail closed). They bound
+    /// the rows of a suggestion and the findings.
+    fn live_rights(&self) -> Option<Caller> {
+        let now = now_s();
+        self.rights
+            .clone()
+            .filter(|who| who.claims.as_ref().is_some_and(|c| now < c.exp))
+    }
+
     fn push_log(&mut self, line: impl Into<String>) {
         let mut line: String = line.into();
         if line.len() > 1000 {
@@ -553,8 +573,9 @@ impl Task {
         self.suggestions.clear();
     }
 
-    /// Public `~val`: `{state, step, of, last?, suggestions?, reviewing?, replaced_by?}`
-    /// (ADR 0049 §7, amendment of 2026-11-14). `suggestions` is their count, `replaced_by`
+    /// Public `~val`: `{state, step, of, last?, suggestions?, findings?, reviewing?,
+    /// replaced_by?}` (ADR 0049 §7, amendments of 2026-11-14). `suggestions` and `findings`
+    /// are their counts, `replaced_by`
     /// a task id the link made: a reader learns that the record changed, not what it says. `~val` is broadcast and
     /// answered without a token, to anyone who may read the link, while the record is
     /// restricted. So it holds numbers and the link's own fixed words only: `last` is
@@ -569,6 +590,9 @@ impl Task {
         ];
         if !self.suggestions.is_empty() {
             kv.push(("suggestions", Value::UInt(self.suggestions.len() as u64)));
+        }
+        if !self.findings.is_empty() {
+            kv.push(("findings", Value::UInt(self.findings.len() as u64)));
         }
         if self.reviewing {
             kv.push(("reviewing", Value::Bool(true)));
@@ -626,6 +650,12 @@ impl Task {
         }
         if let Some(r) = &self.review {
             m.insert("review".to_owned(), Value::from(r.as_str()));
+        }
+        if !self.findings.is_empty() {
+            m.insert(
+                "findings".to_owned(),
+                Value::Array(self.findings.iter().map(Finding::to_value).collect()),
+            );
         }
         if self.reviewing {
             m.insert("reviewing".to_owned(), Value::Bool(true));
@@ -1528,6 +1558,7 @@ impl Agent {
                     suggestions: Vec::new(),
                     replaced_by: None,
                     review: None,
+                    findings: Vec::new(),
                     reviewing: false,
                     rights: asker_rights(who),
                 },
@@ -2325,6 +2356,8 @@ async fn plan_loop(
                 propose(sh, &policy, id, input).await
             } else if name == "suggest" {
                 suggest(sh, &policy, id, input).await
+            } else if name == "found" {
+                found(sh, &policy, id, input).await
             } else if name == "ask_user" {
                 match ask_user(sh, id, input, asked.len()).await {
                     Ok(q) => {
@@ -2487,14 +2520,10 @@ async fn suggest(
     id: &str,
     input: &Json,
 ) -> std::result::Result<Json, String> {
-    let (steps, rights) = match sh.lock().tasks.get(id) {
-        Some(t) => (t.plan.len(), t.rights.clone()),
+    let (steps, live) = match sh.lock().tasks.get(id) {
+        Some(t) => (t.plan.len(), t.live_rights()),
         None => return Err("the task is gone".into()),
     };
-    // The asker's rights while their token lives: a row is never checked against rights
-    // that are unknown (no `auth`, a restart) or past their `exp` (fail closed).
-    let now = now_s();
-    let live = rights.filter(|who| who.claims.as_ref().is_some_and(|c| now < c.exp));
     let has_rows = matches!(input.get("rows"), Some(Json::Array(a)) if !a.is_empty());
     if has_rows && live.is_none() {
         return Err(
@@ -2519,6 +2548,50 @@ async fn suggest(
         t.push_log(format!("suggested {}", s.id));
         t.suggestions.push(s.clone());
         Ok(json!({"ok": true, "id": s.id}))
+    })
+    .await
+    .unwrap_or_else(|| Err("the task is gone".to_owned()))
+}
+
+/// `found`: one row of *What I found* (see [`Finding`]): a node the agent and the asker of
+/// the task may read, with the model's words about it. Bounded; one row per node.
+async fn found(
+    sh: &Shared,
+    policy: &Policy,
+    id: &str,
+    input: &Json,
+) -> std::result::Result<Json, String> {
+    let live = match sh.lock().tasks.get(id) {
+        Some(t) => t.live_rights(),
+        None => return Err("the task is gone".into()),
+    };
+    let Some(who) = live else {
+        return Err(
+            "`found` needs the rights of the task's asker, and they are not known now \
+                    (their token had no `auth`, has expired, or the link restarted): say it \
+                    in your answer instead"
+                .into(),
+        );
+    };
+    let f = tools::finding_of(input, policy, |node| {
+        who.perm_on(&format!("{node}/~val")) >= Perm::Read
+    })?;
+    sh.with_task_saved(id, |t| {
+        if t.findings.len() >= tools::MAX_FINDINGS {
+            return Err(format!(
+                "this task already holds {} findings",
+                tools::MAX_FINDINGS
+            ));
+        }
+        if t.findings.iter().any(|x| x.key == f.key) {
+            return Err(format!(
+                "{} is already in the findings: one per node",
+                f.key
+            ));
+        }
+        t.push_log(format!("found {}", f.key));
+        t.findings.push(f);
+        Ok(json!({"ok": true, "n": t.findings.len()}))
     })
     .await
     .unwrap_or_else(|| Err("the task is gone".to_owned()))
@@ -2585,7 +2658,7 @@ async fn review_loop(
         "role": "user",
         "content": format!("The run of this task stopped (its ask, plan with results, error):\n{about}"),
     })];
-    let mut found: Option<String> = None;
+    let mut words: Option<String> = None;
     let mut sink = None;
     for _ in 0..params.review_turns {
         let Some(reserved) = sh.reserve() else {
@@ -2608,12 +2681,12 @@ async fn review_loop(
             .filter(|s| !s.is_empty())
             .collect();
         if !said.is_empty() {
-            found = Some(said.join(" "));
+            words = Some(said.join(" "));
         }
         messages.push(json!({ "role": "assistant", "content": content }));
         match resp["stop_reason"].as_str().unwrap_or("") {
             "tool_use" => {}
-            "end_turn" | "stop_sequence" => return Ok(found),
+            "end_turn" | "stop_sequence" => return Ok(words),
             other => return Err(format!("the model stopped with {other:?}")),
         }
         let mut results = Vec::new();
@@ -2621,6 +2694,8 @@ async fn review_loop(
             let name = b["name"].as_str().unwrap_or("");
             let r = if name == "suggest" {
                 suggest(sh, &policy, id, &b["input"]).await
+            } else if name == "found" {
+                found(sh, &policy, id, &b["input"]).await
             } else if name == "propose" || name == "ask_user" {
                 Err(format!("{name} is not available after a run"))
             } else {
@@ -2647,7 +2722,7 @@ async fn review_loop(
         messages.push(json!({ "role": "user", "content": results }));
     }
     // out of turns: what was offered so far stays
-    Ok(found)
+    Ok(words)
 }
 
 /// After planning: re-check the plan, then `done` (nothing to do),

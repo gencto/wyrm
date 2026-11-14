@@ -125,6 +125,40 @@ sequenceDiagram
     end
 ```
 
+## onTimelineWindow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetHistoryWindowAction
+    participant ST as AppState
+
+    User->>UI: onTimelineWindow
+    UI->>VM: onTimelineWindow()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.historyWindow)
+```
+
+## onTimelineReset
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetHistoryWindowAction
+    participant ST as AppState
+
+    User->>UI: onTimelineReset
+    UI->>VM: onTimelineReset()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.historyWindow)
+```
+
 ## onMode
 
 ```mermaid
@@ -257,7 +291,7 @@ sequenceDiagram
 
     User->>UI: onAddChip
     UI->>VM: onAddChip()
-    alt offered != null
+    alt picked != null && contextKey(root, picked) == picked
         VM->>A1: dispatchSync
         A1->>ST: copyWith(assistant.chips)
     end
@@ -568,7 +602,7 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `AssistantPageConnector` — 1 dispatch
+- `AssistantPageConnector` — 6 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -578,6 +612,8 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onPickSuggestion` | `PickSuggestionAction` ? | `assistant.rowPicks` |
 | `onRow` | `SetRowPickAction` ? | `assistant.rowPicks` |
 | `onReveal` | `SetStepRevealAction` ? | `assistant.revealed, assistant.refusals` |
+| `onTimelineWindow` | `SetHistoryWindowAction` | `nodes.historyWindow` |
+| `onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onMode` | `StageAgentParamAction.mode` | `changes.table, changes.view` |
 | `onRemovePrefix` | `StageAgentParamAction.removePrefix` | `changes.table, changes.view` |
 | `onAddPrefix` | `StageAgentParamAction.addPrefix` ? | `changes.table, changes.view` |
