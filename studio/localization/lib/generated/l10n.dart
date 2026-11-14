@@ -14091,6 +14091,143 @@ class S {
     );
   }
 
+  /// `{n, plural, =1{Approve 1 change and run} other{Approve {n} changes and run}}`
+  String approveCount(num n) {
+    return Intl.plural(
+      n,
+      one: 'Approve 1 change and run',
+      other: 'Approve $n changes and run',
+      name: 'approveCount',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Signs one token per ticked step with your rights ({role}). Unticked steps are left out.`
+  String approveSigns(Object role) {
+    return Intl.message(
+      'Signs one token per ticked step with your rights ($role). Unticked steps are left out.',
+      name: 'approveSigns',
+      desc: '',
+      args: [role],
+    );
+  }
+
+  /// `Tick at least one step.`
+  String get approveNone {
+    return Intl.message(
+      'Tick at least one step.',
+      name: 'approveNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `This task is on site {site}. This gateway signs approvals only for tasks of its own site. Approve it through the gateway of {site}.`
+  String approveOtherSite(Object site) {
+    return Intl.message(
+      'This task is on site $site. This gateway signs approvals only for tasks of its own site. Approve it through the gateway of $site.',
+      name: 'approveOtherSite',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `The approval was refused; the task still waits. {why}`
+  String approveRefused(Object why) {
+    return Intl.message(
+      'The approval was refused; the task still waits. $why',
+      name: 'approveRefused',
+      desc: '',
+      args: [why],
+    );
+  }
+
+  /// `Untick the step it names and approve the rest. When the plan is done, ask for the steps left out as a follow-up: they are approved then.`
+  String get approveRefusedHint {
+    return Intl.message(
+      'Untick the step it names and approve the rest. When the plan is done, ask for the steps left out as a follow-up: they are approved then.',
+      name: 'approveRefusedHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `skipped: needs step {n}`
+  String stepSkippedNeeds(Object n) {
+    return Intl.message(
+      'skipped: needs step $n',
+      name: 'stepSkippedNeeds',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `left out: it will not run`
+  String get stepLeftOut {
+    return Intl.message(
+      'left out: it will not run',
+      name: 'stepLeftOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reject the plan?`
+  String get rejectPlanTitle {
+    return Intl.message(
+      'Reject the plan?',
+      name: 'rejectPlanTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The plan is not run. The reason is kept in the task's record.`
+  String get rejectPlanNote {
+    return Intl.message(
+      'The plan is not run. The reason is kept in the task\'s record.',
+      name: 'rejectPlanNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Reason`
+  String get rejectPlanHint {
+    return Intl.message('Reason', name: 'rejectPlanHint', desc: '', args: []);
+  }
+
+  /// `Ask for the steps left out`
+  String get followUpLeftOut {
+    return Intl.message(
+      'Ask for the steps left out',
+      name: 'followUpLeftOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Do the steps that were left out of the plan of task {task}: {steps}.`
+  String followUpAsk(Object task, Object steps) {
+    return Intl.message(
+      'Do the steps that were left out of the plan of task $task: $steps.',
+      name: 'followUpAsk',
+      desc: '',
+      args: [task, steps],
+    );
+  }
+
+  /// `The task is done. Steps left out: {steps}. Ask for them as a follow-up; its plan is approved on its own.`
+  String doneLeftOutNote(Object steps) {
+    return Intl.message(
+      'The task is done. Steps left out: $steps. Ask for them as a follow-up; its plan is approved on its own.',
+      name: 'doneLeftOutNote',
+      desc: '',
+      args: [steps],
+    );
+  }
+
   /// `awaiting approval · {now} checked now, {atRun} when it runs`
   String planCheckedPartly(Object now, Object atRun) {
     return Intl.message(
@@ -14108,6 +14245,29 @@ class S {
       name: 'planSecretNote',
       desc: '',
       args: [],
+    );
+  }
+
+  /// `runs with the agent's key: this mode needs no person for it, and it cannot be left out`
+  String get stepByAgent {
+    return Intl.message(
+      'runs with the agent\'s key: this mode needs no person for it, and it cannot be left out',
+      name: 'stepByAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}`
+  String approveByAgent(num n) {
+    return Intl.plural(
+      n,
+      one: '1 step without a tick changes something and runs with the agent\'s own key; it cannot be left out. Reject the plan to stop it.',
+      other:
+          '$n steps without a tick change something and run with the agent\'s own key; they cannot be left out. Reject the plan to stop them.',
+      name: 'approveByAgent',
+      desc: '',
+      args: [n],
     );
   }
 }

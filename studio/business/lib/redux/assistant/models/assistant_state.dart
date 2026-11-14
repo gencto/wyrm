@@ -11,5 +11,8 @@ abstract class AssistantState with _$AssistantState {
     String? agent,
     @Default(IMapConst({})) IMap<String, String> cfg,
     @Default(true) bool docs,
+    @Default(IMapConst({})) IMap<String, ISet<int>> unticked,
+    @Default(IMapConst({})) IMap<String, String> refusals,
+    @Default(false) bool shown,
   }) = _AssistantState;
 }

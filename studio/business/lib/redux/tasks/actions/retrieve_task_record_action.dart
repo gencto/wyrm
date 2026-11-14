@@ -40,9 +40,12 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
     try {
       final record = await deps.wyrm.doc('$agent/tasks/$id', '~state');
       final task = agentTaskOf(id, record);
-      dispatchSync(
-        AddTasksAction([task.copyWith(plan: await _secrets(task.plan))].lock),
-      );
+      final plan = await _secrets(task.plan);
+      // another site was viewed meanwhile: this is a task of its agent
+      if (assistant.agent != agent) {
+        return null;
+      }
+      dispatchSync(AddTasksAction([task.copyWith(plan: plan)].lock));
     } on WyrmException catch (e) {
       if (isUnknownOp(e)) {
         return state.copyWith.assistant(docs: false);

@@ -20,11 +20,20 @@ import '../../tasks/actions/retrieve_task_record_action.dart';
 /// `{task, event, text}` rows (`text` from the model, `tool` it used to
 /// read, `state` it reached). Each row becomes an event of the task, so
 /// the conversation fills as the agent works.
+///
+/// With [text] the ask is that text and the draft in the box stays; with
+/// [parent] it follows that task (`ask {task, parent}`, ADR 0049 §9): the
+/// model gets the parent's ask, plan and results.
 class AskAgentAction extends Action with NonReentrant, WaitingAction {
+  AskAgentAction({this.text, this.parent});
+
+  final String? text;
+  final String? parent;
+
   @override
   Future<AppState?> reduce() async {
     final agent = assistant.agent;
-    final ask = (assistant.draft ?? '').trim();
+    final ask = (text ?? assistant.draft ?? '').trim();
     if (agent == null) {
       throw StudioException.said(
         ErrorKind.gone,
@@ -38,20 +47,24 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
     }
     String? id;
     try {
-      await for (final r in deps.wyrm.invoke(
-        agent,
-        'ask',
-        Value.from({'task': ask}),
-      )) {
+      await for (final r in deps.wyrm.askAgent(agent, ask, parent: parent)) {
         final task = str(r['task']);
-        if (task == null) {
+        // another site was viewed meanwhile: its table is not this agent's
+        if (task == null || assistant.agent != agent) {
           continue;
         }
         if (id == null) {
           id = task;
           dispatchSync(
             AddTasksAction(
-              [AgentTask(id: task, ask: ask, owner: site.user ?? '')].lock,
+              [
+                AgentTask(
+                  id: task,
+                  ask: ask,
+                  owner: site.user ?? '',
+                  parent: parent,
+                ),
+              ].lock,
             ),
           );
           dispatchSync(
@@ -62,7 +75,9 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
           );
           dispatchSync(_Select(task));
           // The ask is taken: the box is free for the next one.
-          dispatchSync(_ClearDraft());
+          if (this.text == null) {
+            dispatchSync(_ClearDraft());
+          }
         }
         final event = str(r['event']);
         final text = str(r['text']) ?? str(r['state']) ?? '';
@@ -114,11 +129,11 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
         write: true,
       );
     }
-    if (id != null) {
+    if (id != null && assistant.agent == agent) {
       // where the task stands now that its stream is over
       await dispatchAndWait(RetrieveTaskRecordAction(id));
     }
-    if (id == null) {
+    if (id == null && assistant.agent == agent) {
       // The stream ended without naming a task: nothing was started, and
       // the ask stays in the box (an agent without its API key does this).
       throw StudioException.said(

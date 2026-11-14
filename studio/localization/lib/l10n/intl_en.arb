@@ -1769,6 +1769,22 @@
     "taskBy": "by {who}",
     "taskFailedAt": "failed at step {n}",
     "taskNoChanges": "nothing changed",
+    "approveCount": "{n, plural, =1{Approve 1 change and run} other{Approve {n} changes and run}}",
+    "approveSigns": "Signs one token per ticked step with your rights ({role}). Unticked steps are left out.",
+    "approveNone": "Tick at least one step.",
+    "approveOtherSite": "This task is on site {site}. This gateway signs approvals only for tasks of its own site. Approve it through the gateway of {site}.",
+    "approveRefused": "The approval was refused; the task still waits. {why}",
+    "approveRefusedHint": "Untick the step it names and approve the rest. When the plan is done, ask for the steps left out as a follow-up: they are approved then.",
+    "stepSkippedNeeds": "skipped: needs step {n}",
+    "stepLeftOut": "left out: it will not run",
+    "rejectPlanTitle": "Reject the plan?",
+    "rejectPlanNote": "The plan is not run. The reason is kept in the task's record.",
+    "rejectPlanHint": "Reason",
+    "followUpLeftOut": "Ask for the steps left out",
+    "followUpAsk": "Do the steps that were left out of the plan of task {task}: {steps}.",
+    "doneLeftOutNote": "The task is done. Steps left out: {steps}. Ask for them as a follow-up; its plan is approved on its own.",
     "planCheckedPartly": "awaiting approval · {now} checked now, {atRun} when it runs",
-    "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds."
+    "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds.",
+    "stepByAgent": "runs with the agent's key: this mode needs no person for it, and it cannot be left out",
+    "approveByAgent": "{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}"
 }

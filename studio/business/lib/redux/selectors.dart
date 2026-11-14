@@ -48,6 +48,7 @@ import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 
+import '../wyrm/approval.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
@@ -90,6 +91,7 @@ import 'system/actions/put_profile_action.dart';
 import 'system/actions/remove_profile_action.dart';
 import 'system/actions/retrieve_profiles_action.dart';
 import 'system/actions/retrieve_system_log_action.dart';
+import 'tasks/actions/approve_task_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
 import 'updates/actions/rollback_package_action.dart';
 import 'updates/actions/update_package_action.dart';
@@ -129,6 +131,42 @@ mixin Selectors {
   SelectUpdates get updates => SelectUpdates(state);
   SelectBackups get backups => SelectBackups(state);
   SelectBrokerUpdate get brokerUpdate => SelectBrokerUpdate(state);
+}
+
+/// The approval of a task as the logged-in user may give it.
+extension TaskApproval on Selectors {
+  /// The user decides for [t]: its asker, or `config` on its `approve`.
+  /// The link takes the level of the token on
+  /// `<agent>/tasks/<id>/~act/approve` (first match, [SelectSite.levelSigned]),
+  /// not the highest grant on the link.
+  bool decidesFor(AgentTask t) {
+    final agent = assistant.agent;
+    return askedByUser(t) ||
+        (agent != null &&
+            levelRank(site.levelSigned('$agent/tasks/${t.id}/~act/approve')) >=
+                levelRank('config'));
+  }
+
+  /// The logged-in user asked [t] (the record's owner is `user:<name>`).
+  bool askedByUser(AgentTask t) =>
+      t.owner.isNotEmpty &&
+      (t.owner == site.user || t.owner == 'user:${site.user}');
+
+  /// The choices of the plan of [t] with the user's ticks and rights.
+  List<StepChoice> choicesOf(AgentTask t) => approvalOf(
+    t.plan,
+    unticked: assistant.unticked[t.id] ?? const ISetConst({}),
+    decides: decidesFor(t),
+    // grants not known (no `/api/me` yet): nothing is locked here, the
+    // gateway checks every step before it signs
+    lacks: (level, key) => site.grants.isEmpty ? null : site.needs(level, key),
+  );
+
+  /// Why this gateway cannot sign for the agent's tasks: the site on
+  /// screen is not the gateway's own (ADR 0049, not decided: a downstream
+  /// site's agent links are not known here). Null when it can.
+  String? get otherSite =>
+      site.viewed != null && site.viewed != site.name ? site.viewed : null;
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the
@@ -438,6 +476,20 @@ extension type SelectSite(AppState _state) {
       }
     }
     return levels[best];
+  }
+
+  /// The level a token the gateway mints for [key] carries: the first
+  /// grant whose pattern matches it decides, as at the gateway and at the
+  /// link (spec 04, `wyrm_core::ptok::level_on`), so a `none` before a
+  /// wider grant denies. Use it where a link acts on the token's level
+  /// (the agent's `approve`); [levelOn] is the highest matching grant.
+  String levelSigned(String key) {
+    for (final g in _state.site.grants) {
+      if (keyMatches(g.key, key)) {
+        return levels[levelRank(g.level).clamp(0, levels.length - 1)];
+      }
+    }
+    return levels.first;
   }
 
   /// The user has at least [level] on [key].
@@ -903,6 +955,18 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns docs
   bool get docs => _state.assistant.docs;
+
+  /// Returns unticked
+  IMap<String, ISet<int>> get unticked => _state.assistant.unticked;
+
+  /// Returns refusals
+  IMap<String, String> get refusals => _state.assistant.refusals;
+
+  /// Returns isApproving
+  bool get isApproving => _state.wait.isWaitingForType<ApproveTaskAction>();
+
+  /// Returns shown
+  bool get shown => _state.assistant.shown;
 }
 
 extension type SelectChanges(AppState _state) {

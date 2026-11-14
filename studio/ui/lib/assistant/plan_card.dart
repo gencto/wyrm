@@ -244,7 +244,8 @@ class _Step extends StatelessWidget {
                     ),
                     if (vm.action case final a?)
                       Text(a, style: mono(size: 13, color: c.text1)),
-                    LevelBadge(level: vm.level),
+                    // the badge centres its text: keep it as wide as the text
+                    IntrinsicWidth(child: LevelBadge(level: vm.level)),
                   ],
                 ),
                 // the key and the arguments are what is approved: whole
