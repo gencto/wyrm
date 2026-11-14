@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../assistant/choices_card.dart';
 import '../assistant/conversation.dart';
 import '../assistant/plan_card.dart';
 import '../assistant/result_card.dart';
@@ -92,6 +93,9 @@ class AssistantPage extends StatelessWidget {
     this.onTick,
     this.run,
     this.result,
+    this.choices,
+    this.onPick,
+    this.onAnswer,
     this.card,
     this.askReason,
     this.empty,
@@ -124,6 +128,13 @@ class AssistantPage extends StatelessWidget {
 
   /// What a finished plan left behind.
   final ResultCardVm? result;
+
+  /// What the assistant asked the person, answered or not.
+  final ChoicesCardVm? choices;
+  final void Function(String question, String option)? onPick;
+
+  /// The picks of [choices] are sent (`Write the plan`).
+  final VoidCallback? onAnswer;
   final TaskCardVm? card;
   final ValueChanged<String> onButton;
 
@@ -223,11 +234,17 @@ class AssistantPage extends StatelessWidget {
           Expanded(
             child: Conversation(
               events: events,
-              trailing: plan == null && card == null
+              trailing: plan == null && card == null && choices == null
                   ? null
                   : Column(
                       crossAxisAlignment: .stretch,
                       children: [
+                        if (choices case final q?)
+                          ChoicesCard(
+                            vm: q,
+                            onPick: onPick ?? (_, _) {},
+                            onConfirm: onAnswer ?? () {},
+                          ),
                         if (plan case final p?) PlanCard(vm: p, onTick: onTick),
                         if (run case final r?) RunCard(vm: r),
                         if (result case final r?) ResultCard(vm: r),

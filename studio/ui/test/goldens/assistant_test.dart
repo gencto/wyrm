@@ -98,4 +98,19 @@ void main() {
       matchesGoldenFile('assistant_failed.png'),
     );
   });
+
+  testWidgets('assistant ask', (tester) async {
+    tester.view.physicalSize = const Size(1364, 940);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(frame(assistantAsk()));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('assistant_ask.png'),
+    );
+  });
 }

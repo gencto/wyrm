@@ -8,13 +8,13 @@ import 'package:models/task_event.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/agent_task_mapper.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../tasks/actions/add_task_event_action.dart';
 import '../../tasks/actions/add_tasks_action.dart';
 import '../../tasks/actions/retrieve_task_record_action.dart';
+import '../../tasks/task_rows.dart';
 
 /// `<agent>` ▸ `ask {task}` (write): a stream of `{task, state}` then
 /// `{task, event, text}` rows (`text` from the model, `tool` it used to
@@ -24,7 +24,7 @@ import '../../tasks/actions/retrieve_task_record_action.dart';
 /// With [text] the ask is that text and the draft in the box stays; with
 /// [parent] it follows that task (`ask {task, parent}`, ADR 0049 §9): the
 /// model gets the parent's ask, plan and results.
-class AskAgentAction extends Action with NonReentrant, WaitingAction {
+class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
   AskAgentAction({this.text, this.parent});
 
   final String? text;
@@ -75,42 +75,11 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
           );
           dispatchSync(_Select(task));
           // The ask is taken: the box is free for the next one.
-          if (this.text == null) {
+          if (text == null) {
             dispatchSync(_ClearDraft());
           }
         }
-        final event = str(r['event']);
-        final text = str(r['text']) ?? str(r['state']) ?? '';
-        switch (event) {
-          case 'wait':
-            break;
-          case null when r['state'] != null:
-            _state(task, str(r['state']));
-          case 'state':
-            _state(task, text);
-            // The stream may be ahead of the task's `~val` (the gateway
-            // forwards the two on their own): the tasks service then sees
-            // no change of state and reads nothing. The record that goes
-            // with this state (its questions, its plan) is read here.
-            unawaited(dispatchAndWait(RetrieveTaskRecordAction(task)));
-            dispatchSync(
-              AddTaskEventAction(
-                task,
-                TaskEvent(kind: 'state', text: text, time: DateTime.now()),
-              ),
-            );
-          case _:
-            dispatchSync(
-              AddTaskEventAction(
-                task,
-                TaskEvent(
-                  kind: event ?? 'text',
-                  text: text,
-                  time: DateTime.now(),
-                ),
-              ),
-            );
-        }
+        takeTaskRow(task, r);
       }
     } on WyrmException catch (e) {
       if (id != null) {
@@ -145,15 +114,6 @@ class AskAgentAction extends Action with NonReentrant, WaitingAction {
       );
     }
     return null;
-  }
-
-  void _state(String id, String? s) {
-    final known = state.tasks.table[id];
-    if (known != null) {
-      dispatchSync(
-        AddTasksAction([known.copyWith(state: taskStateOf(s))].lock),
-      );
-    }
   }
 }
 

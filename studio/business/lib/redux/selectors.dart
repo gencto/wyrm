@@ -91,6 +91,7 @@ import 'system/actions/put_profile_action.dart';
 import 'system/actions/remove_profile_action.dart';
 import 'system/actions/retrieve_profiles_action.dart';
 import 'system/actions/retrieve_system_log_action.dart';
+import 'tasks/actions/answer_task_action.dart';
 import 'tasks/actions/approve_task_action.dart';
 import 'tasks/actions/retrieve_tasks_action.dart';
 import 'updates/actions/rollback_package_action.dart';
@@ -932,6 +933,9 @@ extension type SelectTasks(AppState _state) {
 
   /// Returns events
   IMap<String, IList<TaskEvent>> get events => _state.tasks.events;
+
+  /// Returns isAnswering
+  bool get isAnswering => _state.wait.isWaitingForType<AnswerTaskAction>();
 }
 
 extension type SelectAssistant(AppState _state) {
@@ -964,6 +968,9 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns isApproving
   bool get isApproving => _state.wait.isWaitingForType<ApproveTaskAction>();
+
+  /// Returns picks
+  IMap<String, ISet<String>> get picks => _state.assistant.picks;
 
   /// Returns shown
   bool get shown => _state.assistant.shown;

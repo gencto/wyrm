@@ -14413,6 +14413,101 @@ class S {
     return Intl.message('Hide steps', name: 'hideSteps', desc: '', args: []);
   }
 
+  /// `The assistant asks`
+  String get choicesTitle {
+    return Intl.message(
+      'The assistant asks',
+      name: 'choicesTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Write the plan`
+  String get choicesConfirm {
+    return Intl.message(
+      'Write the plan',
+      name: 'choicesConfirm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Or answer in your own words below.`
+  String get choicesNote {
+    return Intl.message(
+      'Or answer in your own words below.',
+      name: 'choicesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Pick an option, or answer in your own words below.`
+  String get choicesPickOne {
+    return Intl.message(
+      'Pick an option, or answer in your own words below.',
+      name: 'choicesPickOne',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `from the card: {answer}`
+  String choicesFromCard(Object answer) {
+    return Intl.message(
+      'from the card: $answer',
+      name: 'choicesFromCard',
+      desc: '',
+      args: [answer],
+    );
+  }
+
+  /// `in your own words: {answer}`
+  String choicesOwnWords(Object answer) {
+    return Intl.message(
+      'in your own words: $answer',
+      name: 'choicesOwnWords',
+      desc: '',
+      args: [answer],
+    );
+  }
+
+  /// `no answer`
+  String get choicesNoAnswer {
+    return Intl.message(
+      'no answer',
+      name: 'choicesNoAnswer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Answer in your own words (Cmd+Enter)`
+  String get answerHint {
+    return Intl.message(
+      'Answer in your own words (Cmd+Enter)',
+      name: 'answerHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Answer`
+  String get answerButton {
+    return Intl.message('Answer', name: 'answerButton', desc: '', args: []);
+  }
+
+  /// `The assistant waits for your answer. Nothing is planned before it. A restart of the broker ends a task that waits.`
+  String get answerWaitingNote {
+    return Intl.message(
+      'The assistant waits for your answer. Nothing is planned before it. A restart of the broker ends a task that waits.',
+      name: 'answerWaitingNote',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `awaiting approval · {now} checked now, {atRun} when it runs`
   String planCheckedPartly(Object now, Object atRun) {
     return Intl.message(

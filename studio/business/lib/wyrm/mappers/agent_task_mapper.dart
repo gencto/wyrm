@@ -2,6 +2,9 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_result.dart';
+import 'package:models/task_event.dart';
+import 'package:models/task_option.dart';
+import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -23,6 +26,10 @@ AgentTask agentTaskOf(String id, Value v) => AgentTask(
     _ => const IListConst([]),
   },
   planHash: planHash(v['plan']),
+  questions: switch (v['questions']) {
+    VArray(:final v) => [for (final q in v) questionOf(q)].lock,
+    _ => const IListConst([]),
+  },
   step: integer(v['step']) ?? 0,
   parent: str(v['parent']),
   log: switch (v['log']) {
@@ -37,11 +44,42 @@ AgentTask agentTaskOf(String id, Value v) => AgentTask(
 /// The task states of the agent link (and the ones it adds later).
 TaskState taskStateOf(String? s) => switch (s) {
   'awaiting_approval' || 'approval' || 'planned' => TaskState.awaitingApproval,
+  'awaiting_answer' => TaskState.awaitingAnswer,
   'running' || 'approved' => TaskState.running,
   'done' || 'completed' => TaskState.done,
   'failed' || 'rejected' || 'cancelled' || 'canceled' => TaskState.failed,
   _ => TaskState.planning,
 };
+
+/// A question of `~state.questions[]`: `{id, text, options: [{id, label,
+/// detail}], multiple, free_text, answer?}`; `answer` is the picked option
+/// ids (an array) or the person's own words (text).
+TaskQuestion questionOf(Value v) {
+  final answer = v['answer'];
+  return TaskQuestion(
+    id: str(v['id']) ?? '',
+    text: str(v['text']) ?? '',
+    options: switch (v['options']) {
+      VArray(:final v) => [
+        for (final o in v)
+          TaskOption(
+            id: str(o['id']) ?? '',
+            label: str(o['label']) ?? '',
+            detail: str(o['detail']) ?? '',
+          ),
+      ].lock,
+      _ => const IListConst([]),
+    },
+    multiple: boolean(v['multiple']) ?? false,
+    freeText: boolean(v['free_text']) ?? false,
+    answered: answer != null,
+    picked: switch (answer) {
+      VArray(:final v) => [for (final a in v) ?str(a)].lock,
+      _ => const IListConst([]),
+    },
+    words: str(answer),
+  );
+}
 
 /// The plan of [t] as a file for `wyrm-agent run` (`{"steps": […]}`,
 /// docs/agent.md): each step as it stands in the record, without what is
@@ -145,3 +183,18 @@ PlanStep planStepOf(Value v, [int place = 0]) {
           ),
   );
 }
+
+/// The conversation of a task asked in another session (or before a
+/// restart of Studio), from its record: the ask, then the log (`model: …`
+/// lines as the model's, `proposed …` and the like as what it did,
+/// `failed: …` as the error).
+List<TaskEvent> conversationOf(AgentTask t) => [
+  if (t.ask.isNotEmpty) TaskEvent(kind: 'ask', text: t.ask),
+  for (final l in t.log)
+    if (l.startsWith('model: '))
+      TaskEvent(kind: 'text', text: l.substring(7))
+    else if (l.startsWith('failed: '))
+      TaskEvent(kind: 'error', text: l.substring(8))
+    else if (!l.startsWith('asked by '))
+      TaskEvent(kind: 'note', text: l),
+];

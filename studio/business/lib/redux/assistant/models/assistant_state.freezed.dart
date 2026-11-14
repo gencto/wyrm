@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$AssistantState {
 
- String? get draft; String get panel; String? get agent; IMap<String, String> get cfg; bool get docs; IMap<String, ISet<int>> get unticked; IMap<String, String> get refusals; bool get shown; IList<String> get watched;
+ String? get draft; String get panel; String? get agent; IMap<String, String> get cfg; bool get docs; IMap<String, ISet<int>> get unticked; IMap<String, String> get refusals; IMap<String, ISet<String>> get picks; bool get shown; IList<String> get watched;
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $AssistantStateCopyWith<AssistantState> get copyWith => _$AssistantStateCopyWith
 @override
 bool operator ==(Object other) {
   final _this = this as AssistantState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AssistantState&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.panel, _this.panel) || other.panel == _this.panel)&&(identical(other.agent, _this.agent) || other.agent == _this.agent)&&(identical(other.cfg, _this.cfg) || other.cfg == _this.cfg)&&(identical(other.docs, _this.docs) || other.docs == _this.docs)&&(identical(other.unticked, _this.unticked) || other.unticked == _this.unticked)&&(identical(other.refusals, _this.refusals) || other.refusals == _this.refusals)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&const DeepCollectionEquality().equals(other.watched, _this.watched));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AssistantState&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.panel, _this.panel) || other.panel == _this.panel)&&(identical(other.agent, _this.agent) || other.agent == _this.agent)&&(identical(other.cfg, _this.cfg) || other.cfg == _this.cfg)&&(identical(other.docs, _this.docs) || other.docs == _this.docs)&&(identical(other.unticked, _this.unticked) || other.unticked == _this.unticked)&&(identical(other.refusals, _this.refusals) || other.refusals == _this.refusals)&&(identical(other.picks, _this.picks) || other.picks == _this.picks)&&(identical(other.shown, _this.shown) || other.shown == _this.shown)&&const DeepCollectionEquality().equals(other.watched, _this.watched));
 }
 
 
 @override
 int get hashCode {
   final _this = this as AssistantState;
-  return Object.hash(runtimeType,_this.draft,_this.panel,_this.agent,_this.cfg,_this.docs,_this.unticked,_this.refusals,_this.shown,const DeepCollectionEquality().hash(_this.watched));
+  return Object.hash(runtimeType,_this.draft,_this.panel,_this.agent,_this.cfg,_this.docs,_this.unticked,_this.refusals,_this.picks,_this.shown,const DeepCollectionEquality().hash(_this.watched));
 }
 
 @override
 String toString() {
   final _this = this as AssistantState;
-  return 'AssistantState(draft: ${_this.draft}, panel: ${_this.panel}, agent: ${_this.agent}, cfg: ${_this.cfg}, docs: ${_this.docs}, unticked: ${_this.unticked}, refusals: ${_this.refusals}, shown: ${_this.shown}, watched: ${_this.watched})';
+  return 'AssistantState(draft: ${_this.draft}, panel: ${_this.panel}, agent: ${_this.agent}, cfg: ${_this.cfg}, docs: ${_this.docs}, unticked: ${_this.unticked}, refusals: ${_this.refusals}, picks: ${_this.picks}, shown: ${_this.shown}, watched: ${_this.watched})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $AssistantStateCopyWith<$Res>  {
   factory $AssistantStateCopyWith(AssistantState value, $Res Function(AssistantState) _then) = _$AssistantStateCopyWithImpl;
 @useResult
 $Res call({
- String? draft, String panel, String? agent, IMap<String, String> cfg, bool docs, IMap<String, ISet<int>> unticked, IMap<String, String> refusals, bool shown, IList<String> watched
+ String? draft, String panel, String? agent, IMap<String, String> cfg, bool docs, IMap<String, ISet<int>> unticked, IMap<String, String> refusals, IMap<String, ISet<String>> picks, bool shown, IList<String> watched
 });
 
 
@@ -68,7 +68,7 @@ class _$AssistantStateCopyWithImpl<$Res>
 
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,Object? docs = null,Object? unticked = null,Object? refusals = null,Object? shown = null,Object? watched = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,Object? docs = null,Object? unticked = null,Object? refusals = null,Object? picks = null,Object? shown = null,Object? watched = null,}) {
   return _then(AssistantState(
 draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as String?,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
@@ -77,7 +77,8 @@ as String?,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nu
 as IMap<String, String>,docs: null == docs ? _self.docs : docs // ignore: cast_nullable_to_non_nullable
 as bool,unticked: null == unticked ? _self.unticked : unticked // ignore: cast_nullable_to_non_nullable
 as IMap<String, ISet<int>>,refusals: null == refusals ? _self.refusals : refusals // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,picks: null == picks ? _self.picks : picks // ignore: cast_nullable_to_non_nullable
+as IMap<String, ISet<String>>,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IList<String>,
   ));
@@ -91,7 +92,7 @@ as IList<String>,
 
 
 class _AssistantState implements AssistantState {
-  const _AssistantState({this.draft, this.panel = 'task', this.agent, this.cfg = const IMapConst({}), this.docs = true, this.unticked = const IMapConst({}), this.refusals = const IMapConst({}), this.shown = false, this.watched = const IListConst([])});
+  const _AssistantState({this.draft, this.panel = 'task', this.agent, this.cfg = const IMapConst({}), this.docs = true, this.unticked = const IMapConst({}), this.refusals = const IMapConst({}), this.picks = const IMapConst({}), this.shown = false, this.watched = const IListConst([])});
   
 
 @override final  String? draft;
@@ -101,6 +102,7 @@ class _AssistantState implements AssistantState {
 @override@JsonKey() final  bool docs;
 @override@JsonKey() final  IMap<String, ISet<int>> unticked;
 @override@JsonKey() final  IMap<String, String> refusals;
+@override@JsonKey() final  IMap<String, ISet<String>> picks;
 @override@JsonKey() final  bool shown;
 @override@JsonKey() final  IList<String> watched;
 
@@ -114,18 +116,18 @@ _$AssistantStateCopyWith<_AssistantState> get copyWith => __$AssistantStateCopyW
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg)&&(identical(other.docs, docs) || other.docs == docs)&&(identical(other.unticked, unticked) || other.unticked == unticked)&&(identical(other.refusals, refusals) || other.refusals == refusals)&&(identical(other.shown, shown) || other.shown == shown)&&const DeepCollectionEquality().equals(other.watched, watched));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AssistantState&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.panel, panel) || other.panel == panel)&&(identical(other.agent, agent) || other.agent == agent)&&(identical(other.cfg, cfg) || other.cfg == cfg)&&(identical(other.docs, docs) || other.docs == docs)&&(identical(other.unticked, unticked) || other.unticked == unticked)&&(identical(other.refusals, refusals) || other.refusals == refusals)&&(identical(other.picks, picks) || other.picks == picks)&&(identical(other.shown, shown) || other.shown == shown)&&const DeepCollectionEquality().equals(other.watched, watched));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,draft,panel,agent,cfg,docs,unticked,refusals,shown,const DeepCollectionEquality().hash(watched));
+    return Object.hash(runtimeType,draft,panel,agent,cfg,docs,unticked,refusals,picks,shown,const DeepCollectionEquality().hash(watched));
 }
 
 @override
 String toString() {
-    return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg, docs: $docs, unticked: $unticked, refusals: $refusals, shown: $shown, watched: $watched)';
+    return 'AssistantState(draft: $draft, panel: $panel, agent: $agent, cfg: $cfg, docs: $docs, unticked: $unticked, refusals: $refusals, picks: $picks, shown: $shown, watched: $watched)';
 }
 
 
@@ -136,7 +138,7 @@ abstract mixin class _$AssistantStateCopyWith<$Res> implements $AssistantStateCo
   factory _$AssistantStateCopyWith(_AssistantState value, $Res Function(_AssistantState) _then) = __$AssistantStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? draft, String panel, String? agent, IMap<String, String> cfg, bool docs, IMap<String, ISet<int>> unticked, IMap<String, String> refusals, bool shown, IList<String> watched
+ String? draft, String panel, String? agent, IMap<String, String> cfg, bool docs, IMap<String, ISet<int>> unticked, IMap<String, String> refusals, IMap<String, ISet<String>> picks, bool shown, IList<String> watched
 });
 
 
@@ -153,7 +155,7 @@ class __$AssistantStateCopyWithImpl<$Res>
 
 /// Create a copy of AssistantState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,Object? docs = null,Object? unticked = null,Object? refusals = null,Object? shown = null,Object? watched = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? draft = freezed,Object? panel = null,Object? agent = freezed,Object? cfg = null,Object? docs = null,Object? unticked = null,Object? refusals = null,Object? picks = null,Object? shown = null,Object? watched = null,}) {
   return _then(_AssistantState(
 draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as String?,panel: null == panel ? _self.panel : panel // ignore: cast_nullable_to_non_nullable
@@ -162,7 +164,8 @@ as String?,cfg: null == cfg ? _self.cfg : cfg // ignore: cast_nullable_to_non_nu
 as IMap<String, String>,docs: null == docs ? _self.docs : docs // ignore: cast_nullable_to_non_nullable
 as bool,unticked: null == unticked ? _self.unticked : unticked // ignore: cast_nullable_to_non_nullable
 as IMap<String, ISet<int>>,refusals: null == refusals ? _self.refusals : refusals // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
+as IMap<String, String>,picks: null == picks ? _self.picks : picks // ignore: cast_nullable_to_non_nullable
+as IMap<String, ISet<String>>,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,watched: null == watched ? _self.watched : watched // ignore: cast_nullable_to_non_nullable
 as IList<String>,
   ));

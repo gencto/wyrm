@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'plan_step.dart';
+import 'task_question.dart';
 import 'task_state.dart';
 
 part 'agent_task.freezed.dart';
@@ -15,6 +16,9 @@ abstract class AgentTask with _$AgentTask {
     @Default('') String owner,
     @Default('') String ask,
     @Default(IListConst([])) IList<PlanStep> plan,
+
+    /// What the assistant asked the person, answered or not.
+    @Default(IListConst([])) IList<TaskQuestion> questions,
     @Default(IListConst([])) IList<String> log,
     String? error,
     @Default(0) int tokens,
