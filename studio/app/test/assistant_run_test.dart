@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:app/common/files.dart';
+import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -144,6 +145,43 @@ void main() {
     expect(app.store.state.live.watched.keys, isNot(contains(sp)));
   });
 
+  testWidgets(
+    "another site: the Result card's keys are unwatched, not moved",
+    (
+      tester,
+    ) async {
+      final app = AssistantApp()
+        ..task(
+          't-1',
+          planRecord(
+            state: 'done',
+            step: 3,
+            results: const {1: _ok, 2: _ok, 3: _ok},
+          ),
+        );
+      app.api.children_['wy/plant/sys/links'] = [];
+      await app.pump(tester, selected: 't-1');
+      expect(app.store.state.live.watched[sp], 1);
+      expect(app.store.state.assistant.watched, [sp]);
+
+      app.store.dispatchSync(ViewSiteAction('plant'));
+      await app.settle(tester);
+
+      // central's task went with central: nothing of it is watched on plant
+      final watched = app.store.state.live.watched.keys;
+      expect(watched, isNot(contains(sp)));
+      expect(
+        watched,
+        isNot(contains('wy/plant/downstream/modbus/tcp/ahu2/sp')),
+      );
+      expect(app.store.state.assistant.watched, isEmpty);
+
+      // and hiding the tab later unwatches nothing it does not hold
+      await tester.pumpWidget(const SizedBox());
+      expect(app.store.state.live.watched.keys, isNot(contains(sp)));
+    },
+  );
+
   testWidgets('Save as a plan writes the wyrm-agent run format', (
     tester,
   ) async {
@@ -223,13 +261,108 @@ void main() {
       (2, RunStatus.failed, 'out_of_range: 21.5 is above max 21'),
       (3, RunStatus.waiting, 'not run'),
     ]);
-    expect(find.text('stopped · steps 1–1 stay done'), findsOneWidget);
+    expect(
+      find.text('stopped · step 1 changed something and stays done'),
+      findsOneWidget,
+    );
     expect(find.text('STOPPED AT STEP 2'), findsOneWidget);
     expect(
       find.textContaining('out_of_range: 21.5 is above max 21\nWhat was done'),
       findsOneWidget,
     );
     expect(find.byType(ResultCard), findsNothing);
+  });
+
+  testWidgets('a cancelled run says what its steps changed', (tester) async {
+    // Cancel marks no step failed: steps 1 and 2 ran, step 3 did not
+    final app = AssistantApp()
+      ..task(
+        't-1',
+        planRecord(
+          state: 'failed',
+          step: 2,
+          results: const {1: _ok, 2: _ok},
+        )..['error'] = 'cancelled before step 3',
+      );
+    await app.pump(tester, selected: 't-1');
+
+    expect(
+      find.text('stopped · steps 1, 2 changed something and stay done'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('nothing was changed'), findsNothing);
+  });
+
+  testWidgets('a step left out in the middle is not counted as done', (
+    tester,
+  ) async {
+    // step 1 left out by the person: step 2 ran on its own and failed
+    final app = AssistantApp()
+      ..task(
+        't-1',
+        planRecord(
+          state: 'failed',
+          step: 2,
+          results: const {
+            1: {'status': 'skipped', 'message': 'skipped by user:olena'},
+            2: {'status': 'failed', 'message': 'not_found', 'time': 1794108770},
+          },
+        ),
+      );
+    await app.pump(tester, selected: 't-1');
+
+    // "steps 1–1 stay done" was wrong here: step 1 never ran
+    expect(find.text('stopped · nothing was changed'), findsOneWidget);
+  });
+
+  testWidgets('Save as a plan leaves a secret argument out, and says so', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('wyrm-plan');
+    addTearDown(() {
+      directoryPicker = null;
+      dir.deleteSync(recursive: true);
+    });
+    directoryPicker = (_) async => dir.path;
+    final app = AssistantApp()
+      ..task(
+        't-1',
+        planRecord(
+          state: 'done',
+          step: 3,
+          results: const {1: _ok, 2: _ok, 3: _ok},
+        ),
+      );
+    // the device's `unit` is a password field of add_device here
+    app.api.metas['wy/central/downstream/modbus/tcp'] = NodeMeta(
+      actions: {
+        'add_device': ActionMeta(
+          params: {
+            'name': ParamMeta(),
+            'unit': ParamMeta(editor: 'password'),
+          },
+        ),
+      },
+    );
+    await app.pump(tester, selected: 't-1');
+
+    await tester.tap(find.text('Save as a plan'));
+    await app.settle(tester);
+
+    final plan = jsonDecode(
+      File('${dir.path}/task-t-1.plan.json').readAsStringSync(),
+    ) as Map<String, Object?>;
+    expect((plan['steps']! as List).first, {
+      'invoke': 'wy/central/downstream/modbus/tcp',
+      'action': 'add_device',
+      'args': {'name': 'ahu2'},
+    });
+    expect(plan['secrets_left_out'], ['step 1: unit']);
+    expect(
+      app.store.state.problems.notices.last.detail,
+      'Secret arguments are not in the file: step 1: unit. Add them before '
+      'you run it.',
+    );
   });
 
   testWidgets('a rejected plan has no run', (tester) async {

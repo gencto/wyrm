@@ -30,7 +30,7 @@ sequenceDiagram
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
     participant A1 as SetShownAction
-    participant A2 as WatchKeysAction
+    participant A2 as SetWatchedAction
     participant A3 as LoadAssistantAction
     participant ST as AppState
 
@@ -39,7 +39,9 @@ sequenceDiagram
     VM->>A1: dispatchSync
     A1->>ST: copyWith(assistant.shown)
     VM->>A2: dispatchSync
-    A2->>ST: copyWith(live.watched)
+    A2->>ST: copyWith(assistant.watched)
+    A2->>ST: dispatchSync(WatchKeysAction)
+    A2->>ST: dispatchSync(UnwatchKeysAction)
     VM->>+A3: dispatchAndWait
     Note over A3: async
     A3->>ST: dispatchAndWait(RetrieveLinksAction)
@@ -58,7 +60,7 @@ sequenceDiagram
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
     participant A1 as SetShownAction
-    participant A2 as UnwatchKeysAction
+    participant A2 as SetWatchedAction
     participant ST as AppState
 
     User->>UI: onHide
@@ -66,7 +68,9 @@ sequenceDiagram
     VM->>A1: dispatchSync
     A1->>ST: copyWith(assistant.shown)
     VM->>A2: dispatchSync
-    A2->>ST: copyWith(live.watched)
+    A2->>ST: copyWith(assistant.watched)
+    A2->>ST: dispatchSync(WatchKeysAction)
+    A2->>ST: dispatchSync(UnwatchKeysAction)
 ```
 
 ## onNew
@@ -200,9 +204,10 @@ sequenceDiagram
     participant A1 as ApproveTaskAction
     participant A2 as RejectTaskAction
     participant A3 as SelectNodeAction
-    participant A4 as ShowNoticeAction
-    participant A5 as AskAgentAction
-    participant A6 as CancelTaskAction
+    participant A4 as SavePlanAction
+    participant A5 as ShowNoticeAction
+    participant A6 as AskAgentAction
+    participant A7 as CancelTaskAction
     participant ST as AppState
     participant NAV as Router
 
@@ -228,46 +233,51 @@ sequenceDiagram
         A3->>ST: dispatchAndWait(RetrieveHistoryAction)
         VM->>NAV: GoAction.navigate ExplorerRoute
     end
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(problems.notices)
+    VM->>+A4: dispatchAndWait
+    Note over A4: WaitingAction · async
+    A4-->>-VM: ActionStatus
+    alt status.isCompletedOk
+        VM->>A5: dispatchSync
+        A5->>ST: copyWith(problems.notices)
+    end
     alt left.isNotEmpty
-        VM->>+A5: dispatchAndWait
-        Note over A5: NonReentrant · WaitingAction · async
-        A5->>ST: dispatchSync(AddTasksAction)
-        A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchSync(_Select)
-        A5->>ST: dispatchSync(_ClearDraft)
-        A5->>ST: dispatchAndWait(RetrieveTaskRecordAction)
-        A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchAndWait(RetrieveTaskRecordAction)
-        A5->>ST: dispatchSync(AddTasksAction)
-        A5-->>-VM: ActionStatus
+        VM->>+A6: dispatchAndWait
+        Note over A6: NonReentrant · WaitingAction · async
+        A6->>ST: dispatchSync(AddTasksAction)
+        A6->>ST: dispatchSync(AddTaskEventAction)
+        A6->>ST: dispatchSync(_Select)
+        A6->>ST: dispatchSync(_ClearDraft)
+        A6->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+        A6->>ST: dispatchSync(AddTaskEventAction)
+        A6->>ST: dispatchSync(AddTaskEventAction)
+        A6->>ST: dispatchSync(AddTaskEventAction)
+        A6->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+        A6->>ST: dispatchSync(AddTasksAction)
+        A6-->>-VM: ActionStatus
     end
     alt await ConfirmDialog.ask(context, title: S.current.cancelTask, message: S.current.failedNote, confirm: S.current.cancelTask, cancel: S.current.cancel)
-        VM->>+A6: dispatchAndWait
-        Note over A6: WaitingAction · async
-        A6-->>-VM: ActionStatus
+        VM->>+A7: dispatchAndWait
+        Note over A7: WaitingAction · async
+        A7-->>-VM: ActionStatus
     end
 ```
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `AssistantPageConnector` — 2 dispatches
+- `AssistantPageConnector` — 1 dispatch
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onTick` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
-| `onShow` | `SetShownAction`, `WatchKeysAction`, `LoadAssistantAction` | `assistant.shown`, `live.watched` |
-| `onHide` | `SetShownAction`, `UnwatchKeysAction` | `assistant.shown`, `live.watched` |
+| `onShow` | `SetShownAction`, `SetWatchedAction`, `LoadAssistantAction` | `assistant.shown`, `assistant.watched` |
+| `onHide` | `SetShownAction`, `SetWatchedAction` | `assistant.shown`, `assistant.watched` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |
 | `onAsk` | `AskAgentAction` | — |
 | `onPanel` | `SetPanelAction` | `assistant.panel` |
 | `onAddAgent` | `GoAction.push` | — |
-| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `ShowNoticeAction`, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `problems.notices` |
+| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `problems.notices` |
 
 `?` marks a dispatch that only runs under a condition.
 

@@ -1792,7 +1792,7 @@
     "runPassed": "all steps passed",
     "runPassedIn": "all steps passed · {s} s",
     "runPassedLeftOut": "done · steps left out: {steps}",
-    "runStopped": "stopped · steps 1–{k} stay done",
+    "runStopped": "stopped · steps {steps} changed something and stay done",
     "runStoppedFirst": "stopped · nothing was changed",
     "stoppedAt": "Stopped at step {n}",
     "stoppedNote": "{why}\nWhat was done before it stays done; nothing is reversed by itself.",
@@ -1808,5 +1808,7 @@
     "planCheckedPartly": "awaiting approval · {now} checked now, {atRun} when it runs",
     "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds.",
     "stepByAgent": "runs with the agent's key: this mode needs no person for it, and it cannot be left out",
-    "approveByAgent": "{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}"
+    "approveByAgent": "{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}",
+    "runStoppedOne": "stopped · step {n} changed something and stays done",
+    "planSavedSecrets": "Secret arguments are not in the file: {steps}. Add them before you run it."
 }

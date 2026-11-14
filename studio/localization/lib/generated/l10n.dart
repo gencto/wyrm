@@ -14303,13 +14303,13 @@ class S {
     );
   }
 
-  /// `stopped · steps 1–{k} stay done`
-  String runStopped(Object k) {
+  /// `stopped · steps {steps} changed something and stay done`
+  String runStopped(Object steps) {
     return Intl.message(
-      'stopped · steps 1–$k stay done',
+      'stopped · steps $steps changed something and stay done',
       name: 'runStopped',
       desc: '',
-      args: [k],
+      args: [steps],
     );
   }
 
@@ -14453,6 +14453,26 @@ class S {
       name: 'approveByAgent',
       desc: '',
       args: [n],
+    );
+  }
+
+  /// `stopped · step {n} changed something and stays done`
+  String runStoppedOne(Object n) {
+    return Intl.message(
+      'stopped · step $n changed something and stays done',
+      name: 'runStoppedOne',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Secret arguments are not in the file: {steps}. Add them before you run it.`
+  String planSavedSecrets(Object steps) {
+    return Intl.message(
+      'Secret arguments are not in the file: $steps. Add them before you run it.',
+      name: 'planSavedSecrets',
+      desc: '',
+      args: [steps],
     );
   }
 }

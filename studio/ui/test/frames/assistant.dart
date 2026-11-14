@@ -119,7 +119,7 @@ Widget assistantFailed() => _assistant(
       ),
       RunRowVm(n: 3, step: _step3, status: .waiting, text: 'not run'),
     ],
-    note: 'stopped · steps 1–1 stay done',
+    note: 'stopped · step 1 changed something and stays done',
     noteTone: Tone.bad,
   ),
   card: const TaskCardVm(

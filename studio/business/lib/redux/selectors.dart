@@ -967,6 +967,9 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns shown
   bool get shown => _state.assistant.shown;
+
+  /// Returns watched
+  IList<String> get watched => _state.assistant.watched;
 }
 
 extension type SelectChanges(AppState _state) {
