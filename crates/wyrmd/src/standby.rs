@@ -211,6 +211,7 @@ async fn open_session(cfg: &Config, peer: &str, files: &CertFiles) -> Result<Ses
             .map_err(|e| format!("zenoh config {k}: {e}"))
     };
     set(&mut zc, "mode", r#""client""#)?;
+    let peer = crate::single_stream(peer);
     set(&mut zc, "connect/endpoints", &format!("[{peer:?}]"))?;
     set(&mut zc, "connect/timeout_ms", "3000")?;
     set(&mut zc, "scouting/multicast/enabled", "false")?;

@@ -1142,6 +1142,8 @@ impl Config {
                 u.key.display()
             ));
         }
+        let listen: Vec<String> = listen.iter().map(|e| single_stream(e)).collect();
+        let connect: Vec<String> = connect.iter().map(|e| single_stream(e)).collect();
         c.insert_json5("listen/endpoints", &json(&listen))?;
         c.insert_json5("connect/endpoints", &json(&connect))?;
         if let Some(hz) = self.peers.upstream_val_hz {
@@ -1170,6 +1172,30 @@ impl Config {
         }
         ctl.configure_zenoh(&mut c, self.has_tls() || ctl.has_peers())?;
         Ok(c)
+    }
+}
+
+/// A `quic/` endpoint on one QUIC stream (`?multistream=0`). With Zenoh 1.10's default
+/// (`auto`) each priority has a stream of its own, and the order between them is lost: a
+/// request (`DataHigh`) can reach the peer before the declaration (`Control`) of the key
+/// expression it names, sent just before it (a `list` across a peer: the subscriber's key
+/// first, then the query on its prefix). The peer cannot resolve that scope and drops the
+/// request (its ACL interceptor does), and the query ends with no reply. One stream keeps the order, as TCP does; the
+/// transmit queues still send by priority, so what is given up is only that a lost packet
+/// holds up every priority, as on TCP. Either end that offers only one stream decides it
+/// (ALPN), so a peer of an older broker agrees. Other endpoints, and one with metadata of its
+/// own, are left as they are.
+pub fn single_stream(endpoint: &str) -> String {
+    let (addr, conf) = match endpoint.split_once('#') {
+        Some((a, c)) => (a, Some(c)),
+        None => (endpoint, None),
+    };
+    if !addr.starts_with("quic/") || addr.contains('?') {
+        return endpoint.to_owned();
+    }
+    match conf {
+        Some(c) => format!("{addr}?multistream=0#{c}"),
+        None => format!("{addr}?multistream=0"),
     }
 }
 
@@ -2543,6 +2569,34 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every QUIC endpoint of the router is one stream; its config stays after `#`.
+    #[test]
+    fn quic_endpoints_are_one_stream() {
+        assert_eq!(
+            single_stream("quic/0.0.0.0:7448"),
+            "quic/0.0.0.0:7448?multistream=0"
+        );
+        assert_eq!(
+            single_stream("quic/c.example:7448#root_ca_certificate_file=/a/ca.pem"),
+            "quic/c.example:7448?multistream=0#root_ca_certificate_file=/a/ca.pem"
+        );
+        assert_eq!(
+            single_stream("quic/h:1#a=b?c"),
+            "quic/h:1?multistream=0#a=b?c"
+        );
+        for kept in [
+            "tls/0.0.0.0:7447",
+            "tcp/127.0.0.1:7447",
+            "quic/h:1?multistream=1",
+        ] {
+            assert_eq!(single_stream(kept), kept);
+        }
+        let ep: zenoh::config::EndPoint =
+            single_stream("quic/h:1#enable_mtls=false").parse().unwrap();
+        assert_eq!(ep.metadata().get("multistream"), Some("0"));
+        assert_eq!(ep.config().get("enable_mtls"), Some("false"));
+    }
 
     /// One certificate code everywhere (ADR 0050): `/api/info` `ca_fp`, the `fp` TXT key and
     /// `wyrmd ca fingerprint` all come from [`gateway_ca`]: the site CA that issued the
