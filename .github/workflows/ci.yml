@@ -79,6 +79,6 @@ jobs:
       - run: flutter analyze
       - name: Tests
         run: |
-          for p in app ui business models storage localization; do
+          for p in app ui business models storage localization device_key; do
             if [ -d "$p/test" ]; then (cd "$p" && flutter test); fi
           done

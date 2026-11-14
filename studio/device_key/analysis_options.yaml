@@ -1,0 +1,8 @@
+include: package:pro_lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - darwin/**
+    - windows/**

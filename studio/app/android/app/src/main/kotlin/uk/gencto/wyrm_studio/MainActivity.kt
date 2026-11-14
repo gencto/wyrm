@@ -1,5 +1,6 @@
 package uk.gencto.wyrm_studio
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// A FragmentActivity, so `device_key` can show BiometricPrompt (ADR 0050).
+class MainActivity : FlutterFragmentActivity()

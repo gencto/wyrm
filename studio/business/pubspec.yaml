@@ -13,6 +13,9 @@ dependencies:
   async_redux: ^29.2.3
   connectivity_plus: ^7.3.2
   crypto: ^3.0.0
+  # The OS-held device key that signs the gateway's device messages (ADR 0050).
+  device_key:
+    path: ../device_key
   fast_immutable_collections: ^12.0.0
   flutter:
     sdk: flutter
