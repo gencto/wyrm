@@ -695,6 +695,41 @@ void main() {
       expect(answered.answered, isTrue);
     });
 
+    test('the device calls of ADR 0050 §1 go through the pin', () async {
+      final none = GatewayLogin(trust: () => const GatewayTrust());
+      final pinned = GatewayLogin(
+        trust: () => const GatewayTrust().plus([pin(byAddress)]),
+      );
+      Future<Uint8List> sign(Uint8List _) async => Uint8List(0);
+
+      // `/api/info` for the log-in page's policy.
+      expect(await none.info(byAddress), isNull);
+      expect((await pinned.info(byAddress))?.site, 'lab');
+
+      // The device login: without the pin the handshake fails; with it the
+      // gateway answers (this one refuses the challenge with a 401).
+      await expectLater(
+        none.openWithDevice(
+          byAddress,
+          site: 'lab',
+          user: 'olena',
+          device: 'd1',
+          sign: sign,
+        ),
+        throwsA(isA<HandshakeException>()),
+      );
+      await expectLater(
+        pinned.openWithDevice(
+          byAddress,
+          site: 'lab',
+          user: 'olena',
+          device: 'd1',
+          sign: sign,
+        ),
+        throwsA(isA<WyrmException>()),
+      );
+    });
+
     test('a found row over TLS is new until trusted', () async {
       final row = await checkFound(
         Announcement(
