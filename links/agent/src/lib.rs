@@ -8,10 +8,10 @@
 //! | `budget_used_today` | LLM tokens used this UTC day |
 //! | `~act/ask {task, parent?, context?}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}`; `parent` = a task this one follows (one that waits for a person is replaced by it), `context` = keys the asker attached |
 //! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, result}, suggestions?, reviewing?, replaced_by?}` (public: numbers, fixed words and task ids only) |
-//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn?, reason?, result?: {status: ok \| failed \| skipped, message, time}` |
+//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn? (the link's finding), model_warn? (the model's words), reason?, result?: {status: ok \| failed \| skipped, message, time}` |
 //! | `tasks/<id>/~act/approve {approvals, plan?}` | level `write`: `approvals` = `{<step number> \| <request key>: <ptok, bytes or base64>}`, one human token per step at the step's level; a step that needs one and gets none is skipped, with the steps that need it; `plan` = the `plan_hash` the approver read |
 //! | `tasks/<id>/~act/answer {answers?, text?}` | level `write`, stream like `ask`: `answers` = `{<question id>: [<option id>] \| text}` |
-//! | `tasks/<id>/~act/reject`, `cancel` | level `write` |
+//! | `tasks/<id>/~act/reject`, `cancel` | level `write`; `cancel` also ends the review turn after a stopped run |
 //!
 //! States: `planning (⇄ awaiting_answer) → awaiting_approval → running → done | failed`
 //! (`reject`, `cancel` and a follow-up that replaces the task end in `failed` with `error`).
@@ -449,8 +449,10 @@ struct Task {
     review: Option<String>,
     /// The turn after a stopped run is on; not persisted (a restart ends it).
     reviewing: bool,
-    /// The asker as they called `ask`: what they may read bounds the rows of a suggestion.
-    /// Not persisted: the model has no turn in a task after a restart.
+    /// The asker's rights (spec 04 `auth`) as their latest call on the task carried them
+    /// (`ask`, then their own `answer` or `approve`): what they may read bounds the rows of
+    /// a suggestion, and only until that token's `exp` ([`asker_rights`]). `None`: not
+    /// known (a token without `auth`, or a restart: not persisted).
     rights: Option<Caller>,
 }
 
@@ -823,7 +825,10 @@ impl State {
             }
         }
         for old in &evict {
-            self.tasks.remove(old);
+            // a finished task's worker may still run its review: it ends with the task
+            if let Some(h) = self.tasks.remove(old).and_then(|t| t.worker) {
+                h.abort();
+            }
             self.persist(store::Op::Remove(old.clone()));
         }
         evict
@@ -1173,6 +1178,25 @@ fn not_owner() -> LinkError {
     )
 }
 
+/// The rights of a person a call carries: the caller, when its token has `auth` (spec 04:
+/// a token without it means the caller's rights are unknown, and a responder that needs
+/// them refuses).
+fn asker_rights(who: &Caller) -> Option<Caller> {
+    who.claims
+        .as_ref()
+        .is_some_and(|c| c.auth.is_some())
+        .then(|| who.clone())
+}
+
+/// Keep the newer rights of the asker of `t` from a call of theirs on the task.
+fn renew_rights(t: &mut Task, who: &Caller) {
+    if who.claims.is_some() && caller_sub(who) == t.owner {
+        if let Some(r) = asker_rights(who) {
+            t.rights = Some(r);
+        }
+    }
+}
+
 fn caller_sub(who: &Caller) -> String {
     who.claims
         .as_ref()
@@ -1405,6 +1429,12 @@ impl Agent {
         let mut context: Vec<String> = Vec::new();
         match arg(&args, "context") {
             None | Some(Value::Null) => {}
+            Some(Value::Array(items)) if !items.is_empty() && asker_rights(who).is_none() => {
+                return Err(LinkError::new(
+                    Status::PermissionDenied,
+                    "context: needs the rights of the asker, a token with `auth` (spec 04)",
+                ));
+            }
             Some(Value::Array(items)) if items.len() <= MAX_CONTEXT => {
                 for i in items {
                     let Value::Str(k) = i else {
@@ -1499,7 +1529,7 @@ impl Agent {
                     replaced_by: None,
                     review: None,
                     reviewing: false,
-                    rights: Some(who.clone()),
+                    rights: asker_rights(who),
                 },
             );
             st.save_task(&id);
@@ -1629,6 +1659,7 @@ impl Agent {
                     });
                 }
                 t.state = TaskState::Planning;
+                renew_rights(t, who);
                 t.push_log(format!("answered by {sub}"));
                 Ok(tx)
             })
@@ -1830,6 +1861,7 @@ impl Agent {
                     return false;
                 }
                 t.state = TaskState::Running;
+                renew_rights(t, who);
                 t.push_log(match skipped {
                     0 => format!("approved by {sub}"),
                     n => format!("approved by {sub}, {n} step(s) left out"),
@@ -1906,6 +1938,15 @@ impl Agent {
                     t.cancel = true;
                     t.push_log(format!("cancel requested by {sub}"));
                     Ok(TaskState::Running)
+                }
+                // the turn after a stopped run: it ends, the task stays failed
+                TaskState::Failed if t.reviewing => {
+                    if let Some(h) = t.worker.take() {
+                        h.abort();
+                    }
+                    t.reviewing = false;
+                    t.push_log(format!("review cancelled by {sub}"));
+                    Ok(TaskState::Failed)
                 }
                 s => Err(LinkError::invalid_parameter(format!(
                     "task is already {}",
@@ -2450,9 +2491,21 @@ async fn suggest(
         Some(t) => (t.plan.len(), t.rights.clone()),
         None => return Err("the task is gone".into()),
     };
+    // The asker's rights while their token lives: a row is never checked against rights
+    // that are unknown (no `auth`, a restart) or past their `exp` (fail closed).
+    let now = now_s();
+    let live = rights.filter(|who| who.claims.as_ref().is_some_and(|c| now < c.exp));
+    let has_rows = matches!(input.get("rows"), Some(Json::Array(a)) if !a.is_empty());
+    if has_rows && live.is_none() {
+        return Err(
+            "`rows` need the rights of the task's asker, and they are not known now \
+                    (their token had no `auth`, has expired, or the link restarted): offer it \
+                    without rows"
+                .into(),
+        );
+    }
     let mut s = tools::suggestion_of(input, policy, steps, |node| {
-        rights
-            .as_ref()
+        live.as_ref()
             .is_some_and(|who| who.perm_on(&format!("{node}/~val")) >= Perm::Read)
     })?;
     sh.with_task_saved(id, |t| {
@@ -3024,5 +3077,24 @@ mod tests {
         }
         assert_eq!(st.evict(0), vec!["new-done".to_owned()]);
         assert!(st.tasks.contains_key("old-waiting"));
+    }
+
+    /// An evicted task's worker (a review still running after its run stopped) ends with it.
+    #[tokio::test]
+    async fn eviction_ends_a_review_that_still_runs() {
+        let mut st = State::default();
+        let mut t = Task::from_rec(&rec(TaskState::Failed)).unwrap();
+        t.created = 1;
+        t.reviewing = true;
+        let review = tokio::spawn(std::future::pending::<()>());
+        t.worker = Some(review.abort_handle());
+        st.order.push_back("old-failed".to_owned());
+        st.tasks.insert("old-failed".to_owned(), t);
+        assert_eq!(st.evict(0), vec!["old-failed".to_owned()]);
+        let e = tokio::time::timeout(Duration::from_secs(5), review)
+            .await
+            .expect("the review still runs")
+            .unwrap_err();
+        assert!(e.is_cancelled(), "{e}");
     }
 }

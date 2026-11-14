@@ -42,6 +42,7 @@ void main() {
       'approval': const VBool(true),
       'check': const VStr('at_run'),
       'warn': const VStr('at the limit'),
+      'model_warn': const VStr('read by another loop'),
       'reason': const VStr('because'),
       'result': VMap({'status': const VStr('ok')}),
     });

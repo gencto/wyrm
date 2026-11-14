@@ -8,7 +8,8 @@ import 'api.dart';
 
 /// The keys of a plan step in a task's `~state` that say something about the
 /// step and are no part of what it does: left out of [planHash].
-const planUnhashed = {'approval', 'check', 'warn', 'reason', 'result'};
+/// `warn` is the link's own finding, `model_warn` the model's words.
+const planUnhashed = {'approval', 'check', 'warn', 'model_warn', 'reason', 'result'};
 
 /// The hash an approval is bound to (ADR 0049): SHA-256, in hex, of the
 /// canonical CBOR of [plan] (the `plan` array of a task's `~state`), each step

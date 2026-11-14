@@ -49,7 +49,14 @@ pub const MAX_DOC: usize = 1024 * 1024;
 pub const MAX_STEPS: usize = 64;
 /// The keys of a step in `~state` that say something about it and are no part of what it
 /// does (`links/agent` `tools::UNHASHED`): left out of the plan's hash.
-const UNHASHED: [&str; 5] = ["approval", "check", "warn", "reason", "result"];
+const UNHASHED: [&str; 6] = [
+    "approval",
+    "check",
+    "warn",
+    "model_warn",
+    "reason",
+    "result",
+];
 
 /// One step of the stored plan, as far as an approval needs it.
 #[derive(Debug, Clone, PartialEq)]
@@ -577,6 +584,7 @@ mod tests {
         for (k, v) in [
             ("reason", Value::from("because")),
             ("warn", Value::from("at the limit")),
+            ("model_warn", Value::from("read by another loop")),
             ("check", Value::from("at_run")),
             ("result", map([("status", Value::from("ok"))])),
         ] {

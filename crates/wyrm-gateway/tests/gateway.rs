@@ -1733,7 +1733,7 @@ async fn a_replaced_plan_is_not_signed_and_suggestions_are_read_through_doc() {
     let Value::Array(plan) = get(&rec, "plan") else {
         panic!("plan: {rec:?}")
     };
-    assert_eq!(text(&plan[0], "warn"), "g0 is in use");
+    assert_eq!(text(&plan[0], "model_warn"), "g0 is in use");
     let Value::Array(offered) = get(&rec, "suggestions") else {
         panic!("suggestions: {rec:?}")
     };

@@ -263,8 +263,12 @@ pub struct PlanOp {
     pub needs_approval: bool,
     pub reason: Option<String>,
     pub check: Check,
-    /// What the person must know before approving (a value at a limit).
+    /// What the link found that the person must know before approving (a value at a
+    /// limit): the link's own words.
     pub warn: Option<String>,
+    /// What the model says the person must know (`propose {warn}`): model text, kept apart
+    /// from the link's finding so that a reader can show it as the model's.
+    pub model_warn: Option<String>,
     /// The steps (by number) this one needs: skipped when one of them is.
     pub after: Vec<usize>,
     /// What the run did with the step; `None` until it reaches it (a step after a failed one
@@ -334,7 +338,14 @@ impl StepResult {
 
 /// The keys of a step in `~state` that are not part of what it does: left out of
 /// [`plan_hash`].
-pub const UNHASHED: [&str; 5] = ["approval", "check", "warn", "reason", "result"];
+pub const UNHASHED: [&str; 6] = [
+    "approval",
+    "check",
+    "warn",
+    "model_warn",
+    "reason",
+    "result",
+];
 
 impl PlanOp {
     /// The stricter of the value recorded at planning time and the current
@@ -394,6 +405,9 @@ impl PlanOp {
         m.insert("check".to_owned(), Value::from(self.check.name()));
         if let Some(w) = &self.warn {
             m.insert("warn".to_owned(), Value::from(w.as_str()));
+        }
+        if let Some(w) = &self.model_warn {
+            m.insert("model_warn".to_owned(), Value::from(w.as_str()));
         }
         if let Some(r) = &self.reason {
             m.insert("reason".to_owned(), Value::from(r.as_str()));
@@ -781,7 +795,8 @@ pub async fn check_proposal(
         needs_approval: false,
         reason,
         check: Check::Now,
-        warn: told.clone(),
+        warn: None,
+        model_warn: told,
         after: Vec::new(),
         result: None,
     };
@@ -884,11 +899,8 @@ pub async fn check_proposal(
         } else {
             Check::AtRun
         },
-        // the link's own finding first, then the model's
-        warn: match (warn, told) {
-            (Some(a), Some(b)) => Some(format!("{a}; {b}")),
-            (a, b) => a.or(b),
-        },
+        // the link's own finding; the model's words stay in `model_warn`
+        warn,
         after,
         ..blank
     })
@@ -1263,6 +1275,7 @@ mod tests {
             reason: None,
             check: Check::Now,
             warn: None,
+            model_warn: None,
             after: Vec::new(),
             result: None,
         };
@@ -1312,6 +1325,7 @@ mod tests {
             seconds: None,
             check: Check::Now,
             warn: None,
+            model_warn: None,
             after: Vec::new(),
         };
         // the hash covers what is sent, at which level and after what, not the model's words
@@ -1325,6 +1339,7 @@ mod tests {
         let reworded = PlanOp {
             reason: Some("because".into()),
             warn: Some("at the limit".into()),
+            model_warn: Some("p is read by another loop".into()),
             check: Check::AtRun,
             needs_approval: true,
             result: Some(StepResult {

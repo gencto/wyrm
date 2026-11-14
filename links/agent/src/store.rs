@@ -228,6 +228,9 @@ fn plan_op_value(op: &PlanOp) -> Value {
     if let Some(w) = &op.warn {
         m.insert("warn".to_owned(), Value::from(w.as_str()));
     }
+    if let Some(w) = &op.model_warn {
+        m.insert("model_warn".to_owned(), Value::from(w.as_str()));
+    }
     if !op.after.is_empty() {
         m.insert(
             "after".to_owned(),
@@ -398,6 +401,7 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
         seconds: m.get("seconds").and_then(Value::as_f64),
         check: Check::from_name(&s("check").unwrap_or_default()),
         warn: s("warn").ok(),
+        model_warn: s("model_warn").ok(),
         after: match m.get("after") {
             Some(Value::Array(a)) => a
                 .iter()
@@ -452,6 +456,7 @@ mod tests {
                     seconds: None,
                     check: Check::AtRun,
                     warn: Some("at the limit".into()),
+                    model_warn: Some("read by another loop".into()),
                     after: vec![1],
                 }],
                 &Extras::default(),
@@ -481,6 +486,11 @@ mod tests {
         assert_eq!(
             (p[0].check, p[0].after.as_slice()),
             (Check::AtRun, &[1][..])
+        );
+        // the link's finding and the model's words stay apart
+        assert_eq!(
+            (p[0].warn.as_deref(), p[0].model_warn.as_deref()),
+            (Some("at the limit"), Some("read by another loop"))
         );
         assert_eq!(encode_plan(&p, &extras), r.plan);
         // questions, the parent and the context travel inside the plan bytes
