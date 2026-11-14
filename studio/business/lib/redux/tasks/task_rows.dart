@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/task_event.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -7,6 +9,7 @@ import '../../wyrm/mappers/values.dart';
 import '../common/action.dart';
 import 'actions/add_task_event_action.dart';
 import 'actions/add_tasks_action.dart';
+import 'actions/retrieve_task_record_action.dart';
 
 /// One row of the stream of `ask` or `answer` (`{task, state}`, then
 /// `{task, event, text}` with `text`, `tool`, `question`, `state`, `wait`)
@@ -32,6 +35,11 @@ mixin TaskRows on Action {
         setState(str(r['state']));
       case 'state':
         setState(text);
+        // The stream may be ahead of the task's `~val` (the gateway
+        // forwards the two on their own): the tasks service then sees no
+        // change of state and reads nothing. The record that goes with
+        // this state (its questions, its plan) is read here.
+        unawaited(dispatchAndWait(RetrieveTaskRecordAction(task)));
         dispatchSync(
           AddTaskEventAction(
             task,

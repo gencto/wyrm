@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
@@ -11,6 +13,7 @@ import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../tasks/actions/add_task_event_action.dart';
 import '../../tasks/actions/add_tasks_action.dart';
+import '../../tasks/actions/retrieve_task_record_action.dart';
 import '../../tasks/task_rows.dart';
 
 /// `<agent>` ▸ `ask {task}` (write): a stream of `{task, state}` then
@@ -46,7 +49,8 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
     try {
       await for (final r in deps.wyrm.askAgent(agent, ask, parent: parent)) {
         final task = str(r['task']);
-        if (task == null) {
+        // another site was viewed meanwhile: its table is not this agent's
+        if (task == null || assistant.agent != agent) {
           continue;
         }
         if (id == null) {
@@ -94,7 +98,11 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
         write: true,
       );
     }
-    if (id == null) {
+    if (id != null && assistant.agent == agent) {
+      // where the task stands now that its stream is over
+      await dispatchAndWait(RetrieveTaskRecordAction(id));
+    }
+    if (id == null && assistant.agent == agent) {
       // The stream ended without naming a task: nothing was started, and
       // the ask stays in the box (an agent without its API key does this).
       throw StudioException.said(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../app_state.dart';
+import '../../assistant/models/assistant_state.dart';
 import '../../backups/models/backups_state.dart';
 import '../../broker_update/models/broker_update_state.dart';
 import '../../common/action.dart';
@@ -11,7 +12,9 @@ import '../../historian/actions/follow_history_action.dart';
 import '../../historian/models/historian_state.dart';
 import '../../links/actions/retrieve_links_action.dart';
 import '../../links/models/links_state.dart';
+import '../../live/actions/unwatch_keys_action.dart';
 import '../../nodes/models/nodes_state.dart';
+import '../../tasks/models/tasks_state.dart';
 import '../../updates/models/updates_state.dart';
 
 /// Shows [target] (a site the switcher offers): every screen's tables are
@@ -25,13 +28,21 @@ class ViewSiteAction extends Action {
   /// The site that was shown, when this run changed it.
   String? _from;
 
+  /// The keys the Assistant watched on the site that was left (its Result
+  /// card): unwatched, not moved, since its tasks go with that site.
+  IList<String> _assistantWatched = const IListConst([]);
+
   @override
   AppState? reduce() {
     if (target == site.viewed) {
       return null;
     }
     deps.treeWatch.detachLists();
+    // The tasks of the old site's agent stop coming: a late `~val` would
+    // put its task back into the emptied table.
+    deps.agentTasks.follow(null);
     _from = site.viewed;
+    _assistantWatched = state.assistant.watched;
     return state.copyWith(
       site: state.site.copyWith(current: target == site.name ? null : target),
       nodes: const NodesState(),
@@ -64,12 +75,25 @@ class ViewSiteAction extends Action {
         range: state.historian.range,
         follow: state.historian.follow,
       ),
+      // The agent link, its tasks and what the person chose for a plan
+      // (ticks, a refused approval) are the old site's: a task of central
+      // shown on plant would read as plant's. What is typed, the panel and
+      // whether the tab is shown stay; the reload reads the new site's.
+      tasks: const TasksState(),
+      assistant: AssistantState(
+        draft: state.assistant.draft,
+        panel: state.assistant.panel,
+        shown: state.assistant.shown,
+      ),
     );
   }
 
   @override
   void after() {
     super.after();
+    if (_assistantWatched.isNotEmpty) {
+      dispatchSync(UnwatchKeysAction(_assistantWatched));
+    }
     for (final reload in deps.reloads) {
       reload(store);
     }

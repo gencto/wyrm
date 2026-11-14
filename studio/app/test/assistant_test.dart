@@ -53,6 +53,110 @@ void main() {
     expect(call.args?['plan'], isA<VStr>());
   });
 
+  testWidgets('a change that needs no person runs with the agent key: no '
+      'tick, counted, and said so', (tester) async {
+    // `require_approval: config`: two write sets of the asker need nobody
+    final app = AssistantApp()
+      ..task('t-1', {
+        'state': 'awaiting_approval',
+        'owner': 'user:olena',
+        'ask': 'set two points, add a device',
+        'plan': [
+          {
+            'n': 1,
+            'set': 'wy/central/downstream/modbus/tcp/ahu1/sp',
+            'value': 21,
+            'level': 'write',
+            'approval': false,
+            'check': 'now',
+          },
+          {
+            'n': 2,
+            'set': 'wy/central/downstream/modbus/tcp/ahu1/mode',
+            'value': 'auto',
+            'level': 'write',
+            'approval': false,
+            'check': 'now',
+          },
+          {
+            'n': 3,
+            'invoke': 'wy/central/downstream/modbus/tcp',
+            'action': 'add_device',
+            'args': {'name': 'ahu2'},
+            'level': 'config',
+            'approval': true,
+            'check': 'now',
+          },
+        ],
+        'log': ['asked by user:olena'],
+      });
+    app.api.invokes['$task ▸ approve'] = [];
+    await app.pump(tester, selected: 't-1');
+
+    expect(find.byType(Checkbox), findsOneWidget);
+    expect(
+      find.text(
+        "runs with the agent's key: this mode needs no person for it, and "
+        'it cannot be left out',
+      ),
+      findsNWidgets(2),
+    );
+    // all three run once approved
+    expect(_button(tester, 'Approve').label, 'Approve 3 changes and run');
+    expect(
+      find.textContaining(
+        "2 steps without a tick change something and run with the agent's "
+        'own key',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Approve 3 changes and run'));
+    await app.settle(tester);
+    // only the ticked step takes a token; the link runs the others
+    expect(_steps(app.calls('approve').single), [3]);
+  });
+
+  testWidgets('a secret argument is not shown', (tester) async {
+    final app = AssistantApp()
+      ..task('t-1', {
+        'state': 'awaiting_approval',
+        'owner': 'user:olena',
+        'ask': 'add the erp connection',
+        'plan': [
+          {
+            'n': 1,
+            'invoke': 'wy/central/downstream/http',
+            'action': 'add_connection',
+            'args': {'name': 'erp', 'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+            'check': 'now',
+          },
+        ],
+        'log': ['asked by user:olena'],
+      });
+    app.api.metas['wy/central/downstream/http'] = NodeMeta(
+      actions: {
+        'add_connection': ActionMeta(
+          params: {
+            'name': ParamMeta(),
+            'password': ParamMeta(editor: 'password'),
+          },
+        ),
+      },
+    );
+    await app.pump(tester, selected: 't-1');
+
+    expect(find.text('erp'), findsOneWidget);
+    expect(find.text('hunter2'), findsNothing);
+    expect(find.text('••••••'), findsOneWidget);
+    expect(
+      find.textContaining('A secret argument is not shown'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('an unticked step is left out, with the steps that need it', (
     tester,
   ) async {
@@ -146,34 +250,77 @@ void main() {
     expect(_steps(app.calls('approve').last), [1]);
   });
 
-  testWidgets(
-    'a task of a downstream site: Approve is locked with the reason',
-    (
-      tester,
-    ) async {
-      final app = AssistantApp()..task('t-1', planRecord());
-      await app.pump(tester, selected: 't-1');
-
-      app.store.dispatchSync(ViewSiteAction('plant'));
-      await tester.runAsync(
-        () => app.store.dispatchAndWait(RetrieveTaskRecordAction('t-1')),
+  testWidgets('another site shows its own agent; its task is not approved '
+      'here', (tester) async {
+    const plant = 'wy/plant/downstream/agent';
+    final app = AssistantApp()..task('t-1', planRecord());
+    app.api
+      ..children_['wy/plant/sys/links'] = [Child('agent', NodeMeta())]
+      ..metas['wy/plant/sys/links/agent'] = NodeMeta(
+        attr: {'driver': const VStr('agent'), 'mode': const VStr('embedded')},
+      )
+      ..metas[plant] = NodeMeta()
+      ..children_['$plant/tasks'] = [Child('t-9', NodeMeta())]
+      ..docs['$plant/tasks/t-9 ~state'] = Value.from(
+        planRecord()..['ask'] = 'tune ahu7',
       );
-      await app.settle(tester);
+    await app.pump(tester, selected: 't-1');
+    expect(find.byType(PlanCard), findsOneWidget);
 
-      final approve = _button(tester, 'Approve');
-      expect(approve.onPressed, isNull);
-      expect(approve.disabledReason, contains('This task is on site plant'));
-      expect(
-        find.textContaining(
-          'This gateway signs approvals only for tasks of its own site',
-        ),
-        findsOneWidget,
-      );
-      // the plan is only shown
-      expect(find.byType(PlanCard), findsOneWidget);
-      expect(find.byType(Checkbox), findsNothing);
-    },
-  );
+    app.store.dispatchSync(ViewSiteAction('plant'));
+    await app.settle(tester);
+
+    // central's task, its plan and its ticks are gone with central
+    expect(app.store.state.tasks.table.keys, ['t-9']);
+    expect(app.store.state.assistant.agent, plant);
+    expect(find.text('add ahu2'), findsNothing);
+    expect(find.byType(PlanCard), findsNothing);
+
+    // its record is read when it is opened
+    await tester.tap(find.text('t-9').first);
+    await app.settle(tester);
+    expect(find.text('tune ahu7'), findsWidgets);
+
+    final approve = _button(tester, 'Approve');
+    expect(approve.onPressed, isNull);
+    expect(approve.disabledReason, contains('This task is on site plant'));
+    expect(
+      find.textContaining(
+        'This gateway signs approvals only for tasks of its own site',
+      ),
+      findsOneWidget,
+    );
+    // the plan is only shown
+    expect(find.byType(PlanCard), findsOneWidget);
+    expect(find.byType(Checkbox), findsNothing);
+  });
+
+  testWidgets('back on its own site, a task of the other site is gone', (
+    tester,
+  ) async {
+    final app = AssistantApp()..task('t-1', planRecord());
+    app.api.children_['wy/plant/sys/links'] = [];
+    await app.pump(tester, selected: 't-1');
+    await tester.tap(_tick(2));
+    await tester.pump();
+
+    // a read of central's record is still on its way when plant is viewed
+    app.api.delays['${AssistantApp.agent}/tasks/t-1 ~state'] = const Duration(
+      milliseconds: 200,
+    );
+    final late = app.store.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    await tester.pump();
+    expect(app.api.calls.where((c) => c.op == 'doc'), hasLength(2));
+    app.store.dispatchSync(ViewSiteAction('plant'));
+    await app.settle(tester);
+    await tester.runAsync(() => late);
+    await app.settle(tester);
+
+    // it does not put central's task back, nor do its ticks stay
+    expect(app.store.state.tasks.table, isEmpty);
+    expect(app.store.state.assistant.unticked, isEmpty);
+    expect(find.byType(PlanCard), findsNothing);
+  });
 
   testWidgets('Reject asks for a reason and sends it', (tester) async {
     final app = AssistantApp()..task('t-1', planRecord());

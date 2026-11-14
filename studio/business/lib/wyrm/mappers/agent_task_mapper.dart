@@ -82,9 +82,13 @@ TaskQuestion questionOf(Value v) {
 
 /// The plan of [t] as a file for `wyrm-agent run` (`{"steps": […]}`,
 /// docs/agent.md): each step as it stands in the record, without what is
-/// said about it (number, level, check, reason, result).
+/// said about it (number, level, check, reason, result). A secret argument
+/// (`PlanStep.secret`) is never written: `secrets_left_out` names it, and
+/// the person adds it before the plan is run.
 Map<String, Object?> planFile(AgentTask t) => {
   'about': t.ask,
+  if (secretsLeftOut(t) case final left when left.isNotEmpty)
+    'secrets_left_out': left,
   'steps': [
     for (final s in t.plan)
       switch (s.op) {
@@ -92,7 +96,10 @@ Map<String, Object?> planFile(AgentTask t) => {
         'invoke' => {
           'invoke': s.key,
           'action': s.action ?? '',
-          'args': s.args.unlock,
+          'args': {
+            for (final e in s.args.entries)
+              if (!s.secret.contains(e.key)) e.key: e.value,
+          },
         },
         'wait' => {'wait': s.key, 'timeout_s': s.seconds ?? 10},
         'expect' => {
@@ -104,6 +111,22 @@ Map<String, Object?> planFile(AgentTask t) => {
       },
   ],
 };
+
+/// The secret arguments of [t]'s plan, `step <n>: <arg>, …`, one per step
+/// that has any: what Save as a plan leaves out of the file.
+List<String> secretsLeftOut(AgentTask t) => [
+  for (final s in t.plan)
+    if (s.secret.isNotEmpty) 'step ${s.n}: ${s.secret.join(', ')}',
+];
+
+/// How far the steps of [plan] that change something were checked: how
+/// many against the live tree now, and how many only when they run
+/// (`check: at_run`: an earlier step makes their node).
+({int now, int atRun}) planChecks(Iterable<PlanStep> plan) {
+  final changing = plan.where((s) => s.op == 'set' || s.op == 'invoke');
+  final atRun = changing.where((s) => s.check == 'at_run').length;
+  return (now: changing.length - atRun, atRun: atRun);
+}
 
 /// One step in the `wyrm-agent run` format: `{set, value}`,
 /// `{invoke, action, args}`, `{wait, timeout_s}`,

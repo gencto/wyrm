@@ -7,6 +7,7 @@ import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'redux/app_state.dart';
+import 'redux/assistant/actions/load_assistant_action.dart';
 import 'redux/backups/actions/retrieve_backups_action.dart';
 import 'redux/links/actions/retrieve_links_action.dart';
 import 'redux/packages/actions/retrieve_packages_action.dart';
@@ -128,6 +129,11 @@ class AppDependencies {
       }
       if (store.state.backups.sections.isNotEmpty) {
         unawaited(store.dispatchAndWait(RetrieveBackupsAction(quiet: true)));
+      }
+      // the Assistant reads its agent again: after a site switch it is the
+      // new site's agent, with its own tasks
+      if (store.state.assistant.shown) {
+        unawaited(store.dispatchAndWait(LoadAssistantAction()));
       }
     },
   ];

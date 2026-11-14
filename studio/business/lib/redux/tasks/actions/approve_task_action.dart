@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
@@ -19,10 +20,28 @@ import 'retrieve_task_record_action.dart';
 /// step outside the user's grants) is no failure of the task: it keeps
 /// waiting. The refusal's text is kept for the card (`assistant.refusals`)
 /// and the record is read again.
+///
+/// [plan] and [steps] are what the person saw when they pressed Approve:
+/// the hash of the plan on screen and the steps ticked there. A record
+/// read or a tick changed in between makes the store differ from them;
+/// nothing is sent then (the person approves what is shown, not what
+/// arrived after) and the card says so.
 class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
-  ApproveTaskAction(this.id);
+  ApproveTaskAction(this.id, {required this.plan, required this.steps});
 
   final String id;
+
+  /// The hash of the plan as it was shown (`planHash`).
+  final String? plan;
+
+  /// The ticked steps as they were shown, by number.
+  final List<int> steps;
+
+  /// The refusal kept when the plan or the ticks moved after they were
+  /// shown.
+  static const changed =
+      'the plan or its ticks changed after they were shown. Read the plan '
+      'again and approve what it says now.';
 
   @override
   Future<AppState?> reduce() async {
@@ -38,6 +57,11 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
     ];
     if (steps.isEmpty) {
       return null;
+    }
+    if (plan != this.plan || !listEquals(steps, this.steps)) {
+      return state.copyWith.assistant(
+        refusals: assistant.refusals.add(id, changed),
+      );
     }
     final key = '$agent/tasks/$id';
     try {

@@ -4,7 +4,13 @@ import 'package:models/plan_step.dart';
 /// What the person decides for one step of a plan that waits (ADR 0049
 /// §2–4).
 final class StepChoice {
-  const StepChoice({required this.n, this.ticked, this.locked, this.needs});
+  const StepChoice({
+    required this.n,
+    this.ticked,
+    this.byAgent = false,
+    this.locked,
+    this.needs,
+  });
 
   /// The step's number in the plan, from 1.
   final int n;
@@ -12,6 +18,11 @@ final class StepChoice {
   /// The step's tick: null when the person signs nothing for it (it reads
   /// only, or it runs with the agent's key).
   final bool? ticked;
+
+  /// The step changes something and needs no human here: the link runs it
+  /// with the agent's own key once the plan is approved. It has no tick and
+  /// cannot be left out (only with a step it needs, [needs]).
+  final bool byAgent;
 
   /// Why the tick cannot be set: the level the user lacks on the step's
   /// request key.
@@ -23,6 +34,10 @@ final class StepChoice {
 
   /// The run leaves the step out.
   bool get skipped => needs != null || ticked == false;
+
+  /// The step changes something and runs once the plan is approved: ticked,
+  /// or run with the agent's key.
+  bool get runs => !skipped && ((ticked ?? false) || byAgent);
 }
 
 /// The key a step's token is good for: `<node>/~set` or
@@ -56,6 +71,7 @@ List<StepChoice> approvalOf(
       ticked: signs
           ? locked == null && needs == null && !unticked.contains(s.n)
           : null,
+      byAgent: changes && !signs,
       locked: locked,
       needs: needs,
     );

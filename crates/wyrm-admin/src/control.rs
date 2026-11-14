@@ -1350,6 +1350,30 @@ impl Control {
             .issue(cn, &[], false, &self.cfg.data_dir.join("operators"), cn)
     }
 
+    /// The remote link `id`, when `token` is its token (`hello`).
+    ///
+    /// The check is an argon2id hash, tens of milliseconds of one core (most of a second
+    /// in a debug build). It runs on the blocking pool: on the caller's worker it kept
+    /// every task queued on that worker waiting, the answer of the admin's previous
+    /// action among them. The caller still waits here, so `hello` keeps its place among
+    /// the admin's requests; what other tasks changed meanwhile is read again, and a
+    /// link that was removed or whose token was replaced during the check is refused.
+    pub(crate) async fn link_of_token(&self, id: &str, token: &[u8]) -> Option<LinkDef> {
+        let remote = |reg: Registry| reg.links.get(id).filter(|d| d.mode.is_remote()).cloned();
+        let def = remote(self.registry())?;
+        let (hash, token) = (
+            def.token_hash.clone(),
+            zeroize::Zeroizing::new(token.to_vec()),
+        );
+        let ok = tokio::task::spawn_blocking(move || secret::verify_token(&token, &hash))
+            .await
+            .unwrap_or(false);
+        if !ok {
+            return None;
+        }
+        remote(self.registry()).filter(|d| d.token_hash == def.token_hash)
+    }
+
     /// Issue the token of a remote link into `links/<id>/token` (0600);
     /// external links also get it back once.
     fn new_token_for(&self, id: &str, mode: Mode) -> Result<(String, Option<String>), LinkError> {
@@ -4707,11 +4731,7 @@ impl Admin {
             Some(Value::Bytes(b)) => b.as_slice(),
             _ => &[][..],
         };
-        let def = self.ctl.registry().links.get(id).cloned();
-        let ok = def
-            .as_ref()
-            .is_some_and(|d| d.mode.is_remote() && secret::verify_token(token, &d.token_hash));
-        let Some(def) = def.filter(|_| ok) else {
+        let Some(def) = self.ctl.link_of_token(id, token).await else {
             self.ctl.record(
                 &format!("link:{id}"),
                 "hello",
@@ -6931,6 +6951,67 @@ mod tests {
         assert!(super::check_agent_refs(&p("agent_key", "agent_key")).is_err());
         assert!(super::check_agent_refs(&p("k", "k")).is_err());
         assert!(super::check_agent_refs(&Value::Map(std::collections::BTreeMap::new())).is_ok());
+    }
+
+    /// The token check of `hello` is not run on the worker of its caller: on a runtime of
+    /// one thread another task goes on while a token is checked. And what changed during
+    /// the check counts: a link removed meanwhile is refused.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_token_check_keeps_no_worker() {
+        use crate::registry::{LinkDef, Mode, Op, Origin};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let ctl = control("hello-hash", false, |_| {});
+        let link = |id: &str, mode: Mode| {
+            Op::Install(LinkDef {
+                id: id.into(),
+                driver: "mockdev".into(),
+                mode,
+                params: Vec::new(),
+                token_hash: crate::secret::hash_token("the token").unwrap(),
+                rev: 1,
+                origin: Origin::Runtime,
+                created: 1,
+                display: None,
+                granted: None,
+                log_level: None,
+                grants: Vec::new(),
+            })
+        };
+        ctl.apply(link("ext", Mode::External)).unwrap();
+        ctl.apply(link("emb", Mode::Embedded)).unwrap();
+
+        let turns = Arc::new(AtomicU64::new(0));
+        let other = tokio::spawn({
+            let turns = turns.clone();
+            async move {
+                loop {
+                    turns.fetch_add(1, Ordering::Relaxed);
+                    tokio::task::yield_now().await;
+                }
+            }
+        });
+        let def = ctl.link_of_token("ext", b"the token").await;
+        assert_eq!(def.map(|d| d.id).as_deref(), Some("ext"));
+        assert!(
+            turns.load(Ordering::Relaxed) > 0,
+            "the check held the only worker"
+        );
+        other.abort();
+        assert!(ctl.link_of_token("ext", b"another").await.is_none());
+        assert!(ctl.link_of_token("none", b"the token").await.is_none());
+        assert!(
+            ctl.link_of_token("emb", b"the token").await.is_none(),
+            "an embedded link says no hello"
+        );
+
+        let check = tokio::spawn({
+            let ctl = ctl.clone();
+            async move { ctl.link_of_token("ext", b"the token").await }
+        });
+        // one turn: the check is on the blocking pool now
+        tokio::task::yield_now().await;
+        ctl.apply(Op::Remove("ext".into())).unwrap();
+        assert!(check.await.unwrap().is_none(), "removed during the check");
     }
 
     /// Review ADM-3: a link's audit records are rate limited per link, and text is cut.

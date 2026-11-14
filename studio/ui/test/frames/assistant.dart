@@ -120,7 +120,7 @@ Widget assistantFailed() => _assistant(
       ),
       RunRowVm(n: 3, step: _step3, status: .waiting, text: 'not run'),
     ],
-    note: 'stopped · steps 1–1 stay done',
+    note: 'stopped · step 1 changed something and stays done',
     noteTone: Tone.bad,
   ),
   card: const TaskCardVm(
@@ -285,7 +285,7 @@ Widget _assistant({
 /// with a warning, and a proof. [ticks] gives the changing steps a tick.
 PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
   title: 'Plan · 3 steps',
-  state: 'awaiting approval · checked',
+  state: 'awaiting approval · 1 checked now, 1 when it runs',
   note:
       'The lines after “why” and the warnings come from the model. Read the '
       'key and the arguments of each step: they are what runs.',

@@ -14,5 +14,7 @@ abstract class AssistantState with _$AssistantState {
     @Default(IMapConst({})) IMap<String, ISet<int>> unticked,
     @Default(IMapConst({})) IMap<String, String> refusals,
     @Default(IMapConst({})) IMap<String, ISet<String>> picks,
+    @Default(false) bool shown,
+    @Default(IListConst([])) IList<String> watched,
   }) = _AssistantState;
 }

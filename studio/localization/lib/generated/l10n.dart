@@ -14303,13 +14303,13 @@ class S {
     );
   }
 
-  /// `stopped · steps 1–{k} stay done`
-  String runStopped(Object k) {
+  /// `stopped · steps {steps} changed something and stay done`
+  String runStopped(Object steps) {
     return Intl.message(
-      'stopped · steps 1–$k stay done',
+      'stopped · steps $steps changed something and stay done',
       name: 'runStopped',
       desc: '',
-      args: [k],
+      args: [steps],
     );
   }
 
@@ -14505,6 +14505,69 @@ class S {
       name: 'answerWaitingNote',
       desc: '',
       args: [],
+    );
+  }
+
+  /// `awaiting approval · {now} checked now, {atRun} when it runs`
+  String planCheckedPartly(Object now, Object atRun) {
+    return Intl.message(
+      'awaiting approval · $now checked now, $atRun when it runs',
+      name: 'planCheckedPartly',
+      desc: '',
+      args: [now, atRun],
+    );
+  }
+
+  /// `A secret argument is not shown. The approval is still for the value the plan holds.`
+  String get planSecretNote {
+    return Intl.message(
+      'A secret argument is not shown. The approval is still for the value the plan holds.',
+      name: 'planSecretNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `runs with the agent's key: this mode needs no person for it, and it cannot be left out`
+  String get stepByAgent {
+    return Intl.message(
+      'runs with the agent\'s key: this mode needs no person for it, and it cannot be left out',
+      name: 'stepByAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}`
+  String approveByAgent(num n) {
+    return Intl.plural(
+      n,
+      one: '1 step without a tick changes something and runs with the agent\'s own key; it cannot be left out. Reject the plan to stop it.',
+      other:
+          '$n steps without a tick change something and run with the agent\'s own key; they cannot be left out. Reject the plan to stop them.',
+      name: 'approveByAgent',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `stopped · step {n} changed something and stays done`
+  String runStoppedOne(Object n) {
+    return Intl.message(
+      'stopped · step $n changed something and stays done',
+      name: 'runStoppedOne',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Secret arguments are not in the file: {steps}. Add them before you run it.`
+  String planSavedSecrets(Object steps) {
+    return Intl.message(
+      'Secret arguments are not in the file: $steps. Add them before you run it.',
+      name: 'planSavedSecrets',
+      desc: '',
+      args: [steps],
     );
   }
 }

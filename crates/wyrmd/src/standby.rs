@@ -226,6 +226,29 @@ async fn open_session(cfg: &Config, peer: &str, files: &CertFiles) -> Result<Ses
     zenoh::open(zc).await
 }
 
+/// A session to `peer` being opened by a task of its own, which ends with
+/// this value.
+struct Opening(tokio::task::JoinHandle<Result<Session, String>>);
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// [`open_session`] after `wait`, with the standby certificate of that
+/// moment (issued again when it is due: a long follow outlives one).
+fn open_later(cfg: &Config, peer: &str, wait: Duration) -> Opening {
+    let (cfg, peer) = (cfg.clone(), peer.to_owned());
+    Opening(tokio::spawn(async move {
+        tokio::time::sleep(wait).await;
+        let files = standby_cert(&cfg).map_err(|e| e.to_string())?;
+        open_session(&cfg, &peer, &files)
+            .await
+            .map_err(|e| e.to_string())
+    }))
+}
+
 /// One `get` on the active's replication queryable; `None` without an answer.
 async fn ask(session: &Session, key: &str) -> Option<Value> {
     let replies = session
@@ -1067,8 +1090,17 @@ pub async fn follow_with(
         })
     };
     tracing::info!(peer = %sb.peer, primary = sb.primary, takeover_s = takeover.as_secs(), "standby: following");
+    // The session to the active is opened by a task of its own. `zenoh::open`
+    // keeps the task that polls it until the peer answers or the connect
+    // timeout ends (3 s for a host that is down): opened in this loop, the
+    // takeover time and `shutdown` waited for it, and a takeover that was due
+    // was looked at only between two attempts, or not at all when the next
+    // attempt was polled first.
+    let mut opening: Option<Opening> = None;
+    let mut wait = Duration::ZERO;
     loop {
         let deadline = due(gone_since, hold, retry_at);
+        let task = opening.get_or_insert_with(|| open_later(cfg, &sb.peer, wait));
         let session = tokio::select! {
             _ = &mut shutdown => return Ok(Outcome::Stopped),
             _ = async { match deadline { Some(d) => tokio::time::sleep_until(d).await, None => std::future::pending().await } } => {
@@ -1079,17 +1111,21 @@ pub async fn follow_with(
                 retry_at = Some(Instant::now() + POLL);
                 continue;
             }
-            // issued again when it is due (a long follow outlives a certificate)
-            r = async { open_session(cfg, &sb.peer, &standby_cert(cfg)?).await } => match r {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::debug!("standby: cannot reach {}: {e}", sb.peer);
-                    tokio::select! {
-                        _ = &mut shutdown => return Ok(Outcome::Stopped),
-                        _ = tokio::time::sleep(POLL) => continue,
+            r = &mut task.0 => {
+                opening = None;
+                match r.unwrap_or_else(|e| Err(e.to_string())) {
+                    Ok(s) => {
+                        // a session that ends is opened again at once
+                        wait = Duration::ZERO;
+                        s
+                    }
+                    Err(e) => {
+                        tracing::debug!("standby: cannot reach {}: {e}", sb.peer);
+                        wait = POLL;
+                        continue;
                     }
                 }
-            },
+            }
         };
         let watch = match session.liveliness().declare_subscriber(&broker).await {
             Ok(w) => w,
