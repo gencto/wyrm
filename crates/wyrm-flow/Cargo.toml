@@ -32,6 +32,11 @@ serde_json.workspace = true
 regex.workspace = true
 jiff = { workspace = true, features = ["std", "tzdb-bundle-always"] }
 
+# The thread CPU clock for the script time limit (already in the lock file); the targets
+# where rustix has `CLOCK_THREAD_CPUTIME_ID`, the same list as in `script.rs`.
+[target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))'.dependencies]
+rustix = { version = "1.1", features = ["time"] }
+
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true

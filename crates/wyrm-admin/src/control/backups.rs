@@ -261,6 +261,19 @@ impl Backups {
         self.notify();
     }
 
+    /// The end of a send: `f` writes its last state into the job, and the slot
+    /// of `send` is given back before anyone can read that state.
+    pub(super) fn sent(&self, id: &str, f: impl FnOnce(&mut Job)) {
+        {
+            let mut jobs = self.lock();
+            if let Some(j) = jobs.get_mut(id) {
+                f(j);
+            }
+            self.sending.store(false, Ordering::SeqCst);
+        }
+        self.notify();
+    }
+
     /// Take (`true`) or give back the one slot of `send`; `false` when it
     /// was asked for and is taken.
     pub(super) fn sending(&self, on: bool) -> bool {
@@ -278,10 +291,34 @@ impl Backups {
 struct RunningJob {
     ctl: Arc<Control>,
     id: Option<String>,
+    /// False once [`RunningJob::finish`] gave the slot back.
+    held: bool,
+}
+
+impl RunningJob {
+    /// The end of the job: `f` writes its last state, and the slot and the
+    /// links it copied are given back before anyone can read that state.
+    /// Whoever sees the job `done` may ask for the next backup at once.
+    fn finish(mut self, f: impl FnOnce(&mut Job)) {
+        let b = &self.ctl.backups;
+        {
+            let mut jobs = b.lock();
+            if let Some(j) = self.id.as_ref().and_then(|id| jobs.get_mut(id)) {
+                f(j);
+            }
+            b.copying.lock().unwrap_or_else(|p| p.into_inner()).clear();
+            b.running.store(false, Ordering::SeqCst);
+            self.held = false;
+        }
+        b.notify();
+    }
 }
 
 impl Drop for RunningJob {
     fn drop(&mut self) {
+        if !self.held {
+            return;
+        }
         let b = &self.ctl.backups;
         b.copying.lock().unwrap_or_else(|p| p.into_inner()).clear();
         if let Some(id) = &self.id {
@@ -1359,6 +1396,7 @@ impl Control {
         let mut running = RunningJob {
             ctl: self.clone(),
             id: None,
+            held: true,
         };
         // The links whose private data this job copies: shown first, then
         // looked, so either this job sees an operation on one of them or
@@ -1470,7 +1508,7 @@ impl Control {
             drop(req);
             match r {
                 Ok(w) => {
-                    ctl.backups.update(&job_id, |j| {
+                    running.finish(|j| {
                         j.status = "done".into();
                         j.progress = 100;
                         j.step.clear();
@@ -1492,14 +1530,13 @@ impl Control {
                         Status::InternalError,
                         &format!("{job_id}: {e}"),
                     );
-                    ctl.backups.update(&job_id, |j| {
+                    running.finish(|j| {
                         j.status = "failed".into();
                         j.step.clear();
                         j.error = e;
                     });
                 }
             }
-            drop(running);
             ctl.prune_backups();
             ctl.backups.notify();
         };
@@ -2306,6 +2343,7 @@ mod tests {
         let running = RunningJob {
             ctl: ctl.clone(),
             id: Some(id.clone()),
+            held: true,
         };
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             let _held = running;
@@ -2358,6 +2396,73 @@ mod tests {
         drop(held);
         let made = ctl.backup_launch(req(), "user:a", true).unwrap();
         assert_eq!(ctl.backups.get(&made).unwrap().status, "done");
+    }
+
+    /// Whoever reads a job as `done` finds the slot free and the links it
+    /// copied released: the next backup asked at once is not `busy`. (The
+    /// job was shown `done`, its record was written, and only then the slot
+    /// came back: `link_backup_restores_on_a_second_broker` asked in between.)
+    #[test]
+    fn a_job_shown_done_has_given_its_slot_back() {
+        let ctl = super::super::tests::control("backup-done-slot", false, |_| {});
+        ctl.apply(Op::Install(LinkDef {
+            id: "l1".into(),
+            driver: "mockdev".into(),
+            mode: Mode::Embedded,
+            params: Vec::new(),
+            token_hash: String::new(),
+            rev: 1,
+            origin: Origin::Runtime,
+            created: 1,
+            display: None,
+            granted: None,
+            log_level: None,
+            grants: Vec::new(),
+        }))
+        .unwrap();
+        let req = || BackupRequest {
+            kind: Kind::Link,
+            sections: vec!["data".into()],
+            links: None,
+            link: Some("l1".into()),
+            history_days: None,
+            seal: SealWith::None,
+            label: "link".into(),
+            pinned: false,
+            remote: false,
+            estimate: false,
+        };
+        for round in 1..=20 {
+            let reader = {
+                let ctl = ctl.clone();
+                std::thread::spawn(move || {
+                    let until = std::time::Instant::now() + Duration::from_secs(30);
+                    while std::time::Instant::now() < until {
+                        let done = ctl
+                            .backups
+                            .list()
+                            .iter()
+                            .filter(|j| j.status == "done")
+                            .count();
+                        if done == round {
+                            return Some((
+                                ctl.backups.running.load(Ordering::SeqCst),
+                                ctl.backup_copies(&["l1".into()]).is_some(),
+                            ));
+                        }
+                        std::hint::spin_loop();
+                    }
+                    None
+                })
+            };
+            ctl.backup_launch(req(), "user:a", true).unwrap();
+            let (running, copying) = reader.join().unwrap().expect("the job is done");
+            assert!(!running, "round {round}: done, and the slot is still taken");
+            assert!(
+                !copying,
+                "round {round}: done, and l1 is still being copied"
+            );
+        }
     }
 
     #[test]
