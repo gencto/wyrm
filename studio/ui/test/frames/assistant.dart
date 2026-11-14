@@ -1,9 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/model_words.dart';
+import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
 import 'package:ui/assistant/run_card.dart';
+import 'package:ui/assistant/stopped_card.dart';
+import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
@@ -103,8 +107,9 @@ Widget assistantDone() => _assistant(
   ),
 );
 
-/// Board *AssistantFailed*: the run stopped at step 2.
-Widget assistantFailed() => _assistant(
+/// Board *AssistantFailed*: the run stopped at step 2, with the review and
+/// the ways out; with [reviewing] the model still reads why.
+Widget assistantFailed({bool reviewing = false}) => _assistant(
   state: 'failed or stopped',
   tone: Tone.bad,
   plan: _folded('approved by olena', Tone.bad),
@@ -123,13 +128,192 @@ Widget assistantFailed() => _assistant(
     note: 'stopped · step 1 changed something and stays done',
     noteTone: Tone.bad,
   ),
-  card: const TaskCardVm(
-    title: 'Stopped at step 2',
-    note:
+  stopped: StoppedCardVm(
+    title: 'Stopped at step 2 · out_of_range',
+    message:
         'out_of_range: 21.5 is above max 21\n'
         'What was done before it stays done; nothing is reversed by itself.',
-    caution: true,
+    reviewing: reviewing ? 'The assistant reads why it stopped…' : null,
+    review: reviewing
+        ? null
+        : const ModelWordsVm(
+            label: 'what the assistant read about it',
+            text:
+                'The point allows at most 21 °C. ahu1 runs at 21 with the '
+                'same setpoint range, so 21 is likely what was meant.',
+          ),
+    waysLabel: 'Ways out',
+    ways: reviewing ? const [] : _ways,
+    note: reviewing
+        ? null
+        : 'A pick is a new ask. Its plan is checked and waits for your '
+              'approval, step by step.',
   ),
+  card: reviewing
+      ? const TaskCardVm(
+          title: 'failed or stopped',
+          note:
+              'The agent works on it. Cancel stops it; what was done stays '
+              'done.',
+          buttons: [
+            TaskButtonVm(id: 'cancel', label: 'Cancel task', danger: true),
+          ],
+        )
+      : null,
+  askHint: 'Tell it what you know about supply_sp…',
+);
+
+const _ways = [
+  SuggestionTileVm(
+    id: 's1',
+    label: 'Set 21 instead',
+    detail: 'A new plan with one step: set supply_sp to 21, then the check.',
+    tag: '1 change · its guess',
+    tagTone: Tone.ember,
+  ),
+  SuggestionTileVm(
+    id: 's2',
+    label: 'Undo the plan',
+    detail: 'A plan that removes ahu2 (step 1, reversed).',
+    tag: '1 change · its guess',
+    tagTone: Tone.ember,
+  ),
+  SuggestionTileVm(
+    id: 's3',
+    label: 'Leave it as it is',
+    detail: 'ahu2 stays with its default setpoint.',
+    tag: 'nothing · its guess',
+  ),
+];
+
+/// Board *Assistant*, a step with the link's warning, the model's words and
+/// a fix that replaces the plan; the composer holds an `@` chip.
+Widget assistantFix() {
+  final plan = assistantPlanCard(ticks: const [true, true]);
+  return _assistant(
+    plan: PlanCardVm(
+      title: plan.title,
+      state: plan.state,
+      note: plan.note,
+      steps: [
+        const PlanStepVm(
+          n: 1,
+          verb: 'INVOKE',
+          action: 'add_device',
+          target: 'wy/plant/downstream/modbus/tcp-line2',
+          level: 'config',
+          changes: true,
+          args: [('name', 'ahu2'), ('slave_id', '3'), ('poll_s', '5')],
+          check: 'checked against the live tree',
+          warn: 'unit 3 answers with exception 0x0B behind this gateway',
+          modelWarn: ModelWordsVm(
+            label: 'the assistant says',
+            text:
+                'ahu-old answered on unit 3 until March; the new box is '
+                'likely unit 4.',
+          ),
+          fixes: [
+            SuggestionTileVm(
+              id: 'f1',
+              label: 'Try Slave ID 4',
+              detail: 'The same plan with slave_id 4.',
+              tag: '1 change · its guess',
+              tagTone: Tone.ember,
+              note: 'replaces this plan',
+            ),
+          ],
+          why: 'the unit the operator named, with the points of ahu1',
+          ticked: true,
+        ),
+        ...plan.steps.skip(1),
+      ],
+    ),
+    onTick: (_, {required ticked}) {},
+    card: const TaskCardVm(
+      title: 'Plan',
+      note:
+          'Signs one token per ticked step with your rights (engineer). '
+          'Unticked steps are left out.',
+      buttons: [
+        TaskButtonVm(id: 'reject', label: 'Reject'),
+        TaskButtonVm(
+          id: 'approve',
+          label: 'Approve 2 changes and run',
+          primary: true,
+        ),
+      ],
+    ),
+    chips: const [('wy/plant/downstream/modbus/tcp-line2', 'modbus/tcp-line2')],
+    askHint:
+        'Ask to change the plan, e.g. “skip step 4”… (a new plan replaces '
+        'this one)',
+  );
+}
+
+/// Board *AssistantDone* with *Same for more units?*: one row ticked.
+Widget assistantMore() => _assistant(
+  state: 'done',
+  tone: Tone.good,
+  plan: _folded('approved by olena', Tone.good),
+  result: const ResultCardVm(
+    title: 'Result',
+    facts: [('modbus/tcp-line2/ahu2/supply_sp', '21.5 °C')],
+    note: 'The keys the plan touched, with their values now.',
+  ),
+  more: const [
+    MoreRowsCardVm(
+      id: 's1',
+      title: 'Same for more units?',
+      detail: 'ahu3 and ahu4 answer on line 2 with the points of ahu1.',
+      rows: [
+        MoreRowVm(
+          key: 'wy/plant/downstream/modbus/tcp-line2/ahu3',
+          label: 'ahu3',
+          detail: 'unit 5 · 14 points',
+          ticked: true,
+        ),
+        MoreRowVm(
+          key: 'wy/plant/downstream/modbus/tcp-line2/ahu4',
+          label: 'ahu4',
+          detail: 'unit 6 · 14 points',
+        ),
+      ],
+      button: 'Make a plan for 1 unit',
+      note:
+          "The rows are the assistant's. Its plan for them waits for your "
+          'approval.',
+    ),
+  ],
+  card: const TaskCardVm(
+    title: 'done',
+    note: 'The task is done. Its record keeps the plan and the log.',
+    buttons: [
+      TaskButtonVm(id: 'explorer', label: 'Open supply_sp in Explorer'),
+      TaskButtonVm(id: 'save', label: 'Save as a plan'),
+    ],
+  ),
+  askHint: 'What next?',
+);
+
+/// A plan another task replaced: no ticks, no Approve, the way on.
+Widget assistantReplaced() => _assistant(
+  state: 'failed or stopped',
+  tone: Tone.bad,
+  plan: _folded('replaced by tasks/t-0143', Tone.bad),
+  card: const TaskCardVm(
+    title: 'replaced',
+    note:
+        'This plan was replaced by tasks/t-0143 and cannot be approved. '
+        'Approve the plan of that task instead.',
+    buttons: [
+      TaskButtonVm(
+        id: 'replacement',
+        label: 'Open tasks/t-0143',
+        primary: true,
+      ),
+    ],
+  ),
+  detail: 'replaced by t-0143',
 );
 
 /// Board *AssistantAsk*: the assistant asks back; one option is picked.
@@ -178,7 +362,13 @@ Widget assistantAsk() => _assistant(
 );
 
 Widget _assistant({
-  required TaskCardVm card,
+  TaskCardVm? card,
+  StoppedCardVm? stopped,
+  List<MoreRowsCardVm> more = const [],
+  List<ChipVm> chips = const [],
+  String askHint =
+      'Ask for a change, or a question about the network (Cmd+Enter)',
+  String? detail,
   ChoicesCardVm? choices,
   String state = 'awaiting approval',
   Tone tone = Tone.warn,
@@ -198,6 +388,7 @@ Widget _assistant({
           title: 'Add ahu2 on line 2',
           state: state,
           tone: tone,
+          detail: detail,
           selected: true,
         ),
       ],
@@ -252,14 +443,27 @@ Widget _assistant({
   onTick: onTick,
   run: run,
   result: result,
+  more: more,
+  onRow: (_, _, {required on}) {},
+  onMore: (_) {},
+  stopped: stopped,
+  onWay: (_) {},
+  onFix: (_) {},
   choices: choices,
   onPick: (_, _) {},
   onAnswer: () {},
   card: card,
   onButton: (_) {},
   draft: '',
-  askHint: 'Ask for a change, or a question about the network (Cmd+Enter)',
+  askHint: askHint,
   askLabel: 'Ask',
+  chips: chips,
+  onChipRemove: (_) {},
+  addChipLabel: '+ from Explorer',
+  addChipReason: chips.isEmpty
+      ? 'Select a node in Explorer first; it is added here as @ chip.'
+      : null,
+  onAddChip: () {},
   onDraft: (_) {},
   onAsk: () {},
   panels: const [
@@ -287,7 +491,8 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
   title: 'Plan · 3 steps',
   state: 'awaiting approval · 1 checked now, 1 when it runs',
   note:
-      'The lines after “why” and the warnings come from the model. Read the '
+      'The lines after “why” and under “the assistant says” come from the '
+      "model; a warning on the yellow band is the link's own check. Read the "
       'key and the arguments of each step: they are what runs.',
   steps: [
     PlanStepVm(

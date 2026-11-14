@@ -25,13 +25,14 @@ class AssistantApp {
     String user = 'olena',
     List<String> roles = const ['engineer'],
     List<(String, String)> grants = const [('wy/central/**', 'config')],
+    String max = 'config',
   }) : login = FakeLogin(
          session: FakeSession(
            who: WhoAmI(
              subject: user,
              site: 'central',
              roles: roles,
-             max: 'config',
+             max: max,
              grants: grants,
            ),
          ),
@@ -43,6 +44,14 @@ class AssistantApp {
         attr: {'driver': const VStr('agent'), 'mode': const VStr('embedded')},
       )
       ..metas[agent] = NodeMeta(cfg: {'model': const VStr('claude-opus-5-5')})
+      // the schema of the plan's invoke step: its arguments are shown
+      ..metas['wy/central/downstream/modbus/tcp'] = NodeMeta(
+        actions: {
+          'add_device': ActionMeta(
+            params: {'name': ParamMeta(), 'unit': ParamMeta()},
+          ),
+        },
+      )
       ..children_['$agent/tasks'] = [];
   }
 

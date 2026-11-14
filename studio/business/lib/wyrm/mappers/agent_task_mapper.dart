@@ -5,15 +5,21 @@ import 'package:models/step_result.dart';
 import 'package:models/task_event.dart';
 import 'package:models/task_option.dart';
 import 'package:models/task_question.dart';
+import 'package:models/task_row.dart';
 import 'package:models/task_state.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:models/task_suggestion.dart';
+import 'package:wyrm_client/wyrm_client.dart' as wc;
+import 'package:wyrm_client/wyrm_client.dart'
+    hide TaskRow, TaskSuggestion, replacedBy;
 
 import 'values.dart';
 
 /// `tasks/<id>` `~state` of the agent link as an [AgentTask]:
-/// `{state, ask, owner, plan[], plan_hash, parent?, log[], error?, tokens}`
-/// (ADR 0049). The plan's hash is made here from the plan as read, so an
-/// approval names the plan that is shown.
+/// `{state, ask, owner, plan[], plan_hash, parent?, log[], error?, tokens,
+/// suggestions[]?, replaced_by?, review?, reviewing?}` (ADR 0049 and its
+/// amendment; the last four read by `wyrm_client`'s own helpers). The
+/// plan's hash is made here from the plan as read, so an approval names
+/// the plan that is shown.
 AgentTask agentTaskOf(String id, Value v) => AgentTask(
   id: id,
   state: taskStateOf(str(v['state'])),
@@ -38,8 +44,42 @@ AgentTask agentTaskOf(String id, Value v) => AgentTask(
   },
   error: text(v['error']),
   tokens: integer(v['tokens']) ?? 0,
+  suggestions: [
+    for (final s in wc.TaskSuggestion.of(v))
+      TaskSuggestion(
+        id: s.id,
+        label: s.label,
+        detail: s.detail,
+        changes: s.changes,
+        step: s.step,
+        rows: [
+          for (final r in s.rows)
+            TaskRow(key: r.key, label: r.label, detail: r.detail),
+        ].lock,
+      ),
+  ].lock,
+  replacedBy: wc.replacedBy(v),
+  review: wc.reviewOf(v),
+  reviewing: wc.isReviewing(v),
   recorded: true,
 );
+
+/// The text of the follow-up ask for [s] (what the person saw on the
+/// card) and the labels of the [picked] rows: as `wyrm_client` makes it.
+String suggestionAsk(TaskSuggestion s, Iterable<TaskRow> picked) =>
+    _wire(s).ask([for (final r in picked) _wireRow(r)]);
+
+wc.TaskSuggestion _wire(TaskSuggestion s) => wc.TaskSuggestion(
+  id: s.id,
+  label: s.label,
+  detail: s.detail,
+  changes: s.changes,
+  step: s.step,
+  rows: [for (final r in s.rows) _wireRow(r)],
+);
+
+wc.TaskRow _wireRow(TaskRow r) =>
+    wc.TaskRow(key: r.key, label: r.label, detail: r.detail);
 
 /// The task states of the agent link (and the ones it adds later).
 TaskState taskStateOf(String? s) => switch (s) {
@@ -84,7 +124,8 @@ TaskQuestion questionOf(Value v) {
 /// The plan of [t] as a file for `wyrm-agent run` (`{"steps": […]}`,
 /// docs/agent.md): each step as it stands in the record, without what is
 /// said about it (number, level, check, reason, result). A secret argument
-/// (`PlanStep.secret`) is never written: `secrets_left_out` names it, and
+/// (`PlanStep.secret`), and any argument of a step whose schema is not
+/// known ([withheld]), is never written: `secrets_left_out` names it, and
 /// the person adds it before the plan is run.
 Map<String, Object?> planFile(AgentTask t) => {
   'about': t.ask,
@@ -99,7 +140,7 @@ Map<String, Object?> planFile(AgentTask t) => {
           'action': s.action ?? '',
           'args': {
             for (final e in s.args.entries)
-              if (!s.secret.contains(e.key)) e.key: e.value,
+              if (!withheld(s).contains(e.key)) e.key: e.value,
           },
         },
         'wait' => {'wait': s.key, 'timeout_s': s.seconds ?? 10},
@@ -117,7 +158,17 @@ Map<String, Object?> planFile(AgentTask t) => {
 /// that has any: what Save as a plan leaves out of the file.
 List<String> secretsLeftOut(AgentTask t) => [
   for (final s in t.plan)
-    if (s.secret.isNotEmpty) 'step ${s.n}: ${s.secret.join(', ')}',
+    if (withheld(s) case final w when w.isNotEmpty)
+      'step ${s.n}: ${w.join(', ')}',
+];
+
+/// The arguments of [s] that are never written to a file and are masked
+/// on screen: the secret ones, and every one of a step whose schema is not
+/// known ([PlanStep.argsKnown]: any of them may be a secret). The order is
+/// the step's own.
+List<String> withheld(PlanStep s) => [
+  for (final name in s.args.keys)
+    if (!s.argsKnown || s.secret.contains(name)) name,
 ];
 
 /// How far the steps of [plan] that change something were checked: how
@@ -164,6 +215,7 @@ PlanStep planStepOf(Value v, [int place = 0]) {
     approval: boolean(v['approval']) ?? false,
     check: str(v['check']) ?? 'now',
     warn: str(v['warn']),
+    modelWarn: str(v['model_warn']),
     after: switch (v['after']) {
       VArray(:final v) => [for (final a in v) ?integer(a)].lock,
       _ => const IListConst([]),

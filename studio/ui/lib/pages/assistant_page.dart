@@ -3,14 +3,17 @@ import 'package:material_ui/material_ui.dart';
 
 import '../assistant/choices_card.dart';
 import '../assistant/conversation.dart';
+import '../assistant/more_rows_card.dart';
 import '../assistant/plan_card.dart';
 import '../assistant/result_card.dart';
 import '../assistant/run_card.dart';
+import '../assistant/stopped_card.dart';
 import '../assistant/task_list.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/status_pill.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -61,6 +64,9 @@ final class TaskCardVm extends Equatable {
 /// One `kind  key` row of WHAT IT READ.
 typedef ReadRow = (String kind, String key);
 
+/// One `@` chip of the composer: the node's full key and what is shown.
+typedef ChipVm = (String key, String label);
+
 /// Board *Assistant*: tasks on the left, the selected task's conversation
 /// with its card and the ask box in the middle, *This task* and *What it
 /// may do* on the right. With [empty] set (no agent link on the site) the
@@ -91,13 +97,25 @@ class AssistantPage extends StatelessWidget {
     this.taskKey,
     this.plan,
     this.onTick,
+    this.onFix,
+    this.onReveal,
     this.run,
     this.result,
+    this.more = const [],
+    this.onRow,
+    this.onMore,
+    this.stopped,
+    this.onWay,
     this.choices,
     this.onPick,
     this.onAnswer,
     this.card,
     this.askReason,
+    this.chips = const [],
+    this.onChipRemove,
+    this.addChipLabel,
+    this.addChipReason,
+    this.onAddChip,
     this.empty,
     this.emptyAction,
     this.onEmptyAction,
@@ -123,11 +141,26 @@ class AssistantPage extends StatelessWidget {
   /// A step of [plan] was ticked; null: the plan is only shown.
   final void Function(int n, {required bool ticked})? onTick;
 
+  /// A fix of a step (a suggestion id) was picked.
+  final ValueChanged<String>? onFix;
+
+  /// The masked arguments of a step (by number) are shown or masked again.
+  final ValueChanged<int>? onReveal;
+
   /// The run of the plan, under it; null before a run.
   final RunCardVm? run;
 
   /// What a finished plan left behind.
   final ResultCardVm? result;
+
+  /// *Same for more units?*: the suggestions with rows, under [result].
+  final List<MoreRowsCardVm> more;
+  final void Function(String suggestion, String key, {required bool on})? onRow;
+  final ValueChanged<String>? onMore;
+
+  /// Where a run stopped and the ways out.
+  final StoppedCardVm? stopped;
+  final ValueChanged<String>? onWay;
 
   /// What the assistant asked the person, answered or not.
   final ChoicesCardVm? choices;
@@ -144,6 +177,15 @@ class AssistantPage extends StatelessWidget {
 
   /// Why asking is not possible (no write on the agent, no agent).
   final String? askReason;
+
+  /// The `@` chips that go with the ask as its context.
+  final List<ChipVm> chips;
+  final ValueChanged<String>? onChipRemove;
+
+  /// `+ from Explorer`; null: not offered.
+  final String? addChipLabel;
+  final String? addChipReason;
+  final VoidCallback? onAddChip;
   final ValueChanged<String> onDraft;
   final VoidCallback onAsk;
 
@@ -234,7 +276,11 @@ class AssistantPage extends StatelessWidget {
           Expanded(
             child: Conversation(
               events: events,
-              trailing: plan == null && card == null && choices == null
+              trailing:
+                  plan == null &&
+                      card == null &&
+                      choices == null &&
+                      stopped == null
                   ? null
                   : Column(
                       crossAxisAlignment: .stretch,
@@ -245,9 +291,24 @@ class AssistantPage extends StatelessWidget {
                             onPick: onPick ?? (_, _) {},
                             onConfirm: onAnswer ?? () {},
                           ),
-                        if (plan case final p?) PlanCard(vm: p, onTick: onTick),
+                        if (plan case final p?)
+                          PlanCard(
+                            vm: p,
+                            onTick: onTick,
+                            onFix: onFix,
+                            onReveal: onReveal,
+                          ),
                         if (run case final r?) RunCard(vm: r),
                         if (result case final r?) ResultCard(vm: r),
+                        for (final m in more)
+                          MoreRowsCard(
+                            vm: m,
+                            onRow: (key, {required on}) =>
+                                onRow?.call(m.id, key, on: on),
+                            onAsk: () => onMore?.call(m.id),
+                          ),
+                        if (stopped case final st?)
+                          StoppedCard(vm: st, onPick: onWay),
                         if (card case final k?)
                           _Card(vm: k, onButton: onButton),
                       ],
@@ -261,6 +322,11 @@ class AssistantPage extends StatelessWidget {
             reason: askReason,
             onDraft: onDraft,
             onAsk: onAsk,
+            chips: chips,
+            onChipRemove: onChipRemove,
+            addChipLabel: addChipLabel,
+            addChipReason: addChipReason,
+            onAddChip: onAddChip,
           ),
         ],
       );
@@ -419,6 +485,11 @@ class _Composer extends StatefulWidget {
     required this.onDraft,
     required this.onAsk,
     this.reason,
+    this.chips = const [],
+    this.onChipRemove,
+    this.addChipLabel,
+    this.addChipReason,
+    this.onAddChip,
   });
 
   final String draft;
@@ -427,6 +498,11 @@ class _Composer extends StatefulWidget {
   final String? reason;
   final ValueChanged<String> onDraft;
   final VoidCallback onAsk;
+  final List<ChipVm> chips;
+  final ValueChanged<String>? onChipRemove;
+  final String? addChipLabel;
+  final String? addChipReason;
+  final VoidCallback? onAddChip;
 
   @override
   State<_Composer> createState() => _ComposerState();
@@ -454,43 +530,118 @@ class _ComposerState extends State<_Composer> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final add = widget.addChipLabel;
+    final box = Row(
+      crossAxisAlignment: .end,
+      spacing: 10,
+      children: [
+        Expanded(
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(.enter, meta: true): () {
+                if (_can) {
+                  widget.onAsk();
+                }
+              },
+            },
+            child: TextField(
+              controller: _text,
+              enabled: widget.reason == null,
+              minLines: 1,
+              maxLines: 6,
+              onChanged: widget.onDraft,
+              style: TextStyle(fontSize: 14, color: c.text1),
+              decoration: InputDecoration(
+                hintText: widget.reason ?? widget.hint,
+                isDense: true,
+              ),
+            ),
+          ),
+        ),
+        Button.primary(
+          label: widget.label,
+          disabledReason: widget.reason,
+          onPressed: _can ? widget.onAsk : null,
+        ),
+      ],
+    );
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
-      child: Row(
-        crossAxisAlignment: .end,
-        spacing: 10,
+      child: Column(
+        crossAxisAlignment: .stretch,
+        spacing: 8,
         children: [
-          Expanded(
-            child: CallbackShortcuts(
-              bindings: {
-                const SingleActivator(.enter, meta: true): () {
-                  if (_can) {
-                    widget.onAsk();
-                  }
-                },
-              },
-              child: TextField(
-                controller: _text,
-                enabled: widget.reason == null,
-                minLines: 1,
-                maxLines: 6,
-                onChanged: widget.onDraft,
-                style: TextStyle(fontSize: 14, color: c.text1),
-                decoration: InputDecoration(
-                  hintText: widget.reason ?? widget.hint,
-                  isDense: true,
-                ),
-              ),
+          if (widget.chips.isNotEmpty || add != null)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              crossAxisAlignment: .center,
+              children: [
+                for (final (key, label) in widget.chips)
+                  Tooltip(
+                    message: key,
+                    child: Container(
+                      height: 24,
+                      padding: const EdgeInsets.only(left: 8, right: 2),
+                      decoration: BoxDecoration(
+                        color: c.ground3,
+                        border: Border.all(color: c.line2),
+                        borderRadius: Radii.chip,
+                      ),
+                      child: Row(
+                        mainAxisSize: .min,
+                        children: [
+                          Text(
+                            '@ $label',
+                            style: mono(size: 12, color: c.text1),
+                          ),
+                          InkWell(
+                            onTap: widget.onChipRemove == null
+                                ? null
+                                : () => widget.onChipRemove!(key),
+                            child: Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: AppIcon(
+                                'ui_close',
+                                size: 12,
+                                color: c.text3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (add != null)
+                  Tooltip(
+                    message: widget.addChipReason ?? '',
+                    child: InkWell(
+                      onTap: widget.addChipReason == null
+                          ? widget.onAddChip
+                          : null,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
+                        child: Text(
+                          add,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: widget.addChipReason == null
+                                ? c.text2
+                                : c.text4,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ),
-          Button.primary(
-            label: widget.label,
-            disabledReason: widget.reason,
-            onPressed: _can ? widget.onAsk : null,
-          ),
+          box,
         ],
       ),
     );

@@ -265,7 +265,7 @@ void main() {
       find.text('stopped · step 1 changed something and stays done'),
       findsOneWidget,
     );
-    expect(find.text('STOPPED AT STEP 2'), findsOneWidget);
+    expect(find.text('Stopped at step 2 · out_of_range'), findsOneWidget);
     expect(
       find.textContaining('out_of_range: 21.5 is above max 21\nWhat was done'),
       findsOneWidget,
