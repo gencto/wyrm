@@ -666,6 +666,68 @@ pub fn suggestion_of(
     })
 }
 
+/// Findings a task may hold (tool `found`).
+pub const MAX_FINDINGS: usize = 12;
+
+/// What the model read about one node (tool `found`, ADR 0049 amendment 2 of 2026-11-14):
+/// a row of *What I found* in the Explorer drawer. It is the model's words about a node it
+/// read, nothing more: no verdict of the link, no command. A reader that marks the row
+/// good or bad takes that from the node's live value, read with its own rights.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finding {
+    /// A full node key, inside what the agent and the asker of the task may read.
+    pub key: String,
+    pub label: String,
+    pub detail: String,
+}
+
+impl Finding {
+    pub fn to_value(&self) -> Value {
+        Value::Map(BTreeMap::from([
+            ("key".to_owned(), Value::from(self.key.as_str())),
+            ("label".to_owned(), Value::from(self.label.as_str())),
+            ("detail".to_owned(), Value::from(self.detail.as_str())),
+        ]))
+    }
+
+    pub fn from_value(v: &Value) -> Option<Self> {
+        let Value::Map(m) = v else { return None };
+        let key = text_of(m, "key");
+        if key.is_empty() {
+            return None;
+        }
+        Some(Self {
+            key,
+            label: text_of(m, "label"),
+            detail: text_of(m, "detail"),
+        })
+    }
+}
+
+/// A finding of the model (`found`), checked and bounded as a row of a suggestion: the
+/// node is a plain key of the site inside what the agent may read, and `asker_reads(node)`
+/// says the asker of the task may read it too.
+pub fn finding_of(
+    input: &Json,
+    policy: &Policy,
+    asker_reads: impl Fn(&str) -> bool,
+) -> Result<Finding, String> {
+    let key = policy.node_key(str_field(input, "path")?)?;
+    policy.may_read(&key)?;
+    if !asker_reads(&key) {
+        return Err(format!("{key}: the asker of this task may not read it"));
+    }
+    let label = cut(input["label"].as_str().unwrap_or(""), MAX_LABEL);
+    if label.is_empty() {
+        return Err("`label` (text) is required".into());
+    }
+    Ok(Finding {
+        key,
+        label,
+        detail: cut(input["detail"].as_str().unwrap_or(""), MAX_DETAIL),
+    })
+}
+
 fn str_field<'a>(input: &'a Json, k: &str) -> Result<&'a str, String> {
     input[k]
         .as_str()
@@ -963,6 +1025,12 @@ pub fn definitions() -> Json {
                 "path": path, "label": {"type": "string"}, "detail": {"type": "string"}
             }, "required": ["path", "label"]}, "description": "Nodes the same thing may be done for (at most 16)."}
          }, "required": ["label"]}},
+        {"name": "found", "description": "Note one thing you read about a node, for the person's list *What I found*: `label` names the node as a person would (`plc1`, `valve`), `detail` says in a few words what you read (`4 of 5 points good`, `bad since 03:12, exception 0x02`). One call per node, at most 12 in a task; only nodes you read in the tree. It changes nothing and is no check: the person's screen marks the row from the node's live value, not from your words.",
+         "input_schema": {"type": "object", "properties": {
+            "path": path,
+            "label": {"type": "string", "description": "A few words: the node's name."},
+            "detail": {"type": "string", "description": "What you read, in a few words."}
+         }, "required": ["path", "label"]}},
         {"name": "ask_user", "description": "Ask the person one question before you plan, when the task leaves a real choice open. At most 3 questions in one turn. Give up to 6 options; every option must name something you have read in the tree (a node, a value, a profile), never a guess. The task then waits; the answer comes back as this tool's result.",
          "input_schema": {"type": "object", "properties": {
             "question": {"type": "string"},
@@ -975,8 +1043,8 @@ pub fn definitions() -> Json {
     ])
 }
 
-/// The tools of the turn after a run stopped: the read tools and `suggest`. Nothing is
-/// planned there and nobody is asked.
+/// The tools of the turn after a run stopped: the read tools, `found` and `suggest`.
+/// Nothing is planned there and nobody is asked.
 pub fn review_definitions() -> Json {
     let all = definitions();
     Json::Array(

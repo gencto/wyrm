@@ -170,6 +170,29 @@ void main() {
     await c.close();
   });
 
+  test('findings are read from a record, their count from the value', () {
+    final record = VMap({
+      'state': const VStr('done'),
+      'findings': VArray([
+        VMap({'key': const VStr('wy/s/downstream/m/plc1'), 'label': const VStr('plc1'), 'detail': const VStr('4 of 5 good')}),
+        VMap({'key': const VStr('wy/s/downstream/m/plc1/valve'), 'label': const VStr('valve')}),
+        // no key: not a finding
+        VMap({'label': const VStr('nowhere')}),
+        const VStr('not a finding'),
+      ]),
+    });
+    final f = TaskFinding.of(record);
+    expect(f.length, 2);
+    expect((f[0].key, f[0].label, f[0].detail), ('wy/s/downstream/m/plc1', 'plc1', '4 of 5 good'));
+    expect((f[1].label, f[1].detail), ('valve', ''));
+    expect(findingCount(VMap({'state': const VStr('done'), 'findings': const VInt(2)})), 2);
+    // a record and a value of an agent link older than the field
+    final old = VMap({'state': const VStr('done'), 'plan': VArray(const [])});
+    expect(TaskFinding.of(old), isEmpty);
+    expect(findingCount(old), 0);
+    expect(TaskFinding.of(null), isEmpty);
+  });
+
   test('an older gateway answers doc with unknown op', () async {
     final conn = _Conn();
     final c = FrameClient(conn);

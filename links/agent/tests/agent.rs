@@ -1882,7 +1882,7 @@ async fn a_stopped_run_gets_ways_out_and_a_step_gets_fixes() {
     assert_eq!(get(&pv, "suggestions"), &Value::UInt(2));
     assert_eq!(get(&pv, "reviewing"), &Value::Null);
     assert!(!format!("{pv:?}").contains("Expect 3"), "{pv:?}");
-    // the turn had the read tools and `suggest` only, and was told what stopped
+    // the turn had the read tools, `found` and `suggest` only, and was told what stopped
     let seen = env.llm.seen();
     let names: Vec<&str> = seen[2]["tools"]
         .as_array()
@@ -1890,7 +1890,7 @@ async fn a_stopped_run_gets_ways_out_and_a_step_gets_fixes() {
         .iter()
         .filter_map(|t| t["name"].as_str())
         .collect();
-    assert!(names.contains(&"suggest") && names.contains(&"value_get"));
+    assert!(names.contains(&"suggest") && names.contains(&"found") && names.contains(&"value_get"));
     assert!(
         !names.contains(&"propose") && !names.contains(&"ask_user"),
         "{names:?}"
@@ -2456,5 +2456,160 @@ async fn a_review_can_be_cancelled() {
         .await
         .unwrap_err();
     assert!(e.is(Status::InvalidParameter), "{e}");
+    env.stop().await;
+}
+
+/// ADR 0049, amendment 2 of 2026-11-14: what the model read about nodes (`found`) is in
+/// the record, one row per node and bounded, each a node the agent and the asker may
+/// read. The public value holds their count and no word of them. They stay when the task
+/// fails and are no part of the plan (its hash). Unknown rights refuse them; the turn
+/// after a stopped run has the tool too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
+    let f = |path: &str, label: &str| json!({"path": path, "label": label});
+    let long = "x".repeat(500);
+    let narrow_calls: Vec<(String, Json)> = vec![
+        // the asker may not read p1; outside what the agent reads; not a node key; no label
+        ("b1".into(), f("downstream/mock/p1", "p1")),
+        ("b2".into(), f("sys/links", "links")),
+        ("b3".into(), f("downstream/mock/p0/~val", "v")),
+        ("b4".into(), json!({"path": "downstream/mock/p0"})),
+        (
+            "ok1".into(),
+            json!({"path": "downstream/mock/p0", "label": "p0", "detail": long}),
+        ),
+        // one row per node
+        ("b5".into(), f("wy/test/downstream/mock/p0", "again")),
+    ];
+    let mut wide_calls: Vec<(String, Json)> = vec![(
+        "t1".into(),
+        json!({"op": "set", "path": "downstream/mock/p0", "value": 3}),
+    )];
+    for i in 1..=13 {
+        wide_calls.push((format!("w{i}"), f(&format!("downstream/mock/n{i}"), "n")));
+    }
+    let calls = |c: &[(String, Json)]| -> Json {
+        let c: Vec<(&str, &str, Json)> = c
+            .iter()
+            .map(|(id, input)| {
+                let tool = if id == "t1" { "propose" } else { "found" };
+                (id.as_str(), tool, input.clone())
+            })
+            .collect();
+        tool_use(&c)
+    };
+    let script = vec![
+        calls(&narrow_calls),
+        end("p0 is fine."),
+        calls(&wide_calls),
+        end("Plan: set p0."),
+        tool_use(&[("n1", "found", f("downstream/mock/p0", "p0"))]),
+        end("Nothing to change."),
+        // a run that stops, then the turn after it notes what it read
+        tool_use(&[(
+            "e1",
+            "propose",
+            json!({"op": "expect", "path": "downstream/mock/p0", "min": 100, "timeout_s": 0.2}),
+        )]),
+        end("Plan: prove p0."),
+        tool_use(&[(
+            "r1",
+            "found",
+            json!({"path": "downstream/mock/p0", "label": "p0", "detail": "holds 0"}),
+        )]),
+        end("p0 holds less than 100."),
+    ];
+    let env = Env::start(params(&["downstream/mock"]), script).await;
+    let g = |k: &str, p: Perm| wyrm_core::ptok::Grant { k: k.into(), p };
+    let narrow = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(
+            SigningTokens::new(test_key(), SITE)
+                .subject("user:x")
+                .grants(vec![
+                    g("wy/test/downstream/agent/**", Perm::Write),
+                    g("wy/test/downstream/mock/p0/**", Perm::Read),
+                ]),
+        ));
+    let (id, _) = env.ask_with(&narrow, "how is p0?").await.unwrap();
+    let doc = env.wait_state(&id, "done").await;
+    let seen = env.llm.seen();
+    let refused: Vec<bool> = narrow_calls
+        .iter()
+        .map(|(c, _)| result_for(&seen, c)["is_error"].as_bool().unwrap())
+        .collect();
+    assert_eq!(refused, [true, true, true, true, false, true]);
+    let r = result_for(&seen, "b1");
+    assert!(
+        r["content"].as_str().unwrap().contains("may not read"),
+        "{r}"
+    );
+    let r = result_for(&seen, "b5");
+    assert!(
+        r["content"].as_str().unwrap().contains("one per node"),
+        "{r}"
+    );
+    let found = items(&doc, "findings");
+    assert_eq!(found.len(), 1);
+    assert_eq!(field(&found[0], "key").as_deref(), Some(P0));
+    assert_eq!(field(&found[0], "label").as_deref(), Some("p0"));
+    assert!(field(&found[0], "detail").unwrap().len() < 320);
+    let pv = env.task(&id);
+    assert_eq!(get(&pv, "findings"), &Value::UInt(1));
+    assert!(
+        !format!("{pv:?}").contains("xxx"),
+        "no text in ~val: {pv:?}"
+    );
+
+    // at most 12; they stay when the task fails, and the plan's hash is the same
+    let (id, _) = env.ask("set p0").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(items(&doc, "findings").len(), 12);
+    let r = result_for(&env.llm.seen(), "w13");
+    assert_eq!(r["is_error"], true, "{r}");
+    assert!(
+        r["content"].as_str().unwrap().contains("12 findings"),
+        "{r}"
+    );
+    let hash = field(&doc, "plan_hash");
+    let reason = Value::Map(BTreeMap::from([("reason".into(), Value::from("no"))]));
+    env.task_action(&env.human(Perm::Config), &id, "reject", reason)
+        .await
+        .unwrap();
+    let doc = env.wait_state(&id, "failed").await;
+    assert_eq!(
+        items(&doc, "findings").len(),
+        12,
+        "kept when the task fails"
+    );
+    assert_eq!(field(&doc, "plan_hash"), hash, "no part of the plan");
+    assert_eq!(get(&env.task(&id), "findings"), &Value::UInt(12));
+
+    // rights not known (a token without `auth`): refused
+    let blind = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(NoAuth(Default::default())));
+    let (id, _) = env.ask_with(&blind, "how is p0?").await.unwrap();
+    let doc = env.wait_state(&id, "done").await;
+    let r = result_for(&env.llm.seen(), "n1");
+    assert_eq!(r["is_error"], true, "{r}");
+    assert!(r["content"].as_str().unwrap().contains("not known"), "{r}");
+    assert!(items(&doc, "findings").is_empty());
+    assert_eq!(get(&env.task(&id), "findings"), &Value::Null);
+
+    // the turn after a stopped run
+    let (id, _) = env.ask("prove p0").await.unwrap();
+    env.wait_state(&id, "failed").await;
+    let mut doc = Value::Null;
+    for _ in 0..400 {
+        doc = env.doc(&id).await;
+        if field(&doc, "review").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let found = items(&doc, "findings");
+    assert_eq!(found.len(), 1, "{doc:?}");
+    assert_eq!(field(&found[0], "detail").as_deref(), Some("holds 0"));
     env.stop().await;
 }
