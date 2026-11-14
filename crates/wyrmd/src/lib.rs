@@ -2585,6 +2585,13 @@ mod tests {
         let Value::Map(m) = &info else { panic!() };
         assert_eq!(m.get("ca_fp"), Some(&Value::Str(fp.clone())));
         assert_eq!(m.get("ca"), Some(&Value::Bytes(ca_der.clone())));
+        assert_eq!(
+            m.get("names"),
+            Some(&Value::Array(vec![
+                Value::from("127.0.0.1"),
+                Value::from("gw.plant.example")
+            ]))
+        );
         drop(gw);
         // a chain in tls_cert: its last certificate
         let chain = dir.join("chain.pem");

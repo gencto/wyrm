@@ -150,7 +150,7 @@ impl Conn {
         c: &WyrmClient,
         key: &str,
         args: &Value,
-    ) -> Result<Value, ClientError> {
+    ) -> Result<Value, Approve> {
         use crate::approve::{Ask, Plan, MAX_DOC};
         // a step the user may not approve is the gateway's own refusal: audited as one
         let refused = |r: Refusal| {
@@ -174,7 +174,8 @@ impl Conn {
             return Err(ClientError::new(
                 Status::ResourceExhausted,
                 "the task record is larger than the gateway reads",
-            ));
+            )
+            .into());
         }
         let doc: Value = from_slice(&doc)
             .map_err(|_| ClientError::new(Status::InvalidMessage, "the task record is not CBOR"))?;
@@ -182,6 +183,24 @@ impl Conn {
         let sign = plan
             .select(&ask, |k| p.grants.perm(&self.gw.as_own(k)))
             .map_err(refused)?;
+        // a step at `config` is a config change: the step-up holds before any token is signed
+        // (security review of PR 86, item 1)
+        if sign.iter().any(|(_, r)| r.level >= Perm::Config) {
+            let request = map([
+                ("op", Value::from("invoke")),
+                ("key", Value::from(key)),
+                ("action", Value::from("approve")),
+                ("args", args.clone()),
+            ]);
+            if let Err(r) = self.gw.step_up(p, &request) {
+                self.gw.audit(AuditEvent::Denied {
+                    user: p.name.clone(),
+                    op: "confirm_required".into(),
+                    key: key.to_owned(),
+                });
+                return Err(Approve::StepUp(r));
+            }
+        }
         let tokens = self.gw.tokens_for(p);
         let mut approvals = BTreeMap::new();
         for (n, r) in &sign {
@@ -203,6 +222,19 @@ impl Conn {
             ("approvals", Value::Map(approvals)),
             ("plan", Value::Str(plan.hash)),
         ]))
+    }
+}
+
+/// Why an `approve` was not signed.
+enum Approve {
+    Client(ClientError),
+    /// A step at `config` and a session not confirmed (ADR 0050 §1.3).
+    StepUp(crate::devices::Refused),
+}
+
+impl From<ClientError> for Approve {
+    fn from(e: ClientError) -> Self {
+        Approve::Client(e)
     }
 }
 
@@ -554,7 +586,13 @@ impl Conn {
             return None;
         }
         let own = self.gw.as_own(&req.key);
+        // a flow deploy is `config` (spec 06) and the gateway signs proofs for it
+        // ([`Conn::add_flow_proofs`]): asked whatever the node's meta or the user's grant says
+        let deploy = req.op == "invoke"
+            && req.action.as_deref() == Some("deploy")
+            && own == format!("wy/{}/dataflows", self.gw.site());
         let at_config = match req.op.as_str() {
+            _ if deploy => true,
             "set" if p.grants.perm(&format!("{own}/~set")) >= Perm::Config => {
                 match c.meta(&req.key).await {
                     Ok(m) => m.writable == Some(wyrm_core::meta::Writable::Config),
@@ -700,7 +738,8 @@ impl Conn {
                 if action == "approve" && crate::approve::asks_for_tokens(&args) {
                     match self.approval_args(&p, &c, &req.key, &args).await {
                         Ok(signed) => args = signed,
-                        Err(e) => return self.send(client_err(id, &e)).await,
+                        Err(Approve::Client(e)) => return self.send(client_err(id, &e)).await,
+                        Err(Approve::StepUp(r)) => return self.send(refused_frame(id, r)).await,
                     }
                 }
                 match c.invoke(&req.key, &action, args).await {
@@ -997,7 +1036,7 @@ fn refused_frame(id: u64, r: crate::devices::Refused) -> Value {
     if let Refused::ConfirmRequired { nonce, request } = r {
         error.insert("code".into(), Value::from("confirm_required"));
         if let Some(n) = nonce {
-            error.insert("nonce".into(), Value::Bytes(n.to_vec()));
+            error.insert("nonce".into(), Value::Bytes(n));
         }
         error.insert("request".into(), Value::Bytes(request.to_vec()));
     }

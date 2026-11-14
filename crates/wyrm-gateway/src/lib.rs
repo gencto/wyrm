@@ -344,8 +344,8 @@ pub struct Gateway {
     agent_links: RwLock<Vec<String>>,
     /// Open WebSockets and the request bucket of each user (review GW-2).
     per_user: Mutex<std::collections::HashMap<String, UserUse>>,
-    /// Live device challenges (ADR 0050).
-    pub(crate) challenges: devices::Challenges,
+    /// Device challenges and step-up hashes (ADR 0050).
+    pub(crate) nonces: devices::Nonces,
     /// Step-ups and password checks of sessions after their login.
     pub(crate) fresh: devices::Fresh,
     pub(crate) challenge_limit: limit::RequestLimiter,
@@ -468,7 +468,7 @@ impl Gateway {
             sites: Arc::new(watch::channel(Arc::default()).0),
             agent_links: RwLock::new(Vec::new()),
             per_user: Mutex::new(Default::default()),
-            challenges: Default::default(),
+            nonces: Default::default(),
             fresh: Default::default(),
             challenge_limit: limit::RequestLimiter::new(CHALLENGES_PER_MIN, LOGIN_WINDOW),
             info_limit: limit::RequestLimiter::new(INFO_PER_MIN, LOGIN_WINDOW),
@@ -625,6 +625,19 @@ impl Gateway {
         }
         if let Some(p) = &self.cfg.info.pair {
             m.insert("pair".into(), Value::from(p.as_str()));
+        }
+        // the names of the certificate (public in it anyway): a client that found the
+        // gateway by its address checks the certificate against one of them
+        if self.cfg.tls.is_some() {
+            m.insert(
+                "names".into(),
+                Value::Array(
+                    self.cert_names
+                        .iter()
+                        .map(|n| Value::from(n.as_str()))
+                        .collect(),
+                ),
+            );
         }
         Value::Map(m)
     }

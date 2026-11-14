@@ -269,7 +269,7 @@ impl From<Refused> for ApiError {
             Refused::ConfirmRequired { nonce, request } => {
                 let mut e = coded("confirm_required", "confirm this request");
                 if let Some(n) = nonce {
-                    e.extra.push(("nonce", Value::Bytes(n.to_vec())));
+                    e.extra.push(("nonce", Value::Bytes(n)));
                 }
                 e.extra.push(("request", Value::Bytes(request.to_vec())));
                 e
@@ -352,12 +352,14 @@ fn bytes(m: &mut BTreeMap<String, Value>, k: &str) -> Result<Vec<u8>, ApiError> 
     }
 }
 
-/// The request a step-up names, for HTTP: `{method, path, body}`.
+/// The request a step-up names, for HTTP: `{method, path, body}` with the body as its
+/// CBOR value, so the hash leaves its secret fields out (a new password).
 fn http_request(method: &str, path: &str, body: &[u8]) -> Value {
+    let body = wyrm_core::codec::from_slice::<Value>(body).unwrap_or(Value::Null);
     map([
         ("method", Value::from(method)),
         ("path", Value::from(path)),
-        ("body", Value::Bytes(body.to_vec())),
+        ("body", body),
     ])
 }
 

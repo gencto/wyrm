@@ -5,8 +5,8 @@
 //!
 //! * `POST /api/device/challenge {device}` → `{nonce, exp}` for a login; with a bearer
 //!   session and `{purpose: "register" | "confirm"}` → a nonce bound to that session's user.
-//!   A nonce is single use (taken on its first use, also when that use fails) and lives
-//!   [`CHALLENGE_TTL_S`].
+//!   A nonce is sealed, not stored ([`Nonces`]), single use (spent on its first use, also
+//!   when that use fails) and lives [`CHALLENGE_TTL_S`].
 //! * `POST /api/devices {name, platform, alg, public_key, attestation?, origin, nonce,
 //!   signature}` (bearer session that checked the password in the last [`FRESH_S`]) → `{device}`
 //! * `POST /api/device/login {device, origin, nonce, signature, session?}` → `{session, exp}`
@@ -37,11 +37,6 @@ use zeroize::Zeroizing;
 pub const CHALLENGE_TTL_S: u64 = 60;
 /// How recent the password must be to register a device, and how long a step-up holds.
 pub const FRESH_S: u64 = 300;
-/// Live challenges in all; past it new ones are refused (`busy`) until old ones expire.
-const MAX_CHALLENGES: usize = 10_000;
-/// Live challenges per device (logins) or per session (register, confirm); a new one
-/// replaces the oldest.
-const CHALLENGES_PER_KEY: usize = 4;
 /// Sessions whose confirmations are remembered.
 const MAX_FRESH: usize = 10_000;
 /// Longest device name and platform text, in bytes.
@@ -286,9 +281,22 @@ pub fn confirm_message(
     ])
 }
 
-/// The hash a step-up names: SHA-256 of the canonical CBOR of the refused request.
-pub fn request_hash(request: &Value) -> [u8; 32] {
-    Sha256::digest(wyrm_core::codec::to_vec(request).unwrap_or_default()).into()
+/// Fields of a refused request that are left out of its hash: secrets, which would make
+/// the hash (signed by the device, written to the audit) a test for a guessed value.
+const SECRET_FIELDS: [&str; 4] = ["password", "secret", "token", "passphrase"];
+
+/// `request` with every [`SECRET_FIELDS`] key removed from its maps, at any depth.
+fn without_secrets(v: &Value) -> Value {
+    match v {
+        Value::Map(m) => Value::Map(
+            m.iter()
+                .filter(|(k, _)| !SECRET_FIELDS.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), without_secrets(v)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(without_secrets).collect()),
+        o => o.clone(),
+    }
 }
 
 /// `first 16 bytes of SHA-256(DER)` in lower-case hex: the code a person compares on the
@@ -328,7 +336,7 @@ pub(crate) enum Refused {
     /// password) and sends the request again. No `nonce` for a session that cannot confirm
     /// (an MCP token).
     ConfirmRequired {
-        nonce: Option<[u8; 32]>,
+        nonce: Option<Vec<u8>>,
         request: [u8; 32],
     },
     RateLimited,
@@ -337,10 +345,7 @@ pub(crate) enum Refused {
     NotFound,
 }
 
-/// The live challenges: nonce → what it may be used for.
-#[derive(Default)]
-pub(crate) struct Challenges(Mutex<HashMap<[u8; 32], Challenge>>);
-
+/// What a nonce may be used for; it is part of the nonce's MAC, never stored.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Purpose {
     Login { device: String },
@@ -349,58 +354,112 @@ pub(crate) enum Purpose {
 }
 
 impl Purpose {
-    /// What the per-key bound counts.
-    fn key(&self) -> String {
-        match self {
-            Purpose::Login { device } => format!("d:{device}"),
-            Purpose::Register { jti, .. } | Purpose::Confirm { jti, .. } => {
-                format!("s:{}", hex(jti))
-            }
+    fn bytes(&self) -> Vec<u8> {
+        let v = match self {
+            Purpose::Login { device } => vec![Value::from("login"), Value::from(device.as_str())],
+            Purpose::Register { user, jti } => vec![
+                Value::from("register"),
+                Value::from(user.as_str()),
+                Value::Bytes(jti.to_vec()),
+            ],
+            Purpose::Confirm { user, jti } => vec![
+                Value::from("confirm"),
+                Value::from(user.as_str()),
+                Value::Bytes(jti.to_vec()),
+            ],
+        };
+        array(v)
+    }
+}
+
+/// Bytes of a nonce: 16 random, 8 of expiry (big endian), 32 of MAC.
+pub const NONCE_LEN: usize = 16 + 8 + 32;
+/// Nonces spent and not yet expired that are remembered (single use); past it a device
+/// request is refused (`busy`) until some expire. Filling it takes valid nonces, each a
+/// request under the per-address limits.
+const MAX_SPENT: usize = 100_000;
+
+/// Challenges without a table (security review of PR 86, item 2): a nonce is
+/// `random ‖ exp ‖ HMAC(key, purpose ‖ random ‖ exp)` under a key made when the gateway
+/// opens. Issuing one stores nothing, so nobody can evict or crowd out another caller's
+/// nonce, and a nonce for an unknown device looks like one for a known device. Only a
+/// spent nonce is remembered, until it would have expired. A nonce is good on the gateway
+/// process that made it only.
+pub(crate) struct Nonces {
+    key: Zeroizing<[u8; 32]>,
+    spent: Mutex<HashMap<[u8; 16], u64>>,
+}
+
+impl Default for Nonces {
+    fn default() -> Self {
+        let mut key = Zeroizing::new([0u8; 32]);
+        // a failing OS RNG leaves a zero key: nonces then still expire and are single use
+        let _ = getrandom::fill(key.as_mut());
+        Self {
+            key,
+            spent: Mutex::new(HashMap::new()),
         }
     }
 }
 
-pub(crate) struct Challenge {
-    purpose: Purpose,
-    exp: u64,
-}
-
-impl Challenges {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<[u8; 32], Challenge>> {
-        self.0.lock().unwrap_or_else(|p| p.into_inner())
+impl Nonces {
+    fn mac(&self, purpose: &Purpose, head: &[u8]) -> hmac::Hmac<Sha256> {
+        use hmac::Mac;
+        let mut m = hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key");
+        m.update(b"wyrm-device-nonce/1");
+        m.update(&purpose.bytes());
+        m.update(head);
+        m
     }
 
-    /// A new nonce for `purpose`; `None` when the table is full of live ones.
-    pub(crate) fn issue(&self, purpose: Purpose, now: u64) -> Option<([u8; 32], u64)> {
-        let mut nonce = [0u8; 32];
-        getrandom::fill(&mut nonce).ok()?;
-        let mut m = self.lock();
-        m.retain(|_, c| c.exp > now);
-        let key = purpose.key();
-        let mut mine: Vec<(u64, [u8; 32])> = m
-            .iter()
-            .filter(|(_, c)| c.purpose.key() == key)
-            .map(|(n, c)| (c.exp, *n))
-            .collect();
-        if mine.len() >= CHALLENGES_PER_KEY {
-            mine.sort();
-            for (_, n) in &mine[..=mine.len() - CHALLENGES_PER_KEY] {
-                m.remove(n);
-            }
-        }
-        if m.len() >= MAX_CHALLENGES {
-            return None;
-        }
+    /// A new nonce for `purpose` and its expiry; `None` without randomness.
+    pub(crate) fn issue(&self, purpose: &Purpose, now: u64) -> Option<(Vec<u8>, u64)> {
+        use hmac::Mac;
         let exp = now + CHALLENGE_TTL_S;
-        m.insert(nonce, Challenge { purpose, exp });
-        Some((nonce, exp))
+        let mut n = vec![0u8; 16];
+        getrandom::fill(&mut n).ok()?;
+        n.extend(exp.to_be_bytes());
+        let tag = self.mac(purpose, &n).finalize().into_bytes();
+        n.extend(tag);
+        Some((n, exp))
     }
 
-    /// Spend `nonce`: what it was for, if it is live. It is gone after this call either way.
-    pub(crate) fn take(&self, nonce: &[u8], now: u64) -> Option<Purpose> {
-        let n: [u8; 32] = nonce.try_into().ok()?;
-        let c = self.lock().remove(&n)?;
-        (c.exp > now).then_some(c.purpose)
+    /// Spend `nonce` for `purpose`: `true` when this gateway made it for that purpose, it
+    /// has not expired and it was not spent before (the MAC is checked in constant time).
+    pub(crate) fn take(&self, nonce: &[u8], purpose: &Purpose, now: u64) -> bool {
+        use hmac::Mac;
+        if nonce.len() != NONCE_LEN {
+            return false;
+        }
+        let (head, tag) = nonce.split_at(24);
+        let exp = u64::from_be_bytes(head[16..24].try_into().expect("8 bytes"));
+        if exp <= now || exp > now + CHALLENGE_TTL_S {
+            return false;
+        }
+        if self.mac(purpose, head).verify_slice(tag).is_err() {
+            return false;
+        }
+        let id: [u8; 16] = head[..16].try_into().expect("16 bytes");
+        let mut spent = self.spent.lock().unwrap_or_else(|p| p.into_inner());
+        if spent.len() >= MAX_SPENT {
+            spent.retain(|_, e| *e > now);
+            if spent.len() >= MAX_SPENT {
+                return false;
+            }
+        }
+        spent.insert(id, exp).is_none()
+    }
+
+    /// The hash a step-up names (security review of PR 86, item 3): HMAC-SHA256 under this
+    /// gateway's own key of the canonical CBOR of the refused request with its secret
+    /// fields left out. The device signs it and the audit keeps it; without the key nobody
+    /// can test a guess against it, and a new password is never in it.
+    pub(crate) fn request_hash(&self, request: &Value) -> [u8; 32] {
+        use hmac::Mac;
+        let mut m = hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key");
+        m.update(b"wyrm-step-up-request/1");
+        m.update(&wyrm_core::codec::to_vec(&without_secrets(request)).unwrap_or_default());
+        m.finalize().into_bytes().into()
     }
 }
 
@@ -568,8 +627,8 @@ impl Gateway {
         }
         let nonce = (p.claims.amr != Amr::OAuth)
             .then(|| {
-                self.challenges.issue(
-                    Purpose::Confirm {
+                self.nonces.issue(
+                    &Purpose::Confirm {
                         user: p.name.clone(),
                         jti: p.claims.jti,
                     },
@@ -580,7 +639,7 @@ impl Gateway {
             .map(|(n, _)| n);
         Err(Refused::ConfirmRequired {
             nonce,
-            request: request_hash(request),
+            request: self.nonces.request_hash(request),
         })
     }
 
@@ -594,12 +653,12 @@ impl Gateway {
         &self,
         purpose: Purpose,
         ip: IpAddr,
-    ) -> Result<([u8; 32], u64), Refused> {
+    ) -> Result<(Vec<u8>, u64), Refused> {
         if !self.challenge_limit.allowed(ip) {
             return Err(Refused::RateLimited);
         }
-        self.challenges
-            .issue(purpose, session::now_s())
+        self.nonces
+            .issue(&purpose, session::now_s())
             .ok_or(Refused::Busy)
     }
 
@@ -686,7 +745,7 @@ impl Gateway {
             jti: p.claims.jti,
         };
         let msg = register_message(&self.cfg.site, origin, &p.name, nonce, public_key);
-        if self.challenges.take(nonce, now) != Some(ours)
+        if !self.nonces.take(nonce, &ours, now)
             || !self.origin_allowed(origin)
             || !alg.verify(&key, &msg, signature)
         {
@@ -747,7 +806,7 @@ impl Gateway {
         let ours = Purpose::Login {
             device: device.to_owned(),
         };
-        if self.challenges.take(nonce, now) != Some(ours) {
+        if !self.nonces.take(nonce, &ours, now) {
             return Err(self.bare(device, None, ip, "bad_nonce"));
         }
         let Some(d) = self.device(device) else {
@@ -840,9 +899,7 @@ impl Gateway {
             user: p.name.clone(),
             jti: p.claims.jti,
         };
-        if p.claims.amr == Amr::OAuth
-            || request.len() != 32
-            || self.challenges.take(nonce, now) != Some(ours)
+        if p.claims.amr == Amr::OAuth || request.len() != 32 || !self.nonces.take(nonce, &ours, now)
         {
             return Err(self.bare(device, Some(&p.name), ip, "bad_nonce"));
         }
@@ -1040,23 +1097,78 @@ mod tests {
     }
 
     #[test]
-    fn challenges_are_single_use_bounded_and_expire() {
-        let c = Challenges::default();
-        let login = || Purpose::Login {
-            device: "d1".into(),
-        };
-        let (n, exp) = c.issue(login(), 100).unwrap();
-        assert_eq!(exp, 100 + CHALLENGE_TTL_S);
-        assert_eq!(c.take(&n, 101), Some(login()));
-        assert_eq!(c.take(&n, 101), None, "single use");
-        let (old, _) = c.issue(login(), 100).unwrap();
-        assert_eq!(c.take(&old, 100 + CHALLENGE_TTL_S), None, "expired");
-        let first = c.issue(login(), 200).unwrap().0;
-        for _ in 0..CHALLENGES_PER_KEY {
-            c.issue(login(), 201).unwrap();
+    fn nonces_are_single_use_bound_and_expire() {
+        let n = Nonces::default();
+        let login = |d: &str| Purpose::Login { device: d.into() };
+        let (a, exp) = n.issue(&login("d1"), 100).unwrap();
+        assert_eq!((a.len(), exp), (NONCE_LEN, 100 + CHALLENGE_TTL_S));
+        assert!(!n.take(&a, &login("d2"), 101), "another device");
+        assert!(n.take(&a, &login("d1"), 101));
+        assert!(!n.take(&a, &login("d1"), 101), "single use");
+        let (old, _) = n.issue(&login("d1"), 100).unwrap();
+        assert!(
+            !n.take(&old, &login("d1"), 100 + CHALLENGE_TTL_S),
+            "expired"
+        );
+        // another gateway process (another key), a changed byte, a stretched expiry
+        let (b, _) = n.issue(&login("d1"), 200).unwrap();
+        assert!(!Nonces::default().take(&b, &login("d1"), 201));
+        let mut t = b.clone();
+        t[3] ^= 1;
+        assert!(!n.take(&t, &login("d1"), 201));
+        let mut t = b.clone();
+        t[16..24].copy_from_slice(&(200u64 + 10 * CHALLENGE_TTL_S).to_be_bytes());
+        assert!(!n.take(&t, &login("d1"), 201));
+        assert!(!n.take(&[0; 5], &login("d1"), 201), "not a nonce");
+        // security review of PR 86, item 2: nonces asked by anyone for a device (one
+        // address or many) never take the place of one a person holds
+        let (mine, _) = n.issue(&login("victim"), 300).unwrap();
+        for _ in 0..20_000 {
+            n.issue(&login("victim"), 300).unwrap();
         }
-        assert_eq!(c.take(&first, 202), None, "the oldest of a device goes");
-        assert_eq!(c.take(&[0; 5], 202), None, "not a nonce");
+        assert!(n.take(&mine, &login("victim"), 301));
+        // a session's nonce is the session's
+        let reg = |jti: u8| Purpose::Register {
+            user: "olena".into(),
+            jti: [jti; 16],
+        };
+        let (r, _) = n.issue(&reg(1), 300).unwrap();
+        assert!(!n.take(&r, &reg(2), 301));
+        assert!(!n.take(
+            &r,
+            &Purpose::Confirm {
+                user: "olena".into(),
+                jti: [1; 16]
+            },
+            301
+        ));
+    }
+
+    /// Security review of PR 86, item 3: the hash a step-up names (and the audit keeps)
+    /// leaves secret fields out and is keyed.
+    #[test]
+    fn request_hashes_hold_no_secret() {
+        let n = Nonces::default();
+        let req = |pw: &str| {
+            map([
+                ("method", Value::from("POST")),
+                ("path", Value::from("/api/users/olena/password")),
+                ("body", map([("password", Value::from(pw))])),
+            ])
+        };
+        assert_eq!(
+            n.request_hash(&req("first secret")),
+            n.request_hash(&req("other one!"))
+        );
+        assert_ne!(
+            n.request_hash(&req("x")),
+            Nonces::default().request_hash(&req("x")),
+            "keyed per gateway"
+        );
+        let plain: [u8; 32] = Sha256::digest(wyrm_core::codec::to_vec(&req("x")).unwrap()).into();
+        assert_ne!(n.request_hash(&req("x")), plain);
+        let deep = Value::Array(vec![map([("token", Value::from("t"))])]);
+        assert_eq!(without_secrets(&deep), Value::Array(vec![map([])]));
     }
 
     #[test]

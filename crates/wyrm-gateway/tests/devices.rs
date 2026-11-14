@@ -512,11 +512,7 @@ async fn a_device_registers_and_logs_in() {
 /// `devices_off`), each after a good signature; and a removed device's sessions end.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_refusal_code() {
-    let policy = DevicePolicy {
-        password_every_days: 0,
-        ..DevicePolicy::default()
-    };
-    let (env, dir) = start("codes", policy).await;
+    let (env, dir) = start("codes", DevicePolicy::default()).await;
     let admin = env.session("root", ADMIN_PW).await;
     env.add_user(&admin, "olena", &["operator"]).await;
     let pw = env.session("olena", USER_PW).await;
@@ -548,9 +544,17 @@ async fn every_refusal_code() {
     let (st, v) = env.device_login(&key, &id, "olena").await;
     assert_eq!((st, code(&v)), (401, None));
 
-    // password_due: the policy asks for the password every 0 days
+    // password_due: the policy asks for the password every 0 days (a restart on the same
+    // store; only refusals are expected under it, never a login inside one second)
     let key = Key::p256();
     let id = env.register_ok(&pw, &key).await;
+    env.stop().await;
+    let due = DevicePolicy {
+        password_every_days: 0,
+        ..DevicePolicy::default()
+    };
+    let env = Env::start(&dir, due, InfoConfig::default()).await;
+    let pw = env.session("olena", USER_PW).await;
     tokio::time::sleep(Duration::from_millis(1100)).await;
     let (st, v) = env.device_login(&key, &id, "olena").await;
     assert_eq!((st, code(&v).as_deref()), (403, Some("password_due")));
@@ -645,6 +649,19 @@ async fn replays_and_forgeries_are_refused() {
     let id = env.register_ok(&pw, &key).await;
     let origin = env.origin();
 
+    // a nonce for an unknown device looks like one for a known device (security review of
+    // PR 86, item 2), and nonces anyone asks for the device do not replace the one held
+    let held = env.challenge(Some(&id), None).await;
+    let unknown = env
+        .challenge(Some("0123456789abcdef0123456789abcdef"), None)
+        .await;
+    assert_eq!(held.len(), unknown.len());
+    for _ in 0..8 {
+        env.challenge(Some(&id), None).await;
+    }
+    let sig = key.sign(&login_message(SITE, &origin, "olena", &id, &held));
+    assert_eq!(env.login_with(&id, &origin, &held, &sig, None).await.0, 200);
+
     // a nonce is single use: the same signed login again is refused
     let nonce = env.challenge(Some(&id), None).await;
     let sig = key.sign(&login_message(SITE, &origin, "olena", &id, &nonce));
@@ -656,7 +673,7 @@ async fn replays_and_forgeries_are_refused() {
     assert_eq!((st, code(&v)), (401, None), "replayed challenge");
 
     // a nonce the gateway never gave (or one that expired: gone the same way)
-    let fake = [9u8; 32];
+    let fake = [9u8; wyrm_gateway::devices::NONCE_LEN];
     let sig = key.sign(&login_message(SITE, &origin, "olena", &id, &fake));
     assert_eq!(env.login_with(&id, &origin, &fake, &sig, None).await.0, 401);
     // a signature by another key
@@ -1035,4 +1052,32 @@ async fn a_schema_4_users_store_opens() {
         Gateway::open(cfg, b"another key").is_err(),
         "the HMAC chain holds"
     );
+}
+
+/// Security review of PR 86, item 3: the hash a `confirm_required` names (signed by the
+/// device, kept by the audit) does not depend on a new password in the request.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_step_up_hash_holds_no_password() {
+    let policy = DevicePolicy {
+        step_up: StepUp::Config,
+        fresh_s: 1,
+        ..DevicePolicy::default()
+    };
+    let (env, _) = start("stepup-hash", policy).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let mut seen = Vec::new();
+    for pw in ["first new password", "second new password"] {
+        let (st, v) = env
+            .post(
+                "/api/users/root/password",
+                Some(&admin),
+                obj(vec![("password", Value::from(pw))]),
+            )
+            .await;
+        assert_eq!((st, code(&v).as_deref()), (403, Some("confirm_required")));
+        seen.push(bytes(&v, "request"));
+    }
+    assert_eq!(seen[0], seen[1]);
+    env.stop().await;
 }
