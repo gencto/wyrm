@@ -94,11 +94,7 @@ class FrameClient implements WyrmApi {
     }
   }
 
-  static WyrmException _error(Value? e) {
-    final status = switch (e?['status']) { VInt(:final v) => v, _ => Status.internalError.code };
-    final msg = switch (e?['message']) { VStr(:final v) => v, _ => 'error' };
-    return WyrmException(StatusCode(status), msg);
-  }
+  static WyrmException _error(Value? e) => WyrmException.fromError(e);
 
   void _onGone() {
     _closed = true;
