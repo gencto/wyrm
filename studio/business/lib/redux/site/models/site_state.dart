@@ -16,5 +16,6 @@ abstract class SiteState with _$SiteState {
     String? current,
     @Default(IListConst([])) IList<Grant> grants,
     @Default(IListConst([])) IList<SiteChoice> choices,
+    String? max,
   }) = _SiteState;
 }

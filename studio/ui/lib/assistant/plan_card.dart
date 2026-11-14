@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -10,6 +12,8 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
+import 'model_words.dart';
+import 'suggestion_tile.dart';
 
 /// One step of a plan, as the person reads it before approving: what is
 /// sent (the verb, the action, the full key, every argument), the level it
@@ -28,6 +32,9 @@ final class PlanStepVm extends Equatable {
     this.argsNote,
     this.why,
     this.warn,
+    this.modelWarn,
+    this.fixes = const [],
+    this.revealLabel,
     this.ticked,
     this.tickReason,
     this.note,
@@ -66,8 +73,21 @@ final class PlanStepVm extends Equatable {
   /// The model's reason.
   final String? why;
 
-  /// What the person must see before approving.
+  /// What the link found about the step (a checked conclusion): on the
+  /// warning tint.
   final String? warn;
+
+  /// What the model says about the step (`model_warn`): drawn as the
+  /// model's words, never as a check of the link.
+  final ModelWordsVm? modelWarn;
+
+  /// The fixes the model offers for this step: each a follow-up ask that
+  /// replaces the plan (the tile says so).
+  final List<SuggestionTileVm> fixes;
+
+  /// `Show arguments` / `Hide arguments`: some arguments are masked because
+  /// their schema is not known; null: nothing to reveal.
+  final String? revealLabel;
 
   /// The step's tick: null when the step has none (it needs no approval, or
   /// the plan is only shown).
@@ -97,6 +117,9 @@ final class PlanStepVm extends Equatable {
     argsNote,
     why,
     warn,
+    modelWarn,
+    fixes,
+    revealLabel,
     ticked,
     tickReason,
     note,
@@ -155,12 +178,25 @@ final class PlanCardVm extends Equatable {
 /// [onTick] the steps that have a tick can be ticked; without it the plan is
 /// only shown.
 class PlanCard extends StatefulWidget {
-  const PlanCard({required this.vm, this.onTick, super.key});
+  const PlanCard({
+    required this.vm,
+    this.onTick,
+    this.onFix,
+    this.onReveal,
+    super.key,
+  });
 
   final PlanCardVm vm;
 
   /// A step (by its number) was ticked or unticked.
   final void Function(int n, {required bool ticked})? onTick;
+
+  /// A fix (a suggestion, by its id) was picked.
+  final ValueChanged<String>? onFix;
+
+  /// The masked arguments of a step (by its number) are to be shown or
+  /// masked again.
+  final ValueChanged<int>? onReveal;
 
   @override
   State<PlanCard> createState() => _PlanCardState();
@@ -205,8 +241,15 @@ class _PlanCardState extends State<PlanCard> {
                 spacing: 10,
                 children: [
                   Expanded(child: SectionLabel(vm.title)),
+                  // never wider than the row leaves beside the title and
+                  // the toggle (the drawer is narrow)
                   ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: box.maxWidth * 0.6),
+                    constraints: BoxConstraints(
+                      maxWidth: math.max(
+                        0,
+                        math.min(box.maxWidth * 0.6, box.maxWidth - 150),
+                      ),
+                    ),
                     child: Text(
                       vm.state,
                       textAlign: .right,
@@ -231,7 +274,13 @@ class _PlanCardState extends State<PlanCard> {
             ),
           ),
           if (open)
-            for (final s in vm.steps) _Step(vm: s, onTick: onTick),
+            for (final s in vm.steps)
+              _Step(
+                vm: s,
+                onTick: onTick,
+                onFix: widget.onFix,
+                onReveal: widget.onReveal,
+              ),
           if (vm.note case final n? when open)
             Container(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
@@ -250,10 +299,17 @@ class _PlanCardState extends State<PlanCard> {
 }
 
 class _Step extends StatelessWidget {
-  const _Step({required this.vm, required this.onTick});
+  const _Step({
+    required this.vm,
+    required this.onTick,
+    required this.onFix,
+    required this.onReveal,
+  });
 
   final PlanStepVm vm;
   final void Function(int n, {required bool ticked})? onTick;
+  final ValueChanged<String>? onFix;
+  final ValueChanged<int>? onReveal;
 
   @override
   Widget build(BuildContext context) {
@@ -331,6 +387,11 @@ class _Step extends StatelessWidget {
                     ],
                   ),
                 if (vm.argsNote case final n?) Text(n, style: small),
+                if (vm.revealLabel case final r?)
+                  InkWell(
+                    onTap: onReveal == null ? null : () => onReveal!(vm.n),
+                    child: Text(r, style: small.copyWith(color: c.text2)),
+                  ),
                 if (vm.check case final k?)
                   Row(
                     spacing: 6,
@@ -363,6 +424,12 @@ class _Step extends StatelessWidget {
                       borderRadius: Radii.control,
                     ),
                     child: Text(w, style: small.copyWith(color: c.warn)),
+                  ),
+                if (vm.modelWarn case final m?) ModelWords(vm: m),
+                for (final f in vm.fixes)
+                  SuggestionTile(
+                    vm: f,
+                    onTap: onFix == null ? null : () => onFix!(f.id),
                   ),
                 if (vm.why case final w?) Text('why: $w', style: small),
                 if (vm.note case final n?) Text(n, style: small),

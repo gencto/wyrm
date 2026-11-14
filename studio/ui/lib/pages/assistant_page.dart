@@ -1,11 +1,15 @@
-import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../assistant/assistant_composer.dart';
 import '../assistant/choices_card.dart';
 import '../assistant/conversation.dart';
+import '../assistant/more_rows_card.dart';
 import '../assistant/plan_card.dart';
 import '../assistant/result_card.dart';
+import '../assistant/rights_panel.dart';
 import '../assistant/run_card.dart';
+import '../assistant/stopped_card.dart';
+import '../assistant/task_card.dart';
 import '../assistant/task_list.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
@@ -13,50 +17,10 @@ import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../indicators/status_pill.dart';
 import '../theme/extensions/colors.dart';
-import '../theme/radii.dart';
 import '../theme/typography.dart';
 
-/// A button under the selected task (Approve, Reject, Cancel).
-final class TaskButtonVm extends Equatable {
-  const TaskButtonVm({
-    required this.id,
-    required this.label,
-    this.primary = false,
-    this.danger = false,
-    this.disabledReason,
-  });
-
-  final String id;
-  final String label;
-  final bool primary;
-  final bool danger;
-  final String? disabledReason;
-
-  @override
-  List<Object?> get props => [id, label, primary, danger, disabledReason];
-}
-
-/// The card that closes the conversation: what the task waits for, a
-/// note (why the plan is not shown yet), and its buttons.
-final class TaskCardVm extends Equatable {
-  const TaskCardVm({
-    required this.title,
-    required this.note,
-    this.caution = false,
-    this.buttons = const [],
-  });
-
-  final String title;
-  final String note;
-
-  /// The note asks for attention (a plan that waits, a task that failed):
-  /// it is drawn on the warning tint. Else it is plain grey text.
-  final bool caution;
-  final List<TaskButtonVm> buttons;
-
-  @override
-  List<Object?> get props => [title, note, caution, buttons];
-}
+export '../assistant/assistant_composer.dart' show ChipVm;
+export '../assistant/task_card.dart' show TaskButtonVm, TaskCardVm;
 
 /// One `kind  key` row of WHAT IT READ.
 typedef ReadRow = (String kind, String key);
@@ -91,13 +55,30 @@ class AssistantPage extends StatelessWidget {
     this.taskKey,
     this.plan,
     this.onTick,
+    this.onFix,
+    this.onReveal,
     this.run,
     this.result,
+    this.more = const [],
+    this.onRow,
+    this.onMore,
+    this.stopped,
+    this.onWay,
     this.choices,
     this.onPick,
     this.onAnswer,
     this.card,
     this.askReason,
+    this.askNote,
+    this.chips = const [],
+    this.onChipRemove,
+    this.addChipLabel,
+    this.addChipReason,
+    this.onAddChip,
+    this.rights,
+    this.onMode,
+    this.onRemovePrefix,
+    this.onAddPrefix,
     this.empty,
     this.emptyAction,
     this.onEmptyAction,
@@ -123,11 +104,26 @@ class AssistantPage extends StatelessWidget {
   /// A step of [plan] was ticked; null: the plan is only shown.
   final void Function(int n, {required bool ticked})? onTick;
 
+  /// A fix of a step (a suggestion id) was picked.
+  final ValueChanged<String>? onFix;
+
+  /// The masked arguments of a step (by number) are shown or masked again.
+  final ValueChanged<int>? onReveal;
+
   /// The run of the plan, under it; null before a run.
   final RunCardVm? run;
 
   /// What a finished plan left behind.
   final ResultCardVm? result;
+
+  /// *Same for more units?*: the suggestions with rows, under [result].
+  final List<MoreRowsCardVm> more;
+  final void Function(String suggestion, String key, {required bool on})? onRow;
+  final ValueChanged<String>? onMore;
+
+  /// Where a run stopped and the ways out.
+  final StoppedCardVm? stopped;
+  final ValueChanged<String>? onWay;
 
   /// What the assistant asked the person, answered or not.
   final ChoicesCardVm? choices;
@@ -144,6 +140,18 @@ class AssistantPage extends StatelessWidget {
 
   /// Why asking is not possible (no write on the agent, no agent).
   final String? askReason;
+
+  /// What sending does to the plan that waits: shown above the box.
+  final String? askNote;
+
+  /// The `@` chips that go with the ask as its context.
+  final List<ChipVm> chips;
+  final ValueChanged<String>? onChipRemove;
+
+  /// `+ from Explorer`; null: not offered.
+  final String? addChipLabel;
+  final String? addChipReason;
+  final VoidCallback? onAddChip;
   final ValueChanged<String> onDraft;
   final VoidCallback onAsk;
 
@@ -154,6 +162,12 @@ class AssistantPage extends StatelessWidget {
   final String readsLabel;
   final List<ReadRow> reads;
   final String panelNote;
+
+  /// *What it may do*: shown in place of [facts] and [reads].
+  final RightsPanelVm? rights;
+  final ValueChanged<String>? onMode;
+  final ValueChanged<String>? onRemovePrefix;
+  final VoidCallback? onAddPrefix;
 
   final String? empty;
   final String? emptyAction;
@@ -234,7 +248,11 @@ class AssistantPage extends StatelessWidget {
           Expanded(
             child: Conversation(
               events: events,
-              trailing: plan == null && card == null && choices == null
+              trailing:
+                  plan == null &&
+                      card == null &&
+                      choices == null &&
+                      stopped == null
                   ? null
                   : Column(
                       crossAxisAlignment: .stretch,
@@ -245,22 +263,43 @@ class AssistantPage extends StatelessWidget {
                             onPick: onPick ?? (_, _) {},
                             onConfirm: onAnswer ?? () {},
                           ),
-                        if (plan case final p?) PlanCard(vm: p, onTick: onTick),
+                        if (plan case final p?)
+                          PlanCard(
+                            vm: p,
+                            onTick: onTick,
+                            onFix: onFix,
+                            onReveal: onReveal,
+                          ),
                         if (run case final r?) RunCard(vm: r),
                         if (result case final r?) ResultCard(vm: r),
+                        for (final m in more)
+                          MoreRowsCard(
+                            vm: m,
+                            onRow: (key, {required on}) =>
+                                onRow?.call(m.id, key, on: on),
+                            onAsk: () => onMore?.call(m.id),
+                          ),
+                        if (stopped case final st?)
+                          StoppedCard(vm: st, onPick: onWay),
                         if (card case final k?)
-                          _Card(vm: k, onButton: onButton),
+                          TaskCard(vm: k, onButton: onButton),
                       ],
                     ),
             ),
           ),
-          _Composer(
+          AssistantComposer(
             draft: draft,
             hint: askHint,
             label: askLabel,
             reason: askReason,
             onDraft: onDraft,
             onAsk: onAsk,
+            chips: chips,
+            onChipRemove: onChipRemove,
+            addChipLabel: addChipLabel,
+            addChipReason: addChipReason,
+            onAddChip: onAddChip,
+            note: askNote,
           ),
         ],
       );
@@ -279,7 +318,15 @@ class AssistantPage extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.all(18),
               children: [
-                FactGrid(facts: facts, labelWidth: 96),
+                if (rights case final r?)
+                  RightsPanel(
+                    vm: r,
+                    onMode: onMode,
+                    onRemovePrefix: onRemovePrefix,
+                    onAddPrefix: onAddPrefix,
+                  )
+                else
+                  FactGrid(facts: facts, labelWidth: 96),
                 if (reads.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   SectionLabel(readsLabel),
@@ -323,174 +370,6 @@ class AssistantPage extends StatelessWidget {
           left,
           Expanded(child: middle),
           right,
-        ],
-      ),
-    );
-  }
-}
-
-class _Card extends StatelessWidget {
-  const _Card({required this.vm, required this.onButton});
-
-  final TaskCardVm vm;
-  final ValueChanged<String> onButton;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      margin: const EdgeInsets.only(left: 42),
-      // the note's band ends at the card's rounded corners
-      clipBehavior: .antiAlias,
-      decoration: BoxDecoration(
-        color: c.ground1,
-        border: Border.all(color: c.line2),
-        borderRadius: Radii.card,
-      ),
-      child: Column(
-        crossAxisAlignment: .stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-            child: SectionLabel(vm.title),
-          ),
-          Container(
-            color: vm.caution ? c.warnTint : null,
-            padding: vm.caution
-                ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
-                : const EdgeInsets.fromLTRB(14, 0, 14, 12),
-            child: Text(
-              vm.note,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.45,
-                color: vm.caution ? c.warn : c.text3,
-              ),
-            ),
-          ),
-          if (vm.buttons.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: .end,
-                children: [
-                  for (final b in vm.buttons)
-                    if (b.primary)
-                      Button.primary(
-                        label: b.label,
-                        disabledReason: b.disabledReason,
-                        onPressed: b.disabledReason == null
-                            ? () => onButton(b.id)
-                            : null,
-                      )
-                    else if (b.danger)
-                      Button.danger(
-                        label: b.label,
-                        disabledReason: b.disabledReason,
-                        onPressed: b.disabledReason == null
-                            ? () => onButton(b.id)
-                            : null,
-                      )
-                    else
-                      Button.secondary(
-                        label: b.label,
-                        disabledReason: b.disabledReason,
-                        onPressed: b.disabledReason == null
-                            ? () => onButton(b.id)
-                            : null,
-                      ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The ask box: a field that keeps the draft, and Ask (Cmd+Enter).
-class _Composer extends StatefulWidget {
-  const _Composer({
-    required this.draft,
-    required this.hint,
-    required this.label,
-    required this.onDraft,
-    required this.onAsk,
-    this.reason,
-  });
-
-  final String draft;
-  final String hint;
-  final String label;
-  final String? reason;
-  final ValueChanged<String> onDraft;
-  final VoidCallback onAsk;
-
-  @override
-  State<_Composer> createState() => _ComposerState();
-}
-
-class _ComposerState extends State<_Composer> {
-  late final _text = TextEditingController(text: widget.draft);
-
-  @override
-  void didUpdateWidget(_Composer old) {
-    super.didUpdateWidget(old);
-    if (widget.draft != _text.text) {
-      _text.text = widget.draft;
-    }
-  }
-
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  bool get _can => widget.reason == null && widget.draft.trim().isNotEmpty;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: c.line1)),
-      ),
-      child: Row(
-        crossAxisAlignment: .end,
-        spacing: 10,
-        children: [
-          Expanded(
-            child: CallbackShortcuts(
-              bindings: {
-                const SingleActivator(.enter, meta: true): () {
-                  if (_can) {
-                    widget.onAsk();
-                  }
-                },
-              },
-              child: TextField(
-                controller: _text,
-                enabled: widget.reason == null,
-                minLines: 1,
-                maxLines: 6,
-                onChanged: widget.onDraft,
-                style: TextStyle(fontSize: 14, color: c.text1),
-                decoration: InputDecoration(
-                  hintText: widget.reason ?? widget.hint,
-                  isDense: true,
-                ),
-              ),
-            ),
-          ),
-          Button.primary(
-            label: widget.label,
-            disabledReason: widget.reason,
-            onPressed: _can ? widget.onAsk : null,
-          ),
         ],
       ),
     );

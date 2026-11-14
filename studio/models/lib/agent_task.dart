@@ -4,6 +4,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 import 'plan_step.dart';
 import 'task_question.dart';
 import 'task_state.dart';
+import 'task_suggestion.dart';
 
 part 'agent_task.freezed.dart';
 
@@ -32,6 +33,19 @@ abstract class AgentTask with _$AgentTask {
 
     /// The task this one follows.
     String? parent,
+
+    /// What the model offers to ask next (ADR 0049 amendment).
+    @Default(IListConst([])) IList<TaskSuggestion> suggestions,
+
+    /// The follow-up task that took this one's place while it waited for
+    /// a person (`replaced_by`): its plan cannot be approved.
+    String? replacedBy,
+
+    /// What the model found after the run stopped (`review`).
+    String? review,
+
+    /// The model reads why the run stopped (`reviewing`).
+    @Default(false) bool reviewing,
 
     /// The record (`~state`) was read; before that only the state is known.
     @Default(false) bool recorded,

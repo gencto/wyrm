@@ -4,6 +4,7 @@ import '../../links/actions/retrieve_links_action.dart';
 import '../../tasks/actions/retrieve_task_record_action.dart';
 import '../../tasks/actions/retrieve_tasks_action.dart';
 import 'retrieve_agent_action.dart';
+import 'retrieve_agent_secrets_action.dart';
 
 /// Reads what the Assistant shows for the site on screen: the links (when
 /// none are known yet) to find the agent link, the agent, its tasks, and
@@ -18,6 +19,10 @@ class LoadAssistantAction extends Action {
     }
     await dispatchAndWait(RetrieveAgentAction());
     await dispatchAndWait(RetrieveTasksAction());
+    // What it may do is on screen: the secret names of this agent
+    if (assistant.panel == 'rights') {
+      await dispatchAndWait(RetrieveAgentSecretsAction());
+    }
     if (tasks.selectedTask case final id?) {
       await dispatchAndWait(RetrieveTaskRecordAction(id));
     }
