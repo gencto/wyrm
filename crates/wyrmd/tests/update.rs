@@ -77,7 +77,8 @@ fn slim(built: &str, name: &str) -> PathBuf {
     if size <= release::MAX_BINARY / 2 {
         return built;
     }
-    let copy = temp_dir("bins").join(name);
+    // a directory of its own: `temp_dir` empties the one it returns
+    let copy = temp_dir(&format!("bin-{name}")).join(name);
     let done = Command::new("strip")
         .arg("--strip-debug")
         .arg("-o")
