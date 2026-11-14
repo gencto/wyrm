@@ -105,6 +105,70 @@ void main() {
     await c.close();
   });
 
+  test('suggestions, replaced and review are read from a record', () async {
+    final record = VMap({
+      'state': const VStr('failed'),
+      'replaced_by': const VStr('t2-2'),
+      'review': const VStr('the device does not answer'),
+      'reviewing': const VBool(true),
+      'suggestions': VArray([
+        VMap({
+          'id': const VStr('s1'),
+          'label': const VStr('Try slave id 4'),
+          'detail': const VStr('3 is used by ahu-old'),
+          'changes': const VInt(1),
+          'step': const VInt(2),
+        }),
+        VMap({
+          'id': const VStr('s2'),
+          'label': const VStr('Same for more units'),
+          'detail': const VStr(''),
+          'changes': const VInt(2),
+          'rows': VArray([
+            VMap({'key': const VStr('wy/s/downstream/m/u4'), 'label': const VStr('unit 4'), 'detail': const VStr('ahu')}),
+            VMap({'key': const VStr('wy/s/downstream/m/u5'), 'label': const VStr('unit 5'), 'detail': const VStr('')}),
+          ]),
+        }),
+        const VStr('not a suggestion'),
+      ]),
+    });
+    final s = TaskSuggestion.of(record);
+    expect(s.length, 2);
+    expect((s[0].id, s[0].changes, s[0].step), ('s1', 1, 2));
+    expect(s[0].rows, isEmpty);
+    expect(s[0].ask(), 'Try slave id 4. 3 is used by ahu-old');
+    expect((s[1].step, s[1].rows.length, s[1].rows[0].key), (null, 2, 'wy/s/downstream/m/u4'));
+    expect(s[1].ask([s[1].rows[1]]), 'Same for more units\nFor: unit 5');
+    expect(replacedBy(record), 't2-2');
+    expect(reviewOf(record), 'the device does not answer');
+    expect(isReviewing(record), isTrue);
+    // the public value: a count, the task id, no text
+    final value = VMap({'state': const VStr('failed'), 'suggestions': const VInt(2), 'replaced_by': const VStr('t2-2')});
+    expect((suggestionCount(value), replacedBy(value), isReviewing(value)), (2, 't2-2', false));
+    // a record of an agent link older than the fields
+    final old = VMap({'state': const VStr('done'), 'plan': VArray(const [])});
+    expect(TaskSuggestion.of(old), isEmpty);
+    expect((replacedBy(old), reviewOf(old), isReviewing(old), suggestionCount(old)), (null, null, false, 0));
+    expect(TaskSuggestion.of(null), isEmpty);
+
+    // picking one is a follow-up ask: its text, the parent, the ticked rows as context
+    final conn = _Conn();
+    final c = FrameClient(conn);
+    await c.askSuggestion('wy/s/downstream/agent', 't1-1', s[1], rows: [s[1].rows[0]]).drain<void>();
+    expect(
+        conn.sent.last['args'],
+        VMap({
+          'task': const VStr('Same for more units\nFor: unit 4'),
+          'parent': const VStr('t1-1'),
+          'context': VArray([const VStr('wy/s/downstream/m/u4')]),
+        }));
+    await c.askSuggestion('wy/s/downstream/agent', 't1-1', s[0]).drain<void>();
+    expect(
+        conn.sent.last['args'],
+        VMap({'task': const VStr('Try slave id 4. 3 is used by ahu-old'), 'parent': const VStr('t1-1')}));
+    await c.close();
+  });
+
   test('an older gateway answers doc with unknown op', () async {
     final conn = _Conn();
     final c = FrameClient(conn);

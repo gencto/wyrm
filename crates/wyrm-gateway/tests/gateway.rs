@@ -1421,6 +1421,14 @@ async fn spawn_agent(env: &Env) -> LinkHandle<wyrm_link_agent::Agent> {
         ], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 10}}),
         json!({"content": [{"type": "text", "text": "Plan: three steps."}], "stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 10}}),
     ];
+    spawn_agent_with(env, script).await
+}
+
+/// An agent link whose model answers from `script`.
+async fn spawn_agent_with(
+    env: &Env,
+    script: Vec<serde_json::Value>,
+) -> LinkHandle<wyrm_link_agent::Agent> {
     env.gw.set_agent_links(vec!["agent".into()]);
     let mut lc = LinkConfig::new(SITE, "agent");
     lc.admin_keys = vec![env.gw.verifying_key()];
@@ -1681,6 +1689,135 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
 
     agent.stop().await;
     engine.stop().await;
+    env.stop().await;
+}
+
+/// ADR 0049, amendment of 2026-11-14: a user reads what the model offers (a fix for a
+/// step's warning, rows for "the same for more") through `doc`; a follow-up ask replaces
+/// the plan that waits, and the gateway signs nothing of a replaced plan.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_replaced_plan_is_not_signed_and_suggestions_are_read_through_doc() {
+    use serde_json::json;
+    let env = Env::start("replaced", wyrm_gateway::SESSION_TTL).await;
+    let call = |id: &str, name: &str, input: serde_json::Value| json!({"type": "tool_use", "id": id, "name": name, "input": input});
+    let usage = json!({"input_tokens": 10, "output_tokens": 10});
+    let end = json!({"content": [{"type": "text", "text": "Plan."}], "stop_reason": "end_turn", "usage": usage});
+    let script = vec![
+        json!({"content": [
+            call("t1", "propose", json!({"op": "set", "path": "downstream/mock/g0/p0", "value": 42.5, "warn": "g0 is in use"})),
+            call("s1", "suggest", json!({"label": "Use g1 instead", "detail": "g1 is free", "changes": 1, "step": 1})),
+            call("s2", "suggest", json!({"label": "Same for more", "changes": 1, "rows": [
+                {"path": "downstream/mock/g1/p1", "label": "p1"},
+            ]})),
+        ], "stop_reason": "tool_use", "usage": usage}),
+        end.clone(),
+        json!({"content": [
+            call("t1", "propose", json!({"op": "set", "path": "downstream/mock/g1/p1", "value": 7})),
+        ], "stop_reason": "tool_use", "usage": usage}),
+        end,
+    ];
+    let agent = spawn_agent_with(&env, script).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    let mut root = env.ws(&admin).await;
+    let ask = vec![
+        ("action", Value::from("ask")),
+        ("args", map([("task", Value::from("set a point"))])),
+    ];
+    let r = root.call("invoke", AGENT, ask).await;
+    assert!(is_ok(&r), "{r:?}");
+    let old = text(get(&r, "result"), "task");
+    let old_task = format!("{AGENT}/tasks/{old}");
+    let state = vec![("suffix", Value::from("~state"))];
+    let r = root.call("doc", &old_task, state.clone()).await;
+    let rec = get(&r, "result").clone();
+    let Value::Array(plan) = get(&rec, "plan") else {
+        panic!("plan: {rec:?}")
+    };
+    assert_eq!(text(&plan[0], "warn"), "g0 is in use");
+    let Value::Array(offered) = get(&rec, "suggestions") else {
+        panic!("suggestions: {rec:?}")
+    };
+    assert_eq!(offered.len(), 2, "{offered:?}");
+    assert_eq!(get(&offered[0], "step"), &Value::UInt(1));
+    assert_eq!(text(&offered[0], "label"), "Use g1 instead");
+    let Value::Array(rows) = get(&offered[1], "rows") else {
+        panic!("rows: {offered:?}")
+    };
+    assert_eq!(text(&rows[0], "key"), format!("{ROOT}/g1/p1"));
+    let hash = wyrm_gateway::approve::plan_hash(plan).unwrap();
+
+    // the person picks the fix: a follow-up ask with the fix as its text
+    let pick = format!(
+        "{}. {}",
+        text(&offered[0], "label"),
+        text(&offered[0], "detail")
+    );
+    let follow = vec![
+        ("action", Value::from("ask")),
+        (
+            "args",
+            map([
+                ("task", Value::from(pick.as_str())),
+                ("parent", Value::from(old.as_str())),
+            ]),
+        ),
+    ];
+    let r = root.call("invoke", AGENT, follow).await;
+    assert!(is_ok(&r), "{r:?}");
+    let new = text(get(&r, "result"), "task");
+    assert_eq!(text(get(&r, "result"), "state"), "awaiting_approval");
+    let new_task = format!("{AGENT}/tasks/{new}");
+
+    // the old plan: replaced in the record, and nothing of it is signed
+    let r = root.call("doc", &old_task, state.clone()).await;
+    let rec = get(&r, "result").clone();
+    assert_eq!(text(&rec, "state"), "failed");
+    assert_eq!(text(&rec, "replaced_by"), new);
+    let r = root
+        .call("invoke", &old_task, approve_args(&[1], &hash))
+        .await;
+    assert_eq!(err_status(&r), Some(Status::InvalidParameter), "{r:?}");
+    assert!(
+        err_message(&r).contains(&format!("replaced by {new}")),
+        "{r:?}"
+    );
+    assert!(
+        !env.audit
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, AuditEvent::Approved { .. })),
+        "no token was made for the replaced plan"
+    );
+    let p0 = env.link.as_ref().unwrap().ctx().last("g0/p0").unwrap().v;
+    assert_ne!(p0.as_f64(), Some(42.5));
+
+    // the new plan is approved as any plan
+    let r = root.call("doc", &new_task, state.clone()).await;
+    let rec = get(&r, "result").clone();
+    assert_eq!(text(&rec, "parent"), old);
+    let Value::Array(plan) = get(&rec, "plan") else {
+        panic!("plan: {rec:?}")
+    };
+    let hash = wyrm_gateway::approve::plan_hash(plan).unwrap();
+    let r = root
+        .call("invoke", &new_task, approve_args(&[1], &hash))
+        .await;
+    assert!(is_ok(&r), "{r:?}");
+    let mut rec = Value::Null;
+    for _ in 0..400 {
+        let r = root.call("doc", &new_task, state.clone()).await;
+        rec = get(&r, "result").clone();
+        if text(&rec, "state") != "running" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(text(&rec, "state"), "done", "{rec:?}");
+    let p1 = env.link.as_ref().unwrap().ctx().last("g1/p1").unwrap().v;
+    assert_eq!(p1.as_f64(), Some(7.0));
+
+    agent.stop().await;
     env.stop().await;
 }
 

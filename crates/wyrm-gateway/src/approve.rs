@@ -14,7 +14,8 @@
 //!    with the user's own token; the client names steps by number and nothing else of a
 //!    step comes from the client (`approvals` in the arguments means a caller with its own
 //!    keys: the call then goes through as it is);
-//! 2. the task is `awaiting_approval`, and the hash of the plan the gateway read (made here
+//! 2. the task was not replaced by a follow-up (`~state.replaced_by`: the answer names the
+//!    task that took its place) and is `awaiting_approval`, and the hash of the plan the gateway read (made here
 //!    from its steps, not taken from the record) is the hash the client made from the plan
 //!    the user saw (`args.plan`); the link checks the hash against its own plan again when
 //!    it takes the approval;
@@ -76,6 +77,8 @@ pub(crate) struct Request {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Plan {
     pub state: String,
+    /// The follow-up task that took this one's place: nothing of this plan is signed.
+    pub replaced_by: Option<String>,
     pub hash: String,
     pub steps: Vec<Step>,
 }
@@ -282,7 +285,12 @@ impl Plan {
                 "the task's plan_hash is not the hash of its plan",
             ));
         }
-        Ok(Self { state, hash, steps })
+        Ok(Self {
+            state,
+            replaced_by: text(m, "replaced_by").map(str::to_owned),
+            hash,
+            steps,
+        })
     }
 
     /// Rules 2–4 of the module: the steps to sign, each with its request. `may(key)` is the
@@ -292,6 +300,11 @@ impl Plan {
         ask: &Ask,
         may: impl Fn(&str) -> Perm,
     ) -> Result<Vec<(usize, &Request)>, Refusal> {
+        if let Some(by) = &self.replaced_by {
+            return Err(bad(format!(
+                "task was replaced by {by}: its plan is no longer approved; approve that task"
+            )));
+        }
         if self.state != "awaiting_approval" {
             return Err(bad(format!(
                 "task is {}, not awaiting_approval",
@@ -627,5 +640,18 @@ mod tests {
         done.state = "running".into();
         let e = done.select(&ask(&[1], "h1"), config).unwrap_err();
         assert_eq!(e.status, Status::InvalidParameter);
+        // a plan a follow-up replaced: nothing of it is signed, and the answer names the
+        // task to approve, even if the record still said it waits
+        let Value::Map(mut rec) = record("awaiting_approval", vec![set(1, A, "write", true)])
+        else {
+            unreachable!()
+        };
+        rec.insert("replaced_by".into(), Value::from("t2-2"));
+        let replaced = Plan::parse(&Value::Map(rec), "s").unwrap();
+        let e = replaced
+            .select(&ask(&[1], &replaced.hash), config)
+            .unwrap_err();
+        assert_eq!(e.status, Status::InvalidParameter);
+        assert!(e.message.contains("replaced by t2-2"), "{}", e.message);
     }
 }

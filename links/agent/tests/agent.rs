@@ -1693,3 +1693,423 @@ async fn a_stranger_approves_only_what_they_sign() {
     engine.stop().await;
     env.stop().await;
 }
+
+/// `ask {task, parent}` → the new task's id.
+async fn follow_up(client: &WyrmClient, text: &str, parent: &str) -> String {
+    let args = Value::Map(BTreeMap::from([
+        ("task".to_owned(), Value::from(text)),
+        ("parent".to_owned(), Value::from(parent)),
+    ]));
+    let mut s = client
+        .invoke("wy/test/downstream/agent", "ask", args)
+        .await
+        .unwrap();
+    let mut id = None;
+    while let Some(i) = s.next().await {
+        if let Some(v) = i.unwrap() {
+            id = field(&v, "task").or(id);
+        }
+    }
+    id.expect("the stream names the task")
+}
+
+fn items<'a>(v: &'a Value, k: &str) -> &'a [Value] {
+    match get(v, k) {
+        Value::Array(a) => a,
+        _ => &[],
+    }
+}
+
+/// ADR 0049, amendment of 2026-11-14 (gaps 1 and 3): the model's warning on a step, its
+/// fixes and the rows for "the same for more" are data in the record; a run that stops at
+/// a step gets one more read-only turn whose ways out replace them. The public `~val`
+/// carries their count and no word of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stopped_run_gets_ways_out_and_a_step_gets_fixes() {
+    let script = vec![
+        tool_use(&[
+            (
+                "t1",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 3,
+                       "warn": "p0 is read by another loop"}),
+            ),
+            (
+                "t2",
+                "propose",
+                json!({"op": "expect", "path": "downstream/mock/p0", "min": 100, "timeout_s": 0.3}),
+            ),
+            (
+                "s1",
+                "suggest",
+                json!({"label": "Write p1 instead", "detail": "nothing reads p1", "changes": 1, "step": 1}),
+            ),
+            (
+                "s2",
+                "suggest",
+                json!({"label": "Same for more points", "changes": 1, "rows": [
+                    {"path": "downstream/mock/p1", "label": "point 1", "detail": "same kind"},
+                ]}),
+            ),
+            // a fix for a step that is not there
+            ("s3", "suggest", json!({"label": "x", "step": 9})),
+        ]),
+        end("Plan: set p0 and prove it."),
+        // the turn after the run stopped
+        tool_use(&[
+            ("r1", "value_get", json!({"paths": ["downstream/mock/p0"]})),
+            (
+                "r2",
+                "suggest",
+                json!({"label": "Expect 3 instead", "detail": "the point holds 3", "changes": 0}),
+            ),
+            (
+                "r3",
+                "suggest",
+                json!({"label": "Set p0 to 100", "detail": "then the proof passes", "changes": 1}),
+            ),
+            // nothing is planned and nobody is asked in this turn
+            (
+                "r4",
+                "propose",
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 100}),
+            ),
+            ("r5", "ask_user", json!({"question": "again?"})),
+        ]),
+        end("p0 holds 3, below what the plan expects."),
+    ];
+    let env = Env::start(params(&["downstream/mock"]), script).await;
+    let human = env.human(Perm::Write);
+    let (id, _) = env.ask("set p0 and prove it").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+
+    // gap 3: the warning is on the step, its fix names the step
+    let warn = field(&plan_step(&doc, 0), "warn").unwrap();
+    assert!(warn.contains("read by another loop"), "{warn}");
+    let offered = items(&doc, "suggestions");
+    assert_eq!(offered.len(), 2, "{offered:?}");
+    assert_eq!(field(&offered[0], "id").as_deref(), Some("s1"));
+    assert_eq!(get(&offered[0], "step"), &Value::UInt(1));
+    assert_eq!(get(&offered[0], "changes"), &Value::UInt(1));
+    assert_eq!(
+        field(&offered[0], "label").as_deref(),
+        Some("Write p1 instead")
+    );
+    // the rows of "the same for more" are full node keys
+    let rows = items(&offered[1], "rows");
+    assert_eq!(
+        field(&rows[0], "key").as_deref(),
+        Some("wy/test/downstream/mock/p1")
+    );
+    assert_eq!(get(&offered[1], "step"), &Value::Null);
+    let seen = env.llm.seen();
+    let results = &seen[1]["messages"][2]["content"];
+    assert_eq!(results[2]["is_error"], false, "{results}");
+    assert_eq!(results[4]["is_error"], true, "{results}");
+    // the public value: a count, no word of the model
+    let pv = env.task(&id);
+    assert_eq!(get(&pv, "suggestions"), &Value::UInt(2));
+    let shown = format!("{pv:?}");
+    assert!(
+        !shown.contains("Write p1") && !shown.contains("another loop"),
+        "{shown}"
+    );
+    // what is said about a step is no part of the plan's hash
+    assert!(field(&doc, "plan_hash").is_some());
+
+    // gap 1: the run stops at step 2; the model reads and offers ways out
+    let k0 = format!("{P0}/~set");
+    env.task_action(
+        &human,
+        &id,
+        "approve",
+        approvals(&[("1", human_token("user:op", &k0))]),
+    )
+    .await
+    .unwrap();
+    env.wait_state(&id, "failed").await;
+    let mut doc = Value::Null;
+    for _ in 0..400 {
+        doc = env.doc(&id).await;
+        if field(&doc, "review").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        field(&doc, "review").as_deref(),
+        Some("p0 holds 3, below what the plan expects.")
+    );
+    assert_eq!(field(&doc, "state").as_deref(), Some("failed"));
+    assert!(
+        field(&doc, "error").unwrap().contains("step 2"),
+        "the run's error stays"
+    );
+    let ways = items(&doc, "suggestions");
+    let labels: Vec<_> = ways.iter().map(|w| field(w, "label").unwrap()).collect();
+    assert_eq!(
+        labels,
+        ["Expect 3 instead", "Set p0 to 100"],
+        "what planning offered is gone"
+    );
+    assert_eq!(get(&ways[0], "changes"), &Value::UInt(0));
+    assert_eq!(get(&ways[1], "changes"), &Value::UInt(1));
+    assert_eq!(get(&doc, "reviewing"), &Value::Null);
+    let pv = env.task(&id);
+    assert_eq!(get(&pv, "suggestions"), &Value::UInt(2));
+    assert_eq!(get(&pv, "reviewing"), &Value::Null);
+    assert!(!format!("{pv:?}").contains("Expect 3"), "{pv:?}");
+    // the turn had the read tools and `suggest` only, and was told what stopped
+    let seen = env.llm.seen();
+    let names: Vec<&str> = seen[2]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(names.contains(&"suggest") && names.contains(&"value_get"));
+    assert!(
+        !names.contains(&"propose") && !names.contains(&"ask_user"),
+        "{names:?}"
+    );
+    let first = seen[2]["messages"][0]["content"].as_str().unwrap();
+    assert!(
+        first.contains("stopped") && first.contains("not as expected"),
+        "{first}"
+    );
+    let results = &seen[3]["messages"][2]["content"];
+    assert_eq!(results[3]["is_error"], true, "propose: {results}");
+    assert_eq!(results[4]["is_error"], true, "ask_user: {results}");
+    assert_eq!(env.p0(), 3.0, "the turn changed nothing");
+    // a way out is a follow-up ask: the model gets what it offered
+    env.llm
+        .script
+        .lock()
+        .unwrap()
+        .push_back(end("Nothing to change."));
+    let next = follow_up(&human, "Expect 3 instead. the point holds 3", &id).await;
+    env.wait_state(&next, "done").await;
+    let seen = env.llm.seen();
+    let first = seen[4]["messages"][0]["content"].as_str().unwrap();
+    assert!(first.contains("Set p0 to 100"), "{first}");
+    assert_eq!(
+        field(&env.doc(&id).await, "replaced_by"),
+        None,
+        "a follow-up of a task that ended replaces nothing"
+    );
+    env.stop().await;
+
+    // no turn with `review_turns: 0`, and none after a cancel or a reject
+    let p = AgentParams {
+        review_turns: 0,
+        ..params(&["downstream/mock"])
+    };
+    let script = vec![
+        tool_use(&[(
+            "t1",
+            "propose",
+            json!({"op": "expect", "path": "downstream/mock/p0", "min": 100, "timeout_s": 0.2}),
+        )]),
+        end("Plan."),
+        end("never asked"),
+    ];
+    let env = Env::start(p, script).await;
+    let (id, _) = env.ask("prove p0").await.unwrap();
+    let doc = env.wait_state(&id, "failed").await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(env.llm.seen().len(), 2);
+    assert_eq!(field(&doc, "review"), None);
+    env.stop().await;
+}
+
+/// A suggestion is bounded and stays inside the rights of the task's asker: a row names a
+/// node the agent may read and the asker may read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_suggestion_is_bounded_and_inside_the_askers_rights() {
+    let row = |path: &str| json!({"label": "more", "rows": [{"path": path, "label": "a point"}]});
+    let long = "x".repeat(500);
+    let mut calls: Vec<(String, Json)> = vec![
+        // the asker may not read p1; outside what the agent reads; a row twice; no label
+        ("b1".into(), row("downstream/mock/p1")),
+        ("b2".into(), row("sys/links")),
+        (
+            "b3".into(),
+            json!({"label": "twice", "rows": [
+                {"path": "downstream/mock/p0", "label": "a"},
+                {"path": "wy/test/downstream/mock/p0", "label": "b"},
+            ]}),
+        ),
+        ("b4".into(), json!({"detail": "no label"})),
+        ("b5".into(), json!({"label": "many", "changes": 51})),
+        ("ok1".into(), row("downstream/mock/p0")),
+        ("ok2".into(), json!({"label": long, "detail": long})),
+    ];
+    for i in 3..=9 {
+        calls.push((format!("ok{i}"), json!({"label": format!("way {i}")})));
+    }
+    let calls: Vec<(&str, &str, Json)> = calls
+        .iter()
+        .map(|(id, input)| (id.as_str(), "suggest", input.clone()))
+        .collect();
+    let env = Env::start(
+        params(&["downstream/mock"]),
+        vec![tool_use(&calls), end("Nothing to change.")],
+    )
+    .await;
+    let g = |k: &str, p: Perm| wyrm_core::ptok::Grant { k: k.into(), p };
+    let narrow = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(
+            SigningTokens::new(test_key(), SITE)
+                .subject("user:x")
+                .grants(vec![
+                    g("wy/test/downstream/agent/**", Perm::Write),
+                    g("wy/test/downstream/mock/p0/**", Perm::Read),
+                ]),
+        ));
+    let (id, _) = env.ask_with(&narrow, "what else?").await.unwrap();
+    env.wait_state(&id, "done").await;
+    let key = format!("wy/test/downstream/agent/tasks/{id}/~state");
+    let doc = env
+        .doc_with(&id, Some(human_token("user:op", &key)))
+        .await
+        .unwrap();
+    let seen = env.llm.seen();
+    let results = seen[1]["messages"][2]["content"].as_array().unwrap();
+    let refused: Vec<bool> = results
+        .iter()
+        .map(|r| r["is_error"].as_bool().unwrap())
+        .collect();
+    // five bad ones, eight taken, the ninth is one too many
+    let mut want = vec![true; 5];
+    want.extend([false; 8]);
+    want.push(true);
+    assert_eq!(refused, want, "{results:?}");
+    assert!(
+        results[0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("may not read"),
+        "{}",
+        results[0]
+    );
+    let offered = items(&doc, "suggestions");
+    assert_eq!(offered.len(), 8);
+    assert_eq!(
+        field(&items(&offered[0], "rows")[0], "key").as_deref(),
+        Some(P0)
+    );
+    let (label, detail) = (
+        field(&offered[1], "label").unwrap(),
+        field(&offered[1], "detail").unwrap(),
+    );
+    assert!(label.len() < 100 && detail.len() < 320, "{label} {detail}");
+    assert_eq!(get(&env.task(&id), "suggestions"), &Value::UInt(8));
+    env.stop().await;
+}
+
+/// ADR 0049, amendment of 2026-11-14 (gap 2): a follow-up of a task that waits for a
+/// person takes its place. The old task ends as `failed` with `replaced_by`, in the record
+/// and in the public value, and its plan cannot be approved any more; a follow-up of a
+/// task that ended replaces nothing. The mark survives a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_follow_up_replaces_a_task_that_waits_for_a_person() {
+    let mut script = set_p0_script(42.0);
+    script.extend(set_p0_script(43.0));
+    // a follow-up of the done task asks back; the follow-up of that one ends at once
+    script.push(tool_use(&[(
+        "q",
+        "ask_user",
+        json!({"question": "Which one?", "options": [{"id": "a", "label": "p0"}]}),
+    )]));
+    script.push(end("Nothing to do."));
+    let dir = temp_dir("replaced");
+    let mut env = Env::start_in(params(&["downstream/mock"]), script, Some(dir.clone())).await;
+    let human = env.human(Perm::Write);
+    let before = env.p0();
+    let (old, _) = env.ask("set p0 to 42").await.unwrap();
+    env.wait_state(&old, "awaiting_approval").await;
+
+    let new = follow_up(&human, "make it 43", &old).await;
+    env.wait_state(&new, "awaiting_approval").await;
+    let doc = env.wait_state(&old, "failed").await;
+    assert_eq!(field(&doc, "replaced_by"), Some(new.clone()));
+    assert_eq!(field(&doc, "error"), Some(format!("replaced by {new}")));
+    assert_eq!(plan_len(&doc), 1, "the old plan stays readable");
+    let pv = env.task(&old);
+    assert_eq!(field(&pv, "replaced_by"), Some(new.clone()));
+    assert_eq!(field(&env.doc(&new).await, "parent"), Some(old.clone()));
+    assert_eq!(field(&env.task(&new), "replaced_by"), None);
+
+    // the old plan is not approved, with a good token and by its asker
+    let k0 = format!("{P0}/~set");
+    let approve = || approvals(&[("1", human_token("user:op", &k0))]);
+    let e = env
+        .task_action(&human, &old, "approve", approve())
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    assert!(e.to_string().contains(&format!("replaced by {new}")), "{e}");
+    assert_eq!(env.p0(), before);
+    for action in ["reject", "cancel"] {
+        let e = env
+            .task_action(&human, &old, action, Value::Map(BTreeMap::new()))
+            .await
+            .unwrap_err();
+        assert!(e.is(Status::InvalidParameter), "{action}: {e}");
+    }
+
+    // after a restart too
+    env.restart_agent(vec![
+        tool_use(&[(
+            "q",
+            "ask_user",
+            json!({"question": "Which one?", "options": [{"id": "a", "label": "p0"}]}),
+        )]),
+        end("Nothing to do."),
+    ])
+    .await;
+    let doc = env.doc(&old).await;
+    assert_eq!(field(&doc, "state").as_deref(), Some("failed"));
+    assert_eq!(field(&doc, "replaced_by"), Some(new.clone()));
+    assert_eq!(field(&env.task(&old), "replaced_by"), Some(new.clone()));
+    let e = env
+        .task_action(&human, &old, "approve", approve())
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("replaced by"), "{e}");
+
+    // the new plan runs
+    env.task_action(&human, &new, "approve", approve())
+        .await
+        .unwrap();
+    env.wait_state(&new, "done").await;
+    assert_eq!(env.p0(), 43.0);
+
+    // a follow-up of a task that ended replaces nothing; one of a task that waits for an
+    // answer ends the wait
+    let asks = follow_up(&human, "and one more", &new).await;
+    env.wait_state(&asks, "awaiting_answer").await;
+    let doc = env.doc(&new).await;
+    assert_eq!(field(&doc, "state").as_deref(), Some("done"));
+    assert_eq!(field(&doc, "replaced_by"), None);
+    let last = follow_up(&human, "never mind", &asks).await;
+    env.wait_state(&last, "done").await;
+    let doc = env.wait_state(&asks, "failed").await;
+    assert_eq!(field(&doc, "replaced_by"), Some(last.clone()));
+    let answers = Value::Map(BTreeMap::from([(
+        "text".to_owned(),
+        Value::from("the first one"),
+    )]));
+    let e = human
+        .invoke_one(
+            &format!("wy/test/downstream/agent/tasks/{asks}"),
+            "answer",
+            answers,
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::InvalidParameter), "{e}");
+    env.stop().await;
+    let _ = std::fs::remove_dir_all(dir);
+}
