@@ -580,16 +580,11 @@ void main() {
       [for (final o in a.options) (o.id, o.label, o.detail)],
       [('u3', 'Slave ID 3', 'answers'), ('u4', 'Slave ID 4', '')],
     );
-    expect(
-      (b.multiple, b.answered, b.picked.unlock),
-      (
-        true,
-        true,
-        ['supply', 'fan'],
-      ),
-    );
+    expect((b.multiple, b.answered), (true, true));
+    expect(b.picked, ['supply', 'fan']);
     expect((c.answered, c.words), (true, 'because'));
-    expect((d.answered, d.picked.unlock, d.words), (true, <String>[], null));
+    expect((d.answered, d.words), (true, null));
+    expect(d.picked, isEmpty);
   });
 
   test('an answer is sent only for a task that waits for one', () async {
