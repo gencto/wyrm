@@ -50,6 +50,20 @@ impl wyrm_link_sdk::Link for Plant {
             )
             .await?;
         }
+        // a file argument at config: sent over `POST /api/invoke`
+        ctx.declare_action(
+            "",
+            "load",
+            ActionMeta::new()
+                .param(
+                    "file",
+                    wyrm_core::meta::ParamMeta::of(TypeCode::Binary)
+                        .editor(wyrm_core::meta::EDITOR_FILE),
+                )
+                .result(ActionResult::Type(TypeCode::String))
+                .level(Perm::Config),
+        )
+        .await?;
         Ok(Plant)
     }
 
@@ -649,6 +663,40 @@ async fn replays_and_forgeries_are_refused() {
     let id = env.register_ok(&pw, &key).await;
     let origin = env.origin();
 
+    // a device id not of the id form is refused at once, never audited (review H1)
+    let before = env.audit().len();
+    let big = "d".repeat(60 * 1024);
+    for path in ["/api/device/login", "/api/device/challenge"] {
+        let (st, _) = env
+            .post(
+                path,
+                None,
+                obj(vec![
+                    ("device", Value::from(big.as_str())),
+                    ("origin", Value::from(origin.as_str())),
+                    ("nonce", Value::Bytes(vec![0; 56])),
+                    ("signature", Value::Bytes(vec![0; 8])),
+                ]),
+            )
+            .await;
+        assert_eq!(st, 400, "{path}");
+    }
+    let (st, _) = env
+        .post(
+            "/api/device/confirm",
+            Some(&pw),
+            obj(vec![
+                ("device", Value::from(big.as_str())),
+                ("origin", Value::from(origin.as_str())),
+                ("nonce", Value::Bytes(vec![0; 56])),
+                ("request", Value::Bytes(vec![0; 32])),
+                ("signature", Value::Bytes(vec![0; 8])),
+            ]),
+        )
+        .await;
+    assert_eq!(st, 400);
+    assert_eq!(env.audit().len(), before, "nothing audited");
+
     // a nonce for an unknown device looks like one for a known device (security review of
     // PR 86, item 2), and nonces anyone asks for the device do not replace the one held
     let held = env.challenge(Some(&id), None).await;
@@ -1045,6 +1093,31 @@ async fn a_schema_4_users_store_opens() {
         Some(&gw.user("olena").unwrap().hash)
     ));
     drop(gw);
+    // devices can be added to it, and are there after a reopen
+    {
+        let mut s = wyrm_state::Store::<wyrm_gateway::users::UserDb>::open(
+            dir.join("users"),
+            b"fixture state key",
+        )
+        .unwrap();
+        s.apply(wyrm_gateway::users::Op::AddDevice {
+            id: "0123456789abcdef0123456789abcdef".into(),
+            user: "olena".into(),
+            name: "Mac".into(),
+            platform: "macos".into(),
+            alg: "es256".into(),
+            public_key: Key::p256().public(),
+            attestation: None,
+            at: 1,
+        })
+        .unwrap();
+    }
+    let mut cfg = GatewayConfig::new(SITE, &dir, "127.0.0.1:0".parse().unwrap());
+    cfg.devices = DevicePolicy::default();
+    let gw = Gateway::open(cfg, b"fixture state key").unwrap();
+    assert_eq!(gw.active_devices("olena"), 1);
+    assert_eq!(gw.devices_of("olena", None).len(), 1);
+    drop(gw);
     // a different state key: the store refuses it rather than losing its users
     let mut cfg = GatewayConfig::new(SITE, &dir, "127.0.0.1:0".parse().unwrap());
     cfg.devices = DevicePolicy::default();
@@ -1079,5 +1152,143 @@ async fn a_step_up_hash_holds_no_password() {
         seen.push(bytes(&v, "request"));
     }
     assert_eq!(seen[0], seen[1]);
+    env.stop().await;
+}
+
+/// Security review of PR 86, M1: with `step_up: config`, the tokens of a session that is
+/// not confirmed reach `write` at most, so a responder that does more for a `config` token
+/// gets none; a confirmed session gets the user's `config`.
+#[tokio::test(flavor = "multi_thread")]
+async fn tokens_of_an_unconfirmed_session_stop_at_write() {
+    use wyrm_client::TokenSource as _;
+    let policy = DevicePolicy {
+        step_up: StepUp::Config,
+        fresh_s: 2,
+        ..DevicePolicy::default()
+    };
+    let (env, _) = start("tokencap", policy).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    let max = |gw: &Gateway| {
+        let p = gw.authenticate(&admin).unwrap();
+        let tok = gw
+            .tokens_for(&p)
+            .token(&format!("wy/{SITE}/downstream/dql/~act/add_query"))
+            .unwrap();
+        let parts = wyrm_core::ptok::split(&tok).unwrap();
+        from_slice::<wyrm_core::PtokClaims>(parts.claims)
+            .unwrap()
+            .max
+    };
+    assert_eq!(max(&env.gw), Perm::Config, "just logged in");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(max(&env.gw), Perm::Write, "not confirmed");
+    let (st, _) = env
+        .post(
+            "/api/confirm",
+            Some(&admin),
+            obj(vec![("password", Value::from(ADMIN_PW))]),
+        )
+        .await;
+    assert_eq!(st, 200);
+    assert_eq!(max(&env.gw), Perm::Config, "confirmed");
+    env.stop().await;
+}
+
+/// Review of PR 86: the step-up on `POST /api/invoke` (a file action at config), on an
+/// admin removing another user's device, and a confirm signed over another request (L3).
+#[tokio::test(flavor = "multi_thread")]
+async fn step_up_covers_http_invoke_device_removal_and_binds_the_request() {
+    let policy = DevicePolicy {
+        step_up: StepUp::Config,
+        fresh_s: 3,
+        ..DevicePolicy::default()
+    };
+    let (env, _) = start("stepup-http", policy).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    let key = Key::p256();
+    let id = env.register_ok(&admin, &key).await;
+    env.add_user(&admin, "olena", &["operator"]).await;
+    let pw = env.session("olena", USER_PW).await;
+    let theirs = env.register_ok(&pw, &Key::p256()).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+
+    // /api/invoke of a config action with a file
+    let path = format!("/api/invoke?key=wy/{SITE}/downstream/plant&action=load");
+    let args = obj(vec![("file", Value::Bytes(vec![1, 2, 3]))]);
+    let (st, v) = env.post(&path, Some(&admin), args.clone()).await;
+    assert_eq!(
+        (st, code(&v).as_deref()),
+        (403, Some("confirm_required")),
+        "{v:?}"
+    );
+    // a signature over another request than the one named is refused (L3)
+    let nonce = bytes(&v, "nonce");
+    assert_eq!(bytes(&v, "request").len(), 32);
+    let other = vec![9u8; 32];
+    let sig = key.sign(&confirm_message(
+        SITE,
+        &env.origin(),
+        "root",
+        &id,
+        &nonce,
+        &other,
+    ));
+    let confirm = |nonce: &[u8], request: &[u8], sig: Vec<u8>| {
+        obj(vec![
+            ("device", Value::from(id.as_str())),
+            ("origin", Value::from(env.origin())),
+            ("nonce", Value::Bytes(nonce.to_vec())),
+            ("request", Value::Bytes(request.to_vec())),
+            ("signature", Value::Bytes(sig)),
+        ])
+    };
+    let (st, _) = env
+        .post(
+            "/api/device/confirm",
+            Some(&admin),
+            confirm(&nonce, &other, sig),
+        )
+        .await;
+    assert_eq!(st, 401, "another request");
+    // an admin removing another user's device is asked too
+    let (st, v) = env
+        .http(
+            "DELETE",
+            &format!("/api/devices/{theirs}"),
+            Some(&admin),
+            None,
+        )
+        .await;
+    assert_eq!(
+        (st, code(&v).as_deref()),
+        (403, Some("confirm_required")),
+        "{v:?}"
+    );
+    // the owner turning off their own device is not
+    let (st, _) = env
+        .http("DELETE", &format!("/api/devices/{theirs}"), Some(&pw), None)
+        .await;
+    assert_eq!(st, 200, "own device");
+    // confirmed over the request it names: the invoke goes through
+    let (_, v) = env.post(&path, Some(&admin), args.clone()).await;
+    let (nonce, request) = (bytes(&v, "nonce"), bytes(&v, "request"));
+    let sig = key.sign(&confirm_message(
+        SITE,
+        &env.origin(),
+        "root",
+        &id,
+        &nonce,
+        &request,
+    ));
+    let (st, v) = env
+        .post(
+            "/api/device/confirm",
+            Some(&admin),
+            confirm(&nonce, &request, sig),
+        )
+        .await;
+    assert_eq!(st, 200, "{v:?}");
+    let (st, v) = env.post(&path, Some(&admin), args).await;
+    assert_eq!(st, 200, "{v:?}");
     env.stop().await;
 }
