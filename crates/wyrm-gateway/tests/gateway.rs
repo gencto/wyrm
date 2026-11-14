@@ -1992,6 +1992,23 @@ async fn approving_a_config_step_needs_the_step_up() {
         .call("invoke", &task, approve_args(&[1, 3], &hash))
         .await;
     assert!(is_ok(&r), "{r:?}");
+    // a deploy by a user whose grant is below config is asked too: only the deploy rule
+    // catches it (the action's level alone would leave it to the engine)
+    let ap = env.add_user(&admin, "ap", &["approver"]).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let mut ap = env.ws(&ap).await;
+    let r = ap
+        .call(
+            "invoke",
+            &format!("wy/{SITE}/dataflows"),
+            vec![("action", Value::from("deploy")), ("args", map([]))],
+        )
+        .await;
+    assert_eq!(
+        get(get(&r, "error"), "code"),
+        &Value::from("confirm_required"),
+        "{r:?}"
+    );
     agent.stop().await;
     engine.stop().await;
     env.stop().await;
