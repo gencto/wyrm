@@ -264,6 +264,7 @@ class _StateChangeObserver implements StateObserver<AppState> {
       if (prev.backups != next.backups) 'backups',
       if (prev.brokerUpdate != next.brokerUpdate) 'brokerUpdate',
       if (prev.device != next.device) 'device',
+      if (prev.discovery != next.discovery) 'discovery',
     ];
   }
 }

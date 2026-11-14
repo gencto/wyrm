@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Find on this network (ADR 0050 §2.4): DNS-SD needs the network and
+         a multicast lock while it browses (bonsoir takes and releases it). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <application
         android:label="WYRM Studio"
         android:name="${applicationName}"

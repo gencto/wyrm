@@ -68,5 +68,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>WYRM Studio looks for broker gateways on the local network when you choose Find on this network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_wyrm._tcp</string>
+	</array>
 </dict>
 </plist>

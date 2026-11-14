@@ -3,10 +3,12 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  bonsoir_windows
   connectivity_plus
   device_key
   file_selector_windows
   screen_retriever_windows
+  url_launcher_windows
   window_manager
 )
 

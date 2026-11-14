@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'discovery.dart';
+
 /// Who the gateway says the user is (`GET /api/me`).
 final class WhoAmI {
   const WhoAmI({
@@ -193,18 +195,20 @@ abstract interface class WyrmLogin {
 
 /// The real login: `WyrmGateway.loginAny` and a reconnecting client.
 ///
-/// Every `HttpClient` it opens comes from [_client], the one place a
-/// gateway's trust (a pinned CA, ADR 0050 §2.3) plugs in.
+/// Every connection goes through [trust]: an origin with a pinned CA
+/// trusts that CA alone, and its name may stand for an address
+/// (ADR 0050 §2.3, decision 10). The probe of login.md §6 uses the same
+/// client, so a pinned gateway answers it, and so do the device calls of
+/// ADR 0050 §1 (`/api/info`, the device login, and every call of a session
+/// made by it: register, unlock, confirm, the device list).
 final class GatewayLogin implements WyrmLogin {
-  const GatewayLogin();
+  const GatewayLogin({this.trust});
 
-  HttpClient _client({Duration? timeout}) {
-    final c = HttpClient();
-    if (timeout != null) {
-      c.connectionTimeout = timeout;
-    }
-    return c;
-  }
+  /// The pins in force when a connection opens; none when null.
+  final GatewayTrust Function()? trust;
+
+  HttpClient _client({Duration? timeout}) =>
+      (trust?.call() ?? const GatewayTrust()).client(timeout: timeout);
 
   @override
   Future<WyrmSession> open(
