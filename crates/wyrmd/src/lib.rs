@@ -2360,11 +2360,17 @@ mod tests {
         assert!(e.contains("updates.channel"), "{e}");
         assert!(!e.contains("tok") && !e.contains("abc"), "{e}");
         let copy = masked_config(&path).unwrap();
-        for secret in ["user", "tok", "sig", "abc"] {
-            assert!(!copy.contains(secret), "{secret} in {copy}");
-        }
-        assert!(copy.contains("host.example"), "{copy}");
-        assert!(copy.contains("external"), "{copy}");
+        // no part of the credential is in the copy (the copy is not printed)
+        let leaked = ["user", "tok", "sig", "abc"]
+            .iter()
+            .filter(|part| copy.contains(*part))
+            .count();
+        assert_eq!(
+            leaked, 0,
+            "parts of the URL's credential in the config copy"
+        );
+        assert!(copy.contains("host.example"), "the host is shown");
+        assert!(copy.contains("external"), "the mode is shown");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

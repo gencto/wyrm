@@ -1,6 +1,6 @@
 //! The broker's own update end to end (ADR 0048 §2): two real `wyrmd`
 //! binaries of different versions (the one of this build and
-//! `examples/wyrmd_next`), the install layout, the guard, and this test in
+//! `wyrmd_next`), the install layout, the guard, and this test in
 //! the place of the supervisor (`ExecStartPre` the guard, `ExecStart`
 //! `<prefix>/current/wyrmd`, `Restart=always`).
 #![cfg(unix)]
@@ -64,60 +64,10 @@ fn temp_dir(name: &str) -> PathBuf {
     d.canonicalize().unwrap()
 }
 
-/// The newest change of a source file of the workspace's crates and links.
-fn newest_source() -> std::time::SystemTime {
-    fn walk(dir: &Path, newest: &mut std::time::SystemTime) {
-        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            let (path, name) = (e.path(), e.file_name());
-            let name = name.to_string_lossy();
-            if path.is_dir() {
-                if name != "target" && !name.starts_with('.') {
-                    walk(&path, newest);
-                }
-            } else if name.ends_with(".rs") || name == "Cargo.toml" {
-                if let Ok(t) = e.metadata().and_then(|m| m.modified()) {
-                    *newest = (*newest).max(t);
-                }
-            }
-        }
-    }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut newest = std::time::UNIX_EPOCH;
-    walk(&root.join("crates"), &mut newest);
-    walk(&root.join("links"), &mut newest);
-    newest
-}
-
-/// The second binary: `examples/wyrmd_next.rs`. `cargo test` builds the
-/// examples of the package; a run of this test file alone (`--test update`)
-/// does not, so it is built here when it is missing or older than the
-/// sources.
+/// The second binary (`src/bin/wyrmd_next.rs`), built by cargo for this
+/// test like `wyrmd` itself.
 fn next_bin() -> PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    let debug = exe.parent().and_then(Path::parent).unwrap();
-    let bin = debug.join("examples").join("wyrmd_next");
-    static BUILT: std::sync::Once = std::sync::Once::new();
-    BUILT.call_once(|| {
-        let fresh = std::fs::metadata(&bin)
-            .and_then(|m| m.modified())
-            .is_ok_and(|t| t >= newest_source());
-        if fresh {
-            return;
-        }
-        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-        let mut build = Command::new(cargo);
-        build.args(["build", "-p", "wyrmd", "--example", "wyrmd_next"]);
-        if debug.file_name().is_some_and(|n| n == "release") {
-            build.arg("--release");
-        }
-        let status = build
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .status()
-            .expect("cargo build --example wyrmd_next");
-        assert!(status.success(), "cargo build --example wyrmd_next");
-    });
-    assert!(bin.is_file(), "{}: not built", bin.display());
-    bin
+    PathBuf::from(env!("CARGO_BIN_EXE_wyrmd_next"))
 }
 
 async fn eventually<T, F, Fut>(what: &str, secs: u64, mut f: F) -> T

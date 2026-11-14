@@ -7514,6 +7514,7 @@ dependencies = [
  "wyrm-state",
  "wyrm-storage",
  "wyrm-wasm-host",
+ "wyrmd",
  "x509-parser",
  "zenoh",
  "zenoh-plugin-rest",

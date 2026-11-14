@@ -263,7 +263,10 @@ async fn run(args: Args) -> Result<(), Error> {
             let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
             for d in &cfg.peers.downstream {
                 let f = wyrm_admin::control::broker_cert_in(&pki, &cfg.data_dir, &d.site)?;
-                eprintln!("{}: {} {}", d.site, f.cert.display(), f.key.display());
+                // the certificate's place; its private key is the file
+                // `broker.key` in the same directory
+                let dir = f.cert.parent().unwrap_or(&cfg.data_dir);
+                eprintln!("{}: broker.pem and broker.key in {}", d.site, dir.display());
             }
             println!("{}", pki.ca_path().display());
             return Ok(());

@@ -170,7 +170,7 @@ pub fn update_config(cfg: &Config) -> Result<UpdateConfig, String> {
 }
 
 /// A build that says it is another version than the workspace's: for the
-/// tests of the update alone (`examples/wyrmd_next.rs`). `wyrmd` itself
+/// tests of the update alone (`src/bin/wyrmd_next.rs`). `wyrmd` itself
 /// never makes one.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TestBuild {

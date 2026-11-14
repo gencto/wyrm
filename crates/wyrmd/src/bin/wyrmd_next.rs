@@ -1,7 +1,8 @@
 //! A second `wyrmd` binary for the tests of the broker's own update (ADR
-//! 0048 §2, `tests/e2e.rs`): the same broker, built as another executable,
-//! that says it is a later version. `cargo test` builds examples; a release
-//! build of `wyrmd` does not, so this never ships.
+//! 0048 §2, `tests/update.rs`): the same broker, built as another
+//! executable, that says it is a later version. It is built only with the
+//! feature `test-next`, which the crate's tests turn on; a build of
+//! `wyrmd` does not have it, so this never ships.
 //!
 //! It is version 0.2.0 unless a file `test-build.json` sits beside it
 //! (`{"version": "0.3.0", "schema_bump": {"registry": 1}}`): the tests put
