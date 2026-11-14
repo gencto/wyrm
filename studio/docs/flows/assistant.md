@@ -57,9 +57,10 @@ sequenceDiagram
         VM->>+A1: dispatchAndWait
         Note over A1: TaskRows · NonReentrant · WaitingAction · async
         A1->>ST: copyWith(assistant.picks, assistant.draft)
+        A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+        A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
         A1->>ST: dispatchSync(AddTaskEventAction)
-        A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
-        A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+        A1->>ST: dispatchSync(AddTaskEventAction)
         A1-->>-VM: ActionStatus
     end
 ```

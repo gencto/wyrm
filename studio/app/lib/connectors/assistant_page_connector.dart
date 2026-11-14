@@ -161,7 +161,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
               if (agent != null)
                 ConversationEventVm(kind: .text, text: S.current.noTasks),
             ]
-          : _conversation(events.isEmpty ? _fromLog(task) : events),
+          : _conversation(events.isEmpty ? conversationOf(task) : events),
       plan: task == null || task.plan.isEmpty ? null : _plan(task, choices),
       onTick: id == null || choices == null
           ? null
@@ -338,20 +338,6 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
   bool get _approving => assistant.isApproving;
 
   bool get _loading => assistant.isWaiting || links.isWaiting;
-
-  /// The conversation of a task asked in another session, from its record:
-  /// the ask, then the log (`model: …` lines as the model's, `proposed …`
-  /// and the like as what it did, `failed: …` as the error).
-  static List<TaskEvent> _fromLog(AgentTask t) => [
-    if (t.ask.isNotEmpty) TaskEvent(kind: 'ask', text: t.ask),
-    for (final l in t.log)
-      if (l.startsWith('model: '))
-        TaskEvent(kind: 'text', text: l.substring(7))
-      else if (l.startsWith('failed: '))
-        TaskEvent(kind: 'error', text: l.substring(8))
-      else if (!l.startsWith('asked by '))
-        TaskEvent(kind: 'note', text: l),
-  ];
 
   /// The task's plan as it is approved: every step with its full key and
   /// every argument (docs/agent.md: never only the model's reason).

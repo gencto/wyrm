@@ -1,8 +1,10 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/agent_task.dart';
 import 'package:models/task_event.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
+import '../../../wyrm/mappers/agent_task_mapper.dart';
 import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -55,16 +57,6 @@ class AnswerTaskAction extends Action
                 for (final o in q.options)
                   if (ids.contains(o.id)) o.label,
           ].join(', ');
-    dispatchSync(
-      AddTaskEventAction(
-        id,
-        TaskEvent(
-          kind: words != null && words.isNotEmpty ? 'ask' : 'answer',
-          text: said,
-          time: DateTime.now(),
-        ),
-      ),
-    );
     try {
       await for (final r in deps.wyrm.answerTask(
         key,
@@ -72,9 +64,11 @@ class AnswerTaskAction extends Action
         text: words != null && words.isNotEmpty ? words : null,
       )) {
         if (str(r['task']) != null) {
+          _said(task, said, words);
           takeTaskRow(id, r);
         }
       }
+      _said(task, said, words);
     } on WyrmException catch (e) {
       // the task may have moved on (answered elsewhere, a restart): the
       // record says where it is
@@ -93,6 +87,35 @@ class AnswerTaskAction extends Action
       picks: picks,
       // the words were sent: the box is free
       draft: words != null && words.isNotEmpty ? null : assistant.draft,
+    );
+  }
+
+  var _told = false;
+
+  /// The answer as a line of the conversation, once the call was taken
+  /// (its first row, or its end): a refused answer leaves no line. A task
+  /// opened from its record has no events of this session yet: its
+  /// conversation so far ([conversationOf], the record before the answer)
+  /// comes first, so it does not vanish when the session's events start.
+  void _said(AgentTask task, String said, String? words) {
+    if (_told) {
+      return;
+    }
+    _told = true;
+    if (tasks.events[id]?.isEmpty ?? true) {
+      for (final e in conversationOf(task)) {
+        dispatchSync(AddTaskEventAction(id, e));
+      }
+    }
+    dispatchSync(
+      AddTaskEventAction(
+        id,
+        TaskEvent(
+          kind: words != null && words.isNotEmpty ? 'ask' : 'answer',
+          text: said,
+          time: DateTime.now(),
+        ),
+      ),
     );
   }
 }

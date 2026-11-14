@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/step_result.dart';
+import 'package:models/task_event.dart';
 import 'package:models/task_option.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
@@ -182,3 +183,18 @@ PlanStep planStepOf(Value v, [int place = 0]) {
           ),
   );
 }
+
+/// The conversation of a task asked in another session (or before a
+/// restart of Studio), from its record: the ask, then the log (`model: …`
+/// lines as the model's, `proposed …` and the like as what it did,
+/// `failed: …` as the error).
+List<TaskEvent> conversationOf(AgentTask t) => [
+  if (t.ask.isNotEmpty) TaskEvent(kind: 'ask', text: t.ask),
+  for (final l in t.log)
+    if (l.startsWith('model: '))
+      TaskEvent(kind: 'text', text: l.substring(7))
+    else if (l.startsWith('failed: '))
+      TaskEvent(kind: 'error', text: l.substring(8))
+    else if (!l.startsWith('asked by '))
+      TaskEvent(kind: 'note', text: l),
+];
