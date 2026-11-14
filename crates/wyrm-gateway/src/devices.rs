@@ -348,9 +348,37 @@ pub(crate) enum Refused {
 /// What a nonce may be used for; it is part of the nonce's MAC, never stored.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Purpose {
-    Login { device: String },
-    Register { user: String, jti: [u8; 16] },
-    Confirm { user: String, jti: [u8; 16] },
+    Login {
+        device: String,
+    },
+    Register {
+        user: String,
+        jti: [u8; 16],
+    },
+    /// Bound to the hash of the refused request (security review of PR 86, L3): the
+    /// device signs, and the audit keeps, exactly the request the gateway named.
+    Confirm {
+        user: String,
+        jti: [u8; 16],
+        request: [u8; 32],
+    },
+}
+
+/// How spending a nonce went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Spend {
+    Ok,
+    /// Not made here for this purpose, expired, or spent before.
+    Refused,
+    /// The table of spent nonces is full (security review of PR 86, L2): `busy`, not a
+    /// failure of the caller.
+    Busy,
+}
+
+/// The device id form (`POST /api/devices` makes 128-bit ids in hex): anything else is
+/// refused before a limiter or the audit sees it (security review of PR 86, H1).
+pub fn valid_device_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 impl Purpose {
@@ -362,10 +390,11 @@ impl Purpose {
                 Value::from(user.as_str()),
                 Value::Bytes(jti.to_vec()),
             ],
-            Purpose::Confirm { user, jti } => vec![
+            Purpose::Confirm { user, jti, request } => vec![
                 Value::from("confirm"),
                 Value::from(user.as_str()),
                 Value::Bytes(jti.to_vec()),
+                Value::Bytes(request.to_vec()),
             ],
         };
         array(v)
@@ -388,6 +417,7 @@ const MAX_SPENT: usize = 100_000;
 pub(crate) struct Nonces {
     key: Zeroizing<[u8; 32]>,
     spent: Mutex<HashMap<[u8; 16], u64>>,
+    max_spent: usize,
 }
 
 impl Default for Nonces {
@@ -398,6 +428,7 @@ impl Default for Nonces {
         Self {
             key,
             spent: Mutex::new(HashMap::new()),
+            max_spent: MAX_SPENT,
         }
     }
 }
@@ -424,30 +455,40 @@ impl Nonces {
         Some((n, exp))
     }
 
-    /// Spend `nonce` for `purpose`: `true` when this gateway made it for that purpose, it
-    /// has not expired and it was not spent before (the MAC is checked in constant time).
-    pub(crate) fn take(&self, nonce: &[u8], purpose: &Purpose, now: u64) -> bool {
+    /// Spend `nonce` for `purpose`: [`Spend::Ok`] when this gateway made it for that
+    /// purpose, it has not expired and it was not spent before (the MAC is checked in
+    /// constant time).
+    pub(crate) fn take(&self, nonce: &[u8], purpose: &Purpose, now: u64) -> Spend {
         use hmac::Mac;
         if nonce.len() != NONCE_LEN {
-            return false;
+            return Spend::Refused;
         }
         let (head, tag) = nonce.split_at(24);
         let exp = u64::from_be_bytes(head[16..24].try_into().expect("8 bytes"));
         if exp <= now || exp > now + CHALLENGE_TTL_S {
-            return false;
+            return Spend::Refused;
         }
         if self.mac(purpose, head).verify_slice(tag).is_err() {
-            return false;
+            return Spend::Refused;
         }
         let id: [u8; 16] = head[..16].try_into().expect("16 bytes");
         let mut spent = self.spent.lock().unwrap_or_else(|p| p.into_inner());
-        if spent.len() >= MAX_SPENT {
+        if spent.len() >= self.max_spent {
             spent.retain(|_, e| *e > now);
-            if spent.len() >= MAX_SPENT {
-                return false;
+            if spent.len() >= self.max_spent {
+                return Spend::Busy;
             }
         }
-        spent.insert(id, exp).is_none()
+        if spent.insert(id, exp).is_none() {
+            Spend::Ok
+        } else {
+            Spend::Refused
+        }
+    }
+
+    #[cfg(test)]
+    fn take_ok(&self, nonce: &[u8], purpose: &Purpose, now: u64) -> bool {
+        self.take(nonce, purpose, now) == Spend::Ok
     }
 
     /// The hash a step-up names (security review of PR 86, item 3): HMAC-SHA256 under this
@@ -468,6 +509,15 @@ impl Nonces {
 #[derive(Default)]
 pub(crate) struct Fresh(Mutex<HashMap<[u8; 16], Proved>>);
 
+/// What a session proved again after its login.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Proof {
+    /// A device key (a step-up, an idle unlock).
+    Key,
+    /// The password (`/api/confirm`): also lets the session register a device.
+    Password,
+}
+
 #[derive(Clone, Copy, Default)]
 struct Proved {
     confirmed_at: u64,
@@ -479,7 +529,7 @@ impl Fresh {
         self.0.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn note(&self, jti: [u8; 16], now: u64, password: bool) {
+    fn note(&self, jti: [u8; 16], now: u64, how: Proof) {
         let mut m = self.lock();
         if !m.contains_key(&jti) && m.len() >= MAX_FRESH {
             m.retain(|_, p| now.saturating_sub(p.confirmed_at) < FRESH_S);
@@ -489,7 +539,7 @@ impl Fresh {
         }
         let p = m.entry(jti).or_default();
         p.confirmed_at = now;
-        if password {
+        if how == Proof::Password {
             p.password_at = now;
         }
     }
@@ -625,22 +675,21 @@ impl Gateway {
         if self.cfg.devices.step_up == StepUp::None || self.confirmed(p) {
             return Ok(());
         }
+        let request = self.nonces.request_hash(request);
         let nonce = (p.claims.amr != Amr::OAuth)
             .then(|| {
                 self.nonces.issue(
                     &Purpose::Confirm {
                         user: p.name.clone(),
                         jti: p.claims.jti,
+                        request,
                     },
                     session::now_s(),
                 )
             })
             .flatten()
             .map(|(n, _)| n);
-        Err(Refused::ConfirmRequired {
-            nonce,
-            request: self.nonces.request_hash(request),
-        })
+        Err(Refused::ConfirmRequired { nonce, request })
     }
 
     pub(crate) fn step_up_on(&self) -> bool {
@@ -672,6 +721,24 @@ impl Gateway {
             code: why,
         });
         Refused::Bare
+    }
+
+    /// Spend a nonce: a refused one is a bare refusal (counted), a full table is `busy`
+    /// (not counted: no fault of the caller).
+    fn spend(
+        &self,
+        nonce: &[u8],
+        purpose: &Purpose,
+        now: u64,
+        device: &str,
+        user: Option<&str>,
+        ip: IpAddr,
+    ) -> Result<(), Refused> {
+        match self.nonces.take(nonce, purpose, now) {
+            Spend::Ok => Ok(()),
+            Spend::Busy => Err(Refused::Busy),
+            Spend::Refused => Err(self.bare(device, user, ip, "bad_nonce")),
+        }
     }
 
     fn device_limited(&self, device: &str, ip: IpAddr) -> Result<(), Refused> {
@@ -745,10 +812,8 @@ impl Gateway {
             jti: p.claims.jti,
         };
         let msg = register_message(&self.cfg.site, origin, &p.name, nonce, public_key);
-        if !self.nonces.take(nonce, &ours, now)
-            || !self.origin_allowed(origin)
-            || !alg.verify(&key, &msg, signature)
-        {
+        self.spend(nonce, &ours, now, "(new)", Some(&p.name), ip)?;
+        if !self.origin_allowed(origin) || !alg.verify(&key, &msg, signature) {
             return Err(self.bare("(new)", Some(&p.name), ip, "bad_registration"));
         }
         let mut raw = [0u8; 16];
@@ -806,9 +871,7 @@ impl Gateway {
         let ours = Purpose::Login {
             device: device.to_owned(),
         };
-        if !self.nonces.take(nonce, &ours, now) {
-            return Err(self.bare(device, None, ip, "bad_nonce"));
-        }
+        self.spend(nonce, &ours, now, device, None, ip)?;
         let Some(d) = self.device(device) else {
             return Err(self.bare(device, None, ip, "unknown_device"));
         };
@@ -862,7 +925,7 @@ impl Gateway {
         // the idle lock: the session stays, now confirmed
         if let Some(p) = keep.and_then(|t| self.authenticate(t)) {
             if p.name == d.user {
-                self.fresh.note(p.claims.jti, now, false);
+                self.fresh.note(p.claims.jti, now, Proof::Key);
                 return Ok((keep.unwrap_or_default().to_owned(), p.claims.exp));
             }
         }
@@ -895,14 +958,18 @@ impl Gateway {
     ) -> Result<(), Refused> {
         self.device_limited(device, ip)?;
         let now = session::now_s();
+        let Ok(request32) = <[u8; 32]>::try_from(request) else {
+            return Err(self.bare(device, Some(&p.name), ip, "bad_nonce"));
+        };
         let ours = Purpose::Confirm {
             user: p.name.clone(),
             jti: p.claims.jti,
+            request: request32,
         };
-        if p.claims.amr == Amr::OAuth || request.len() != 32 || !self.nonces.take(nonce, &ours, now)
-        {
+        if p.claims.amr == Amr::OAuth {
             return Err(self.bare(device, Some(&p.name), ip, "bad_nonce"));
         }
+        self.spend(nonce, &ours, now, device, Some(&p.name), ip)?;
         let d = match self.device(device) {
             Some(d) if d.user == p.name => d,
             _ => return Err(self.bare(device, Some(&p.name), ip, "unknown_device")),
@@ -924,7 +991,7 @@ impl Gateway {
             }));
         }
         self.limiter.succeeded(&limit_key(device), ip);
-        self.fresh.note(p.claims.jti, now, false);
+        self.fresh.note(p.claims.jti, now, Proof::Key);
         self.audit(AuditEvent::StepUp {
             user: p.name.clone(),
             method: "device",
@@ -949,7 +1016,8 @@ impl Gateway {
         if self.verify_login(&p.name, password, ip).is_err() {
             return Err(Refused::Code("bad_password"));
         }
-        self.fresh.note(p.claims.jti, session::now_s(), true);
+        self.fresh
+            .note(p.claims.jti, session::now_s(), Proof::Password);
         self.audit(AuditEvent::StepUp {
             user: p.name.clone(),
             method: "password",
@@ -1102,46 +1170,93 @@ mod tests {
         let login = |d: &str| Purpose::Login { device: d.into() };
         let (a, exp) = n.issue(&login("d1"), 100).unwrap();
         assert_eq!((a.len(), exp), (NONCE_LEN, 100 + CHALLENGE_TTL_S));
-        assert!(!n.take(&a, &login("d2"), 101), "another device");
-        assert!(n.take(&a, &login("d1"), 101));
-        assert!(!n.take(&a, &login("d1"), 101), "single use");
+        assert!(!n.take_ok(&a, &login("d2"), 101), "another device");
+        assert!(n.take_ok(&a, &login("d1"), 101));
+        assert!(!n.take_ok(&a, &login("d1"), 101), "single use");
         let (old, _) = n.issue(&login("d1"), 100).unwrap();
         assert!(
-            !n.take(&old, &login("d1"), 100 + CHALLENGE_TTL_S),
+            !n.take_ok(&old, &login("d1"), 100 + CHALLENGE_TTL_S),
             "expired"
         );
         // another gateway process (another key), a changed byte, a stretched expiry
         let (b, _) = n.issue(&login("d1"), 200).unwrap();
-        assert!(!Nonces::default().take(&b, &login("d1"), 201));
+        assert!(!Nonces::default().take_ok(&b, &login("d1"), 201));
         let mut t = b.clone();
         t[3] ^= 1;
-        assert!(!n.take(&t, &login("d1"), 201));
+        assert!(!n.take_ok(&t, &login("d1"), 201));
         let mut t = b.clone();
         t[16..24].copy_from_slice(&(200u64 + 10 * CHALLENGE_TTL_S).to_be_bytes());
-        assert!(!n.take(&t, &login("d1"), 201));
-        assert!(!n.take(&[0; 5], &login("d1"), 201), "not a nonce");
+        assert!(!n.take_ok(&t, &login("d1"), 201));
+        assert!(!n.take_ok(&[0; 5], &login("d1"), 201), "not a nonce");
         // security review of PR 86, item 2: nonces asked by anyone for a device (one
         // address or many) never take the place of one a person holds
         let (mine, _) = n.issue(&login("victim"), 300).unwrap();
         for _ in 0..20_000 {
             n.issue(&login("victim"), 300).unwrap();
         }
-        assert!(n.take(&mine, &login("victim"), 301));
+        assert!(n.take_ok(&mine, &login("victim"), 301));
         // a session's nonce is the session's
         let reg = |jti: u8| Purpose::Register {
             user: "olena".into(),
             jti: [jti; 16],
         };
         let (r, _) = n.issue(&reg(1), 300).unwrap();
-        assert!(!n.take(&r, &reg(2), 301));
-        assert!(!n.take(
+        assert!(!n.take_ok(&r, &reg(2), 301));
+        assert!(!n.take_ok(
             &r,
             &Purpose::Confirm {
                 user: "olena".into(),
-                jti: [1; 16]
+                jti: [1; 16],
+                request: [0; 32],
             },
             301
         ));
+    }
+
+    /// Security review of PR 86, L2 and L3: a full table of spent nonces is `busy` (the
+    /// caller did nothing wrong), and a confirm nonce is good for the request it was made
+    /// for only.
+    #[test]
+    fn a_full_spent_table_is_busy_and_confirms_are_bound_to_their_request() {
+        let n = Nonces {
+            max_spent: 1,
+            ..Nonces::default()
+        };
+        let login = || Purpose::Login {
+            device: "d1".into(),
+        };
+        let (a, _) = n.issue(&login(), 100).unwrap();
+        let (b, _) = n.issue(&login(), 100).unwrap();
+        assert_eq!(n.take(&a, &login(), 101), Spend::Ok);
+        assert_eq!(n.take(&b, &login(), 101), Spend::Busy);
+        assert_eq!(n.take(&[0; 3], &login(), 101), Spend::Refused);
+        let n = Nonces::default();
+        let confirm = |request: [u8; 32]| Purpose::Confirm {
+            user: "root".into(),
+            jti: [1; 16],
+            request,
+        };
+        let (c, _) = n.issue(&confirm([7; 32]), 100).unwrap();
+        assert_eq!(
+            n.take(&c, &confirm([8; 32]), 101),
+            Spend::Refused,
+            "another request"
+        );
+        assert_eq!(n.take(&c, &confirm([7; 32]), 101), Spend::Ok);
+    }
+
+    #[test]
+    fn device_ids_have_one_form() {
+        assert!(valid_device_id("0123456789abcdef0123456789abcdef"));
+        for bad in [
+            "",
+            "d1",
+            "0123456789ABCDEF0123456789abcdef",
+            &"a".repeat(33),
+            &"a".repeat(65_000),
+        ] {
+            assert!(!valid_device_id(bad), "{bad:.40}");
+        }
     }
 
     /// Security review of PR 86, item 3: the hash a step-up names (and the audit keeps)

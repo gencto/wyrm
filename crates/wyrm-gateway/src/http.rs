@@ -345,6 +345,16 @@ fn opt_text(m: &mut BTreeMap<String, Value>, k: &str) -> Result<Option<String>, 
     }
 }
 
+/// `device`: a device id (32 lower-case hex digits), refused with `400` before any limiter
+/// or audit record (security review of PR 86, H1).
+fn device_id(m: &mut BTreeMap<String, Value>) -> Result<String, ApiError> {
+    let d = text(m, "device")?;
+    if !crate::devices::valid_device_id(&d) {
+        return Err(ApiError::bad("device: a device id (32 hex digits)"));
+    }
+    Ok(d)
+}
+
 fn bytes(m: &mut BTreeMap<String, Value>, k: &str) -> Result<Vec<u8>, ApiError> {
     match m.remove(k) {
         Some(Value::Bytes(b)) => Ok(b),
@@ -846,25 +856,20 @@ async fn device_challenge(
 ) -> ApiResult {
     let mut m = body_map(&body)?;
     let purpose = match opt_text(&mut m, "purpose")?.as_deref() {
-        None | Some("login") => {
-            let device = text(&mut m, "device")?;
-            if device.is_empty() || device.len() > 64 {
-                return Err(ApiError::bad("device: 1 to 64 bytes"));
-            }
-            Purpose::Login { device }
-        }
-        Some(which @ ("register" | "confirm")) => {
+        None | Some("login") => Purpose::Login {
+            device: device_id(&mut m)?,
+        },
+        // a confirm nonce comes with its `confirm_required` refusal, bound to the request
+        Some("register") => {
             let p = bearer(&headers)
                 .and_then(|t| st.gw.authenticate(&t))
                 .ok_or_else(ApiError::unauthenticated)?;
-            let (user, jti) = (p.name, p.claims.jti);
-            if which == "register" {
-                Purpose::Register { user, jti }
-            } else {
-                Purpose::Confirm { user, jti }
+            Purpose::Register {
+                user: p.name,
+                jti: p.claims.jti,
             }
         }
-        Some(_) => return Err(ApiError::bad("purpose: login, register or confirm")),
+        Some(_) => return Err(ApiError::bad("purpose: login or register")),
     };
     let (nonce, exp) = st.gw.device_challenge(purpose, peer.ip())?;
     Ok(cbor(
@@ -919,7 +924,7 @@ async fn device_login(
     body: Bytes,
 ) -> ApiResult {
     let mut m = body_map(&body)?;
-    let device = text(&mut m, "device")?;
+    let device = device_id(&mut m)?;
     let origin = text(&mut m, "origin")?;
     let nonce = bytes(&mut m, "nonce")?;
     let signature = bytes(&mut m, "signature")?;
@@ -946,7 +951,7 @@ async fn device_confirm(
     body: Bytes,
 ) -> ApiResult {
     let mut m = body_map(&body)?;
-    let device = text(&mut m, "device")?;
+    let device = device_id(&mut m)?;
     let origin = text(&mut m, "origin")?;
     let nonce = bytes(&mut m, "nonce")?;
     let request = bytes(&mut m, "request")?;
