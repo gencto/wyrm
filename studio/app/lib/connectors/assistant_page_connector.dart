@@ -6,11 +6,12 @@ import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/ask_agent_action.dart';
+import 'package:business/redux/assistant/actions/load_assistant_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_panel_action.dart';
+import 'package:business/redux/assistant/actions/set_shown_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
-import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
@@ -19,7 +20,6 @@ import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
-import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/labels.dart';
@@ -58,6 +58,9 @@ final class _Watch {
 }
 
 final _watching = _Watch();
+
+/// What a secret argument of a plan step is shown as.
+const secretMask = '••••••';
 
 @RoutePage()
 class AssistantPageConnector extends StatelessWidget {
@@ -229,10 +232,14 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           : (reads.isEmpty ? '' : S.current.readsNote),
       empty: agent == null && !_loading ? S.current.noAgent : null,
       onShow: () {
+        dispatchSync(SetShownAction(true));
         dispatchSync(WatchKeysAction(task == null ? const [] : _touched(task)));
-        unawaited(_load());
+        unawaited(dispatchAndWait(LoadAssistantAction()));
       },
-      onHide: (keys) => dispatchSync(UnwatchKeysAction(keys)),
+      onHide: (keys) {
+        dispatchSync(SetShownAction(false));
+        dispatchSync(UnwatchKeysAction(keys));
+      },
       onNew: () {
         dispatchSync(SetSelectedTaskAction(null));
         dispatchSync(SetPanelAction('task'));
@@ -251,7 +258,17 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         }
         switch (b) {
           case 'approve':
-            await dispatchAndWait(ApproveTaskAction(id));
+            // what is on screen now: the plan and the ticks as shown
+            await dispatchAndWait(
+              ApproveTaskAction(
+                id,
+                plan: task?.planHash,
+                steps: [
+                  for (final c in choices ?? const <StepChoice>[])
+                    if (c.ticked ?? false) c.n,
+                ],
+              ),
+            );
           case 'reject':
             final reason = await ReasonDialog.ask(
               context,
@@ -304,17 +321,6 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
 
   bool get _loading => assistant.isWaiting || links.isWaiting;
 
-  Future<void> _load() async {
-    if (links.table.isEmpty) {
-      await dispatchAndWait(RetrieveLinksAction());
-    }
-    await dispatchAndWait(RetrieveAgentAction());
-    await dispatchAndWait(RetrieveTasksAction());
-    if (tasks.selectedTask case final id?) {
-      await dispatchAndWait(RetrieveTaskRecordAction(id));
-    }
-  }
-
   /// The conversation of a task asked in another session, from its record:
   /// the ask, then the log (`model: …` lines as the model's, `proposed …`
   /// and the like as what it did, `failed: …` as the error).
@@ -334,7 +340,13 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
   PlanCardVm _plan(AgentTask t, List<StepChoice>? choices) => PlanCardVm(
     title: S.current.planSteps(t.plan.length),
     state: t.state == .awaitingApproval
-        ? S.current.planChecked
+        ? switch (planChecks(t.plan)) {
+            (now: _, atRun: 0) => S.current.planChecked,
+            (:final now, :final atRun) => S.current.planCheckedPartly(
+              now,
+              atRun,
+            ),
+          }
         : (_approvedBy(t) ?? _stateLabel(t.state)),
     stateTone: _tone(t.state),
     note: S.current.planWhyNote,
@@ -503,7 +515,12 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       level: s.level,
       changes: changes,
       args: [
-        for (final e in s.args.entries) (e.key, _shown(e.value)),
+        for (final e in s.args.entries)
+          (
+            e.key,
+            // a secret is not shown; the approval is still bound to it
+            s.secret.contains(e.key) ? secretMask : _shown(e.value),
+          ),
         if (s.op != 'sleep')
           if (s.seconds case final sec?)
             ('timeout', S.current.planSleep(_num(sec))),
@@ -512,6 +529,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ? (s.check == 'at_run' ? S.current.checkAtRun : S.current.checkNow)
           : null,
       checked: s.check != 'at_run',
+      argsNote: s.secret.isEmpty ? null : S.current.planSecretNote,
       warn: s.warn,
       why: s.reason,
       ticked: choice?.ticked,
@@ -523,6 +541,8 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       note: switch (choice) {
         StepChoice(:final needs?) => S.current.stepSkippedNeeds(needs),
         StepChoice(ticked: false) => S.current.stepLeftOut,
+        // no tick, and it runs: the person cannot leave it out
+        StepChoice(byAgent: true) => S.current.stepByAgent,
         _ when s.after.isNotEmpty =>
           s.after.map((n) => S.current.planNeedsStep(n)).join(' · '),
         _ => null,
@@ -624,6 +644,10 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
   TaskCardVm _card(AgentTask t, String? reason, List<StepChoice>? choices) {
     final agent = assistant.agent;
     final ticked = choices?.where((c) => c.ticked ?? false).length ?? 0;
+    // every change that runs once approved: the ticked steps, and those the
+    // agent runs with its own key (no tick, cannot be left out)
+    final runs = choices?.where((c) => c.runs).length ?? 0;
+    final byAgent = choices?.where((c) => c.byAgent && !c.skipped).length ?? 0;
     final refusal = assistant.refusals[t.id];
     final left = _leftOut(t);
     final cancel = TaskButtonVm(
@@ -644,7 +668,10 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             '${S.current.approveRefused(refusal)}\n'
                 '${S.current.approveRefusedHint}',
           _ when !t.recorded => S.current.planWaiting,
-          _ => S.current.approveSigns(site.role ?? ''),
+          _ => [
+            S.current.approveSigns(site.role ?? ''),
+            if (byAgent > 0) S.current.approveByAgent(byAgent),
+          ].join('\n'),
         },
         caution: !assistant.docs || otherSite != null || refusal != null,
         buttons: [
@@ -657,7 +684,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             id: 'approve',
             label: ticked == 0
                 ? S.current.approve
-                : S.current.approveCount(ticked),
+                : S.current.approveCount(runs),
             primary: true,
             disabledReason: switch (null) {
               _ when !assistant.docs => S.current.approveReasonNote,

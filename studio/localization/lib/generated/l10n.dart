@@ -14412,6 +14412,49 @@ class S {
   String get hideSteps {
     return Intl.message('Hide steps', name: 'hideSteps', desc: '', args: []);
   }
+
+  /// `awaiting approval · {now} checked now, {atRun} when it runs`
+  String planCheckedPartly(Object now, Object atRun) {
+    return Intl.message(
+      'awaiting approval · $now checked now, $atRun when it runs',
+      name: 'planCheckedPartly',
+      desc: '',
+      args: [now, atRun],
+    );
+  }
+
+  /// `A secret argument is not shown. The approval is still for the value the plan holds.`
+  String get planSecretNote {
+    return Intl.message(
+      'A secret argument is not shown. The approval is still for the value the plan holds.',
+      name: 'planSecretNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `runs with the agent's key: this mode needs no person for it, and it cannot be left out`
+  String get stepByAgent {
+    return Intl.message(
+      'runs with the agent\'s key: this mode needs no person for it, and it cannot be left out',
+      name: 'stepByAgent',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{1 step without a tick changes something and runs with the agent's own key; it cannot be left out. Reject the plan to stop it.} other{{n} steps without a tick change something and run with the agent's own key; they cannot be left out. Reject the plan to stop them.}}`
+  String approveByAgent(num n) {
+    return Intl.plural(
+      n,
+      one: '1 step without a tick changes something and runs with the agent\'s own key; it cannot be left out. Reject the plan to stop it.',
+      other:
+          '$n steps without a tick change something and run with the agent\'s own key; they cannot be left out. Reject the plan to stop them.',
+      name: 'approveByAgent',
+      desc: '',
+      args: [n],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

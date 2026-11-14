@@ -21,8 +21,10 @@ import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/agent_task.dart';
+import 'package:models/grant.dart';
 import 'package:models/task_state.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:wyrm_client/wyrm_client.dart' hide Grant;
 
 import 'support/fake_wyrm.dart';
 
@@ -262,6 +264,108 @@ void main() {
     expect(s.state.tasks.table['t-1'], isNull);
   });
 
+  test('the ask stream reaches a state before ~val does: the record is read '
+      'all the same', () async {
+    await withAgent();
+    // no `~val` sample arrives in this test: only the stream says the state
+    api.streamed.add('$agent ▸ ask');
+    s.dispatchSync(SetDraftAction('add ahu2'));
+    final asked = s.dispatchAndWait(AskAgentAction());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final stream = api.opened['$agent ▸ ask']!.single
+      ..add(Value.from({'task': 't-1', 'state': 'planning'}));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    api.docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval');
+    stream.add(
+      Value.from({
+        'task': 't-1',
+        'event': 'state',
+        'text': 'awaiting_approval',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    // while the stream is still open the plan is already there
+    final t = s.state.tasks.table['t-1']!;
+    expect(t.state, TaskState.awaitingApproval);
+    expect(t.recorded, isTrue);
+    expect(t.plan, hasLength(3));
+
+    // and the end of the stream reads where the task stands
+    api.docs['$agent/tasks/t-1 ~state'] = record('running');
+    await stream.close();
+    await asked;
+    expect(s.state.tasks.table['t-1']!.state, TaskState.running);
+  });
+
+  test('reads of one record answer in the order they were sent', () async {
+    await withAgent();
+    // the read sent while the task ran answers after the one sent once it
+    // was done (the gateway serves each read in a task of its own)
+    api.docsInTurn['$agent/tasks/t-1 ~state'] = [
+      (const Duration(milliseconds: 60), record('running')),
+      (Duration.zero, record('done')),
+    ];
+
+    final first = s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    final second = s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    await Future.wait([first, second]);
+
+    expect(s.state.tasks.table['t-1']!.state, TaskState.done);
+  });
+
+  test('a secret argument of a step is named from the action meta', () async {
+    await withAgent();
+    api
+      ..docs['$agent/tasks/t-1 ~state'] = Value.from({
+        'state': 'awaiting_approval',
+        'plan': [
+          {
+            'n': 1,
+            'invoke': 'wy/central/downstream/http',
+            'action': 'add_connection',
+            'args': {'name': 'erp', 'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+          },
+          {
+            'n': 2,
+            'invoke': 'wy/central/downstream/http/erp',
+            'action': 'set_password',
+            'args': {'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+            'check': 'at_run',
+          },
+        ],
+      })
+      ..metas['wy/central/downstream/http'] = NodeMeta(
+        actions: {
+          'add_connection': ActionMeta(
+            params: {
+              'name': ParamMeta(),
+              'password': ParamMeta(editor: 'password'),
+            },
+          ),
+        },
+      );
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+    final [a, b] = s.state.tasks.table['t-1']!.plan.toList();
+    expect(a.secret, {'password'});
+    // the node of step 2 does not exist yet: its schema is not known
+    expect(b.secret, isEmpty);
+  });
+
+  test('how far a plan was checked counts the steps that change something', () {
+    final plan = agentTaskOf('t', record('awaiting_approval')).plan;
+    // step 1 now, step 2 when it runs, step 3 only reads
+    expect(planChecks(plan), (now: 1, atRun: 1));
+    expect(planChecks(plan.take(1)), (now: 1, atRun: 0));
+  });
+
   group('approve through the gateway (ADR 0049 §2–4)', () {
     const task = '$agent/tasks/t-1';
 
@@ -269,6 +373,19 @@ void main() {
       await withAgent();
       api.docs['$task ~state'] = record('awaiting_approval');
       await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    }
+
+    /// Approve as the screen does: the plan and the ticks as they are now.
+    ApproveTaskAction approve() {
+      final t = s.state.tasks.table['t-1']!;
+      return ApproveTaskAction(
+        't-1',
+        plan: t.planHash,
+        steps: [
+          for (final c in _Reader(s.state).choicesOf(t))
+            if (c.ticked ?? false) c.n,
+        ],
+      );
     }
 
     List<int> sent() => [
@@ -285,7 +402,7 @@ void main() {
         Value.from({'task': 't-1', 'state': 'running'}),
       ];
 
-      final status = await s.dispatchAndWait(ApproveTaskAction('t-1'));
+      final status = await s.dispatchAndWait(approve());
 
       expect(status.originalError, isNull);
       final call = api.calls.lastWhere((c) => c.action == 'approve');
@@ -301,13 +418,50 @@ void main() {
       expect(api.calls.where((c) => c.op == 'doc'), hasLength(2));
     });
 
+    test('the ticks as they were shown are approved, or nothing is', () async {
+      await waiting();
+      api.invokes['$task ▸ approve'] = [];
+      final shown = approve();
+
+      // the ticks move between what was shown and the press
+      s.dispatchSync(SetStepTickAction('t-1', 2, ticked: false));
+
+      final status = await s.dispatchAndWait(shown);
+
+      expect(status.originalError, isNull);
+      expect(api.calls.where((c) => c.action == 'approve'), isEmpty);
+      expect(s.state.assistant.refusals['t-1'], ApproveTaskAction.changed);
+
+      // approving what is shown now goes out
+      await s.dispatchAndWait(approve());
+      expect(sent(), [1]);
+    });
+
+    test('a plan that changed after it was shown is not approved', () async {
+      await waiting();
+      api.invokes['$task ▸ approve'] = [];
+      final shown = approve();
+      s.dispatchSync(
+        AddTasksAction(
+          [
+            s.state.tasks.table['t-1']!.copyWith(planHash: 'another plan'),
+          ].lock,
+        ),
+      );
+
+      await s.dispatchAndWait(shown);
+
+      expect(api.calls.where((c) => c.action == 'approve'), isEmpty);
+      expect(s.state.assistant.refusals['t-1'], ApproveTaskAction.changed);
+    });
+
     test('an unticked step is left out; ticking it again sends it', () async {
       await waiting();
       api.invokes['$task ▸ approve'] = [];
       s.dispatchSync(SetStepTickAction('t-1', 2, ticked: false));
       expect(s.state.assistant.unticked['t-1'], {2});
 
-      await s.dispatchAndWait(ApproveTaskAction('t-1'));
+      await s.dispatchAndWait(approve());
       expect(sent(), [1]);
       // approved: the ticks of the task are forgotten
       expect(s.state.assistant.unticked['t-1'], isNull);
@@ -323,7 +477,7 @@ void main() {
       api.invokes['$task ▸ approve'] = [];
       s.dispatchSync(SetStepTickAction('t-1', 1, ticked: false));
 
-      final status = await s.dispatchAndWait(ApproveTaskAction('t-1'));
+      final status = await s.dispatchAndWait(approve());
 
       // step 2 is after step 1: nothing is ticked, nothing is sent
       expect(status.originalError, isNull);
@@ -341,7 +495,7 @@ void main() {
         why,
       );
 
-      final status = await s.dispatchAndWait(ApproveTaskAction('t-1'));
+      final status = await s.dispatchAndWait(approve());
 
       // no error dialog: the task did not fail
       expect(status.originalError, isNull);
@@ -361,7 +515,7 @@ void main() {
         'you have write',
       );
 
-      final status = await s.dispatchAndWait(ApproveTaskAction('t-1'));
+      final status = await s.dispatchAndWait(approve());
 
       expect(status.originalError, isNull);
       expect(
@@ -374,7 +528,7 @@ void main() {
       await waiting();
       api.errors['$task ▸ approve'] = WyrmException.of(Status.timeout, '');
 
-      final status = await s.dispatchAndWait(ApproveTaskAction('t-1'));
+      final status = await s.dispatchAndWait(approve());
 
       expect(status.originalError, isA<UserException>());
       expect(s.state.assistant.refusals['t-1'], isNull);
@@ -393,7 +547,7 @@ void main() {
           ),
         );
 
-        await s.dispatchAndWait(ApproveTaskAction('t-1'));
+        await s.dispatchAndWait(approve());
 
         expect(api.calls.where((c) => c.action == 'approve'), isEmpty);
       },
@@ -464,6 +618,66 @@ void main() {
       ];
       expect(ticks(decides: true), [null, null, null]);
       expect(ticks(decides: false), [true, true, null]);
+    });
+
+    test('a changing step that needs no human runs with the agent key', () {
+      // `require_approval: config`: the write set needs no human
+      final mixed = [
+        plan[0],
+        plan[1].copyWith(approval: false),
+        plan[2],
+      ];
+      List<(bool?, bool, bool)> got(Set<int> unticked) => [
+        for (final c in approvalOf(
+          mixed,
+          unticked: unticked.lock,
+          decides: true,
+          lacks: (_, _) => null,
+        ))
+          (c.ticked, c.byAgent, c.runs),
+      ];
+      // no tick, but it runs: the button counts it
+      expect(got({}), [
+        (true, false, true),
+        (null, true, true),
+        (null, false, false),
+      ]);
+      // it needs step 1: left out with it, as the link skips it
+      expect(got({1}), [
+        (false, false, false),
+        (null, true, false),
+        (null, false, false),
+      ]);
+    });
+  });
+
+  group('who decides for a task', () {
+    AgentTask t(String owner) => AgentTask(id: 't-1', owner: owner);
+
+    _Reader as(String user, List<Grant> grants) => _Reader(
+      AppState.initial().copyWith
+          .site(name: 'central', user: user, grants: grants.lock)
+          .copyWith
+          .assistant(agent: agent),
+    );
+
+    test('its asker decides', () {
+      expect(as('olena', const []).decidesFor(t('user:olena')), isTrue);
+    });
+
+    test('config on the approve action decides, by the first grant', () {
+      // the link takes the level of the token, and the gateway gives the
+      // first grant that matches: write on the agent comes first here
+      final ivan = as('ivan', const [
+        Grant(key: '$agent/**', level: 'write'),
+        Grant(key: 'wy/central/**', level: 'config'),
+      ]);
+      expect(ivan.decidesFor(t('user:olena')), isFalse);
+
+      final admin = as('ivan', const [
+        Grant(key: 'wy/central/**', level: 'config'),
+      ]);
+      expect(admin.decidesFor(t('user:olena')), isTrue);
     });
   });
 
@@ -549,4 +763,11 @@ void main() {
     expect(s.state.tasks.table['t-2']!.parent, 't-1');
     expect(s.state.assistant.draft, 'something else');
   });
+}
+
+class _Reader with Selectors {
+  _Reader(this.state);
+
+  @override
+  final AppState state;
 }

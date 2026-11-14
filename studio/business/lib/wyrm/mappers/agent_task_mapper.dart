@@ -68,6 +68,15 @@ Map<String, Object?> planFile(AgentTask t) => {
   ],
 };
 
+/// How far the steps of [plan] that change something were checked: how
+/// many against the live tree now, and how many only when they run
+/// (`check: at_run`: an earlier step makes their node).
+({int now, int atRun}) planChecks(Iterable<PlanStep> plan) {
+  final changing = plan.where((s) => s.op == 'set' || s.op == 'invoke');
+  final atRun = changing.where((s) => s.check == 'at_run').length;
+  return (now: changing.length - atRun, atRun: atRun);
+}
+
 /// One step in the `wyrm-agent run` format: `{set, value}`,
 /// `{invoke, action, args}`, `{wait, timeout_s}`,
 /// `{expect, equals | min/max | changes, timeout_s}`, `{sleep_s}`, with

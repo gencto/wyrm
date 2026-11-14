@@ -23,6 +23,10 @@ abstract class PlanStep with _$PlanStep {
     /// (`equals`, `min`/`max`, `changes`).
     @Default(IMapConst({})) IMap<String, Object?> args,
 
+    /// The names of [args] the action's `~meta` marks as secret (a
+    /// password editor): never shown, never written to a file.
+    @Default(ISetConst({})) ISet<String> secret,
+
     /// `wait`/`expect`: the timeout; `sleep`: its length. Seconds.
     double? seconds,
 

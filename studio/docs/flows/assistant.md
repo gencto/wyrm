@@ -29,38 +29,24 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as WatchKeysAction
-    participant A2 as RetrieveLinksAction
-    participant A3 as RetrieveAgentAction
-    participant A4 as RetrieveTasksAction
-    participant A5 as RetrieveTaskRecordAction
+    participant A1 as SetShownAction
+    participant A2 as WatchKeysAction
+    participant A3 as LoadAssistantAction
     participant ST as AppState
 
     User->>UI: onShow
     UI->>VM: onShow()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(live.watched)
-    alt links.table.isEmpty
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction · async
-        A2->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
-        A2-->>-VM: ActionStatus
-    end
+    A1->>ST: copyWith(assistant.shown)
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(live.watched)
     VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: copyWith(assistant.agent, assistant.cfg)
+    Note over A3: async
+    A3->>ST: dispatchAndWait(RetrieveLinksAction)
+    A3->>ST: dispatchAndWait(RetrieveAgentAction)
+    A3->>ST: dispatchAndWait(RetrieveTasksAction)
+    A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A3-->>-VM: ActionStatus
-    VM->>+A4: dispatchAndWait
-    Note over A4: WaitingAction · async
-    A4->>ST: copyWith(tasks.table, tasks.view)
-    A4-->>-VM: ActionStatus
-    alt tasks.selectedTask
-        VM->>+A5: dispatchAndWait
-        Note over A5: WaitingAction · async
-        A5->>ST: copyWith(assistant.docs)
-        A5->>ST: dispatchSync(AddTasksAction)
-        A5-->>-VM: ActionStatus
-    end
 ```
 
 ## onHide
@@ -71,13 +57,16 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as UnwatchKeysAction
+    participant A1 as SetShownAction
+    participant A2 as UnwatchKeysAction
     participant ST as AppState
 
     User->>UI: onHide
     UI->>VM: onHide()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(live.watched)
+    A1->>ST: copyWith(assistant.shown)
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(live.watched)
 ```
 
 ## onNew
@@ -117,7 +106,7 @@ sequenceDiagram
     VM->>A1: dispatchSync
     A1->>ST: copyWith(tasks.selectedTask)
     VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
+    Note over A2: WaitingAction · Sequential · async
     A2->>ST: copyWith(assistant.docs)
     A2->>ST: dispatchSync(AddTasksAction)
     A2-->>-VM: ActionStatus
@@ -159,9 +148,11 @@ sequenceDiagram
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(_Select)
     A1->>ST: dispatchSync(_ClearDraft)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchSync(AddTasksAction)
     A1-->>-VM: ActionStatus
 ```
@@ -246,9 +237,11 @@ sequenceDiagram
         A5->>ST: dispatchSync(AddTaskEventAction)
         A5->>ST: dispatchSync(_Select)
         A5->>ST: dispatchSync(_ClearDraft)
+        A5->>ST: dispatchAndWait(RetrieveTaskRecordAction)
         A5->>ST: dispatchSync(AddTaskEventAction)
         A5->>ST: dispatchSync(AddTaskEventAction)
         A5->>ST: dispatchSync(AddTaskEventAction)
+        A5->>ST: dispatchAndWait(RetrieveTaskRecordAction)
         A5->>ST: dispatchSync(AddTasksAction)
         A5-->>-VM: ActionStatus
     end
@@ -266,8 +259,8 @@ _Not drawn — these files dispatch outside any interaction:_
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onTick` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
-| `onShow` | `WatchKeysAction`, `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction`, `RetrieveTaskRecordAction` ? | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view`, `assistant.docs` |
-| `onHide` | `UnwatchKeysAction` | `live.watched` |
+| `onShow` | `SetShownAction`, `WatchKeysAction`, `LoadAssistantAction` | `assistant.shown`, `live.watched` |
+| `onHide` | `SetShownAction`, `UnwatchKeysAction` | `assistant.shown`, `live.watched` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |

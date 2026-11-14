@@ -235,7 +235,7 @@ Widget _assistant({
 /// with a warning, and a proof. [ticks] gives the changing steps a tick.
 PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
   title: 'Plan · 3 steps',
-  state: 'awaiting approval · checked',
+  state: 'awaiting approval · 1 checked now, 1 when it runs',
   note:
       'The lines after “why” and the warnings come from the model. Read the '
       'key and the arguments of each step: they are what runs.',

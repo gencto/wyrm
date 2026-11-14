@@ -159,10 +159,21 @@ class FakeWyrmApi implements WyrmApi {
   /// Documents by `key suffix` (`wy/…/tasks/t1 ~state`).
   final docs = <String, Value>{};
 
+  /// Answers to the next reads of a document, by `key suffix`, one per
+  /// call in call order: each is the document as it was when the read was
+  /// sent and comes back after its own delay (a gateway that serves every
+  /// read in a task of its own). Before [docs].
+  final docsInTurn = <String, List<(Duration, Value)>>{};
+
   @override
   Future<Value> doc(String key, String suffix) async {
     calls.add(Call('doc', key, action: suffix));
     final id = '$key $suffix';
+    if (docsInTurn[id] case [final first, ...]) {
+      docsInTurn[id]!.removeAt(0);
+      await Future<void>.delayed(first.$1);
+      return first.$2;
+    }
     await _delay(id);
     if (errors[id] case final e?) {
       throw e;
