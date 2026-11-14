@@ -32,7 +32,16 @@ class _TabVisibilityState extends State<TabVisibility> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final tabs = context.tabsRouter;
+    final tabs = TabsRouterScope.of(context)?.controller;
+    if (tabs == null) {
+      // No tabs shell around it (a page pumped on its own): on screen for
+      // as long as it is in the tree.
+      if (!_shown) {
+        _shown = true;
+        widget.onShow();
+      }
+      return;
+    }
     _route = RouteData.of(context).name;
     if (!identical(tabs, _tabs)) {
       _tabs?.removeListener(_update);

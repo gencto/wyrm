@@ -8,8 +8,10 @@ import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/pages/assistant_page.dart';
 
-/// Board *Assistant* with a task that waits for approval.
-Widget assistantPlan() => AssistantPage(
+/// Board *Assistant* with a task that waits for approval: both changes
+/// ticked. With [refusal] the last approval was refused and the task still
+/// waits.
+Widget assistantPlan({String? refusal}) => AssistantPage(
   newLabel: 'New task',
   listNote: 'Each task is a node: agent/tasks/<id>',
   sections: const [
@@ -75,18 +77,24 @@ Widget assistantPlan() => AssistantPage(
       tone: Tone.warn,
     ),
   ],
-  plan: assistantPlanCard(),
-  card: const TaskCardVm(
+  plan: assistantPlanCard(ticks: const [true, true]),
+  onTick: (_, {required ticked}) {},
+  card: TaskCardVm(
     title: 'Plan',
-    note: 'The plan waits for approval. Nothing runs before it.',
-    caution: true,
-    buttons: [
+    note: refusal == null
+        ? 'Signs one token per ticked step with your rights (engineer). '
+              'Unticked steps are left out.'
+        : 'The approval was refused; the task still waits. $refusal\n'
+              'Untick the step it names and approve the rest. When the plan '
+              'is done, ask for the steps left out as a follow-up: they are '
+              'approved then.',
+    caution: refusal != null,
+    buttons: const [
       TaskButtonVm(id: 'reject', label: 'Reject'),
       TaskButtonVm(
         id: 'approve',
-        label: 'Approve',
+        label: 'Approve 2 changes and run',
         primary: true,
-        disabledReason: 'Approve with wyrm-agent for now.',
       ),
     ],
   ),

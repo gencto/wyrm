@@ -4,6 +4,23 @@
 
 `app/lib/connectors/assistant_page_connector.dart`
 
+## onTick
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetStepTickAction
+    participant ST as AppState
+
+    User->>UI: onTick
+    UI->>VM: onTick()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.unticked, assistant.refusals)
+```
+
 ## onShow
 
 ```mermaid
@@ -171,27 +188,46 @@ sequenceDiagram
     participant VM as AssistantPageConnector
     participant A1 as ApproveTaskAction
     participant A2 as RejectTaskAction
-    participant A3 as CancelTaskAction
+    participant A3 as AskAgentAction
+    participant A4 as CancelTaskAction
+    participant ST as AppState
 
     User->>UI: onButton
     UI->>VM: onButton()
     VM->>+A1: dispatchAndWait
     Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: copyWith(assistant.refusals)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1-->>-VM: ActionStatus
-    alt await ConfirmDialog.ask(context, title: S.current.reject, message: S.current.failedNote, confirm: S.current.reject, cancel: S.current.cancel)
+    alt reason != null
         VM->>+A2: dispatchAndWait
         Note over A2: WaitingAction · async
         A2-->>-VM: ActionStatus
     end
-    alt await ConfirmDialog.ask(context, title: S.current.cancelTask, message: S.current.failedNote, confirm: S.current.cancelTask, cancel: S.current.cancel)
+    alt left.isNotEmpty
         VM->>+A3: dispatchAndWait
-        Note over A3: WaitingAction · async
+        Note over A3: NonReentrant · WaitingAction · async
+        A3->>ST: dispatchSync(AddTasksAction)
+        A3->>ST: dispatchSync(AddTaskEventAction)
+        A3->>ST: dispatchSync(_Select)
+        A3->>ST: dispatchSync(_ClearDraft)
+        A3->>ST: dispatchSync(AddTaskEventAction)
+        A3->>ST: dispatchSync(AddTaskEventAction)
+        A3->>ST: dispatchSync(AddTaskEventAction)
+        A3->>ST: dispatchSync(AddTasksAction)
         A3-->>-VM: ActionStatus
+    end
+    alt await ConfirmDialog.ask(context, title: S.current.cancelTask, message: S.current.failedNote, confirm: S.current.cancelTask, cancel: S.current.cancel)
+        VM->>+A4: dispatchAndWait
+        Note over A4: WaitingAction · async
+        A4-->>-VM: ActionStatus
     end
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
+| `onTick` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
 | `onShow` | `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction`, `RetrieveTaskRecordAction` ? | `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view`, `assistant.docs` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
@@ -199,7 +235,7 @@ sequenceDiagram
 | `onAsk` | `AskAgentAction` | — |
 | `onPanel` | `SetPanelAction` | `assistant.panel` |
 | `onAddAgent` | `GoAction.push` | — |
-| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `CancelTaskAction` ? | — |
+| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals` |
 
 `?` marks a dispatch that only runs under a condition.
 

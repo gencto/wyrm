@@ -9,6 +9,7 @@ import 'package:business/redux/assistant/actions/ask_agent_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_panel_action.dart';
+import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
@@ -16,7 +17,9 @@ import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
+import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/labels.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
@@ -31,6 +34,7 @@ import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
+import 'package:ui/overlays/reason_dialog.dart';
 import 'package:ui/pages/assistant_page.dart';
 
 import '../common/tab_visibility.dart';
@@ -59,6 +63,7 @@ class AssistantPageConnector extends StatelessWidget {
         taskKey: vm.taskKey,
         events: vm.events,
         plan: vm.plan,
+        onTick: vm.onTick,
         card: vm.card,
         onButton: (b) => vm.onButton(context, b),
         draft: vm.draft,
@@ -106,6 +111,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     }
     final rights = assistant.panel == 'rights';
     final cancelReason = agent == null ? null : site.needs('write', agent);
+    // the ticks of a plan that waits; none where this gateway cannot sign
+    final choices =
+        task != null && task.state == .awaitingApproval && otherSite == null
+        ? choicesOf(task)
+        : null;
     return _Vm(
       agentName: agent?.split('/').skip(2).join('/') ?? 'agent',
       sections: _sections(id),
@@ -123,8 +133,12 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
                 ConversationEventVm(kind: .text, text: S.current.noTasks),
             ]
           : _conversation(events.isEmpty ? _fromLog(task) : events),
-      plan: task == null || task.plan.isEmpty ? null : _plan(task),
-      card: task == null ? null : _card(task, cancelReason),
+      plan: task == null || task.plan.isEmpty ? null : _plan(task, choices),
+      onTick: id == null || choices == null
+          ? null
+          : (n, {required ticked}) =>
+                dispatchSync(SetStepTickAction(id, n, ticked: ticked)),
+      card: task == null ? null : _card(task, cancelReason, choices),
       draft: assistant.draft ?? '',
       askReason: agent == null
           ? S.current.noAgent
@@ -193,14 +207,26 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           case 'approve':
             await dispatchAndWait(ApproveTaskAction(id));
           case 'reject':
-            if (await ConfirmDialog.ask(
+            final reason = await ReasonDialog.ask(
               context,
-              title: S.current.reject,
-              message: S.current.failedNote,
+              title: S.current.rejectPlanTitle,
+              message: S.current.rejectPlanNote,
+              hint: S.current.rejectPlanHint,
               confirm: S.current.reject,
               cancel: S.current.cancel,
-            )) {
-              await dispatchAndWait(RejectTaskAction(id));
+            );
+            if (reason != null) {
+              await dispatchAndWait(RejectTaskAction(id, reason: reason));
+            }
+          case 'followup':
+            final left = _leftOut(task);
+            if (left.isNotEmpty) {
+              await dispatchAndWait(
+                AskAgentAction(
+                  text: S.current.followUpAsk(id, left.join(', ')),
+                  parent: id,
+                ),
+              );
             }
           case 'cancel':
             if (await ConfirmDialog.ask(
@@ -218,6 +244,8 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
   }
 
   bool get _asking => assistant.isAsking;
+
+  bool get _approving => assistant.isApproving;
 
   bool get _loading => assistant.isWaiting || links.isWaiting;
 
@@ -248,17 +276,31 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
 
   /// The task's plan as it is approved: every step with its full key and
   /// every argument (docs/agent.md: never only the model's reason).
-  PlanCardVm _plan(AgentTask t) => PlanCardVm(
+  PlanCardVm _plan(AgentTask t, List<StepChoice>? choices) => PlanCardVm(
     title: S.current.planSteps(t.plan.length),
     state: t.state == .awaitingApproval
         ? S.current.planChecked
-        : _stateLabel(t.state),
+        : (_approvedBy(t) ?? _stateLabel(t.state)),
     stateTone: _tone(t.state),
     note: S.current.planWhyNote,
-    steps: [for (final s in t.plan) _step(s)],
+    steps: [
+      for (final (i, s) in t.plan.indexed) _step(s, choices?.elementAt(i)),
+    ],
   );
 
-  static PlanStepVm _step(PlanStep s) {
+  /// `approved by olena, 1 step(s) left out`: the record's own line.
+  static String? _approvedBy(AgentTask t) => t.log
+      .where((l) => l.startsWith('approved by '))
+      .map((l) => l.replaceFirst('approved by user:', 'approved by '))
+      .lastOrNull;
+
+  /// The numbers of the steps a run left out.
+  static List<int> _leftOut(AgentTask? t) => [
+    for (final s in t?.plan ?? const IListConst<PlanStep>([]))
+      if (s.result?.status == 'skipped') s.n,
+  ];
+
+  static PlanStepVm _step(PlanStep s, StepChoice? choice) {
     final changes = s.op == 'set' || s.op == 'invoke';
     return PlanStepVm(
       n: s.n,
@@ -281,9 +323,19 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       checked: s.check != 'at_run',
       warn: s.warn,
       why: s.reason,
-      note: s.after.isEmpty
-          ? null
-          : s.after.map((n) => S.current.planNeedsStep(n)).join(' · '),
+      ticked: choice?.ticked,
+      tickReason:
+          choice?.locked ??
+          (choice?.needs == null || choice?.ticked == null
+              ? null
+              : S.current.stepSkippedNeeds(choice!.needs!)),
+      note: switch (choice) {
+        StepChoice(:final needs?) => S.current.stepSkippedNeeds(needs),
+        StepChoice(ticked: false) => S.current.stepLeftOut,
+        _ when s.after.isNotEmpty =>
+          s.after.map((n) => S.current.planNeedsStep(n)).join(' · '),
+        _ => null,
+      },
       result: s.result == null
           ? null
           : '${s.result!.status} · ${s.result!.message}',
@@ -378,7 +430,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     return out;
   }
 
-  TaskCardVm _card(AgentTask t, String? reason) {
+  TaskCardVm _card(AgentTask t, String? reason, List<StepChoice>? choices) {
+    final agent = assistant.agent;
+    final ticked = choices?.where((c) => c.ticked ?? false).length ?? 0;
+    final refusal = assistant.refusals[t.id];
+    final left = _leftOut(t);
     final cancel = TaskButtonVm(
       id: 'cancel',
       label: S.current.cancelTask,
@@ -388,9 +444,18 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     return switch (t.state) {
       .awaitingApproval => TaskCardVm(
         title: S.current.planCard,
-        // a gateway older than `doc` cannot show the plan: the old note
-        note: assistant.docs ? S.current.planWaiting : S.current.planNote,
-        caution: true,
+        note: switch (null) {
+          // a gateway older than `doc` cannot show the plan: the old note
+          _ when !assistant.docs => S.current.planNote,
+          _ when otherSite != null => S.current.approveOtherSite(otherSite!),
+          // the task keeps waiting: what was refused, and the way on
+          _ when refusal != null =>
+            '${S.current.approveRefused(refusal)}\n'
+                '${S.current.approveRefusedHint}',
+          _ when !t.recorded => S.current.planWaiting,
+          _ => S.current.approveSigns(site.role ?? ''),
+        },
+        caution: !assistant.docs || otherSite != null || refusal != null,
         buttons: [
           TaskButtonVm(
             id: 'reject',
@@ -399,9 +464,22 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ),
           TaskButtonVm(
             id: 'approve',
-            label: S.current.approve,
+            label: ticked == 0
+                ? S.current.approve
+                : S.current.approveCount(ticked),
             primary: true,
-            disabledReason: S.current.approveReasonNote,
+            disabledReason: switch (null) {
+              _ when !assistant.docs => S.current.approveReasonNote,
+              _ when otherSite != null => S.current.approveOtherSite(
+                otherSite!,
+              ),
+              _ when _approving => '…',
+              _ when ticked == 0 => S.current.approveNone,
+              _ =>
+                agent == null
+                    ? null
+                    : site.needs('write', '$agent/tasks/${t.id}'),
+            },
           ),
         ],
       ),
@@ -412,7 +490,20 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       ),
       .done => TaskCardVm(
         title: _stateLabel(t.state),
-        note: S.current.doneNote,
+        note: left.isEmpty
+            ? S.current.doneNote
+            : S.current.doneLeftOutNote(left.join(', ')),
+        buttons: [
+          if (left.isNotEmpty)
+            TaskButtonVm(
+              id: 'followup',
+              label: S.current.followUpLeftOut,
+              primary: true,
+              disabledReason:
+                  (agent == null ? null : site.needs('write', agent)) ??
+                  (_asking ? '…' : null),
+            ),
+        ],
       ),
       .failed => TaskCardVm(
         title: _stateLabel(t.state),
@@ -432,7 +523,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         .map((s) => s.n)
         .firstOrNull;
     final parts = [
-      if (t.owner.isNotEmpty && t.owner != 'user:${site.user}')
+      if (t.owner.isNotEmpty && !askedByUser(t))
         S.current.taskBy(t.owner.replaceFirst('user:', '')),
       if (failedAt != null)
         S.current.taskFailedAt(failedAt)
@@ -476,6 +567,7 @@ class _Vm extends Vm {
     required this.taskKey,
     required this.events,
     required this.plan,
+    required this.onTick,
     required this.card,
     required this.draft,
     required this.askReason,
@@ -519,6 +611,7 @@ class _Vm extends Vm {
   final String? taskKey;
   final List<ConversationEventVm> events;
   final PlanCardVm? plan;
+  final void Function(int n, {required bool ticked})? onTick;
   final TaskCardVm? card;
   final String draft;
   final String? askReason;

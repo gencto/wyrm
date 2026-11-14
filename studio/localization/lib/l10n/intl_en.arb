@@ -1768,5 +1768,19 @@
     "planWaiting": "The plan waits for approval. Nothing runs before it.",
     "taskBy": "by {who}",
     "taskFailedAt": "failed at step {n}",
-    "taskNoChanges": "nothing changed"
+    "taskNoChanges": "nothing changed",
+    "approveCount": "{n, plural, =1{Approve 1 change and run} other{Approve {n} changes and run}}",
+    "approveSigns": "Signs one token per ticked step with your rights ({role}). Unticked steps are left out.",
+    "approveNone": "Tick at least one step.",
+    "approveOtherSite": "This task is on site {site}. This gateway signs approvals only for tasks of its own site. Approve it through the gateway of {site}.",
+    "approveRefused": "The approval was refused; the task still waits. {why}",
+    "approveRefusedHint": "Untick the step it names and approve the rest. When the plan is done, ask for the steps left out as a follow-up: they are approved then.",
+    "stepSkippedNeeds": "skipped: needs step {n}",
+    "stepLeftOut": "left out: it will not run",
+    "rejectPlanTitle": "Reject the plan?",
+    "rejectPlanNote": "The plan is not run. The reason is kept in the task's record.",
+    "rejectPlanHint": "Reason",
+    "followUpLeftOut": "Ask for the steps left out",
+    "followUpAsk": "Do the steps that were left out of the plan of task {task}: {steps}.",
+    "doneLeftOutNote": "The task is done. Steps left out: {steps}. Ask for them as a follow-up; its plan is approved on its own."
 }
