@@ -1005,13 +1005,22 @@ impl Gateway {
 
     /// A ptok source for `p`: subject `user:<name>`, the user's grants and
     /// max, 5 min lifetime, one token per request scoped to its key.
+    ///
+    /// With `step_up: "config"`, a session that is not confirmed gets tokens capped at
+    /// `write` (security review of PR 86, M1): a responder that does more for a `config`
+    /// token (a sink query of an action at `write`, say) gets none from it.
     pub fn tokens_for(&self, p: &Principal) -> UserTokens {
+        let max = if self.step_up_on() && !self.confirmed(p) {
+            p.grants.max.min(Perm::Write)
+        } else {
+            p.grants.max
+        };
         UserTokens {
             site: self.cfg.site.clone(),
             signing: self.signing.clone(),
             sub: format!("user:{}", p.name),
             grants: p.grants.list.clone(),
-            max: p.grants.max,
+            max,
             downstream: self
                 .downstream_sites
                 .read()

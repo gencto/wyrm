@@ -17,6 +17,21 @@ const IP_FACTOR: usize = 4;
 /// `None` user = the address-wide record.
 type Key = (Option<String>, IpAddr);
 
+/// The address a limit counts: an IPv6 address by its /64 (one host or link holds a whole
+/// /64), an IPv4-mapped one as IPv4 (security review of PR 86, L1).
+pub fn bucket(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let s = v6.segments();
+                IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+            }
+        },
+    }
+}
+
 pub struct LoginLimiter {
     max: usize,
     window: Duration,
@@ -54,6 +69,7 @@ impl LoginLimiter {
 
     /// `false` = too many recent failures; do not even check the password.
     pub fn allowed(&self, user: &str, ip: IpAddr) -> bool {
+        let ip = bucket(ip);
         let now = Instant::now();
         let mut f = self.lock();
         self.recent(&mut f, &(Some(user.to_owned()), ip), now) < self.max
@@ -64,6 +80,7 @@ impl LoginLimiter {
     /// audit. With the table full, nothing more is audited until records
     /// expire (the refusal itself still holds).
     pub fn note_refusal(&self, user: &str, ip: IpAddr) -> bool {
+        let ip = bucket(ip);
         let now = Instant::now();
         let mut n = self.noted.lock().unwrap_or_else(|p| p.into_inner());
         let k = (Some(user.to_owned()), ip);
@@ -84,6 +101,7 @@ impl LoginLimiter {
     }
 
     pub fn failed(&self, user: &str, ip: IpAddr) {
+        let ip = bucket(ip);
         let now = Instant::now();
         let mut f = self.lock();
         for (k, cap) in [
@@ -112,7 +130,7 @@ impl LoginLimiter {
     }
 
     pub fn succeeded(&self, user: &str, ip: IpAddr) {
-        self.lock().remove(&(Some(user.to_owned()), ip));
+        self.lock().remove(&(Some(user.to_owned()), bucket(ip)));
     }
 }
 
@@ -122,6 +140,7 @@ pub struct RequestLimiter {
     max: u32,
     window: Duration,
     seen: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    cap: usize,
 }
 
 impl RequestLimiter {
@@ -130,19 +149,30 @@ impl RequestLimiter {
             max: max.max(1),
             window,
             seen: Mutex::new(HashMap::new()),
+            cap: MAX_RECORDS,
         }
     }
 
-    /// Count one request of `ip`; `false` past `max` in its window. With the table full,
-    /// an address not in it is refused until records expire.
+    #[cfg(test)]
+    fn with_cap(mut self, cap: usize) -> Self {
+        self.cap = cap;
+        self
+    }
+
+    /// Count one request of `ip` (by [`bucket`]); `false` past `max` in its window. With
+    /// the table full, expired records go first, then the one whose window began first: a
+    /// crowd of addresses never locks a new one out.
     pub fn allowed(&self, ip: IpAddr) -> bool {
+        let ip = bucket(ip);
         let now = Instant::now();
         let mut m = self.seen.lock().unwrap_or_else(|p| p.into_inner());
-        if !m.contains_key(&ip) && m.len() >= MAX_RECORDS {
+        if !m.contains_key(&ip) && m.len() >= self.cap {
             let window = self.window;
             m.retain(|_, (t, _)| now.duration_since(*t) < window);
-            if m.len() >= MAX_RECORDS {
-                return false;
+            if m.len() >= self.cap {
+                if let Some(oldest) = m.iter().min_by_key(|(_, (t, _))| *t).map(|(k, _)| *k) {
+                    m.remove(&oldest);
+                }
             }
         }
         let e = m.entry(ip).or_insert((now, 0));
@@ -167,6 +197,34 @@ mod tests {
         assert!(l.allowed("10.0.0.2".parse().unwrap()));
         std::thread::sleep(Duration::from_millis(60));
         assert!(l.allowed(a), "a new window");
+    }
+
+    #[test]
+    fn a_full_table_never_locks_a_new_address_out() {
+        let l = RequestLimiter::new(5, Duration::from_secs(60)).with_cap(3);
+        for i in 1..=3 {
+            assert!(l.allowed(format!("10.0.0.{i}").parse().unwrap()));
+        }
+        assert!(l.allowed("10.0.0.9".parse().unwrap()), "the oldest goes");
+    }
+
+    #[test]
+    fn ipv6_counts_by_its_64() {
+        let l = RequestLimiter::new(2, Duration::from_secs(60));
+        assert!(l.allowed("2001:db8:1:2::1".parse().unwrap()));
+        assert!(l.allowed("2001:db8:1:2::ffff".parse().unwrap()));
+        assert!(
+            !l.allowed("2001:db8:1:2:abcd::7".parse().unwrap()),
+            "same /64"
+        );
+        assert!(l.allowed("2001:db8:1:3::1".parse().unwrap()), "another /64");
+        let f = LoginLimiter::new(1, Duration::from_secs(60));
+        f.failed("u", "2001:db8::1".parse().unwrap());
+        assert!(!f.allowed("u", "2001:db8::2".parse().unwrap()));
+        assert_eq!(
+            bucket("::ffff:10.0.0.1".parse().unwrap()),
+            "10.0.0.1".parse::<IpAddr>().unwrap()
+        );
     }
 
     #[test]
