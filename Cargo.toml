@@ -62,6 +62,8 @@ x509-parser = "0.18"
 # Link packages (ADR 0011): read only, deflate through flate2.
 zip = { version = "9.0", default-features = false, features = ["deflate-flate2"] }
 ring = "0.17"
+# The gateway announces itself by DNS-SD (ADR 0050 §2): pure Rust, no Avahi or Bonjour.
+mdns-sd = { version = "0.21", default-features = false }
 wyrm-state = { path = "crates/wyrm-state" }
 wyrm-history = { path = "crates/wyrm-history" }
 wyrm-storage = { path = "crates/wyrm-storage" }

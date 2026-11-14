@@ -150,7 +150,7 @@ impl Conn {
         c: &WyrmClient,
         key: &str,
         args: &Value,
-    ) -> Result<Value, ClientError> {
+    ) -> Result<Value, Approve> {
         use crate::approve::{Ask, Plan, MAX_DOC};
         // a step the user may not approve is the gateway's own refusal: audited as one
         let refused = |r: Refusal| {
@@ -174,7 +174,8 @@ impl Conn {
             return Err(ClientError::new(
                 Status::ResourceExhausted,
                 "the task record is larger than the gateway reads",
-            ));
+            )
+            .into());
         }
         let doc: Value = from_slice(&doc)
             .map_err(|_| ClientError::new(Status::InvalidMessage, "the task record is not CBOR"))?;
@@ -182,6 +183,24 @@ impl Conn {
         let sign = plan
             .select(&ask, |k| p.grants.perm(&self.gw.as_own(k)))
             .map_err(refused)?;
+        // a step at `config` is a config change: the step-up holds before any token is signed
+        // (security review of PR 86, item 1)
+        if sign.iter().any(|(_, r)| r.level >= Perm::Config) {
+            let request = map([
+                ("op", Value::from("invoke")),
+                ("key", Value::from(key)),
+                ("action", Value::from("approve")),
+                ("args", args.clone()),
+            ]);
+            if let Err(r) = self.gw.step_up(p, &request) {
+                self.gw.audit(AuditEvent::Denied {
+                    user: p.name.clone(),
+                    op: "confirm_required".into(),
+                    key: key.to_owned(),
+                });
+                return Err(Approve::StepUp(r));
+            }
+        }
         let tokens = self.gw.tokens_for(p);
         let mut approvals = BTreeMap::new();
         for (n, r) in &sign {
@@ -203,6 +222,19 @@ impl Conn {
             ("approvals", Value::Map(approvals)),
             ("plan", Value::Str(plan.hash)),
         ]))
+    }
+}
+
+/// Why an `approve` was not signed.
+enum Approve {
+    Client(ClientError),
+    /// A step at `config` and a session not confirmed (ADR 0050 §1.3).
+    StepUp(crate::devices::Refused),
+}
+
+impl From<ClientError> for Approve {
+    fn from(e: ClientError) -> Self {
+        Approve::Client(e)
     }
 }
 
@@ -544,9 +576,76 @@ impl Conn {
         true
     }
 
+    /// `step_up: config` (ADR 0050 §1.3): a `set` on a point writable at `config`, or an
+    /// `invoke` of an action at `config`, by a session not confirmed in the last 5 minutes
+    /// is refused with `confirm_required`. Only for a user who holds `config` there (anyone
+    /// else is refused by the responder anyway); a node whose `~meta` cannot be read counts
+    /// as `config`.
+    async fn needs_step_up(&self, p: &Principal, c: &WyrmClient, req: &Req) -> Option<Value> {
+        if !self.gw.step_up_on() || self.gw.confirmed(p) {
+            return None;
+        }
+        let own = self.gw.as_own(&req.key);
+        // a flow deploy is `config` (spec 06) and the gateway signs proofs for it
+        // ([`Conn::add_flow_proofs`]): asked whatever the node's meta or the user's grant says
+        let deploy = req.op == "invoke"
+            && req.action.as_deref() == Some("deploy")
+            && own == format!("wy/{}/dataflows", self.gw.site());
+        let at_config = match req.op.as_str() {
+            _ if deploy => true,
+            "set" if p.grants.perm(&format!("{own}/~set")) >= Perm::Config => {
+                match c.meta(&req.key).await {
+                    Ok(m) => m.writable == Some(wyrm_core::meta::Writable::Config),
+                    Err(_) => true,
+                }
+            }
+            "invoke" => {
+                let action = req.action.as_deref().unwrap_or_default();
+                if p.grants.perm(&format!("{own}/~act/{action}")) < Perm::Config {
+                    return None;
+                }
+                match c.meta_expanded(&req.key).await {
+                    Ok(m) => m
+                        .actions
+                        .as_ref()
+                        .and_then(|a| a.get(action))
+                        .is_none_or(|a| a.level.unwrap_or(Perm::Read) >= Perm::Config),
+                    Err(_) => true,
+                }
+            }
+            _ => false,
+        };
+        if !at_config {
+            return None;
+        }
+        let mut what = BTreeMap::from([
+            ("op".to_owned(), Value::from(req.op.as_str())),
+            ("key".to_owned(), Value::from(req.key.as_str())),
+        ]);
+        for (k, v) in [
+            ("value", req.value.clone()),
+            ("action", req.action.clone().map(Value::Str)),
+            ("args", req.args.clone()),
+        ] {
+            if let Some(v) = v {
+                what.insert(k.to_owned(), v);
+            }
+        }
+        let refused = self.gw.step_up(p, &Value::Map(what)).err()?;
+        self.gw.audit(AuditEvent::Denied {
+            user: p.name.clone(),
+            op: "confirm_required".into(),
+            key: req.key.clone(),
+        });
+        Some(refused_frame(req.id, refused))
+    }
+
     async fn one_shot(&self, p: Principal, req: Req) {
         let c = self.client(&p);
         let id = req.id;
+        if let Some(frame) = self.needs_step_up(&p, &c, &req).await {
+            return self.send(frame).await;
+        }
         let frame = match req.op.as_str() {
             "meta" => match c.meta(&req.key).await {
                 Ok(mut m) => {
@@ -639,7 +738,8 @@ impl Conn {
                 if action == "approve" && crate::approve::asks_for_tokens(&args) {
                     match self.approval_args(&p, &c, &req.key, &args).await {
                         Ok(signed) => args = signed,
-                        Err(e) => return self.send(client_err(id, &e)).await,
+                        Err(Approve::Client(e)) => return self.send(client_err(id, &e)).await,
+                        Err(Approve::StepUp(r)) => return self.send(refused_frame(id, r)).await,
                     }
                 }
                 match c.invoke(&req.key, &action, args).await {
@@ -919,6 +1019,31 @@ fn err_frame(id: u64, status: u8, message: &str) -> Value {
                 ("message", Value::from(message)),
             ]),
         ),
+    ])
+}
+
+/// An error frame of a gateway refusal with its `code` (ADR 0050): `confirm_required`
+/// carries `nonce` (to sign) and `request` (the hash).
+fn refused_frame(id: u64, r: crate::devices::Refused) -> Value {
+    use crate::devices::Refused;
+    let mut error = BTreeMap::from([
+        (
+            "status".to_owned(),
+            Value::UInt(Status::PermissionDenied.code().into()),
+        ),
+        ("message".to_owned(), Value::from("confirm this request")),
+    ]);
+    if let Refused::ConfirmRequired { nonce, request } = r {
+        error.insert("code".into(), Value::from("confirm_required"));
+        if let Some(n) = nonce {
+            error.insert("nonce".into(), Value::Bytes(n));
+        }
+        error.insert("request".into(), Value::Bytes(request.to_vec()));
+    }
+    map([
+        ("id", Value::UInt(id)),
+        ("ok", Value::Bool(false)),
+        ("error", Value::Map(error)),
     ])
 }
 

@@ -68,6 +68,85 @@ pub enum Op {
         #[n(1)]
         grants: Vec<(String, u8)>,
     },
+    /// A device key of `user` (ADR 0050): only its public key.
+    #[n(6)]
+    AddDevice {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        user: String,
+        #[n(2)]
+        name: String,
+        #[n(3)]
+        platform: String,
+        /// `es256` or `rs256` (see [`crate::devices::KeyAlg`]).
+        #[n(4)]
+        alg: String,
+        #[n(5)]
+        public_key: Vec<u8>,
+        #[n(6)]
+        attestation: Option<Vec<u8>>,
+        /// Also the time the password was last used with this device.
+        #[n(7)]
+        at: u64,
+    },
+    /// A device login.
+    #[n(7)]
+    DeviceUsed {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        at: u64,
+    },
+    /// The password was used on the device (a password login that named it).
+    #[n(8)]
+    DevicePassword {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        at: u64,
+    },
+    /// An admin removed another user's device: the record stays as a tombstone, so the
+    /// device hears why and its owner sees who.
+    #[n(9)]
+    RemoveDevice {
+        #[n(0)]
+        id: String,
+        #[n(1)]
+        by: String,
+        #[n(2)]
+        at: u64,
+    },
+    /// The record goes (its owner turned it off, or forgot a tombstone).
+    #[n(10)]
+    ForgetDevice(#[n(0)] String),
+    /// Sign out everywhere: a new generation ends every session and signs every device
+    /// out, as a password change does.
+    #[n(11)]
+    EndSessions(#[n(0)] String),
+}
+
+/// Device records one user may have, tombstones and signed-out ones included; past it the
+/// oldest that cannot log in go first.
+pub const MAX_DEVICE_RECORDS: usize = 32;
+
+/// A device key (ADR 0050 §1.1). The gateway keeps the public key only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Device {
+    pub user: String,
+    /// The user's generation at registration: a later one signs the device out.
+    pub user_gen: u64,
+    pub name: String,
+    pub platform: String,
+    pub alg: String,
+    pub public_key: Vec<u8>,
+    pub attestation: Option<Vec<u8>>,
+    pub added: u64,
+    pub last_used: u64,
+    /// When the password was last used on this device.
+    pub password_at: u64,
+    /// `(by, at)` when an admin removed it.
+    pub removed: Option<(String, u64)>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -78,6 +157,9 @@ pub struct UserDb {
     /// Roles changed at runtime: role → `(key expression, Perm code)`.
     #[serde(default)]
     pub roles: BTreeMap<String, Vec<(String, u8)>>,
+    /// Device keys by id (ADR 0050).
+    #[serde(default)]
+    pub devices: BTreeMap<String, Device>,
 }
 
 impl UserDb {
@@ -91,11 +173,46 @@ impl UserDb {
             .get_mut(name)
             .ok_or_else(|| format!("no user {name}"))
     }
+
+    fn device_mut(&mut self, id: &str) -> Result<&mut Device, String> {
+        self.devices
+            .get_mut(id)
+            .ok_or_else(|| format!("no device {id}"))
+    }
+
+    /// Can `d` log in now: not removed, and its owner's generation has not moved.
+    pub fn device_active(&self, d: &Device) -> bool {
+        d.removed.is_none() && self.users.get(&d.user).is_some_and(|u| u.gen == d.user_gen)
+    }
+
+    /// Keep `user` within [`MAX_DEVICE_RECORDS`]: drop the oldest records that cannot log in.
+    fn prune_devices(&mut self, user: &str) {
+        loop {
+            let mine: Vec<(&String, &Device)> = self
+                .devices
+                .iter()
+                .filter(|(_, d)| d.user == user)
+                .collect();
+            if mine.len() <= MAX_DEVICE_RECORDS {
+                return;
+            }
+            let Some(oldest) = mine
+                .iter()
+                .filter(|(_, d)| !self.device_active(d))
+                .min_by_key(|(id, d)| (d.removed.as_ref().map_or(d.added, |r| r.1), *id))
+                .map(|(id, _)| (*id).clone())
+            else {
+                return;
+            };
+            self.devices.remove(&oldest);
+        }
+    }
 }
 
 impl wyrm_state::State for UserDb {
     // 4: grant keys renamed by spec 0.2.0 (`SetRole` replays them renamed)
-    const SCHEMA: u32 = 4;
+    // 5: device keys (ADR 0050)
+    const SCHEMA: u32 = 5;
     type Op = Op;
 
     fn apply(&mut self, op: &Op) -> Result<(), String> {
@@ -137,6 +254,58 @@ impl wyrm_state::State for UserDb {
                 self.users
                     .remove(name)
                     .ok_or_else(|| format!("no user {name}"))?;
+                self.devices.retain(|_, d| &d.user != name);
+            }
+            Op::AddDevice {
+                id,
+                user,
+                name,
+                platform,
+                alg,
+                public_key,
+                attestation,
+                at,
+            } => {
+                if self.devices.contains_key(id) {
+                    return Err(format!("device {id} exists"));
+                }
+                let user_gen = self.get_mut(user)?.gen;
+                self.devices.insert(
+                    id.clone(),
+                    Device {
+                        user: user.clone(),
+                        user_gen,
+                        name: name.clone(),
+                        platform: platform.clone(),
+                        alg: alg.clone(),
+                        public_key: public_key.clone(),
+                        attestation: attestation.clone(),
+                        added: *at,
+                        last_used: *at,
+                        password_at: *at,
+                        removed: None,
+                    },
+                );
+                self.prune_devices(user);
+            }
+            Op::DeviceUsed { id, at } => self.device_mut(id)?.last_used = *at,
+            Op::DevicePassword { id, at } => self.device_mut(id)?.password_at = *at,
+            Op::RemoveDevice { id, by, at } => {
+                let d = self.device_mut(id)?;
+                if d.removed.is_none() {
+                    d.removed = Some((by.clone(), *at));
+                }
+                let user = d.user.clone();
+                self.prune_devices(&user);
+            }
+            Op::ForgetDevice(id) => {
+                self.devices
+                    .remove(id)
+                    .ok_or_else(|| format!("no device {id}"))?;
+            }
+            Op::EndSessions(name) => {
+                let gen = self.bump();
+                self.get_mut(name)?.gen = gen;
             }
             Op::SetRole { role, grants } => {
                 if !valid_name(role) {

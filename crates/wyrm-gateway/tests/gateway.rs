@@ -38,6 +38,10 @@ struct Env {
 
 impl Env {
     async fn start(name: &str, ttl: Duration) -> Self {
+        Self::start_with(name, ttl, wyrm_gateway::DevicePolicy::default()).await
+    }
+
+    async fn start_with(name: &str, ttl: Duration, devices: wyrm_gateway::DevicePolicy) -> Self {
         let mut roles = RoleTable::default();
         roles.insert(
             "limited",
@@ -64,6 +68,7 @@ impl Env {
         let mut cfg = GatewayConfig::new(SITE, temp_dir(name), "127.0.0.1:0".parse().unwrap());
         cfg.session_ttl = ttl;
         cfg.roles = roles;
+        cfg.devices = devices;
         let gw = Gateway::open(cfg, b"test state key").unwrap();
         let audit = Arc::new(Mutex::new(Vec::new()));
         let sink = audit.clone();
@@ -1157,6 +1162,9 @@ fn downstream_sites_map_to_own_roles() {
             iat: 0,
             jti: [0; 16],
             gen: 0,
+            amr: wyrm_gateway::Amr::Password,
+            auth_at: 0,
+            dev: None,
         },
     };
     let mut p = p;
@@ -1843,6 +1851,9 @@ fn an_approval_token_is_for_one_step_and_one_body() {
             iat: 0,
             jti: [0; 16],
             gen: 0,
+            amr: wyrm_gateway::Amr::Password,
+            auth_at: 0,
+            dev: None,
         },
     };
     let claims = |tok: Vec<u8>| -> wyrm_core::PtokClaims {
@@ -1887,4 +1898,118 @@ fn an_approval_token_is_for_one_step_and_one_body() {
             .unwrap(),
     );
     assert_eq!(c.grants[0].p.min(c.max), Perm::Read);
+}
+
+/// Security review of PR 86, item 1: with `step_up: config`, an approval that would sign a
+/// token for a `config` step (a flow deploy) asks for the step-up before anything is signed,
+/// as a direct `config` invoke does; a direct deploy is asked too. After the confirm it
+/// goes through.
+#[tokio::test(flavor = "multi_thread")]
+async fn approving_a_config_step_needs_the_step_up() {
+    let policy = wyrm_gateway::DevicePolicy {
+        step_up: wyrm_gateway::StepUp::Config,
+        fresh_s: 3,
+        ..Default::default()
+    };
+    let env = Env::start_with("approve-stepup", wyrm_gateway::SESSION_TTL, policy).await;
+    let dir = temp_dir("approve-stepup-flows");
+    let host = wyrm_flow::FlowHost::open(&dir, b"flow-test-hmac-key", SITE).unwrap();
+    let mut lc = LinkConfig::new(SITE, "dataflows");
+    lc.root = Some(format!("wy/{SITE}/dataflows"));
+    lc.admin_keys = vec![env.gw.verifying_key()];
+    let engine = wyrm_link_sdk::spawn::<wyrm_flow::Engine>(
+        env.session.clone(),
+        lc,
+        wyrm_flow::EngineStart {
+            host,
+            admin_keys: vec![env.gw.verifying_key()],
+            proof_keys: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let agent = spawn_agent(&env).await;
+    let admin = env.session("root", ADMIN_PW).await;
+    let mut root = env.ws(&admin).await;
+    let r = root
+        .call(
+            "invoke",
+            AGENT,
+            vec![
+                ("action", Value::from("ask")),
+                ("args", map([("task", Value::from("set two points"))])),
+            ],
+        )
+        .await;
+    assert!(is_ok(&r), "{r:?}");
+    let task = format!("{AGENT}/tasks/{}", text(get(&r, "result"), "task"));
+    let r = root
+        .call("doc", &task, vec![("suffix", Value::from("~state"))])
+        .await;
+    let rec = get(&r, "result").clone();
+    let Value::Array(plan) = get(&rec, "plan") else {
+        panic!("plan: {rec:?}")
+    };
+    assert_eq!(text(&plan[2], "level"), "config");
+    let hash = wyrm_gateway::approve::plan_hash(plan).unwrap();
+    // the session's login is older than the step-up window
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let r = root
+        .call("invoke", &task, approve_args(&[1, 3], &hash))
+        .await;
+    let err = get(&r, "error");
+    assert_eq!(get(err, "code"), &Value::from("confirm_required"), "{r:?}");
+    assert!(matches!(get(err, "nonce"), Value::Bytes(_)), "{r:?}");
+    // nothing was signed or sent: the task still waits
+    let r = root
+        .call("doc", &task, vec![("suffix", Value::from("~state"))])
+        .await;
+    assert_eq!(text(get(&r, "result"), "state"), "awaiting_approval");
+    // a deploy sent directly is asked too (its proofs are signed by the gateway)
+    let r = root
+        .call(
+            "invoke",
+            &format!("wy/{SITE}/dataflows"),
+            vec![("action", Value::from("deploy")), ("args", map([]))],
+        )
+        .await;
+    assert_eq!(
+        get(get(&r, "error"), "code"),
+        &Value::from("confirm_required"),
+        "{r:?}"
+    );
+    // confirmed with the password: the same approval goes through
+    let (st, _) = env
+        .http(
+            "POST",
+            "/api/confirm",
+            Some(&admin),
+            Some(map([("password", Value::from(ADMIN_PW))])),
+        )
+        .await;
+    assert_eq!(st, 200);
+    let r = root
+        .call("invoke", &task, approve_args(&[1, 3], &hash))
+        .await;
+    assert!(is_ok(&r), "{r:?}");
+    // a deploy by a user whose grant is below config is asked too: only the deploy rule
+    // catches it (the action's level alone would leave it to the engine)
+    let ap = env.add_user(&admin, "ap", &["approver"]).await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let mut ap = env.ws(&ap).await;
+    let r = ap
+        .call(
+            "invoke",
+            &format!("wy/{SITE}/dataflows"),
+            vec![("action", Value::from("deploy")), ("args", map([]))],
+        )
+        .await;
+    assert_eq!(
+        get(get(&r, "error"), "code"),
+        &Value::from("confirm_required"),
+        "{r:?}"
+    );
+    agent.stop().await;
+    engine.stop().await;
+    env.stop().await;
 }

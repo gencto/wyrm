@@ -46,7 +46,11 @@ enum Cmd {
     /// the sites in `peers.downstream` (`data_dir/peers/<site>/broker.{pem,key}`,
     /// ADR 0015) and print the path of the CA certificate: the files to
     /// give to those sites (`peers.upstream` `ca`, `cert`, `key`).
-    Ca,
+    /// `wyrmd ca fingerprint` prints the certificate code instead.
+    Ca {
+        #[command(subcommand)]
+        cmd: Option<CaCmd>,
+    },
     /// Write the WAL head anchors (state_anchor_dir) from the current
     /// stores, after moving or creating that directory. Run with wyrmd
     /// stopped, only on stores you trust.
@@ -68,6 +72,14 @@ enum Cmd {
     /// `issue` its files on a broker of the pair, `serve` them there.
     #[command(subcommand)]
     Arbiter(ArbiterCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum CaCmd {
+    /// Print the certificate code of the CA the gateway's certificate chains to (ADR
+    /// 0050): what Studio's Trust screen shows and the `fp` of the gateway's announce.
+    /// Creates nothing.
+    Fingerprint,
 }
 
 #[derive(Subcommand, Debug)]
@@ -259,7 +271,21 @@ async fn run(args: Args) -> Result<(), Error> {
         }
         Some(Cmd::UpdateGuard) => return crate::update::run_guard(&cfg),
         Some(Cmd::GuardRefresh) => return crate::update::run_guard_refresh(&cfg),
-        Some(Cmd::Ca) => {
+        Some(Cmd::Ca {
+            cmd: Some(CaCmd::Fingerprint),
+        }) => {
+            let Some(der) = crate::gateway_ca(&cfg) else {
+                return Err(
+                    "no CA for the gateway: no gateway section, no TLS, or neither \
+                    gateway.tls_ca, a chain in gateway.tls_cert nor the site CA issued it"
+                        .into(),
+                );
+            };
+            let fp = wyrm_gateway::devices::ca_fingerprint(&der);
+            println!("{}", wyrm_gateway::devices::grouped(&fp));
+            return Ok(());
+        }
+        Some(Cmd::Ca { cmd: None }) => {
             let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
             for d in &cfg.peers.downstream {
                 let f = wyrm_admin::control::broker_cert_in(&pki, &cfg.data_dir, &d.site)?;
@@ -330,8 +356,13 @@ async fn run(args: Args) -> Result<(), Error> {
     if cfg.standby.is_some() {
         return run_with_standby(cfg).await;
     }
+    let announce = crate::announce::plan(&cfg, &upstream_sites(&cfg));
     let daemon = Daemon::open(cfg, own_exe()?)?;
     let ctl = daemon.control();
+    // the gateway on the local network while this broker serves (ADR 0050 §2.1)
+    let _announced = announce
+        .as_ref()
+        .and_then(crate::announce::Announcer::start);
     daemon
         .run_until(async {
             stop_signal().await;
@@ -340,6 +371,11 @@ async fn run(args: Args) -> Result<(), Error> {
         .await?;
     exit_if_asked(&ctl);
     Ok(())
+}
+
+/// The upstream sites of the configuration (the `up` TXT key).
+fn upstream_sites(cfg: &Config) -> Vec<String> {
+    cfg.peers.upstream.iter().map(|u| u.site.clone()).collect()
 }
 
 /// This binary's own file, not a link to it: a broker started as
@@ -395,6 +431,10 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
             .map(|a| AbortOnDrop(tokio::spawn(crate::arbiter::keep(a, held.clone()))));
         let daemon = Daemon::open(cfg.clone(), exe.clone())?;
         crate::standby::mark_active(&cfg.data_dir);
+        // only the active broker announces its gateway (ADR 0050 §2.1); a step down ends it
+        let announced = crate::announce::plan(&cfg, &upstream_sites(&cfg))
+            .as_ref()
+            .and_then(crate::announce::Announcer::start);
         let ctl = daemon.control();
         ctl.record(
             "system",
@@ -430,6 +470,7 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
                 }
             })
             .await?;
+        drop(announced);
         exit_if_asked(&ctl);
         drop(keeper);
         if let Some(a) = &arbiters {
