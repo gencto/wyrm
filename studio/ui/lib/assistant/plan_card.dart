@@ -113,6 +113,9 @@ final class PlanCardVm extends Equatable {
     required this.steps,
     this.stateTone = Tone.warn,
     this.note,
+    this.open = true,
+    this.showLabel,
+    this.hideLabel,
   });
 
   /// `Plan · 5 steps`.
@@ -127,14 +130,31 @@ final class PlanCardVm extends Equatable {
   /// keys and the arguments).
   final String? note;
 
+  /// The steps are shown at first (a plan that waits); else only the
+  /// header, with [showLabel] to open it.
+  final bool open;
+
+  /// `Show steps` / `Hide steps`; with neither the steps are always shown.
+  final String? showLabel;
+  final String? hideLabel;
+
   @override
-  List<Object?> get props => [title, state, stateTone, steps, note];
+  List<Object?> get props => [
+    title,
+    state,
+    stateTone,
+    steps,
+    note,
+    open,
+    showLabel,
+    hideLabel,
+  ];
 }
 
 /// Board *Assistant*: the plan of a task, one [PlanStepVm] per step. With
 /// [onTick] the steps that have a tick can be ticked; without it the plan is
 /// only shown.
-class PlanCard extends StatelessWidget {
+class PlanCard extends StatefulWidget {
   const PlanCard({required this.vm, this.onTick, super.key});
 
   final PlanCardVm vm;
@@ -143,8 +163,28 @@ class PlanCard extends StatelessWidget {
   final void Function(int n, {required bool ticked})? onTick;
 
   @override
+  State<PlanCard> createState() => _PlanCardState();
+}
+
+class _PlanCardState extends State<PlanCard> {
+  late bool _open = widget.vm.open;
+
+  @override
+  void didUpdateWidget(PlanCard old) {
+    super.didUpdateWidget(old);
+    // the plan went from waiting to its run (or back): its own default
+    if (old.vm.open != widget.vm.open) {
+      _open = widget.vm.open;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final vm = widget.vm;
+    final onTick = widget.onTick;
+    final toggle = _open ? vm.hideLabel : vm.showLabel;
+    final open = _open || vm.showLabel == null;
     return Container(
       margin: const EdgeInsets.only(left: 42, bottom: 12),
       clipBehavior: .antiAlias,
@@ -158,24 +198,41 @@ class PlanCard extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            child: Row(
-              spacing: 10,
-              children: [
-                Expanded(child: SectionLabel(vm.title)),
-                Text(
-                  vm.state,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: vm.stateTone == .neutral
-                        ? c.text3
-                        : toneColor(c, vm.stateTone),
+            // a long state line (how far it was checked) wraps beside the
+            // toggle instead of pushing it out
+            child: LayoutBuilder(
+              builder: (context, box) => Row(
+                spacing: 10,
+                children: [
+                  Expanded(child: SectionLabel(vm.title)),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: box.maxWidth * 0.6),
+                    child: Text(
+                      vm.state,
+                      textAlign: .right,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: vm.stateTone == .neutral
+                            ? c.text3
+                            : toneColor(c, vm.stateTone),
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  if (toggle != null)
+                    InkWell(
+                      onTap: () => setState(() => _open = !_open),
+                      child: Text(
+                        toggle,
+                        style: TextStyle(fontSize: 12, color: c.text2),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-          for (final s in vm.steps) _Step(vm: s, onTick: onTick),
-          if (vm.note case final n?)
+          if (open)
+            for (final s in vm.steps) _Step(vm: s, onTick: onTick),
+          if (vm.note case final n? when open)
             Container(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
               decoration: BoxDecoration(

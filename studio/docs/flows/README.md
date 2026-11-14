@@ -31,6 +31,7 @@ flowchart LR
     links -->|"onTapLinkInstall"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
+    assistant ==>|"onButton (navigate) [_node(task)]"| explorer
     system -->|"onTile"| gallery
     system -->|"onAttention"| gallery
     system -->|"onElsewhere"| gallery

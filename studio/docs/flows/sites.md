@@ -171,6 +171,7 @@ sequenceDiagram
     A4->>ST: copyWith(links.tab)
     VM->>A5: dispatchSync
     A5->>ST: copyWith(site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant)
+    A5->>ST: dispatchSync(UnwatchKeysAction)
     A5->>ST: dispatchSync(FollowHistoryAction)
     A5->>ST: dispatchSync(FollowFlowsAction)
     A5->>ST: dispatchSync(_MoveWatched)

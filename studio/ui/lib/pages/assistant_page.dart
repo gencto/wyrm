@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../assistant/conversation.dart';
 import '../assistant/plan_card.dart';
+import '../assistant/result_card.dart';
+import '../assistant/run_card.dart';
 import '../assistant/task_list.dart';
 import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
@@ -88,6 +90,8 @@ class AssistantPage extends StatelessWidget {
     this.taskKey,
     this.plan,
     this.onTick,
+    this.run,
+    this.result,
     this.card,
     this.askReason,
     this.empty,
@@ -114,6 +118,12 @@ class AssistantPage extends StatelessWidget {
 
   /// A step of [plan] was ticked; null: the plan is only shown.
   final void Function(int n, {required bool ticked})? onTick;
+
+  /// The run of the plan, under it; null before a run.
+  final RunCardVm? run;
+
+  /// What a finished plan left behind.
+  final ResultCardVm? result;
   final TaskCardVm? card;
   final ValueChanged<String> onButton;
 
@@ -219,6 +229,8 @@ class AssistantPage extends StatelessWidget {
                       crossAxisAlignment: .stretch,
                       children: [
                         if (plan case final p?) PlanCard(vm: p, onTick: onTick),
+                        if (run case final r?) RunCard(vm: r),
+                        if (result case final r?) ResultCard(vm: r),
                         if (card case final k?)
                           _Card(vm: k, onButton: onButton),
                       ],

@@ -12,6 +12,7 @@ import '../../historian/actions/follow_history_action.dart';
 import '../../historian/models/historian_state.dart';
 import '../../links/actions/retrieve_links_action.dart';
 import '../../links/models/links_state.dart';
+import '../../live/actions/unwatch_keys_action.dart';
 import '../../nodes/models/nodes_state.dart';
 import '../../tasks/models/tasks_state.dart';
 import '../../updates/models/updates_state.dart';
@@ -27,6 +28,10 @@ class ViewSiteAction extends Action {
   /// The site that was shown, when this run changed it.
   String? _from;
 
+  /// The keys the Assistant watched on the site that was left (its Result
+  /// card): unwatched, not moved, since its tasks go with that site.
+  IList<String> _assistantWatched = const IListConst([]);
+
   @override
   AppState? reduce() {
     if (target == site.viewed) {
@@ -37,6 +42,7 @@ class ViewSiteAction extends Action {
     // put its task back into the emptied table.
     deps.agentTasks.follow(null);
     _from = site.viewed;
+    _assistantWatched = state.assistant.watched;
     return state.copyWith(
       site: state.site.copyWith(current: target == site.name ? null : target),
       nodes: const NodesState(),
@@ -85,6 +91,9 @@ class ViewSiteAction extends Action {
   @override
   void after() {
     super.after();
+    if (_assistantWatched.isNotEmpty) {
+      dispatchSync(UnwatchKeysAction(_assistantWatched));
+    }
     for (final reload in deps.reloads) {
       reload(store);
     }
