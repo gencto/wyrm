@@ -166,6 +166,7 @@ Future<AppState> openedSession(
       user: subject,
       name: me.site,
       role: me.roles.isEmpty ? me.max : me.roles.join(', '),
+      max: me.max,
       connected: true,
       grants: [for (final (k, p) in me.grants) Grant(key: k, level: p)].lock,
     ),

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
@@ -82,6 +83,7 @@ import '../common/trend.dart';
 import '../common/value_viewer.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+import 'assistant_page_connector.dart';
 
 /// The sections of a site the tree starts from (`sys/**` is not in the
 /// tree: it is in Links, Access, Sites and System, docs/studio.md §7.4).
@@ -90,7 +92,7 @@ const _sections = ['downstream', 'dataflows', 'storage', 'upstream'];
 /// Explorer's keys (docs/design/specs/explorer.md §6): ⌘⇧C copies the
 /// keys, ⌘C the value of the point in the inspector, Esc clears the
 /// selection.
-enum _Key { copyKeys, copyValue, clear }
+enum _Key { copyKeys, copyValue, clear, assistant }
 
 class _KeyIntent extends Intent {
   const _KeyIntent(this.key);
@@ -182,6 +184,12 @@ class ExplorerPageConnector extends StatelessWidget {
             _Key.copyValue,
           ),
           SingleActivator(LogicalKeyboardKey.escape): _KeyIntent(_Key.clear),
+          SingleActivator(LogicalKeyboardKey.keyJ, meta: true): _KeyIntent(
+            _Key.assistant,
+          ),
+          SingleActivator(LogicalKeyboardKey.keyJ, control: true): _KeyIntent(
+            _Key.assistant,
+          ),
         },
         child: Actions(
           actions: {
@@ -190,144 +198,165 @@ class ExplorerPageConnector extends StatelessWidget {
                 _Key.copyKeys => vm.copyKeys.isNotEmpty,
                 _Key.copyValue => vm.pointValue != null,
                 _Key.clear => true,
+                _Key.assistant => true,
               },
               run: (k) => switch (k) {
                 _Key.copyKeys => _copy(context, vm.copyKeys),
                 _Key.copyValue => _copyValue(context, vm.pointValue),
                 _Key.clear => vm.onClear(),
+                _Key.assistant => vm.onToggleAssistant(),
               },
             ),
           },
           child: Focus(
             autofocus: true,
-            child: ExplorerPage(
-              treeLabel: vm.treeLabel,
-              tree: vm.tree,
-              treeLoading: vm.treeLoading,
-              treeFilter: vm.treeFilter,
-              onTreeFilter: vm.onTreeFilter,
-              treeFilterHint: S.current.filter,
-              treeNote: TreeNoteVm(
-                lead: S.current.treeNoteLead,
-                code: 'sys/**',
-                middle: S.current.treeNoteMiddle,
-                and: S.current.andWord,
-                links: [
-                  ('links', S.current.wsLinks),
-                  ('access', S.current.wsAccess),
-                  ('sites', S.current.wsSites),
-                  ('system', S.current.wsSystem),
-                ],
-              ),
-              onNoteLink: (id) => AutoTabsRouter.of(
-                context,
-              ).setActiveIndex(_noteLinks[id] ?? 0),
-              onTap: vm.onSelect,
-              onToggle: vm.onToggle,
-              onMark: vm.onMark,
-              onMarkRange: vm.onMarkRange,
-              onMenu: (id, at) => _menu(context, vm, id, at),
-              keyName: vm.keyName,
-              onCopyKey: vm.keyName == null
-                  ? null
-                  : () => _copy(context, [vm.keyName!]),
-              copyKeyLabel: S.current.copyKey,
-              keyLinks: vm.keyLinks,
-              title: vm.title,
-              titleName: vm.titleName,
-              pill: vm.pill,
-              subtitle: vm.subtitle,
-              headerButtons: vm.headerButtons,
-              openButton: vm.openButton,
-              actionsLabel: vm.keyName == null ? null : S.current.tabActions,
-              onActions: (at) => _menu(context, vm, vm.keyName!, at),
-              onTool: (id) => _tool(context, vm, id),
-              empty: S.current.selectANode,
-              tabs: vm.tabs,
-              tab: vm.tab,
-              onTab: vm.onTab,
-              toolbar: vm.toolbar,
-              selectionBar: vm.selectionBar,
-              onClearSelection: vm.onClear,
-              pointFilter: vm.pointFilter,
-              onPointFilter: vm.onPointFilter,
-              pointFilterHint: S.current.filterPoints,
-              points: vm.points,
-              pointLabels: PointsTableLabels(
-                point: S.current.colPoint,
-                register: S.current.colRegister,
-                type: S.current.colType,
-                unit: S.current.colUnit,
-                poll: S.current.colPoll,
-                value: S.current.colValue,
-                quality: S.current.colQuality,
-                write: S.current.colWrite,
-                was: S.current.wasWord,
-              ),
-              pointsLoading: vm.pointsLoading,
-              pointsEmpty: vm.pointsEmpty,
-              emptyButtons: vm.emptyButtons,
-              pointsNote: S.current.pointsNote,
-              childColumns: [
-                ColumnVm(S.current.colName, flex: 4),
-                ColumnVm(S.current.colKind, flex: 2),
-                ColumnVm(S.current.colValue, flex: 3),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ExplorerPage(
+                    treeLabel: vm.treeLabel,
+                    tree: vm.tree,
+                    treeLoading: vm.treeLoading,
+                    treeFilter: vm.treeFilter,
+                    onTreeFilter: vm.onTreeFilter,
+                    treeFilterHint: S.current.filter,
+                    treeNote: TreeNoteVm(
+                      lead: S.current.treeNoteLead,
+                      code: 'sys/**',
+                      middle: S.current.treeNoteMiddle,
+                      and: S.current.andWord,
+                      links: [
+                        ('links', S.current.wsLinks),
+                        ('access', S.current.wsAccess),
+                        ('sites', S.current.wsSites),
+                        ('system', S.current.wsSystem),
+                      ],
+                    ),
+                    onNoteLink: (id) => AutoTabsRouter.of(
+                      context,
+                    ).setActiveIndex(_noteLinks[id] ?? 0),
+                    onTap: vm.onSelect,
+                    onToggle: vm.onToggle,
+                    onMark: vm.onMark,
+                    onMarkRange: vm.onMarkRange,
+                    onMenu: (id, at) => _menu(context, vm, id, at),
+                    keyName: vm.keyName,
+                    onCopyKey: vm.keyName == null
+                        ? null
+                        : () => _copy(context, [vm.keyName!]),
+                    copyKeyLabel: S.current.copyKey,
+                    keyLinks: vm.keyLinks,
+                    title: vm.title,
+                    titleName: vm.titleName,
+                    pill: vm.pill,
+                    subtitle: vm.subtitle,
+                    headerButtons: vm.headerButtons,
+                    openButton: vm.openButton,
+                    actionsLabel: vm.keyName == null
+                        ? null
+                        : S.current.tabActions,
+                    onActions: (at) => _menu(context, vm, vm.keyName!, at),
+                    onTool: (id) => _tool(context, vm, id),
+                    empty: S.current.selectANode,
+                    tabs: vm.tabs,
+                    tab: vm.tab,
+                    onTab: vm.onTab,
+                    toolbar: vm.toolbar,
+                    selectionBar: vm.selectionBar,
+                    onClearSelection: vm.onClear,
+                    pointFilter: vm.pointFilter,
+                    onPointFilter: vm.onPointFilter,
+                    pointFilterHint: S.current.filterPoints,
+                    points: vm.points,
+                    pointLabels: PointsTableLabels(
+                      point: S.current.colPoint,
+                      register: S.current.colRegister,
+                      type: S.current.colType,
+                      unit: S.current.colUnit,
+                      poll: S.current.colPoll,
+                      value: S.current.colValue,
+                      quality: S.current.colQuality,
+                      write: S.current.colWrite,
+                      was: S.current.wasWord,
+                    ),
+                    pointsLoading: vm.pointsLoading,
+                    pointsEmpty: vm.pointsEmpty,
+                    emptyButtons: vm.emptyButtons,
+                    pointsNote: S.current.pointsNote,
+                    childColumns: [
+                      ColumnVm(S.current.colName, flex: 4),
+                      ColumnVm(S.current.colKind, flex: 2),
+                      ColumnVm(S.current.colValue, flex: 3),
+                    ],
+                    children: vm.children,
+                    childrenEmpty: S.current.noChildren,
+                    childrenNote: vm.children.isEmpty
+                        ? null
+                        : S.current.childrenNote,
+                    onChild: vm.onSelect,
+                    onPoint: vm.onPoint,
+                    onCheck: vm.onCheck,
+                    onRange: vm.onRange,
+                    onCheckAll: vm.onCheckAll,
+                    params: vm.params,
+                    actionGroups: vm.actionGroups,
+                    onAction: vm.onAction,
+                    result: vm.result,
+                    ranges: const [
+                      TabItemVm(id: '1h', label: '1 h'),
+                      TabItemVm(id: '24h', label: '24 h'),
+                      TabItemVm(id: '7d', label: '7 d'),
+                    ],
+                    range: vm.range,
+                    onHistoryRange: vm.onHistoryRange,
+                    trend: vm.trend,
+                    onTrendWindow: vm.onTrendWindow,
+                    onTrendReset: vm.onTrendReset,
+                    historyColumns: [
+                      ColumnVm(S.current.colTime, flex: 2),
+                      ColumnVm(S.current.colValue, flex: 3),
+                      ColumnVm(S.current.colQuality, flex: 2),
+                    ],
+                    historyRows: vm.historyRows,
+                    historyNote: vm.historyNote,
+                    historyFail: vm.historyFail,
+                    auditColumns: [
+                      ColumnVm(S.current.colTime, flex: 2),
+                      ColumnVm(S.current.colOp),
+                      ColumnVm(S.current.colKey, flex: 4),
+                      ColumnVm(S.current.colWho, flex: 3),
+                      ColumnVm(S.current.colResult, flex: 2),
+                    ],
+                    auditRows: vm.auditRows,
+                    auditNote: vm.auditNote,
+                    inspector: vm.inspector,
+                    busy: vm.busy,
+                    onSubmit: vm.onSubmit,
+                    onReadAgain: vm.onReadAgain,
+                    onCloseInspector: vm.onCloseInspector,
+                    panels: vm.panelWidths,
+                    onPanelWidth: vm.onPanelWidth,
+                    onTapFlowEditor: vm.onTapFlowEditor,
+                    viewer: vm.viewer,
+                    viewerTables: viewerTables,
+                    onViewPoint: vm.onViewPoint,
+                    onCloseViewer: vm.onCloseViewer,
+                    viewLabel: S.current.viewValue,
+                    copyLabel: S.current.copyValue,
+                    copiedLabel: S.current.copiedValue,
+                    closeLabel: S.current.closeLabel,
+                  ),
+                ),
+                // the Assistant about the selection (⌘J, spec assistant.md §5)
+                if (vm.assistantOpen)
+                  const Positioned(
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    width: 420,
+                    child: AssistantDrawerConnector(),
+                  ),
               ],
-              children: vm.children,
-              childrenEmpty: S.current.noChildren,
-              childrenNote: vm.children.isEmpty ? null : S.current.childrenNote,
-              onChild: vm.onSelect,
-              onPoint: vm.onPoint,
-              onCheck: vm.onCheck,
-              onRange: vm.onRange,
-              onCheckAll: vm.onCheckAll,
-              params: vm.params,
-              actionGroups: vm.actionGroups,
-              onAction: vm.onAction,
-              result: vm.result,
-              ranges: const [
-                TabItemVm(id: '1h', label: '1 h'),
-                TabItemVm(id: '24h', label: '24 h'),
-                TabItemVm(id: '7d', label: '7 d'),
-              ],
-              range: vm.range,
-              onHistoryRange: vm.onHistoryRange,
-              trend: vm.trend,
-              onTrendWindow: vm.onTrendWindow,
-              onTrendReset: vm.onTrendReset,
-              historyColumns: [
-                ColumnVm(S.current.colTime, flex: 2),
-                ColumnVm(S.current.colValue, flex: 3),
-                ColumnVm(S.current.colQuality, flex: 2),
-              ],
-              historyRows: vm.historyRows,
-              historyNote: vm.historyNote,
-              historyFail: vm.historyFail,
-              auditColumns: [
-                ColumnVm(S.current.colTime, flex: 2),
-                ColumnVm(S.current.colOp),
-                ColumnVm(S.current.colKey, flex: 4),
-                ColumnVm(S.current.colWho, flex: 3),
-                ColumnVm(S.current.colResult, flex: 2),
-              ],
-              auditRows: vm.auditRows,
-              auditNote: vm.auditNote,
-              inspector: vm.inspector,
-              busy: vm.busy,
-              onSubmit: vm.onSubmit,
-              onReadAgain: vm.onReadAgain,
-              onCloseInspector: vm.onCloseInspector,
-              panels: vm.panelWidths,
-              onPanelWidth: vm.onPanelWidth,
-              onTapFlowEditor: vm.onTapFlowEditor,
-              viewer: vm.viewer,
-              viewerTables: viewerTables,
-              onViewPoint: vm.onViewPoint,
-              onCloseViewer: vm.onCloseViewer,
-              viewLabel: S.current.viewValue,
-              copyLabel: S.current.copyValue,
-              copiedLabel: S.current.copiedValue,
-              closeLabel: S.current.closeLabel,
             ),
           ),
         ),
@@ -923,6 +952,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       onRange: (k) => dispatchSync(CheckPointsAction.range(k, order)),
       onCheckAll: () => dispatchSync(CheckPointsAction.all(order)),
       onClear: () => dispatchSync(ClearSelectionAction()),
+      assistantOpen: assistant.drawer,
+      onToggleAssistant: () => dispatchSync(SetDrawerAction.toggle()),
       onTab: (t) {
         dispatchSync(SetTabAction(t));
         if (t == 'history' && point != null) {
@@ -1941,6 +1972,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
 /// The view-model holds the part of the Store state the dumb-widget needs.
 class _Vm extends Vm {
   _Vm({
+    required this.assistantOpen,
+    required this.onToggleAssistant,
     required this.treeLabel,
     required this.tree,
     required this.treeLoading,
@@ -2014,6 +2047,7 @@ class _Vm extends Vm {
     required this.onCloseViewer,
   }) : super(
          equals: [
+           assistantOpen,
            treeLabel,
            tree,
            treeLoading,
@@ -2124,6 +2158,10 @@ class _Vm extends Vm {
   final ValueChanged<String> onRange;
   final VoidCallback onCheckAll;
   final VoidCallback onClear;
+
+  /// The Assistant drawer is open over the page (⌘J).
+  final bool assistantOpen;
+  final VoidCallback onToggleAssistant;
   final ValueChanged<String> onTab;
   final VoidCallback onAudit;
   final ValueChanged<String> onAction;

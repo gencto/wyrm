@@ -10,7 +10,8 @@ List<ChangeCardVm> changeCards(Selectors s) => [
       ChangeCardVm(
         id: c.id,
         op: c.op,
-        key_: shortKey(c.key),
+        // a link's params: the whole key, so the site is never hidden
+        key_: c.key.contains('/sys/links/') ? c.key : shortKey(c.key),
         field: c.field,
         from: c.from,
         to: c.to,

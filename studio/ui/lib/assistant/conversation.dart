@@ -52,14 +52,24 @@ final class ConversationEventVm extends Equatable {
 /// what it read as chips, the states it reached; [trailing] (the plan or
 /// the task's card) closes it.
 class Conversation extends StatelessWidget {
-  const Conversation({required this.events, this.trailing, super.key});
+  const Conversation({
+    required this.events,
+    this.trailing,
+    this.dense = false,
+    super.key,
+  });
 
   final List<ConversationEventVm> events;
   final Widget? trailing;
 
+  /// The drawer's density: smaller margins.
+  final bool dense;
+
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+    padding: dense
+        ? const EdgeInsets.fromLTRB(14, 14, 14, 16)
+        : const EdgeInsets.fromLTRB(24, 20, 24, 24),
     children: [
       for (final e in events)
         Padding(
