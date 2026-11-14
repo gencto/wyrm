@@ -1,9 +1,12 @@
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../alerts/trust_card.dart';
 import '../alerts/unreachable_alert.dart';
+import '../buttons/find_network_button.dart';
 import '../buttons/log_in_button.dart';
 import '../buttons/recent_chip.dart';
+import '../containers/discover_panel.dart';
 import '../containers/login_hero.dart';
 import '../containers/rise.dart';
 import '../containers/shake.dart';
@@ -54,6 +57,17 @@ class LogInPage extends StatefulWidget {
     this.standbyLabel,
     this.welcome,
     this.window = const WindowBarVm(),
+    this.gatewayHint,
+    this.onFind,
+    this.discover,
+    this.onLookAgain,
+    this.onPick,
+    this.onProbe,
+    this.onOpenSettings,
+    this.trust,
+    this.onTrust,
+    this.onCancelTrust,
+    this.tlsTone = Tone.good,
     super.key,
   });
 
@@ -124,6 +138,33 @@ class LogInPage extends StatefulWidget {
   /// The frameless window's side of the page: its top 40 px (the hero's
   /// top padding) are the window's drag area (docs/studio.md §7.1).
   final WindowBarVm window;
+
+  /// The gateway field's placeholder.
+  final String? gatewayHint;
+
+  /// `Find on this network` beside the gateway field toggles the panel
+  /// (docs/design/specs/unlock-discover.md §4); null hides the button.
+  final VoidCallback? onFind;
+
+  /// The panel of found gateways, in place of the recent chips; null while
+  /// it is closed.
+  final DiscoverPanelVm? discover;
+  final VoidCallback? onLookAgain;
+
+  /// A found row was picked: its site.
+  final ValueChanged<String>? onPick;
+  final VoidCallback? onProbe;
+  final VoidCallback? onOpenSettings;
+
+  /// The certificate check of a found gateway, in place of the panel; the
+  /// form below is dimmed until it is answered.
+  final TrustCardVm? trust;
+  final VoidCallback? onTrust;
+  final VoidCallback? onCancelTrust;
+
+  /// The lock of the footer's TLS line: good, or warn while the CA is not
+  /// trusted yet.
+  final Tone tlsTone;
 
   @override
   State<LogInPage> createState() => _LogInPageState();
@@ -196,7 +237,9 @@ class _LogInPageState extends State<LogInPage> {
             Expanded(
               child: LoginHero(underButtons: widget.window.leading > 0),
             ),
-            SizedBox(width: 520, child: _panel(context)),
+            // The boards *Discover…* give the form 40 more while the panel
+            // or the trust card is open (560, content 460).
+            SizedBox(width: _finding ? 560 : 520, child: _panel(context)),
           ],
         );
       }
@@ -239,7 +282,7 @@ class _LogInPageState extends State<LogInPage> {
     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
     child: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(maxWidth: _finding ? 460 : 420),
         child: AnimatedSwitcher(
           duration: reduceMotion(context) ? .zero : Motion.fadeOut,
           child: switch (widget.welcome) {
@@ -306,46 +349,54 @@ class _LogInPageState extends State<LogInPage> {
               spacing: 16,
               children: [
                 Rise(order: 1, child: _gateway(context)),
-                Rise(
-                  order: 2,
-                  child: BoxedFormField(
-                    vm: widget.user,
-                    label: S.current.user,
-                    autofillHints: const [AutofillHints.username],
-                    textInputAction: .next,
-                  ),
-                ),
-                Rise(
-                  order: 3,
-                  child: Shake(
-                    trigger: widget.wrong ? true : null,
-                    child: BoxedFormField(
-                      vm: widget.password,
-                      label: S.current.password,
-                      obscure: true,
-                      alert: widget.wrong,
-                      focusNode: _passwordFocus,
-                      keyboardType: .visiblePassword,
-                      autofillHints: const [AutofillHints.password],
-                      textInputAction: .done,
-                      onSubmitted: (_) => submit(),
+                if (_finding)
+                  Rise(
+                    order: 2,
+                    child: Opacity(
+                      opacity: widget.trust == null ? 1 : .4,
+                      child: Column(
+                        crossAxisAlignment: .stretch,
+                        spacing: 16,
+                        children: [
+                          // While the panel is open the form is the
+                          // board's compact one: user and password side by
+                          // side, Remember out of the way.
+                          Row(
+                            crossAxisAlignment: .start,
+                            spacing: 12,
+                            children: [
+                              Expanded(child: _user()),
+                              Expanded(child: _password(submit)),
+                            ],
+                          ),
+                          LogInButton(onPressed: submit, busy: busy),
+                          if (busy && widget.steps.isNotEmpty)
+                            LoginSteps(
+                              steps: widget.steps,
+                              current: widget.step,
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-                if (widget.remember case final remember?)
+                  )
+                else ...[
+                  Rise(order: 2, child: _user()),
+                  Rise(order: 3, child: _password(submit)),
+                  if (widget.remember case final remember?)
+                    Rise(
+                      order: 4,
+                      child: CheckRow(
+                        vm: remember,
+                        label: S.current.rememberGatewayAndUser,
+                      ),
+                    ),
                   Rise(
                     order: 4,
-                    child: CheckRow(
-                      vm: remember,
-                      label: S.current.rememberGatewayAndUser,
-                    ),
+                    child: LogInButton(onPressed: submit, busy: busy),
                   ),
-                Rise(
-                  order: 4,
-                  child: LogInButton(onPressed: submit, busy: busy),
-                ),
-                if (busy && widget.steps.isNotEmpty)
-                  LoginSteps(steps: widget.steps, current: widget.step),
+                  if (busy && widget.steps.isNotEmpty)
+                    LoginSteps(steps: widget.steps, current: widget.step),
+                ],
               ],
             ),
             Rise(order: 4, child: _footer(context)),
@@ -355,14 +406,41 @@ class _LogInPageState extends State<LogInPage> {
     );
   }
 
+  /// The panel or the trust card is open.
+  bool get _finding => widget.discover != null || widget.trust != null;
+
+  Widget _user() => BoxedFormField(
+    vm: widget.user,
+    label: S.current.user,
+    autofillHints: const [AutofillHints.username],
+    textInputAction: .next,
+  );
+
+  Widget _password(VoidCallback submit) => Shake(
+    trigger: widget.wrong ? true : null,
+    child: BoxedFormField(
+      vm: widget.password,
+      label: S.current.password,
+      obscure: true,
+      alert: widget.wrong,
+      focusNode: _passwordFocus,
+      keyboardType: .visiblePassword,
+      autofillHints: const [AutofillHints.password],
+      textInputAction: .done,
+      onSubmitted: (_) => submit(),
+    ),
+  );
+
   Widget _gateway(BuildContext context) {
     final c = context.colors;
     final dot = switch (widget.gatewayTone) {
       .good => c.good,
       .bad => c.bad,
+      .warn => c.warn,
       _ => c.muted,
     };
     final bad = widget.gatewayTone == .bad;
+    final warn = widget.gatewayTone == .warn;
     return Column(
       crossAxisAlignment: .stretch,
       spacing: 8,
@@ -376,7 +454,18 @@ class _LogInPageState extends State<LogInPage> {
           autofillHints: const [AutofillHints.url],
           textInputAction: .next,
           onLeave: widget.onGatewayLeave,
-          leading: StatusDot(color: dot, halo: 4),
+          hint: widget.gatewayHint,
+          border: warn ? TrustCard.border : null,
+          leading: StatusDot(
+            color: dot,
+            halo: widget.gatewayTone == .neutral ? 0 : 4,
+          ),
+          beside: widget.onFind == null
+              ? null
+              : FindNetworkButton(
+                  onPressed: widget.onFind,
+                  open: widget.discover != null,
+                ),
           trailing: widget.checking
               ? ArcSpinner(
                   color: c.text4,
@@ -389,7 +478,27 @@ class _LogInPageState extends State<LogInPage> {
             note,
             style: TextStyle(fontSize: 12, color: bad ? c.badText : c.text4),
           ),
-        if (widget.recent.isNotEmpty)
+        if (widget.trust case final t?)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: TrustCard(
+              vm: t,
+              onTrust: widget.onTrust ?? () {},
+              onCancel: widget.onCancelTrust ?? () {},
+            ),
+          )
+        else if (widget.discover case final d?)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: DiscoverPanel(
+              vm: d,
+              onLookAgain: widget.onLookAgain ?? () {},
+              onPick: widget.onPick ?? (_) {},
+              onProbe: widget.onProbe ?? () {},
+              onOpenSettings: widget.onOpenSettings,
+            ),
+          )
+        else if (widget.recent.isNotEmpty)
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -440,7 +549,9 @@ class _LogInPageState extends State<LogInPage> {
                   children: [
                     CustomPaint(
                       size: const Size.square(13),
-                      painter: _Lock(c.good),
+                      painter: _Lock(
+                        widget.tlsTone == .warn ? c.warn : c.good,
+                      ),
                     ),
                     Text(tls, style: note),
                   ],

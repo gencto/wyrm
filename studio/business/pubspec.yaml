@@ -11,6 +11,7 @@ resolution: workspace
 dependencies:
   archive: ^4.6.0
   async_redux: ^29.2.3
+  bonsoir: ^7.1.6
   connectivity_plus: ^7.3.2
   crypto: ^3.0.0
   # The OS-held device key that signs the gateway's device messages (ADR 0050).

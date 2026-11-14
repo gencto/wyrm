@@ -20,6 +20,8 @@ import 'redux/services/flow_preview/flow_preview.dart';
 import 'redux/services/flow_preview/flow_preview_dispatcher.dart';
 import 'redux/services/flow_watch/flow_watch.dart';
 import 'redux/services/flow_watch/flow_watch_dispatcher.dart';
+import 'redux/services/gateway_browser/gateway_browser.dart';
+import 'redux/services/gateway_browser/gateway_browser_dispatcher.dart';
 import 'redux/services/live_lists/live_lists.dart';
 import 'redux/services/live_lists/live_lists_dispatcher.dart';
 import 'redux/services/live_values/live_values.dart';
@@ -30,6 +32,7 @@ import 'redux/services/tree_watch/tree_watch.dart';
 import 'redux/services/tree_watch/tree_watch_dispatcher.dart';
 import 'redux/services/wyrm_connection/wyrm_connection.dart';
 import 'redux/services/wyrm_connection/wyrm_connection_dispatcher.dart';
+import 'wyrm/discovery.dart';
 import 'wyrm/failures.dart';
 import 'wyrm/session.dart';
 
@@ -47,8 +50,24 @@ class AppDependencies {
     this.settings, {
     WyrmLogin? login,
     ErrorWording? wording,
-  }) : login = login ?? const GatewayLogin(),
-       wording = wording ?? plainWording;
+    GatewayInfoReader? gatewayInfo,
+    this._browser,
+    this.browseDuration = browseFor,
+  }) : login =
+           login ??
+           GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
+       wording = wording ?? plainWording,
+       gatewayInfo = gatewayInfo ?? const HttpInfoReader();
+
+  /// The DNS-SD side of the browse; bonsoir when null.
+  final GatewayBrowserBackend? _browser;
+
+  /// How long one browse lasts.
+  final Duration browseDuration;
+
+  /// How a found gateway's `/api/info` is read (ADR 0050). Tests pass a
+  /// fake.
+  final GatewayInfoReader gatewayInfo;
 
   /// The words of an error: its title and, for a fault in Studio, its
   /// sentence. The app's, in the user's language; plain English in tests.
@@ -181,6 +200,13 @@ class AppDependencies {
     listener: FlowPreviewDispatcher(store: _store),
   );
 
+  /// *Find on this network*: the `_wyrm._tcp` browse (ADR 0050 §2.3).
+  late final gatewayBrowser = GatewayBrowserService(
+    listener: GatewayBrowserDispatcher(store: _store),
+    backend: _browser,
+    duration: browseDuration,
+  );
+
   late final traffic = TrafficService(
     listener: TrafficDispatcher(store: _store),
   );
@@ -201,5 +227,6 @@ class AppDependencies {
     await flowWatch.start();
     await flowPreview.start();
     await traffic.start();
+    await gatewayBrowser.start();
   }
 }

@@ -3,6 +3,14 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/discovery/actions/close_discovery_action.dart';
+import 'package:business/redux/discovery/actions/find_gateways_action.dart';
+import 'package:business/redux/discovery/actions/pick_found_gateway_action.dart';
+import 'package:business/redux/discovery/actions/probe_range_action.dart';
+import 'package:business/redux/discovery/actions/set_range_action.dart';
+import 'package:business/redux/discovery/actions/set_range_port_action.dart';
+import 'package:business/redux/discovery/actions/set_trust_pending_action.dart';
+import 'package:business/redux/discovery/actions/trust_gateway_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/open_tree_action.dart';
 import 'package:business/redux/login/actions/probe_gateway_action.dart';
@@ -10,17 +18,25 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_remember_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/found_gateway.dart';
+import 'package:models/found_problem.dart';
 import 'package:models/login_failure.dart';
+import 'package:ui/alerts/trust_card.dart';
 import 'package:ui/alerts/unreachable_alert.dart';
+import 'package:ui/buttons/found_gateway_row.dart';
 import 'package:ui/buttons/recent_chip.dart';
+import 'package:ui/containers/discover_panel.dart';
 import 'package:ui/containers/welcome_panel.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
 import 'package:ui/shell/window_bar.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../common/validators.dart';
 import '../common/window.dart';
@@ -62,6 +78,17 @@ class LogInPageConnector extends StatelessWidget {
       tls: vm.tls,
       standbyLabel: vm.standbyLabel,
       welcome: vm.welcome,
+      gatewayHint: 'https://host:port',
+      onFind: vm.onFind,
+      discover: vm.discover,
+      onLookAgain: vm.onLookAgain,
+      onPick: vm.onPick,
+      onProbe: vm.onProbe,
+      onOpenSettings: vm.onOpenSettings,
+      trust: vm.trust,
+      onTrust: vm.onTrust,
+      onCancelTrust: vm.onCancelTrust,
+      tlsTone: vm.tlsTone,
     ),
   );
 }
@@ -121,6 +148,22 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         ? null
         : parseGateways(standby).firstOrNull;
     final busy = login.isWaiting;
+    final pending = discovery.trustPending;
+    final pendingRow = pending == null ? null : discovery.found[pending];
+    final picked = switch (discovery.picked) {
+      final p? => discovery.found[p],
+      null => null,
+    };
+    // The status line names a picked row while the field still holds it.
+    final pickedNote =
+        picked != null &&
+            picked.url != null &&
+            parseGateways(picked.url!).firstOrNull?.origin == uri?.origin
+        ? picked.standby == null
+              ? S.current.pickedFrom(picked.site)
+              : S.current.pickedWithStandby(picked.site)
+        : null;
+    final pin = uri == null ? null : discovery.pins[uri.origin];
 
     Future<void> logIn() async {
       // The default shown in the field is only a hint until it is written.
@@ -171,15 +214,19 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       // The board shows the language in use, not a switcher (owner decision
       // 2026-11-08, docs/design/specs/login.md §3.8).
       version: S.current.studioVersion(studioVersion, S.current.languageName),
-      gatewayTone: down
+      gatewayTone: pendingRow != null
+          ? Tone.warn
+          : down
           ? Tone.bad
           : ms == null
           ? Tone.neutral
           : Tone.good,
-      gatewayNote: down
+      gatewayNote: pickedNote != null && !down
+          ? pickedNote
+          : down
           ? S.current.gatewayNoAnswer(short)
           : ms == null
-          ? null
+          ? (main.isEmpty ? S.current.typeOrFind : null)
           : S.current.gatewayAnswered(short, ms),
       checking: login.isProbing,
       onGatewayLeave: () => unawaited(dispatchAndWait(ProbeGatewayAction())),
@@ -228,7 +275,11 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
               dispatchSync(SetGatewayAction(join(standby, main)));
               unawaited(logIn());
             },
-      tls: uri?.scheme == 'https'
+      tls: pendingRow != null
+          ? S.current.tlsNotTrusted(pendingRow.site)
+          : pin != null
+          ? S.current.tlsPinned(pin.site.isEmpty ? short : pin.site)
+          : uri?.scheme == 'https'
           ? S.current.tlsCertificateOf(
               site.gateway != null &&
                       parseGateways(site.gateway!).firstOrNull?.origin ==
@@ -242,6 +293,246 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
           ? null
           : S.current.standbyIs('${standbyUri.host}:${standbyUri.port}'),
       welcome: session.isAvailable ? _welcome() : null,
+      onFind: busy
+          ? null
+          : () => discovery.open
+                ? dispatchSync(CloseDiscoveryAction())
+                : unawaited(dispatchAndWait(FindGatewaysAction())),
+      discover: discovery.open && pendingRow == null ? _discover() : null,
+      onLookAgain: () => unawaited(dispatchAndWait(FindGatewaysAction())),
+      onPick: (site) async {
+        final status = await dispatchAndWait(PickFoundGatewayAction(site));
+        if (status.isCompletedOk && discovery.trustPending == null) {
+          await dispatchAndWait(ProbeGatewayAction());
+        }
+      },
+      onProbe: () {
+        final (range, port) = _rangeAndPort();
+        if (_rangeError(range) == null && _portError(port) == null) {
+          unawaited(
+            dispatchAndWait(ProbeRangeAction(range, int.parse(port))),
+          );
+        }
+      },
+      onOpenSettings: _settings,
+      trust: pendingRow == null ? null : _trust(pendingRow),
+      onTrust: pending == null
+          ? null
+          : () async {
+              final status = await dispatchAndWait(TrustGatewayAction(pending));
+              if (status.isCompletedOk && discovery.trustPending == null) {
+                await dispatchAndWait(ProbeGatewayAction());
+              }
+            },
+      onCancelTrust: () => dispatchSync(SetTrustPendingAction(null)),
+      tlsTone: pendingRow != null ? Tone.warn : Tone.good,
+    );
+  }
+
+  /// The range and the port of *Probe a range*: what was typed, else the
+  /// /24 around this computer and the port of the gateway in the field.
+  (String, String) _rangeAndPort() {
+    final field = parseGateways(login.gateway ?? '').firstOrNull;
+    return (
+      discovery.range ?? discovery.subnet ?? '',
+      discovery.rangePort ?? '${field?.port ?? 8446}',
+    );
+  }
+
+  static String? _rangeError(String range) {
+    try {
+      rangeAddresses(range);
+      return null;
+    } on RangeFormatException catch (e) {
+      return switch (e.fault) {
+        RangeFault.badText => S.current.rangeBadText,
+        RangeFault.badPart => S.current.rangeBadPart,
+        RangeFault.badPrefix => S.current.rangeBadPrefix,
+        RangeFault.tooBig => S.current.rangeTooBig,
+      };
+    }
+  }
+
+  static String? _portError(String port) {
+    final p = int.tryParse(port);
+    return p == null || p < 1 || p > 65535 ? S.current.portBad : null;
+  }
+
+  /// Where the person allows Studio to see the local network: macOS and
+  /// iOS only (spec §4, *Nothing*).
+  static VoidCallback? get _settings => switch (defaultTargetPlatform) {
+    TargetPlatform.macOS => () => unawaited(
+      launchUrl(
+        Uri.parse(
+          'x-apple.systempreferences:com.apple.preference.security'
+          '?Privacy_LocalNetwork',
+        ),
+      ),
+    ),
+    TargetPlatform.iOS => () => unawaited(
+      launchUrl(Uri.parse('app-settings:')),
+    ),
+    _ => null,
+  };
+
+  /// The panel of found gateways (docs/design/specs/unlock-discover.md §4).
+  DiscoverPanelVm _discover() {
+    final where = discovery.network == null
+        ? S.current.thisNetwork
+        : '${discovery.network}'
+              '${discovery.subnet == null ? '' : ' (${discovery.subnet})'}';
+    final rows = discovery.found.values.toList()
+      ..sort((a, b) {
+        // Usable rows first, then by site.
+        final ua = a.problem == null ? 0 : 1;
+        final ub = b.problem == null ? 0 : 1;
+        return ua != ub ? ua - ub : a.site.compareTo(b.site);
+      });
+    final probed = rows.isNotEmpty && rows.every((r) => r.probed);
+    final (range, port) = _rangeAndPort();
+    final none = discovery.ended && rows.isEmpty;
+    return DiscoverPanelVm(
+      title: discovery.scanning
+          ? (discovery.range != null && probed
+                ? S.current.discoverProbing(range, port)
+                : S.current.discoverLooking(where))
+          : rows.isEmpty
+          ? S.current.discoverNothing
+          : probed
+          ? S.current.discoverProbed(rows.length, range)
+          : S.current.discoverFound(rows.length, where),
+      scanning: discovery.scanning,
+      rows: [for (final r in rows) _row(r)],
+      none: none
+          ? DiscoverNoneVm(
+              title: S.current.discoverNoneTitle(where),
+              reasons: [
+                DiscoverReasonVm(S.current.whyMulticast),
+                DiscoverReasonVm(
+                  switch (defaultTargetPlatform) {
+                    TargetPlatform.macOS => S.current.whyPermissionMac,
+                    TargetPlatform.iOS => S.current.whyPermissionIos,
+                    _ => S.current.whyPermission,
+                  },
+                  settings: _settings == null ? null : S.current.openSettings,
+                ),
+                DiscoverReasonVm(S.current.whyAnnounce, tone: Tone.neutral),
+                DiscoverReasonVm(S.current.whyType, tone: Tone.good),
+              ],
+              range: FieldVm(
+                value: range,
+                onChanged: (v) => dispatchSync(SetRangeAction(v)),
+                error: range.isEmpty ? null : _rangeError(range),
+              ),
+              port: FieldVm(
+                value: port,
+                onChanged: (v) => dispatchSync(SetRangePortAction(v)),
+                error: port.isEmpty ? null : _portError(port),
+              ),
+            )
+          : null,
+    );
+  }
+
+  FoundGatewayRowVm _row(FoundGateway r) {
+    final tags = tagsOf(r, login.recent);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ago = ((now - r.seen) / 1000).floor();
+    final standby = r.standby == null ? null : Uri.tryParse(r.standby!);
+    final hosts = r.hosts.isEmpty ? r.site : r.hosts.first;
+    final version = r.version == null || r.version!.isEmpty
+        ? null
+        : S.current.noteWyrmd(r.version!);
+    final url = r.url == null ? null : Uri.tryParse(r.url!);
+    final pinned = url == null ? null : discovery.pins[url.origin];
+    final known = switch (r) {
+      _ when !r.tls => S.current.notePlain,
+      _ when pinned != null => S.current.notePinned(
+        pinned.site.isEmpty ? r.site : pinned.site,
+      ),
+      _ when r.known => S.current.noteTrusted,
+      FoundGateway(:final knownAs?) => S.current.noteKnownAs(knownAs),
+      _ => S.current.noteNew,
+    };
+    final problem = switch (r.problem) {
+      null => null,
+      FoundProblem.plainHttp => S.current.problemPlainHttp,
+      FoundProblem.noInfo => S.current.problemNoInfo,
+      FoundProblem.studioTooOld => S.current.problemStudioTooOld(
+        r.detail ?? '',
+      ),
+      FoundProblem.codeMismatch => S.current.problemCodeMismatch,
+      FoundProblem.noName => S.current.problemNoName,
+      FoundProblem.noAnswer => S.current.problemNoAnswer(r.detail ?? ''),
+      FoundProblem.noCa => S.current.problemNoCa,
+    };
+    final fresh = tags.contains(FoundTag.fresh);
+    return FoundGatewayRowVm(
+      id: r.site,
+      site: r.site,
+      tags: [
+        for (final t in tags)
+          switch (t) {
+            FoundTag.usedBefore => FoundTagVm(
+              S.current.tagUsedBefore,
+              Tone.good,
+            ),
+            FoundTag.activeStandby => FoundTagVm(
+              S.current.tagActiveStandby,
+              Tone.ember,
+            ),
+            FoundTag.downstream => FoundTagVm(
+              S.current.tagDownstreamOf(r.up.join(', ')),
+              Tone.neutral,
+            ),
+            FoundTag.fresh => FoundTagVm(S.current.tagNew, Tone.warn),
+            FoundTag.plainHttp => FoundTagVm(
+              S.current.tagPlainHttp,
+              Tone.bad,
+            ),
+          },
+      ],
+      hosts: standby == null
+          ? hosts
+          : S.current.hostsWithStandby(
+              hosts,
+              '${standby.host}:${standby.port}',
+            ),
+      note: problem ?? [?version, known].join(' · '),
+      noteTone: problem != null
+          ? Tone.bad
+          : fresh
+          ? Tone.warn
+          : Tone.neutral,
+      dot: problem != null
+          ? Tone.bad
+          : fresh
+          ? Tone.warn
+          : Tone.good,
+      seen: ago < 2 ? S.current.seenNow : S.current.seenAgo('$ago'),
+      selected: discovery.picked == r.site,
+      enabled: r.problem == null && r.url != null,
+    );
+  }
+
+  /// The certificate check of [r] (spec §4, *Trust*).
+  TrustCardVm _trust(FoundGateway r) {
+    final url = r.url == null ? null : Uri.tryParse(r.url!);
+    return TrustCardVm(
+      title: S.current.trustTitle(r.site),
+      why: S.current.trustWhy(r.site),
+      code: codeGroups(r.code ?? ''),
+      where: S.current.trustWhere('wyrmd ca fingerprint'),
+      command: 'wyrmd ca fingerprint',
+      trust: S.current.trustMatches(r.site),
+      refused: switch (discovery.trustRefused) {
+        null => null,
+        TrustRefusal.changed => S.current.trustRefusedChanged,
+        TrustRefusal.mismatch => S.current.trustRefusedMismatch,
+        TrustRefusal.chain => S.current.trustRefusedChain(url?.host ?? ''),
+        _ => S.current.trustRefusedNoAnswer,
+      },
+      busy: discovery.isWaiting,
     );
   }
 
@@ -316,6 +607,16 @@ class _Vm extends Vm {
     required this.tls,
     required this.standbyLabel,
     required this.welcome,
+    required this.onFind,
+    required this.discover,
+    required this.onLookAgain,
+    required this.onPick,
+    required this.onProbe,
+    required this.onOpenSettings,
+    required this.trust,
+    required this.onTrust,
+    required this.onCancelTrust,
+    required this.tlsTone,
   }) : super(
          equals: [
            window,
@@ -338,6 +639,11 @@ class _Vm extends Vm {
            tls,
            standbyLabel,
            welcome,
+           onFind != null,
+           discover,
+           onOpenSettings != null,
+           trust,
+           tlsTone,
          ],
        );
 
@@ -366,4 +672,14 @@ class _Vm extends Vm {
   final String? tls;
   final String? standbyLabel;
   final WelcomePanelVm? welcome;
+  final VoidCallback? onFind;
+  final DiscoverPanelVm? discover;
+  final VoidCallback onLookAgain;
+  final ValueChanged<String> onPick;
+  final VoidCallback onProbe;
+  final VoidCallback? onOpenSettings;
+  final TrustCardVm? trust;
+  final VoidCallback? onTrust;
+  final VoidCallback onCancelTrust;
+  final Tone tlsTone;
 }

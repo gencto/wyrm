@@ -6,10 +6,12 @@ import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
+import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
+import 'package:models/found_gateway.dart';
 import 'package:models/grant.dart';
 import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
@@ -61,6 +63,7 @@ import 'backups/actions/retrieve_backups_action.dart';
 import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
+import 'discovery/actions/trust_gateway_action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
 import 'historian/actions/load_trend_window_action.dart';
@@ -132,6 +135,7 @@ mixin Selectors {
   SelectUpdates get updates => SelectUpdates(state);
   SelectBackups get backups => SelectBackups(state);
   SelectBrokerUpdate get brokerUpdate => SelectBrokerUpdate(state);
+  SelectDiscovery get discovery => SelectDiscovery(state);
 }
 
 /// The approval of a task as the logged-in user may give it.
@@ -1344,4 +1348,48 @@ extension type SelectBrokerUpdate(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<UpdateBrokerAction>();
+}
+
+extension type SelectDiscovery(AppState _state) {
+  /// Returns open
+  bool get open => _state.discovery.open;
+
+  /// Returns scanning
+  bool get scanning => _state.discovery.scanning;
+
+  /// Returns ended
+  bool get ended => _state.discovery.ended;
+
+  /// Returns scan
+  int get scan => _state.discovery.scan;
+
+  /// Returns found
+  IMap<String, FoundGateway> get found => _state.discovery.found;
+
+  /// Returns pins
+  IMap<String, CaPin> get pins => _state.discovery.pins;
+
+  /// Returns trustPending
+  String? get trustPending => _state.discovery.trustPending;
+
+  /// Returns trustRefused
+  String? get trustRefused => _state.discovery.trustRefused;
+
+  /// Returns picked
+  String? get picked => _state.discovery.picked;
+
+  /// Returns network
+  String? get network => _state.discovery.network;
+
+  /// Returns subnet
+  String? get subnet => _state.discovery.subnet;
+
+  /// Returns isWaiting
+  bool get isWaiting => _state.wait.isWaitingForType<TrustGatewayAction>();
+
+  /// Returns range
+  String? get range => _state.discovery.range;
+
+  /// Returns rangePort
+  String? get rangePort => _state.discovery.rangePort;
 }

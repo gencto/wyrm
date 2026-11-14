@@ -108,7 +108,43 @@ New state through `frx`: a substate `device` (`available`, `kind`, `name`, `keyI
 - [ ] Idle lock hides values; Review and apply kept.
 - [ ] Step-up on `confirm_required`, then the request again.
 - [ ] Account › Security and Access › Users devices.
-- [ ] Find: browse, merge active + standby, tags, disabled rows, Look again.
-- [ ] Trust with the code; pin per origin; footer states.
-- [ ] Nothing found: reasons, Open settings, Probe a range, Scan a code on mobile.
+- [x] Find: browse, merge active + standby, tags, disabled rows, Look again.
+- [x] Trust with the code; pin per origin; footer states.
+- [x] Nothing found: reasons, Open settings, Probe a range; Scan a code on mobile deferred (§7, 12).
 - [ ] Permissions in each platform's manifest; `frx doctor`, `dart analyze`; goldens for the 16 frames.
+
+## 7. Decided while building (Find, 2026-11-14, ADR 0029)
+The ADR and §4 left these open; the rule below is the one built (`business/lib/wyrm/discovery.dart`, the `discovery` actions).
+
+1. **The row's URL** follows ADR 0050 decision 10: the address when the certificate's `names` list it, else the mDNS host name when listed, else the first DNS name. A name that does not resolve here keeps the address as `connectTo`. Every connection to that origin then connects to the address and checks the certificate against the name. A certificate that names neither gets no URL (`noName`).
+2. **The code** is computed by Studio from the `ca` DER it would pin, never taken from `ca_fp`. A row is refused (`codeMismatch`) when `ca_fp` or the TXT `fp` differs from it.
+3. **Trusting** (`TrustGatewayAction`) reads `/api/info` twice and stores nothing until both pass:
+   - with the accept-any client (no secret is sent): the CA must still be the one whose code was shown, and `ca_fp` must match;
+   - with the new pin alone: the gateway's certificate must chain to that CA and name the URL's host.
+
+   A refusal keeps the card with its reason (`changed`, `mismatch`, `chain`, `no_answer`).
+4. **A pin** covers the row's origin and its standby's origin (from `pair`) with the same CA; the standby is not contacted then. A pinned origin trusts that CA and no other, not the system's roots. The probe (`login.md` §6), the login and the WebSocket use the same client (`GatewayTrust`), so a pinned gateway answers all three.
+5. **Known CA, other site.** A row whose CA is already pinned for another origin is not `new`. Its note reads `signed by the <site> CA (known)`, and picking it pins it after the same two reads, with no code step: the person checked that CA before.
+6. **A CA trusted by the system** with a name that resolves needs no pin. One whose name does not resolve asks for the code, so the address is kept with the pin. TLS with no CA to check and a certificate the system does not trust is disabled (`noCa`).
+7. **Pins stay with Remember off.** A pin is a trust decision taken after comparing a code. It holds no secret, and dropping it would ask for the code at every start. They are stored with `PinnedCas` (`storage`, key `pinnedCas`).
+8. **Disabled rows** say why:
+   - plain `http` off loopback (`plainHttp`);
+   - no `/api/info`: a 404 or not CBOR (`noInfo`: a wyrmd older than Studio needs). There is no separate wyrmd version floor;
+   - `min_studio` above this Studio's version (`studioTooOld`; `studioRelease` follows `app/pubspec.yaml`, and a test checks it);
+   - no answer (`noAnswer`).
+
+   Usable rows sort first, then by site.
+9. **Merging by site.** The same host again replaces its row and keeps the standby. A second host of a site becomes the standby of the usable one, else of the one whose `/api/info` says `role: active`. *Used before* compares origins with each URL of each recent entry (an entry is a `main, standby` list).
+10. **The panel title** names the interface and the /24 around its IPv4 address (`en0 (10.0.7.0/24)`), not the Wi-Fi name. The SSID needs location permission on iOS and Android, and Dart on the desktop does not expose it. The same /24 is the default range.
+11. **Probe a range**:
+    - IPv4 only. A block may hold at most 1 024 addresses (a /22); its network and broadcast addresses are left out;
+    - 16 requests at a time, 1.5 s each. HTTPS comes first, then plain HTTP when the port does not speak TLS;
+    - only addresses that answer become rows;
+    - the default port is the one in the gateway field, else 8446;
+    - the range and the port are checked as they are typed, and the line under them says what is wrong.
+12. **Scan a code is deferred.** No QR scanner is added this round: `mobile_scanner` brings ML Kit and a camera permission into every Android and iOS build, and the mobile builds do not ship yet. `parseGatewayCode('wyrm://host:port?fp=…')` exists and is tested. When a scanner lands, a scanned code fills the field, and the code computed from the fetched CA must equal `fp` before the pin is stored (no comparing by eye). Until then the card does not say *On a phone: scan the code*.
+13. **Open settings** opens *Privacy & Security › Local Network* on macOS and the app's settings on iOS (`url_launcher`). Other platforms show the reason without the link.
+14. **Layout.** While the panel or the card is open, the form is the boards' compact one: user and password side by side, *Remember* hidden, and the form panel 560 wide (content 460). *Find on this network* is also on the plain log-in page, beside the field, so the `Login*` goldens show it.
+15. **Browsing** lasts 8 s (`bonsoir`; on Android it takes the multicast lock). *Look again* starts over and drops late answers of the last search, and so does a range probe. Closing the panel stops the browse.
+16. **Apple platforms refuse a TLS certificate** valid for more than 825 days that was issued after July 2019, even under a pin. Certificates made by `wyrmd` start in 1975 and pass. A gateway certificate made by hand must keep within 825 days, or Studio on macOS and iOS says `certificate is not trusted`.
+
