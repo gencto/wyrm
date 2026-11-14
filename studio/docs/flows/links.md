@@ -25,6 +25,29 @@ sequenceDiagram
     A1->>ST: dispatchSync(AddChangesAction)
 ```
 
+## onSheetToggle
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinksPage
+    participant VM as LinksPageConnector
+    participant A1 as SetTakePointAction
+    participant A2 as SetAutoRollbackAction
+    participant A3 as SetAcceptNewAction
+    participant ST as AppState
+
+    User->>UI: onSheetToggle
+    UI->>VM: onSheetToggle()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(updates.takePoint)
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(updates.autoRollback)
+    VM->>A3: dispatchSync
+    A3->>ST: copyWith(updates.acceptNew)
+```
+
 ## onShow
 
 ```mermaid
@@ -37,6 +60,7 @@ sequenceDiagram
     participant A2 as RetrieveLinksAction
     participant A3 as RetrieveQuarantineAction
     participant A4 as RetrievePackagesAction
+    participant A5 as RetrieveBackupsAction
     participant ST as AppState
 
     User->>UI: onShow
@@ -46,7 +70,7 @@ sequenceDiagram
     A1-->>-VM: ActionStatus
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(links.version, links.table, links.view)
+    A2->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
     A2-->>-VM: ActionStatus
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
@@ -56,6 +80,10 @@ sequenceDiagram
     Note over A4: WaitingAction · async
     A4->>ST: copyWith(packages.table, packages.view)
     A4-->>-VM: ActionStatus
+    VM->>+A5: dispatchAndWait
+    Note over A5: WaitingAction · async
+    A5->>ST: copyWith(backups.table, backups.view, backups.sections)
+    A5-->>-VM: ActionStatus
 ```
 
 ## onHide
@@ -116,15 +144,24 @@ sequenceDiagram
     participant UI as LinksPage
     participant VM as LinksPageConnector
     participant A1 as SetSelectedEntryAction
-    participant A2 as SetSelectedLinkAction
+    participant A2 as OpenUpdateAction
+    participant A3 as SetSelectedLinkAction
     participant ST as AppState
 
     User->>UI: onRow
     UI->>VM: onRow()
-    VM->>A1: dispatch
-    A1->>ST: copyWith(quarantine.selectedEntry)
-    VM->>A2: dispatch
-    A2->>ST: copyWith(links.selectedLink)
+    alt tab == LinksTab.quarantine
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(quarantine.selectedEntry)
+    end
+    alt p != null
+        VM->>A2: dispatchSync
+        A2->>ST: copyWith(updates)
+    end
+    alt tab == LinksTab.updates
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(links.selectedLink)
+    end
 ```
 
 ## onAction
@@ -137,11 +174,16 @@ sequenceDiagram
     participant VM as LinksPageConnector
     participant A1 as StartLinkAction
     participant A2 as StopLinkAction
-    participant A3 as RemoveLinkAction
-    participant A4 as DeauthorizeLinkAction
-    participant A5 as RejectQuarantineAction
+    participant A3 as OpenUpdateAction
+    participant A4 as CloseUpdateAction
+    participant A5 as RollbackPackageAction
+    participant A6 as UpdatePackageAction
+    participant A7 as SetTabAction
+    participant A8 as SetSelectedLinkAction
+    participant A9 as RemoveLinkAction
+    participant A10 as DeauthorizeLinkAction
+    participant A11 as RejectQuarantineAction
     participant ST as AppState
-    participant NAV as Router
 
     User->>UI: onAction
     UI->>VM: onAction()
@@ -151,23 +193,67 @@ sequenceDiagram
     VM->>+A2: dispatchAndWait
     Note over A2: NonReentrant · WaitingAction · async
     A2-->>-VM: ActionStatus
-    VM->>NAV: GoAction.push LinkInstallRoute
+    alt _packageOf(links.table[id]!)
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(updates)
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(updates)
+    end
+    alt names.isNotEmpty
+        VM->>A3: dispatchSync
+        A3->>ST: copyWith(updates)
+    end
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(updates)
+    alt await ConfirmDialog.ask(context, title: S.current.updRollBackTitle(d.package.name, to), message: S.current.updRollBackNote(to, d.links.join(', ')), confirm: S.current.updRollBack, cancel: S.current.cancel)
+        VM->>+A5: dispatchAndWait
+        Note over A5: NonReentrant · WaitingAction · async
+        A5->>ST: copyWith(updates.view, updates.seenAt, updates.message)
+        A5->>ST: dispatchAndWait(RetrievePackagesAction)
+        A5-->>-VM: ActionStatus
+    end
+    alt _sheetData?.stage == UpdateStage.progress && _sheetData?.package.previous != null
+        VM->>A4: dispatchSync
+        A4->>ST: copyWith(updates)
+    end
+    VM->>+A6: dispatchAndWait
+    Note over A6: NonReentrant · WaitingAction · async
+    A6->>ST: copyWith(updates.view, updates.asks)
+    A6->>ST: dispatchSync(_Show)
+    A6->>ST: dispatchSync(_Review)
+    A6->>ST: dispatchAndWait(RetrievePackagesAction)
+    A6-->>-VM: ActionStatus
+    alt f != null
+        VM->>+A6: dispatchAndWait
+        Note over A6: NonReentrant · WaitingAction · async
+        A6->>ST: copyWith(updates.view, updates.asks)
+        A6->>ST: dispatchSync(_Show)
+        A6->>ST: dispatchSync(_Review)
+        A6->>ST: dispatchAndWait(RetrievePackagesAction)
+        A6-->>-VM: ActionStatus
+    end
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(updates)
+    VM->>A7: dispatchSync
+    A7->>ST: copyWith(links.tab)
+    VM->>A8: dispatchSync
+    A8->>ST: copyWith(links.selectedLink)
     alt await ConfirmDialog.ask(context, title: S.current.removeLinkTitle(id), message: external || links.table[id]?.mode == LinkMode.process ? S.current.removeRetiresId : S.current.removeDeletesTree, confirm: S.current.remove, cancel: S.current.cancel)
-        VM->>+A3: dispatchAndWait
-        Note over A3: NonReentrant · WaitingAction · async
-        A3->>ST: copyWith(links.table, links.view, links.selectedLink)
-        A3-->>-VM: ActionStatus
+        VM->>+A9: dispatchAndWait
+        Note over A9: NonReentrant · WaitingAction · async
+        A9->>ST: copyWith(links.table, links.view, links.selectedLink)
+        A9-->>-VM: ActionStatus
     end
     alt await ConfirmDialog.ask(context, title: S.current.deauthorizeTitle(id), message: S.current.actDeauthorizeNote, confirm: S.current.actDeauthorize, cancel: S.current.cancel)
-        VM->>+A4: dispatchAndWait
-        Note over A4: WaitingAction · async
-        A4-->>-VM: ActionStatus
+        VM->>+A10: dispatchAndWait
+        Note over A10: WaitingAction · async
+        A10-->>-VM: ActionStatus
     end
     alt await ConfirmDialog.ask(context, title: S.current.rejectTitle(quarantine.table[node]?.cn ?? node), message: S.current.rejectNote, confirm: S.current.reject, cancel: S.current.cancel)
-        VM->>+A5: dispatchAndWait
-        Note over A5: WaitingAction · async
-        A5->>ST: copyWith(quarantine.table, quarantine.view, quarantine.selectedEntry)
-        A5-->>-VM: ActionStatus
+        VM->>+A11: dispatchAndWait
+        Note over A11: WaitingAction · async
+        A11->>ST: copyWith(quarantine.table, quarantine.view, quarantine.selectedEntry)
+        A11-->>-VM: ActionStatus
     end
 ```
 
@@ -193,12 +279,13 @@ sequenceDiagram
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `settings.onChanged` | `SetAdmissionOptionsAction`, `SetAdmissionOptionsAction` | — |
-| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePackagesAction` | `live.watched`, `links.version, links.table, links.view`, `quarantine.table, quarantine.view, quarantine.forms`, `packages.table, packages.view` |
+| `onSheetToggle` | `SetTakePointAction`, `SetAutoRollbackAction`, `SetAcceptNewAction` | `updates.takePoint`, `updates.autoRollback`, `updates.acceptNew` |
+| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePackagesAction`, `RetrieveBackupsAction` | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `quarantine.table, quarantine.view, quarantine.forms`, `packages.table, packages.view`, `backups.table, backups.view, backups.sections` |
 | `onHide` | `UnwatchKeysAction` | `live.watched` |
 | `onTapLinkInstall` | `GoAction.push` | — |
 | `onTab` | `SetTabAction` | `links.tab` |
-| `onRow` | `SetSelectedEntryAction`, `SetSelectedLinkAction` | `quarantine.selectedEntry`, `links.selectedLink` |
-| `onAction` | `StartLinkAction`, `StopLinkAction`, `GoAction.push`, `RemoveLinkAction` ?, `DeauthorizeLinkAction` ?, `RejectQuarantineAction` ? | `links.table, links.view, links.selectedLink`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
+| `onRow` | `SetSelectedEntryAction` ?, `OpenUpdateAction` ?, `SetSelectedLinkAction` ? | `quarantine.selectedEntry`, `updates`, `links.selectedLink` |
+| `onAction` | `StartLinkAction`, `StopLinkAction`, `OpenUpdateAction` ?, `OpenUpdateAction` ?, `OpenUpdateAction` ?, `CloseUpdateAction`, `RollbackPackageAction` ?, `CloseUpdateAction` ?, `UpdatePackageAction`, `UpdatePackageAction` ?, `CloseUpdateAction`, `SetTabAction`, `SetSelectedLinkAction`, `RemoveLinkAction` ?, `DeauthorizeLinkAction` ?, `RejectQuarantineAction` ? | `updates`, `updates.view, updates.seenAt, updates.message`, `updates.view, updates.asks`, `links.tab`, `links.selectedLink`, `links.table, links.view, links.selectedLink`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 | `onSubmit` | `ApproveQuarantineAction` | `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 
 `?` marks a dispatch that only runs under a condition.

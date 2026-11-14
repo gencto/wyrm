@@ -33,6 +33,10 @@ class FakeWyrmApi implements WyrmApi {
   final metas = <String, NodeMeta>{};
   final invokes = <String, List<Value>>{};
   final errors = <String, WyrmException>{};
+
+  /// Actions (`key ▸ action`) answered from their arguments: a transfer in
+  /// parts answers each part by its offset.
+  final answers = <String, List<Value> Function(Value? args)>{};
   final lists = <String, StreamController<ListUpdate>>{};
   final subs = <String, StreamController<ValEvent>>{};
   final histories = <String, List<HistRow>>{};
@@ -100,6 +104,12 @@ class FakeWyrmApi implements WyrmApi {
       final c = StreamController<Value>();
       (opened[id] ??= []).add(c);
       yield* c.stream;
+      return;
+    }
+    if (answers[id] case final f?) {
+      for (final r in f(args)) {
+        yield r;
+      }
       return;
     }
     final rows = invokes[id];

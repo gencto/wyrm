@@ -14,6 +14,7 @@ import '../containers/standby_pair.dart';
 import '../containers/sys_tile.dart';
 import '../forms/log_toolbar.dart';
 import '../indicators/code_text.dart';
+import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../models/tone.dart';
 import '../tables/log_table.dart';
@@ -139,8 +140,72 @@ final class ElsewhereVm extends Equatable {
   List<Object?> get props => [id, label];
 }
 
+/// The card *Broker version* of Maintenance (ADR 0048 §2, spec
+/// `updates-backups.md` §3): what runs, what the channel offers, and the
+/// one button that opens the update dialog.
+final class BrokerVersionCardVm extends Equatable {
+  const BrokerVersionCardVm({
+    required this.title,
+    required this.line,
+    required this.action,
+    this.tone = Tone.neutral,
+    this.reason,
+  });
+
+  final String title;
+
+  /// `0.1.0 · 0.2.0 is available`.
+  final String line;
+
+  /// `Update…`, or `Show…` while an update runs or just ended.
+  final String action;
+  final Tone tone;
+  final String? reason;
+
+  @override
+  List<Object?> get props => [title, line, action, tone, reason];
+}
+
+/// The card *Backups* of Maintenance (ADR 0048 §3, spec
+/// `updates-backups.md` §4): the backups kept on the broker, *Back up…* and
+/// *Restore…*.
+final class BackupsCardVm extends Equatable {
+  const BackupsCardVm({
+    required this.title,
+    required this.note,
+    required this.rows,
+    required this.empty,
+    required this.backUpLabel,
+    required this.restoreLabel,
+    this.reason,
+  });
+
+  final String title;
+  final String note;
+
+  /// One row a backup; its action opens it (download, send, remove).
+  final List<RowItemVm> rows;
+  final String empty;
+  final String backUpLabel;
+  final String restoreLabel;
+
+  /// Why the user may not back up or restore (`needs config on sys`).
+  final String? reason;
+
+  @override
+  List<Object?> get props => [
+    title,
+    note,
+    rows,
+    empty,
+    backUpLabel,
+    restoreLabel,
+    reason,
+  ];
+}
+
 /// The Maintenance tab: the links `clear_conns` would remove, the device
-/// profiles, the backup commands.
+/// profiles, the backups, the backup commands.
 final class SystemMaintVm extends Equatable {
   const SystemMaintVm({
     required this.staleTitle,
@@ -164,6 +229,8 @@ final class SystemMaintVm extends Equatable {
     this.clearReason,
     this.putReason,
     this.profilesUnlisted = false,
+    this.backups,
+    this.version,
   });
 
   final String staleTitle;
@@ -189,6 +256,14 @@ final class SystemMaintVm extends Equatable {
   final String backupNote;
   final List<CommandCardVm> commands;
   final String backupWarning;
+
+  /// The backups of the broker; null when it has none to offer (a wyrmd
+  /// before ADR 0048).
+  final BackupsCardVm? backups;
+
+  /// The broker's own version and its update; null while the broker has no
+  /// self-update (every way into it is hidden then).
+  final BrokerVersionCardVm? version;
   final String elsewhereLabel;
   final List<ElsewhereVm> elsewhere;
 
@@ -213,6 +288,8 @@ final class SystemMaintVm extends Equatable {
     backupNote,
     commands,
     backupWarning,
+    backups,
+    version,
     elsewhereLabel,
     elsewhere,
   ];
@@ -260,6 +337,10 @@ class SystemPage extends StatelessWidget {
     this.tabsLabel,
     this.stale = false,
     this.onBanner,
+    this.onBackUp,
+    this.onRestore,
+    this.onOpenBackup,
+    this.onBrokerUpdate,
     this.onGuide,
     this.onTrafficWindow,
     this.onTrafficFollow,
@@ -321,6 +402,14 @@ class SystemPage extends StatelessWidget {
   final ValueChanged<String> onRemoveProfile;
   final ValueChanged<String> onCopyCommand;
   final ValueChanged<String> onElsewhere;
+
+  /// The card *Backups*: *Back up…*, *Restore…*, a row's *Open*.
+  final VoidCallback? onBackUp;
+  final VoidCallback? onRestore;
+  final ValueChanged<String>? onOpenBackup;
+
+  /// The button of the card *Broker version*.
+  final VoidCallback? onBrokerUpdate;
 
   static const _shield = '''
 <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"
@@ -710,6 +799,56 @@ class SystemPage extends StatelessWidget {
         onAction: onRemoveProfile,
       ),
     );
+    final version = switch (m.version) {
+      null => null,
+      final v => SectionCard(
+        title: v.title,
+        trailing: Button.secondary(
+          label: v.action,
+          onPressed: v.reason == null ? onBrokerUpdate : null,
+          disabledReason: v.reason,
+          size: ButtonSize.compact,
+          fontSize: 13,
+          fontWeight: .w400,
+        ),
+        child: Text(
+          v.line,
+          style: mono(
+            color: v.tone == .neutral ? c.text2 : toneColor(c, v.tone),
+          ),
+        ),
+      ),
+    };
+    final kept = switch (m.backups) {
+      null => null,
+      final b => SectionCard(
+        title: b.title,
+        description: b.note,
+        descriptionWidth: 860,
+        trailing: Row(
+          mainAxisSize: .min,
+          spacing: 8,
+          children: [
+            Button.secondary(
+              label: b.restoreLabel,
+              onPressed: b.reason == null ? onRestore : null,
+              disabledReason: b.reason,
+              size: ButtonSize.compact,
+              fontSize: 13,
+              fontWeight: .w400,
+            ),
+            Button.primary(
+              label: b.backUpLabel,
+              onPressed: b.reason == null ? onBackUp : null,
+              disabledReason: b.reason,
+              size: ButtonSize.compact,
+              fontSize: 13,
+            ),
+          ],
+        ),
+        child: RowList(rows: b.rows, empty: b.empty, onAction: onOpenBackup),
+      ),
+    };
     final backup = SectionCard(
       title: m.backupTitle,
       description: m.backupNote,
@@ -777,6 +916,7 @@ class SystemPage extends StatelessWidget {
         crossAxisAlignment: .stretch,
         spacing: 16,
         children: [
+          ?version,
           if (box.maxWidth >= 856)
             Row(
               crossAxisAlignment: .start,
@@ -790,6 +930,7 @@ class SystemPage extends StatelessWidget {
             stale,
             profiles,
           ],
+          ?kept,
           backup,
           Wrap(
             spacing: 20,

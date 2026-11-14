@@ -66,7 +66,7 @@ sequenceDiagram
     alt links.view.isEmpty
         VM->>+A3: dispatchAndWait
         Note over A3: WaitingAction · async
-        A3->>ST: copyWith(links.version, links.table, links.view)
+        A3->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
         A3-->>-VM: ActionStatus
     end
 ```
@@ -609,7 +609,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | --- | --- | --- |
 | `params.onChanged` | `StagePointEditAction` | `changes.table, changes.view` |
 | `inspector` | `StagePointEditAction`, `StagePointEditAction` | `changes.table, changes.view` |
-| `onShow` | `WatchKeysAction`, `RetrieveNodesAction` ?, `RetrieveLinksAction` ? | `live.watched`, `links.version, links.table, links.view` |
+| `onShow` | `WatchKeysAction`, `RetrieveNodesAction` ?, `RetrieveLinksAction` ? | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable` |
 | `onHide` | `UnwatchKeysAction` | `live.watched` |
 | `onSelect` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 | `onToggle` | `ToggleNodeAction` | `nodes.expanded` |

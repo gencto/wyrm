@@ -29,7 +29,6 @@ flowchart LR
     studio ==>|"onLogOut (replace)"| logIn
     explorer -->|"onTapFlowEditor"| flowEditor
     links -->|"onTapLinkInstall"| linkInstall
-    links -->|"onAction"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
     system -->|"onTile"| gallery
@@ -54,7 +53,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
 | `StudioPage` | `/studio` | no | 13 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 31 | [explorer](explorer.md) |
-| `LinksPage` | `/studio/links` | no | 8 | [links](links.md) |
+| `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 4 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 10 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 6 | [access](access.md) |

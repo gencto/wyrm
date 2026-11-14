@@ -22,7 +22,7 @@ sequenceDiagram
     alt links.table.isEmpty
         VM->>+A1: dispatchAndWait
         Note over A1: WaitingAction · async
-        A1->>ST: copyWith(links.version, links.table, links.view)
+        A1->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
         A1-->>-VM: ActionStatus
     end
     VM->>+A2: dispatchAndWait
@@ -178,7 +178,7 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction` | `links.version, links.table, links.view`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view` |
+| `onShow` | `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction` | `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction` | `tasks.selectedTask` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |

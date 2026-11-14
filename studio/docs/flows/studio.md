@@ -72,9 +72,10 @@ sequenceDiagram
     User->>UI: onSite
     UI->>VM: onSite()
     VM->>A1: dispatch
-    A1->>ST: copyWith(site, nodes, links, quarantine, packages, flows, historian)
+    A1->>ST: copyWith(site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian)
     A1->>ST: dispatchSync(FollowHistoryAction)
     A1->>ST: dispatchSync(FollowFlowsAction)
+    A1->>ST: dispatchSync(_MoveWatched)
     A1->>ST: dispatchAndWait(RetrieveLinksAction)
 ```
 
@@ -251,7 +252,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onProblems` | `OpenProblemsAction` | `problems.open, problems.unread` |
 | `onClearProblems` | `ClearProblemsAction` | `problems.items, problems.toasts, problems.unread` |
 | `onRetryProblem` | `RetryProblemAction` | — |
-| `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows, historian` |
+| `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian` |
 | `onGoToKey` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |
