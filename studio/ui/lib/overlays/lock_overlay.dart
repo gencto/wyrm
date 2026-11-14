@@ -254,10 +254,12 @@ class _LockCardState extends State<_LockCard> {
     return Rise(
       child: Semantics(
         scopesRoute: true,
+        explicitChildNodes: true,
         namesRoute: true,
         label: vm.title,
         child: Container(
-          width: 420,
+          // The board's 420 is CSS content-box: 420 inside the padding.
+          width: 484,
           padding: const EdgeInsets.all(32),
           decoration: BoxDecoration(
             color: c.ground1,

@@ -319,7 +319,12 @@ class _SecurityDialogState extends State<SecurityDialog> {
                                       color: c.text1,
                                     ),
                                   ),
-                                  Text('▾', style: TextStyle(color: c.text4)),
+                                  // The board's ▾ (the bundled fonts have no
+                                  // such glyph).
+                                  CustomPaint(
+                                    size: const Size(7, 5),
+                                    painter: _Caret(c.text4),
+                                  ),
                                 ],
                               ),
                             ),
@@ -628,4 +633,23 @@ class _SmallButton extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _Caret extends CustomPainter {
+  _Caret(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) => canvas.drawPath(
+    Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close(),
+    Paint()..color = color,
+  );
+
+  @override
+  bool shouldRepaint(_Caret old) => old.color != color;
 }

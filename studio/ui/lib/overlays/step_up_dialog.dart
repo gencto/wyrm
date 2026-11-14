@@ -133,6 +133,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
     return Rise(
       child: Semantics(
         scopesRoute: true,
+        explicitChildNodes: true,
         namesRoute: true,
         label: vm.title,
         child: Material(
@@ -344,7 +345,8 @@ class _Line extends StatelessWidget {
             ),
           ),
           if (vm.key.isNotEmpty)
-            Flexible(
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
               child: Text(
                 vm.key,
                 maxLines: 1,
