@@ -370,6 +370,12 @@ void main() {
   testWidgets('the composer: a hint per state, a message to a plan that '
       'waits replaces it, chips from Explorer go as context', (tester) async {
     final app = AssistantApp()..task('t-1', planRecord());
+    // the agent reads modbus: the picker offers its nodes
+    app.api.metas[AssistantApp.agent] = NodeMeta(
+      cfg: {
+        'allowed_prefixes': Value.from(['wy/central/downstream/modbus']),
+      },
+    );
     app.api.invokes['$_agent ▸ ask'] = [
       Value.from({'task': 't-2', 'state': 'planning'}),
     ];

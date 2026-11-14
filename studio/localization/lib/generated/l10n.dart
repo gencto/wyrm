@@ -16381,10 +16381,10 @@ class S {
     );
   }
 
-  /// `Select a node in Explorer first; it is added here as @ chip.`
+  /// `Open a site first; its nodes can then be added here as @ chips.`
   String get addFromExplorerNone {
     return Intl.message(
-      'Select a node in Explorer first; it is added here as @ chip.',
+      'Open a site first; its nodes can then be added here as @ chips.',
       name: 'addFromExplorerNone',
       desc: '',
       args: [],
@@ -17014,6 +17014,66 @@ class S {
       name: 'foundUncertain',
       desc: '',
       args: [],
+    );
+  }
+
+  /// `{n} not noted: your rights had expired. They last 5 min after your last call on this task; the turn after a run does not renew them.`
+  String foundRefusedExpired(String n) {
+    return Intl.message(
+      '$n not noted: your rights had expired. They last 5 min after your last call on this task; the turn after a run does not renew them.',
+      name: 'foundRefusedExpired',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{n} not noted: your rights were not known (the agent restarted, or the ask carried none).`
+  String foundRefusedUnknown(String n) {
+    return Intl.message(
+      '$n not noted: your rights were not known (the agent restarted, or the ask carried none).',
+      name: 'foundRefusedUnknown',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{n} not noted: outside what you or the agent may read.`
+  String foundRefusedOutside(String n) {
+    return Intl.message(
+      '$n not noted: outside what you or the agent may read.',
+      name: 'foundRefusedOutside',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{n} not noted: a task holds at most 12.`
+  String foundRefusedLimit(String n) {
+    return Intl.message(
+      '$n not noted: a task holds at most 12.',
+      name: 'foundRefusedLimit',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{n} not noted: not a node key.`
+  String foundRefusedInvalid(String n) {
+    return Intl.message(
+      '$n not noted: not a node key.',
+      name: 'foundRefusedInvalid',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{key} is outside what the agent may read`
+  String pickKeyOutside(String key) {
+    return Intl.message(
+      '$key is outside what the agent may read',
+      name: 'pickKeyOutside',
+      desc: '',
+      args: [key],
     );
   }
 }

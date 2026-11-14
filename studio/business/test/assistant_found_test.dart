@@ -3,12 +3,14 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_timeline_audit_action.dart';
 import 'package:business/redux/assistant/actions/set_chip_action.dart';
+import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/select_point_action.dart';
+import 'package:business/redux/nodes/actions/set_selected_node_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/context_keys.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
@@ -46,6 +48,7 @@ void main() {
           {'key': 'wy/central/downstream/modbus/tcp', 'label': 'tcp'},
           {'key': _valve, 'label': 'valve', 'detail': 'bad since 03:12'},
         ],
+        'findings_refused': {'rights_expired': 2},
       }),
     );
     expect(
@@ -55,11 +58,13 @@ void main() {
         (_valve, 'valve', 'bad since 03:12'),
       ],
     );
+    expect(t.findingsRefused.unlock, {'rights_expired': 2});
     final old = agentTaskOf(
       't-0',
       Value.from({'state': 'done', 'plan': <Object?>[]}),
     );
     expect(old.findings, isEmpty);
+    expect(old.findingsRefused, isEmpty);
   });
 
   test(
@@ -117,6 +122,59 @@ void main() {
     }
     expect(contextKey(null, 'downstream/x'), isNull);
   });
+
+  test('the agent reads under its prefixes and pub, never itself', () {
+    const root = 'wy/central';
+    const prefixes = ['downstream/modbus', 'wy/central/storage/a'];
+    bool reads(String k) => agentReads(root, _agent, prefixes, k);
+    expect(reads('wy/central/downstream/modbus'), isTrue);
+    expect(reads('wy/central/downstream/modbus/tcp/p'), isTrue);
+    expect(reads('wy/central/storage/a/x'), isTrue);
+    expect(reads('wy/central/pub/models'), isTrue);
+    expect(
+      reads('wy/central/downstream/modbusx'),
+      isFalse,
+      reason: 'a segment',
+    );
+    expect(reads('wy/central/downstream'), isFalse);
+    expect(reads('wy/central/storage/b'), isFalse);
+    expect(reads('$_agent/tasks'), isFalse);
+    expect(
+      agentReads(root, _agent, const [], 'wy/central/downstream/x'),
+      isFalse,
+    );
+  });
+
+  test(
+    'the drawer puts the selection as a chip only when the agent reads it',
+    () async {
+      await logIn(FakeLogin());
+      api
+        ..children_['wy/central/sys/links'] = [Child('agent', NodeMeta())]
+        ..metas['wy/central/sys/links/agent'] = NodeMeta(
+          attr: {'driver': const VStr('agent'), 'mode': const VStr('embedded')},
+        )
+        ..metas[_agent] = NodeMeta(
+          cfg: {
+            'model': const VStr('m'),
+            'allowed_prefixes': Value.from(['downstream/modbus']),
+          },
+        );
+      await s.dispatchAndWait(RetrieveLinksAction());
+      await s.dispatchAndWait(RetrieveAgentAction());
+      s
+        ..dispatchSync(SetSelectedNodeAction('wy/central/downstream/bacnet/d1'))
+        ..dispatchSync(SetDrawerAction(open: true));
+      expect(s.state.assistant.chips, isEmpty);
+      s
+        ..dispatchSync(SetDrawerAction(open: false))
+        ..dispatchSync(
+          SetSelectedNodeAction('wy/central/downstream/modbus/tcp'),
+        )
+        ..dispatchSync(SetDrawerAction(open: true));
+      expect(s.state.assistant.chips, ['wy/central/downstream/modbus/tcp']);
+    },
+  );
 
   test('at most 16 chips, the agent link takes no more', () async {
     await logIn(FakeLogin());

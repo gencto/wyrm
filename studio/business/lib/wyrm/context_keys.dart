@@ -29,3 +29,26 @@ String? contextKey(String? root, String text) {
   }
   return key;
 }
+
+/// Does the agent link [agent] (its full key) read [key]? Under one of its
+/// `allowed_prefixes` (full keys or below the site [root]) or the site's
+/// `pub`, never its own subtree: as the link's `Policy::may_read`. A key it
+/// does not read refuses the whole ask, so the picker does not offer it.
+bool agentReads(
+  String root,
+  String? agent,
+  Iterable<String> prefixes,
+  String key,
+) {
+  bool under(String k, String p) => k == p || k.startsWith('$p/');
+  if (agent != null && under(key, agent)) {
+    return false;
+  }
+  if (under(key, '$root/pub')) {
+    return true;
+  }
+  return prefixes.any((p) {
+    final full = contextKey(root, p);
+    return full != null && under(key, full);
+  });
+}

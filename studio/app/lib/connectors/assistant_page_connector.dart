@@ -22,6 +22,8 @@ import 'package:business/redux/assistant/actions/set_step_reveal_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/assistant/actions/set_watched_action.dart';
 import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
+import 'package:business/redux/live/actions/unwatch_keys_action.dart';
+import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
@@ -168,6 +170,17 @@ class AssistantPageConnector extends StatelessWidget {
   );
 }
 
+/// What the drawer subscribes to while Explorer's tab (and so the drawer)
+/// is shown: the nodes of its findings, for their marks. Its own readers
+/// (`WatchKeysAction`/`UnwatchKeysAction` count them), apart from the
+/// Assistant tab's `assistant.watched`: the two are shown at other times.
+final class _DrawerWatch {
+  var shown = false;
+  var keys = <String>[];
+}
+
+final _drawerWatching = _DrawerWatch();
+
 /// The Assistant as a drawer over Explorer (⌘J, spec `assistant.md` §5):
 /// the same task and cards as the tab, from the same view-model.
 class AssistantDrawerConnector extends StatelessWidget {
@@ -177,29 +190,44 @@ class AssistantDrawerConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
-    // the drawer watches the keys of its findings (their marks) while the
-    // tab is hidden, and reads the selected point's timeline
-    onInitialBuild: (context, store, vm) {
-      if (!store.state.assistant.shown) {
-        store.dispatchSync(SetWatchedAction(vm.watch.lock));
-      }
-      _readTimeline(store, vm.timelinePoint);
-    },
+    // reads the selected point's timeline
+    onInitialBuild: (context, store, vm) =>
+        _readTimeline(store, vm.timelinePoint),
     onWillChange: (context, store, before, now) {
-      if (!store.state.assistant.shown &&
-          !AssistantPageConnector._sameKeys(before.watch, now.watch)) {
-        store.dispatchSync(SetWatchedAction(now.watch.lock));
+      // the finding nodes, watched while Explorer is shown (a new key is
+      // watched before an old one is let go, so a key in both stays)
+      if (_drawerWatching.shown &&
+          !AssistantPageConnector._sameKeys(
+            _drawerWatching.keys,
+            now.findingKeys,
+          )) {
+        store
+          ..dispatchSync(WatchKeysAction(now.findingKeys))
+          ..dispatchSync(UnwatchKeysAction(_drawerWatching.keys));
+        _drawerWatching.keys = now.findingKeys;
       }
       if (before.timelinePoint != now.timelinePoint) {
         _readTimeline(store, now.timelinePoint);
       }
     },
-    onDispose: (store) {
-      if (!store.state.assistant.shown) {
-        store.dispatchSync(SetWatchedAction(const IListConst([])));
-      }
-    },
-    builder: _drawer,
+    // the drawer is in Explorer's page: shown while Explorer's tab is the
+    // active one and the drawer is open (ADR 0037 rule 5)
+    builder: (context, vm) => TabVisibility(
+      onShow: () {
+        _drawerWatching
+          ..shown = true
+          ..keys = vm.findingKeys;
+        vm.onWatchKeys(vm.findingKeys);
+      },
+      onHide: () {
+        final keys = _drawerWatching.keys;
+        _drawerWatching
+          ..shown = false
+          ..keys = const [];
+        vm.onUnwatchKeys(keys);
+      },
+      child: _drawer(context, vm),
+    ),
   );
 
   /// The history of [point] (shared with Explorer › History, the same
@@ -371,11 +399,13 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         // *Today* of What it may do: the budget the agent used, while
         // that panel is shown
         if (agent != null && rights) '$agent/budget_used_today',
-        // the marks of *What I found* in the drawer: the nodes' live values
-        if (assistant.drawer && task != null)
-          for (final f in task.findings)
-            if (!_touched(task).contains(f.key)) f.key,
       ],
+      // the marks of *What I found* in the drawer: the nodes' live values
+      findingKeys: assistant.drawer && task != null
+          ? [for (final f in _findings(task)) f.key]
+          : const [],
+      onWatchKeys: (keys) => dispatchSync(WatchKeysAction(keys)),
+      onUnwatchKeys: (keys) => dispatchSync(UnwatchKeysAction(keys)),
       found: assistant.drawer ? _found(task) : null,
       timelinePoint: assistant.drawer ? _timelinePoint() : null,
       onTimelineWindow: (a, b) {
@@ -1457,10 +1487,15 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     }
     final chips = assistant.chips.toSet();
     final point = nodes.point;
+    // only keys the agent reads: one it does not refuses the whole ask
+    // (unknown before its meta is read: then every key is offered)
+    bool reads(String k) =>
+        assistant.cfg.isEmpty ||
+        agentReads(root, assistant.agent, assistant.prefixes, k);
     final first = [
       ?selected,
       if (point != null && point != selected && !chips.contains(point)) point,
-    ].where((k) => contextKey(root, k) != null).toList();
+    ].where((k) => contextKey(root, k) == k && reads(k)).toList();
     SearchEntryVm entry(String k, {String? detail}) => SearchEntryVm(
       id: k,
       title: switch (nodes.table[k]) {
@@ -1485,21 +1520,30 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         for (final k in nodes.view.take(400))
           if (!first.contains(k) &&
               !chips.contains(k) &&
-              contextKey(root, k) == k)
+              contextKey(root, k) == k &&
+              reads(k))
             entry(k),
       ],
       goTo: (text) {
         final k = text.contains('/') ? contextKey(root, text) : null;
-        return k == null || chips.contains(k)
-            ? null
-            : SearchEntryVm(
+        if (k == null || chips.contains(k)) {
+          return null;
+        }
+        // said, not offered: picking it does nothing
+        return reads(k)
+            ? SearchEntryVm(
                 id: k,
                 title: S.current.pickKeyTyped(_short(k)),
                 icon: 'ui_chevron_right',
+              )
+            : SearchEntryVm(
+                id: '',
+                title: S.current.pickKeyOutside(_short(k)),
+                icon: 'ui_close',
               );
       },
     );
-    if (picked != null && contextKey(root, picked) == picked) {
+    if (picked != null && contextKey(root, picked) == picked && reads(picked)) {
       dispatchSync(SetChipAction(picked));
     }
   }
@@ -1528,11 +1572,17 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
   /// records on it (spec assistant.md §5).
   FoundCardVm? _found(AgentTask? task) {
     final rows = [
-      for (final f in task?.findings ?? const IListConst<TaskFinding>([]))
+      for (final f in task == null ? const <TaskFinding>[] : _findings(task))
         _foundRow(f),
     ];
+    final missing = [
+      for (final MapEntry(:key, :value)
+          in (task?.findingsRefused ?? const IMapConst<String, int>({}))
+              .entries)
+        if (value > 0) _refusedText(key, value),
+    ];
     final point = _timelinePoint();
-    if (rows.isEmpty && point == null) {
+    if (rows.isEmpty && missing.isEmpty && point == null) {
       return null;
     }
     final root = site.root ?? '';
@@ -1544,6 +1594,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       title: S.current.foundTitle,
       note: S.current.foundNote,
       rows: rows,
+      missing: missing,
       timelineLabel: point == null
           ? null
           : S.current.timelineLabel(
@@ -1571,6 +1622,26 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
           : null,
     );
   }
+
+  /// The findings Studio shows: those whose key is a plain node key of the
+  /// site on screen. The agent link checks this; a record of an older or a
+  /// foreign link is not trusted to (a pattern key would be subscribed).
+  List<TaskFinding> _findings(AgentTask task) {
+    final root = site.root;
+    return [
+      for (final f in task.findings)
+        if (contextKey(root, f.key) == f.key) f,
+    ];
+  }
+
+  /// Why [n] findings are missing, from the link's fixed word [why].
+  static String _refusedText(String why, int n) => switch (why) {
+    'rights_expired' => S.current.foundRefusedExpired('$n'),
+    'rights_unknown' => S.current.foundRefusedUnknown('$n'),
+    'outside_rights' => S.current.foundRefusedOutside('$n'),
+    'limit' => S.current.foundRefusedLimit('$n'),
+    _ => S.current.foundRefusedInvalid('$n'),
+  };
 
   FoundRowVm _foundRow(TaskFinding f) {
     final q = live.values[f.key]?.quality;
@@ -1746,6 +1817,9 @@ class _Vm extends Vm {
     required this.addChipReason,
     required this.onAddChip,
     required this.found,
+    required this.findingKeys,
+    required this.onWatchKeys,
+    required this.onUnwatchKeys,
     required this.timelinePoint,
     required this.onTimelineWindow,
     required this.onTimelineReset,
@@ -1789,6 +1863,7 @@ class _Vm extends Vm {
            chips,
            addChipReason,
            found,
+           findingKeys,
            timelinePoint,
            askReason,
            panel,
@@ -1853,6 +1928,11 @@ class _Vm extends Vm {
 
   /// The drawer's *What I found* and mini timeline; null when closed.
   final FoundCardVm? found;
+
+  /// The nodes of the findings, watched by the drawer for their marks.
+  final List<String> findingKeys;
+  final ValueChanged<List<String>> onWatchKeys;
+  final ValueChanged<List<String>> onUnwatchKeys;
 
   /// The point the drawer's timeline shows (the Explorer point).
   final String? timelinePoint;

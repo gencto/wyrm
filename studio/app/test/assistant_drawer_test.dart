@@ -1,5 +1,6 @@
 import 'package:app/connectors/assistant_page_connector.dart';
 import 'package:async_redux/async_redux.dart';
+import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
@@ -70,6 +71,70 @@ Future<void> _drawer(
   await app.settle(tester);
 }
 
+/// Explorer (with the drawer), the Assistant tab and Flows in a tabs shell
+/// that keeps visited tabs mounted, as Studio's does. Returns the shell.
+Future<TabsRouter> _tabs(WidgetTester tester, AssistantApp app) async {
+  late TabsRouter tabs;
+  final router = RootStackRouter.build(
+    routes: [
+      NamedRouteDef(
+        name: 'Shell',
+        path: '/',
+        initial: true,
+        builder: (context, data) => AutoTabsRouter(
+          routes: const [
+            NamedRoute('Explorer'),
+            NamedRoute('Assistant'),
+            NamedRoute('Flows'),
+          ],
+          builder: (context, child) {
+            tabs = AutoTabsRouter.of(context);
+            return child;
+          },
+        ),
+        children: [
+          NamedRouteDef(
+            name: 'Explorer',
+            path: 'explorer',
+            initial: true,
+            builder: (context, data) => const Scaffold(
+              body: Row(
+                children: [
+                  Spacer(),
+                  SizedBox(width: 640, child: AssistantDrawerConnector()),
+                ],
+              ),
+            ),
+          ),
+          NamedRouteDef(
+            name: 'Assistant',
+            path: 'assistant',
+            builder: (context, data) =>
+                const Scaffold(body: AssistantPageConnector()),
+          ),
+          NamedRouteDef(
+            name: 'Flows',
+            path: 'flows',
+            builder: (context, data) => const SizedBox(),
+          ),
+        ],
+      ),
+    ],
+  );
+  await tester.pumpWidget(
+    StoreProvider<AppState>(
+      store: app.store,
+      child: MaterialApp.router(
+        routerConfig: router.config(),
+        theme: darkTheme(),
+        localizationsDelegates: const [S.delegate],
+      ),
+    ),
+  );
+  await app.settle(tester);
+  return tabs;
+}
+
 void _live(AssistantApp app, Map<String, q.Quality> qualities) =>
     app.store.dispatchSync(
       SetLiveValuesAction({
@@ -120,14 +185,16 @@ void main() {
     _live(app, {_valve: q.Quality.good});
     await app.settle(tester);
     expect(find.byTooltip('good now'), findsNWidgets(2));
-    // the drawer watches the found nodes while it is open
+    // the drawer watches the found nodes while it is open, as readers of
+    // its own (not the Assistant tab's slot)
     expect(
-      app.store.state.assistant.watched,
+      app.store.state.live.watched.keys,
       containsAll([_link, _plc, _valve]),
     );
+    expect(app.store.state.assistant.watched, isNot(contains(_valve)));
     app.store.dispatchSync(SetDrawerAction(open: false));
     await tester.pumpWidget(const SizedBox());
-    expect(app.store.state.assistant.watched, isEmpty);
+    expect(app.store.state.live.watched.keys, isNot(contains(_valve)));
   });
 
   testWidgets('the mini timeline: the selected point, read with the '
@@ -190,7 +257,7 @@ void main() {
       ),
     ]);
     expect(
-      find.byKey(ValueKey('mark-${edit.microsecondsSinceEpoch}')),
+      find.byKey(const ValueKey('mark-0')),
       findsOneWidget,
     );
     expect(find.text('From sys/audit'), findsOneWidget);
@@ -226,6 +293,11 @@ void main() {
   testWidgets('+ from Explorer: a key picker over the nodes Explorer read '
       'and a typed key of this site', (tester) async {
     final app = AssistantApp()..task('t-1', planRecord());
+    app.api.metas[AssistantApp.agent] = NodeMeta(
+      cfg: {
+        'allowed_prefixes': Value.from(['wy/central/downstream/modbus']),
+      },
+    );
     await app.pump(tester, selected: 't-1');
     app.store.dispatchSync(
       AddNodesAction(
@@ -297,5 +369,137 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('the finding marks survive a visit to the Assistant tab and '
+      'are let go while Explorer is hidden (review M1)', (tester) async {
+    final app = AssistantApp()..task('t-1', _foundRecord());
+    // the broker answers a subscription with the value it holds
+    for (final (k, quality) in [(_plc, Quality.good), (_valve, Quality.bad)]) {
+      app.api.initial[k] = [
+        ValSample(k, Sample(const VInt(1), q: quality, t: 1)),
+      ];
+    }
+    await app.pump(tester, selected: 't-1');
+    app.store.dispatchSync(SetDrawerAction(open: true));
+    final tabs = await _tabs(tester, app);
+    int readers(String k) => app.store.state.live.watched[k] ?? 0;
+    expect(readers(_valve), 1);
+    expect(find.byTooltip('bad now'), findsOneWidget);
+
+    // (A) Explorer → Assistant → Explorer: the tab's own watching comes
+    // and goes; back on Explorer the drawer's keys are watched and their
+    // values read again
+    tabs.setActiveIndex(1);
+    await app.settle(tester);
+    tabs.setActiveIndex(0);
+    await app.settle(tester);
+    expect(readers(_valve), 1);
+    expect(app.store.state.live.values[_valve]?.quality, q.Quality.bad);
+    expect(find.byTooltip('bad now'), findsOneWidget);
+
+    // (B) Explorer → Flows: the drawer is hidden with Explorer, its keys
+    // are let go; back on Explorer they are watched again
+    tabs.setActiveIndex(2);
+    await app.settle(tester);
+    expect(readers(_valve), 0);
+    expect(readers(_plc), 0);
+    tabs.setActiveIndex(0);
+    await app.settle(tester);
+    expect(readers(_valve), 1);
+  });
+
+  testWidgets('a finding key that is no plain node key of the site is not '
+      'shown nor watched (review L5)', (tester) async {
+    final app = AssistantApp()
+      ..task('t-1', {
+        ..._foundRecord(),
+        'findings': [
+          {'key': _plc, 'label': 'plc1'},
+          {'key': 'wy/central/downstream/**', 'label': 'row-pattern'},
+          {'key': 'wy/plant/downstream/x', 'label': 'row-other-site'},
+          {'key': '$_valve/~val', 'label': 'row-tilde'},
+        ],
+      });
+    await _drawer(tester, app);
+    expect(find.textContaining('plc1', findRichText: true), findsWidgets);
+    for (final hidden in ['row-pattern', 'row-other-site', 'row-tilde']) {
+      expect(find.textContaining(hidden, findRichText: true), findsNothing);
+    }
+    final watched = app.store.state.live.watched.keys;
+    expect(watched, contains(_plc));
+    expect(watched.where((k) => k.contains('*') || k.contains('~')), isEmpty);
+    expect(watched, isNot(contains('wy/plant/downstream/x')));
+  });
+
+  testWidgets('findings the agent did not note: the card says why', (
+    tester,
+  ) async {
+    final app = AssistantApp()
+      ..task('t-1', {
+        ..._foundRecord(),
+        'findings': const <Object?>[],
+        'findings_refused': {'rights_expired': 2, 'limit': 1},
+      });
+    await _drawer(tester, app);
+    expect(find.text('WHAT I FOUND · READ ONLY'), findsOneWidget);
+    expect(
+      find.textContaining('2 not noted: your rights had expired'),
+      findsOneWidget,
+    );
+    expect(find.text('1 not noted: a task holds at most 12.'), findsOneWidget);
+  });
+
+  testWidgets('+ from Explorer offers only keys the agent reads (review L4)', (
+    tester,
+  ) async {
+    final app = AssistantApp()..task('t-1', planRecord());
+    app.api.metas[AssistantApp.agent] = NodeMeta(
+      cfg: {
+        'model': const VStr('claude-opus-5-5'),
+        'allowed_prefixes': Value.from(['downstream/modbus/tcp/plc1']),
+      },
+    );
+    await app.pump(tester, selected: 't-1');
+    app.store.dispatchSync(
+      AddNodesAction(
+        [
+          const NodeInfo(key: _link, name: 'tcp'),
+          const NodeInfo(key: _plc, name: 'plc1'),
+          const NodeInfo(key: _valve, name: 'valve'),
+          const NodeInfo(key: 'wy/central/pub/models', name: 'models'),
+          const NodeInfo(key: '${AssistantApp.agent}/tasks', name: 'tasks'),
+        ].lock,
+      ),
+    );
+    await _drawer(tester, app);
+    expect(app.store.state.assistant.prefixes, ['downstream/modbus/tcp/plc1']);
+
+    await tester.tap(find.text('+ from Explorer'));
+    await tester.pumpAndSettle();
+    final titles = [
+      for (final e in tester.widgetList<Text>(
+        find.descendant(
+          of: find.byType(SearchPalette),
+          matching: find.byType(Text),
+        ),
+      ))
+        e.data,
+    ];
+    expect(titles, containsAll(['plc1', 'valve', 'models']));
+    expect(titles, isNot(contains('tcp')), reason: 'above the prefix');
+    expect(titles, isNot(contains('tasks')), reason: "the agent's own");
+    // a typed key outside is said, not offered
+    await tester.enterText(
+      find.byType(TextField).last,
+      'downstream/modbus/rtu',
+    );
+    await tester.pump();
+    expect(find.textContaining('Attach'), findsNothing);
+    await tester.tap(
+      find.text('modbus/rtu is outside what the agent may read'),
+    );
+    await tester.pumpAndSettle();
+    expect(app.store.state.assistant.chips, isEmpty);
   });
 }

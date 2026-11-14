@@ -2017,7 +2017,7 @@
     "hintDone": "What next?",
     "hintFailed": "Tell it what you know about {node}…",
     "addFromExplorer": "+ from Explorer",
-    "addFromExplorerNone": "Select a node in Explorer first; it is added here as @ chip.",
+    "addFromExplorerNone": "Open a site first; its nodes can then be added here as @ chips.",
     "modelSays": "the assistant says",
     "modelReviewed": "what the assistant read about it",
     "fixReplaces": "replaces this plan",
@@ -2093,5 +2093,17 @@
     "pickKeySelected": "selected in Explorer",
     "pickKeyFull": "{n} keys are attached, the most one ask takes. Remove one first.",
     "@pickKeyFull": {"placeholders": {"n": {"type": "String"}}},
-    "foundUncertain": "uncertain now"
+    "foundUncertain": "uncertain now",
+    "foundRefusedExpired": "{n} not noted: your rights had expired. They last 5 min after your last call on this task; the turn after a run does not renew them.",
+    "@foundRefusedExpired": {"placeholders": {"n": {"type": "String"}}},
+    "foundRefusedUnknown": "{n} not noted: your rights were not known (the agent restarted, or the ask carried none).",
+    "@foundRefusedUnknown": {"placeholders": {"n": {"type": "String"}}},
+    "foundRefusedOutside": "{n} not noted: outside what you or the agent may read.",
+    "@foundRefusedOutside": {"placeholders": {"n": {"type": "String"}}},
+    "foundRefusedLimit": "{n} not noted: a task holds at most 12.",
+    "@foundRefusedLimit": {"placeholders": {"n": {"type": "String"}}},
+    "foundRefusedInvalid": "{n} not noted: not a node key.",
+    "@foundRefusedInvalid": {"placeholders": {"n": {"type": "String"}}},
+    "pickKeyOutside": "{key} is outside what the agent may read",
+    "@pickKeyOutside": {"placeholders": {"key": {"type": "String"}}}
 }

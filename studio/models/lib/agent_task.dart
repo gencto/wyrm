@@ -51,6 +51,11 @@ abstract class AgentTask with _$AgentTask {
     /// What the model read about nodes (`findings`, ADR 0049 amendment 2).
     @Default(IListConst([])) IList<TaskFinding> findings,
 
+    /// Findings the agent link did not note, by why (`findings_refused`:
+    /// `rights_expired`, `rights_unknown`, `outside_rights`, `limit`,
+    /// `invalid`), each with a count.
+    @Default(IMapConst({})) IMap<String, int> findingsRefused,
+
     /// The record (`~state`) was read; before that only the state is known.
     @Default(false) bool recorded,
   }) = _AgentTask;

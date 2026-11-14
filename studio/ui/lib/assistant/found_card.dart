@@ -66,6 +66,7 @@ final class FoundCardVm extends Equatable {
     required this.title,
     required this.note,
     this.rows = const [],
+    this.missing = const [],
     this.timelineLabel,
     this.timeline,
     this.auditLabel = '',
@@ -80,6 +81,11 @@ final class FoundCardVm extends Equatable {
   final String note;
   final List<FoundRowVm> rows;
 
+  /// Why findings of the model are missing, one line per reason the agent
+  /// link gave (its fixed words, said by Studio): *2 not noted: your rights
+  /// had expired…*.
+  final List<String> missing;
+
   /// `valve · last 1h`; null: no timeline.
   final String? timelineLabel;
 
@@ -93,13 +99,14 @@ final class FoundCardVm extends Equatable {
   /// Why there are no audit records (no `config` on `sys/audit`, none).
   final String? auditNote;
 
-  bool get isEmpty => rows.isEmpty && timeline == null;
+  bool get isEmpty => rows.isEmpty && missing.isEmpty && timeline == null;
 
   @override
   List<Object?> get props => [
     title,
     note,
     rows,
+    missing,
     timelineLabel,
     timeline,
     auditLabel,
@@ -141,7 +148,7 @@ class FoundCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: .stretch,
         children: [
-          if (vm.rows.isNotEmpty) ...[
+          if (vm.rows.isNotEmpty || vm.missing.isNotEmpty) ...[
             Container(
               padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
               decoration: BoxDecoration(
@@ -173,16 +180,31 @@ class FoundCard extends StatelessWidget {
                 children: [for (final r in vm.rows) _row(c, r)],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
-              child: Text(vm.note, style: small),
-            ),
+            if (vm.missing.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                child: Column(
+                  crossAxisAlignment: .stretch,
+                  spacing: 2,
+                  children: [
+                    for (final m in vm.missing)
+                      Text(m, style: TextStyle(fontSize: 11, color: c.warn)),
+                  ],
+                ),
+              ),
+            if (vm.rows.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
+                child: Text(vm.note, style: small),
+              )
+            else
+              const SizedBox(height: 10),
           ],
           if (vm.timeline case final t?) ...[
             Container(
               padding: const EdgeInsets.fromLTRB(12, 9, 12, 6),
               decoration: BoxDecoration(
-                border: vm.rows.isEmpty
+                border: vm.rows.isEmpty && vm.missing.isEmpty
                     ? null
                     : Border(top: BorderSide(color: c.line1)),
               ),

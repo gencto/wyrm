@@ -67,6 +67,7 @@ AgentTask agentTaskOf(String id, Value v) => AgentTask(
     for (final f in wc.TaskFinding.of(v))
       TaskFinding(key: f.key, label: f.label, detail: f.detail),
   ].lock,
+  findingsRefused: wc.findingsRefused(v).lock,
   recorded: true,
 );
 

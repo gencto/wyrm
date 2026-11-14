@@ -994,10 +994,11 @@ class _TrendState extends State<Trend> {
               child: Stack(
                 clipBehavior: .none,
                 children: [
-                  for (final k in vm.marks)
+                  // keyed by place: two records may share a time
+                  for (final (i, k) in vm.marks.indexed)
                     if (k.t >= vm.windowStart && k.t <= vm.windowEnd)
                       Positioned(
-                        key: ValueKey('mark-${k.t}'),
+                        key: ValueKey('mark-$i'),
                         left: _xAt(k.t, w),
                         top: 0,
                         bottom: 0,

@@ -125,6 +125,40 @@ sequenceDiagram
     end
 ```
 
+## onWatchKeys
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as WatchKeysAction
+    participant ST as AppState
+
+    User->>UI: onWatchKeys
+    UI->>VM: onWatchKeys()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+```
+
+## onUnwatchKeys
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as UnwatchKeysAction
+    participant ST as AppState
+
+    User->>UI: onUnwatchKeys
+    UI->>VM: onUnwatchKeys()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+```
+
 ## onTimelineWindow
 
 ```mermaid
@@ -291,7 +325,7 @@ sequenceDiagram
 
     User->>UI: onAddChip
     UI->>VM: onAddChip()
-    alt picked != null && contextKey(root, picked) == picked
+    alt picked != null && contextKey(root, picked) == picked && reads(picked)
         VM->>A1: dispatchSync
         A1->>ST: copyWith(assistant.chips)
     end
@@ -602,7 +636,7 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `AssistantPageConnector` — 6 dispatches
+- `AssistantPageConnector` — 5 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -612,6 +646,8 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onPickSuggestion` | `PickSuggestionAction` ? | `assistant.rowPicks` |
 | `onRow` | `SetRowPickAction` ? | `assistant.rowPicks` |
 | `onReveal` | `SetStepRevealAction` ? | `assistant.revealed, assistant.refusals` |
+| `onWatchKeys` | `WatchKeysAction` | `live.watched` |
+| `onUnwatchKeys` | `UnwatchKeysAction` | `live.watched` |
 | `onTimelineWindow` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onMode` | `StageAgentParamAction.mode` | `changes.table, changes.view` |
