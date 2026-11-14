@@ -71,6 +71,51 @@ class Conversation extends StatelessWidget {
   );
 }
 
+/// The model's line as spans: `**strong**` in weight 600 and `` `code` ``
+/// in [code], the marks left out. A mark with no partner stays as text;
+/// nothing else of Markdown is read (the model writes prose, not documents).
+List<InlineSpan> modelSpans(String text, {required TextStyle code}) {
+  final spans = <InlineSpan>[];
+  final plain = StringBuffer();
+  void flush() {
+    if (plain.isNotEmpty) {
+      spans.add(TextSpan(text: plain.toString()));
+      plain.clear();
+    }
+  }
+
+  var i = 0;
+  while (i < text.length) {
+    final mark = text.startsWith('**', i)
+        ? '**'
+        : text[i] == '`'
+        ? '`'
+        : null;
+    if (mark != null) {
+      final from = i + mark.length;
+      final end = text.indexOf(mark, from);
+      final inner = end > from ? text.substring(from, end) : '';
+      if (inner.trim().isNotEmpty && !inner.contains('\n')) {
+        flush();
+        spans.add(
+          TextSpan(
+            text: mark == '`' ? inner.trim() : inner,
+            style: mark == '`'
+                ? code
+                : const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        );
+        i = end + mark.length;
+        continue;
+      }
+    }
+    plain.write(text[i]);
+    i++;
+  }
+  flush();
+  return spans;
+}
+
 class _Event extends StatelessWidget {
   const _Event({required this.vm});
 
@@ -117,8 +162,13 @@ class _Event extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.only(top: 5),
-                child: SelectableText(
-                  vm.text,
+                child: SelectableText.rich(
+                  TextSpan(
+                    children: modelSpans(
+                      vm.text,
+                      code: mono(size: 13, color: c.text1),
+                    ),
+                  ),
                   style: TextStyle(fontSize: 14, height: 1.55, color: c.text1),
                 ),
               ),

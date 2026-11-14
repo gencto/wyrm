@@ -4,8 +4,12 @@
 //! roots from `webpki-roots`. One connection per request: planning makes a
 //! handful of calls per task, so pooling buys nothing.
 //!
-//! The API key comes from the link's `SecretStore`; it is sent only in the
-//! `x-api-key` header and never appears in errors, logs or the tree.
+//! The credential comes from the link's `SecretStore`: an API key, sent in
+//! the `x-api-key` header, or an OAuth access token (`sk-ant-oat…`, as
+//! `ant auth print-credentials --access-token` prints it), sent as
+//! `Authorization: Bearer` with the OAuth beta. It never appears in errors,
+//! logs or the tree. An access token is short-lived and is not refreshed
+//! here: when it runs out the API answers 401 and the secret is set again.
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
@@ -35,6 +39,33 @@ const MAX_RESPONSE: usize = 8 << 20;
 pub const API_VERSION: &str = "2023-06-01";
 /// Beta of the `fallbacks: "default"` form (server-side refusal fallback).
 pub const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
+/// Beta a request with an OAuth access token carries.
+pub const OAUTH_BETA: &str = "oauth-2025-04-20";
+/// How an OAuth access token starts; anything else is an API key.
+const OAUTH_PREFIX: &str = "sk-ant-oat";
+
+/// The headers that carry the credential and the betas of one request:
+/// `(credential header, its value, anthropic-beta)`.
+fn auth_headers(
+    credential: &str,
+    fallbacks: bool,
+) -> (&'static str, Zeroizing<String>, Option<String>) {
+    let oauth = credential.starts_with(OAUTH_PREFIX);
+    let betas: Vec<&str> = [(oauth, OAUTH_BETA), (fallbacks, FALLBACK_BETA)]
+        .into_iter()
+        .filter_map(|(on, beta)| on.then_some(beta))
+        .collect();
+    let beta = (!betas.is_empty()).then(|| betas.join(","));
+    if oauth {
+        (
+            "authorization",
+            Zeroizing::new(format!("Bearer {credential}")),
+            beta,
+        )
+    } else {
+        ("x-api-key", Zeroizing::new(credential.to_owned()), beta)
+    }
+}
 
 /// No `Debug`: holds the API key.
 pub struct AnthropicClient {
@@ -126,13 +157,17 @@ impl AnthropicClient {
                 tracing::debug!("llm connection: {e}");
             }
         });
+        let (name, value, beta) = auth_headers(self.api_key.as_str(), self.fallbacks);
+        let mut credential = hyper::header::HeaderValue::from_str(value.as_str())
+            .map_err(|_| "the API credential is not a header value".to_owned())?;
+        credential.set_sensitive(true);
         let mut req = hyper::Request::post(self.path.as_str())
             .header(hyper::header::HOST, self.host.as_str())
             .header(hyper::header::CONTENT_TYPE, "application/json")
             .header("anthropic-version", API_VERSION)
-            .header("x-api-key", self.api_key.as_str());
-        if self.fallbacks {
-            req = req.header("anthropic-beta", FALLBACK_BETA);
+            .header(name, credential);
+        if let Some(beta) = beta {
+            req = req.header("anthropic-beta", beta);
         }
         let req = req
             .body(Full::new(Bytes::from(bytes)))
@@ -203,6 +238,30 @@ mod tests {
         );
         assert!(parse_base("http://api.anthropic.com").is_err());
         assert!(parse_base("https://user@host").is_err());
+    }
+
+    #[test]
+    fn an_api_key_and_an_oauth_token_go_in_their_own_headers() {
+        let (name, value, beta) = auth_headers("sk-ant-api03-abc", true);
+        assert_eq!((name, value.as_str()), ("x-api-key", "sk-ant-api03-abc"));
+        assert_eq!(beta.as_deref(), Some(FALLBACK_BETA));
+        let (name, value, beta) = auth_headers("sk-ant-api03-abc", false);
+        assert_eq!(
+            (name, value.as_str(), beta),
+            ("x-api-key", "sk-ant-api03-abc", None)
+        );
+
+        let (name, value, beta) = auth_headers("sk-ant-oat01-xyz", true);
+        assert_eq!(
+            (name, value.as_str()),
+            ("authorization", "Bearer sk-ant-oat01-xyz")
+        );
+        assert_eq!(
+            beta.as_deref(),
+            Some("oauth-2025-04-20,server-side-fallback-2026-07-01")
+        );
+        let (_, _, beta) = auth_headers("sk-ant-oat01-xyz", false);
+        assert_eq!(beta.as_deref(), Some(OAUTH_BETA));
     }
 
     #[test]
