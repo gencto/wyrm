@@ -84,17 +84,50 @@ after a human approves it (ADR 0005). It runs embedded in `wyrmd`
 ## How a task runs
 
 1. A user with `write` on the link calls ▸ **Ask** `{task}`. The link creates `tasks/<id>`.
-2. The model reads the tree with read-only tools and proposes a plan: a list of `set` and
-   `invoke` steps.
-3. The link checks every step against `~meta`, `allowed_prefixes` and the level the step needs.
-4. With approval needed, the task waits in `awaiting_approval`. A user with `config` reads
-   `tasks/<id>/~val` (`plan` holds every step with its key and arguments) and calls
-   ▸ **Approve** with one human token per step, or ▸ **Reject**.
-5. The link runs the stored plan. A step with a human token runs with that human's rights; a
-   `write` step that needs no approval runs with the agent's own key (`ai:<link>`, at most
-   `write`, only under `allowed_prefixes`).
+   `{task, parent, context}` may name a task this one follows (a retry, an undo) and node keys
+   to read first.
+2. The model reads the tree with read-only tools. It may ask back (`ask_user`): the task waits
+   in `awaiting_answer` until ▸ **Answer** `{answers}`.
+3. The model proposes a plan. `set` and `invoke` steps change the site. `wait`, `expect` and
+   `sleep` steps only read: they prove the plan and need no approval.
+4. The link checks every step against `~meta`, `allowed_prefixes` and the level the step needs.
+5. With approval needed, the task waits in `awaiting_approval`. The record is the task's
+   `~state` document (restricted: the reader needs `list`): `plan[]` holds every step in the
+   `wyrm-agent run` format with its number `n`, level, `after`, `check`, `warn` and `reason`.
+   ▸ **Approve** `{approvals: {"<n>": <token>}, plan}` takes one human token per step, at the
+   level of that step. `write` on the task is enough to call it.
+6. The link runs the stored plan. A step with a human token runs with that human's rights. A
+   step without a token that needs one is `skipped`, and so is every step that needs it
+   (`after`). The run stops at the first step that fails.
 
 The agent never runs a `config` step without a human token.
+
+Who approves decides what runs without a token:
+
+- The asker of the task, or a user with `config` on the link: a `write` step that needs no
+  approval runs with the agent's own key (`ai:<link>`, at most `write`, only under
+  `allowed_prefixes`).
+- Any other user: only the steps they sign run. Every other step that changes something is
+  `skipped`.
+
+### Through a gateway
+
+A gateway user holds no key. Send `approve {steps: [n…], plan: <hash>}`: the gateway reads the
+stored plan, checks your grants for each step and signs one token per step (ADR 0049). `plan`
+is the hash of the plan you read: SHA-256 (hex) of the canonical CBOR of `~state.plan`, each
+step without `approval`, `check`, `warn`, `reason`, `result` (`planHash` in `wyrm_client`).
+A step outside your grants refuses the whole call and names the step and the right.
+
+The gateway op `doc {key, suffix: "~state"}` reads the record.
+
+### What a task shows
+
+| Key | Who reads | What |
+|---|---|---|
+| `tasks/<id>/~val` | read on the link | `{state, step, of, last: {n, ok, result}}`: numbers and fixed words only |
+| `tasks/<id>/~state` | `list` on the task | the ask, owner, plan with results, questions, log, error |
+| `budget_used_today` | read on the link | LLM tokens used this UTC day |
+| `sys/links/<id>` ▸ `secrets` | `config` | the names of the link's secrets, never a value |
 
 ## Params
 
@@ -120,8 +153,9 @@ profiles, flow definitions. Anyone who can write such text can try to steer the 
 (prompt injection). Use these modes only with narrow `allowed_prefixes`, and only where
 every write there is safe to make without review (security review AI-4, ADR 0031).
 
-ОБЕРЕЖНО: the `reason` of a step and the model's log lines come from the model too. Before
-you approve, read each step's key and arguments in `plan`, not only the reason.
+ОБЕРЕЖНО: the `reason` and `warn` of a step, a question's text and the model's log lines come
+from the model too. Before you approve, read each step's key and arguments in `plan`, not only
+the reason.
 
 ## The API key and `api_base`
 

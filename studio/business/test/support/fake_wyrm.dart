@@ -146,6 +146,20 @@ class FakeWyrmApi implements WyrmApi {
     return children_[key] ?? (throw _missing(key));
   }
 
+  /// Documents by `key suffix` (`wy/…/tasks/t1 ~state`).
+  final docs = <String, Value>{};
+
+  @override
+  Future<Value> doc(String key, String suffix) async {
+    calls.add(Call('doc', key, action: suffix));
+    final id = '$key $suffix';
+    await _delay(id);
+    if (errors[id] case final e?) {
+      throw e;
+    }
+    return docs[id] ?? (throw _missing(id));
+  }
+
   @override
   Future<List<HistRow>> history(
     String key, {

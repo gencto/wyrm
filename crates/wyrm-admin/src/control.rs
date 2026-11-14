@@ -2278,6 +2278,19 @@ async fn declare_link(ctx: &LinkCtx, def: &LinkDef) -> Result<(), LinkError> {
     .await?;
     ctx.declare_action(
         &p,
+        "secrets",
+        // The names of the link's secrets, never a value (ADR 0049 §10): a screen can say
+        // "set" or "not set" for a secret a parameter names (`api_key_ref`). An action, not
+        // a value: a `~val` is read at `read`, the names are for `config`.
+        ActionMeta::new()
+            .level(Perm::Config)
+            .display("Secret names")
+            .group("secrets")
+            .result(ActionResult::Type(TypeCode::Array)),
+    )
+    .await?;
+    ctx.declare_action(
+        &p,
         "hello",
         // Link handshake (an open action, see `open_actions`): level none
         // marks it as not for people, and UIs hide it.
@@ -4128,6 +4141,10 @@ impl Link for Admin {
             }
             (["links", id], "set_secret") => self.set_secret(id, &args, &sub),
             (["links", id], "delete_secret") => self.delete_secret(id, &args, &sub),
+            (["links", id], "secrets") => {
+                self.def(id)?;
+                Ok(Some(self.secret_names(id)))
+            }
             (["quarantine", node], "approve") => {
                 let cn = self.quarantine_key(node);
                 self.approve(&cn, &args, &sub).await

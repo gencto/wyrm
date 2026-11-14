@@ -54,7 +54,8 @@ class FrameClient implements WyrmApi {
 
   int _id() => _nextId++;
 
-  void _send(int id, String op, String key, {Value? value, String? action, Value? args, int? sub}) {
+  void _send(int id, String op, String key,
+      {Value? value, String? action, Value? args, int? sub, String? suffix}) {
     if (_closed) throw WyrmException.of(Status.disconnected, 'client closed');
     _t.send({
       'id': VInt(id),
@@ -64,6 +65,7 @@ class FrameClient implements WyrmApi {
       if (action != null) 'action': VStr(action),
       'args': ?args,
       if (sub != null) 'sub': VInt(sub),
+      if (suffix != null) 'suffix': VStr(suffix),
     });
   }
 
@@ -108,12 +110,13 @@ class FrameClient implements WyrmApi {
     }
   }
 
-  Future<Value?> _oneShot(String op, String key, {Value? value, String? action, Value? args}) {
+  Future<Value?> _oneShot(String op, String key,
+      {Value? value, String? action, Value? args, String? suffix}) {
     final c = Completer<Value?>();
     final id = _id();
     _pending[id] = _Pending.oneShot(c);
     try {
-      _send(id, op, key, value: value, action: action, args: args);
+      _send(id, op, key, value: value, action: action, args: args, suffix: suffix);
     } catch (e) {
       _pending.remove(id);
       return Future.error(e);
@@ -264,6 +267,10 @@ class FrameClient implements WyrmApi {
     if (r is! VArray) throw _bad('history');
     return [for (final row in r.v) _histRow(row)];
   }
+
+  @override
+  Future<Value> doc(String key, String suffix) async =>
+      await _oneShot('doc', key, suffix: suffix) ?? const VNull();
 
   static HistRow _histRow(Value row) {
     if (row is! VArray || row.v.length < 2 || row.v.length > 3) throw _bad('history row');

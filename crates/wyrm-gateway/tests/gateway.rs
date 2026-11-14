@@ -1554,7 +1554,7 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     // the client names steps of the stored plan and nothing else
     for (steps, plan_hash, want) in [
         (vec![9], hash.as_str(), "no step 9"),
-        (vec![4], hash.as_str(), "needs no approval"),
+        (vec![4], hash.as_str(), "sends nothing"),
         (vec![1], "0000", "read it again"),
         (vec![], hash.as_str(), "no step"),
     ] {

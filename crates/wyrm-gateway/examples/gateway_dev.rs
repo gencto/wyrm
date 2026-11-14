@@ -12,6 +12,10 @@
 //!
 //! Site `test`, link `mock` (6 writable points at 20 Hz on `g0`, `g1`;
 //! root actions `reset`, `count {n}`), admin user `admin` / `admin password`.
+//! Link `agent`: the AI agent link with a scripted model (no network, no API
+//! key). Every `ask` gets the plan `g0/p0 := 42.5`, `g1/p1 := 7`,
+//! `expect g0/p0 = 42.5`, `expect g1/p1 = 7`, which waits for approval; an ask
+//! that holds `ask me` first asks back with two options (ADR 0049).
 //! For tests only: the state directory is a fresh temp directory.
 
 use std::io::{BufRead, Write};
@@ -20,6 +24,63 @@ use wyrm_gateway::{Gateway, GatewayConfig};
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_sdk::harness::{isolated_config, SITE};
 use wyrm_link_sdk::LinkConfig;
+
+/// The model of the `agent` link: the same plan for every ask, then a summary; a question
+/// first when the ask holds `ask me`.
+struct Scripted;
+
+impl wyrm_link_agent::llm::LlmClient for Scripted {
+    fn messages(&self, body: serde_json::Value) -> wyrm_link_agent::llm::LlmFuture<'_> {
+        use serde_json::json;
+        let usage = json!({"input_tokens": 10, "output_tokens": 10});
+        let messages = body["messages"].as_array().cloned().unwrap_or_default();
+        let asks = messages
+            .first()
+            .and_then(|m| m["content"].as_str())
+            .is_some_and(|t| t.contains("ask me"));
+        // the turns the model has had so far
+        let turn = messages.len() / 2;
+        let tools = |calls: Vec<serde_json::Value>| json!({"content": calls, "stop_reason": "tool_use", "usage": usage});
+        let call = |id: &str, name: &str, input: serde_json::Value| json!({"type": "tool_use", "id": id, "name": name, "input": input});
+        let r = match (asks, turn) {
+            (true, 0) => tools(vec![call(
+                "q1",
+                "ask_user",
+                json!({"question": "Which branch first?", "options": [
+                    {"id": "g0", "label": "g0", "detail": "downstream/mock/g0"},
+                    {"id": "g1", "label": "g1", "detail": "downstream/mock/g1"},
+                ]}),
+            )]),
+            (true, 1) | (false, 0) => tools(vec![
+                call(
+                    "t1",
+                    "propose",
+                    json!({"op": "set", "path": "downstream/mock/g0/p0", "value": 42.5, "reason": "the operator asked"}),
+                ),
+                call(
+                    "t2",
+                    "propose",
+                    json!({"op": "set", "path": "downstream/mock/g1/p1", "value": 7, "reason": "the operator asked"}),
+                ),
+                call(
+                    "t3",
+                    "propose",
+                    json!({"op": "expect", "path": "downstream/mock/g0/p0", "equals": 42.5, "timeout_s": 5}),
+                ),
+                call(
+                    "t4",
+                    "propose",
+                    json!({"op": "expect", "path": "downstream/mock/g1/p1", "equals": 7, "timeout_s": 5}),
+                ),
+            ]),
+            _ => {
+                json!({"content": [{"type": "text", "text": "Plan: set two points and prove it."}],
+                        "stop_reason": "end_turn", "usage": usage})
+            }
+        };
+        Box::pin(async move { Ok(r) })
+    }
+}
 
 const ADMIN_USER: &str = "admin";
 const ADMIN_PASSWORD: &str = "admin password";
@@ -59,6 +120,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         writable: true,
     };
     let link = wyrm_link_sdk::spawn::<Mock>(session.clone(), lc, mock).await?;
+    let mut lc = LinkConfig::new(SITE, "agent");
+    lc.admin_keys = vec![gw.verifying_key()];
+    lc.answer_val = true;
+    let agent = wyrm_link_sdk::spawn::<wyrm_link_agent::Agent>(
+        session.clone(),
+        lc,
+        wyrm_link_agent::AgentConfig {
+            params: wyrm_link_agent::AgentParams {
+                allowed_prefixes: vec!["downstream/mock".into()],
+                ..Default::default()
+            },
+            llm: Some(std::sync::Arc::new(Scripted)),
+        },
+    )
+    .await?;
 
     // stdin: `restart` → true; EOF or `quit` → false.
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel::<bool>();
@@ -95,6 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             break;
         }
     }
+    agent.stop().await;
     link.stop().await;
     let _ = session.close().await;
     let _ = std::fs::remove_dir_all(&dir);

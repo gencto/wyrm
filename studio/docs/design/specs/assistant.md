@@ -52,12 +52,12 @@ Right drawer 420 over Explorer, header `Assistant · tasks/<id>`, *Open full* (A
 ## 6. Data and calls
 | UI | Read | Call |
 |---|---|---|
-| Task list, record | `tasks/*` `~val {state, step, of, last}`; `doc(tasks/<id>, ~state)` on each change | — |
+| Task list, record | `tasks/*` `~val {state, step, of, last: {n, ok, result}}` (`result`: `ok`, `failed`, `skipped`; no text: `~val` is public); `doc(tasks/<id>, ~state)` on each change. The RunCard takes a row's text from `~state.plan[n].result.message` | — |
 | Ask | — | `invoke(<agent>, ask, {task, parent?, context?})` (stream) |
 | Answer | `~state.questions[]` | `invoke(tasks/<id>, answer, {answers})` |
-| Approve | `~state.plan[]` | `invoke(tasks/<id>, approve, {steps: [n…]})` — the gateway adds the tokens |
+| Approve | `~state.plan[]` | `invoke(tasks/<id>, approve, {steps: [n…], plan: planHash(plan)})` — the gateway adds the tokens. A user who is not the asker and has no `config` on the agent link ticks every step that changes something: an unticked one is skipped |
 | Reject / Cancel | — | `reject {reason}`, `cancel` |
-| What it may do | agent root `cfg`, `budget_used_today`; `sys/links/<id>` `secrets` | `sys/links/<id>` edit params (config) for modes and prefixes |
+| What it may do | agent root `cfg`, value `budget_used_today`; `invoke(sys/links/<id>, secrets)` (names, config) | `sys/links/<id>` edit params (config) for modes and prefixes |
 
 Errors follow `errors.md`: a refused approve names the step and the right missing (*step 4 needs config on sys/history/**; you have write*); a lost stream re-reads the record instead of retrying the ask.
 

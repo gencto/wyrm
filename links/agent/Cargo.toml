@@ -57,4 +57,8 @@ clap = { workspace = true, optional = true, features = ["env"] }
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true
+# a config-level action for the plans of the tests
+wyrm-flow.workspace = true
+# `gw::parse_plan`: a task's plan is a plan of `wyrm-agent run`
+wyrm-mcp = { workspace = true, features = ["gateway"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

@@ -5298,6 +5298,14 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         .await
         .expect("set the key");
     let names = |v: Option<Value>| format!("{v:?}");
+    // ADR 0049 §10: the names of the link's secrets are readable, never a value
+    let listed = names(
+        c.invoke_one(&node, "secrets", Value::Map(BTreeMap::new()))
+            .await
+            .unwrap(),
+    );
+    assert!(listed.contains("anthropic_api_key"), "{listed}");
+    assert!(!listed.contains("sk-test"), "{listed}");
     // the same base: the key stays
     let mut up = BTreeMap::new();
     up.insert("params".to_owned(), params("https://api.anthropic.com/"));

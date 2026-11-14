@@ -405,8 +405,8 @@ struct Task {
     context: Vec<String>,
     /// The step that runs or ran last, from 1 (0: none yet).
     step: usize,
-    /// The latest finished step: its number, whether it passed, its result in short.
-    last: Option<(usize, bool, String)>,
+    /// The latest finished step: its number and how it ended.
+    last: Option<(usize, StepStatus)>,
     /// The planner waits here for `answer`; not persisted (a restart ends the wait).
     answer: Option<tokio::sync::oneshot::Sender<Answered>>,
 }
@@ -473,7 +473,7 @@ impl Task {
             .find_map(|(i, op)| op.result.as_ref().map(|r| (i, r)))
         {
             t.step = i + 1;
-            t.last = Some((i + 1, r.status != StepStatus::Failed, r.message.clone()));
+            t.last = Some((i + 1, r.status));
         }
         Ok(t)
     }
@@ -497,22 +497,24 @@ impl Task {
     }
 
     /// Public `~val`: `{state, step, of, last?}` (ADR 0049 §7). `~val` is broadcast and
-    /// answered without a token, so nothing the model wrote goes there: `step` and `of`
-    /// are numbers, `last` is `{n, ok, text}` of the latest finished step, `text` the
-    /// link's own words or the responder's refusal.
+    /// answered without a token, to anyone who may read the link, while the record is
+    /// restricted. So it holds numbers and the link's own fixed words only: `last` is
+    /// `{n, ok, result}` of the latest finished step, `result` one of `ok`, `failed`,
+    /// `skipped`. No text of a result, no value read, no node key, no ask, no owner: those
+    /// are in `~state`.
     fn public_value(&self) -> Value {
         let mut kv = vec![
             ("state", Value::from(self.state.name())),
             ("step", Value::UInt(self.step as u64)),
             ("of", Value::UInt(self.plan.len() as u64)),
         ];
-        if let Some((n, ok, text)) = &self.last {
+        if let Some((n, status)) = &self.last {
             kv.push((
                 "last",
                 map_value(vec![
                     ("n", Value::UInt(*n as u64)),
-                    ("ok", Value::Bool(*ok)),
-                    ("text", Value::from(truncate(text, 200))),
+                    ("ok", Value::Bool(*status != StepStatus::Failed)),
+                    ("result", Value::from(status.name())),
                 ]),
             ));
         }
@@ -1584,14 +1586,24 @@ impl Agent {
                     "plan: the plan is not the one this approval was made for; read it again",
                 ));
             }
+            // `approve` is `write` on the task (ADR 0049 §3), so the caller may be a stranger
+            // to it. The asker, or a caller with `config` on the link, decides for the task:
+            // steps that need no human run with the agent's key, as they would have without
+            // an approval. Anybody else decides only for what they sign: every step that
+            // changes something needs their own token, and one without it is skipped, never
+            // run with the agent's key on their word.
+            let manages = may_manage(t, who);
+            let needs_token =
+                |op: &PlanOp| op.op.changes() && (!manages || op.requires_approval(&policy));
             // An approval names its step by number (ADR 0049 §4), or by request key when
             // one step alone has that key.
             let mut by_step: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
             for (k, tok) in toks {
                 let n = step_named(&t.plan, &k).map_err(LinkError::invalid_parameter)?;
-                if !t.plan[n - 1].requires_approval(&policy) {
+                // a token for a step that needs none is taken: the step then runs with it
+                if !t.plan[n - 1].op.changes() {
                     return Err(LinkError::invalid_parameter(format!(
-                        "step {n} ({k}) is not a plan step that needs an approval"
+                        "step {n} ({k}) sends nothing: it takes no approval"
                     )));
                 }
                 if by_step.insert(n, tok).is_some() {
@@ -1602,7 +1614,7 @@ impl Agent {
             }
             // The steps left out, and those that need one of them, do not run.
             let unapproved: Vec<usize> = (1..=t.plan.len())
-                .filter(|n| t.plan[n - 1].requires_approval(&policy) && !by_step.contains_key(n))
+                .filter(|n| needs_token(&t.plan[n - 1]) && !by_step.contains_key(n))
                 .collect();
             let skip = tools::skipped(&t.plan, &unapproved);
             let mut per_op = Vec::with_capacity(t.plan.len());
@@ -2340,7 +2352,7 @@ async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Approval>) {
                 sh.with_task_saved(&id, |t| {
                     t.push_log(format!("step {n}: {why}"));
                     t.step = n;
-                    t.last = Some((n, true, why.clone()));
+                    t.last = Some((n, StepStatus::Skipped));
                     if let Some(s) = t.plan.get_mut(i) {
                         s.result = step_result(StepStatus::Skipped, why);
                     }
@@ -2360,7 +2372,7 @@ async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Approval>) {
                 Ok(line) => (StepStatus::Ok, line.as_str()),
                 Err(e) => (StepStatus::Failed, e.as_str()),
             };
-            t.last = Some((n, ok, text.to_owned()));
+            t.last = Some((n, status));
             if let Some(s) = t.plan.get_mut(i) {
                 s.result = step_result(status, text);
             }

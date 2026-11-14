@@ -13,7 +13,10 @@
 //!    from its steps, not taken from the record) is the hash the client made from the plan
 //!    the user saw (`args.plan`); the link checks the hash against its own plan again when
 //!    it takes the approval;
-//! 3. every named step is a step of that plan that needs a human, named once;
+//! 3. every named step is a step of that plan that changes something (a `set` or an
+//!    `invoke`), named once; the link decides which of the steps that were not named still
+//!    run: for the asker of the task or a user with `config` on the link, those that need
+//!    no human; for anybody else, none;
 //! 4. the user's grants give every named step at least the level it needs; if one does not,
 //!    the whole call is refused before anything is sent, the answer names the step and the
 //!    right that is missing, and no token is made;
@@ -277,15 +280,14 @@ impl Plan {
         let mut sign = Vec::with_capacity(ask.steps.len());
         for n in &ask.steps {
             match self.steps.get(n - 1) {
+                // A step that needs no human may be named too: a user who does not manage
+                // the task (not its asker, no `config` on the link) decides only for the
+                // steps they sign, and the link runs no other step on their word.
                 Some(Step {
-                    approval: true,
-                    request: Some(r),
-                    ..
+                    request: Some(r), ..
                 }) => sign.push((*n, r)),
                 Some(_) => {
-                    return Err(bad(format!(
-                        "step {n} needs no approval: the agent runs it itself"
-                    )))
+                    return Err(bad(format!("step {n} sends nothing: it takes no approval")))
                 }
                 None => return Err(bad(format!("the plan has no step {n}"))),
             }
@@ -540,6 +542,9 @@ mod tests {
 
         let sign = p.select(&ask(&[1, 2, 5], "h1"), config).unwrap();
         assert_eq!(numbers(&sign), [1, 2, 5]);
+        // a step the agent would run itself may be signed too (a user who is not the asker)
+        let sign = p.select(&ask(&[3], "h1"), write).unwrap();
+        assert_eq!(numbers(&sign), [3]);
         assert_eq!(p.left_out(&[1, 2, 5]), 0);
         // steps left out get no token; the one that needs no human is not one of them
         let sign = p.select(&ask(&[1], "h1"), write).unwrap();
@@ -568,8 +573,7 @@ mod tests {
         // an unknown step, steps that need no human, a changed plan, a task not waiting
         for (a, want) in [
             (ask(&[9], "h1"), "no step 9"),
-            (ask(&[3], "h1"), "needs no approval"),
-            (ask(&[4], "h1"), "needs no approval"),
+            (ask(&[4], "h1"), "sends nothing"),
             (ask(&[1], "h2"), "read it again"),
         ] {
             let e = p.select(&a, config).unwrap_err();

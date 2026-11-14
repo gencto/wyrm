@@ -1107,6 +1107,15 @@ async fn ask_answer_plan_partial_approve_prove_done() {
     let doc = env.wait_state(&id, "awaiting_approval").await;
     assert_eq!(plan_len(&doc), 5);
     let hash = field(&doc, "plan_hash").expect("plan_hash");
+    // the plan is a plan of `wyrm-agent run` as it stands (ADR 0049 §6)
+    let as_run = wyrm_mcp::gw::parse_plan(&wyrm_mcp::json::value_to_json(get(&doc, "plan")))
+        .expect("a wyrm-agent run plan");
+    assert!(matches!(as_run[0], wyrm_mcp::gw::Step::Set { .. }));
+    assert!(matches!(as_run[1], wyrm_mcp::gw::Step::Wait { .. }));
+    assert!(matches!(
+        &as_run[2],
+        wyrm_mcp::gw::Step::Expect { test: wyrm_mcp::gw::Test::Equals(v), .. } if v == &json!(7)
+    ));
     let step = plan_step(&doc, 0);
     // the plan is in the `wyrm-agent run` format
     assert_eq!(field(&step, "set").as_deref(), Some(P0));
@@ -1226,8 +1235,20 @@ async fn ask_answer_plan_partial_approve_prove_done() {
         (get(&pv, "step"), get(&pv, "of")),
         (&Value::UInt(5), &Value::UInt(5))
     );
-    assert_eq!(get(get(&pv, "last"), "n"), &Value::UInt(5));
-    assert_eq!(get(get(&pv, "last"), "ok"), &Value::Bool(true));
+    // `last` holds the link's fixed words only: no text of a result, no value, no key
+    assert_eq!(
+        get(&pv, "last"),
+        &Value::Map(BTreeMap::from([
+            ("n".to_owned(), Value::UInt(5)),
+            ("ok".to_owned(), Value::Bool(true)),
+            ("result".to_owned(), Value::from("skipped")),
+        ]))
+    );
+    let public = format!("{pv:?}");
+    assert!(
+        !public.contains("mock") && !public.contains("user:"),
+        "{public}"
+    );
     // the tokens used today are readable (ADR 0049 §10)
     let used = env.agent.as_ref().unwrap().ctx().last("budget_used_today");
     assert!(used.unwrap().v.as_f64().unwrap() > 0.0);
@@ -1312,6 +1333,8 @@ async fn a_question_can_be_cancelled_and_a_failed_proof_stops_the_run() {
     let pv = env.task(&id);
     assert_eq!(get(get(&pv, "last"), "n"), &Value::UInt(3));
     assert_eq!(get(get(&pv, "last"), "ok"), &Value::Bool(false));
+    assert_eq!(get(get(&pv, "last"), "result"), &Value::from("failed"));
+    assert!(!format!("{pv:?}").contains("not as expected"), "{pv:?}");
     assert!(field(&doc, "error").unwrap().contains("step 3"));
     env.stop().await;
 }
@@ -1399,5 +1422,186 @@ async fn a_follow_up_ask_carries_its_parent_and_the_attached_keys() {
         first.contains("wy/test/downstream/mock/p1: meta"),
         "{first}"
     );
+    env.stop().await;
+}
+
+/// Review of ADR 0049 §3: `approve` is `write` on the task, so a caller who is neither the
+/// asker nor a `config` caller may call it. Such a caller decides only for the steps they
+/// sign: a step without their token is skipped, never run with the agent's key. The asker
+/// keeps the steps that need no human.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stranger_approves_only_what_they_sign() {
+    // Under mode `config` the two writes need no human and run with the agent's key; the
+    // flow deploy (config) makes the task wait.
+    let def = json!({"id": "shed", "nodes": {"a": {"type": "subscribe", "key": "downstream/mock/p0"}}, "edges": []});
+    let script = || {
+        vec![
+            tool_use(&[
+                (
+                    "t1",
+                    "propose",
+                    json!({"op": "set", "path": "downstream/mock/p0", "value": 5}),
+                ),
+                (
+                    "t2",
+                    "propose",
+                    json!({"op": "set", "path": "downstream/mock/p1", "value": 6}),
+                ),
+                (
+                    "t3",
+                    "propose",
+                    json!({"op": "invoke", "path": "dataflows", "action": "deploy", "args": {"def": def}}),
+                ),
+                (
+                    "t4",
+                    "propose",
+                    json!({"op": "expect", "path": "downstream/mock/p1", "equals": 6, "timeout_s": 3}),
+                ),
+            ]),
+            end("Plan."),
+        ]
+    };
+    let p = AgentParams {
+        allowed_prefixes: vec!["downstream/mock".into(), "dataflows".into()],
+        require_approval: wyrm_link_agent::tools::ApprovalMode::Config,
+        ..AgentParams::default()
+    };
+    let mut all = script();
+    all.extend(script());
+    all.extend(script());
+    let env = Env::start(p, all).await;
+    let dir = temp_dir("who-flows");
+    let host = wyrm_flow::FlowHost::open(&dir, b"flow-test-hmac-key", SITE).unwrap();
+    let mut lc = LinkConfig::new(SITE, "dataflows");
+    lc.root = Some(format!("wy/{SITE}/dataflows"));
+    lc.admin_keys = vec![test_key().verifying_key()];
+    let engine = wyrm_link_sdk::spawn::<wyrm_flow::Engine>(
+        env.session.clone(),
+        lc,
+        wyrm_flow::EngineStart {
+            host,
+            admin_keys: vec![test_key().verifying_key()],
+            proof_keys: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let p1 = || {
+        let v = env.mock.as_ref().unwrap().ctx().last("p1").unwrap().v;
+        v.as_f64().unwrap()
+    };
+    let (k0, k1) = (
+        format!("{P0}/~set"),
+        "wy/test/downstream/mock/p1/~set".to_owned(),
+    );
+    let k2 = "wy/test/dataflows/~act/deploy".to_owned();
+    // a writer who is not the asker, with `write` and no more on the agent link
+    let other = |sub: &'static str| {
+        WyrmClient::new(env.session.clone())
+            .with_timeout(Duration::from_secs(5))
+            .with_tokens(Arc::new(
+                SigningTokens::new(test_key(), SITE)
+                    .subject(sub)
+                    .max(Perm::Write),
+            ))
+    };
+    let msg = |doc: &Value, i: usize| result_of(&plan_step(doc, i)).unwrap();
+
+    // 1. a stranger signs step 2 alone: step 1 does not run with the agent's key
+    let (id, _) = env.ask("set and deploy").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    assert_eq!(get(&plan_step(&doc, 0), "approval"), &Value::Bool(false));
+    assert_eq!(get(&plan_step(&doc, 2), "approval"), &Value::Bool(true));
+    let p0_before = env.p0();
+    env.task_action(
+        &other("user:x"),
+        &id,
+        "approve",
+        approvals(&[("2", human_token("user:x", &k1))]),
+    )
+    .await
+    .unwrap();
+    let doc = env.wait_state(&id, "done").await;
+    assert_eq!(msg(&doc, 0), ("skipped".into(), "skipped by user:x".into()));
+    assert_eq!(env.p0(), p0_before, "nothing ran under the agent's key");
+    let (st, text) = msg(&doc, 1);
+    assert_eq!(st, "ok");
+    assert!(
+        text.ends_with("(approval)"),
+        "sent with the stranger's token: {text}"
+    );
+    assert_eq!(p1(), 6.0);
+    assert_eq!(msg(&doc, 2).0, "skipped");
+    assert_eq!(
+        msg(&doc, 3).0,
+        "ok",
+        "a proof reads; it needs nobody's token"
+    );
+
+    // 2. an engineer of the devices, not the asker and without `config` on the agent link,
+    //    signs both writes: they run with the engineer's tokens
+    env.mock
+        .as_ref()
+        .unwrap()
+        .ctx()
+        .update("p1", Value::Float(0.0), wyrm_core::Quality::Good, 1)
+        .await
+        .ok();
+    let (id, _) = env.ask("set and deploy").await.unwrap();
+    env.wait_state(&id, "awaiting_approval").await;
+    env.task_action(
+        &other("user:eng"),
+        &id,
+        "approve",
+        approvals(&[
+            ("1", human_token("user:eng", &k0)),
+            ("2", human_token("user:eng", &k1)),
+        ]),
+    )
+    .await
+    .unwrap();
+    let doc = env.wait_state(&id, "done").await;
+    for i in [0, 1] {
+        let (st, text) = msg(&doc, i);
+        assert_eq!(st, "ok");
+        assert!(text.ends_with("(approval)"), "{text}");
+    }
+    assert_eq!(env.p0(), 5.0);
+    assert_eq!(
+        msg(&doc, 2),
+        ("skipped".into(), "skipped by user:eng".into())
+    );
+
+    // 3. the asker signs the config step alone: the writes that need no human run with the
+    //    agent's key, as before
+    let (id, _) = env.ask("set and deploy").await.unwrap();
+    env.wait_state(&id, "awaiting_approval").await;
+    env.task_action(
+        &env.human(Perm::Write),
+        &id,
+        "approve",
+        approvals(&[("3", human_token("user:op", &k2))]),
+    )
+    .await
+    .unwrap();
+    let mut doc = Value::Null;
+    for _ in 0..400 {
+        doc = env.doc(&id).await;
+        if matches!(field(&doc, "state").as_deref(), Some("done" | "failed")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    for i in [0, 1] {
+        let (st, text) = msg(&doc, i);
+        assert_eq!(st, "ok");
+        assert!(text.ends_with("(service token)"), "{text}");
+    }
+    let (_, text) = msg(&doc, 2);
+    assert!(
+        text.contains("(approval)") || field(&doc, "state").as_deref() == Some("failed"),
+        "{text}"
+    );
+    engine.stop().await;
     env.stop().await;
 }
