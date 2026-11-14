@@ -278,6 +278,14 @@ void main() {
       },
     );
 
+    test('the address off loopback comes first, IPv4 before IPv6', () {
+      expect(pickAddress(['127.0.0.1', '192.168.1.6']), '192.168.1.6');
+      expect(pickAddress(['2001:db8::1', '10.0.7.1']), '10.0.7.1');
+      expect(pickAddress(['fe80::1', '2001:db8::1']), '2001:db8::1');
+      expect(pickAddress(['127.0.0.1']), '127.0.0.1');
+      expect(pickAddress(['fe80::1']), isNull);
+    });
+
     test('the URL comes from the certificate names', () async {
       Future<bool> resolves(String h) async => h == 'plant.example';
 

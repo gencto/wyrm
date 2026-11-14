@@ -21,5 +21,6 @@ abstract class DiscoveryState with _$DiscoveryState {
     String? subnet,
     String? range,
     String? rangePort,
+    @Default(false) bool probing,
   }) = _DiscoveryState;
 }

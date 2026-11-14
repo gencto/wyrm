@@ -20,6 +20,10 @@ import 'package:material_ui/material_ui.dart';
 // ignore: do_not_use_environment, a test parameter.
 const site = String.fromEnvironment('WYRM_DISCOVER_SITE');
 
+/// `address:port` to probe when the browse finds nothing (a range of one).
+// ignore: do_not_use_environment, a test parameter.
+const probe = String.fromEnvironment('WYRM_DISCOVER_PROBE');
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -63,6 +67,27 @@ void main() {
     await settle(tester, 2500);
 
     await tester.tap(find.text('Find on this network'));
+    await settle(tester, 9500);
+    await shot(tester, '19_discover_after_browse');
+    if (find.text(site).evaluate().isEmpty && probe.isNotEmpty) {
+      // Nothing found: probe the one address instead.
+      final (address, port) = (probe.split(':')[0], probe.split(':')[1]);
+      final range = find.byWidgetPredicate(
+        (w) =>
+            w is EditableText &&
+            RegExp(r'^[\d.]+/\d+$').hasMatch(w.controller.text),
+      );
+      await tester.enterText(range.first, address);
+      final ports = find.byWidgetPredicate(
+        (w) =>
+            w is EditableText && RegExp(r'^\d+$').hasMatch(w.controller.text),
+      );
+      await tester.enterText(ports.last, port);
+      await settle(tester, 400);
+      await tester.tap(find.text('Probe'));
+      await settle(tester, 4000);
+      await shot(tester, '19b_discover_probed');
+    }
     await until(tester, find.text(site));
     await settle(tester, 9000);
     await shot(tester, '20_discover_found');
@@ -77,5 +102,10 @@ void main() {
       await shot(tester, '22_discover_trusted');
     }
     expect(find.textContaining('pinned on this computer'), findsWidgets);
+    // The probe of the log-in page goes through the pin too: the status
+    // line keeps `picked from this network`, not `No answer from`.
+    await settle(tester, 2000);
+    expect(find.textContaining('picked from this network'), findsOneWidget);
+    expect(find.textContaining('No answer from'), findsNothing);
   }, skip: site.isEmpty);
 }

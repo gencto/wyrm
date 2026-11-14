@@ -6,7 +6,10 @@ import '../../common/action.dart';
 /// A browse or a range probe starts over: the panel opens, the rows of the
 /// last search go and its late answers are ignored (`scan` moves on).
 class BeginFindAction extends Action {
-  BeginFindAction({this.network, this.subnet});
+  BeginFindAction({this.network, this.subnet, this.probing = false});
+
+  /// A range probe, not a browse.
+  final bool probing;
 
   /// The interface it looks on, `en0`; null when there is none.
   final String? network;
@@ -19,6 +22,7 @@ class BeginFindAction extends Action {
   AppState reduce() => state.copyWith.discovery(
     open: true,
     scanning: true,
+    probing: probing,
     ended: false,
     scan: discovery.scan + 1,
     found: const IMapConst({}),

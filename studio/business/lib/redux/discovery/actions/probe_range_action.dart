@@ -41,7 +41,7 @@ class ProbeRangeAction extends Action {
         thing: '$port',
       ).withDialog(false);
     }
-    dispatchSync(BeginFindAction());
+    dispatchSync(BeginFindAction(probing: true));
     final scan = discovery.scan;
     await pooled(addresses, (ip) async {
       if (discovery.scan == scan) {

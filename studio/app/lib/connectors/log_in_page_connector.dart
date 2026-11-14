@@ -388,12 +388,12 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         final ub = b.problem == null ? 0 : 1;
         return ua != ub ? ua - ub : a.site.compareTo(b.site);
       });
-    final probed = rows.isNotEmpty && rows.every((r) => r.probed);
+    final probed = discovery.probing;
     final (range, port) = _rangeAndPort();
     final none = discovery.ended && rows.isEmpty;
     return DiscoverPanelVm(
       title: discovery.scanning
-          ? (discovery.range != null && probed
+          ? (probed
                 ? S.current.discoverProbing(range, port)
                 : S.current.discoverLooking(where))
           : rows.isEmpty

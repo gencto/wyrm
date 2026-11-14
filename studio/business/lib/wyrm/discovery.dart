@@ -388,19 +388,16 @@ String authorityHost(String address) =>
     address.contains(':') && !address.startsWith('[') ? '[$address]' : address;
 
 /// The address to use from [addresses]: IPv4 first, then a global IPv6
-/// (a link-local one needs a zone a URL cannot carry).
+/// (a link-local one needs a zone a URL cannot carry); an address off
+/// loopback before a loopback one (a host announces on `lo0` too).
 String? pickAddress(List<String> addresses) {
   final parsed = [
     for (final a in addresses) ?InternetAddress.tryParse(a),
-  ];
-  return parsed
-          .where((a) => a.type == InternetAddressType.IPv4)
-          .firstOrNull
-          ?.address ??
-      parsed
-          .where((a) => a.type == InternetAddressType.IPv6 && !a.isLinkLocal)
-          .firstOrNull
-          ?.address;
+  ].where((a) => !a.isLinkLocal);
+  int rank(InternetAddress a) =>
+      (a.isLoopback ? 2 : 0) + (a.type == InternetAddressType.IPv4 ? 0 : 1);
+  final sorted = parsed.toList()..sort((x, y) => rank(x) - rank(y));
+  return sorted.firstOrNull?.address;
 }
 
 bool _isLoopback(String host) {

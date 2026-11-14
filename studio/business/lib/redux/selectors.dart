@@ -1392,4 +1392,7 @@ extension type SelectDiscovery(AppState _state) {
 
   /// Returns rangePort
   String? get rangePort => _state.discovery.rangePort;
+
+  /// Returns probing
+  bool get probing => _state.discovery.probing;
 }
