@@ -11,6 +11,7 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
+import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/task_state.dart';
@@ -143,6 +144,115 @@ void main() {
       api.calls.last.toString(),
       contains('$agent/tasks/t-1 ▸ cancel'),
     );
+  });
+
+  Value record(String state) => Value.from({
+    'state': state,
+    'owner': 'user:olena',
+    'ask': 'add ahu2',
+    'plan': [
+      {
+        'n': 1,
+        'invoke': 'wy/central/downstream/modbus/tcp',
+        'action': 'add_device',
+        'args': {'name': 'ahu2', 'unit': 3},
+        'level': 'config',
+        'approval': true,
+        'check': 'now',
+        'reason': 'the device the operator asked for',
+      },
+      {
+        'n': 2,
+        'set': 'wy/central/downstream/modbus/tcp/ahu2/sp',
+        'value': 21.5,
+        'level': 'write',
+        'after': [1],
+        'approval': true,
+        'check': 'at_run',
+        'warn': 'at the limit',
+      },
+      {
+        'n': 3,
+        'expect': 'wy/central/downstream/modbus/tcp/ahu2/sp',
+        'equals': 21.5,
+        'timeout_s': 10.0,
+        'level': 'read',
+        'after': [2],
+        'approval': false,
+        'check': 'now',
+        'result': {'status': 'skipped', 'message': 'skipped: needs step 2'},
+      },
+    ],
+    'plan_hash': 'the link says so',
+    'log': ['asked by user:olena', 'model: I looked at line 2.'],
+    'tokens': 12,
+  });
+
+  test('the record of a task is read through doc', () async {
+    await withAgent();
+    api.docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval');
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+    final t = s.state.tasks.table['t-1']!;
+    expect(t.recorded, isTrue);
+    expect(t.state, TaskState.awaitingApproval);
+    expect(t.owner, 'user:olena');
+    expect(t.log, hasLength(2));
+    expect(t.plan, hasLength(3));
+    final [a, b, c] = t.plan.toList();
+    expect(
+      (a.op, a.key, a.action),
+      (
+        'invoke',
+        'wy/central/downstream/modbus/tcp',
+        'add_device',
+      ),
+    );
+    expect(a.args.unlock, {'name': 'ahu2', 'unit': 3});
+    expect(
+      (a.level, a.approval, a.reason),
+      (
+        'config',
+        true,
+        'the device the operator asked for',
+      ),
+    );
+    expect((b.op, b.check, b.warn), ('set', 'at_run', 'at the limit'));
+    expect(b.args.unlock, {'value': 21.5});
+    expect(b.after, [1]);
+    expect((c.op, c.seconds), ('expect', 10.0));
+    expect(c.args.unlock, {'equals': 21.5});
+    expect(c.result?.status, 'skipped');
+    // the hash is made from the plan as read, not taken from the record
+    expect(t.planHash, hasLength(64));
+    expect(t.planHash, planHash(record('done')['plan']));
+  });
+
+  test('a gateway without doc: asked once, then the note stays', () async {
+    await withAgent();
+    api.errors['$agent/tasks/t-1 ~state'] = WyrmException.of(
+      Status.invalidParameter,
+      'unknown op "doc"',
+    );
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(s.state.assistant.docs, isFalse);
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(api.calls.where((c) => c.op == 'doc'), hasLength(1));
+  });
+
+  test("a record the user may not read leaves the task as it is", () async {
+    await withAgent();
+    api.errors['$agent/tasks/t-1 ~state'] = WyrmException.of(
+      Status.permissionDenied,
+      'permission denied',
+    );
+
+    final status = await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(status.originalError, isNull);
+    expect(s.state.assistant.docs, isTrue);
+    expect(s.state.tasks.table['t-1'], isNull);
   });
 
   test('approve refuses until the gateway signs approvals', () async {

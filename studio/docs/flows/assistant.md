@@ -15,6 +15,7 @@ sequenceDiagram
     participant A1 as RetrieveLinksAction
     participant A2 as RetrieveAgentAction
     participant A3 as RetrieveTasksAction
+    participant A4 as RetrieveTaskRecordAction
     participant ST as AppState
 
     User->>UI: onShow
@@ -33,6 +34,13 @@ sequenceDiagram
     Note over A3: WaitingAction · async
     A3->>ST: copyWith(tasks.table, tasks.view)
     A3-->>-VM: ActionStatus
+    alt tasks.selectedTask
+        VM->>+A4: dispatchAndWait
+        Note over A4: WaitingAction · async
+        A4->>ST: copyWith(assistant.docs)
+        A4->>ST: dispatchSync(AddTasksAction)
+        A4-->>-VM: ActionStatus
+    end
 ```
 
 ## onNew
@@ -64,12 +72,17 @@ sequenceDiagram
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
     participant A1 as SetSelectedTaskAction
+    participant A2 as RetrieveTaskRecordAction
     participant ST as AppState
 
     User->>UI: onTask
     UI->>VM: onTask()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(tasks.selectedTask)
+    VM->>A2: dispatch
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(assistant.docs)
+    A2->>ST: dispatchSync(AddTasksAction)
 ```
 
 ## onDraft
@@ -178,9 +191,9 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction` | `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view` |
+| `onShow` | `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction`, `RetrieveTaskRecordAction` ? | `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view`, `assistant.docs` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
-| `onTask` | `SetSelectedTaskAction` | `tasks.selectedTask` |
+| `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |
 | `onAsk` | `AskAgentAction` | — |
 | `onPanel` | `SetPanelAction` | `assistant.panel` |

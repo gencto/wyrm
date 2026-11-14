@@ -15,7 +15,10 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$AgentTask {
 
- String get id; TaskState get state; String get owner; String get ask; IList<PlanStep> get plan; IList<String> get log; String? get error; int get tokens;
+ String get id; TaskState get state; String get owner; String get ask; IList<PlanStep> get plan; IList<String> get log; String? get error; int get tokens;/// The hash of [plan] as it was read: what an approval is bound to.
+ String? get planHash;/// The task this one follows.
+ String? get parent;/// The record (`~state`) was read; before that only the state is known.
+ bool get recorded;
 /// Create a copy of AgentTask
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +30,20 @@ $AgentTaskCopyWith<AgentTask> get copyWith => _$AgentTaskCopyWithImpl<AgentTask>
 @override
 bool operator ==(Object other) {
   final _this = this as AgentTask;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AgentTask&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.state, _this.state) || other.state == _this.state)&&(identical(other.owner, _this.owner) || other.owner == _this.owner)&&(identical(other.ask, _this.ask) || other.ask == _this.ask)&&const DeepCollectionEquality().equals(other.plan, _this.plan)&&const DeepCollectionEquality().equals(other.log, _this.log)&&(identical(other.error, _this.error) || other.error == _this.error)&&(identical(other.tokens, _this.tokens) || other.tokens == _this.tokens));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AgentTask&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.state, _this.state) || other.state == _this.state)&&(identical(other.owner, _this.owner) || other.owner == _this.owner)&&(identical(other.ask, _this.ask) || other.ask == _this.ask)&&const DeepCollectionEquality().equals(other.plan, _this.plan)&&const DeepCollectionEquality().equals(other.log, _this.log)&&(identical(other.error, _this.error) || other.error == _this.error)&&(identical(other.tokens, _this.tokens) || other.tokens == _this.tokens)&&(identical(other.planHash, _this.planHash) || other.planHash == _this.planHash)&&(identical(other.parent, _this.parent) || other.parent == _this.parent)&&(identical(other.recorded, _this.recorded) || other.recorded == _this.recorded));
 }
 
 
 @override
 int get hashCode {
   final _this = this as AgentTask;
-  return Object.hash(runtimeType,_this.id,_this.state,_this.owner,_this.ask,const DeepCollectionEquality().hash(_this.plan),const DeepCollectionEquality().hash(_this.log),_this.error,_this.tokens);
+  return Object.hash(runtimeType,_this.id,_this.state,_this.owner,_this.ask,const DeepCollectionEquality().hash(_this.plan),const DeepCollectionEquality().hash(_this.log),_this.error,_this.tokens,_this.planHash,_this.parent,_this.recorded);
 }
 
 @override
 String toString() {
   final _this = this as AgentTask;
-  return 'AgentTask(id: ${_this.id}, state: ${_this.state}, owner: ${_this.owner}, ask: ${_this.ask}, plan: ${_this.plan}, log: ${_this.log}, error: ${_this.error}, tokens: ${_this.tokens})';
+  return 'AgentTask(id: ${_this.id}, state: ${_this.state}, owner: ${_this.owner}, ask: ${_this.ask}, plan: ${_this.plan}, log: ${_this.log}, error: ${_this.error}, tokens: ${_this.tokens}, planHash: ${_this.planHash}, parent: ${_this.parent}, recorded: ${_this.recorded})';
 }
 
 
@@ -51,7 +54,7 @@ abstract mixin class $AgentTaskCopyWith<$Res>  {
   factory $AgentTaskCopyWith(AgentTask value, $Res Function(AgentTask) _then) = _$AgentTaskCopyWithImpl;
 @useResult
 $Res call({
- String id, TaskState state, String owner, String ask, IList<PlanStep> plan, IList<String> log, String? error, int tokens
+ String id, TaskState state, String owner, String ask, IList<PlanStep> plan, IList<String> log, String? error, int tokens, String? planHash, String? parent, bool recorded
 });
 
 
@@ -68,7 +71,7 @@ class _$AgentTaskCopyWithImpl<$Res>
 
 /// Create a copy of AgentTask
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? log = null,Object? error = freezed,Object? tokens = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? log = null,Object? error = freezed,Object? tokens = null,Object? planHash = freezed,Object? parent = freezed,Object? recorded = null,}) {
   return _then(AgentTask(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
@@ -78,7 +81,10 @@ as String,plan: null == plan ? _self.plan : plan // ignore: cast_nullable_to_non
 as IList<PlanStep>,log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<String>,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as String?,tokens: null == tokens ? _self.tokens : tokens // ignore: cast_nullable_to_non_nullable
-as int,
+as int,planHash: freezed == planHash ? _self.planHash : planHash // ignore: cast_nullable_to_non_nullable
+as String?,parent: freezed == parent ? _self.parent : parent // ignore: cast_nullable_to_non_nullable
+as String?,recorded: null == recorded ? _self.recorded : recorded // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 
@@ -90,7 +96,7 @@ as int,
 
 
 class _AgentTask implements AgentTask {
-  const _AgentTask({required this.id, this.state = TaskState.planning, this.owner = '', this.ask = '', this.plan = const IListConst([]), this.log = const IListConst([]), this.error, this.tokens = 0});
+  const _AgentTask({required this.id, this.state = TaskState.planning, this.owner = '', this.ask = '', this.plan = const IListConst([]), this.log = const IListConst([]), this.error, this.tokens = 0, this.planHash, this.parent, this.recorded = false});
   
 
 @override final  String id;
@@ -101,6 +107,12 @@ class _AgentTask implements AgentTask {
 @override@JsonKey() final  IList<String> log;
 @override final  String? error;
 @override@JsonKey() final  int tokens;
+/// The hash of [plan] as it was read: what an approval is bound to.
+@override final  String? planHash;
+/// The task this one follows.
+@override final  String? parent;
+/// The record (`~state`) was read; before that only the state is known.
+@override@JsonKey() final  bool recorded;
 
 /// Create a copy of AgentTask
 /// with the given fields replaced by the non-null parameter values.
@@ -112,18 +124,18 @@ _$AgentTaskCopyWith<_AgentTask> get copyWith => __$AgentTaskCopyWithImpl<_AgentT
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AgentTask&&(identical(other.id, id) || other.id == id)&&(identical(other.state, state) || other.state == state)&&(identical(other.owner, owner) || other.owner == owner)&&(identical(other.ask, ask) || other.ask == ask)&&const DeepCollectionEquality().equals(other.plan, plan)&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.error, error) || other.error == error)&&(identical(other.tokens, tokens) || other.tokens == tokens));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AgentTask&&(identical(other.id, id) || other.id == id)&&(identical(other.state, state) || other.state == state)&&(identical(other.owner, owner) || other.owner == owner)&&(identical(other.ask, ask) || other.ask == ask)&&const DeepCollectionEquality().equals(other.plan, plan)&&const DeepCollectionEquality().equals(other.log, log)&&(identical(other.error, error) || other.error == error)&&(identical(other.tokens, tokens) || other.tokens == tokens)&&(identical(other.planHash, planHash) || other.planHash == planHash)&&(identical(other.parent, parent) || other.parent == parent)&&(identical(other.recorded, recorded) || other.recorded == recorded));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,state,owner,ask,const DeepCollectionEquality().hash(plan),const DeepCollectionEquality().hash(log),error,tokens);
+    return Object.hash(runtimeType,id,state,owner,ask,const DeepCollectionEquality().hash(plan),const DeepCollectionEquality().hash(log),error,tokens,planHash,parent,recorded);
 }
 
 @override
 String toString() {
-    return 'AgentTask(id: $id, state: $state, owner: $owner, ask: $ask, plan: $plan, log: $log, error: $error, tokens: $tokens)';
+    return 'AgentTask(id: $id, state: $state, owner: $owner, ask: $ask, plan: $plan, log: $log, error: $error, tokens: $tokens, planHash: $planHash, parent: $parent, recorded: $recorded)';
 }
 
 
@@ -134,7 +146,7 @@ abstract mixin class _$AgentTaskCopyWith<$Res> implements $AgentTaskCopyWith<$Re
   factory _$AgentTaskCopyWith(_AgentTask value, $Res Function(_AgentTask) _then) = __$AgentTaskCopyWithImpl;
 @override @useResult
 $Res call({
- String id, TaskState state, String owner, String ask, IList<PlanStep> plan, IList<String> log, String? error, int tokens
+ String id, TaskState state, String owner, String ask, IList<PlanStep> plan, IList<String> log, String? error, int tokens, String? planHash, String? parent, bool recorded
 });
 
 
@@ -151,7 +163,7 @@ class __$AgentTaskCopyWithImpl<$Res>
 
 /// Create a copy of AgentTask
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? log = null,Object? error = freezed,Object? tokens = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? log = null,Object? error = freezed,Object? tokens = null,Object? planHash = freezed,Object? parent = freezed,Object? recorded = null,}) {
   return _then(_AgentTask(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
@@ -161,7 +173,10 @@ as String,plan: null == plan ? _self.plan : plan // ignore: cast_nullable_to_non
 as IList<PlanStep>,log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<String>,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as String?,tokens: null == tokens ? _self.tokens : tokens // ignore: cast_nullable_to_non_nullable
-as int,
+as int,planHash: freezed == planHash ? _self.planHash : planHash // ignore: cast_nullable_to_non_nullable
+as String?,parent: freezed == parent ? _self.parent : parent // ignore: cast_nullable_to_non_nullable
+as String?,recorded: null == recorded ? _self.recorded : recorded // ignore: cast_nullable_to_non_nullable
+as bool,
   ));
 }
 

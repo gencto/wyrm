@@ -1,28 +1,36 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/step_result.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'values.dart';
 
 /// `tasks/<id>` `~state` of the agent link as an [AgentTask]:
-/// `{state, ask, owner, plan[], log[], error?, tokens}`.
+/// `{state, ask, owner, plan[], plan_hash, parent?, log[], error?, tokens}`
+/// (ADR 0049). The plan's hash is made here from the plan as read, so an
+/// approval names the plan that is shown.
 AgentTask agentTaskOf(String id, Value v) => AgentTask(
   id: id,
   state: taskStateOf(str(v['state'])),
   owner: str(v['owner']) ?? '',
   ask: str(v['ask']) ?? str(v['task']) ?? '',
   plan: switch (v['plan']) {
-    VArray(:final v) => [for (final s in v) planStepOf(s)].lock,
+    VArray(:final v) => [
+      for (final (i, s) in v.indexed) planStepOf(s, i + 1),
+    ].lock,
     _ => const IListConst([]),
   },
+  planHash: planHash(v['plan']),
+  parent: str(v['parent']),
   log: switch (v['log']) {
     VArray(:final v) => [for (final l in v) text(l) ?? '$l'].lock,
     _ => const IListConst([]),
   },
   error: text(v['error']),
   tokens: integer(v['tokens']) ?? 0,
+  recorded: true,
 );
 
 /// The task states of the agent link (and the ones it adds later).
@@ -34,17 +42,57 @@ TaskState taskStateOf(String? s) => switch (s) {
   _ => TaskState.planning,
 };
 
-/// One step `{op, key, action?, args, level, approval, reason?}`.
-PlanStep planStepOf(Value v) => PlanStep(
-  op: str(v['op']) ?? (v['action'] != null ? 'invoke' : 'set'),
-  key: str(v['key']) ?? '',
-  action: str(v['action']),
-  args: switch (toDart(v['args'])) {
-    final Map<String, Object?> m => m.lock,
-    final Object o => {'value': o}.lock,
-    null => const IMapConst({}),
-  },
-  level: str(v['level']) ?? 'write',
-  approval: boolean(v['approval']) ?? false,
-  reason: str(v['reason']),
-);
+/// One step in the `wyrm-agent run` format: `{set, value}`,
+/// `{invoke, action, args}`, `{wait, timeout_s}`,
+/// `{expect, equals | min/max | changes, timeout_s}`, `{sleep_s}`, with
+/// `n, level, after?, approval, check, warn?, reason?, result?`. A step of
+/// an agent link older than ADR 0049 (`{op, key, args}`) still reads.
+PlanStep planStepOf(Value v, [int place = 0]) {
+  final op = ['set', 'invoke', 'wait', 'expect'].firstWhere(
+    (k) => v[k] is VStr,
+    orElse: () => v['sleep_s'] != null ? 'sleep' : (str(v['op']) ?? 'set'),
+  );
+  final args = switch (op) {
+    'set' when v['set'] != null => {'value': toDart(v['value'])},
+    'expect' => {
+      for (final k in ['equals', 'min', 'max', 'changes'])
+        if (v[k] != null) k: toDart(v[k]),
+    },
+    'wait' || 'sleep' => const <String, Object?>{},
+    _ => switch (toDart(v['args'])) {
+      final Map<String, Object?> m => m,
+      final Object o => {'value': o},
+      null => const <String, Object?>{},
+    },
+  };
+  final result = v['result'];
+  return PlanStep(
+    op: op,
+    key: str(v[op]) ?? str(v['node']) ?? str(v['key']) ?? '',
+    n: integer(v['n']) ?? place,
+    action: str(v['action']),
+    args: args.lock,
+    seconds: (number(v['timeout_s']) ?? number(v['sleep_s']))?.toDouble(),
+    level: str(v['level']) ?? 'write',
+    approval: boolean(v['approval']) ?? false,
+    check: str(v['check']) ?? 'now',
+    warn: str(v['warn']),
+    after: switch (v['after']) {
+      VArray(:final v) => [for (final a in v) ?integer(a)].lock,
+      _ => const IListConst([]),
+    },
+    reason: str(v['reason']),
+    result: result == null
+        ? null
+        : StepResult(
+            status: str(result['status']) ?? 'ok',
+            message: str(result['message']) ?? '',
+            time: switch (integer(result['time'])) {
+              final int t when t > 0 => DateTime.fromMillisecondsSinceEpoch(
+                t * 1000,
+              ),
+              _ => null,
+            },
+          ),
+  );
+}

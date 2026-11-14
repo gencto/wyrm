@@ -4161,10 +4161,10 @@ class S {
     );
   }
 
-  /// `Approving needs the gateway to sign the steps for you (docs/studio.md §10 item 1). Approve with wyrm-agent for now.`
+  /// `Approving in Studio comes with its next step. Approve with wyrm-agent for now.`
   String get approveReasonNote {
     return Intl.message(
-      'Approving needs the gateway to sign the steps for you (docs/studio.md §10 item 1). Approve with wyrm-agent for now.',
+      'Approving in Studio comes with its next step. Approve with wyrm-agent for now.',
       name: 'approveReasonNote',
       desc: '',
       args: [],
@@ -13966,6 +13966,126 @@ class S {
     return Intl.message(
       'This broker makes no backups for Studio (a wyrmd before ADR 0048).',
       name: 'bakNoBackups',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Plan · {n} steps`
+  String planSteps(Object n) {
+    return Intl.message(
+      'Plan · $n steps',
+      name: 'planSteps',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `awaiting approval · checked`
+  String get planChecked {
+    return Intl.message(
+      'awaiting approval · checked',
+      name: 'planChecked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The lines after “why” and the warnings come from the model. Read the key and the arguments of each step: they are what runs.`
+  String get planWhyNote {
+    return Intl.message(
+      'The lines after “why” and the warnings come from the model. Read the key and the arguments of each step: they are what runs.',
+      name: 'planWhyNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `checked against the live tree`
+  String get checkNow {
+    return Intl.message(
+      'checked against the live tree',
+      name: 'checkNow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `checked when it runs: an earlier step makes this node`
+  String get checkAtRun {
+    return Intl.message(
+      'checked when it runs: an earlier step makes this node',
+      name: 'checkAtRun',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `needs step {n}`
+  String planNeedsStep(Object n) {
+    return Intl.message(
+      'needs step $n',
+      name: 'planNeedsStep',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{s} s`
+  String planSleep(Object s) {
+    return Intl.message('$s s', name: 'planSleep', desc: '', args: [s]);
+  }
+
+  /// `timeout {s} s`
+  String planTimeout(Object s) {
+    return Intl.message(
+      'timeout $s s',
+      name: 'planTimeout',
+      desc: '',
+      args: [s],
+    );
+  }
+
+  /// `awaiting your answer`
+  String get taskAwaitingAnswer {
+    return Intl.message(
+      'awaiting your answer',
+      name: 'taskAwaitingAnswer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The plan waits for approval. Nothing runs before it.`
+  String get planWaiting {
+    return Intl.message(
+      'The plan waits for approval. Nothing runs before it.',
+      name: 'planWaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `by {who}`
+  String taskBy(Object who) {
+    return Intl.message('by $who', name: 'taskBy', desc: '', args: [who]);
+  }
+
+  /// `failed at step {n}`
+  String taskFailedAt(Object n) {
+    return Intl.message(
+      'failed at step $n',
+      name: 'taskFailedAt',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `nothing changed`
+  String get taskNoChanges {
+    return Intl.message(
+      'nothing changed',
+      name: 'taskNoChanges',
       desc: '',
       args: [],
     );
