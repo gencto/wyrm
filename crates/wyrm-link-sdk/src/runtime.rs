@@ -193,10 +193,22 @@ impl<L: Link> LinkHandle<L> {
     }
 
     /// Stop taking requests, run `Link::stop` (≤ 10 s), drop liveliness. When it returns,
-    /// the driver value is dropped too (whatever it owned is released).
+    /// the queryable is undeclared and the driver value is dropped (whatever it owned is
+    /// released): a link started again at once on the same key is the only one that answers.
     pub async fn stop(mut self) {
         self.query_task.abort();
         self.ctx.close();
+        // An abort only asks: the task is dropped when a worker gets to it, and one in
+        // the middle of a poll runs on to its next wait. Until then its queryable is
+        // declared: a request sent after `stop` returned would reach it beside the new
+        // link's, be held (its copy in the old queue) or be refused with `driver stopped`.
+        // So wait for the task's end (at most the rest of one poll).
+        if tokio::time::timeout(STOP_TIMEOUT, &mut self.query_task)
+            .await
+            .is_err()
+        {
+            warn!("the link's query task did not end");
+        }
         let (tx, rx) = oneshot::channel();
         if self.cmd.send(Cmd::Stop { tx }).await.is_ok() {
             let _ = rx.await;

@@ -723,6 +723,64 @@ async fn stop_returns_after_the_driver_is_dropped() {
     }
 }
 
+/// When `stop` returns, the link's queryable is gone: a request sent after it is never
+/// answered by the stopped link, also when its query task was in the middle of a reply as
+/// `stop` began (an abort takes effect only at the task's next wait). A link started again
+/// on the same key is then the only one that answers; before, the old one could refuse an
+/// action with `driver stopped` beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_returns_after_the_queryable_is_gone() {
+    let session = zenoh::open(wyrm_link_sdk::harness::isolated_config())
+        .await
+        .unwrap();
+    let handle = wyrm_link_sdk::spawn::<Demo>(
+        session.clone(),
+        wyrm_link_sdk::LinkConfig::new(SITE, "demo"),
+        Calls::default(),
+    )
+    .await
+    .unwrap();
+    let meta = format!("wy/{SITE}/downstream/demo/~meta");
+    // Hold the query task inside a reply: the requester's callback runs in it.
+    let (entered_tx, entered) = std::sync::mpsc::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    session
+        .get(&meta)
+        .callback(move |_| {
+            let _ = entered_tx.send(());
+            let _ = released
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5));
+        })
+        .await
+        .unwrap();
+    entered
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the query task is in its reply");
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        let _ = release.send(());
+    });
+    handle.stop().await;
+    // sent after `stop` returned: nobody answers
+    let replies = session
+        .get(&meta)
+        .timeout(Duration::from_secs(2))
+        .await
+        .unwrap();
+    let mut n = 0;
+    while replies.recv_async().await.is_ok() {
+        n += 1;
+    }
+    releaser.join().unwrap();
+    assert_eq!(
+        n, 0,
+        "a stopped link answered a request sent after its stop"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn data_dir_reaches_ctx() {
     let (h, _) = harness().await;
