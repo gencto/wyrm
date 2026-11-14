@@ -1,0 +1,41 @@
+name: device_key
+description: >-
+  A key the OS keeps behind its biometric prompt (ADR 0050): Secure Enclave on
+  macOS and iOS, Android Keystore with BiometricPrompt, Windows Hello. It
+  signs the gateway's device messages; the private key never leaves the OS.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.14.0
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # `package:device_key/testing.dart`: the software key of `FakeDeviceKey`.
+  pointycastle: ^3.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  pro_lints: ^6.2.0
+  # The test that signs the gateway's login message with the fake key.
+  wyrm_client:
+    path: ../../dart/wyrm_client
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: uk.gencto.device_key
+        pluginClass: DeviceKeyPlugin
+      ios:
+        pluginClass: DeviceKeyPlugin
+        sharedDarwinSource: true
+      macos:
+        pluginClass: DeviceKeyPlugin
+        sharedDarwinSource: true
+      windows:
+        pluginClass: DeviceKeyPluginCApi
