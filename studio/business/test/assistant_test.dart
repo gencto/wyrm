@@ -11,6 +11,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/tasks/actions/add_tasks_action.dart';
+import 'package:business/redux/tasks/actions/answer_task_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
@@ -532,6 +533,73 @@ void main() {
         'timeout_s': 10.0,
       },
     ]);
+  });
+
+  test('the questions of a record: options, kinds and answers', () {
+    final t = agentTaskOf(
+      't-1',
+      Value.from({
+        'state': 'awaiting_answer',
+        'questions': [
+          {
+            'id': 'q1',
+            'text': 'Which unit?',
+            'options': [
+              {'id': 'u3', 'label': 'Slave ID 3', 'detail': 'answers'},
+              {'id': 'u4', 'label': 'Slave ID 4', 'detail': ''},
+            ],
+            'multiple': false,
+            'free_text': true,
+          },
+          {
+            'id': 'q2',
+            'text': 'Which points?',
+            'options': <Object?>[],
+            'multiple': true,
+            'free_text': false,
+            'answer': ['supply', 'fan'],
+          },
+          {'id': 'q3', 'text': 'Why?', 'answer': 'because'},
+          {'id': 'q4', 'text': 'Left open', 'answer': <Object?>[]},
+        ],
+      }),
+    );
+    expect(t.state, TaskState.awaitingAnswer);
+    final [a, b, c, d] = t.questions.toList();
+    expect(
+      (a.id, a.text, a.multiple, a.freeText, a.answered),
+      (
+        'q1',
+        'Which unit?',
+        false,
+        true,
+        false,
+      ),
+    );
+    expect(
+      [for (final o in a.options) (o.id, o.label, o.detail)],
+      [('u3', 'Slave ID 3', 'answers'), ('u4', 'Slave ID 4', '')],
+    );
+    expect(
+      (b.multiple, b.answered, b.picked.unlock),
+      (
+        true,
+        true,
+        ['supply', 'fan'],
+      ),
+    );
+    expect((c.answered, c.words), (true, 'because'));
+    expect((d.answered, d.picked.unlock, d.words), (true, <String>[], null));
+  });
+
+  test('an answer is sent only for a task that waits for one', () async {
+    await withAgent();
+    api.docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval');
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+    await s.dispatchAndWait(AnswerTaskAction('t-1', text: 'unit 4'));
+
+    expect(api.calls.where((c) => c.action == 'answer'), isEmpty);
   });
 
   test('a follow-up ask names its parent and keeps the draft', () async {

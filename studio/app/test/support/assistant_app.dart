@@ -155,3 +155,43 @@ Map<String, Object?> planRecord({
   'log': log,
   'tokens': 12,
 };
+
+/// A record of a task that asked the person two questions: which unit
+/// (one option) and which points (several). [answers] by question id are
+/// the answers the record already holds.
+Map<String, Object?> askRecord({
+  String state = 'awaiting_answer',
+  Map<String, Object?> answers = const {},
+}) => {
+  'state': state,
+  'owner': 'user:olena',
+  'ask': 'add ahu2',
+  'plan': const <Object?>[],
+  'questions': [
+    {
+      'id': 'q1',
+      'text': 'Which unit is AHU 2?',
+      'options': [
+        {'id': 'u3', 'label': 'Slave ID 3', 'detail': 'answers, 14 points'},
+        {'id': 'u4', 'label': 'Slave ID 4', 'detail': 'answers, no name'},
+      ],
+      'multiple': false,
+      'free_text': true,
+      'answer': ?answers['q1'],
+    },
+    {
+      'id': 'q2',
+      'text': 'Which points do you want recorded?',
+      'options': [
+        {'id': 'supply', 'label': 'Supply temperature', 'detail': ''},
+        {'id': 'return', 'label': 'Return temperature', 'detail': ''},
+        {'id': 'fan', 'label': 'Fan speed', 'detail': ''},
+      ],
+      'multiple': true,
+      'free_text': false,
+      'answer': ?answers['q2'],
+    },
+  ],
+  'log': const ['asked by user:olena', 'asked 2 question(s)'],
+  'tokens': 12,
+};

@@ -1804,5 +1804,15 @@
     "savePlanTitle": "Зберегти план завдання {task}",
     "planSaved": "Збережено {path}. Запустіть його через wyrm-agent run.",
     "showSteps": "Показати кроки",
-    "hideSteps": "Сховати кроки"
+    "hideSteps": "Сховати кроки",
+    "choicesTitle": "Асистент питає",
+    "choicesConfirm": "Написати план",
+    "choicesNote": "Або дайте відповідь своїми словами нижче.",
+    "choicesPickOne": "Оберіть варіант або дайте відповідь своїми словами нижче.",
+    "choicesFromCard": "з картки: {answer}",
+    "choicesOwnWords": "своїми словами: {answer}",
+    "choicesNoAnswer": "без відповіді",
+    "answerHint": "Дайте відповідь своїми словами (Cmd+Enter)",
+    "answerButton": "Відповісти",
+    "answerWaitingNote": "Асистент чекає на вашу відповідь. До неї нічого не планується. Перезапуск брокера завершує завдання, що чекає."
 }

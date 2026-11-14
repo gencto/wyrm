@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
@@ -131,8 +132,54 @@ Widget assistantFailed() => _assistant(
   ),
 );
 
+/// Board *AssistantAsk*: the assistant asks back; one option is picked.
+Widget assistantAsk() => _assistant(
+  state: 'awaiting your answer',
+  choices: const ChoicesCardVm(
+    title: 'The assistant asks',
+    questions: [
+      ChoiceQuestionVm(
+        id: 'q1',
+        text: 'Which unit is AHU 2?',
+        options: [
+          ChoiceOptionVm(
+            id: 'u3',
+            label: 'Slave ID 3',
+            detail: 'answers; ahu-old used it until March',
+          ),
+          ChoiceOptionVm(
+            id: 'u4',
+            label: 'Slave ID 4',
+            detail: 'answers; no device has it',
+            picked: true,
+          ),
+        ],
+      ),
+      ChoiceQuestionVm(
+        id: 'q2',
+        text: 'Which points do you want recorded?',
+        multiple: true,
+        options: [
+          ChoiceOptionVm(id: 'supply', label: 'Supply temperature'),
+          ChoiceOptionVm(id: 'return', label: 'Return temperature'),
+        ],
+      ),
+    ],
+    confirm: 'Write the plan',
+    note: 'Or answer in your own words below.',
+  ),
+  card: const TaskCardVm(
+    title: 'awaiting your answer',
+    note:
+        'The assistant waits for your answer. Nothing is planned before it. '
+        'A restart of the broker ends a task that waits.',
+    buttons: [TaskButtonVm(id: 'cancel', label: 'Cancel task', danger: true)],
+  ),
+);
+
 Widget _assistant({
   required TaskCardVm card,
+  ChoicesCardVm? choices,
   String state = 'awaiting approval',
   Tone tone = Tone.warn,
   PlanCardVm? plan,
@@ -205,6 +252,9 @@ Widget _assistant({
   onTick: onTick,
   run: run,
   result: result,
+  choices: choices,
+  onPick: (_, _) {},
+  onAnswer: () {},
   card: card,
   onButton: (_) {},
   draft: '',

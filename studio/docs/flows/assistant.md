@@ -21,6 +21,49 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.unticked, assistant.refusals)
 ```
 
+## onPick
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetOptionPickAction
+    participant ST as AppState
+
+    User->>UI: onPick
+    UI->>VM: onPick()
+    alt id != null && q != null
+        VM->>A1: dispatchSync
+        A1->>ST: copyWith(assistant.picks)
+    end
+```
+
+## onAnswer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as AnswerTaskAction
+    participant ST as AppState
+
+    User->>UI: onAnswer
+    UI->>VM: onAnswer()
+    alt id != null
+        VM->>+A1: dispatchAndWait
+        Note over A1: TaskRows · NonReentrant · WaitingAction · async
+        A1->>ST: copyWith(assistant.picks, assistant.draft)
+        A1->>ST: dispatchSync(AddTaskEventAction)
+        A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+        A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
+        A1-->>-VM: ActionStatus
+    end
+```
+
 ## onShow
 
 ```mermaid
@@ -148,21 +191,11 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as AskAgentAction
-    participant ST as AppState
+    participant A1 as id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction()
 
     User->>UI: onAsk
     UI->>VM: onAsk()
     VM->>+A1: dispatchAndWait
-    Note over A1: NonReentrant · WaitingAction · async
-    A1->>ST: dispatchSync(AddTasksAction)
-    A1->>ST: dispatchSync(AddTaskEventAction)
-    A1->>ST: dispatchSync(_Select)
-    A1->>ST: dispatchSync(_ClearDraft)
-    A1->>ST: dispatchSync(AddTaskEventAction)
-    A1->>ST: dispatchSync(AddTaskEventAction)
-    A1->>ST: dispatchSync(AddTaskEventAction)
-    A1->>ST: dispatchSync(AddTasksAction)
     A1-->>-VM: ActionStatus
 ```
 
@@ -241,15 +274,12 @@ sequenceDiagram
     A4->>ST: copyWith(problems.notices)
     alt left.isNotEmpty
         VM->>+A5: dispatchAndWait
-        Note over A5: NonReentrant · WaitingAction · async
+        Note over A5: TaskRows · NonReentrant · WaitingAction · async
         A5->>ST: dispatchSync(AddTasksAction)
         A5->>ST: dispatchSync(AddTaskEventAction)
         A5->>ST: dispatchSync(_Select)
         A5->>ST: dispatchSync(_ClearDraft)
         A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchSync(AddTaskEventAction)
-        A5->>ST: dispatchSync(AddTasksAction)
         A5-->>-VM: ActionStatus
     end
     alt await ConfirmDialog.ask(context, title: S.current.cancelTask, message: S.current.failedNote, confirm: S.current.cancelTask, cancel: S.current.cancel)
@@ -266,12 +296,14 @@ _Not drawn — these files dispatch outside any interaction:_
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onTick` | `SetStepTickAction` | `assistant.unticked, assistant.refusals` |
+| `onPick` | `SetOptionPickAction` ? | `assistant.picks` |
+| `onAnswer` | `AnswerTaskAction` ? | `assistant.picks, assistant.draft` |
 | `onShow` | `WatchKeysAction`, `RetrieveLinksAction` ?, `RetrieveAgentAction`, `RetrieveTasksAction`, `RetrieveTaskRecordAction` ? | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `assistant.agent, assistant.cfg`, `tasks.table, tasks.view`, `assistant.docs` |
 | `onHide` | `UnwatchKeysAction` | `live.watched` |
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |
-| `onAsk` | `AskAgentAction` | — |
+| `onAsk` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction()` | — |
 | `onPanel` | `SetPanelAction` | `assistant.panel` |
 | `onAddAgent` | `GoAction.push` | — |
 | `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `ShowNoticeAction`, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `problems.notices` |

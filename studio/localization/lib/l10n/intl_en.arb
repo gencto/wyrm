@@ -1804,5 +1804,15 @@
     "savePlanTitle": "Save the plan of {task}",
     "planSaved": "Saved {path}. Run it with wyrm-agent run.",
     "showSteps": "Show steps",
-    "hideSteps": "Hide steps"
+    "hideSteps": "Hide steps",
+    "choicesTitle": "The assistant asks",
+    "choicesConfirm": "Write the plan",
+    "choicesNote": "Or answer in your own words below.",
+    "choicesPickOne": "Pick an option, or answer in your own words below.",
+    "choicesFromCard": "from the card: {answer}",
+    "choicesOwnWords": "in your own words: {answer}",
+    "choicesNoAnswer": "no answer",
+    "answerHint": "Answer in your own words (Cmd+Enter)",
+    "answerButton": "Answer",
+    "answerWaitingNote": "The assistant waits for your answer. Nothing is planned before it. A restart of the broker ends a task that waits."
 }

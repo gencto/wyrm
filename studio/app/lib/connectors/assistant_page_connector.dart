@@ -8,6 +8,7 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/ask_agent_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
+import 'package:business/redux/assistant/actions/set_option_pick_action.dart';
 import 'package:business/redux/assistant/actions/set_panel_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
@@ -15,6 +16,7 @@ import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
+import 'package:business/redux/tasks/actions/answer_task_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
@@ -31,7 +33,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
 import 'package:models/task_event.dart';
+import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
+import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
@@ -103,11 +107,14 @@ class AssistantPageConnector extends StatelessWidget {
         onTick: vm.onTick,
         run: vm.run,
         result: vm.result,
+        choices: vm.choices,
+        onPick: vm.onPick,
+        onAnswer: vm.onAnswer,
         card: vm.card,
         onButton: (b) => vm.onButton(context, b),
         draft: vm.draft,
-        askHint: S.current.askHint,
-        askLabel: S.current.askButton,
+        askHint: vm.answering ? S.current.answerHint : S.current.askHint,
+        askLabel: vm.answering ? S.current.answerButton : S.current.askButton,
         askReason: vm.askReason,
         onDraft: vm.onDraft,
         onAsk: vm.onAsk,
@@ -177,6 +184,23 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ? null
           : (n, {required ticked}) =>
                 dispatchSync(SetStepTickAction(id, n, ticked: ticked)),
+      choices: task == null || task.questions.isEmpty
+          ? null
+          : _choices(task, cancelReason),
+      answering: task?.state == .awaitingAnswer,
+      onPick: (question, option) {
+        final q = task?.questions.where((q) => q.id == question).firstOrNull;
+        if (id != null && q != null) {
+          dispatchSync(
+            SetOptionPickAction(id, question, option, multiple: q.multiple),
+          );
+        }
+      },
+      onAnswer: () {
+        if (id != null) {
+          unawaited(dispatchAndWait(AnswerTaskAction(id)));
+        }
+      },
       run: task == null ? null : _run(task),
       result: task == null ? null : _result(task),
       watch: task == null ? const [] : _touched(task),
@@ -184,7 +208,8 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       draft: assistant.draft ?? '',
       askReason: agent == null
           ? S.current.noAgent
-          : (site.needs('write', agent) ?? (_asking ? '…' : null)),
+          : (site.needs('write', agent) ??
+                (_asking || tasks.isAnswering ? '…' : null)),
       panel: assistant.panel,
       facts: rights
           ? [
@@ -242,7 +267,15 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         unawaited(dispatchAndWait(RetrieveTaskRecordAction(t)));
       },
       onDraft: (t) => dispatchSync(SetDraftAction(t)),
-      onAsk: () => unawaited(dispatchAndWait(AskAgentAction())),
+      // while the assistant waits for an answer, the box answers it in
+      // the person's own words
+      onAsk: () => unawaited(
+        dispatchAndWait(
+          id != null && task?.state == .awaitingAnswer
+              ? AnswerTaskAction(id, text: assistant.draft)
+              : AskAgentAction(),
+        ),
+      ),
       onPanel: (p) => dispatchSync(SetPanelAction(p)),
       onAddAgent: () => dispatchSync(GoAction.push(const LinkInstallRoute())),
       onButton: (context, b) async {
@@ -346,6 +379,62 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       for (final (i, s) in t.plan.indexed) _step(s, choices?.elementAt(i)),
     ],
   );
+
+  /// What the assistant asked: an answered question as one line, an open
+  /// one with its options and the picks made so far.
+  ChoicesCardVm _choices(AgentTask t, String? reason) {
+    final open = t.state == .awaitingAnswer;
+    final picked = [
+      for (final q in t.questions)
+        if (!q.answered) assistant.picks['${t.id}/${q.id}']?.length ?? 0,
+    ];
+    return ChoicesCardVm(
+      title: S.current.choicesTitle,
+      questions: [
+        for (final q in t.questions)
+          ChoiceQuestionVm(
+            id: q.id,
+            text: q.text,
+            multiple: q.multiple,
+            answer: q.answered || !open ? _answerOf(q) : null,
+            options: [
+              for (final o in q.options)
+                ChoiceOptionVm(
+                  id: o.id,
+                  label: o.label,
+                  detail: o.detail,
+                  picked:
+                      assistant.picks['${t.id}/${q.id}']?.contains(o.id) ??
+                      false,
+                ),
+            ],
+          ),
+      ],
+      confirm: open && picked.isNotEmpty ? S.current.choicesConfirm : null,
+      confirmReason:
+          reason ??
+          (tasks.isAnswering
+              ? '…'
+              : (picked.every((n) => n == 0)
+                    ? S.current.choicesPickOne
+                    : null)),
+      note: S.current.choicesNote,
+    );
+  }
+
+  /// `from the card: Slave ID 4`, `in your own words: …`, `no answer`.
+  static String _answerOf(TaskQuestion q) {
+    if (q.words case final w? when w.isNotEmpty) {
+      return S.current.choicesOwnWords(w);
+    }
+    final labels = [
+      for (final o in q.options)
+        if (q.picked.contains(o.id)) o.label,
+    ];
+    return labels.isEmpty
+        ? S.current.choicesNoAnswer
+        : S.current.choicesFromCard(labels.join(', '));
+  }
 
   /// The run of a plan: one row per step with what the record says of it.
   /// None before a run (a plan that waits, a rejected one).
@@ -604,6 +693,10 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         reads.add('read · ${e.text}');
         continue;
       }
+      // the question itself is on the choices card
+      if (e.kind == 'question') {
+        continue;
+      }
       flush();
       out.add(switch (e.kind) {
         'ask' => ConversationEventVm(kind: .ask, text: e.text),
@@ -613,6 +706,10 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           tone: _tone(_stateOf(e.text)),
         ),
         'error' => ConversationEventVm(kind: .error, text: e.text),
+        'answer' => ConversationEventVm(
+          kind: .ask,
+          text: S.current.choicesFromCard(e.text),
+        ),
         'note' => ConversationEventVm(kind: .state, text: e.text),
         _ => ConversationEventVm(kind: .text, text: e.text),
       });
@@ -673,6 +770,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             },
           ),
         ],
+      ),
+      .awaitingAnswer => TaskCardVm(
+        title: _stateLabel(t.state),
+        note: S.current.answerWaitingNote,
+        buttons: [cancel],
       ),
       .planning || .running => TaskCardVm(
         title: _stateLabel(t.state),
@@ -747,6 +849,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
 
   static TaskState _stateOf(String s) => switch (s) {
     'awaiting_approval' => .awaitingApproval,
+    'awaiting_answer' => .awaitingAnswer,
     'running' => .running,
     'done' => .done,
     'failed' || 'rejected' || 'cancelled' => .failed,
@@ -755,6 +858,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
 
   static String _stateLabel(TaskState s) => switch (s) {
     .planning => S.current.taskPlanning,
+    .awaitingAnswer => S.current.taskAwaitingAnswer,
     .awaitingApproval => S.current.taskAwaiting,
     .running => S.current.taskRunning,
     .done => S.current.taskDone,
@@ -763,7 +867,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
 
   static Tone _tone(TaskState s) => switch (s) {
     .planning || .running => Tone.ember,
-    .awaitingApproval => Tone.warn,
+    .awaitingApproval || .awaitingAnswer => Tone.warn,
     .done => Tone.good,
     .failed => Tone.bad,
   };
@@ -782,6 +886,10 @@ class _Vm extends Vm {
     required this.onTick,
     required this.run,
     required this.result,
+    required this.choices,
+    required this.answering,
+    required this.onPick,
+    required this.onAnswer,
     required this.watch,
     required this.card,
     required this.draft,
@@ -811,6 +919,8 @@ class _Vm extends Vm {
            plan,
            run,
            result,
+           choices,
+           answering,
            watch,
            card,
            draft,
@@ -833,6 +943,12 @@ class _Vm extends Vm {
   final void Function(int n, {required bool ticked})? onTick;
   final RunCardVm? run;
   final ResultCardVm? result;
+  final ChoicesCardVm? choices;
+
+  /// The task waits for the person's answer: the box answers it.
+  final bool answering;
+  final void Function(String question, String option) onPick;
+  final VoidCallback onAnswer;
 
   /// The keys whose values the Result card shows.
   final List<String> watch;
