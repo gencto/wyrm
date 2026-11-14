@@ -452,7 +452,9 @@ async fn a_refused_draft_stays_shown_while_the_counters_move() {
         count(last, &["stats", "samples_in"]) > count(&refused, &["stats", "samples_in"]),
         "{last:?}"
     );
-    // the next state change ends it: every `~val` from the reload's own on is running
+    // the next state change ends it: every `~val` from the reload's own on is running. The
+    // counters may still go out before the reload takes the engine (they show the refused
+    // draft); the engine's lock orders them, so none comes after the reload's own.
     let before = vals.lock().unwrap().len();
     env.client
         .invoke_one(
@@ -464,8 +466,14 @@ async fn a_refused_draft_stays_shown_while_the_counters_move() {
         .unwrap();
     tokio::time::sleep(every * 3).await;
     let after = vals.lock().unwrap()[before..].to_vec();
-    assert!(!after.is_empty(), "the reload published");
-    for (_, v) in &after {
+    let own = after
+        .iter()
+        .position(|(_, v)| count(v, &["state"]) == 0)
+        .expect("the reload published");
+    for (_, v) in &after[..own] {
+        assert_eq!(at(v, &["error"]), at(&refused, &["error"]), "{v:?}");
+    }
+    for (_, v) in &after[own..] {
         assert_eq!(count(v, &["state"]), 0, "{v:?}");
         assert!(at(v, &["error"]).is_none(), "{v:?}");
     }
