@@ -5273,10 +5273,17 @@ async fn agent_key_is_trusted_capped_at_write() {
 async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
     let port = free_port();
     let env_lock = GATEWAY_ENV.lock().await;
-    std::env::set_var(
-        wyrmd::GATEWAY_ADMIN_PASSWORD_ENV,
-        "correct-horse-battery-staple",
+    // made for this run: the first admin's password is no constant of the code
+    let password = format!(
+        "{:x}-{:x}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     );
+    let password = password.as_str();
+    std::env::set_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV, password);
     let env = Env::start(
         "agentlinks",
         &format!(
@@ -5291,13 +5298,10 @@ async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
     drop(env_lock);
     let addr = env.gateway.clone().expect("gateway").local_addr().await;
     assert_eq!(addr.port(), port);
-    let gw = wyrm_gateway_client::Gateway::login(
-        &format!("http://127.0.0.1:{port}"),
-        "root",
-        "correct-horse-battery-staple",
-    )
-    .await
-    .expect("login");
+    let gw =
+        wyrm_gateway_client::Gateway::login(&format!("http://127.0.0.1:{port}"), "root", password)
+            .await
+            .expect("login");
     let approve = |link: &'static str| {
         let gw = &gw;
         async move {
@@ -5339,7 +5343,7 @@ async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
         let gw = wyrm_gateway_client::Gateway::login(
             &format!("http://127.0.0.1:{port}"),
             "root",
-            "correct-horse-battery-staple",
+            password,
         )
         .await
         .ok()?;
