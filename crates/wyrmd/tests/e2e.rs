@@ -4712,7 +4712,8 @@ async fn chain_of_three_brokers() {
 }
 
 /// Backlog item 6: the first queries of edge nodes from central, right
-/// after the peer link comes up, all answer (no lost first query).
+/// after the peer link comes up, all answer (no lost first query). The link
+/// that counts is the one after edge's rebuild for central's signing keys.
 #[tokio::test(flavor = "multi_thread")]
 async fn first_queries_across_peers_answer() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
@@ -4738,15 +4739,42 @@ async fn first_queries_across_peers_answer() {
     let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
     let central = open_daemon(central, exe.clone()).unwrap();
     let edge = open_daemon(edge, exe).unwrap();
+    let edge_ctl = edge.control();
     let (c_stop, c_rx) = oneshot::channel::<()>();
     let (e_stop, e_rx) = oneshot::channel::<()>();
     let c_task = tokio::spawn(central.run_until(async {
         let _ = c_rx.await;
     }));
+    let c = WyrmClient::new(loopback_session(c_tcp).await).with_timeout(Duration::from_secs(5));
+    // Edge learns central's signing keys (ADR 0018) a poll after the peer link is up (≤ 10 s)
+    // and rebuilds its router once for them (ADR 0006): the queries of that moment have no
+    // answer. "First queries" are those after edge is back on its rebuilt router. Edge's
+    // token is watched from central before edge runs, so no part of this is missed.
+    let edge_token = c
+        .session()
+        .liveliness()
+        .declare_subscriber("wy/edge/sys/broker")
+        .history(true)
+        .await
+        .unwrap();
     let e_task = tokio::spawn(edge.run_until(async {
         let _ = e_rx.await;
     }));
-    let c = WyrmClient::new(loopback_session(c_tcp).await).with_timeout(Duration::from_secs(5));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let mut gone_with_keys = false;
+    loop {
+        let s = tokio::time::timeout_at(deadline, edge_token.recv_async())
+            .await
+            .expect("edge back after learning central's keys")
+            .unwrap();
+        let learned = edge_ctl.registry().signers.contains_key("central");
+        match s.kind() {
+            zenoh::sample::SampleKind::Delete if learned => gone_with_keys = true,
+            zenoh::sample::SampleKind::Put if gone_with_keys => break,
+            _ => {}
+        }
+    }
+    drop(edge_token);
     eventually("edge connected at central", 15, || async {
         (last_val(&c, "wy/central/downstream/edge/connected").await == Some(Value::Bool(true)))
             .then_some(())

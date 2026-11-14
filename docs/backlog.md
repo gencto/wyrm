@@ -218,6 +218,18 @@ now asks a `~meta` read twice, each try with half the timeout
 timeout, a node nobody serves fails within one. Writes and actions are not
 repeated.
 
+**Found (2026-11-14):** the e2e failed in CI the same way (`list
+wy/edge/sys/links: timeout: no reply` after its `children` answered). Zenoh
+1.10 opens a QUIC link with one stream per priority (`multistream=auto`), and
+the order between streams is lost. A `list` declares a subscriber on a new
+prefix (its key expression goes on the `Control` stream), then queries that
+prefix (`DataHigh`): the query can reach the downstream broker first, which
+cannot resolve the key and drops it (its ACL interceptor). The two-try read
+cannot help: both tries come before the declaration. Peer QUIC endpoints now
+use one stream (`?multistream=0`, `wyrmd::single_stream`): a subscriber on a
+fresh prefix and a query at once lost 37 and 168 of 200 queries with `auto`,
+none with one stream.
+
 ## 7. Config values cannot be changed in Metrics
 
 **Seen:** `Log Level : info` and `Allow All Links : false` cannot be edited.
