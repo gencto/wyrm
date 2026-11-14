@@ -16,6 +16,7 @@ import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
+import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -464,6 +465,73 @@ void main() {
       expect(ticks(decides: true), [null, null, null]);
       expect(ticks(decides: false), [true, true, null]);
     });
+  });
+
+  test('a run is followed: a new step or a step that ended reads the record '
+      'again', () async {
+    await withAgent();
+    api.docs['$agent/tasks/t-1 ~state'] = record('running');
+    s.dispatchSync(SetSelectedTaskAction('t-1'));
+    Future<void> val(Map<String, Object?> v) async {
+      api.subs['$agent/tasks/*']!.add(
+        ValSample('$agent/tasks/t-1', Sample(Value.from(v), t: 1)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    int reads() => api.calls.where((c) => c.op == 'doc').length;
+
+    await val({'state': 'running', 'step': 1, 'of': 3});
+    expect(reads(), 1);
+    expect(s.state.tasks.table['t-1']!.state, TaskState.running);
+
+    // the same value again: nothing moved
+    await val({'state': 'running', 'step': 1, 'of': 3});
+    expect(reads(), 1);
+
+    // step 1 ended (the public value says so without any text)
+    await val({
+      'state': 'running',
+      'step': 1,
+      'of': 3,
+      'last': {'n': 1, 'ok': true, 'result': 'ok'},
+    });
+    expect(reads(), 2);
+
+    // step 2 started
+    await val({
+      'state': 'running',
+      'step': 2,
+      'of': 3,
+      'last': {'n': 1, 'ok': true, 'result': 'ok'},
+    });
+    expect(reads(), 3);
+
+    // a task that is not on screen is not read
+    await val({'state': 'running', 'step': 2, 'of': 3});
+    s.dispatchSync(SetSelectedTaskAction(null));
+    final before = reads();
+    await val({'state': 'done', 'step': 3, 'of': 3});
+    expect(reads(), before);
+    expect(s.state.tasks.table['t-1']!.state, TaskState.done);
+  });
+
+  test('the plan as a file is the wyrm-agent run format', () {
+    final file = planFile(agentTaskOf('t-1', record('done')));
+    expect(file['about'], 'add ahu2');
+    expect(file['steps'], [
+      {
+        'invoke': 'wy/central/downstream/modbus/tcp',
+        'action': 'add_device',
+        'args': {'name': 'ahu2', 'unit': 3},
+      },
+      {'set': 'wy/central/downstream/modbus/tcp/ahu2/sp', 'value': 21.5},
+      {
+        'expect': 'wy/central/downstream/modbus/tcp/ahu2/sp',
+        'equals': 21.5,
+        'timeout_s': 10.0,
+      },
+    ]);
   });
 
   test('a follow-up ask names its parent and keeps the draft', () async {

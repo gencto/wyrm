@@ -14227,6 +14227,191 @@ class S {
       args: [steps],
     );
   }
+
+  /// `Run · step {n} of {of}`
+  String runTitle(Object n, Object of) {
+    return Intl.message(
+      'Run · step $n of $of',
+      name: 'runTitle',
+      desc: '',
+      args: [n, of],
+    );
+  }
+
+  /// `Run · {of} steps`
+  String runTitleEnded(Object of) {
+    return Intl.message(
+      'Run · $of steps',
+      name: 'runTitleEnded',
+      desc: '',
+      args: [of],
+    );
+  }
+
+  /// `running…`
+  String get runRunning {
+    return Intl.message('running…', name: 'runRunning', desc: '', args: []);
+  }
+
+  /// `waiting`
+  String get runWaiting {
+    return Intl.message('waiting', name: 'runWaiting', desc: '', args: []);
+  }
+
+  /// `not run`
+  String get runNotRun {
+    return Intl.message('not run', name: 'runNotRun', desc: '', args: []);
+  }
+
+  /// `stops at the first step that fails`
+  String get runStopsNote {
+    return Intl.message(
+      'stops at the first step that fails',
+      name: 'runStopsNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `all steps passed`
+  String get runPassed {
+    return Intl.message(
+      'all steps passed',
+      name: 'runPassed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `all steps passed · {s} s`
+  String runPassedIn(Object s) {
+    return Intl.message(
+      'all steps passed · $s s',
+      name: 'runPassedIn',
+      desc: '',
+      args: [s],
+    );
+  }
+
+  /// `done · steps left out: {steps}`
+  String runPassedLeftOut(Object steps) {
+    return Intl.message(
+      'done · steps left out: $steps',
+      name: 'runPassedLeftOut',
+      desc: '',
+      args: [steps],
+    );
+  }
+
+  /// `stopped · steps 1–{k} stay done`
+  String runStopped(Object k) {
+    return Intl.message(
+      'stopped · steps 1–$k stay done',
+      name: 'runStopped',
+      desc: '',
+      args: [k],
+    );
+  }
+
+  /// `stopped · nothing was changed`
+  String get runStoppedFirst {
+    return Intl.message(
+      'stopped · nothing was changed',
+      name: 'runStoppedFirst',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Stopped at step {n}`
+  String stoppedAt(Object n) {
+    return Intl.message(
+      'Stopped at step $n',
+      name: 'stoppedAt',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `{why}\nWhat was done before it stays done; nothing is reversed by itself.`
+  String stoppedNote(Object why) {
+    return Intl.message(
+      '$why\nWhat was done before it stays done; nothing is reversed by itself.',
+      name: 'stoppedNote',
+      desc: '',
+      args: [why],
+    );
+  }
+
+  /// `Result`
+  String get resultTitle {
+    return Intl.message('Result', name: 'resultTitle', desc: '', args: []);
+  }
+
+  /// `The keys the plan touched, with their values now.`
+  String get resultNote {
+    return Intl.message(
+      'The keys the plan touched, with their values now.',
+      name: 'resultNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `—`
+  String get resultNoValue {
+    return Intl.message('—', name: 'resultNoValue', desc: '', args: []);
+  }
+
+  /// `Open {node} in Explorer`
+  String openNodeInExplorer(Object node) {
+    return Intl.message(
+      'Open $node in Explorer',
+      name: 'openNodeInExplorer',
+      desc: '',
+      args: [node],
+    );
+  }
+
+  /// `Save as a plan`
+  String get saveAsPlan {
+    return Intl.message(
+      'Save as a plan',
+      name: 'saveAsPlan',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Save the plan of {task}`
+  String savePlanTitle(Object task) {
+    return Intl.message(
+      'Save the plan of $task',
+      name: 'savePlanTitle',
+      desc: '',
+      args: [task],
+    );
+  }
+
+  /// `Saved {path}. Run it with wyrm-agent run.`
+  String planSaved(Object path) {
+    return Intl.message(
+      'Saved $path. Run it with wyrm-agent run.',
+      name: 'planSaved',
+      desc: '',
+      args: [path],
+    );
+  }
+
+  /// `Show steps`
+  String get showSteps {
+    return Intl.message('Show steps', name: 'showSteps', desc: '', args: []);
+  }
+
+  /// `Hide steps`
+  String get hideSteps {
+    return Intl.message('Hide steps', name: 'hideSteps', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

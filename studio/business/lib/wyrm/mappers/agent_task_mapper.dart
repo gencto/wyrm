@@ -23,6 +23,7 @@ AgentTask agentTaskOf(String id, Value v) => AgentTask(
     _ => const IListConst([]),
   },
   planHash: planHash(v['plan']),
+  step: integer(v['step']) ?? 0,
   parent: str(v['parent']),
   log: switch (v['log']) {
     VArray(:final v) => [for (final l in v) text(l) ?? '$l'].lock,
@@ -40,6 +41,31 @@ TaskState taskStateOf(String? s) => switch (s) {
   'done' || 'completed' => TaskState.done,
   'failed' || 'rejected' || 'cancelled' || 'canceled' => TaskState.failed,
   _ => TaskState.planning,
+};
+
+/// The plan of [t] as a file for `wyrm-agent run` (`{"steps": […]}`,
+/// docs/agent.md): each step as it stands in the record, without what is
+/// said about it (number, level, check, reason, result).
+Map<String, Object?> planFile(AgentTask t) => {
+  'about': t.ask,
+  'steps': [
+    for (final s in t.plan)
+      switch (s.op) {
+        'set' => {'set': s.key, 'value': s.args['value']},
+        'invoke' => {
+          'invoke': s.key,
+          'action': s.action ?? '',
+          'args': s.args.unlock,
+        },
+        'wait' => {'wait': s.key, 'timeout_s': s.seconds ?? 10},
+        'expect' => {
+          'expect': s.key,
+          ...s.args.unlock,
+          'timeout_s': s.seconds ?? 10,
+        },
+        _ => {'sleep_s': s.seconds ?? 0},
+      },
+  ],
 };
 
 /// One step in the `wyrm-agent run` format: `{set, value}`,

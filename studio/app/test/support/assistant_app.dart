@@ -62,7 +62,7 @@ class AssistantApp {
     api.docs['$agent/tasks/$id ~state'] = Value.from(record);
   }
 
-  /// The calls of [action] made so far.
+  /// The calls of [action] (for a document: its suffix) made so far.
   List<Call> calls(String action) => [
     for (final c in api.calls)
       if (c.action == action) c,
@@ -110,6 +110,7 @@ class AssistantApp {
 Map<String, Object?> planRecord({
   String state = 'awaiting_approval',
   String owner = 'user:olena',
+  int step = 0,
   Map<int, Map<String, Object?>> results = const {},
   List<String> log = const ['asked by user:olena'],
 }) => {
@@ -150,6 +151,7 @@ Map<String, Object?> planRecord({
       'result': ?results[3],
     },
   ],
+  'step': step,
   'log': log,
   'tokens': 12,
 };

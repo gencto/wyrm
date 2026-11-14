@@ -9,13 +9,22 @@ import '../../../wyrm/mappers/values.dart';
 
 /// What [AgentTasksService] tells its listener.
 abstract class AgentTasksServiceListener {
-  /// Task [id] of the agent link is now in [state].
-  void onTaskState(String id, TaskState state);
+  /// Task [id] of the agent link is now in [state]; its run is at step
+  /// [step] and the latest step that ended is [finished] (both 0 before a
+  /// run).
+  void onTaskState(
+    String id,
+    TaskState state, {
+    int step = 0,
+    int finished = 0,
+  });
 }
 
 /// Follows the public `~val` of every task of one agent link
-/// (`<agent>/tasks/*`: `{state}` only, ADR 0005). The full record is the
-/// task's `~state` document, read on demand by the Assistant screen.
+/// (`<agent>/tasks/*`: `{state, step, of, last: {n, ok, result}}`, numbers
+/// and fixed words only, ADR 0049 §7). The full record, with the text of
+/// each step's result, is the task's `~state` document, read by the
+/// Assistant screen on each change.
 class AgentTasksService extends DisposableServiceInterface {
   AgentTasksService({required this._listener});
 
@@ -55,7 +64,12 @@ class AgentTasksService extends DisposableServiceInterface {
             )
             when key.startsWith(prefix)) {
           final id = key.substring(prefix.length);
-          _listener.onTaskState(id, taskStateOf(str(sample.v['state'])));
+          _listener.onTaskState(
+            id,
+            taskStateOf(str(sample.v['state'])),
+            step: integer(sample.v['step']) ?? 0,
+            finished: integer(sample.v['last']?['n']) ?? 0,
+          );
         }
       },
       onError: (Object e) => logger.fine('tasks of $agent: $e'),

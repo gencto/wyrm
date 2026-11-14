@@ -11,6 +11,10 @@ import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_panel_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
+import 'package:business/redux/live/actions/unwatch_keys_action.dart';
+import 'package:business/redux/live/actions/watch_keys_action.dart';
+import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
 import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
@@ -19,6 +23,8 @@ import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/labels.dart';
+import 'package:business/wyrm/mappers/agent_task_mapper.dart';
+import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -28,6 +34,8 @@ import 'package:models/task_event.dart';
 import 'package:models/task_state.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/plan_card.dart';
+import 'package:ui/assistant/result_card.dart';
+import 'package:ui/assistant/run_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
@@ -37,21 +45,50 @@ import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/reason_dialog.dart';
 import 'package:ui/pages/assistant_page.dart';
 
+import '../common/files.dart';
 import '../common/tab_visibility.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+
+/// What the Assistant subscribes to while its tab is shown: the keys a
+/// finished plan touched (the Result card shows their values now).
+final class _Watch {
+  var shown = false;
+  var keys = <String>[];
+}
+
+final _watching = _Watch();
 
 @RoutePage()
 class AssistantPageConnector extends StatelessWidget {
   const AssistantPageConnector({super.key});
 
+  static bool _sameKeys(List<String> a, List<String> b) =>
+      a.length == b.length && a.every(b.contains);
+
   @override
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
+    onWillChange: (context, store, before, now) {
+      if (_watching.shown && !_sameKeys(before.watch, now.watch)) {
+        store
+          ..dispatchSync(WatchKeysAction(now.watch))
+          ..dispatchSync(UnwatchKeysAction(before.watch));
+        _watching.keys = now.watch;
+      }
+    },
     builder: (context, vm) => TabVisibility(
-      onShow: vm.onShow,
-      onHide: () {},
+      onShow: () {
+        _watching
+          ..shown = true
+          ..keys = vm.watch;
+        vm.onShow();
+      },
+      onHide: () {
+        _watching.shown = false;
+        vm.onHide(_watching.keys);
+      },
       child: AssistantPage(
         newLabel: S.current.newTask,
         listNote: S.current.taskListNote(vm.agentName),
@@ -64,6 +101,8 @@ class AssistantPageConnector extends StatelessWidget {
         events: vm.events,
         plan: vm.plan,
         onTick: vm.onTick,
+        run: vm.run,
+        result: vm.result,
         card: vm.card,
         onButton: (b) => vm.onButton(context, b),
         draft: vm.draft,
@@ -138,6 +177,9 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ? null
           : (n, {required ticked}) =>
                 dispatchSync(SetStepTickAction(id, n, ticked: ticked)),
+      run: task == null ? null : _run(task),
+      result: task == null ? null : _result(task),
+      watch: task == null ? const [] : _touched(task),
       card: task == null ? null : _card(task, cancelReason, choices),
       draft: assistant.draft ?? '',
       askReason: agent == null
@@ -186,7 +228,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ? S.current.mayDoNote
           : (reads.isEmpty ? '' : S.current.readsNote),
       empty: agent == null && !_loading ? S.current.noAgent : null,
-      onShow: () => unawaited(_load()),
+      onShow: () {
+        dispatchSync(WatchKeysAction(task == null ? const [] : _touched(task)));
+        unawaited(_load());
+      },
+      onHide: (keys) => dispatchSync(UnwatchKeysAction(keys)),
       onNew: () {
         dispatchSync(SetSelectedTaskAction(null));
         dispatchSync(SetPanelAction('task'));
@@ -217,6 +263,15 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             );
             if (reason != null) {
               await dispatchAndWait(RejectTaskAction(id, reason: reason));
+            }
+          case 'explorer':
+            if (_node(task) case final node?) {
+              dispatchSync(SelectNodeAction(node));
+              dispatchSync(GoAction.navigate(const ExplorerRoute()));
+            }
+          case 'save':
+            if (task != null) {
+              await _save(task);
             }
           case 'followup':
             final left = _leftOut(task);
@@ -283,10 +338,146 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         : (_approvedBy(t) ?? _stateLabel(t.state)),
     stateTone: _tone(t.state),
     note: S.current.planWhyNote,
+    // a plan that waits is read whole; after that its run tells the story
+    open: t.state == .awaitingApproval,
+    showLabel: S.current.showSteps,
+    hideLabel: S.current.hideSteps,
     steps: [
       for (final (i, s) in t.plan.indexed) _step(s, choices?.elementAt(i)),
     ],
   );
+
+  /// The run of a plan: one row per step with what the record says of it.
+  /// None before a run (a plan that waits, a rejected one).
+  RunCardVm? _run(AgentTask t) {
+    final ran = t.plan.any((s) => s.result != null);
+    if (t.plan.isEmpty || (t.state != .running && !ran)) {
+      return null;
+    }
+    final failed = t.plan
+        .where((s) => s.result?.status == 'failed')
+        .firstOrNull;
+    final left = _leftOut(t);
+    final times = [for (final s in t.plan) ?s.result?.time];
+    final seconds = times.length < 2
+        ? 0
+        : times.last.difference(times.first).inSeconds;
+    return RunCardVm(
+      title: t.state == .running && t.step > 0
+          ? S.current.runTitle(t.step, t.plan.length)
+          : S.current.runTitleEnded(t.plan.length),
+      rows: [
+        for (final s in t.plan)
+          RunRowVm(
+            n: s.n,
+            step: [
+              s.op.toUpperCase(),
+              ?s.action,
+              if (s.op == 'sleep')
+                S.current.planSleep(_num(s.seconds ?? 0))
+              else
+                s.key.split('/').skip(3).join('/'),
+            ].join(' '),
+            status: switch (s.result?.status) {
+              'ok' => .ok,
+              'failed' => .failed,
+              'skipped' => .skipped,
+              _ when t.state == .running && s.n == t.step => .running,
+              _ => .waiting,
+            },
+            text: switch (s.result) {
+              final r? => r.message.isEmpty ? r.status : r.message,
+              _ when t.state == .running && s.n == t.step =>
+                S.current.runRunning,
+              _ when t.state == .running => S.current.runWaiting,
+              _ => S.current.runNotRun,
+            },
+          ),
+      ],
+      note: switch (t.state) {
+        .running => S.current.runStopsNote,
+        .done when left.isNotEmpty => S.current.runPassedLeftOut(
+          left.join(', '),
+        ),
+        .done when seconds > 0 => S.current.runPassedIn(seconds),
+        .done => S.current.runPassed,
+        _ when failed != null && failed.n > 1 => S.current.runStopped(
+          failed.n - 1,
+        ),
+        _ => S.current.runStoppedFirst,
+      },
+      noteTone: switch (t.state) {
+        .done => .good,
+        .failed => .bad,
+        _ => .neutral,
+      },
+    );
+  }
+
+  /// The keys with a value that a finished plan touched: what it set and
+  /// what it proved, at most 12, in the plan's order.
+  static List<String> _touched(AgentTask t) => t.state != .done
+      ? const []
+      : {
+          for (final s in t.plan)
+            if (s.result?.status == 'ok' &&
+                (s.op == 'set' || s.op == 'expect' || s.op == 'wait'))
+              s.key,
+        }.take(12).toList();
+
+  /// What a finished plan left behind: the keys of [_touched] with their
+  /// values now.
+  ResultCardVm? _result(AgentTask t) {
+    final keys = _touched(t);
+    if (keys.isEmpty) {
+      return null;
+    }
+    return ResultCardVm(
+      title: S.current.resultTitle,
+      facts: [
+        for (final k in keys)
+          (
+            k.split('/').skip(3).join('/'),
+            switch (live.values[k]) {
+              final v? => valueText(v.value),
+              null => S.current.resultNoValue,
+            },
+          ),
+      ],
+      note: S.current.resultNote,
+    );
+  }
+
+  /// The node a finished plan was about: the target of its last step that
+  /// changed something.
+  static String? _node(AgentTask? t) => t?.plan
+      .where(
+        (s) => s.result?.status == 'ok' && (s.op == 'set' || s.op == 'invoke'),
+      )
+      .map((s) => s.key)
+      .lastOrNull;
+
+  /// Save as a plan: the plan in the `wyrm-agent run` format, into a
+  /// folder the user picks.
+  Future<void> _save(AgentTask t) async {
+    final file = await saveInto(
+      'task-${t.id}.plan.json',
+      fallback: 'plan.json',
+      dialogTitle: S.current.savePlanTitle(t.id),
+    );
+    if (file == null) {
+      return;
+    }
+    try {
+      const json = JsonEncoder.withIndent('  ', _bytes);
+      await file.write(utf8.encode('${json.convert(planFile(t))}\n'));
+      await file.commit();
+    } on Object {
+      await file.discard();
+      rethrow;
+    }
+    dispatchSync(ShowNoticeAction(S.current.planSaved(file.path)));
+  }
 
   /// `approved by olena, 1 step(s) left out`: the record's own line.
   static String? _approvedBy(AgentTask t) => t.log
@@ -494,6 +685,13 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             ? S.current.doneNote
             : S.current.doneLeftOutNote(left.join(', ')),
         buttons: [
+          if (_node(t) case final node?)
+            TaskButtonVm(
+              id: 'explorer',
+              label: S.current.openNodeInExplorer(node.split('/').last),
+            ),
+          if (t.plan.isNotEmpty)
+            TaskButtonVm(id: 'save', label: S.current.saveAsPlan),
           if (left.isNotEmpty)
             TaskButtonVm(
               id: 'followup',
@@ -505,11 +703,25 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             ),
         ],
       ),
-      .failed => TaskCardVm(
-        title: _stateLabel(t.state),
-        note: t.error ?? S.current.failedNote,
-        caution: true,
-      ),
+      .failed => switch (t.plan
+          .where((s) => s.result?.status == 'failed')
+          .firstOrNull) {
+        // stopped in its run: where, and what the step answered
+        final at? => TaskCardVm(
+          title: S.current.stoppedAt(at.n),
+          note: S.current.stoppedNote(
+            at.result!.message.isEmpty
+                ? (t.error ?? S.current.failedNote)
+                : at.result!.message,
+          ),
+          caution: true,
+        ),
+        null => TaskCardVm(
+          title: _stateLabel(t.state),
+          note: t.error ?? S.current.failedNote,
+          caution: true,
+        ),
+      },
     };
   }
 
@@ -568,6 +780,9 @@ class _Vm extends Vm {
     required this.events,
     required this.plan,
     required this.onTick,
+    required this.run,
+    required this.result,
+    required this.watch,
     required this.card,
     required this.draft,
     required this.askReason,
@@ -577,6 +792,7 @@ class _Vm extends Vm {
     required this.panelNote,
     required this.empty,
     required this.onShow,
+    required this.onHide,
     required this.onNew,
     required this.onTask,
     required this.onDraft,
@@ -593,6 +809,9 @@ class _Vm extends Vm {
            taskKey,
            events,
            plan,
+           run,
+           result,
+           watch,
            card,
            draft,
            askReason,
@@ -612,6 +831,11 @@ class _Vm extends Vm {
   final List<ConversationEventVm> events;
   final PlanCardVm? plan;
   final void Function(int n, {required bool ticked})? onTick;
+  final RunCardVm? run;
+  final ResultCardVm? result;
+
+  /// The keys whose values the Result card shows.
+  final List<String> watch;
   final TaskCardVm? card;
   final String draft;
   final String? askReason;
@@ -621,6 +845,7 @@ class _Vm extends Vm {
   final String panelNote;
   final String? empty;
   final VoidCallback onShow;
+  final void Function(List<String> keys) onHide;
   final VoidCallback onNew;
   final ValueChanged<String> onTask;
   final ValueChanged<String> onDraft;

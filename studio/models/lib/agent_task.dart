@@ -22,6 +22,10 @@ abstract class AgentTask with _$AgentTask {
     /// The hash of [plan] as it was read: what an approval is bound to.
     String? planHash,
 
+    /// The step the run is at (its number; 0 before a run), from the
+    /// public `~val.step` and the record.
+    @Default(0) int step,
+
     /// The task this one follows.
     String? parent,
 
