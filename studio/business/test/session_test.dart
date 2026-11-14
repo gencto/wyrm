@@ -37,7 +37,7 @@ void main() {
         expect(login.user, 'admin');
         expect(login.password, 'wyrm-demo-1');
         expect(s.state.session.token, 'user:admin');
-        expect(depsOf(s).session, same(login.session));
+        expect(depsOf(s).rawSession, same(login.session));
       },
     );
 
