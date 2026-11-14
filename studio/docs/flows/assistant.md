@@ -79,10 +79,11 @@ sequenceDiagram
     UI->>VM: onTask()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(tasks.selectedTask)
-    VM->>A2: dispatch
+    VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
     A2->>ST: copyWith(assistant.docs)
     A2->>ST: dispatchSync(AddTasksAction)
+    A2-->>-VM: ActionStatus
 ```
 
 ## onDraft

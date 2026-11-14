@@ -242,7 +242,7 @@ void main() {
     expect(api.calls.where((c) => c.op == 'doc'), hasLength(1));
   });
 
-  test("a record the user may not read leaves the task as it is", () async {
+  test('a record the user may not read leaves the task as it is', () async {
     await withAgent();
     api.errors['$agent/tasks/t-1 ~state'] = WyrmException.of(
       Status.permissionDenied,

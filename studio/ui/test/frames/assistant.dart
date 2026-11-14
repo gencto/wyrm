@@ -145,7 +145,7 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
       args: const [('value', '21.5')],
       check: 'checked when it runs: an earlier step makes this node',
       checked: false,
-      warn: 'the value 21.5 is at the point\'s max (21.5)',
+      warn: "the value 21.5 is at the point's max (21.5)",
       note: 'needs step 1',
       ticked: ticks?[1],
     ),
