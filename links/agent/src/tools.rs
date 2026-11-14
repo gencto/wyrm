@@ -263,8 +263,12 @@ pub struct PlanOp {
     pub needs_approval: bool,
     pub reason: Option<String>,
     pub check: Check,
-    /// What the person must know before approving (a value at a limit).
+    /// What the link found that the person must know before approving (a value at a
+    /// limit): the link's own words.
     pub warn: Option<String>,
+    /// What the model says the person must know (`propose {warn}`): model text, kept apart
+    /// from the link's finding so that a reader can show it as the model's.
+    pub model_warn: Option<String>,
     /// The steps (by number) this one needs: skipped when one of them is.
     pub after: Vec<usize>,
     /// What the run did with the step; `None` until it reaches it (a step after a failed one
@@ -334,7 +338,14 @@ impl StepResult {
 
 /// The keys of a step in `~state` that are not part of what it does: left out of
 /// [`plan_hash`].
-pub const UNHASHED: [&str; 5] = ["approval", "check", "warn", "reason", "result"];
+pub const UNHASHED: [&str; 6] = [
+    "approval",
+    "check",
+    "warn",
+    "model_warn",
+    "reason",
+    "result",
+];
 
 impl PlanOp {
     /// The stricter of the value recorded at planning time and the current
@@ -394,6 +405,9 @@ impl PlanOp {
         m.insert("check".to_owned(), Value::from(self.check.name()));
         if let Some(w) = &self.warn {
             m.insert("warn".to_owned(), Value::from(w.as_str()));
+        }
+        if let Some(w) = &self.model_warn {
+            m.insert("model_warn".to_owned(), Value::from(w.as_str()));
         }
         if let Some(r) = &self.reason {
             m.insert("reason".to_owned(), Value::from(r.as_str()));
@@ -470,6 +484,186 @@ pub fn skipped(plan: &[PlanOp], unapproved: &[usize]) -> BTreeMap<usize, usize> 
         }
     }
     out
+}
+
+/// Suggestions a task may hold at a time, the rows of one, and the lengths of their texts
+/// (bytes; longer text is cut).
+pub const MAX_SUGGESTIONS: usize = 8;
+pub const MAX_ROWS: usize = 16;
+const MAX_LABEL: usize = 80;
+const MAX_DETAIL: usize = 300;
+/// Longest warning of a step the model may give (`propose {warn}`).
+const MAX_WARN: usize = 300;
+
+/// One row of a [`Suggestion`]: a node the same thing may be done for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    /// A full node key, inside what the agent and the asker of the task may read.
+    pub key: String,
+    pub label: String,
+    pub detail: String,
+}
+
+/// What the model offers the person to ask next (tool `suggest`, ADR 0049 amendment of
+/// 2026-11-14): a way out of a run that stopped, the same change for more nodes, a fix for
+/// a step's warning. It is data for a card: nothing runs because of it. A person who picks
+/// it sends a follow-up `ask`, and what that changes is a new plan they approve step by step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suggestion {
+    /// `s1`, `s2`, …: unique among the suggestions the task holds.
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+    /// How many changes the model expects the follow-up to plan; 0: it changes nothing. The
+    /// model's guess, for the tag on the card: the plan that follows is checked as any plan.
+    pub changes: u32,
+    /// The plan step (from 1) this is a fix for; `None`: about the task as a whole.
+    pub step: Option<usize>,
+    pub rows: Vec<Row>,
+}
+
+fn text_of(m: &BTreeMap<String, Value>, k: &str) -> String {
+    match m.get(k) {
+        Some(Value::Str(s)) => s.clone(),
+        _ => String::new(),
+    }
+}
+
+impl Suggestion {
+    pub fn to_value(&self) -> Value {
+        let mut m = BTreeMap::new();
+        m.insert("id".to_owned(), Value::from(self.id.as_str()));
+        m.insert("label".to_owned(), Value::from(self.label.as_str()));
+        m.insert("detail".to_owned(), Value::from(self.detail.as_str()));
+        m.insert("changes".to_owned(), Value::UInt(self.changes.into()));
+        if let Some(n) = self.step {
+            m.insert("step".to_owned(), Value::UInt(n as u64));
+        }
+        if !self.rows.is_empty() {
+            let rows = self.rows.iter().map(|r| {
+                Value::Map(BTreeMap::from([
+                    ("key".to_owned(), Value::from(r.key.as_str())),
+                    ("label".to_owned(), Value::from(r.label.as_str())),
+                    ("detail".to_owned(), Value::from(r.detail.as_str())),
+                ]))
+            });
+            m.insert("rows".to_owned(), Value::Array(rows.collect()));
+        }
+        Value::Map(m)
+    }
+
+    pub fn from_value(v: &Value) -> Option<Self> {
+        let Value::Map(m) = v else { return None };
+        let number = |k: &str| match m.get(k) {
+            Some(Value::UInt(n)) => Some(*n),
+            _ => None,
+        };
+        Some(Self {
+            id: text_of(m, "id"),
+            label: text_of(m, "label"),
+            detail: text_of(m, "detail"),
+            changes: number("changes")
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or(0),
+            step: number("step").and_then(|n| usize::try_from(n).ok()),
+            rows: match m.get("rows") {
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .filter_map(|r| match r {
+                        Value::Map(r) => Some(Row {
+                            key: text_of(r, "key"),
+                            label: text_of(r, "label"),
+                            detail: text_of(r, "detail"),
+                        }),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            },
+        })
+    }
+}
+
+fn cut(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.len() <= max {
+        return s.to_owned();
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
+}
+
+/// A suggestion of the model (`suggest`) without its id, checked and bounded: `steps` is
+/// the length of the plan so far, `asker_reads(node)` says whether the asker of the task
+/// may read a node. A row names a node inside what the agent may read and inside what the
+/// asker may read: the model offers nobody a node they could not have looked at.
+pub fn suggestion_of(
+    input: &Json,
+    policy: &Policy,
+    steps: usize,
+    asker_reads: impl Fn(&str) -> bool,
+) -> Result<Suggestion, String> {
+    let label = cut(input["label"].as_str().unwrap_or(""), MAX_LABEL);
+    if label.is_empty() {
+        return Err("`label` (text) is required".into());
+    }
+    let changes = match input.get("changes") {
+        None | Some(Json::Null) => 0,
+        Some(v) => v
+            .as_u64()
+            .filter(|n| *n <= 50)
+            .ok_or("`changes` must be a number of changes, 0 to 50")? as u32,
+    };
+    let step = match input.get("step") {
+        None | Some(Json::Null) => None,
+        Some(v) => Some(
+            v.as_u64()
+                .map(|n| n as usize)
+                .filter(|n| (1..=steps).contains(n))
+                .ok_or_else(|| format!("`step` must be the number of a plan step (1..{steps})"))?,
+        ),
+    };
+    let mut rows: Vec<Row> = Vec::new();
+    match input.get("rows") {
+        None | Some(Json::Null) => {}
+        Some(Json::Array(items)) if items.len() <= MAX_ROWS => {
+            for r in items {
+                let key = policy.node_key(str_field(r, "path")?)?;
+                policy.may_read(&key)?;
+                if !asker_reads(&key) {
+                    return Err(format!("{key}: the asker of this task may not read it"));
+                }
+                if rows.iter().any(|x| x.key == key) {
+                    return Err(format!("{key} is in two rows"));
+                }
+                let label = cut(r["label"].as_str().unwrap_or(""), MAX_LABEL);
+                if label.is_empty() {
+                    return Err("every row needs `path` and `label`".into());
+                }
+                rows.push(Row {
+                    key,
+                    label,
+                    detail: cut(r["detail"].as_str().unwrap_or(""), MAX_DETAIL),
+                });
+            }
+        }
+        Some(_) => {
+            return Err(format!(
+                "`rows` must be an array of at most {MAX_ROWS} rows"
+            ))
+        }
+    }
+    Ok(Suggestion {
+        id: String::new(),
+        label,
+        detail: cut(input["detail"].as_str().unwrap_or(""), MAX_DETAIL),
+        changes,
+        step,
+        rows,
+    })
 }
 
 fn str_field<'a>(input: &'a Json, k: &str) -> Result<&'a str, String> {
@@ -585,6 +779,11 @@ pub async fn check_proposal(
     let reason = input["reason"]
         .as_str()
         .map(|s| s.chars().take(500).collect());
+    // What the model says the person must know (an address in use): shown on the step.
+    let told = input["warn"]
+        .as_str()
+        .map(|w| cut(w, MAX_WARN))
+        .filter(|w| !w.is_empty());
     let blank = PlanOp {
         op,
         node: String::new(),
@@ -597,6 +796,7 @@ pub async fn check_proposal(
         reason,
         check: Check::Now,
         warn: None,
+        model_warn: told,
         after: Vec::new(),
         result: None,
     };
@@ -699,6 +899,7 @@ pub async fn check_proposal(
         } else {
             Check::AtRun
         },
+        // the link's own finding; the model's words stay in `model_warn`
         warn,
         after,
         ..blank
@@ -749,8 +950,19 @@ pub fn definitions() -> Json {
             "timeout_s": {"type": "number", "description": "op=wait/expect: seconds to wait (default 10, at most 600)."},
             "seconds": {"type": "number", "description": "op=sleep."},
             "after": {"type": "array", "items": {"type": "integer"}, "description": "Numbers of the earlier steps this step needs: it is skipped when the person leaves one of them out. Default: the latest earlier change on this node or a node above it."},
-            "reason": {"type": "string", "description": "One sentence: why this step is needed."}
+            "reason": {"type": "string", "description": "One sentence: why this step is needed."},
+            "warn": {"type": "string", "description": "One sentence the person must read before approving this step, when you found a risk in the tree (an address another device uses, a value that stops something). Offer its fixes with `suggest` and this step's number."}
          }, "required": ["op"]}},
+        {"name": "suggest", "description": "Offer the person something to ask next. Nothing runs because of it: the person sees `label` and `detail` on a card and, when they pick it, you get it as a new task that follows this one, and plan it there. Use it for: a fix for the warning of a plan step (`step` = its number); the same change for more nodes you read (`rows`, one per node: the person ticks the ones they want); a way out when a run stopped. `changes` is how many changes it would take (0: it only reads or explains). For a message to a person (ask a colleague first), put the draft in `detail`. At most 3 for one purpose; name only what you read in the tree.",
+         "input_schema": {"type": "object", "properties": {
+            "label": {"type": "string", "description": "A few words, as on a button: `Try slave id 4`."},
+            "detail": {"type": "string", "description": "One or two sentences: what it would do and why."},
+            "changes": {"type": "integer", "description": "How many changes it would take; 0: none."},
+            "step": {"type": "integer", "description": "The number of the plan step this is a fix for."},
+            "rows": {"type": "array", "items": {"type": "object", "properties": {
+                "path": path, "label": {"type": "string"}, "detail": {"type": "string"}
+            }, "required": ["path", "label"]}, "description": "Nodes the same thing may be done for (at most 16)."}
+         }, "required": ["label"]}},
         {"name": "ask_user", "description": "Ask the person one question before you plan, when the task leaves a real choice open. At most 3 questions in one turn. Give up to 6 options; every option must name something you have read in the tree (a node, a value, a profile), never a guess. The task then waits; the answer comes back as this tool's result.",
          "input_schema": {"type": "object", "properties": {
             "question": {"type": "string"},
@@ -761,6 +973,21 @@ pub fn definitions() -> Json {
             "free_text": {"type": "boolean", "description": "The person may answer in their own words."}
          }, "required": ["question"]}}
     ])
+}
+
+/// The tools of the turn after a run stopped: the read tools and `suggest`. Nothing is
+/// planned there and nobody is asked.
+pub fn review_definitions() -> Json {
+    let all = definitions();
+    Json::Array(
+        all.as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .filter(|t| t["name"] != "propose" && t["name"] != "ask_user")
+            .cloned()
+            .collect(),
+    )
 }
 
 /// Read-only tools over a `WyrmClient`.
@@ -1048,6 +1275,7 @@ mod tests {
             reason: None,
             check: Check::Now,
             warn: None,
+            model_warn: None,
             after: Vec::new(),
             result: None,
         };
@@ -1097,6 +1325,7 @@ mod tests {
             seconds: None,
             check: Check::Now,
             warn: None,
+            model_warn: None,
             after: Vec::new(),
         };
         // the hash covers what is sent, at which level and after what, not the model's words
@@ -1110,6 +1339,7 @@ mod tests {
         let reworded = PlanOp {
             reason: Some("because".into()),
             warn: Some("at the limit".into()),
+            model_warn: Some("p is read by another loop".into()),
             check: Check::AtRun,
             needs_approval: true,
             result: Some(StepResult {

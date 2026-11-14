@@ -6,15 +6,20 @@
 //! |---|---|
 //! | `~meta.cfg` | `model`, `budget_tokens_day`, `allowed_prefixes`, `require_approval`, … |
 //! | `budget_used_today` | LLM tokens used this UTC day |
-//! | `~act/ask {task, parent?, context?}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}`; `parent` = a task this one follows, `context` = keys the asker attached |
-//! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, text}}` (public) |
-//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, parent?, context[]?, step, log[], error?, tokens}` (restricted: `list`); a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn?, reason?, result?: {status: ok \| failed \| skipped, message, time}` |
+//! | `~act/ask {task, parent?, context?}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}`; `parent` = a task this one follows (one that waits for a person is replaced by it), `context` = keys the asker attached |
+//! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, result}, suggestions?, reviewing?, replaced_by?}` (public: numbers, fixed words and task ids only) |
+//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn? (the link's finding), model_warn? (the model's words), reason?, result?: {status: ok \| failed \| skipped, message, time}` |
 //! | `tasks/<id>/~act/approve {approvals, plan?}` | level `write`: `approvals` = `{<step number> \| <request key>: <ptok, bytes or base64>}`, one human token per step at the step's level; a step that needs one and gets none is skipped, with the steps that need it; `plan` = the `plan_hash` the approver read |
 //! | `tasks/<id>/~act/answer {answers?, text?}` | level `write`, stream like `ask`: `answers` = `{<question id>: [<option id>] \| text}` |
-//! | `tasks/<id>/~act/reject`, `cancel` | level `write` |
+//! | `tasks/<id>/~act/reject`, `cancel` | level `write`; `cancel` also ends the review turn after a stopped run |
 //!
 //! States: `planning (⇄ awaiting_answer) → awaiting_approval → running → done | failed`
-//! (`reject` and `cancel` end in `failed` with `error`).
+//! (`reject`, `cancel` and a follow-up that replaces the task end in `failed` with `error`).
+//!
+//! What the model offers to ask next (tool `suggest`) is in `~state.suggestions`: fixes
+//! for a step's warning, the same change for more nodes, and, after a run stopped at a
+//! step, the ways out the model found in one more read-only turn (`review_turns`).
+//! Nothing runs because of a suggestion: the person who picks one sends a follow-up `ask`.
 //!
 //! Safety does not rest on the model. The model only reads (read-only tools)
 //! and proposes; a proposal is checked against `~meta`, `allowed_prefixes`
@@ -40,7 +45,9 @@ pub mod tools;
 
 use crate::llm::{usage_tokens, AnthropicClient, LlmClient};
 use crate::store::{AgentStore, TaskRec};
-use crate::tools::{check_proposal, ApprovalMode, PlanOp, Policy, Reader, StepResult, StepStatus};
+use crate::tools::{
+    check_proposal, ApprovalMode, PlanOp, Policy, Reader, StepResult, StepStatus, Suggestion,
+};
 use ed25519_dalek::SigningKey;
 use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, VecDeque};
@@ -77,6 +84,8 @@ const MAX_OPTIONS: usize = 6;
 const MAX_QUESTIONS: usize = 30;
 /// Bytes of an answer in the person's own words.
 const MAX_ANSWER: usize = 2000;
+/// Bytes kept of what the model found after a run stopped (`~state.review`).
+const MAX_REVIEW: usize = 600;
 /// Tool result text sent back to the model.
 const MAX_TOOL_RESULT: usize = 16_000;
 /// Most results kept from a streaming action during execution.
@@ -96,8 +105,21 @@ the steps they want. A step left out is skipped, and so is every step that needs
 Prove the plan with steps that only read: op=wait (a node exists), op=expect (a value), \
 op=sleep. When the task leaves a real choice open, ask the person with `ask_user` before you \
 plan; offer only options you have read in the tree. Propose only what the task needs; read a \
-node's ~meta before you propose a change to it. When you are done, answer with a short summary \
-of the plan, or of what you found if no change is needed.";
+node's ~meta before you propose a change to it. When a step carries a risk you read in the \
+tree, say it in the step's `warn` and offer its fixes with `suggest` (`step` = its number). \
+When the same change fits more nodes you read, offer them with `suggest` and `rows`. A \
+suggestion runs nothing: the person who picks it asks you again. When you are done, answer \
+with a short summary of the plan, or of what you found if no change is needed.";
+
+/// The turn after a run stopped at a step: the model reads and offers ways out.
+const REVIEW_SYSTEM: &str = "You are the WYRM agent: an operator assistant for an IoT broker \
+with IOT-DSA semantics. A plan you wrote was run and stopped at a step. You cannot change \
+anything and you cannot plan now. Read what tells why the step failed (tree_list, node_meta, \
+value_get), then offer the person at most 3 ways out with `suggest`: `label` as on a button, \
+`detail` in one or two sentences, `changes` = how many changes it would take (0: it changes \
+nothing, for example leave it as it is or only look further). Offer only what you read in the \
+tree. A way out runs nothing: the person who picks it asks you again and approves that plan. \
+End with one or two sentences on what you found.";
 
 /// Agent link parameters (`~def.params`).
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +141,9 @@ pub struct AgentParams {
     /// Server-side refusal fallback (`fallbacks: "default"`).
     pub fallbacks: bool,
     pub llm_timeout_s: u64,
+    /// LLM calls of the turn after a run stopped at a step, in which the model reads why
+    /// and offers ways out (`suggest`). 0: no such turn.
+    pub review_turns: u32,
 }
 
 impl Default for AgentParams {
@@ -135,6 +160,7 @@ impl Default for AgentParams {
             max_tokens: 16_000,
             fallbacks: true,
             llm_timeout_s: 240,
+            review_turns: 4,
         }
     }
 }
@@ -151,6 +177,7 @@ const PARAM_NAMES: &[&str] = &[
     "max_tokens",
     "fallbacks",
     "llm_timeout_s",
+    "review_turns",
 ];
 
 impl AgentParams {
@@ -207,6 +234,10 @@ impl AgentParams {
             )?,
             fallbacks: f.bool_or("fallbacks", d.fallbacks)?,
             llm_timeout_s: f.u64_or("llm_timeout_s", d.llm_timeout_s)?.clamp(5, 600),
+            review_turns: wyrm_link_sdk::params::narrow(
+                f.u64_or("review_turns", d.review_turns.into())?.min(16),
+                "review_turns",
+            )?,
         };
         if p.model.is_empty() {
             return Err(LinkError::invalid_parameter("params.model: empty"));
@@ -247,6 +278,7 @@ impl AgentParams {
         m.insert("max_tokens".into(), Value::UInt(self.max_tokens.into()));
         m.insert("fallbacks".into(), Value::Bool(self.fallbacks));
         m.insert("llm_timeout_s".into(), Value::UInt(self.llm_timeout_s));
+        m.insert("review_turns".into(), Value::UInt(self.review_turns.into()));
         m
     }
 }
@@ -409,6 +441,19 @@ struct Task {
     last: Option<(usize, StepStatus)>,
     /// The planner waits here for `answer`; not persisted (a restart ends the wait).
     answer: Option<tokio::sync::oneshot::Sender<Answered>>,
+    /// What the model offers to ask next (`suggest`); bounded, cleared when the task fails.
+    suggestions: Vec<Suggestion>,
+    /// The follow-up task that took this one's place while it waited for a person.
+    replaced_by: Option<String>,
+    /// What the model found after the run stopped (its last words of that turn).
+    review: Option<String>,
+    /// The turn after a stopped run is on; not persisted (a restart ends it).
+    reviewing: bool,
+    /// The asker's rights (spec 04 `auth`) as their latest call on the task carried them
+    /// (`ask`, then their own `answer` or `approve`): what they may read bounds the rows of
+    /// a suggestion, and only until that token's `exp` ([`asker_rights`]). `None`: not
+    /// known (a token without `auth`, or a restart: not persisted).
+    rights: Option<Caller>,
 }
 
 impl Task {
@@ -423,6 +468,9 @@ impl Task {
                     questions: self.questions.clone(),
                     parent: self.parent.clone(),
                     context: self.context.clone(),
+                    suggestions: self.suggestions.clone(),
+                    replaced_by: self.replaced_by.clone(),
+                    review: self.review.clone(),
                 },
             ),
             log: self.log.clone(),
@@ -446,6 +494,11 @@ impl Task {
             questions: extras.questions,
             parent: extras.parent,
             context: extras.context,
+            suggestions: extras.suggestions,
+            replaced_by: extras.replaced_by,
+            review: extras.review,
+            reviewing: false,
+            rights: None,
             step: 0,
             last: None,
             answer: None,
@@ -489,14 +542,20 @@ impl Task {
         self.log.push(line);
     }
 
+    /// The task ends as `failed`. What the model offered while it planned goes with the
+    /// plan: fixes and more rows of a plan that did not run through are not offered again
+    /// (after a run that stopped at a step, the review offers ways out).
     fn fail(&mut self, e: impl Into<String>) {
         let e = e.into();
         self.push_log(format!("failed: {e}"));
         self.error = Some(e);
         self.state = TaskState::Failed;
+        self.suggestions.clear();
     }
 
-    /// Public `~val`: `{state, step, of, last?}` (ADR 0049 §7). `~val` is broadcast and
+    /// Public `~val`: `{state, step, of, last?, suggestions?, reviewing?, replaced_by?}`
+    /// (ADR 0049 §7, amendment of 2026-11-14). `suggestions` is their count, `replaced_by`
+    /// a task id the link made: a reader learns that the record changed, not what it says. `~val` is broadcast and
     /// answered without a token, to anyone who may read the link, while the record is
     /// restricted. So it holds numbers and the link's own fixed words only: `last` is
     /// `{n, ok, result}` of the latest finished step, `result` one of `ok`, `failed`,
@@ -508,6 +567,15 @@ impl Task {
             ("step", Value::UInt(self.step as u64)),
             ("of", Value::UInt(self.plan.len() as u64)),
         ];
+        if !self.suggestions.is_empty() {
+            kv.push(("suggestions", Value::UInt(self.suggestions.len() as u64)));
+        }
+        if self.reviewing {
+            kv.push(("reviewing", Value::Bool(true)));
+        }
+        if let Some(by) = &self.replaced_by {
+            kv.push(("replaced_by", Value::from(by.as_str())));
+        }
         if let Some((n, status)) = &self.last {
             kv.push((
                 "last",
@@ -544,8 +612,23 @@ impl Task {
                 Value::Array(self.questions.iter().map(Question::to_value).collect()),
             );
         }
+        if !self.suggestions.is_empty() {
+            m.insert(
+                "suggestions".to_owned(),
+                Value::Array(self.suggestions.iter().map(Suggestion::to_value).collect()),
+            );
+        }
         if let Some(p) = &self.parent {
             m.insert("parent".to_owned(), Value::from(p.as_str()));
+        }
+        if let Some(by) = &self.replaced_by {
+            m.insert("replaced_by".to_owned(), Value::from(by.as_str()));
+        }
+        if let Some(r) = &self.review {
+            m.insert("review".to_owned(), Value::from(r.as_str()));
+        }
+        if self.reviewing {
+            m.insert("reviewing".to_owned(), Value::Bool(true));
         }
         if !self.context.is_empty() {
             m.insert(
@@ -742,7 +825,10 @@ impl State {
             }
         }
         for old in &evict {
-            self.tasks.remove(old);
+            // a finished task's worker may still run its review: it ends with the task
+            if let Some(h) = self.tasks.remove(old).and_then(|t| t.worker) {
+                h.abort();
+            }
             self.persist(store::Op::Remove(old.clone()));
         }
         evict
@@ -864,6 +950,9 @@ impl Shared {
                     t.error.is_some(),
                     t.tokens,
                     t.questions.len(),
+                    t.suggestions.len(),
+                    t.replaced_by.is_some(),
+                    t.review.is_some(),
                 )
             };
             let before = mark(t);
@@ -1087,6 +1176,25 @@ fn not_owner() -> LinkError {
         Status::PermissionDenied,
         "only the asker or a config-level caller may do this",
     )
+}
+
+/// The rights of a person a call carries: the caller, when its token has `auth` (spec 04:
+/// a token without it means the caller's rights are unknown, and a responder that needs
+/// them refuses).
+fn asker_rights(who: &Caller) -> Option<Caller> {
+    who.claims
+        .as_ref()
+        .is_some_and(|c| c.auth.is_some())
+        .then(|| who.clone())
+}
+
+/// Keep the newer rights of the asker of `t` from a call of theirs on the task.
+fn renew_rights(t: &mut Task, who: &Caller) {
+    if who.claims.is_some() && caller_sub(who) == t.owner {
+        if let Some(r) = asker_rights(who) {
+            t.rights = Some(r);
+        }
+    }
 }
 
 fn caller_sub(who: &Caller) -> String {
@@ -1321,6 +1429,12 @@ impl Agent {
         let mut context: Vec<String> = Vec::new();
         match arg(&args, "context") {
             None | Some(Value::Null) => {}
+            Some(Value::Array(items)) if !items.is_empty() && asker_rights(who).is_none() => {
+                return Err(LinkError::new(
+                    Status::PermissionDenied,
+                    "context: needs the rights of the asker, a token with `auth` (spec 04)",
+                ));
+            }
             Some(Value::Array(items)) if items.len() <= MAX_CONTEXT => {
                 for i in items {
                     let Value::Str(k) = i else {
@@ -1411,11 +1525,46 @@ impl Agent {
                     step: 0,
                     last: None,
                     answer: None,
+                    suggestions: Vec::new(),
+                    replaced_by: None,
+                    review: None,
+                    reviewing: false,
+                    rights: asker_rights(who),
                 },
             );
             st.save_task(&id);
+            // A task that waits for a person is replaced by its follow-up (the asker asked
+            // for another plan): it ends here, under the same lock, so the old plan cannot
+            // be approved beside the new one. A parent that runs or has ended stays as it
+            // is: a follow-up of it replaces nothing.
+            let replaced = parent.as_ref().is_some_and(|p| {
+                let Some(t) = st.tasks.get_mut(p) else {
+                    return false;
+                };
+                if !matches!(
+                    t.state,
+                    TaskState::AwaitingApproval | TaskState::AwaitingAnswer
+                ) {
+                    return false;
+                }
+                // the planner of a task that waits for an answer waits with it
+                if let Some(h) = t.worker.take() {
+                    h.abort();
+                }
+                t.answer = None;
+                t.fail(format!("replaced by {id}"));
+                t.replaced_by = Some(id.clone());
+                true
+            });
+            if let Some(p) = parent.as_ref().filter(|_| replaced) {
+                st.save_task(p);
+            }
             (id, evict, first, earlier)
         };
+        // the replaced task's record and `~val` say so
+        if let Some(p) = &parent {
+            sh.with_task(p, |_| ()).await;
+        }
         let first = Reserved {
             sh: sh.clone(),
             n: first,
@@ -1510,6 +1659,7 @@ impl Agent {
                     });
                 }
                 t.state = TaskState::Planning;
+                renew_rights(t, who);
                 t.push_log(format!("answered by {sub}"));
                 Ok(tx)
             })
@@ -1584,6 +1734,11 @@ impl Agent {
                 .tasks
                 .get(id)
                 .ok_or_else(|| LinkError::not_found(format!("task {id}")))?;
+            if let Some(by) = &t.replaced_by {
+                return Err(LinkError::invalid_parameter(format!(
+                    "task was replaced by {by}: its plan is no longer approved; approve that task"
+                )));
+            }
             if t.state != TaskState::AwaitingApproval {
                 return Err(LinkError::invalid_parameter(format!(
                     "task is {}, not awaiting_approval",
@@ -1706,6 +1861,7 @@ impl Agent {
                     return false;
                 }
                 t.state = TaskState::Running;
+                renew_rights(t, who);
                 t.push_log(match skipped {
                     0 => format!("approved by {sub}"),
                     n => format!("approved by {sub}, {n} step(s) left out"),
@@ -1783,6 +1939,15 @@ impl Agent {
                     t.push_log(format!("cancel requested by {sub}"));
                     Ok(TaskState::Running)
                 }
+                // the turn after a stopped run: it ends, the task stays failed
+                TaskState::Failed if t.reviewing => {
+                    if let Some(h) = t.worker.take() {
+                        h.abort();
+                    }
+                    t.reviewing = false;
+                    t.push_log(format!("review cancelled by {sub}"));
+                    Ok(TaskState::Failed)
+                }
                 s => Err(LinkError::invalid_parameter(format!(
                     "task is already {}",
                     s.name()
@@ -1829,12 +1994,19 @@ fn brief(id: &str, t: &Task, policy: &Policy) -> String {
         .enumerate()
         .map(|(i, op)| wyrm_mcp::json::value_to_json(&op.to_value(i + 1, policy)))
         .collect();
+    // what the model offered there: the person may have picked one of them
+    let offered: Vec<Json> = t
+        .suggestions
+        .iter()
+        .map(|s| wyrm_mcp::json::value_to_json(&s.to_value()))
+        .collect();
     let j = json!({
         "task": id,
         "ask": t.ask,
         "state": t.state.name(),
         "plan": plan,
         "error": t.error,
+        "suggestions": offered,
     });
     truncate(&j.to_string(), MAX_TOOL_RESULT)
 }
@@ -2031,6 +2203,66 @@ async fn first_message(reader: &Reader<'_>, brief: &Brief) -> String {
     m
 }
 
+/// One call of the model for task `id`: the tokens of the call are held and then charged,
+/// the stream (when there is one) is kept alive while the model thinks, and the model's
+/// words go to the task's log and the stream.
+async fn model_turn(
+    sh: &Arc<Shared>,
+    llm: &dyn LlmClient,
+    id: &str,
+    params: &AgentParams,
+    mut body: Json,
+    mut reserved: Reserved,
+    sink: &mut Option<ReplySink>,
+) -> std::result::Result<Json, String> {
+    // The input is held as well, and the call asks for no more output
+    // than is left: it overruns the budget only by the estimate's error.
+    let Some(out) = reserved.fit(
+        params.budget_tokens_day,
+        input_estimate(&body),
+        params.max_tokens.into(),
+    ) else {
+        return Err("daily token budget exhausted (the next request does not fit)".into());
+    };
+    body["max_tokens"] = out.into();
+    // Keep the ask stream alive while the model thinks: requesters drop a
+    // stream after their idle timeout (wyrm-client default 10 s).
+    let call = llm.messages(body);
+    tokio::pin!(call);
+    let mut tick = tokio::time::interval(KEEPALIVE);
+    tick.tick().await;
+    let resp = loop {
+        tokio::select! {
+            r = &mut call => break r,
+            _ = tick.tick() => progress(sink, id, "wait", "").await,
+        }
+    };
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            // No usage reported: nothing is charged.
+            reserved.settle(0);
+            return Err(format!("LLM: {e}"));
+        }
+    };
+    let used = usage_tokens(&resp);
+    reserved.settle(used);
+    sh.publish_budget().await;
+    sh.with_task(id, |t| t.tokens += used).await;
+    for b in resp["content"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+        if b["type"] == "text" {
+            let s = b["text"].as_str().unwrap_or("").trim();
+            if !s.is_empty() {
+                let line = truncate(s, 600);
+                sh.with_task(id, |t| t.push_log(format!("model: {line}")))
+                    .await;
+                progress(sink, id, "text", &line).await;
+            }
+        }
+    }
+    Ok(resp)
+}
+
 async fn plan_loop(
     sh: &Arc<Shared>,
     llm: &dyn LlmClient,
@@ -2061,62 +2293,18 @@ async fn plan_loop(
         if sh.state_of(id) != Some(TaskState::Planning) {
             return Ok(());
         }
-        let Some(mut reserved) = first.take().or_else(|| sh.reserve()) else {
+        let Some(reserved) = first.take().or_else(|| sh.reserve()) else {
             return Err("daily token budget exhausted".into());
         };
-        let mut body = json!({
+        let body = json!({
             "model": params.model,
             "system": system,
             "tools": tools,
             "messages": messages,
         });
-        // The input is held as well, and the call asks for no more output
-        // than is left: it overruns the budget only by the estimate's error.
-        let Some(out) = reserved.fit(
-            params.budget_tokens_day,
-            input_estimate(&body),
-            params.max_tokens.into(),
-        ) else {
-            return Err("daily token budget exhausted (the next request does not fit)".into());
-        };
-        body["max_tokens"] = out.into();
-        // Keep the ask stream alive while the model thinks: requesters drop a
-        // stream after their idle timeout (wyrm-client default 10 s).
-        let call = llm.messages(body);
-        tokio::pin!(call);
-        let mut tick = tokio::time::interval(KEEPALIVE);
-        tick.tick().await;
-        let resp = loop {
-            tokio::select! {
-                r = &mut call => break r,
-                _ = tick.tick() => progress(sink, id, "wait", "").await,
-            }
-        };
-        let resp = match resp {
-            Ok(r) => r,
-            Err(e) => {
-                // No usage reported: nothing is charged.
-                reserved.settle(0);
-                return Err(format!("LLM: {e}"));
-            }
-        };
-        let used = usage_tokens(&resp);
-        reserved.settle(used);
-        sh.publish_budget().await;
-        sh.with_task(id, |t| t.tokens += used).await;
+        let resp = model_turn(sh, llm, id, &params, body, reserved, sink).await?;
         let content = resp["content"].clone();
         let blocks = content.as_array().cloned().unwrap_or_default();
-        for b in &blocks {
-            if b["type"] == "text" {
-                let s = b["text"].as_str().unwrap_or("").trim();
-                if !s.is_empty() {
-                    let line = truncate(s, 600);
-                    sh.with_task(id, |t| t.push_log(format!("model: {line}")))
-                        .await;
-                    progress(sink, id, "text", &line).await;
-                }
-            }
-        }
         // Append-only history: the assistant content goes back verbatim.
         messages.push(json!({ "role": "assistant", "content": content }));
         match resp["stop_reason"].as_str().unwrap_or("") {
@@ -2135,6 +2323,8 @@ async fn plan_loop(
             let tool_id = b["id"].clone();
             let r = if name == "propose" {
                 propose(sh, &policy, id, input).await
+            } else if name == "suggest" {
+                suggest(sh, &policy, id, input).await
             } else if name == "ask_user" {
                 match ask_user(sh, id, input, asked.len()).await {
                     Ok(q) => {
@@ -2289,6 +2479,177 @@ async fn propose(
     Ok(answer)
 }
 
+/// `suggest`: one more thing the person may ask next (see [`Suggestion`]). Bounded, and its
+/// rows are nodes the asker of the task may read.
+async fn suggest(
+    sh: &Shared,
+    policy: &Policy,
+    id: &str,
+    input: &Json,
+) -> std::result::Result<Json, String> {
+    let (steps, rights) = match sh.lock().tasks.get(id) {
+        Some(t) => (t.plan.len(), t.rights.clone()),
+        None => return Err("the task is gone".into()),
+    };
+    // The asker's rights while their token lives: a row is never checked against rights
+    // that are unknown (no `auth`, a restart) or past their `exp` (fail closed).
+    let now = now_s();
+    let live = rights.filter(|who| who.claims.as_ref().is_some_and(|c| now < c.exp));
+    let has_rows = matches!(input.get("rows"), Some(Json::Array(a)) if !a.is_empty());
+    if has_rows && live.is_none() {
+        return Err(
+            "`rows` need the rights of the task's asker, and they are not known now \
+                    (their token had no `auth`, has expired, or the link restarted): offer it \
+                    without rows"
+                .into(),
+        );
+    }
+    let mut s = tools::suggestion_of(input, policy, steps, |node| {
+        live.as_ref()
+            .is_some_and(|who| who.perm_on(&format!("{node}/~val")) >= Perm::Read)
+    })?;
+    sh.with_task_saved(id, |t| {
+        if t.suggestions.len() >= tools::MAX_SUGGESTIONS {
+            return Err(format!(
+                "this task already holds {} suggestions",
+                tools::MAX_SUGGESTIONS
+            ));
+        }
+        s.id = format!("s{}", t.suggestions.len() + 1);
+        t.push_log(format!("suggested {}", s.id));
+        t.suggestions.push(s.clone());
+        Ok(json!({"ok": true, "id": s.id}))
+    })
+    .await
+    .unwrap_or_else(|| Err("the task is gone".to_owned()))
+}
+
+/// After a run stopped at a step: one bounded turn in which the model reads why and offers
+/// ways out (`suggest`). It plans nothing and asks nobody; the task stays `failed`, and
+/// what the model found is `~state.review`. Skipped without a model, with `review_turns`
+/// 0, and after a cancel. A failure of the turn itself is a log line: the run's own error
+/// stays the task's error.
+async fn review(sh: &Arc<Shared>, id: &str) {
+    let params = sh.params();
+    let Some(llm) = sh.llm.clone().filter(|_| params.review_turns > 0) else {
+        return;
+    };
+    let started = sh
+        .with_task(id, |t| {
+            if t.state != TaskState::Failed || t.cancel {
+                return false;
+            }
+            t.reviewing = true;
+            true
+        })
+        .await
+        .unwrap_or(false);
+    if !started {
+        return;
+    }
+    let r = review_loop(sh, llm.as_ref(), id, &params).await;
+    sh.with_task_saved(id, |t| {
+        t.reviewing = false;
+        match r {
+            Ok(found) => t.review = found.map(|f| truncate(&f, MAX_REVIEW)),
+            Err(e) => t.push_log(format!("review: {e}")),
+        }
+    })
+    .await;
+}
+
+async fn review_loop(
+    sh: &Arc<Shared>,
+    llm: &dyn LlmClient,
+    id: &str,
+    params: &AgentParams,
+) -> std::result::Result<Option<String>, String> {
+    let policy = sh.policy();
+    let site = sh.ctx.site().to_owned();
+    let reader = Reader {
+        client: &sh.reader,
+        policy: &policy,
+        site: &site,
+        timeout: Duration::from_secs(5),
+    };
+    let about = match sh.lock().tasks.get(id) {
+        Some(t) => brief(id, t, &policy),
+        None => return Ok(None),
+    };
+    let system = format!(
+        "{REVIEW_SYSTEM}\n\nSite: {site}. You may read only under: {:?} (and wy/{site}/pub/**).",
+        policy.allowed
+    );
+    let tools = tools::review_definitions();
+    let mut messages = vec![json!({
+        "role": "user",
+        "content": format!("The run of this task stopped (its ask, plan with results, error):\n{about}"),
+    })];
+    let mut found: Option<String> = None;
+    let mut sink = None;
+    for _ in 0..params.review_turns {
+        let Some(reserved) = sh.reserve() else {
+            return Err("daily token budget exhausted".into());
+        };
+        let body = json!({
+            "model": params.model,
+            "system": system,
+            "tools": tools,
+            "messages": messages,
+        });
+        let resp = model_turn(sh, llm, id, params, body, reserved, &mut sink).await?;
+        let content = resp["content"].clone();
+        let blocks = content.as_array().cloned().unwrap_or_default();
+        let said: Vec<&str> = blocks
+            .iter()
+            .filter(|b| b["type"] == "text")
+            .filter_map(|b| b["text"].as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !said.is_empty() {
+            found = Some(said.join(" "));
+        }
+        messages.push(json!({ "role": "assistant", "content": content }));
+        match resp["stop_reason"].as_str().unwrap_or("") {
+            "tool_use" => {}
+            "end_turn" | "stop_sequence" => return Ok(found),
+            other => return Err(format!("the model stopped with {other:?}")),
+        }
+        let mut results = Vec::new();
+        for b in blocks.iter().filter(|b| b["type"] == "tool_use") {
+            let name = b["name"].as_str().unwrap_or("");
+            let r = if name == "suggest" {
+                suggest(sh, &policy, id, &b["input"]).await
+            } else if name == "propose" || name == "ask_user" {
+                Err(format!("{name} is not available after a run"))
+            } else {
+                match reader.call(name, &b["input"]).await {
+                    Some(r) => r,
+                    None => Err(format!("unknown tool {name:?}")),
+                }
+            };
+            let (text, is_error) = match r {
+                Ok(Json::String(s)) => (s, false),
+                Ok(j) => (j.to_string(), false),
+                Err(e) => (e, true),
+            };
+            results.push(json!({
+                "type": "tool_result",
+                "tool_use_id": b["id"],
+                "content": truncate(&text, MAX_TOOL_RESULT),
+                "is_error": is_error,
+            }));
+        }
+        if results.is_empty() {
+            return Err("stop_reason tool_use without tool calls".into());
+        }
+        messages.push(json!({ "role": "user", "content": results }));
+    }
+    // out of turns: what was offered so far stays
+    Ok(found)
+}
+
 /// After planning: re-check the plan, then `done` (nothing to do),
 /// `awaiting_approval` or `running`.
 async fn decide(sh: &Shared, id: &str, sink: &mut Option<ReplySink>) {
@@ -2407,6 +2768,8 @@ async fn execute(sh: Arc<Shared>, id: String, approvals: Vec<Approval>) {
         })
         .await;
         if !ok {
+            // the run stopped at this step: the model reads why and offers ways out
+            review(&sh, &id).await;
             return;
         }
     }
@@ -2714,5 +3077,24 @@ mod tests {
         }
         assert_eq!(st.evict(0), vec!["new-done".to_owned()]);
         assert!(st.tasks.contains_key("old-waiting"));
+    }
+
+    /// An evicted task's worker (a review still running after its run stopped) ends with it.
+    #[tokio::test]
+    async fn eviction_ends_a_review_that_still_runs() {
+        let mut st = State::default();
+        let mut t = Task::from_rec(&rec(TaskState::Failed)).unwrap();
+        t.created = 1;
+        t.reviewing = true;
+        let review = tokio::spawn(std::future::pending::<()>());
+        t.worker = Some(review.abort_handle());
+        st.order.push_back("old-failed".to_owned());
+        st.tasks.insert("old-failed".to_owned(), t);
+        assert_eq!(st.evict(0), vec!["old-failed".to_owned()]);
+        let e = tokio::time::timeout(Duration::from_secs(5), review)
+            .await
+            .expect("the review still runs")
+            .unwrap_err();
+        assert!(e.is_cancelled(), "{e}");
     }
 }

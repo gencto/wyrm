@@ -84,8 +84,8 @@ after a human approves it (ADR 0005). It runs embedded in `wyrmd`
 ## How a task runs
 
 1. A user with `write` on the link calls ▸ **Ask** `{task}`. The link creates `tasks/<id>`.
-   `{task, parent, context}` may name a task this one follows (a retry, an undo) and node keys
-   to read first.
+   `{task, parent, context}` may name a task this one follows (a retry, an undo, another
+   plan) and node keys to read first. A parent that waits for a person is replaced (below).
 2. The model reads the tree with read-only tools. It may ask back (`ask_user`): the task waits
    in `awaiting_answer` until ▸ **Answer** `{answers}`.
 3. The model proposes a plan. `set` and `invoke` steps change the site. `wait`, `expect` and
@@ -102,6 +102,42 @@ after a human approves it (ADR 0005). It runs embedded in `wyrmd`
 
 The agent never runs a `config` step without a human token.
 
+### What the model offers next
+
+The model may offer the person something to ask next (its tool `suggest`). The record holds
+it as `suggestions[]`: `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`.
+
+- `step`: the suggestion is a fix for the warning of that plan step (`warn` is the link's
+  finding, `model_warn` the model's words; show them apart).
+- `rows`: nodes the same change fits (*the same for more units*). The person ticks rows.
+- `changes`: how many changes the model expects it to take. 0: nothing changes.
+
+A suggestion runs nothing. To pick one, send a follow-up Ask: `{parent: <this task>, task:
+"<label>. <detail>", context: [<keys of the ticked rows>]}` (`askSuggestion` in `wyrm_client`).
+The model plans it as a new task, and you approve that plan step by step.
+
+After a run stops at a step, the model gets one more turn (param `review_turns`). It only
+reads, and it offers ways out as suggestions. While the turn runs, the task shows
+`reviewing: true`. What the model found is `review` in the record. The task stays `failed`.
+
+Limits: 8 suggestions in a task, 16 rows each, `label` 80 bytes, `detail` 300 bytes. A row
+must be a node that the agent may read and that the asker of the task may read. A task that
+fails drops the suggestions of its planning. A row is checked against the asker's rights
+from their token's `auth` (spec 04), and only until that token's `exp`. The asker's own
+`answer` or `approve` renews them. Without them the row is refused: a token without `auth`,
+an expired token, a restart of the link (the rights are kept in memory only). `context` in
+Ask needs a token with `auth` too.
+
+You can stop the turn after a run: ▸ **Cancel** while `reviewing`. The task stays `failed`.
+
+### A replaced plan
+
+A follow-up Ask (`parent`) of a task in `awaiting_approval` or `awaiting_answer` takes its
+place. The old task goes to `failed` with `error: "replaced by <id>"` and `replaced_by: <id>`
+in the record and in `~val`. ▸ **Approve** on it is refused (`invalid_parameter`, *task was
+replaced by <id>*), through a gateway too. A follow-up of a task that plans, runs or has ended
+replaces nothing.
+
 Who approves decides what runs without a token:
 
 - The asker of the task, or a user with `config` on the link: a `write` step that needs no
@@ -115,7 +151,8 @@ Who approves decides what runs without a token:
 A gateway user holds no key. Send `approve {steps: [n…], plan: <hash>}`: the gateway reads the
 stored plan, checks your grants for each step and signs one token per step (ADR 0049). `plan`
 is the hash of the plan you read: SHA-256 (hex) of the canonical CBOR of `~state.plan`, each
-step without `approval`, `check`, `warn`, `reason`, `result` (`planHash` in `wyrm_client`).
+step without `approval`, `check`, `warn`, `model_warn`, `reason`, `result` (`planHash` in
+`wyrm_client`).
 A step outside your grants refuses the whole call and names the step and the right.
 
 The gateway signs only:
@@ -146,8 +183,8 @@ The gateway op `doc {key, suffix: "~state"}` reads the record.
 
 | Key | Who reads | What |
 |---|---|---|
-| `tasks/<id>/~val` | read on the link | `{state, step, of, last: {n, ok, result}}`: numbers and fixed words only |
-| `tasks/<id>/~state` | `list` on the task | the ask, owner, plan with results, questions, log, error |
+| `tasks/<id>/~val` | read on the link | `{state, step, of, last: {n, ok, result}, suggestions?, reviewing?, replaced_by?}`: numbers, fixed words and task ids only (`suggestions` is a count) |
+| `tasks/<id>/~state` | `list` on the task | the ask, owner, plan with results, questions, suggestions, `replaced_by`, `review`, log, error |
 | `budget_used_today` | read on the link | LLM tokens used this UTC day |
 | `sys/links/<id>` ▸ `secrets` | `config` | the names of the link's secrets, never a value |
 
@@ -162,6 +199,7 @@ The gateway op `doc {key, suffix: "~state"}` reads the record.
 | `api_key_ref` | `anthropic_api_key` | The link secret with the API key (▸ Set Secret). |
 | `api_base` | `https://api.anthropic.com` | Where the API key is sent. |
 | `max_turns`, `max_tokens`, `llm_timeout_s`, `fallbacks` | | Bounds of one planning run. |
+| `review_turns` | 4 | LLM calls of the turn after a run stopped at a step (ways out). 0: none. |
 
 ## Approval modes
 
@@ -175,9 +213,16 @@ profiles, flow definitions. Anyone who can write such text can try to steer the 
 (prompt injection). Use these modes only with narrow `allowed_prefixes`, and only where
 every write there is safe to make without review (security review AI-4, ADR 0031).
 
-ОБЕРЕЖНО: the `reason` and `warn` of a step, a question's text and the model's log lines come
-from the model too. Before you approve, read each step's key and arguments in `plan`, not only
-the reason.
+ОБЕРЕЖНО: the `reason` and `model_warn` of a step, a question's text, a suggestion, `review`
+and the model's log lines come from the model too. Before you approve, read each step's key
+and arguments in `plan`, not only the reason.
+
+УВАГА: with `config` or `never`, one click on a suggestion card (a way out, a fix, *Make a
+plan for n units*) sends the model's text as a new Ask. That text can carry text the model
+read from devices (prompt injection, AI-4), and the new plan's `write` steps then run without
+a human. The tag `changes` (*nothing* at 0) is only the model's guess, not a check: a
+suggestion tagged *nothing* can still lead to a plan that writes. Read a suggestion before you
+pick it, and keep the mode `write` where you use the suggestion cards.
 
 ## The API key and `api_base`
 

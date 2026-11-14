@@ -14,7 +14,7 @@
 //! [`COMPACT_AT`] records (at start and while running, see [`compact`]):
 //! removed tasks then also leave the disk.
 
-use crate::tools::{Check, OpKind, PlanOp, StepResult};
+use crate::tools::{Check, OpKind, PlanOp, StepResult, Suggestion};
 use crate::{Question, TaskState};
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -228,6 +228,9 @@ fn plan_op_value(op: &PlanOp) -> Value {
     if let Some(w) = &op.warn {
         m.insert("warn".to_owned(), Value::from(w.as_str()));
     }
+    if let Some(w) = &op.model_warn {
+        m.insert("model_warn".to_owned(), Value::from(w.as_str()));
+    }
     if !op.after.is_empty() {
         m.insert(
             "after".to_owned(),
@@ -244,16 +247,27 @@ pub struct Extras {
     pub questions: Vec<Question>,
     pub parent: Option<String>,
     pub context: Vec<String>,
+    /// What the model offers to ask next (absent in records written before 2026-11-14).
+    pub suggestions: Vec<Suggestion>,
+    /// The follow-up task that took this one's place.
+    pub replaced_by: Option<String>,
+    /// What the model found after the run stopped.
+    pub review: Option<String>,
 }
 
 impl Extras {
     fn is_empty(&self) -> bool {
-        self.questions.is_empty() && self.parent.is_none() && self.context.is_empty()
+        self.questions.is_empty()
+            && self.parent.is_none()
+            && self.context.is_empty()
+            && self.suggestions.is_empty()
+            && self.replaced_by.is_none()
+            && self.review.is_none()
     }
 }
 
 /// The plan as persisted: the array of its steps, or, with [`Extras`], a map
-/// `{steps, questions?, parent?, context?}`.
+/// `{steps, questions?, parent?, context?, suggestions?, replaced_by?, review?}`.
 pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
     let steps = Value::Array(plan.iter().map(plan_op_value).collect());
     let v = if extras.is_empty() {
@@ -280,6 +294,24 @@ pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
                         .collect(),
                 ),
             );
+        }
+        if !extras.suggestions.is_empty() {
+            m.insert(
+                "suggestions".to_owned(),
+                Value::Array(
+                    extras
+                        .suggestions
+                        .iter()
+                        .map(Suggestion::to_value)
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(by) = &extras.replaced_by {
+            m.insert("replaced_by".to_owned(), Value::from(by.as_str()));
+        }
+        if let Some(r) = &extras.review {
+            m.insert("review".to_owned(), Value::from(r.as_str()));
         }
         Value::Map(m)
     };
@@ -315,16 +347,23 @@ pub fn decode_plan(b: &[u8]) -> Result<(Vec<PlanOp>, Extras), String> {
                     .collect(),
                 _ => Vec::new(),
             };
+            let text = |k: &str| match m.get(k) {
+                Some(Value::Str(p)) => Some(p.clone()),
+                _ => None,
+            };
             let extras = Extras {
                 questions: match m.get("questions") {
                     Some(Value::Array(a)) => a.iter().filter_map(Question::from_value).collect(),
                     _ => Vec::new(),
                 },
-                parent: match m.get("parent") {
-                    Some(Value::Str(p)) => Some(p.clone()),
-                    _ => None,
-                },
+                parent: text("parent"),
                 context: texts("context"),
+                suggestions: match m.get("suggestions") {
+                    Some(Value::Array(a)) => a.iter().filter_map(Suggestion::from_value).collect(),
+                    _ => Vec::new(),
+                },
+                replaced_by: text("replaced_by"),
+                review: text("review"),
             };
             Ok((plan, extras))
         }
@@ -362,6 +401,7 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
         seconds: m.get("seconds").and_then(Value::as_f64),
         check: Check::from_name(&s("check").unwrap_or_default()),
         warn: s("warn").ok(),
+        model_warn: s("model_warn").ok(),
         after: match m.get("after") {
             Some(Value::Array(a)) => a
                 .iter()
@@ -416,6 +456,7 @@ mod tests {
                     seconds: None,
                     check: Check::AtRun,
                     warn: Some("at the limit".into()),
+                    model_warn: Some("read by another loop".into()),
                     after: vec![1],
                 }],
                 &Extras::default(),
@@ -446,6 +487,11 @@ mod tests {
             (p[0].check, p[0].after.as_slice()),
             (Check::AtRun, &[1][..])
         );
+        // the link's finding and the model's words stay apart
+        assert_eq!(
+            (p[0].warn.as_deref(), p[0].model_warn.as_deref()),
+            (Some("at the limit"), Some("read by another loop"))
+        );
         assert_eq!(encode_plan(&p, &extras), r.plan);
         // questions, the parent and the context travel inside the plan bytes
         let more = Extras {
@@ -463,9 +509,33 @@ mod tests {
             }],
             parent: Some("t1-1".into()),
             context: vec!["wy/s/downstream/m".into()],
+            suggestions: vec![Suggestion {
+                id: "s1".into(),
+                label: "Try slave id 4".into(),
+                detail: "3 is used by ahu-old".into(),
+                changes: 1,
+                step: Some(1),
+                rows: vec![crate::tools::Row {
+                    key: "wy/s/downstream/m/u4".into(),
+                    label: "unit 4".into(),
+                    detail: String::new(),
+                }],
+            }],
+            replaced_by: Some("t1-3".into()),
+            review: Some("the device does not answer".into()),
         };
         let (q, back) = decode_plan(&encode_plan(&p, &more)).unwrap();
-        assert_eq!((q.len(), back), (1, more));
+        assert_eq!((q.len(), back), (1, more.clone()));
+        // a record written before the suggestions (questions, parent, context only) reads
+        // with none, not replaced, no review
+        let before = Extras {
+            suggestions: Vec::new(),
+            replaced_by: None,
+            review: None,
+            ..more
+        };
+        let (_, back) = decode_plan(&encode_plan(&p, &before)).unwrap();
+        assert_eq!(back, before);
         // a record written before ADR 0049 (no result, check, warn, after, seconds) still reads
         let old = Value::Array(vec![Value::Map(BTreeMap::from([
             ("op".to_owned(), Value::from("set")),
@@ -479,6 +549,75 @@ mod tests {
         assert_eq!(p[0].op, OpKind::Set);
         assert_eq!((p[0].check, p[0].result.clone()), (Check::Now, None));
         assert!(p[0].after.is_empty() && p[0].warn.is_none() && p[0].seconds.is_none());
+    }
+
+    /// A WAL record of a task written before the suggestions (2026-11-14): `Op::Put` with
+    /// the plan as a map `{steps, parent, context}` and nothing else. The bytes are fixed,
+    /// so a later change of the encoder cannot hide a record it no longer reads. The store
+    /// schema stays 1: the record's shape did not change, only what its plan bytes may hold.
+    #[test]
+    fn a_task_written_before_the_suggestions_still_loads() {
+        let plan = Value::Map(BTreeMap::from([
+            (
+                "steps".to_owned(),
+                Value::Array(vec![Value::Map(BTreeMap::from([
+                    ("op".to_owned(), Value::from("set")),
+                    ("node".to_owned(), Value::from("wy/s/downstream/m/p")),
+                    ("key".to_owned(), Value::from("wy/s/downstream/m/p/~set")),
+                    ("payload".to_owned(), Value::Float(1.0)),
+                    ("level".to_owned(), Value::UInt(Perm::Write.code().into())),
+                    ("approval".to_owned(), Value::Bool(true)),
+                ]))]),
+            ),
+            ("parent".to_owned(), Value::from("t1-1")),
+            (
+                "context".to_owned(),
+                Value::Array(vec![Value::from("wy/s/downstream/m")]),
+            ),
+        ]));
+        let put = Op::Put(
+            "t1-2".into(),
+            TaskRec {
+                state: "awaiting_approval".into(),
+                owner: "user:op".into(),
+                ask: "set p".into(),
+                plan: wyrm_core::codec::to_vec(&plan).unwrap(),
+                log: vec!["asked by user:op".into()],
+                error: None,
+                tokens: 20,
+                created: 1,
+                seq: 2,
+            },
+        );
+        const OLD: &str = "8200826474312d3289716177616974696e675f617070726f76616c67757365723a6f70\
+            657365742070588aa365737465707381a6626f7063736574636b6579781877792f732f646f776e7374\
+            7265616d2f6d2f702f7e736574646e6f64657377792f732f646f776e73747265616d2f6d2f70656c65\
+            76656c03677061796c6f6164f93c0068617070726f76616cf566706172656e746474312d3167636f6e\
+            74657874817177792f732f646f776e73747265616d2f6d817061736b656420627920757365723a6f70\
+            f6140102";
+        let old: String = OLD.split_whitespace().collect();
+        let bytes = hex::decode(old).unwrap();
+        // the fixed bytes are what the task above encodes to (the record did not change)
+        assert_eq!(minicbor::to_vec(&put).unwrap(), bytes);
+        let Op::Put(id, rec) = minicbor::decode::<Op>(&bytes).unwrap() else {
+            panic!("not a put")
+        };
+        assert_eq!(
+            (id.as_str(), rec.state.as_str()),
+            ("t1-2", "awaiting_approval")
+        );
+        let (steps, extras) = decode_plan(&rec.plan).unwrap();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].key, "wy/s/downstream/m/p/~set");
+        assert_eq!(
+            extras,
+            Extras {
+                parent: Some("t1-1".into()),
+                context: vec!["wy/s/downstream/m".into()],
+                ..Extras::default()
+            },
+            "no suggestions, not replaced, no review"
+        );
     }
 
     #[test]
