@@ -1,8 +1,11 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/ask_agent_action.dart';
+import 'package:business/redux/assistant/actions/pick_suggestion_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
+import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
+import 'package:business/redux/assistant/actions/set_row_pick_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -20,6 +23,7 @@ import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
+import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/agent_task.dart';
@@ -358,6 +362,82 @@ void main() {
     expect(a.secret, {'password'});
     // the node of step 2 does not exist yet: its schema is not known
     expect(b.secret, isEmpty);
+    expect((a.argsKnown, b.argsKnown), (true, false));
+  });
+
+  test('an argument whose schema is not known is masked and never saved '
+      '(spec assistant.md §3)', () async {
+    await withAgent();
+    api.docs['$agent/tasks/t-1 ~state'] = Value.from({
+      'state': 'done',
+      'plan': [
+        {
+          'n': 1,
+          'invoke': 'wy/central/downstream/http',
+          'action': 'add_connection',
+          'args': {'name': 'erp', 'password': 'hunter2'},
+          'level': 'config',
+          'approval': true,
+        },
+        {
+          'n': 2,
+          'invoke': 'wy/central/downstream/http/erp',
+          'action': 'set_secret',
+          'args': {'name': 'erp', 'value': 'hunter2'},
+          'level': 'config',
+          'approval': true,
+          'check': 'at_run',
+        },
+      ],
+    });
+    api.metas['wy/central/downstream/http'] = NodeMeta(
+      actions: {
+        'add_connection': ActionMeta(
+          params: {
+            'name': ParamMeta(),
+            'password': ParamMeta(editor: 'password'),
+          },
+        ),
+      },
+    );
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    final t = s.state.tasks.table['t-1']!;
+    final [a, b] = t.plan.toList();
+    expect(withheld(a), ['password']);
+    // `value` is the secret here, and no schema says so: all are held back
+    expect(withheld(b), ['name', 'value']);
+    final file = planFile(t);
+    expect(file['secrets_left_out'], [
+      'step 1: password',
+      'step 2: name, value',
+    ]);
+    expect(file['steps'], [
+      {
+        'invoke': 'wy/central/downstream/http',
+        'action': 'add_connection',
+        'args': {'name': 'erp'},
+      },
+      {
+        'invoke': 'wy/central/downstream/http/erp',
+        'action': 'set_secret',
+        'args': <String, Object?>{},
+      },
+    ]);
+
+    // once the node exists its schema is read, and only the secret is held
+    api.metas['wy/central/downstream/http/erp'] = NodeMeta(
+      actions: {
+        'set_secret': ActionMeta(
+          params: {
+            'name': ParamMeta(),
+            'value': ParamMeta(editor: 'password'),
+          },
+        ),
+      },
+    );
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+    expect(withheld(s.state.tasks.table['t-1']!.plan[1]), ['value']);
   });
 
   test('how far a plan was checked counts the steps that change something', () {
@@ -666,6 +746,45 @@ void main() {
       expect(as('olena', const []).decidesFor(t('user:olena')), isTrue);
     });
 
+    test('the session max caps every grant, as the gateway does', () {
+      // `/api/me` says `max: write`: a config grant gives write only
+      final capped = _Reader(
+        AppState.initial().copyWith
+            .site(
+              name: 'central',
+              user: 'ivan',
+              max: 'write',
+              grants: const [
+                Grant(key: 'wy/central/**', level: 'config'),
+              ].lock,
+            )
+            .copyWith
+            .assistant(agent: agent),
+      );
+      expect(capped.site.levelOn('wy/central/downstream/x/~set'), 'write');
+      expect(
+        capped.site.levelSigned('$agent/tasks/t-1/~act/approve'),
+        'write',
+      );
+      expect(capped.decidesFor(t('user:olena')), isFalse);
+      expect(capped.mayFollow(t('user:olena')), isFalse);
+      final steps = approvalOf(
+        agentTaskOf('t-1', record('awaiting_approval')).plan,
+        unticked: const ISetConst({}),
+        decides: true,
+        lacks: (level, key) => capped.site.needs(level, key),
+      );
+      // the config step is locked; the write step needs it and goes too
+      expect(steps.first.locked, isNotNull);
+      expect(steps[1].needs, 1);
+
+      // no max (an older gateway): no cap
+      final open = as('ivan', const [
+        Grant(key: 'wy/central/**', level: 'config'),
+      ]);
+      expect(open.site.levelOn('wy/central/downstream/x/~set'), 'config');
+    });
+
     test('config on the approve action decides, by the first grant', () {
       // the link takes the level of the token, and the gateway gives the
       // first grant that matches: write on the agent comes first here
@@ -809,6 +928,223 @@ void main() {
     await s.dispatchAndWait(AnswerTaskAction('t-1', text: 'unit 4'));
 
     expect(api.calls.where((c) => c.action == 'answer'), isEmpty);
+  });
+
+  group('suggestions (ADR 0049 amendment)', () {
+    Value withSuggestions(
+      String state, {
+      Map<String, Object?> more = const {},
+    }) => Value.from({
+      ...(toDart(record(state))! as Map<String, Object?>),
+      'suggestions': [
+        {
+          'id': 's1',
+          'label': 'Try Slave ID 4',
+          'detail': 'edit ahu2, then the same check',
+          'changes': 1,
+          'step': 1,
+        },
+        {
+          'id': 's2',
+          'label': 'Same for more units?',
+          'detail': 'copy the points of ahu2',
+          'changes': 2,
+          'rows': [
+            {
+              'key': 'wy/central/downstream/modbus/tcp/ahu3',
+              'label': 'ahu3',
+              'detail': 'unit 5',
+            },
+            {
+              'key': 'wy/central/downstream/modbus/tcp/ahu4',
+              'label': 'ahu4',
+            },
+          ],
+        },
+      ],
+      ...more,
+    });
+
+    test('the record holds what the model offers, the review and the '
+        'replacement', () async {
+      await withAgent();
+      api.docs['$agent/tasks/t-1 ~state'] = withSuggestions(
+        'failed',
+        more: {
+          'replaced_by': 't-2',
+          'review': 'unit 3 does not answer',
+          'reviewing': true,
+          'plan': [
+            {
+              'n': 1,
+              'set': 'wy/central/downstream/modbus/tcp/ahu2/sp',
+              'value': 21,
+              'level': 'write',
+              'warn': 'at the limit',
+              'model_warn': 'ahu-old used unit 3',
+            },
+          ],
+        },
+      );
+
+      await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+      final t = s.state.tasks.table['t-1']!;
+      expect(
+        [for (final x in t.suggestions) (x.id, x.step, x.changes)],
+        [
+          ('s1', 1, 1),
+          ('s2', null, 2),
+        ],
+      );
+      expect(t.suggestions[1].rows.map((r) => r.label), ['ahu3', 'ahu4']);
+      expect(t.suggestions[1].rows.first.detail, 'unit 5');
+      expect(
+        (t.replacedBy, t.review, t.reviewing),
+        (
+          't-2',
+          'unit 3 does not answer',
+          true,
+        ),
+      );
+      // the link's finding and the model's words stay apart
+      expect(
+        (t.plan.single.warn, t.plan.single.modelWarn),
+        (
+          'at the limit',
+          'ahu-old used unit 3',
+        ),
+      );
+
+      // a record of a link older than the fields
+      api.docs['$agent/tasks/t-1 ~state'] = record('failed');
+      await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+      final old = s.state.tasks.table['t-1']!;
+      expect(old.suggestions, isEmpty);
+      expect(old.replacedBy, isNull);
+      expect(old.review, isNull);
+      expect(old.reviewing, isFalse);
+    });
+
+    test('a pick is a follow-up ask with the card text and the ticked rows '
+        'as context', () async {
+      await withAgent();
+      api
+        ..docs['$agent/tasks/t-1 ~state'] = withSuggestions('done')
+        ..invokes['$agent ▸ ask'] = [
+          Value.from({'task': 't-2', 'state': 'planning'}),
+        ];
+      await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+      // rows start unticked: nothing is sent
+      await s.dispatchAndWait(PickSuggestionAction('t-1', 's2'));
+      expect(api.calls.where((c) => c.action == 'ask'), isEmpty);
+
+      s.dispatchSync(
+        SetRowPickAction(
+          't-1',
+          's2',
+          'wy/central/downstream/modbus/tcp/ahu4',
+          on: true,
+        ),
+      );
+      await s.dispatchAndWait(PickSuggestionAction('t-1', 's2'));
+
+      final call = api.calls.lastWhere((c) => c.action == 'ask');
+      expect(call.key, agent);
+      expect(
+        call.args,
+        Value.from({
+          'task': 'Same for more units?. copy the points of ahu2\nFor: ahu4',
+          'parent': 't-1',
+          'context': ['wy/central/downstream/modbus/tcp/ahu4'],
+        }),
+      );
+      expect(s.state.tasks.selectedTask, 't-2');
+      expect(s.state.assistant.rowPicks, isEmpty);
+
+      // a fix has no rows: its text alone, no context
+      await s.dispatchAndWait(PickSuggestionAction('t-1', 's1'));
+      expect(
+        api.calls.lastWhere((c) => c.action == 'ask').args,
+        Value.from({
+          'task': 'Try Slave ID 4. edit ahu2, then the same check',
+          'parent': 't-1',
+        }),
+      );
+    });
+
+    test('a review that ends reads the record again, the state still '
+        'failed', () async {
+      await withAgent();
+      api.docs['$agent/tasks/t-1 ~state'] = withSuggestions(
+        'failed',
+        more: {'reviewing': true, 'suggestions': <Object?>[]},
+      );
+      s.dispatchSync(SetSelectedTaskAction('t-1'));
+      Future<void> val(Map<String, Object?> v) async {
+        api.subs['$agent/tasks/*']!.add(
+          ValSample('$agent/tasks/t-1', Sample(Value.from(v), t: 1)),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      int reads() => api.calls.where((c) => c.op == 'doc').length;
+      final last = {'n': 2, 'ok': false, 'result': 'failed'};
+
+      await val({
+        'state': 'failed',
+        'step': 2,
+        'last': last,
+        'reviewing': true,
+      });
+      expect(reads(), 1);
+      expect(s.state.tasks.table['t-1']!.reviewing, isTrue);
+      // the review ends: the ways out are in the record
+      api.docs['$agent/tasks/t-1 ~state'] = withSuggestions(
+        'failed',
+        more: {'review': 'unit 3 does not answer'},
+      );
+      await val({'state': 'failed', 'step': 2, 'last': last, 'suggestions': 2});
+      expect(reads(), 2);
+      expect(s.state.tasks.table['t-1']!.reviewing, isFalse);
+      expect(s.state.tasks.table['t-1']!.suggestions, hasLength(2));
+
+      // a task replaced while another one is on screen says so in the list
+      s.dispatchSync(SetSelectedTaskAction(null));
+      await val({
+        'state': 'failed',
+        'step': 2,
+        'last': last,
+        'suggestions': 2,
+        'replaced_by': 't-9',
+      });
+      expect(reads(), 2);
+      expect(s.state.tasks.table['t-1']!.replacedBy, 't-9');
+    });
+  });
+
+  test('the @ chips go with the ask as its context and are cleared', () async {
+    await withAgent();
+    api.invokes['$agent ▸ ask'] = [
+      Value.from({'task': 't-2', 'state': 'planning'}),
+    ];
+    s
+      ..dispatchSync(SetDraftAction('why is it bad?'))
+      ..dispatchSync(SetChipAction('wy/central/downstream/modbus/tcp/ahu2'))
+      ..dispatchSync(SetChipAction('wy/central/downstream/modbus/tcp/ahu3'))
+      ..dispatchSync(
+        SetChipAction('wy/central/downstream/modbus/tcp/ahu3', on: false),
+      );
+
+    await s.dispatchAndWait(AskAgentAction());
+
+    expect(
+      api.calls.lastWhere((c) => c.action == 'ask').args?['context'],
+      Value.from(['wy/central/downstream/modbus/tcp/ahu2']),
+    );
+    expect(s.state.assistant.chips, isEmpty);
+    expect(s.state.assistant.draft, isNull);
   });
 
   test('a follow-up ask names its parent and keeps the draft', () async {

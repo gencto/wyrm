@@ -16,5 +16,8 @@ abstract class AssistantState with _$AssistantState {
     @Default(IMapConst({})) IMap<String, ISet<String>> picks,
     @Default(false) bool shown,
     @Default(IListConst([])) IList<String> watched,
+    @Default(IMapConst({})) IMap<String, ISet<String>> rowPicks,
+    @Default(IListConst([])) IList<String> chips,
+    @Default(IMapConst({})) IMap<String, ISet<int>> revealed,
   }) = _AssistantState;
 }

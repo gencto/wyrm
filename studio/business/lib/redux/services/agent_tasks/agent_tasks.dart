@@ -11,18 +11,24 @@ import '../../../wyrm/mappers/values.dart';
 abstract class AgentTasksServiceListener {
   /// Task [id] of the agent link is now in [state]; its run is at step
   /// [step] and the latest step that ended is [finished] (both 0 before a
-  /// run).
+  /// run). [suggestions] is how many the model offers (their texts are in
+  /// the record), [reviewing] says the model reads why the run stopped,
+  /// [replacedBy] names the task that took this one's place.
   void onTaskState(
     String id,
     TaskState state, {
     int step = 0,
     int finished = 0,
+    int suggestions = 0,
+    bool reviewing = false,
+    String? replacedBy,
   });
 }
 
 /// Follows the public `~val` of every task of one agent link
-/// (`<agent>/tasks/*`: `{state, step, of, last: {n, ok, result}}`, numbers
-/// and fixed words only, ADR 0049 §7). The full record, with the text of
+/// (`<agent>/tasks/*`: `{state, step, of, last: {n, ok, result},
+/// suggestions?, reviewing?, replaced_by?}`, numbers, fixed words and task
+/// ids only, ADR 0049 §7 and its amendment). The full record, with the text of
 /// each step's result, is the task's `~state` document, read by the
 /// Assistant screen on each change.
 class AgentTasksService extends DisposableServiceInterface {
@@ -69,6 +75,9 @@ class AgentTasksService extends DisposableServiceInterface {
             taskStateOf(str(sample.v['state'])),
             step: integer(sample.v['step']) ?? 0,
             finished: integer(sample.v['last']?['n']) ?? 0,
+            suggestions: suggestionCount(sample.v),
+            reviewing: isReviewing(sample.v),
+            replacedBy: replacedBy(sample.v),
           );
         }
       },

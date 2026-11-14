@@ -13991,10 +13991,10 @@ class S {
     );
   }
 
-  /// `The lines after “why” and the warnings come from the model. Read the key and the arguments of each step: they are what runs.`
+  /// `The lines after “why” and under “the assistant says” come from the model; a warning on the yellow band is the link's own check. Read the key and the arguments of each step: they are what runs.`
   String get planWhyNote {
     return Intl.message(
-      'The lines after “why” and the warnings come from the model. Read the key and the arguments of each step: they are what runs.',
+      'The lines after “why” and under “the assistant says” come from the model; a warning on the yellow band is the link\'s own check. Read the key and the arguments of each step: they are what runs.',
       name: 'planWhyNote',
       desc: '',
       args: [],
@@ -14568,6 +14568,267 @@ class S {
       name: 'planSavedSecrets',
       desc: '',
       args: [steps],
+    );
+  }
+
+  /// `Answer, or ask something else…`
+  String get hintPlanning {
+    return Intl.message(
+      'Answer, or ask something else…',
+      name: 'hintPlanning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)`
+  String get hintAwaiting {
+    return Intl.message(
+      'Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)',
+      name: 'hintAwaiting',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `You can write while it runs…`
+  String get hintRunning {
+    return Intl.message(
+      'You can write while it runs…',
+      name: 'hintRunning',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `What next?`
+  String get hintDone {
+    return Intl.message('What next?', name: 'hintDone', desc: '', args: []);
+  }
+
+  /// `Tell it what you know about {node}…`
+  String hintFailed(Object node) {
+    return Intl.message(
+      'Tell it what you know about $node…',
+      name: 'hintFailed',
+      desc: '',
+      args: [node],
+    );
+  }
+
+  /// `+ from Explorer`
+  String get addFromExplorer {
+    return Intl.message(
+      '+ from Explorer',
+      name: 'addFromExplorer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Select a node in Explorer first; it is added here as @ chip.`
+  String get addFromExplorerNone {
+    return Intl.message(
+      'Select a node in Explorer first; it is added here as @ chip.',
+      name: 'addFromExplorerNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the assistant says`
+  String get modelSays {
+    return Intl.message(
+      'the assistant says',
+      name: 'modelSays',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `what the assistant read about it`
+  String get modelReviewed {
+    return Intl.message(
+      'what the assistant read about it',
+      name: 'modelReviewed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `replaces this plan`
+  String get fixReplaces {
+    return Intl.message(
+      'replaces this plan',
+      name: 'fixReplaces',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =0{nothing · its guess} =1{1 change · its guess} other{{n} changes · its guess}}`
+  String changesGuess(num n) {
+    return Intl.plural(
+      n,
+      zero: 'nothing · its guess',
+      one: '1 change · its guess',
+      other: '$n changes · its guess',
+      name: 'changesGuess',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Ways out`
+  String get waysOut {
+    return Intl.message('Ways out', name: 'waysOut', desc: '', args: []);
+  }
+
+  /// `The assistant reads why it stopped…`
+  String get reviewingNote {
+    return Intl.message(
+      'The assistant reads why it stopped…',
+      name: 'reviewingNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A pick is a new ask. Its plan is checked and waits for your approval, step by step.`
+  String get waysNote {
+    return Intl.message(
+      'A pick is a new ask. Its plan is checked and waits for your approval, step by step.',
+      name: 'waysNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `With require_approval “{mode}”, the plan of a pick runs its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.`
+  String waysCaution(Object mode) {
+    return Intl.message(
+      'With require_approval “$mode”, the plan of a pick runs its write steps without a person. The tag is the assistant\'s guess, not a check. Read a tile before you pick it.',
+      name: 'waysCaution',
+      desc: '',
+      args: [mode],
+    );
+  }
+
+  /// `{n, plural, =0{Make a plan} =1{Make a plan for 1 unit} other{Make a plan for {n} units}}`
+  String moreButton(num n) {
+    return Intl.plural(
+      n,
+      zero: 'Make a plan',
+      one: 'Make a plan for 1 unit',
+      other: 'Make a plan for $n units',
+      name: 'moreButton',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Tick the nodes the plan is for.`
+  String get moreNone {
+    return Intl.message(
+      'Tick the nodes the plan is for.',
+      name: 'moreNone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The rows are the assistant's. Its plan for them waits for your approval.`
+  String get moreNote {
+    return Intl.message(
+      'The rows are the assistant\'s. Its plan for them waits for your approval.',
+      name: 'moreNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `replaced`
+  String get replacedTitle {
+    return Intl.message('replaced', name: 'replacedTitle', desc: '', args: []);
+  }
+
+  /// `This plan was replaced by tasks/{id} and cannot be approved. Approve the plan of that task instead.`
+  String replacedNote(Object id) {
+    return Intl.message(
+      'This plan was replaced by tasks/$id and cannot be approved. Approve the plan of that task instead.',
+      name: 'replacedNote',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `Open tasks/{id}`
+  String openReplacement(Object id) {
+    return Intl.message(
+      'Open tasks/$id',
+      name: 'openReplacement',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `replaced by {id}`
+  String taskReplaced(Object id) {
+    return Intl.message(
+      'replaced by $id',
+      name: 'taskReplaced',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `only the asker of this task, or config on the agent link, can follow it up`
+  String get followNeeds {
+    return Intl.message(
+      'only the asker of this task, or config on the agent link, can follow it up',
+      name: 'followNeeds',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The schema of this step is not known yet (an earlier step makes its node): its arguments are masked, and none goes into a saved plan.`
+  String get argsMasked {
+    return Intl.message(
+      'The schema of this step is not known yet (an earlier step makes its node): its arguments are masked, and none goes into a saved plan.',
+      name: 'argsMasked',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Show arguments`
+  String get showArgs {
+    return Intl.message('Show arguments', name: 'showArgs', desc: '', args: []);
+  }
+
+  /// `Hide arguments`
+  String get hideArgs {
+    return Intl.message('Hide arguments', name: 'hideArgs', desc: '', args: []);
+  }
+
+  /// `Stopped at step {n} · {code}`
+  String stoppedAtCode(Object n, Object code) {
+    return Intl.message(
+      'Stopped at step $n · $code',
+      name: 'stoppedAtCode',
+      desc: '',
+      args: [n, code],
+    );
+  }
+
+  /// `replaces this plan; with require_approval “{mode}” the new plan's write steps run without a person`
+  String fixReplacesNoPerson(Object mode) {
+    return Intl.message(
+      'replaces this plan; with require_approval “$mode” the new plan\'s write steps run without a person',
+      name: 'fixReplacesNoPerson',
+      desc: '',
+      args: [mode],
     );
   }
 }

@@ -61,7 +61,11 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
   /// [plan] with the secret arguments of its `invoke` steps named
   /// (`PlanStep.secret`), from the `~meta` of each step's node: a parameter
   /// with the password editor. A node that cannot be read (it does not
-  /// exist yet, `check: at_run`) names none: its schema is not known.
+  /// exist yet, `check: at_run`; or it is outside the user's rights), or
+  /// one whose meta does not describe the action, gives no schema: the
+  /// step is marked `argsKnown: false`, so every argument of it is masked
+  /// until the person reveals it and none is written to a file (spec
+  /// `assistant.md` §3, secret arguments).
   Future<IList<PlanStep>> _secrets(IList<PlanStep> plan) async {
     final metas = <String, NodeMeta?>{};
     final out = <PlanStep>[];
@@ -80,6 +84,7 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
       final params = metas[s.key]?.actions?[s.action]?.params;
       out.add(
         s.copyWith(
+          argsKnown: params != null,
           secret: {
             for (final name in s.args.keys)
               if (params?[name]?.isPassword ?? false) name,

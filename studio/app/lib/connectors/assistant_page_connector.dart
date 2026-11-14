@@ -7,11 +7,15 @@ import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/ask_agent_action.dart';
 import 'package:business/redux/assistant/actions/load_assistant_action.dart';
+import 'package:business/redux/assistant/actions/pick_suggestion_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
+import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_option_pick_action.dart';
 import 'package:business/redux/assistant/actions/set_panel_action.dart';
+import 'package:business/redux/assistant/actions/set_row_pick_action.dart';
 import 'package:business/redux/assistant/actions/set_shown_action.dart';
+import 'package:business/redux/assistant/actions/set_step_reveal_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/assistant/actions/set_watched_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
@@ -35,11 +39,16 @@ import 'package:models/plan_step.dart';
 import 'package:models/task_event.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
+import 'package:models/task_suggestion.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/model_words.dart';
+import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
 import 'package:ui/assistant/run_card.dart';
+import 'package:ui/assistant/stopped_card.dart';
+import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/fact_grid.dart';
@@ -88,17 +97,29 @@ class AssistantPageConnector extends StatelessWidget {
         events: vm.events,
         plan: vm.plan,
         onTick: vm.onTick,
+        onFix: vm.onPickSuggestion,
+        onReveal: vm.onReveal,
         run: vm.run,
         result: vm.result,
+        more: vm.more,
+        onRow: vm.onRow,
+        onMore: vm.onPickSuggestion,
+        stopped: vm.stopped,
+        onWay: vm.onPickSuggestion,
         choices: vm.choices,
         onPick: vm.onPick,
         onAnswer: vm.onAnswer,
         card: vm.card,
         onButton: (b) => vm.onButton(context, b),
         draft: vm.draft,
-        askHint: vm.answering ? S.current.answerHint : S.current.askHint,
+        askHint: vm.askHint,
         askLabel: vm.answering ? S.current.answerButton : S.current.askButton,
         askReason: vm.askReason,
+        chips: vm.chips,
+        onChipRemove: vm.onChipRemove,
+        addChipLabel: vm.answering ? null : S.current.addFromExplorer,
+        addChipReason: vm.addChipReason,
+        onAddChip: vm.onAddChip,
         onDraft: vm.onDraft,
         onAsk: vm.onAsk,
         panels: [
@@ -140,10 +161,23 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     }
     final rights = assistant.panel == 'rights';
     final cancelReason = agent == null ? null : site.needs('write', agent);
-    // the ticks of a plan that waits; none where this gateway cannot sign
+    // the ticks of a plan that waits; none where this gateway cannot sign,
+    // nor for a plan another task replaced (its approve is refused)
     final choices =
-        task != null && task.state == .awaitingApproval && otherSite == null
+        task != null &&
+            task.state == .awaitingApproval &&
+            task.replacedBy == null &&
+            otherSite == null
         ? choicesOf(task)
+        : null;
+    // the Explorer selection, offered as an `@` chip of this site
+    final selected = nodes.selectedNode;
+    final offered =
+        selected != null &&
+            site.root != null &&
+            selected.startsWith('${site.root}/') &&
+            !assistant.chips.contains(selected)
+        ? selected
         : null;
     return _Vm(
       agentName: agent?.split('/').skip(2).join('/') ?? 'agent',
@@ -186,9 +220,41 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       },
       run: task == null ? null : _run(task),
       result: task == null ? null : _result(task),
+      more: task == null ? const [] : _more(task),
+      stopped: task == null ? null : _stopped(task),
+      onPickSuggestion: (sid) {
+        if (id != null) {
+          unawaited(dispatchAndWait(PickSuggestionAction(id, sid)));
+        }
+      },
+      onRow: (sid, key, {required on}) {
+        if (id != null) {
+          dispatchSync(SetRowPickAction(id, sid, key, on: on));
+        }
+      },
+      onReveal: (n) {
+        if (id != null) {
+          dispatchSync(
+            SetStepRevealAction(
+              id,
+              n,
+              shown: !(assistant.revealed[id]?.contains(n) ?? false),
+            ),
+          );
+        }
+      },
       watch: task == null ? const [] : _touched(task),
       card: task == null ? null : _card(task, cancelReason, choices),
       draft: assistant.draft ?? '',
+      askHint: _hint(task),
+      chips: [for (final k in assistant.chips) (k, _short(k))],
+      onChipRemove: (k) => dispatchSync(SetChipAction(k, on: false)),
+      addChipReason: offered == null ? S.current.addFromExplorerNone : null,
+      onAddChip: () {
+        if (offered != null) {
+          dispatchSync(SetChipAction(offered));
+        }
+      },
       askReason: agent == null
           ? S.current.noAgent
           : (site.needs('write', agent) ??
@@ -260,12 +326,18 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       },
       onDraft: (t) => dispatchSync(SetDraftAction(t)),
       // while the assistant waits for an answer, the box answers it in
-      // the person's own words
+      // the person's own words; else it follows the selected task (a plan
+      // that waits is replaced by the new one, spec assistant.md §4)
       onAsk: () => unawaited(
         dispatchAndWait(
           id != null && task?.state == .awaitingAnswer
               ? AnswerTaskAction(id, text: assistant.draft)
-              : AskAgentAction(),
+              : AskAgentAction(
+                  parent:
+                      task != null && task.replacedBy == null && mayFollow(task)
+                      ? id
+                      : null,
+                ),
         ),
       ),
       onPanel: (p) => dispatchSync(SetPanelAction(p)),
@@ -298,6 +370,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             );
             if (reason != null) {
               await dispatchAndWait(RejectTaskAction(id, reason: reason));
+            }
+          case 'replacement':
+            if (task?.replacedBy case final next?) {
+              dispatchSync(SetSelectedTaskAction(next));
+              await dispatchAndWait(RetrieveTaskRecordAction(next));
             }
           case 'explorer':
             if (_node(task) case final node?) {
@@ -343,7 +420,9 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
   /// every argument (docs/agent.md: never only the model's reason).
   PlanCardVm _plan(AgentTask t, List<StepChoice>? choices) => PlanCardVm(
     title: S.current.planSteps(t.plan.length),
-    state: t.state == .awaitingApproval
+    state: t.replacedBy != null
+        ? S.current.taskReplaced('tasks/${t.replacedBy}')
+        : t.state == .awaitingApproval
         ? switch (planChecks(t.plan)) {
             (now: _, atRun: 0) => S.current.planChecked,
             (:final now, :final atRun) => S.current.planCheckedPartly(
@@ -355,11 +434,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     stateTone: _tone(t.state),
     note: S.current.planWhyNote,
     // a plan that waits is read whole; after that its run tells the story
-    open: t.state == .awaitingApproval,
+    open: t.state == .awaitingApproval && t.replacedBy == null,
     showLabel: S.current.showSteps,
     hideLabel: S.current.hideSteps,
     steps: [
-      for (final (i, s) in t.plan.indexed) _step(s, choices?.elementAt(i)),
+      for (final (i, s) in t.plan.indexed) _step(t, s, choices?.elementAt(i)),
     ],
   );
 
@@ -577,8 +656,27 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       if (s.result?.status == 'skipped') s.n,
   ];
 
-  static PlanStepVm _step(PlanStep s, StepChoice? choice) {
+  PlanStepVm _step(AgentTask t, PlanStep s, StepChoice? choice) {
     final changes = s.op == 'set' || s.op == 'invoke';
+    final hidden = withheld(s);
+    // masked because the schema is not known: the person may look
+    final guessed = !s.argsKnown && hidden.isNotEmpty;
+    final shown = guessed && (assistant.revealed[t.id]?.contains(s.n) ?? false);
+    // the fixes the model offers for this step, while the plan waits
+    final fixes = t.state == .awaitingApproval && t.replacedBy == null
+        ? [
+            for (final f in t.suggestions)
+              if (f.step == s.n)
+                _tile(
+                  t,
+                  f,
+                  note: switch (_unattended) {
+                    final mode? => S.current.fixReplacesNoPerson(mode),
+                    null => S.current.fixReplaces,
+                  },
+                ),
+          ]
+        : const <SuggestionTileVm>[];
     return PlanStepVm(
       n: s.n,
       verb: s.op.toUpperCase(),
@@ -593,7 +691,9 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           (
             e.key,
             // a secret is not shown; the approval is still bound to it
-            s.secret.contains(e.key) ? secretMask : _shown(e.value),
+            s.secret.contains(e.key) || (hidden.contains(e.key) && !shown)
+                ? secretMask
+                : _shown(e.value),
           ),
         if (s.op != 'sleep')
           if (s.seconds case final sec?)
@@ -603,8 +703,21 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ? (s.check == 'at_run' ? S.current.checkAtRun : S.current.checkNow)
           : null,
       checked: s.check != 'at_run',
-      argsNote: s.secret.isEmpty ? null : S.current.planSecretNote,
+      argsNote: guessed
+          ? S.current.argsMasked
+          : (s.secret.isEmpty ? null : S.current.planSecretNote),
+      revealLabel: guessed
+          ? (shown ? S.current.hideArgs : S.current.showArgs)
+          : null,
       warn: s.warn,
+      modelWarn: switch (s.modelWarn) {
+        final w? when w.isNotEmpty => ModelWordsVm(
+          label: S.current.modelSays,
+          text: w,
+        ),
+        _ => null,
+      },
+      fixes: fixes,
       why: s.reason,
       ticked: choice?.ticked,
       tickReason:
@@ -723,7 +836,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     return out;
   }
 
-  TaskCardVm _card(AgentTask t, String? reason, List<StepChoice>? choices) {
+  TaskCardVm? _card(AgentTask t, String? reason, List<StepChoice>? choices) {
     final agent = assistant.agent;
     final ticked = choices?.where((c) => c.ticked ?? false).length ?? 0;
     // every change that runs once approved: the ticked steps, and those the
@@ -738,6 +851,21 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       danger: true,
       disabledReason: reason,
     );
+    // a plan another task took the place of: never approved, and the way
+    // to the task that replaced it (its `~val` may still say it waits)
+    if (t.replacedBy case final next?) {
+      return TaskCardVm(
+        title: S.current.replacedTitle,
+        note: S.current.replacedNote(next),
+        buttons: [
+          TaskButtonVm(
+            id: 'replacement',
+            label: S.current.openReplacement(next),
+            primary: true,
+          ),
+        ],
+      );
+    }
     return switch (t.state) {
       .awaitingApproval => TaskCardVm(
         title: S.current.planCard,
@@ -820,16 +948,14 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       .failed => switch (t.plan
           .where((s) => s.result?.status == 'failed')
           .firstOrNull) {
-        // stopped in its run: where, and what the step answered
-        final at? => TaskCardVm(
-          title: S.current.stoppedAt(at.n),
-          note: S.current.stoppedNote(
-            at.result!.message.isEmpty
-                ? (t.error ?? S.current.failedNote)
-                : at.result!.message,
-          ),
-          caution: true,
+        // stopped in its run: the Stopped card says where and what next;
+        // while the model reviews the run it can be cancelled
+        _? when t.reviewing => TaskCardVm(
+          title: _stateLabel(t.state),
+          note: S.current.runningNote,
+          buttons: [cancel],
         ),
+        _? => null,
         null => TaskCardVm(
           title: _stateLabel(t.state),
           note: t.error ?? S.current.failedNote,
@@ -839,9 +965,147 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     };
   }
 
+  /// Why a suggestion of [t] cannot be picked: no agent, no write on it,
+  /// an ask in flight, or the user may not follow the task up.
+  String? _followReason(AgentTask t) {
+    final agent = assistant.agent;
+    if (agent == null) {
+      return S.current.noAgent;
+    }
+    return site.needs('write', agent) ??
+        (_asking ? '…' : null) ??
+        (mayFollow(t) ? null : S.current.followNeeds);
+  }
+
+  /// A suggestion as a tile: the model's words as plain text, its guessed
+  /// changes as the tag.
+  SuggestionTileVm _tile(AgentTask t, TaskSuggestion s, {String? note}) =>
+      SuggestionTileVm(
+        id: s.id,
+        label: s.label,
+        detail: s.detail,
+        tag: S.current.changesGuess(s.changes),
+        tagTone: s.changes == 0 ? .neutral : .ember,
+        note: note,
+        disabledReason: _followReason(t),
+      );
+
+  /// *Same for more units?* of a task that is done: the suggestions with
+  /// rows, each row tickable, none ticked at first.
+  List<MoreRowsCardVm> _more(AgentTask t) {
+    if (t.state != .done) {
+      return const [];
+    }
+    return [
+      for (final s in t.suggestions)
+        if (s.rows.isNotEmpty)
+          () {
+            final picked =
+                assistant.rowPicks['${t.id}/${s.id}'] ??
+                const ISetConst<String>({});
+            final n = s.rows.where((r) => picked.contains(r.key)).length;
+            return MoreRowsCardVm(
+              id: s.id,
+              title: s.label,
+              detail: s.detail,
+              rows: [
+                for (final r in s.rows)
+                  MoreRowVm(
+                    key: r.key,
+                    label: r.label,
+                    detail: r.detail,
+                    ticked: picked.contains(r.key),
+                  ),
+              ],
+              button: S.current.moreButton(n),
+              disabledReason:
+                  _followReason(t) ?? (n == 0 ? S.current.moreNone : null),
+              note: switch (_unattended) {
+                final mode? => S.current.waysCaution(mode),
+                null => S.current.moreNote,
+              },
+            );
+          }(),
+    ];
+  }
+
+  /// Where a run stopped, what the model read about it, and its ways out
+  /// (every suggestion the review left: a failed task keeps only those).
+  StoppedCardVm? _stopped(AgentTask t) {
+    if (t.state != .failed || t.replacedBy != null) {
+      return null;
+    }
+    final at = t.plan.where((s) => s.result?.status == 'failed').firstOrNull;
+    if (at == null) {
+      return null;
+    }
+    final message = at.result!.message.isEmpty
+        ? (t.error ?? S.current.failedNote)
+        : at.result!.message;
+    final code = RegExp('^([a-z][a-z0-9_]*):').firstMatch(message)?[1];
+    return StoppedCardVm(
+      title: code == null
+          ? S.current.stoppedAt(at.n)
+          : S.current.stoppedAtCode(at.n, code),
+      message: S.current.stoppedNote(message),
+      reviewing: t.reviewing ? S.current.reviewingNote : null,
+      review: switch (t.review) {
+        final r? when !t.reviewing => ModelWordsVm(
+          label: S.current.modelReviewed,
+          text: r,
+        ),
+        _ => null,
+      },
+      waysLabel: S.current.waysOut,
+      ways: [for (final s in t.suggestions) _tile(t, s)],
+      // docs/agent.md: with these modes a pick may write without a person
+      caution: switch (_unattended) {
+        final mode? => S.current.waysCaution(mode),
+        null => null,
+      },
+      note: t.suggestions.isEmpty ? null : S.current.waysNote,
+    );
+  }
+
+  /// The agent's `require_approval` when it lets a plan's `write` steps
+  /// run without a person (`config`, `never`): a picked suggestion's plan
+  /// may then write at once (docs/agent.md, AI-4). Null for `write`.
+  String? get _unattended => switch (assistant.cfg['require_approval']) {
+    final m? when m == 'config' || m == 'never' => m,
+    _ => null,
+  };
+
+  /// The composer's hint for the task on screen (spec `assistant.md` §4).
+  String _hint(AgentTask? t) => switch (t?.state) {
+    null => S.current.askHint,
+    .awaitingAnswer => S.current.answerHint,
+    .planning => S.current.hintPlanning,
+    .awaitingApproval when t!.replacedBy == null => S.current.hintAwaiting,
+    .running => S.current.hintRunning,
+    .done => S.current.hintDone,
+    .failed when t!.replacedBy == null => S.current.hintFailed(
+      _short(
+        t.plan
+                .where((s) => s.result?.status == 'failed')
+                .map((s) => s.key)
+                .firstOrNull ??
+            t.id,
+      ).split('/').last,
+    ),
+    _ => S.current.hintDone,
+  };
+
+  /// A key as it is shown in a chip: below the site, without `downstream/`.
+  static String _short(String key) {
+    final below = key.split('/').skip(2).join('/');
+    return below.startsWith('downstream/')
+        ? below.substring('downstream/'.length)
+        : below;
+  }
+
   /// Who asked and how it ended, under a task's name.
   String? _detail(AgentTask t) {
-    if (!t.recorded) {
+    if (!t.recorded && t.replacedBy == null) {
       return null;
     }
     final failedAt = t.plan
@@ -851,7 +1115,9 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     final parts = [
       if (t.owner.isNotEmpty && !askedByUser(t))
         S.current.taskBy(t.owner.replaceFirst('user:', '')),
-      if (failedAt != null)
+      if (t.replacedBy case final next?)
+        S.current.taskReplaced(next)
+      else if (failedAt != null)
         S.current.taskFailedAt(failedAt)
       else if (t.state == .done && t.plan.isEmpty)
         S.current.taskNoChanges,
@@ -898,6 +1164,11 @@ class _Vm extends Vm {
     required this.onTick,
     required this.run,
     required this.result,
+    required this.more,
+    required this.stopped,
+    required this.onPickSuggestion,
+    required this.onRow,
+    required this.onReveal,
     required this.choices,
     required this.answering,
     required this.onPick,
@@ -905,6 +1176,11 @@ class _Vm extends Vm {
     required this.watch,
     required this.card,
     required this.draft,
+    required this.askHint,
+    required this.chips,
+    required this.onChipRemove,
+    required this.addChipReason,
+    required this.onAddChip,
     required this.askReason,
     required this.panel,
     required this.facts,
@@ -931,11 +1207,16 @@ class _Vm extends Vm {
            plan,
            run,
            result,
+           more,
+           stopped,
            choices,
            answering,
            watch,
            card,
            draft,
+           askHint,
+           chips,
+           addChipReason,
            askReason,
            panel,
            facts,
@@ -955,6 +1236,13 @@ class _Vm extends Vm {
   final void Function(int n, {required bool ticked})? onTick;
   final RunCardVm? run;
   final ResultCardVm? result;
+  final List<MoreRowsCardVm> more;
+  final StoppedCardVm? stopped;
+
+  /// A suggestion (a fix, a way out, more units) of the task was picked.
+  final ValueChanged<String> onPickSuggestion;
+  final void Function(String suggestion, String key, {required bool on}) onRow;
+  final ValueChanged<int> onReveal;
   final ChoicesCardVm? choices;
 
   /// The task waits for the person's answer: the box answers it.
@@ -966,6 +1254,11 @@ class _Vm extends Vm {
   final List<String> watch;
   final TaskCardVm? card;
   final String draft;
+  final String askHint;
+  final List<ChipVm> chips;
+  final ValueChanged<String> onChipRemove;
+  final String? addChipReason;
+  final VoidCallback onAddChip;
   final String? askReason;
   final String panel;
   final List<FactVm> facts;

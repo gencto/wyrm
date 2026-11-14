@@ -16,6 +16,7 @@ import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_children_action.dart';
 import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
+import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/points.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -59,7 +60,12 @@ void main() {
           subject: 'user:olena',
           site: 'central',
           roles: const ['operator'],
-          max: 'write',
+          // as the gateway sends it: the highest level of the grants
+          max: grants.isEmpty
+              ? 'write'
+              : grants.map((g) => g.$2).reduce(
+                  (a, b) => levelRank(a) >= levelRank(b) ? a : b,
+                ),
           grants: grants,
         ),
       ),

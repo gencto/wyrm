@@ -21,14 +21,19 @@ import '../../tasks/task_rows.dart';
 /// read, `state` it reached). Each row becomes an event of the task, so
 /// the conversation fills as the agent works.
 ///
-/// With [text] the ask is that text and the draft in the box stays; with
-/// [parent] it follows that task (`ask {task, parent}`, ADR 0049 §9): the
-/// model gets the parent's ask, plan and results.
+/// With [text] the ask is that text, with [context] its keys, and the
+/// draft and the `@` chips in the box stay; without it the ask is the
+/// draft with the chips as its context, and both are cleared once the ask
+/// is taken. With [parent] it follows that task (`ask {task, parent,
+/// context}`, ADR 0049 §9): the model gets the parent's ask, plan and
+/// results, and a parent that waits for approval or an answer is replaced
+/// by the new task.
 class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
-  AskAgentAction({this.text, this.parent});
+  AskAgentAction({this.text, this.parent, this.context});
 
   final String? text;
   final String? parent;
+  final List<String>? context;
 
   @override
   Future<AppState?> reduce() async {
@@ -47,7 +52,13 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
     }
     String? id;
     try {
-      await for (final r in deps.wyrm.askAgent(agent, ask, parent: parent)) {
+      final keys = context ?? (text == null ? assistant.chips.toList() : []);
+      await for (final r in deps.wyrm.askAgent(
+        agent,
+        ask,
+        parent: parent,
+        context: keys,
+      )) {
         final task = str(r['task']);
         // another site was viewed meanwhile: its table is not this agent's
         if (task == null || assistant.agent != agent) {
@@ -119,7 +130,8 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
 
 class _ClearDraft extends Action {
   @override
-  AppState reduce() => state.copyWith.assistant(draft: null);
+  AppState reduce() =>
+      state.copyWith.assistant(draft: null, chips: const IListConst([]));
 }
 
 class _Select extends Action {

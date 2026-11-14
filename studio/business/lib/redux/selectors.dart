@@ -148,6 +148,17 @@ extension TaskApproval on Selectors {
                 levelRank('config'));
   }
 
+  /// The user may send a follow-up of [t] (`ask {parent}`, ADR 0049 §9):
+  /// its asker, or `config` on the agent's `ask` (the level the link reads
+  /// from the token, first match).
+  bool mayFollow(AgentTask t) {
+    final agent = assistant.agent;
+    return askedByUser(t) ||
+        (agent != null &&
+            levelRank(site.levelSigned('$agent/~act/ask')) >=
+                levelRank('config'));
+  }
+
   /// The logged-in user asked [t] (the record's owner is `user:<name>`).
   bool askedByUser(AgentTask t) =>
       t.owner.isNotEmpty &&
@@ -476,8 +487,17 @@ extension type SelectSite(AppState _state) {
         best = r;
       }
     }
-    return levels[best];
+    return levels[_capped(best)];
   }
+
+  /// [rank] capped by the session's `max` (`/api/me`), as the gateway caps
+  /// every grant (`Grants::perm`): no level above it is shown or signed.
+  /// No `max` (an older gateway) or a level name not known here: no cap;
+  /// the gateway still caps what it signs.
+  int _capped(int rank) => switch (levelRank(max)) {
+    final m when m >= 0 && m < rank => m,
+    _ => rank,
+  };
 
   /// The level a token the gateway mints for [key] carries: the first
   /// grant whose pattern matches it decides, as at the gateway and at the
@@ -487,7 +507,7 @@ extension type SelectSite(AppState _state) {
   String levelSigned(String key) {
     for (final g in _state.site.grants) {
       if (keyMatches(g.key, key)) {
-        return levels[levelRank(g.level).clamp(0, levels.length - 1)];
+        return levels[_capped(levelRank(g.level).clamp(0, levels.length - 1))];
       }
     }
     return levels.first;
@@ -506,6 +526,10 @@ extension type SelectSite(AppState _state) {
   String? needs(String level, String key) => can(level, key)
       ? null
       : 'needs $level on ${key.split('/').skip(2).join('/')}';
+
+  /// The highest level the session may use (`/api/me` `max`); null from a
+  /// gateway that does not send it.
+  String? get max => _state.site.max;
 }
 
 extension type SelectNodes(AppState _state) {
@@ -977,6 +1001,15 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns watched
   IList<String> get watched => _state.assistant.watched;
+
+  /// Returns rowPicks
+  IMap<String, ISet<String>> get rowPicks => _state.assistant.rowPicks;
+
+  /// Returns chips
+  IList<String> get chips => _state.assistant.chips;
+
+  /// Returns revealed
+  IMap<String, ISet<int>> get revealed => _state.assistant.revealed;
 }
 
 extension type SelectChanges(AppState _state) {
