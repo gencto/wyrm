@@ -6,6 +6,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/access/actions/set_tab_action.dart'
     as access_slice;
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
 import 'package:business/redux/changes/actions/add_changes_action.dart';
 import 'package:business/redux/changes/actions/remove_change_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
@@ -36,6 +37,8 @@ import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/system/actions/set_source_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart';
 import 'package:business/redux/system/actions/set_traffic_window_action.dart';
+import 'package:business/wyrm/features.dart';
+import 'package:business/wyrm/mappers/backup_mapper.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:file_picker/file_picker.dart';
@@ -74,9 +77,13 @@ import 'package:ui/tables/log_table.dart';
 import 'package:ui/tables/row_list.dart';
 import 'package:ui/tables/term_table.dart';
 
+import '../common/backup_sheets.dart';
 import '../common/every.dart';
+import '../common/sizes.dart';
 import '../common/tab_visibility.dart';
 import '../common/trend.dart';
+import '../dialogs/backup_dialogs.dart';
+import '../dialogs/broker_update_dialog.dart';
 import '../dialogs/profile_dialog.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -151,6 +158,12 @@ class SystemPageConnector extends StatelessWidget {
           onPutProfile: () => vm.onPutProfile(context),
           onRemoveProfile: (name) => vm.onRemoveProfile(context, name),
           onCopyCommand: (id) => vm.onCopyCommand(context, id),
+          onBrokerUpdate: () => unawaited(
+            showBrokerUpdateDialog(context, follow: vm.updateRuns),
+          ),
+          onBackUp: () => unawaited(showBackupDialog(context)),
+          onRestore: () => unawaited(showBackupDialog(context, restore: true)),
+          onOpenBackup: (id) => unawaited(showBackupDialog(context, job: id)),
           onElsewhere: (id) => vm.onElsewhere(context, id),
         ),
       ),
@@ -169,6 +182,8 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
     '$_sys/*',
     '$_sys/links/*/state',
     '$_sys/history/database_size',
+    // The values of the kept backups (ADR 0048 §3.4).
+    '$_sys/backups/*/*',
   ];
 
   double? _n(String k) => switch (live.values['$_sys/$k']?.value) {
@@ -250,6 +265,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       availability: _availability(lag, forks),
       log: _log(reason, level),
       maintenance: _maintenance(reason),
+      updateRuns: _updateRuns(brokerUpdateIn(state).updateState),
       attention: _attention(),
       polling: system.auto && system.tab == SystemPage.logTab && reason == null,
       onShow: () {
@@ -361,6 +377,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
   Future<void> _load() async {
     unawaited(dispatchAndWait(RetrieveSysAboutAction()));
     unawaited(dispatchAndWait(RetrieveProfilesAction()));
+    unawaited(dispatchAndWait(RetrieveBackupsAction(quiet: true)));
     unawaited(dispatchAndWait(RetrieveQuarantineAction()));
     if (state.system.tab == SystemPage.logTab) {
       _readLog();
@@ -985,6 +1002,89 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
     ];
   }
 
+  /// The card *Broker version*: the one way into the broker update. Null
+  /// while the broker part does not exist ([Features.brokerUpdate]), and
+  /// for a broker that shows no `latest`.
+  BrokerVersionCardVm? _version(String? reason) {
+    if (!Features.brokerUpdate) {
+      return null;
+    }
+    final d = brokerUpdateIn(state);
+    if (d.latest.isEmpty && d.updateState == 'none') {
+      return null;
+    }
+    final newer = d.latest.isNotEmpty && d.latest != d.version;
+    return BrokerVersionCardVm(
+      title: S.current.bupCard,
+      line: switch (d.updateState) {
+        'staged' || 'trial' => S.current.bupCardTrial(d.version),
+        'rolled_back' => S.current.bupCardRolledBack(d.version),
+        _ when newer => S.current.bupCardAvailable(d.version, d.latest),
+        _ => S.current.bupCardCurrent(d.version),
+      },
+      tone: switch (d.updateState) {
+        'rolled_back' => Tone.warn,
+        _ when newer => Tone.ember,
+        _ => Tone.neutral,
+      },
+      action: _updateRuns(d.updateState) || !newer
+          ? S.current.bupShow
+          : S.current.bupUpdate,
+      reason: reason,
+    );
+  }
+
+  /// An update runs or ended: the dialog opens on what the broker says.
+  static bool _updateRuns(String updateState) => updateState != 'none';
+
+  /// The card *Backups*: null for a broker without `sys/backups`.
+  BackupsCardVm? _backups(String? reason) {
+    if (backups.sections.isEmpty) {
+      return null;
+    }
+    return BackupsCardVm(
+      title: S.current.bakCard,
+      note: S.current.bakCardNote(backups.keepDays),
+      empty: S.current.bakCardEmpty,
+      backUpLabel: S.current.bakBackUp,
+      restoreLabel: S.current.bakRestore,
+      reason: reason,
+      rows: [
+        // Newest first: the ids are in the order the broker made them.
+        for (final id in backups.view.reversed)
+          if (backupLive(
+                backups.table[id]!,
+                (leaf) => live.values['$_sys/backups/$id/$leaf']?.value,
+              )
+              case final j)
+            RowItemVm(
+              id: j.id,
+              title: j.name,
+              subtitle: [
+                switch (j.kind) {
+                  'link' => S.current.bakKindLink(j.link),
+                  'pre-update' => S.current.bakKindPreUpdate,
+                  'pre-restore' => S.current.bakKindPreRestore,
+                  _ => S.current.bakKindFull,
+                },
+                j.sections.join(', '),
+                if (j.created.isNotEmpty) backupDate(j.created),
+              ].join(' · '),
+              trailing: switch (j.status) {
+                'running' => S.current.bakRowRunning(j.progress),
+                'failed' => S.current.bakRowFailed,
+                _ when j.sendStatus == 'sending' => S.current.bakRowSending(
+                  j.sendProgress,
+                ),
+                _ => bytesText(j.size),
+              },
+              action: S.current.bakOpen,
+              actionHint: '${S.current.bakOpen} ${j.name}',
+            ),
+      ],
+    );
+  }
+
   SystemMaintVm _maintenance(String? reason) {
     final stale = clearableLinks;
     final busy = system.isActing ? '…' : null;
@@ -1036,10 +1136,16 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
           : S.current.sysProfilesUnlisted(unlisted),
       profilesUnlisted: unlisted != null,
       profilesFooter: S.current.sysProfilesFooter,
-      backupTitle: S.current.sysBackup,
-      backupNote: data == null
-          ? S.current.sysBackupNoteNoSize
-          : S.current.sysBackupNote(_sizeText(data)),
+      backups: _backups(reason),
+      version: _version(reason),
+      backupTitle: backups.sections.isEmpty
+          ? S.current.sysBackup
+          : S.current.bakOffline,
+      backupNote: backups.sections.isNotEmpty
+          ? S.current.bakOfflineNote
+          : (data == null
+                ? S.current.sysBackupNoteNoSize
+                : S.current.sysBackupNote(_sizeText(data))),
       commands: _commands(),
       backupWarning: S.current.sysBackupWarning,
       elsewhereLabel: S.current.sysElsewhere,
@@ -1368,6 +1474,7 @@ class _Vm extends Vm {
     required this.availability,
     required this.log,
     required this.maintenance,
+    required this.updateRuns,
     required this.attention,
     required this.polling,
     required this.onShow,
@@ -1408,6 +1515,7 @@ class _Vm extends Vm {
            availability,
            log,
            maintenance,
+           updateRuns,
            attention,
            polling,
          ],
@@ -1423,6 +1531,9 @@ class _Vm extends Vm {
   final SystemAvailVm availability;
   final SystemLogVm log;
   final SystemMaintVm maintenance;
+
+  /// The broker says an update of itself runs or ended.
+  final bool updateRuns;
   final AttentionPanelVm attention;
 
   /// The Log tab reads again every 5 s.

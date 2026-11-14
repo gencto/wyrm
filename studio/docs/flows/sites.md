@@ -24,7 +24,7 @@ sequenceDiagram
     A1->>ST: copyWith(live.watched)
     VM->>+A2: dispatchAndWait
     Note over A2: WaitingAction · async
-    A2->>ST: copyWith(links.version, links.table, links.view)
+    A2->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
     A2-->>-VM: ActionStatus
     VM->>+A3: dispatchAndWait
     Note over A3: WaitingAction · async
@@ -170,9 +170,10 @@ sequenceDiagram
     VM->>A4: dispatchSync
     A4->>ST: copyWith(links.tab)
     VM->>A5: dispatchSync
-    A5->>ST: copyWith(site, nodes, links, quarantine, packages, flows, historian)
+    A5->>ST: copyWith(site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian)
     A5->>ST: dispatchSync(FollowHistoryAction)
     A5->>ST: dispatchSync(FollowFlowsAction)
+    A5->>ST: dispatchSync(_MoveWatched)
     A5->>ST: dispatchAndWait(RetrieveLinksAction)
     VM->>A6: dispatchSync
     A6->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
@@ -219,13 +220,13 @@ sequenceDiagram
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePeersAction` | `live.watched`, `links.version, links.table, links.view`, `quarantine.table, quarantine.view, quarantine.forms`, `peers.table, peers.view` |
+| `onShow` | `WatchKeysAction`, `RetrieveLinksAction`, `RetrieveQuarantineAction`, `RetrievePeersAction` | `live.watched`, `links.version, links.table, links.view, links.updatesAvailable`, `quarantine.table, quarantine.view, quarantine.forms`, `peers.table, peers.view` |
 | `onHide` | `UnwatchKeysAction` | `live.watched` |
 | `onNode` | `SetSelectedPeerAction` | `peers.selectedPeer` |
 | `onReview` | `SetTabAction` | `links.tab` |
 | `onConnect` | `RetrieveNodeDetailAction`, `AddUpstreamAction` | `nodes.detail` |
 | `onToken.onSubmit` | `IssueSiteTokenAction` | `nodes.results` |
-| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows, historian`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
+| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 | `onSubmit` | `AuthorizeBrokerAction` | — |
 
 `?` marks a dispatch that only runs under a condition.

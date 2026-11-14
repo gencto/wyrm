@@ -5,6 +5,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/link_install/actions/check_package_action.dart';
 import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
+import 'package:business/redux/link_install/actions/install_backup_action.dart';
 import 'package:business/redux/link_install/actions/install_link_action.dart';
 import 'package:business/redux/link_install/actions/retrieve_install_catalog_action.dart';
 import 'package:business/redux/link_install/actions/set_accept_rights_action.dart';
@@ -37,6 +38,8 @@ import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/link_install_page.dart';
 import 'package:ui/shell/window_bar.dart';
 
+import '../common/app_store.dart';
+import '../common/files.dart';
 import '../common/window.dart';
 import '../navigation/go_action.dart';
 
@@ -44,13 +47,46 @@ import '../navigation/go_action.dart';
 final _segment = RegExp(r'^[A-Za-z0-9._-]{1,64}$');
 
 @RoutePage()
-class LinkInstallPageConnector extends StatelessWidget {
+class LinkInstallPageConnector extends StatefulWidget {
   const LinkInstallPageConnector({super.key});
 
   @override
+  State<LinkInstallPageConnector> createState() =>
+      _LinkInstallPageConnectorState();
+}
+
+class _LinkInstallPageConnectorState extends State<LinkInstallPageConnector> {
+  /// The passphrase of a link backup: typed in the wizard, handed to the
+  /// install action, kept nowhere else.
+  var _passphrase = '';
+
+  /// The link backup the user picked, open for reading in parts. Only its
+  /// name and size are in the store; its bytes are read from here when the
+  /// check and the upload need them.
+  PickedFile? _file;
+
+  @override
+  void dispose() {
+    unawaited(_file?.close());
+    super.dispose();
+  }
+
+  Future<void> _pickBackup(Store<AppState> store) async {
+    final f = await pickFile(extensions: const ['wyrm-link']);
+    if (f == null) {
+      return;
+    }
+    await _file?.close();
+    _file = f;
+    store.dispatchSync(
+      SetSourceAction(InstallSource.backup(fileName: f.name, size: f.size)),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
-    debug: this,
-    vm: () => _Factory(this),
+    debug: widget,
+    vm: () => _Factory(widget),
     onInit: (store) {
       store.dispatchSync(ChooseInstallSourceAction('official'));
       unawaited(store.dispatchAndWait(RetrieveInstallCatalogAction()));
@@ -69,7 +105,9 @@ class LinkInstallPageConnector extends StatelessWidget {
       onItem: vm.onItem,
       bring: vm.bring,
       onMethod: vm.onMethod,
-      onPickFile: vm.onPickFile,
+      onPickFile: vm.fromBackup
+          ? () => unawaited(_pickBackup(AppStore.of(context)))
+          : vm.onPickFile,
       checks: vm.checks,
       manifest: vm.manifest,
       target: vm.target,
@@ -81,8 +119,9 @@ class LinkInstallPageConnector extends StatelessWidget {
       installing: vm.installing,
       onStep: vm.onStep,
       onBack: vm.onBack,
-      onNext: vm.onNext,
+      onNext: vm.onNext == null ? null : () => vm.onNext!(_passphrase, _file),
       nextReason: vm.nextReason,
+      onSecret: (v) => _passphrase = v,
     ),
   );
 }
@@ -93,6 +132,9 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
   _Factory(super._connector);
 
   bool get _official => linkInstall.path == 'official';
+
+  /// Add a link ▸ From backup (ADR 0048 §3.5): a `.wyrm-link` file.
+  bool get _backup => linkInstall.path == 'backup';
 
   /// The step keys of the path: official Choose → Where → Install, custom
   /// Bring → Check → Where → Install.
@@ -125,10 +167,15 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         ? null
         : (!_segment.hasMatch(name)
               ? S.current.nameRule
-              : (broker == viewed && links.table.containsKey(name)
+              // A backup may replace the link of its id (in place, after
+              // a restore point): the name is then no error.
+              : (!_backup && broker == viewed && links.table.containsKey(name)
                     ? S.current.nameTaken
                     : _refused('name')));
-    final needsRights = li.rights != null || (item != null && !item.builtIn);
+    // A backup's grants are in its sealed part: the broker lists them when
+    // the install needs `accept`, so accepting is offered and not required.
+    final needsRights =
+        !_backup && (li.rights != null || (item != null && !item.builtIn));
     final configReason = site.needs('config', 'wy/$broker/sys/links');
     final installing = li.phase == 'installing';
     String? nextReason;
@@ -155,7 +202,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         needs: S.current.needsConfigOnSys,
         railLabel: _official
             ? S.current.fromTheOfficialList
-            : S.current.aCustomPackage,
+            : (_backup ? S.current.fromBackup : S.current.aCustomPackage),
         railNote: S.current.installRailNote,
         stepOf: S.current.stepOf(step, _keys.length),
         question: _question(key, item, name, failedCheck),
@@ -184,7 +231,9 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
       answers: [
         (
           S.current.answerFrom,
-          _official ? S.current.officialList : S.current.customPackage,
+          _official
+              ? S.current.officialList
+              : (_backup ? S.current.fromBackup : S.current.customPackage),
         ),
         (
           S.current.answerLink,
@@ -201,8 +250,12 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         (S.current.answerName, name.isEmpty ? '—' : name),
         (
           S.current.answerRights,
-          needsRights
-              ? (li.acceptRights ? S.current.accepted : S.current.toAccept)
+          needsRights || _backup
+              ? (li.acceptRights
+                    ? S.current.accepted
+                    : (_backup
+                          ? S.current.backupRightsAsk
+                          : S.current.toAccept))
               : S.current.noneAsked,
         ),
       ],
@@ -218,7 +271,13 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
                 id: 'custom',
                 title: S.current.customPackage,
                 detail: S.current.customPackageNote,
-                selected: !_official,
+                selected: !_official && !_backup,
+              ),
+              ChoiceCardVm(
+                id: 'backup',
+                title: S.current.fromBackup,
+                detail: S.current.fromBackupNote,
+                selected: _backup,
               ),
             ]
           : const [],
@@ -262,6 +321,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
                   ]
                 : const []),
       installing: installing,
+      fromBackup: _backup,
       nextReason: last ? null : nextReason,
       onClose: () => dispatch(GoAction.pop()),
       onSource: (p) => dispatch(ChooseInstallSourceAction(p)),
@@ -288,13 +348,34 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
                   )),
       onNext: last
           ? null
-          : () async {
+          : (passphrase, file) async {
               if (key == 'run') {
+                if (_backup && file == null) {
+                  return;
+                }
                 dispatchSync(SetStepAction(step + 1));
-                await dispatchAndWait(InstallLinkAction());
+                await dispatchAndWait(
+                  _backup
+                      ? InstallBackupAction(
+                          read: file!.read,
+                          passphrase: passphrase,
+                        )
+                      : InstallLinkAction(),
+                );
                 return;
               }
-              if (!_official && key == 'choose') {
+              if (_backup && key == 'choose') {
+                // A file Studio can hold is read once for its manifest;
+                // the bytes go to the check and are kept nowhere.
+                final small =
+                    file != null &&
+                    file.size <= CheckPackageAction.backupReadMax;
+                await dispatchAndWait(
+                  CheckPackageAction(
+                    backup: small ? await file.read(0, file.size) : null,
+                  ),
+                );
+              } else if (!_official && key == 'choose') {
                 await dispatchAndWait(CheckPackageAction());
               }
               dispatchSync(SetStepAction(step + 1));
@@ -365,6 +446,18 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
 
   BringPartVm _bring() {
     final li = linkInstall;
+    if (_backup) {
+      return BringPartVm(
+        methods: const [TabItemVm(id: 'backup', label: '.wyrm-link')],
+        method: 'backup',
+        file: switch (li.source) {
+          InstallSourceBackup(:final fileName) => fileName,
+          _ => null,
+        },
+        fileHint: S.current.chooseBackupFile,
+        fields: const [],
+      );
+    }
     final m = li.method;
     String? url;
     String? ref;
@@ -457,9 +550,13 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
     String? nameError,
   ) {
     final li = linkInstall;
+    final exists =
+        _backup && broker == viewed && links.table.containsKey(li.name);
     final modes = _official
         ? (item?.modes.unlock ?? const ['embedded'])
-        : [if (li.mode == LinkMode.wasm) 'wasm' else 'process'];
+        : (_backup
+              ? [li.mode?.name ?? 'process']
+              : [if (li.mode == LinkMode.wasm) 'wasm' else 'process']);
     final mode = li.mode?.name ?? modes.first;
     return TargetPartVm(
       summary: item == null
@@ -506,6 +603,9 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
       ),
       keyPreview: ('wy/$broker/downstream/', li.name ?? ''),
       nameRule: S.current.nameRule,
+      nameWarning: exists ? S.current.backupReplaces(li.name ?? '') : null,
+      secretLabel: _backup ? S.current.backupPassphrase : null,
+      secretNote: _backup ? S.current.backupPassphraseNote : null,
       rightsTitle: S.current.rightsTitle,
       rights: [
         if (li.rights case final r?)
@@ -518,13 +618,13 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         else if (li.message case final m? when li.phase == 'failed')
           FactVm(label: S.current.brokerSays, value: m),
       ],
-      accept: (li.rights != null || (item != null && !item.builtIn))
+      accept: (_backup || li.rights != null || (item != null && !item.builtIn))
           ? FieldVm(
               value: li.acceptRights,
               onChanged: (v) => dispatch(SetAcceptRightsAction(v)),
             )
           : null,
-      rightsNote: S.current.rightsNote,
+      rightsNote: _backup ? S.current.backupRightsNote : S.current.rightsNote,
     );
   }
 
@@ -560,9 +660,15 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
       };
 
   String _why(String key) => switch (key) {
-    'choose' => _official ? S.current.whyChoose : S.current.whyBring,
+    'choose' =>
+      _official
+          ? S.current.whyChoose
+          : (_backup ? S.current.whyBringBackup : S.current.whyBring),
     'check' => S.current.whyCheck,
-    'run' => _official ? S.current.whyRunOfficial : S.current.whyRunCustom,
+    'run' =>
+      _official
+          ? S.current.whyRunOfficial
+          : (_backup ? S.current.whyRunBackup : S.current.whyRunCustom),
     _ => switch (linkInstall.phase) {
       'installing' => S.current.whyInstalling,
       'failed' => S.current.whyFailed,
@@ -591,6 +697,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
 
   String _sourceName(InstallSource s) => switch (s) {
     InstallSourceZip(:final fileName) ||
+    InstallSourceBackup(:final fileName) ||
     InstallSourceWasm(:final fileName) => fileName,
     InstallSourceUrl(:final url) || InstallSourceGit(:final url) => url,
     InstallSourceBuiltIn(:final driver) => driver,
@@ -629,6 +736,7 @@ class _Vm extends Vm {
     required this.result,
     required this.resultActions,
     required this.installing,
+    required this.fromBackup,
     required this.nextReason,
     required this.onClose,
     required this.onSource,
@@ -658,6 +766,7 @@ class _Vm extends Vm {
            result,
            resultActions,
            installing,
+           fromBackup,
            nextReason,
            onBack != null,
            onNext != null,
@@ -692,6 +801,10 @@ class _Vm extends Vm {
   final ValueChanged<String> onMode;
   final ValueChanged<int>? onStep;
   final VoidCallback? onBack;
-  final VoidCallback? onNext;
+  final Future<void> Function(String passphrase, PickedFile? file)? onNext;
+
+  /// The source is a link backup: the wizard's own state picks and holds
+  /// the file.
+  final bool fromBackup;
   final ValueChanged<String> onResultAction;
 }

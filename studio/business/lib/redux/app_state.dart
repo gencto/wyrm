@@ -3,6 +3,8 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'access/models/access_state.dart';
 import 'assistant/models/assistant_state.dart';
+import 'backups/models/backups_state.dart';
+import 'broker_update/models/broker_update_state.dart';
 import 'changes/models/changes_state.dart';
 import 'connectivity/models/connectivity_state.dart';
 import 'flow_editor/models/flow_editor_state.dart';
@@ -24,6 +26,7 @@ import 'site/models/site_state.dart';
 import 'system/models/system_state.dart';
 import 'tasks/models/tasks_state.dart';
 import 'theme/models/theme_state.dart';
+import 'updates/models/updates_state.dart';
 import 'window/models/window_state.dart';
 
 export 'selectors.dart';
@@ -57,6 +60,9 @@ abstract class AppState with _$AppState {
     required PanelsState panels,
     required WindowState window,
     required ProblemsState problems,
+    required UpdatesState updates,
+    required BackupsState backups,
+    required BrokerUpdateState brokerUpdate,
     required Wait wait,
   }) = _AppState;
 
@@ -85,6 +91,9 @@ abstract class AppState with _$AppState {
     panels: PanelsState(),
     window: WindowState(),
     problems: ProblemsState(),
+    updates: UpdatesState(),
+    backups: BackupsState(),
+    brokerUpdate: BrokerUpdateState(),
     wait: Wait.empty,
   );
 }
