@@ -21,9 +21,20 @@ class RetrieveAuditAction extends Action with WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
+    final out = await read(deps.wyrm, key, n: n);
+    return state.copyWith.nodes(audit: out.lock);
+  }
+
+  /// The records of `sys/audit` ▸ `tail {n}` of [key]'s site whose key is
+  /// [key] or below it, newest first (also the drawer's timeline marks).
+  static Future<List<AuditEntry>> read(
+    WyrmApi api,
+    String key, {
+    int n = 500,
+  }) async {
     final root = key.split('/').take(2).join('/');
     final rows = await askAll(
-      deps.wyrm,
+      api,
       '$root/sys/audit',
       'tail',
       Value.from({'n': n}),
@@ -54,6 +65,6 @@ class RetrieveAuditAction extends Action with WaitingAction {
       }
     }
     out.sort((a, b) => b.time.compareTo(a.time));
-    return state.copyWith.nodes(audit: out.lock);
+    return out;
   }
 }

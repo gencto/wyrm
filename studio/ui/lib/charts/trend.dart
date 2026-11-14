@@ -55,6 +55,19 @@ final class TrendSample extends Equatable {
   List<Object?> get props => [t, v, q, lo, hi];
 }
 
+/// A moment drawn across the plot of a [Trend]: a change the audit
+/// recorded (spec `assistant.md` §5, the drawer's mini timeline). [t] is µs
+/// since the epoch; [label] says what it was, for the reader of the chart.
+final class TrendMark extends Equatable {
+  const TrendMark(this.t, this.label);
+
+  final int t;
+  final String label;
+
+  @override
+  List<Object?> get props => [t, label];
+}
+
 /// One line of a [Trend]. [samples] are the finest rows read for the window
 /// (oldest first); [overview] the rows of the whole range for the brush.
 final class TrendSeriesVm extends Equatable {
@@ -169,6 +182,8 @@ final class TrendVm extends Equatable {
     this.legend = true,
     this.hint = true,
     this.plotHeight = 240,
+    this.brush = true,
+    this.marks = const [],
     this.empty,
   });
 
@@ -214,6 +229,13 @@ final class TrendVm extends Equatable {
   final bool hint;
   final double plotHeight;
 
+  /// The brush over the whole range under the plot; off where the chart is
+  /// a compact glance (the Assistant drawer's timeline).
+  final bool brush;
+
+  /// Moments drawn across the plot (audit records), oldest first.
+  final List<TrendMark> marks;
+
   /// What the plot says when nothing was recorded; *No values recorded in
   /// this range.* when null.
   final String? empty;
@@ -243,6 +265,8 @@ final class TrendVm extends Equatable {
     legend,
     hint,
     plotHeight,
+    brush,
+    marks,
     empty,
     format,
   ];
@@ -419,34 +443,36 @@ class _TrendState extends State<Trend> {
             child: _ticks(_plotTicks(), mono(size: 11, color: c.text4)),
           ),
         ),
-        Padding(
-          padding: EdgeInsets.only(right: hasRight ? side : 0, top: 4),
-          child: Row(
-            crossAxisAlignment: .start,
-            spacing: 8,
-            children: [
-              SizedBox(
-                width: yW,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    s.trendAll,
-                    textAlign: .right,
-                    style: TextStyle(fontSize: 11, color: c.muted),
+        if (vm.brush) ...[
+          Padding(
+            padding: EdgeInsets.only(right: hasRight ? side : 0, top: 4),
+            child: Row(
+              crossAxisAlignment: .start,
+              spacing: 8,
+              children: [
+                SizedBox(
+                  width: yW,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      s.trendAll,
+                      textAlign: .right,
+                      style: TextStyle(fontSize: 11, color: c.muted),
+                    ),
                   ),
                 ),
-              ),
-              Expanded(child: _brush(c, s)),
-            ],
+                Expanded(child: _brush(c, s)),
+              ],
+            ),
           ),
-        ),
-        Padding(
-          padding: EdgeInsets.only(left: side, right: hasRight ? side : 0),
-          child: SizedBox(
-            height: 14,
-            child: _ticks(_brushTicks(s), mono(size: 10, color: c.muted)),
+          Padding(
+            padding: EdgeInsets.only(left: side, right: hasRight ? side : 0),
+            child: SizedBox(
+              height: 14,
+              child: _ticks(_brushTicks(s), mono(size: 10, color: c.muted)),
+            ),
           ),
-        ),
+        ],
         if (vm.hint)
           LayoutBuilder(
             builder: (context, box) => box.maxWidth < 600
@@ -677,7 +703,9 @@ class _TrendState extends State<Trend> {
           final hm = f.clock(d);
           return (
             k / 4,
-            k == 0 || hm == '00:00' ? '${f.weekday(d)} $hm' : hm,
+            // a compact chart (no brush) is too narrow for the day at
+            // its start: the header names it
+            (k == 0 && vm.brush) || hm == '00:00' ? '${f.weekday(d)} $hm' : hm,
           );
         }(),
     ];
@@ -966,6 +994,19 @@ class _TrendState extends State<Trend> {
               child: Stack(
                 clipBehavior: .none,
                 children: [
+                  for (final k in vm.marks)
+                    if (k.t >= vm.windowStart && k.t <= vm.windowEnd)
+                      Positioned(
+                        key: ValueKey('mark-${k.t}'),
+                        left: _xAt(k.t, w),
+                        top: 0,
+                        bottom: 0,
+                        width: 1,
+                        child: Semantics(
+                          label: k.label,
+                          child: ColoredBox(color: c.emberLine),
+                        ),
+                      ),
                   if (band != null)
                     Positioned(
                       left: band.$1 * w,

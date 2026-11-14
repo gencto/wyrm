@@ -20,6 +20,7 @@ abstract class AgentTasksServiceListener {
     int step = 0,
     int finished = 0,
     int suggestions = 0,
+    int findings = 0,
     bool reviewing = false,
     String? replacedBy,
   });
@@ -76,6 +77,7 @@ class AgentTasksService extends DisposableServiceInterface {
             step: integer(sample.v['step']) ?? 0,
             finished: integer(sample.v['last']?['n']) ?? 0,
             suggestions: suggestionCount(sample.v),
+            findings: findingCount(sample.v),
             reviewing: isReviewing(sample.v),
             replacedBy: replacedBy(sample.v),
           );

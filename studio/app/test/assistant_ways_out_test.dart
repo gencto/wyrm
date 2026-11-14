@@ -380,20 +380,15 @@ void main() {
         'Sending asks for a new plan: this plan is replaced and can no '
         'longer be approved.';
     expect(find.text(replaces), findsOneWidget);
-    // nothing selected in Explorer yet
-    expect(
-      find.byTooltip(
-        'Select a node in Explorer first; it is added here as @ chip.',
-      ),
-      findsOneWidget,
-    );
-
     // as Explorer does: the change reaches the tab on the next frame
     app.store.dispatchSync(SelectNodeAction(_ahu3));
     await tester.pump();
     await tester.pump();
+    // the key picker offers the Explorer selection first
     await tester.tap(find.text('+ from Explorer'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('selected in Explorer'));
+    await tester.pumpAndSettle();
     expect(find.text('@ modbus/tcp/ahu3'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'skip step 2');
