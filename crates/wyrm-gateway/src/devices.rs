@@ -468,6 +468,15 @@ impl Nonces {
 #[derive(Default)]
 pub(crate) struct Fresh(Mutex<HashMap<[u8; 16], Proved>>);
 
+/// What a session proved again after its login.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Proof {
+    /// A device key (a step-up, an idle unlock).
+    Key,
+    /// The password (`/api/confirm`): also lets the session register a device.
+    Password,
+}
+
 #[derive(Clone, Copy, Default)]
 struct Proved {
     confirmed_at: u64,
@@ -479,7 +488,7 @@ impl Fresh {
         self.0.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn note(&self, jti: [u8; 16], now: u64, password: bool) {
+    fn note(&self, jti: [u8; 16], now: u64, how: Proof) {
         let mut m = self.lock();
         if !m.contains_key(&jti) && m.len() >= MAX_FRESH {
             m.retain(|_, p| now.saturating_sub(p.confirmed_at) < FRESH_S);
@@ -489,7 +498,7 @@ impl Fresh {
         }
         let p = m.entry(jti).or_default();
         p.confirmed_at = now;
-        if password {
+        if how == Proof::Password {
             p.password_at = now;
         }
     }
@@ -862,7 +871,7 @@ impl Gateway {
         // the idle lock: the session stays, now confirmed
         if let Some(p) = keep.and_then(|t| self.authenticate(t)) {
             if p.name == d.user {
-                self.fresh.note(p.claims.jti, now, false);
+                self.fresh.note(p.claims.jti, now, Proof::Key);
                 return Ok((keep.unwrap_or_default().to_owned(), p.claims.exp));
             }
         }
@@ -924,7 +933,7 @@ impl Gateway {
             }));
         }
         self.limiter.succeeded(&limit_key(device), ip);
-        self.fresh.note(p.claims.jti, now, false);
+        self.fresh.note(p.claims.jti, now, Proof::Key);
         self.audit(AuditEvent::StepUp {
             user: p.name.clone(),
             method: "device",
@@ -949,7 +958,8 @@ impl Gateway {
         if self.verify_login(&p.name, password, ip).is_err() {
             return Err(Refused::Code("bad_password"));
         }
-        self.fresh.note(p.claims.jti, session::now_s(), true);
+        self.fresh
+            .note(p.claims.jti, session::now_s(), Proof::Password);
         self.audit(AuditEvent::StepUp {
             user: p.name.clone(),
             method: "password",
