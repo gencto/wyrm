@@ -8,6 +8,9 @@
 //
 // Signing needs a finger on the sensor, so this test does not sign; the
 // business live test signs with a software key against the same gateway.
+// The offer shows once per gateway origin and user: start a new gateway_dev
+// (a new port) for each run. The Secure Enclave test needs the console
+// session unlocked (2026-11-14 it answered -25308 under an automated run).
 // Screens go to the app's temp folder (`screen <path>`).
 import 'dart:io';
 import 'dart:typed_data';
@@ -15,8 +18,8 @@ import 'dart:ui' as ui;
 
 import 'package:app/run_env.dart';
 import 'package:async_redux/async_redux.dart';
-import 'package:business/redux/app_state.dart';
 import 'package:business/environment.dart';
+import 'package:business/redux/app_state.dart';
 import 'package:device_key/device_key.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -87,7 +90,7 @@ void main() {
     await shot(tester, '30_unlock_offer');
     final s = StoreProvider.state<AppState>(
       tester.element(find.byType(Scaffold).first),
-    )!;
+    );
     debugPrint(
       'device: available ${s.device.available} stage ${s.device.stage} '
       'offered ${s.device.offered} dontAsk ${s.device.dontAsk} '
