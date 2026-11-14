@@ -7,8 +7,10 @@
 // `reason` and `allowDeviceCredential` of the Dart side do not apply here.
 //
 // The calls are C++/WinRT coroutines started on the platform thread (an STA,
-// COM initialised by the runner): awaiting a WinRT operation resumes on that
-// same apartment, so every `MethodResult` is answered on the platform thread.
+// COM initialised by the runner). Each captures that apartment before its
+// first await and goes back to it (`co_await platform`) before it answers, so
+// every `MethodResult` is answered on the platform thread whatever thread the
+// WinRT operation completed on.
 
 #include "device_key_plugin.h"
 
@@ -117,12 +119,14 @@ EncodableValue SignAnswer(const std::string &code,
 }
 
 winrt::fire_and_forget IsAvailable(Result result) {
+  winrt::apartment_context platform;
   bool supported = false;
   try {
     supported = co_await KeyCredentialManager::IsSupportedAsync();
   } catch (const winrt::hresult_error &) {
     supported = false;
   }
+  co_await platform;
   result->Success(EncodableValue(EncodableMap{
       {EncodableValue("kind"),
        EncodableValue(supported ? "windowsHello" : "none")},
@@ -131,10 +135,12 @@ winrt::fire_and_forget IsAvailable(Result result) {
 }
 
 winrt::fire_and_forget Create(std::string alias, Result result) {
+  winrt::apartment_context platform;
   std::string error_code = "failed";
   std::string error_message;
   try {
     if (!co_await KeyCredentialManager::IsSupportedAsync()) {
+      co_await platform;
       result->Error("unavailable", "Windows Hello is not set up");
       co_return;
     }
@@ -146,6 +152,7 @@ winrt::fire_and_forget Create(std::string alias, Result result) {
     if (status == KeyCredentialStatus::Success) {
       auto key = Bytes(created.Credential().RetrievePublicKey(
           CryptographicPublicKeyBlobType::Pkcs1RsaPublicKey));
+      co_await platform;
       result->Success(EncodableValue(EncodableMap{
           {EncodableValue("alg"), EncodableValue("rs256")},
           {EncodableValue("publicKey"), EncodableValue(key)},
@@ -161,50 +168,54 @@ winrt::fire_and_forget Create(std::string alias, Result result) {
   } catch (const winrt::hresult_error &e) {
     error_message = winrt::to_string(e.message());
   }
+  co_await platform;
   result->Error(error_code, error_message);
 }
 
 winrt::fire_and_forget Sign(std::string alias, std::vector<uint8_t> bytes,
                             Result result) {
-  std::string message;
+  winrt::apartment_context platform;
+  EncodableValue answer = SignAnswer("failed");
   try {
     if (!co_await KeyCredentialManager::IsSupportedAsync()) {
-      result->Success(SignAnswer("unavailable", "Windows Hello is not set up"));
-      co_return;
+      answer = SignAnswer("unavailable", "Windows Hello is not set up");
+    } else {
+      auto opened = co_await KeyCredentialManager::OpenAsync(KeyName(alias));
+      if (opened.Status() != KeyCredentialStatus::Success) {
+        answer = SignAnswer(Code(opened.Status()), StatusText(opened.Status()));
+      } else {
+        auto data = CryptographicBuffer::CreateFromByteArray(
+            winrt::array_view<const uint8_t>(bytes));
+        auto request = opened.Credential().RequestSignAsync(data);
+        RaiseHelloDialog();
+        auto signed_ = co_await request;
+        if (signed_.Status() != KeyCredentialStatus::Success) {
+          answer =
+              SignAnswer(Code(signed_.Status()), StatusText(signed_.Status()));
+        } else {
+          answer = EncodableValue(EncodableMap{
+              {EncodableValue("result"), EncodableValue("signed")},
+              {EncodableValue("signature"),
+               EncodableValue(Bytes(signed_.Result()))},
+          });
+        }
+      }
     }
-    auto opened = co_await KeyCredentialManager::OpenAsync(KeyName(alias));
-    if (opened.Status() != KeyCredentialStatus::Success) {
-      result->Success(
-          SignAnswer(Code(opened.Status()), StatusText(opened.Status())));
-      co_return;
-    }
-    auto data = CryptographicBuffer::CreateFromByteArray(
-        winrt::array_view<const uint8_t>(bytes));
-    auto request = opened.Credential().RequestSignAsync(data);
-    RaiseHelloDialog();
-    auto signed_ = co_await request;
-    if (signed_.Status() != KeyCredentialStatus::Success) {
-      result->Success(
-          SignAnswer(Code(signed_.Status()), StatusText(signed_.Status())));
-      co_return;
-    }
-    result->Success(EncodableValue(EncodableMap{
-        {EncodableValue("result"), EncodableValue("signed")},
-        {EncodableValue("signature"), EncodableValue(Bytes(signed_.Result()))},
-    }));
-    co_return;
   } catch (const winrt::hresult_error &e) {
-    message = winrt::to_string(e.message());
+    answer = SignAnswer("failed", winrt::to_string(e.message()));
   }
-  result->Success(SignAnswer("failed", message));
+  co_await platform;
+  result->Success(answer);
 }
 
 winrt::fire_and_forget Delete(std::string alias, Result result) {
+  winrt::apartment_context platform;
   try {
     co_await KeyCredentialManager::DeleteAsync(KeyName(alias));
   } catch (const winrt::hresult_error &) {
     // No such key: nothing to delete.
   }
+  co_await platform;
   result->Success();
 }
 

@@ -81,6 +81,17 @@ class DeviceKeyPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 }
                 val cred = call.argument<Boolean>("allowDeviceCredential") ?: false
                 worker.execute {
+                    val needed = if (cred && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        BIOMETRIC_STRONG or DEVICE_CREDENTIAL
+                    } else {
+                        BIOMETRIC_STRONG
+                    }
+                    if (BiometricManager.from(context).canAuthenticate(needed) !=
+                        BiometricManager.BIOMETRIC_SUCCESS
+                    ) {
+                        main.post { result.error("unavailable", "no strong biometric enrolled", null) }
+                        return@execute
+                    }
                     try {
                         val pub = create(alias, cred)
                         main.post { result.success(mapOf("alg" to "es256", "publicKey" to pub)) }
