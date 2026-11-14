@@ -9,8 +9,10 @@ import 'package:business/redux/assistant/actions/ask_agent_action.dart';
 import 'package:business/redux/assistant/actions/load_assistant_action.dart';
 import 'package:business/redux/assistant/actions/pick_suggestion_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
+import 'package:business/redux/assistant/actions/retrieve_agent_secrets_action.dart';
 import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
+import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/assistant/actions/set_option_pick_action.dart';
 import 'package:business/redux/assistant/actions/set_panel_action.dart';
 import 'package:business/redux/assistant/actions/set_row_pick_action.dart';
@@ -18,6 +20,8 @@ import 'package:business/redux/assistant/actions/set_shown_action.dart';
 import 'package:business/redux/assistant/actions/set_step_reveal_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/assistant/actions/set_watched_action.dart';
+import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
+import 'package:business/redux/nodes/actions/open_trend_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/answer_task_action.dart';
@@ -32,6 +36,7 @@ import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
@@ -40,12 +45,15 @@ import 'package:models/task_event.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
+import 'package:ui/assistant/assistant_composer.dart';
+import 'package:ui/assistant/assistant_drawer.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/result_card.dart';
+import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/run_card.dart';
 import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
@@ -122,6 +130,7 @@ class AssistantPageConnector extends StatelessWidget {
         onAddChip: vm.onAddChip,
         onDraft: vm.onDraft,
         onAsk: vm.onAsk,
+        askNote: vm.replaces,
         panels: [
           TabItemVm(id: 'task', label: S.current.panelThisTask),
           TabItemVm(id: 'rights', label: S.current.panelMayDo),
@@ -132,6 +141,10 @@ class AssistantPageConnector extends StatelessWidget {
         readsLabel: S.current.whatItRead,
         reads: vm.reads,
         panelNote: vm.panelNote,
+        rights: vm.rights,
+        onMode: vm.onMode,
+        onRemovePrefix: vm.onRemovePrefix,
+        onAddPrefix: () => vm.onAddPrefix(context),
         empty: vm.empty,
         emptyAction: vm.empty == null ? null : S.current.addAgent,
         onEmptyAction: vm.onAddAgent,
@@ -140,8 +153,64 @@ class AssistantPageConnector extends StatelessWidget {
   );
 }
 
-/// Factory that creates a view-model for the StoreConnector.
-class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
+/// The Assistant as a drawer over Explorer (⌘J, spec `assistant.md` §5):
+/// the same task and cards as the tab, from the same view-model.
+class AssistantDrawerConnector extends StatelessWidget {
+  const AssistantDrawerConnector({super.key});
+
+  @override
+  Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
+    debug: this,
+    vm: () => _Factory(this),
+    builder: _drawer,
+  );
+}
+
+Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
+  title: S.current.drawerTitle,
+  taskKey: vm.taskKey,
+  openFull: S.current.openFull,
+  closeLabel: S.current.closeDrawer,
+  onOpenFull: vm.onOpenFull,
+  onClose: vm.onCloseDrawer,
+  events: vm.events,
+  choices: vm.choices,
+  onPick: vm.onPick,
+  onAnswer: vm.onAnswer,
+  plan: vm.plan,
+  onTick: vm.onTick,
+  onFix: vm.onPickSuggestion,
+  onReveal: vm.onReveal,
+  run: vm.run,
+  stopped: vm.stopped,
+  onWay: vm.onPickSuggestion,
+  card: vm.card,
+  secondLabel: S.current.drawerSuggests,
+  second: vm.second,
+  onSecond: () => vm.onButton(context, 'second'),
+  newTask: S.current.newTask,
+  onNewTask: vm.taskKey == null ? null : vm.onNewTask,
+  onButton: (b) => vm.onButton(context, b),
+  empty: vm.empty,
+  composer: AssistantComposer(
+    draft: vm.draft,
+    hint: vm.answering ? vm.askHint : S.current.drawerHint,
+    label: vm.answering ? S.current.answerButton : S.current.askButton,
+    reason: vm.askReason,
+    onDraft: vm.onDraft,
+    onAsk: vm.onAskFresh,
+    chips: vm.chips,
+    onChipRemove: vm.onChipRemove,
+    addChipLabel: vm.answering ? null : S.current.addFromExplorer,
+    addChipReason: vm.addChipReason,
+    onAddChip: vm.onAddChip,
+    dense: true,
+  ),
+);
+
+/// Factory that creates a view-model for the StoreConnector (of the tab
+/// and of the drawer).
+class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     with Selectors {
   _Factory(super._connector);
 
@@ -243,8 +312,41 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           );
         }
       },
-      watch: task == null ? const [] : _touched(task),
+      watch: [
+        ...?(task == null ? null : _touched(task)),
+        // *Today* of What it may do: the budget the agent used, while
+        // that panel is shown
+        if (agent != null && rights) '$agent/budget_used_today',
+      ],
       card: task == null ? null : _card(task, cancelReason, choices),
+      second: task == null ? null : _secondTile(task),
+      rights: rights ? _rights() : null,
+      // the edits are made on the params as staged, in the action
+      onMode: (m) => unawaited(dispatchAndWait(StageAgentParamAction.mode(m))),
+      onRemovePrefix: (p) =>
+          unawaited(dispatchAndWait(StageAgentParamAction.removePrefix(p))),
+      onAddPrefix: (context) async {
+        final p = await ReasonDialog.ask(
+          context,
+          title: S.current.addPrefixTitle,
+          message: S.current.addPrefixNote(
+            '${site.root ?? 'wy/<site>'}/downstream/modbus',
+          ),
+          hint: S.current.addPrefixHint,
+          confirm: S.current.addPrefixButton,
+          cancel: S.current.cancel,
+        );
+        if (p != null && p.trim().isNotEmpty) {
+          await dispatchAndWait(StageAgentParamAction.addPrefix(p.trim()));
+        }
+      },
+      onOpenFull: id == null
+          ? null
+          : () {
+              dispatchSync(SetDrawerAction(open: false));
+              dispatchSync(GoAction.navigate(const AssistantRoute()));
+            },
+      onCloseDrawer: () => dispatchSync(SetDrawerAction(open: false)),
       draft: assistant.draft ?? '',
       askHint: _hint(task),
       chips: [for (final k in assistant.chips) (k, _short(k))],
@@ -298,16 +400,18 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
               for (final MapEntry(:key, :value) in reads.entries)
                 (key, value > 1 ? '× $value' : ''),
             ],
-      panelNote: rights
-          ? S.current.mayDoNote
-          : (reads.isEmpty ? '' : S.current.readsNote),
+      // the rights panel has its own note
+      panelNote: rights || reads.isEmpty ? '' : S.current.readsNote,
       empty: agent == null && !_loading ? S.current.noAgent : null,
       onShow: () {
         dispatchSync(SetShownAction(true));
         // the keys the Result card shows, watched while the tab is shown
         dispatchSync(
           SetWatchedAction(
-            (task == null ? const <String>[] : _touched(task)).lock,
+            [
+              ...?(task == null ? null : _touched(task)),
+              if (agent != null && rights) '$agent/budget_used_today',
+            ].lock,
           ),
         );
         unawaited(dispatchAndWait(LoadAssistantAction()));
@@ -328,6 +432,23 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       // while the assistant waits for an answer, the box answers it in
       // the person's own words; else it follows the selected task (a plan
       // that waits is replaced by the new one, spec assistant.md §4)
+      // in the drawer a question about the selection is a task of its own:
+      // it never follows (nor replaces) the task on screen
+      onAskFresh: () => unawaited(
+        dispatchAndWait(
+          id != null && task?.state == .awaitingAnswer
+              ? AnswerTaskAction(id, text: assistant.draft)
+              : AskAgentAction(),
+        ),
+      ),
+      onNewTask: () => dispatchSync(SetSelectedTaskAction(null)),
+      replaces:
+          task != null &&
+              task.state == .awaitingApproval &&
+              task.replacedBy == null &&
+              mayFollow(task)
+          ? S.current.composerReplaces
+          : null,
       onAsk: () => unawaited(
         dispatchAndWait(
           id != null && task?.state == .awaitingAnswer
@@ -340,7 +461,12 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
                 ),
         ),
       ),
-      onPanel: (p) => dispatchSync(SetPanelAction(p)),
+      onPanel: (p) {
+        dispatchSync(SetPanelAction(p));
+        if (p == 'rights') {
+          unawaited(dispatchAndWait(RetrieveAgentSecretsAction()));
+        }
+      },
       onAddAgent: () => dispatchSync(GoAction.push(const LinkInstallRoute())),
       onButton: (context, b) async {
         if (id == null) {
@@ -375,6 +501,39 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             if (task?.replacedBy case final next?) {
               dispatchSync(SetSelectedTaskAction(next));
               await dispatchAndWait(RetrieveTaskRecordAction(next));
+            }
+          case 'trend':
+            if (_touched(task).lastOrNull case final key?) {
+              dispatchSync(SetDrawerAction(open: false));
+              dispatchSync(OpenTrendAction(key));
+              dispatchSync(GoAction.navigate(const ExplorerRoute()));
+            }
+          case 'second':
+            final s = task == null ? null : _second(task);
+            if (s == null) {
+              return;
+            }
+            if (task!.state == .awaitingApproval) {
+              // a follow-up would replace the plan: the text is a draft
+              // the person copies and sends themselves (spec §5)
+              final copy = await ConfirmDialog.ask(
+                context,
+                title: S.current.draftTitle,
+                message: '${s.label}\n\n${s.detail}\n\n${S.current.draftNote}',
+                confirm: S.current.copyText,
+                cancel: S.current.cancel,
+                danger: false,
+              );
+              if (copy) {
+                await Clipboard.setData(
+                  ClipboardData(
+                    text: s.detail.isEmpty ? s.label : s.detail,
+                  ),
+                );
+                dispatchSync(ShowNoticeAction(S.current.draftCopied));
+              }
+            } else {
+              await dispatchAndWait(PickSuggestionAction(id, s.id));
             }
           case 'explorer':
             if (_node(task) case final node?) {
@@ -570,7 +729,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
 
   /// The keys with a value that a finished plan touched: what it set and
   /// what it proved, at most 12, in the plan's order.
-  static List<String> _touched(AgentTask t) => t.state != .done
+  static List<String> _touched(AgentTask? t) => t == null || t.state != .done
       ? const []
       : {
           for (final s in t.plan)
@@ -844,6 +1003,8 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     final runs = choices?.where((c) => c.runs).length ?? 0;
     final byAgent = choices?.where((c) => c.byAgent && !c.skipped).length ?? 0;
     final refusal = assistant.refusals[t.id];
+    // masked arguments (schema not known) are looked at before Approve
+    final unseen = unseenArgs(t, choices ?? const []);
     final left = _leftOut(t);
     final cancel = TaskButtonVm(
       id: 'cancel',
@@ -903,6 +1064,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
               ),
               _ when _approving => '…',
               _ when ticked == 0 => S.current.approveNone,
+              _ when unseen != null => S.current.approveReveal(unseen),
               _ =>
                 agent == null
                     ? null
@@ -931,6 +1093,11 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
             TaskButtonVm(
               id: 'explorer',
               label: S.current.openNodeInExplorer(node.split('/').last),
+            ),
+          if (_touched(t).lastOrNull case final key?)
+            TaskButtonVm(
+              id: 'trend',
+              label: S.current.trendPoint(key.split('/').last),
             ),
           if (t.plan.isNotEmpty)
             TaskButtonVm(id: 'save', label: S.current.saveAsPlan),
@@ -1057,7 +1224,12 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
         _ => null,
       },
       waysLabel: S.current.waysOut,
-      ways: [for (final s in t.suggestions) _tile(t, s)],
+      // a suggestion with rows needs its ticks: the Result card has them,
+      // a tile here would do nothing
+      ways: [
+        for (final s in t.suggestions)
+          if (s.rows.isEmpty) _tile(t, s),
+      ],
       // docs/agent.md: with these modes a pick may write without a person
       caution: switch (_unattended) {
         final mode? => S.current.waysCaution(mode),
@@ -1075,12 +1247,126 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
     _ => null,
   };
 
+  /// The drawer's second button (spec §5): the first suggestion without a
+  /// step (and without rows, which need ticks the drawer does not show).
+  TaskSuggestion? _second(AgentTask t) =>
+      t.suggestions.where((s) => s.step == null && s.rows.isEmpty).firstOrNull;
+
+  /// The second button of the drawer as the model's tile: its words, the
+  /// changes it guesses, and what a pick does. While the plan waits it is
+  /// a draft to copy (an ask would replace a plan the person may still
+  /// approve); after a done task it is a follow-up ask, with the caution
+  /// of the agent's mode. A failed task's Stopped card has all of them.
+  SuggestionTileVm? _secondTile(AgentTask t) {
+    final s = _second(t);
+    if (s == null ||
+        t.replacedBy != null ||
+        (t.state != .awaitingApproval && t.state != .done)) {
+      return null;
+    }
+    final waits = t.state == .awaitingApproval;
+    return SuggestionTileVm(
+      id: s.id,
+      label: s.label,
+      detail: s.detail,
+      tag: S.current.changesGuess(s.changes),
+      tagTone: s.changes == 0 ? .neutral : .ember,
+      note: waits
+          ? S.current.draftTileNote
+          : switch (_unattended) {
+              final mode? => S.current.waysCaution(mode),
+              null => S.current.followUpTileNote,
+            },
+      disabledReason: waits ? null : _followReason(t),
+    );
+  }
+
+  /// *What it may do* (board *AssistantRights*): the three modes, the
+  /// prefixes, the model, today's budget, whether the API key is set and
+  /// where it goes.
+  RightsPanelVm _rights() {
+    final agent = assistant.agent;
+    final id = agent?.split('/').last ?? 'agent';
+    final links = '${site.root}/sys/links/$id';
+    final cfg = assistant.cfg;
+    // as they will be once the staged update is applied
+    final params = agentParams;
+    final mode = params.mode;
+    final used = switch (live.values['$agent/budget_used_today']?.value) {
+      final num n => _tokens(n),
+      _ => '—',
+    };
+    final budget = switch (num.tryParse(cfg['budget_tokens_day'] ?? '')) {
+      final n? => _tokens(n),
+      null => '—',
+    };
+    final keyRef = cfg['api_key_ref'];
+    return RightsPanelVm(
+      modesLabel: S.current.mayDoModes,
+      modes: [
+        for (final (m, label, detail) in [
+          ('write', S.current.modeWrite, S.current.modeWriteDetail),
+          ('config', S.current.modeConfig, S.current.modeConfigDetail),
+          ('never', S.current.modeNever, S.current.modeNeverDetail),
+        ])
+          ModeVm(id: m, label: label, detail: detail, selected: m == mode),
+      ],
+      prefixesLabel: S.current.prefixesLabel,
+      prefixes: [
+        for (final p in params.prefixes)
+          (p, p.split('/').length > 2 ? p.split('/').skip(2).join('/') : p),
+      ],
+      prefixesNote: S.current.prefixesNote,
+      addPrefix: agent == null ? null : S.current.addPrefix,
+      facts: [
+        if (cfg['model'] case final m?)
+          FactVm(label: S.current.cfgModel, value: m, mono: true),
+        FactVm(
+          label: S.current.factToday,
+          value: S.current.todayUsed(used, budget),
+        ),
+        if (keyRef != null)
+          FactVm(
+            label: S.current.cfgApiKey,
+            value: switch (assistant.secrets) {
+              null => S.current.apiKeyUnknown(id),
+              final names when names.contains(keyRef) => S.current.apiKeySet,
+              _ => S.current.apiKeyNotSet,
+            },
+            code: keyRef,
+          ),
+        if (cfg['api_base'] case final b?)
+          FactVm(
+            label: S.current.factSentTo,
+            value: Uri.tryParse(b)?.host.isNotEmpty ?? false
+                ? Uri.parse(b).host
+                : b,
+            mono: true,
+          ),
+      ],
+      note: S.current.mayDoEditNote,
+      editReason: agent == null
+          ? S.current.noAgent
+          : site.needs('config', '$links/~act/update'),
+      staged: params.staged ? S.current.paramsStaged : null,
+    );
+  }
+
+  /// `182 k`, `1 M`, `950`: tokens as the board writes them.
+  static String _tokens(num n) => switch (n) {
+    >= 1000000 => '${_num((n / 100000).round() / 10)} M',
+    >= 1000 => '${(n / 1000).round()} k',
+    _ => '${n.round()}',
+  };
+
   /// The composer's hint for the task on screen (spec `assistant.md` §4).
   String _hint(AgentTask? t) => switch (t?.state) {
     null => S.current.askHint,
     .awaitingAnswer => S.current.answerHint,
     .planning => S.current.hintPlanning,
-    .awaitingApproval when t!.replacedBy == null => S.current.hintAwaiting,
+    .awaitingApproval when t!.replacedBy == null && mayFollow(t) =>
+      S.current.hintAwaiting,
+    .awaitingApproval => S.current.askHint,
     .running => S.current.hintRunning,
     .done => S.current.hintDone,
     .failed when t!.replacedBy == null => S.current.hintFailed(
@@ -1175,6 +1461,16 @@ class _Vm extends Vm {
     required this.onAnswer,
     required this.watch,
     required this.card,
+    required this.second,
+    required this.onAskFresh,
+    required this.onNewTask,
+    required this.replaces,
+    required this.rights,
+    required this.onMode,
+    required this.onRemovePrefix,
+    required this.onAddPrefix,
+    required this.onOpenFull,
+    required this.onCloseDrawer,
     required this.draft,
     required this.askHint,
     required this.chips,
@@ -1213,6 +1509,9 @@ class _Vm extends Vm {
            answering,
            watch,
            card,
+           second,
+           replaces,
+           rights,
            draft,
            askHint,
            chips,
@@ -1253,6 +1552,22 @@ class _Vm extends Vm {
   /// The keys whose values the Result card shows.
   final List<String> watch;
   final TaskCardVm? card;
+
+  /// The drawer's second button: the model's tile.
+  final SuggestionTileVm? second;
+
+  /// An ask from the drawer: a task of its own, never a follow-up.
+  final VoidCallback onAskFresh;
+  final VoidCallback onNewTask;
+
+  /// What sending does to the plan that waits (it replaces it).
+  final String? replaces;
+  final RightsPanelVm? rights;
+  final ValueChanged<String> onMode;
+  final ValueChanged<String> onRemovePrefix;
+  final Future<void> Function(BuildContext context) onAddPrefix;
+  final VoidCallback? onOpenFull;
+  final VoidCallback onCloseDrawer;
   final String draft;
   final String askHint;
   final List<ChipVm> chips;

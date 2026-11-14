@@ -44,7 +44,8 @@ class UpdateLinkParamsAction extends Action with NonReentrant, WaitingAction {
       AddChangesAction(
         [
           StagedChange(
-            id: 'params:$id',
+            // the full key: the same link id on two sites is two changes
+            id: 'params:${site.root}/sys/links/$id',
             op: 'Edit',
             key: '${site.root}/sys/links/$id',
             field: 'params',

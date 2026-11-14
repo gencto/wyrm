@@ -14581,10 +14581,10 @@ class S {
     );
   }
 
-  /// `Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)`
+  /// `Ask to change the plan, e.g. “skip step 4”…`
   String get hintAwaiting {
     return Intl.message(
-      'Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)',
+      'Ask to change the plan, e.g. “skip step 4”…',
       name: 'hintAwaiting',
       desc: '',
       args: [],
@@ -14829,6 +14829,306 @@ class S {
       name: 'fixReplacesNoPerson',
       desc: '',
       args: [mode],
+    );
+  }
+
+  /// `Who approves`
+  String get mayDoModes {
+    return Intl.message('Who approves', name: 'mayDoModes', desc: '', args: []);
+  }
+
+  /// `Every step`
+  String get modeWrite {
+    return Intl.message('Every step', name: 'modeWrite', desc: '', args: []);
+  }
+
+  /// `A person approves each set and invoke. Recommended.`
+  String get modeWriteDetail {
+    return Intl.message(
+      'A person approves each set and invoke. Recommended.',
+      name: 'modeWriteDetail',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Only config steps`
+  String get modeConfig {
+    return Intl.message(
+      'Only config steps',
+      name: 'modeConfig',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Write steps run at once with the agent's own key; config steps wait for a person.`
+  String get modeConfigDetail {
+    return Intl.message(
+      'Write steps run at once with the agent\'s own key; config steps wait for a person.',
+      name: 'modeConfigDetail',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Never — write steps run at once; config steps still wait for a person`
+  String get modeNever {
+    return Intl.message(
+      'Never — write steps run at once; config steps still wait for a person',
+      name: 'modeNever',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The agent runs config steps only with a person's token, as in “Only config steps”. Text in the tree can steer the plan.`
+  String get modeNeverDetail {
+    return Intl.message(
+      'The agent runs config steps only with a person\'s token, as in “Only config steps”. Text in the tree can steer the plan.',
+      name: 'modeNeverDetail',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Where it may propose changes`
+  String get prefixesLabel {
+    return Intl.message(
+      'Where it may propose changes',
+      name: 'prefixesLabel',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `allowed_prefixes · outside them a step is refused at the check.`
+  String get prefixesNote {
+    return Intl.message(
+      'allowed_prefixes · outside them a step is refused at the check.',
+      name: 'prefixesNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `+ prefix`
+  String get addPrefix {
+    return Intl.message('+ prefix', name: 'addPrefix', desc: '', args: []);
+  }
+
+  /// `Today`
+  String get factToday {
+    return Intl.message('Today', name: 'factToday', desc: '', args: []);
+  }
+
+  /// `{used} of {budget} tokens`
+  String todayUsed(Object used, Object budget) {
+    return Intl.message(
+      '$used of $budget tokens',
+      name: 'todayUsed',
+      desc: '',
+      args: [used, budget],
+    );
+  }
+
+  /// `set · never shown`
+  String get apiKeySet {
+    return Intl.message(
+      'set · never shown',
+      name: 'apiKeySet',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `not set`
+  String get apiKeyNotSet {
+    return Intl.message('not set', name: 'apiKeyNotSet', desc: '', args: []);
+  }
+
+  /// `not known: needs config on sys/links/{id}`
+  String apiKeyUnknown(Object id) {
+    return Intl.message(
+      'not known: needs config on sys/links/$id',
+      name: 'apiKeyUnknown',
+      desc: '',
+      args: [id],
+    );
+  }
+
+  /// `Sent to`
+  String get factSentTo {
+    return Intl.message('Sent to', name: 'factSentTo', desc: '', args: []);
+  }
+
+  /// `These are params of the agent link (needs config). A pick is staged and runs when you apply it in Review. Changing where the key is sent deletes the key; enter it again after.`
+  String get mayDoEditNote {
+    return Intl.message(
+      'These are params of the agent link (needs config). A pick is staged and runs when you apply it in Review. Changing where the key is sent deletes the key; enter it again after.',
+      name: 'mayDoEditNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A change of the agent's params is staged. It runs when you apply it in Review.`
+  String get paramsStaged {
+    return Intl.message(
+      'A change of the agent\'s params is staged. It runs when you apply it in Review.',
+      name: 'paramsStaged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Add a prefix`
+  String get addPrefixTitle {
+    return Intl.message(
+      'Add a prefix',
+      name: 'addPrefixTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A key prefix the agent may propose changes under, written in full: {example}.`
+  String addPrefixNote(Object example) {
+    return Intl.message(
+      'A key prefix the agent may propose changes under, written in full: $example.',
+      name: 'addPrefixNote',
+      desc: '',
+      args: [example],
+    );
+  }
+
+  /// `wy/…`
+  String get addPrefixHint {
+    return Intl.message('wy/…', name: 'addPrefixHint', desc: '', args: []);
+  }
+
+  /// `Stage`
+  String get addPrefixButton {
+    return Intl.message('Stage', name: 'addPrefixButton', desc: '', args: []);
+  }
+
+  /// `Assistant`
+  String get drawerTitle {
+    return Intl.message('Assistant', name: 'drawerTitle', desc: '', args: []);
+  }
+
+  /// `Open full`
+  String get openFull {
+    return Intl.message('Open full', name: 'openFull', desc: '', args: []);
+  }
+
+  /// `Close (Cmd+J)`
+  String get closeDrawer {
+    return Intl.message(
+      'Close (Cmd+J)',
+      name: 'closeDrawer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Trend {point}`
+  String trendPoint(Object point) {
+    return Intl.message(
+      'Trend $point',
+      name: 'trendPoint',
+      desc: '',
+      args: [point],
+    );
+  }
+
+  /// `A message to copy`
+  String get draftTitle {
+    return Intl.message(
+      'A message to copy',
+      name: 'draftTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The plan still waits for your approval: nothing is sent to anyone. Copy the text and send it yourself.`
+  String get draftNote {
+    return Intl.message(
+      'The plan still waits for your approval: nothing is sent to anyone. Copy the text and send it yourself.',
+      name: 'draftNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Copy`
+  String get copyText {
+    return Intl.message('Copy', name: 'copyText', desc: '', args: []);
+  }
+
+  /// `Copied.`
+  String get draftCopied {
+    return Intl.message('Copied.', name: 'draftCopied', desc: '', args: []);
+  }
+
+  /// `Ask about what you see… (Cmd+Enter)`
+  String get drawerHint {
+    return Intl.message(
+      'Ask about what you see… (Cmd+Enter)',
+      name: 'drawerHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sending asks for a new plan: this plan is replaced and can no longer be approved.`
+  String get composerReplaces {
+    return Intl.message(
+      'Sending asks for a new plan: this plan is replaced and can no longer be approved.',
+      name: 'composerReplaces',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Show the arguments of step {n} first: its schema is not known, so they are masked.`
+  String approveReveal(Object n) {
+    return Intl.message(
+      'Show the arguments of step $n first: its schema is not known, so they are masked.',
+      name: 'approveReveal',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `a draft to copy · sends nothing`
+  String get draftTileNote {
+    return Intl.message(
+      'a draft to copy · sends nothing',
+      name: 'draftTileNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The assistant suggests`
+  String get drawerSuggests {
+    return Intl.message(
+      'The assistant suggests',
+      name: 'drawerSuggests',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `a new ask that follows this task`
+  String get followUpTileNote {
+    return Intl.message(
+      'a new ask that follows this task',
+      name: 'followUpTileNote',
+      desc: '',
+      args: [],
     );
   }
 }

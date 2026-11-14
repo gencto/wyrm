@@ -43,6 +43,11 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
       'the plan or its ticks changed after they were shown. Read the plan '
       'again and approve what it says now.';
 
+  /// The refusal kept when step [n]'s masked arguments were not shown.
+  static String unseen(int n) =>
+      'the arguments of step $n are masked: its schema is not known. Show '
+      'them, then approve.';
+
   @override
   Future<AppState?> reduce() async {
     final agent = assistant.agent;
@@ -57,6 +62,13 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
     ];
     if (steps.isEmpty) {
       return null;
+    }
+    // arguments masked because their schema is not known are looked at
+    // before they are approved (spec assistant.md §3)
+    if (unseenArgs(task, choicesOf(task)) case final n?) {
+      return state.copyWith.assistant(
+        refusals: assistant.refusals.add(id, unseen(n)),
+      );
     }
     if (plan != this.plan || !listEquals(steps, this.steps)) {
       return state.copyWith.assistant(

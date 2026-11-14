@@ -121,8 +121,110 @@ sequenceDiagram
     UI->>VM: onReveal()
     alt id != null
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(assistant.revealed)
+        A1->>ST: copyWith(assistant.revealed, assistant.refusals)
     end
+```
+
+## onMode
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as StageAgentParamAction.mode
+    participant ST as AppState
+
+    User->>UI: onMode
+    UI->>VM: onMode()
+    VM->>+A1: dispatchAndWait
+    Note over A1: async
+    A1->>ST: copyWith(changes.table, changes.view)
+    A1->>ST: dispatchAndWait(RetrieveLinkHistoryAction)
+    A1-->>-VM: ActionStatus
+```
+
+## onRemovePrefix
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as StageAgentParamAction.removePrefix
+    participant ST as AppState
+
+    User->>UI: onRemovePrefix
+    UI->>VM: onRemovePrefix()
+    VM->>+A1: dispatchAndWait
+    Note over A1: async
+    A1->>ST: copyWith(changes.table, changes.view)
+    A1->>ST: dispatchAndWait(RetrieveLinkHistoryAction)
+    A1-->>-VM: ActionStatus
+```
+
+## onAddPrefix
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as StageAgentParamAction.addPrefix
+    participant ST as AppState
+
+    User->>UI: onAddPrefix
+    UI->>VM: onAddPrefix()
+    alt p != null && p.trim().isNotEmpty
+        VM->>+A1: dispatchAndWait
+        Note over A1: async
+        A1->>ST: copyWith(changes.table, changes.view)
+        A1->>ST: dispatchAndWait(RetrieveLinkHistoryAction)
+        A1-->>-VM: ActionStatus
+    end
+```
+
+## onOpenFull
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetDrawerAction
+    participant ST as AppState
+    participant NAV as Router
+
+    User->>UI: onOpenFull
+    UI->>VM: onOpenFull()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.drawer)
+    A1->>ST: dispatchSync(SetChipAction)
+    A1->>ST: dispatchAndWait(LoadAssistantAction)
+    VM->>NAV: GoAction.navigate AssistantRoute
+```
+
+## onCloseDrawer
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetDrawerAction
+    participant ST as AppState
+
+    User->>UI: onCloseDrawer
+    UI->>VM: onCloseDrawer()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(assistant.drawer)
+    A1->>ST: dispatchSync(SetChipAction)
+    A1->>ST: dispatchAndWait(LoadAssistantAction)
 ```
 
 ## onChipRemove
@@ -187,6 +289,7 @@ sequenceDiagram
     A3->>ST: dispatchAndWait(RetrieveLinksAction)
     A3->>ST: dispatchAndWait(RetrieveAgentAction)
     A3->>ST: dispatchAndWait(RetrieveTasksAction)
+    A3->>ST: dispatchAndWait(RetrieveAgentSecretsAction)
     A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A3-->>-VM: ActionStatus
 ```
@@ -273,6 +376,39 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.draft)
 ```
 
+## onAskFresh
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction()
+
+    User->>UI: onAskFresh
+    UI->>VM: onAskFresh()
+    VM->>+A1: dispatchAndWait
+    A1-->>-VM: ActionStatus
+```
+
+## onNewTask
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetSelectedTaskAction
+    participant ST as AppState
+
+    User->>UI: onNewTask
+    UI->>VM: onNewTask()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(tasks.selectedTask)
+```
+
 ## onAsk
 
 ```mermaid
@@ -298,12 +434,19 @@ sequenceDiagram
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
     participant A1 as SetPanelAction
+    participant A2 as RetrieveAgentSecretsAction
     participant ST as AppState
 
     User->>UI: onPanel
     UI->>VM: onPanel()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(assistant.panel)
+    alt p == 'rights'
+        VM->>+A2: dispatchAndWait
+        Note over A2: async
+        A2->>ST: copyWith(assistant.secrets)
+        A2-->>-VM: ActionStatus
+    end
 ```
 
 ## onAddAgent
@@ -333,11 +476,14 @@ sequenceDiagram
     participant A2 as RejectTaskAction
     participant A3 as SetSelectedTaskAction
     participant A4 as RetrieveTaskRecordAction
-    participant A5 as SelectNodeAction
-    participant A6 as SavePlanAction
+    participant A5 as SetDrawerAction
+    participant A6 as OpenTrendAction
     participant A7 as ShowNoticeAction
-    participant A8 as AskAgentAction
-    participant A9 as CancelTaskAction
+    participant A8 as PickSuggestionAction
+    participant A9 as SelectNodeAction
+    participant A10 as SavePlanAction
+    participant A11 as AskAgentAction
+    participant A12 as CancelTaskAction
     participant ST as AppState
     participant NAV as Router
 
@@ -363,37 +509,60 @@ sequenceDiagram
         A4->>ST: dispatchSync(AddTasksAction)
         A4-->>-VM: ActionStatus
     end
-    alt _node(task)
+    alt _touched(task).lastOrNull
         VM->>A5: dispatchSync
-        A5->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
-        A5->>ST: dispatchSync(ToggleNodeAction)
-        A5->>ST: dispatchAndWait(RetrieveNodeDetailAction)
-        A5->>ST: dispatchAndWait(RetrieveDetailsAction)
-        A5->>ST: dispatchAndWait(RetrieveHistoryAction)
+        A5->>ST: copyWith(assistant.drawer)
+        A5->>ST: dispatchSync(SetChipAction)
+        A5->>ST: dispatchAndWait(LoadAssistantAction)
+        VM->>A6: dispatchSync
+        A6->>A9: dispatchSync
+        A6->>ST: dispatchSync(SetTabAction)
+        A6->>ST: dispatchSync(SelectPointAction)
+        A6->>ST: dispatchAndWait(RetrieveHistoryAction)
         VM->>NAV: GoAction.navigate ExplorerRoute
     end
-    VM->>+A6: dispatchAndWait
-    Note over A6: WaitingAction · async
-    A6-->>-VM: ActionStatus
+    alt copy
+        VM->>A7: dispatchSync
+        A7->>ST: copyWith(problems.notices)
+    end
+    alt task!.state == .awaitingApproval
+        VM->>+A8: dispatchAndWait
+        Note over A8: async
+        A8->>ST: copyWith(assistant.rowPicks)
+        A8->>A11: dispatchAndWait
+        A8-->>-VM: ActionStatus
+    end
+    alt _node(task)
+        VM->>A9: dispatchSync
+        A9->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
+        A9->>ST: dispatchSync(ToggleNodeAction)
+        A9->>ST: dispatchAndWait(RetrieveNodeDetailAction)
+        A9->>ST: dispatchAndWait(RetrieveDetailsAction)
+        A9->>ST: dispatchAndWait(RetrieveHistoryAction)
+        VM->>NAV: GoAction.navigate ExplorerRoute
+    end
+    VM->>+A10: dispatchAndWait
+    Note over A10: WaitingAction · async
+    A10-->>-VM: ActionStatus
     alt status.isCompletedOk
         VM->>A7: dispatchSync
         A7->>ST: copyWith(problems.notices)
     end
     alt left.isNotEmpty
-        VM->>+A8: dispatchAndWait
-        Note over A8: TaskRows · NonReentrant · WaitingAction · async
-        A8->>ST: dispatchSync(AddTasksAction)
-        A8->>ST: dispatchSync(AddTaskEventAction)
-        A8->>ST: dispatchSync(_Select)
-        A8->>ST: dispatchSync(_ClearDraft)
-        A8->>ST: dispatchSync(AddTaskEventAction)
-        A8->>A4: dispatchAndWait
-        A8-->>-VM: ActionStatus
+        VM->>+A11: dispatchAndWait
+        Note over A11: TaskRows · NonReentrant · WaitingAction · async
+        A11->>ST: dispatchSync(AddTasksAction)
+        A11->>ST: dispatchSync(AddTaskEventAction)
+        A11->>ST: dispatchSync(_Select)
+        A11->>ST: dispatchSync(_ClearDraft)
+        A11->>ST: dispatchSync(AddTaskEventAction)
+        A11->>A4: dispatchAndWait
+        A11-->>-VM: ActionStatus
     end
     alt await ConfirmDialog.ask(context, title: S.current.cancelTask, message: S.current.failedNote, confirm: S.current.cancelTask, cancel: S.current.cancel)
-        VM->>+A9: dispatchAndWait
-        Note over A9: WaitingAction · async
-        A9-->>-VM: ActionStatus
+        VM->>+A12: dispatchAndWait
+        Note over A12: WaitingAction · async
+        A12-->>-VM: ActionStatus
     end
 ```
 
@@ -408,7 +577,12 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onAnswer` | `AnswerTaskAction` ? | `assistant.picks, assistant.draft` |
 | `onPickSuggestion` | `PickSuggestionAction` ? | `assistant.rowPicks` |
 | `onRow` | `SetRowPickAction` ? | `assistant.rowPicks` |
-| `onReveal` | `SetStepRevealAction` ? | `assistant.revealed` |
+| `onReveal` | `SetStepRevealAction` ? | `assistant.revealed, assistant.refusals` |
+| `onMode` | `StageAgentParamAction.mode` | `changes.table, changes.view` |
+| `onRemovePrefix` | `StageAgentParamAction.removePrefix` | `changes.table, changes.view` |
+| `onAddPrefix` | `StageAgentParamAction.addPrefix` ? | `changes.table, changes.view` |
+| `onOpenFull` | `SetDrawerAction`, `GoAction.navigate` | `assistant.drawer` |
+| `onCloseDrawer` | `SetDrawerAction` | `assistant.drawer` |
 | `onChipRemove` | `SetChipAction` | `assistant.chips` |
 | `onAddChip` | `SetChipAction` ? | `assistant.chips` |
 | `onShow` | `SetShownAction`, `SetWatchedAction`, `LoadAssistantAction` | `assistant.shown`, `assistant.watched` |
@@ -416,10 +590,12 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |
+| `onAskFresh` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction()` | — |
+| `onNewTask` | `SetSelectedTaskAction` | `tasks.selectedTask` |
 | `onAsk` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction(parent: task != null && task.replacedBy == null && mayFollow(task) ? id : null)` | — |
-| `onPanel` | `SetPanelAction` | `assistant.panel` |
+| `onPanel` | `SetPanelAction`, `RetrieveAgentSecretsAction` ? | `assistant.panel`, `assistant.secrets` |
 | `onAddAgent` | `GoAction.push` | — |
-| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SetSelectedTaskAction` ?, `RetrieveTaskRecordAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `tasks.selectedTask`, `assistant.docs`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `problems.notices` |
+| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SetSelectedTaskAction` ?, `RetrieveTaskRecordAction` ?, `SetDrawerAction` ?, `OpenTrendAction` ?, `GoAction.navigate` ?, `ShowNoticeAction` ?, `PickSuggestionAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `tasks.selectedTask`, `assistant.docs`, `assistant.drawer`, `problems.notices`, `assistant.rowPicks`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 
 `?` marks a dispatch that only runs under a condition.
 

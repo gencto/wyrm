@@ -21,6 +21,8 @@ class SetStepRevealAction extends Action {
       revealed: now.isEmpty
           ? assistant.revealed.remove(task)
           : assistant.revealed.add(task, now),
+      // a refusal of the last approval was about what was shown
+      refusals: assistant.refusals.remove(task),
     );
   }
 }

@@ -63,9 +63,11 @@ void main() {
           // as the gateway sends it: the highest level of the grants
           max: grants.isEmpty
               ? 'write'
-              : grants.map((g) => g.$2).reduce(
-                  (a, b) => levelRank(a) >= levelRank(b) ? a : b,
-                ),
+              : grants
+                    .map((g) => g.$2)
+                    .reduce(
+                      (a, b) => levelRank(a) >= levelRank(b) ? a : b,
+                    ),
           grants: grants,
         ),
       ),
