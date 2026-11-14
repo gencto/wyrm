@@ -7,6 +7,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/theme/common.dart';
 
+import 'connectors/step_up_dialog_connector.dart';
 import 'connectors/toast_stack_connector.dart';
 import 'connectors/top_level_page_connector.dart';
 import 'connectors/window_controls_connector.dart';
@@ -58,6 +59,9 @@ class AppConnector extends StatelessWidget {
                   bottom: 20,
                   child: ToastStackConnector(),
                 ),
+                // A request the gateway wants confirmed (ADR 0050 §1.3),
+                // over every page.
+                const Positioned.fill(child: StepUpDialogConnector()),
               ],
             ),
           ),

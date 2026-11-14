@@ -3,6 +3,14 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/device/actions/decline_offer_action.dart';
+import 'package:business/redux/device/actions/enable_device_action.dart';
+import 'package:business/redux/device/actions/forget_account_action.dart';
+import 'package:business/redux/device/actions/load_device_action.dart';
+import 'package:business/redux/device/actions/offer_device_action.dart';
+import 'package:business/redux/device/actions/set_re_enable_action.dart';
+import 'package:business/redux/device/actions/unlock_with_device_action.dart';
+import 'package:business/redux/device/actions/use_password_action.dart';
 import 'package:business/redux/discovery/actions/close_discovery_action.dart';
 import 'package:business/redux/discovery/actions/find_gateways_action.dart';
 import 'package:business/redux/discovery/actions/pick_found_gateway_action.dart';
@@ -18,6 +26,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_remember_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter/foundation.dart';
@@ -26,18 +35,25 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
 import 'package:models/login_failure.dart';
+import 'package:models/unlock_refusal.dart';
+import 'package:models/unlock_stage.dart';
 import 'package:ui/alerts/trust_card.dart';
+import 'package:ui/alerts/unlock_notice.dart';
 import 'package:ui/alerts/unreachable_alert.dart';
 import 'package:ui/buttons/found_gateway_row.dart';
 import 'package:ui/buttons/recent_chip.dart';
 import 'package:ui/containers/discover_panel.dart';
+import 'package:ui/containers/unlock_offer.dart';
+import 'package:ui/containers/unlock_panel.dart';
 import 'package:ui/containers/welcome_panel.dart';
+import 'package:ui/indicators/biometric_icon.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
 import 'package:ui/shell/window_bar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../common/unlock.dart';
 import '../common/validators.dart';
 import '../common/window.dart';
 import '../navigation/app_router.dart';
@@ -51,8 +67,12 @@ class LogInPageConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
-    // §6: the gateway in the field is probed as the page opens.
-    onInit: (store) => unawaited(store.dispatchAndWait(ProbeGatewayAction())),
+    // §6: the gateway in the field is probed as the page opens, and the
+    // device unlock of its user is read (unlock-discover.md §2).
+    onInit: (store) {
+      unawaited(store.dispatchAndWait(ProbeGatewayAction()));
+      unawaited(store.dispatchAndWait(LoadDeviceAction()));
+    },
     builder: (context, vm) => LogInPage(
       window: vm.window,
       gateway: vm.gateway,
@@ -89,6 +109,16 @@ class LogInPageConnector extends StatelessWidget {
       onTrust: vm.onTrust,
       onCancelTrust: vm.onCancelTrust,
       tlsTone: vm.tlsTone,
+      offer: vm.offer,
+      onOfferUse: vm.onOfferUse,
+      onOfferNotNow: vm.onOfferNotNow,
+      onOfferDontAsk: vm.onOfferDontAsk,
+      unlock: vm.unlock,
+      reEnable: vm.reEnable,
+      onUnlock: vm.onUnlock,
+      onAutoUnlock: vm.onAutoUnlock,
+      onUsePassword: vm.onUsePassword,
+      onAnotherAccount: vm.onAnotherAccount,
     ),
   );
 }
@@ -165,6 +195,22 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         : null;
     final pin = uri == null ? null : discovery.pins[uri.origin];
 
+    Future<void> open() async {
+      // The welcome stays until the first list of the tree has arrived.
+      await dispatchAndWait(OpenTreeAction());
+      // The auth guard is re-run by the token's listenable, but auto_route
+      // 11 does not redirect away from a resolved route on it: go there.
+      dispatchSync(GoAction.replace(const StudioRoute()));
+    }
+
+    final who = (login.user ?? '').trim();
+    final keySite = device.keySite ?? short;
+    Future<void> enable() => dispatchAndWait(
+      EnableDeviceAction(
+        reason: S.current.unlockEnablePrompt(site.name ?? keySite, who),
+      ),
+    );
+
     Future<void> logIn() async {
       // The default shown in the field is only a hint until it is written.
       if (login.gateway == null) {
@@ -174,11 +220,24 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       if (!status.isCompletedOk) {
         return;
       }
-      // The welcome stays until the first list of the tree has arrived.
-      await dispatchAndWait(OpenTreeAction());
-      // The auth guard is re-run by the token's listenable, but auto_route
-      // 11 does not redirect away from a resolved route on it: go there.
-      dispatchSync(GoAction.replace(const StudioRoute()));
+      // Before Welcome: the offer, or a key made again (spec §2).
+      await dispatchAndWait(OfferDeviceAction(enable: enable));
+      if (currentState().device.stage == UnlockStage.offer) {
+        return;
+      }
+      await open();
+    }
+
+    Future<void> unlock({bool auto = false}) async {
+      final status = await dispatchAndWait(
+        UnlockWithDeviceAction(
+          reason: S.current.unlockPrompt(keySite, who),
+          auto: auto,
+        ),
+      );
+      if (status.isCompletedOk && currentState().session.token != null) {
+        await open();
+      }
     }
 
     return _Vm(
@@ -247,6 +306,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       onRecent: (r) {
         dispatchSync(SetGatewayAction(r));
         unawaited(dispatchAndWait(ProbeGatewayAction(r)));
+        unawaited(dispatchAndWait(LoadDeviceAction()));
       },
       remember: FieldVm(
         value: login.remember,
@@ -292,7 +352,49 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       standbyLabel: standbyUri == null
           ? null
           : S.current.standbyIs('${standbyUri.host}:${standbyUri.port}'),
-      welcome: session.isAvailable ? _welcome() : null,
+      welcome: session.isAvailable && device.stage != UnlockStage.offer
+          ? _welcome()
+          : null,
+      offer: session.isAvailable && device.stage == UnlockStage.offer
+          ? _offer(standbyUri)
+          : null,
+      onOfferUse: () => unawaited(() async {
+        if (currentState().device.available) {
+          await enable();
+        } else {
+          await dispatchAndWait(DeclineOfferAction());
+        }
+        await open();
+      }()),
+      onOfferNotNow: () => unawaited(() async {
+        await dispatchAndWait(DeclineOfferAction());
+        await open();
+      }()),
+      onOfferDontAsk: () => unawaited(() async {
+        await dispatchAndWait(DeclineOfferAction(dontAsk: true));
+        await open();
+      }()),
+      unlock: session.isAvailable
+          ? null
+          : _unlock(
+              main: main,
+              standby: standbyUri,
+              down: down,
+              tls: uri?.scheme == 'https'
+                  ? S.current.tlsCertificateOf(keySite)
+                  : '',
+            ),
+      reEnable: FieldVm(
+        value: device.reEnable,
+        onChanged: (v) => dispatchSync(SetReEnableAction(v)),
+        enabled: !busy,
+      ),
+      onUnlock: down || device.keyId == null ? null : () => unawaited(unlock()),
+      onAutoUnlock: down || device.keyId == null
+          ? null
+          : () => unawaited(unlock(auto: true)),
+      onUsePassword: () => dispatchSync(UsePasswordAction()),
+      onAnotherAccount: () => dispatchSync(ForgetAccountAction()),
       onFind: busy
           ? null
           : () => discovery.open
@@ -536,6 +638,186 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     );
   }
 
+  /// The offer after a password login (board `UnlockOffer`).
+  UnlockOfferVm _offer(Uri? standby) {
+    final d = device;
+    final s = S.current;
+    final platform = devicePlatform();
+    final name = unlockName(d.kind);
+    final siteName = site.name ?? d.keySite ?? '';
+    final user = _userName(site.user ?? login.user ?? '');
+    final role = site.role ?? '';
+    final policy = d.policy;
+    final faces = unlockGlyph(d.kind) == BiometricGlyph.face;
+    final checked = s.unlockOfferChecked(siteName, user, role);
+    final line = s.unlockPolicyLine(siteName, policy?.maxPerUser ?? 5);
+    if (!d.available) {
+      return UnlockOfferVm(
+        checked: checked,
+        glyph: BiometricGlyph.key,
+        title: s.unlockNoBioTitle,
+        text: s.unlockNoBioText,
+        facts: [
+          OfferFactVm(s.unlockNoBioFactRemember),
+          OfferFactVm(s.unlockNoBioFactOther, tone: Tone.neutral),
+        ],
+        policy: line,
+        open: s.unlockOpenStudio,
+      );
+    }
+    return UnlockOfferVm(
+      checked: checked,
+      glyph: unlockGlyph(d.kind),
+      title: s.unlockOfferTitle(name),
+      text: s.unlockOfferText(name, siteName, unlockDevice(platform)),
+      facts: [
+        OfferFactVm(s.unlockFactStore(user, siteName, unlockStore(platform))),
+        OfferFactVm(
+          standby == null
+              ? s.unlockFactSite(siteName)
+              : s.unlockFactStandby(siteName, standby.host),
+        ),
+        OfferFactVm(
+          faces ? s.unlockFactEndsFaces : s.unlockFactEndsFingers,
+          tone: Tone.warn,
+        ),
+        OfferFactVm(
+          s.unlockFactPassword(siteName, policy?.passwordEveryDays ?? 30),
+          tone: Tone.neutral,
+        ),
+      ],
+      policy: line,
+      use: s.unlockUse(name),
+      notNow: s.unlockNotNow,
+      dontAsk: s.unlockDontAsk,
+      busy: state.wait.isWaitingForType<EnableDeviceAction>(),
+    );
+  }
+
+  /// The unlock forms (boards `Unlock`, `UnlockFallback`, `UnlockChanged`,
+  /// `UnlockSignedOut`, `UnlockLinux`); null for the password form of
+  /// login.md.
+  UnlockPanelVm? _unlock({
+    required String main,
+    required Uri? standby,
+    required bool down,
+    required String tls,
+  }) {
+    final d = device;
+    final stage = d.stage;
+    const shown = {
+      UnlockStage.unlock,
+      UnlockStage.checking,
+      UnlockStage.fallback,
+      UnlockStage.changed,
+      UnlockStage.signedOut,
+      UnlockStage.noBiometrics,
+    };
+    if (!shown.contains(stage)) {
+      return null;
+    }
+    final s = S.current;
+    final platform = devicePlatform();
+    final name = unlockName(d.kind);
+    final glyph = unlockGlyph(d.kind);
+    final faces = glyph == BiometricGlyph.face;
+    final where = unlockDevice(platform);
+    final siteName = d.keySite ?? shortHost(parseGateways(main).first);
+    final user = (login.user ?? '').trim();
+    final days = d.policy?.passwordEveryDays ?? 30;
+    final bio = stage == UnlockStage.unlock || stage == UnlockStage.checking;
+    final uri = parseGateways(main).firstOrNull;
+    final host = uri == null ? main : '${uri.host}:${uri.port}';
+    final notice = switch (stage) {
+      UnlockStage.fallback when d.reason != null => UnlockNoticeVm(
+        title: d.reason == 'locked out'
+            ? s.unlockLockoutTitle(name)
+            : s.unlockCancelTitle(name),
+        text: s.unlockFallbackText(name),
+      ),
+      UnlockStage.changed => UnlockNoticeVm(
+        title: s.unlockChangedTitle(name),
+        text: faces
+            ? s.unlockChangedFaces(where)
+            : s.unlockChangedFingers(where),
+      ),
+      UnlockStage.signedOut => switch (d.refusal) {
+        UnlockRefusal.removed => UnlockNoticeVm(
+          title: s.unlockRemovedTitle,
+          text: s.unlockRemovedText(where, name),
+          tone: Tone.bad,
+        ),
+        UnlockRefusal.passwordDue => UnlockNoticeVm(
+          title: s.unlockDueTitle(siteName, days),
+          text: s.unlockDueText(days, name),
+          tone: Tone.bad,
+        ),
+        UnlockRefusal.passwordChanged => UnlockNoticeVm(
+          title: s.unlockPasswordChangedTitle,
+          text: s.unlockPasswordChangedText,
+          tone: Tone.bad,
+        ),
+        UnlockRefusal.devicesOff => UnlockNoticeVm(
+          title: s.unlockOffTitle(siteName),
+          text: s.unlockOffText,
+          tone: Tone.bad,
+        ),
+        _ => UnlockNoticeVm(
+          title: s.unlockUnknownTitle(siteName),
+          text: s.unlockUnknownText(where, name),
+          tone: Tone.bad,
+        ),
+      },
+      UnlockStage.noBiometrics => UnlockNoticeVm(
+        title: s.unlockNoneTitle,
+        text: platform == 'linux' ? s.unlockNoneLinux : s.unlockNoneOther,
+        tone: Tone.neutral,
+      ),
+      _ => null,
+    };
+    // Re-enable is offered after changed and signed out, not after
+    // devices_off (nothing to turn on) nor password_due (the key stays).
+    final reEnable =
+        stage == UnlockStage.changed ||
+        (stage == UnlockStage.signedOut &&
+            d.refusal != UnlockRefusal.devicesOff &&
+            d.refusal != UnlockRefusal.passwordDue);
+    final keyLine =
+        d.keyId == null ||
+            stage == UnlockStage.changed ||
+            stage == UnlockStage.signedOut
+        ? tls
+        : s.unlockKeyIn(unlockStore(platform), shortDate(d.added));
+    return UnlockPanelVm(
+      title: bio ? s.unlockWelcomeBack : s.logIn,
+      subtitle: bio ? s.unlockToOpen(siteName) : s.unlockLogInTo(siteName),
+      notice: notice,
+      account: UnlockAccountVm(
+        initials: initialsOf(user),
+        user: user,
+        role: d.keyRole == null ? '' : s.unlockRoleOn(d.keyRole!, siteName),
+        host: standby == null ? host : s.unlockPlusStandby(host),
+        tone: down ? Tone.bad : Tone.good,
+        last: d.keyId == null || d.lastUsed == 0
+            ? s.unlockLastPassword
+            : s.unlockLastUsed(name, agoOf(d.lastUsed)),
+      ),
+      password: !bio,
+      glyph: glyph,
+      unlockLabel: s.unlockWith(name),
+      note: stage == UnlockStage.checking
+          ? s.unlockChecking(siteName)
+          : s.unlockOrEnter,
+      checking: stage == UnlockStage.checking,
+      passwordLabel: s.unlockPasswordFor(user),
+      reEnable: reEnable && d.available ? s.unlockReEnable(name) : null,
+      usePassword: s.unlockUsePassword,
+      another: s.unlockAnother,
+      footer: keyLine,
+      version: s.studioVersion(studioVersion, s.languageName),
+    );
+  }
+
   /// What is known while the tree opens: who and where from `me()`, the
   /// sites from the switcher's list, the links from the first list, and the
   /// steps of the preload (docs/design/specs/login.md §5).
@@ -617,6 +899,16 @@ class _Vm extends Vm {
     required this.onTrust,
     required this.onCancelTrust,
     required this.tlsTone,
+    required this.offer,
+    required this.onOfferUse,
+    required this.onOfferNotNow,
+    required this.onOfferDontAsk,
+    required this.unlock,
+    required this.reEnable,
+    required this.onUnlock,
+    required this.onAutoUnlock,
+    required this.onUsePassword,
+    required this.onAnotherAccount,
   }) : super(
          equals: [
            window,
@@ -644,6 +936,10 @@ class _Vm extends Vm {
            onOpenSettings != null,
            trust,
            tlsTone,
+           offer,
+           unlock,
+           reEnable,
+           onUnlock != null,
          ],
        );
 
@@ -682,4 +978,14 @@ class _Vm extends Vm {
   final VoidCallback? onTrust;
   final VoidCallback onCancelTrust;
   final Tone tlsTone;
+  final UnlockOfferVm? offer;
+  final VoidCallback onOfferUse;
+  final VoidCallback onOfferNotNow;
+  final VoidCallback onOfferDontAsk;
+  final UnlockPanelVm? unlock;
+  final FieldVm<bool> reEnable;
+  final VoidCallback? onUnlock;
+  final VoidCallback? onAutoUnlock;
+  final VoidCallback onUsePassword;
+  final VoidCallback onAnotherAccount;
 }

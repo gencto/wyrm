@@ -10,5 +10,8 @@ abstract class UserInfo with _$UserInfo {
     required String name,
     @Default(IListConst([])) IList<String> roles,
     @Default(false) bool disabled,
+
+    /// Devices that can log in (ADR 0050), as `/api/users` counts them.
+    @Default(0) int devices,
   }) = _UserInfo;
 }

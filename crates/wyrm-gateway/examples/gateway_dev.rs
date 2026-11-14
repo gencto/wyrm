@@ -5,6 +5,9 @@
 //! ```text
 //! cargo run -p wyrm-gateway --example gateway_dev [-- --port 0]
 //! ```
+//! `--step-up config` asks for a fresh confirmation before config changes
+//! (ADR 0050 §1.3), and `--fresh-s <n>` shortens how long a login or a
+//! confirmation counts as fresh (default 300 s), for the device tests.
 //! Prints `PORT=<n>` on stdout when it serves. Exits when stdin closes
 //! (so a crashed test leaves no process behind) or on a line `quit`. A line
 //! `restart` closes every socket and serves again on the same port, as
@@ -20,7 +23,7 @@
 
 use std::io::{BufRead, Write};
 use std::time::Duration;
-use wyrm_gateway::{Gateway, GatewayConfig};
+use wyrm_gateway::{Gateway, GatewayConfig, StepUp};
 use wyrm_link_mock::{Mock, MockConfig};
 use wyrm_link_sdk::harness::{isolated_config, SITE};
 use wyrm_link_sdk::LinkConfig;
@@ -88,10 +91,20 @@ const ADMIN_PASSWORD: &str = "admin password";
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut port = 0u16;
+    let mut step_up = StepUp::None;
+    let mut fresh_s = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--port" => port = args.next().ok_or("--port needs a value")?.parse()?,
+            "--step-up" => {
+                step_up = match args.next().as_deref() {
+                    Some("config") => StepUp::Config,
+                    Some("none") => StepUp::None,
+                    _ => return Err("--step-up config | none".into()),
+                }
+            }
+            "--fresh-s" => fresh_s = Some(args.next().ok_or("--fresh-s needs a value")?.parse()?),
             other => return Err(format!("unknown argument {other}").into()),
         }
     }
@@ -104,7 +117,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let dir = std::env::temp_dir().join(format!("wyrm-gateway-dev-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 
-    let cfg = GatewayConfig::new(SITE, &dir, ([127, 0, 0, 1], port).into());
+    let mut cfg = GatewayConfig::new(SITE, &dir, ([127, 0, 0, 1], port).into());
+    cfg.devices.step_up = step_up;
+    if let Some(s) = fresh_s {
+        cfg.devices.fresh_s = s;
+    }
     let gw = Gateway::open(cfg, b"gateway dev state key")?;
     gw.ensure_admin(ADMIN_USER, ADMIN_PASSWORD)?;
 

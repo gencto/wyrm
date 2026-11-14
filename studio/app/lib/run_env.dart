@@ -71,9 +71,14 @@ Future<void> runEnv(Environment env) async {
   final routerConfig = appRouter.config(
     reevaluateListenable: ReevaluateListenable.stream(
       // The same selector the guard decides on, so the two cannot drift.
+      // Only a session that ends moves the router by itself: after a log-in
+      // the log-in page still shows the offer of a device key and the
+      // welcome (unlock-discover.md §2, login.md §5) and leaves for Studio
+      // itself when they are done.
       store.onChange
           .map((state) => SelectSession(state).isAvailable)
-          .distinct(),
+          .distinct()
+          .where((available) => !available),
     ),
   );
 

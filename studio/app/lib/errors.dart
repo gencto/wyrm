@@ -183,6 +183,11 @@ String errorTitle(StudioError e) {
   if (e.call == 'history') {
     return s.errTitleHistory(_thing(e));
   }
+  // The offer's `Use <name>` or the Security switch (unlock-discover.md §2):
+  // `Touch ID could not be turned on`, the reason under it.
+  if (e.call == 'enable_device') {
+    return s.unlockOffToast(_thing(e));
+  }
   // Said by Studio, not by the broker: a file it cannot read, a fault.
   final own = e.status == null && e.kind != .broker;
   return switch (e.kind) {

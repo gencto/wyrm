@@ -74,11 +74,14 @@ class WyrmGateway {
   /// Log in on the first of [bases] that answers; the credentials are kept
   /// for a later login on another of them. A refused password ends the
   /// search at once; any other failure moves on to the next gateway, and
-  /// the last one's error is thrown when none answered.
+  /// the last one's error is thrown when none answered. [device] names the
+  /// device key of this computer (ADR 0050): the gateway notes that it saw
+  /// the password, so its `password_due` clears.
   static Future<WyrmGateway> loginAny(
     List<Uri> bases, {
     required String user,
     required String password,
+    String? device,
     HttpClient? http,
   }) async {
     if (bases.isEmpty) throw ArgumentError.value(bases, 'bases', 'no gateway');
@@ -86,7 +89,13 @@ class WyrmGateway {
     Object last = StateError('no gateway');
     for (var i = 0; i < bases.length; i++) {
       try {
-        final (session, exp) = await _login(client, bases[i], user, password);
+        final (session, exp) = await _login(
+          client,
+          bases[i],
+          user,
+          password,
+          device: device,
+        );
         return WyrmGateway._(
           List.unmodifiable(bases),
           i,

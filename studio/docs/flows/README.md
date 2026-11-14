@@ -27,6 +27,7 @@ flowchart LR
     frxBack(["◀ back"])
 
     studio ==>|"onLogOut (replace)"| logIn
+    studio ==>|"onUnlock (replace) [currentState().session.token == null]"| logIn
     explorer -->|"onTapFlowEditor"| flowEditor
     explorer ==>|"onOpenFull (navigate)"| assistant
     explorer -->|"onAddAgent"| linkInstall
@@ -56,9 +57,9 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | Screen | Path | Logged out | Use cases | Flow |
 | --- | --- | --- | --- | --- |
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
-| `LogInPage` | `/login` | yes | 15 | [logIn](logIn.md) |
+| `LogInPage` | `/login` | yes | 21 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
-| `StudioPage` | `/studio` | no | 13 | [studio](studio.md) |
+| `StudioPage` | `/studio` | no | 17 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 56 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 4 | [flows](flows.md) |

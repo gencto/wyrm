@@ -102,16 +102,16 @@ New state through `frx`: a substate `device` (`available`, `kind`, `name`, `keyI
 
 ## 6. Checklist
 - [x] `device_key` plugin on macOS, Windows, iOS, Android; `isAvailable` none on Linux (Windows written, not yet compiled).
-- [ ] Offer once, `Not now`, `Don't ask on this computer`.
-- [ ] Unlock with the prompt; auto-prompt once on focus; Enter.
-- [ ] Fallback, changed, signed-out (4 codes), Linux.
-- [ ] Idle lock hides values; Review and apply kept.
-- [ ] Step-up on `confirm_required`, then the request again.
-- [ ] Account › Security and Access › Users devices.
+- [x] Offer once, `Not now`, `Don't ask on this computer`.
+- [x] Unlock with the prompt; auto-prompt once on focus; Enter.
+- [x] Fallback, changed, signed-out (4 codes), Linux.
+- [x] Idle lock hides values; Review and apply kept.
+- [x] Step-up on `confirm_required`, then the request again.
+- [x] Account › Security and Access › Users devices.
 - [x] Find: browse, merge active + standby, tags, disabled rows, Look again.
 - [x] Trust with the code; pin per origin; footer states.
 - [x] Nothing found: reasons, Open settings, Probe a range; Scan a code on mobile deferred (§7, 12).
-- [ ] Permissions in each platform's manifest; `frx doctor`, `dart analyze`; goldens for the 16 frames.
+- [x] Permissions in each platform's manifest; `frx doctor`, `dart analyze`; goldens for the 16 frames (the 12 `Unlock*` frames: `ui/test/goldens/unlock_test.dart`).
 
 ## 7. Decided while building (Find, 2026-11-14, ADR 0029)
 The ADR and §4 left these open; the rule below is the one built (`business/lib/wyrm/discovery.dart`, the `discovery` actions).
@@ -148,3 +148,29 @@ The ADR and §4 left these open; the rule below is the one built (`business/lib/
 15. **Browsing** lasts 8 s (`bonsoir`; on Android it takes the multicast lock). *Look again* starts over and drops late answers of the last search, and so does a range probe. Closing the panel stops the browse.
 16. **Apple platforms refuse a TLS certificate** valid for more than 825 days that was issued after July 2019, even under a pin. Certificates made by `wyrmd` start in 1975 and pass. A gateway certificate made by hand must keep within 825 days, or Studio on macOS and iOS says `certificate is not trusted`.
 
+
+## 8. Decided while building (Unlock, 2026-11-14, ADR 0029)
+The ADR and §2–§3 left these open; the rule below is the one built (`business/lib/redux/device/**`, `business/lib/wyrm/device_keys.dart`, `business/lib/wyrm/step_up.dart`).
+
+1. **What is kept, and where.** `DeviceRecords` (`storage`, key `deviceRecords`) holds one record per gateway origin and user: `site`, `role`, `deviceId`, the key's `alias`, `added`, `lastUsed`, `stale`, `offered`, `dontAsk` and `lockAfter`. A second key, `deviceUnlockNoticed`, says the no-biometric notice was shown on this computer. No secret is kept: the private key stays in the OS store. A log out keeps the record, so the next page shows the unlock again.
+2. **The key's alias** is `wyrm-` and 32 hex digits of SHA-256 over `<origin>|<user>`, so the OS store does not name the gateway or the user. The device record is named `<host name> · Studio` (64 bytes at most), and its `platform` is `mac`, `windows`, `ios`, `android` or `linux`.
+3. **Offer once.** The offer shows after a password login when all of these hold: devices are on at the gateway, a strong biometric is here, Remember is on, there is no key yet, and the person has not seen it before for this gateway and user. `Not now` marks it seen. `Don't ask on this computer` also keeps `dontAsk` for that gateway and user. Account › Security can still turn the unlock on. With Remember off there is no offer, because a later start would not know the gateway and the user.
+4. **No biometric here** is said once per computer. It shows on the log-in page when a remembered user's gateway allows devices, or else as the offer's own form after the first password login (`Open Studio`). After that, the password form is as `login.md` has it.
+5. **The probe comes first.** Unlock probes the gateways of the field in order and signs only for the first that answers. With none answering, the page shows `login.md`'s unreachable alert above the account card, and the round button is off. A device session has no standby to fall back to: `WyrmGateway.loginWithDevice` keeps no password.
+6. **The auto-prompt** opens once per start of Studio, when the window has or gets the focus. `Use the password`, a cancel or `Another account or gateway` never brings it back. A press of the button or Enter always prompts.
+7. **What each answer does:**
+   - cancel, unavailable or a failure → `fallback`: the key is kept. The notice reads `<name> did not open the key`, or `<name> did not match 3 times` after a lockout;
+   - `invalidated` → `changed`: the key is deleted at once, and the record is marked `stale`;
+   - `device_removed`, `password_changed`, `devices_off` and a bare refusal → `signedOut`: the key is deleted and the record marked `stale`;
+   - `password_due` → `signedOut` with the key kept: the password login names the device, so its due date clears;
+   - a gateway's `/api/info` that already says devices are off → `signedOut` (`devicesOff`) before any prompt.
+
+   A bare `401` reads as *the gateway does not know this key*. When the prompt stayed open over 50 s, the challenge may have run out, so the same answer only falls back and keeps the key. A `429` falls back too.
+8. **After the password login**, the gateway's record of a `stale` key is removed (`DELETE /api/devices/<id>`, a failure is ignored). With `Turn <name> on again` ticked, a new key is made and registered at once, with no offer. The tick is offered after `changed` and after the refusals other than `devices_off` (nothing can be turned on) and `password_due` (the key still works).
+9. **Who removed it.** Before a login the gateway says only `device_removed`, so the notice cannot name the administrator or the date as the board does. Account › Security names them (`removed by <admin>`).
+10. **Idle lock.** The delay is off, 5, 15 or 30 min, and never more than `idle_lock_max_min`. It is kept per gateway and user, and its clock starts with every login. Pointer and key events in the shell start the clock again, at most once a second. The lock draws a snapshot of the shell taken when it locks (`SnapshotWidget`): live values keep their subscriptions but stop drawing. It is blurred 14 px at saturation 0.6, has no tickers and is left out of the semantics tree. Unlocking with the key is a device login that keeps the session. Without a key, the password confirms the session (`POST /api/confirm`), so the same session goes on. A refusal while locked logs out, and the log-in page says why.
+11. **Step-up.** Every `set`, `invoke`, user change and admin device removal goes through one gate (`StepUpSession`/`StepUpApi`). A `confirm_required` waits on the one open dialog, and after a confirm the same request is sent again, at most twice. While *Review and apply* runs, the dialog lists the staged changes the user may apply, with their levels. Otherwise it lists the refused request. `Cancel` fails the request with the gateway's refusal. Without a key that can sign here, the dialog asks for the password at once.
+12. **`Confirm before config changes`** shows what the gateway decides and is read-only either way: the client never gets a hash to sign unless the gateway asks.
+13. **Turning on from Account › Security** needs a password check in the last 5 minutes. When the gateway answers `password_required`, the row asks for the password (`POST /api/confirm`), then registers. `Turn off` deletes the record (the owner's `DELETE`) and the key. `Sign out everywhere` turns this computer's device off first, then ends every session and logs out.
+14. **Every device call** (`/api/info`, the device login, register, unlock, confirm, the device list) uses the `HttpClient` of `GatewayLogin`, so a pinned gateway (§7.4) answers them as it answers the login.
+15. **UnlockPlatforms' golden** draws the two phones (Studio's account card under the system's sheet, as the board draws it) and the platform matrix, without the board's six rule cards: those are documentation, not a Studio screen. The system prompts of `UnlockPrompt` and `UnlockWindows` are drawn only in the test frames, because Studio never draws them.

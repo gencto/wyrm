@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:device_key/device_key.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/step_up_line.dart';
 import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -9,6 +11,8 @@ import 'package:wyrm_client/wyrm_client.dart';
 import 'redux/app_state.dart';
 import 'redux/assistant/actions/load_assistant_action.dart';
 import 'redux/backups/actions/retrieve_backups_action.dart';
+import 'redux/changes/actions/apply_changes_action.dart';
+import 'redux/device/actions/show_step_up_action.dart';
 import 'redux/links/actions/retrieve_links_action.dart';
 import 'redux/packages/actions/retrieve_packages_action.dart';
 import 'redux/quarantine/actions/retrieve_quarantine_action.dart';
@@ -22,6 +26,8 @@ import 'redux/services/flow_watch/flow_watch.dart';
 import 'redux/services/flow_watch/flow_watch_dispatcher.dart';
 import 'redux/services/gateway_browser/gateway_browser.dart';
 import 'redux/services/gateway_browser/gateway_browser_dispatcher.dart';
+import 'redux/services/idle_lock/idle_lock.dart';
+import 'redux/services/idle_lock/idle_lock_dispatcher.dart';
 import 'redux/services/live_lists/live_lists.dart';
 import 'redux/services/live_lists/live_lists_dispatcher.dart';
 import 'redux/services/live_values/live_values.dart';
@@ -35,6 +41,7 @@ import 'redux/services/wyrm_connection/wyrm_connection_dispatcher.dart';
 import 'wyrm/discovery.dart';
 import 'wyrm/failures.dart';
 import 'wyrm/session.dart';
+import 'wyrm/step_up.dart';
 
 /// Container for the app's injected services, one instance per [Store].
 ///
@@ -49,6 +56,7 @@ class AppDependencies {
     this._store,
     this.settings, {
     WyrmLogin? login,
+    this._deviceKey,
     ErrorWording? wording,
     GatewayInfoReader? gatewayInfo,
     this._browser,
@@ -85,16 +93,31 @@ class AppDependencies {
   /// How a session is opened. Tests pass a fake.
   final WyrmLogin login;
 
-  WyrmSession? _session;
+  final DeviceKey? _deviceKey;
 
-  /// The logged-in gateway session, or null before a login.
-  WyrmSession? get session => _session;
+  /// The key the OS keeps behind its biometric prompt (ADR 0050): the
+  /// platform's own, or `NoDeviceKey` where there is none. Tests pass a
+  /// `FakeDeviceKey`. Nothing else in Studio calls the OS for it.
+  late final DeviceKey deviceKey = _deviceKey ?? DeviceKey();
+
+  /// Which device key is whose on this computer, and their choices.
+  late final deviceRecords = DeviceRecords(settings);
+
+  WyrmSession? _session;
+  StepUpSession? _guarded;
+
+  /// The logged-in gateway session, or null before a login. Its writes and
+  /// user changes meet the step-up (ADR 0050 §1.3).
+  WyrmSession? get session => _guarded;
+
+  /// The session as the gateway gave it, without the step-up.
+  WyrmSession? get rawSession => _session;
 
   /// The broker API of the session (docs/studio.md §5.3). Throws a `reach`
   /// error when nobody is logged in, so an action dispatched after a log out
   /// fails visibly instead of with a null error.
   WyrmApi get wyrm =>
-      _session?.api ??
+      _guarded?.api ??
       (throw StudioException(
         const StudioError(
           kind: ErrorKind.reach,
@@ -107,6 +130,7 @@ class AppDependencies {
   Future<void> attach(WyrmSession session) async {
     final old = _session;
     _session = session;
+    _guarded = StepUpSession(session, _stepUpGate);
     connection.attach(session.connection);
     liveValues.attach(session.api, _store.state.live.watched.keys);
     treeWatch.attach(session.api, _store.state.nodes.expanded);
@@ -123,6 +147,9 @@ class AppDependencies {
   Future<void> detach() async {
     final old = _session;
     _session = null;
+    _guarded = null;
+    idleLock.stop();
+    endStepUp(confirmed: false);
     await connection.detach();
     liveValues.detach();
     treeWatch.detach();
@@ -131,6 +158,63 @@ class AppDependencies {
     flowWatch.detach();
     flowPreview.detach();
     await old?.close();
+  }
+
+  Completer<bool>? _stepUp;
+  WyrmException? _refusal;
+
+  /// The `confirm_required` refusal the open step-up signs, or null.
+  WyrmException? get stepUpRefusal => _refusal;
+
+  /// One dialog at a time: a refusal that comes while one is open waits for
+  /// it, then sends its request again (a confirm holds for 5 minutes).
+  Future<bool> _stepUpGate(
+    WyrmException refusal,
+    List<StepUpLine> lines,
+  ) async {
+    final open = _stepUp;
+    if (open != null) {
+      return open.future;
+    }
+    final c = _stepUp = Completer<bool>();
+    _refusal = refusal;
+    _store.dispatchSync(ShowStepUpAction(_applying() ?? lines));
+    try {
+      return await c.future;
+    } finally {
+      if (identical(_stepUp, c)) {
+        _stepUp = null;
+        _refusal = null;
+      }
+    }
+  }
+
+  /// What *Review and apply* is applying, when it is: the staged changes
+  /// the user may apply, each with its level (board `UnlockStepUp`).
+  List<StepUpLine>? _applying() {
+    final s = _store.state;
+    if (!s.wait.isWaitingForType<ApplyChangesAction>()) {
+      return null;
+    }
+    final site = SelectSite(s);
+    return [
+      for (final id in s.changes.view)
+        if (s.changes.table[id] case final c?)
+          if (s.site.grants.isEmpty || site.can(c.level, c.key))
+            StepUpLine(
+              level: c.level,
+              text: c.action ?? '${c.op.toLowerCase()} ${c.field} = ${c.to}',
+              key: c.key,
+            ),
+    ];
+  }
+
+  /// Ends the open step-up: its request goes again when [confirmed].
+  void endStepUp({required bool confirmed}) {
+    final c = _stepUp;
+    if (c != null && !c.isCompleted) {
+      c.complete(confirmed);
+    }
   }
 
   /// Reads that run again after the gateway socket is back (each screen adds
@@ -215,6 +299,11 @@ class AppDependencies {
     listener: ConnectivityDispatcher(store: _store),
   );
 
+  /// The idle lock's clock (ADR 0050 §1.4).
+  late final idleLock = IdleLockService(
+    listener: IdleLockDispatcher(store: _store),
+  );
+
   /// Runs the async service initialization. Call once, right after the store
   /// is created (see `run_env.dart`).
   Future<void> warmUp() async {
@@ -227,6 +316,7 @@ class AppDependencies {
     await flowWatch.start();
     await flowPreview.start();
     await traffic.start();
+    await idleLock.start();
     await gatewayBrowser.start();
   }
 }

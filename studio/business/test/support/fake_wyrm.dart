@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/session.dart';
+import 'package:device_key/testing.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -84,9 +86,22 @@ class FakeWyrmApi implements WyrmApi {
     return c.stream;
   }
 
+  /// The gateway whose step-up guards [stepUpKeys] (`set` on a key,
+  /// `invoke` as `key ▸ action`): refused with `confirm_required` until the
+  /// session is confirmed.
+  FakeDevices? stepUp;
+  final stepUpKeys = <String>{};
+
+  void guard(String id) {
+    if (stepUp case final g? when stepUpKeys.contains(id)) {
+      g.check(id);
+    }
+  }
+
   @override
   Future<void> set(String key, Value value) async {
     calls.add(Call('set', key, value: value));
+    guard(key);
     if (errors[key] case final e?) {
       throw e;
     }
@@ -96,6 +111,7 @@ class FakeWyrmApi implements WyrmApi {
   Stream<Value> invoke(String key, String action, [Value? args]) async* {
     calls.add(Call('invoke', key, action: action, args: args));
     final id = '$key ▸ $action';
+    guard(id);
     await _delay(id);
     if (errors[id] case final e?) {
       throw e;
@@ -230,10 +246,18 @@ class FakeSession implements WyrmSession {
       roles: ['admin'],
       max: 'config',
     ),
-  }) : api = api ?? FakeWyrmApi();
+    FakeDevices? devices,
+  }) : api = api ?? FakeWyrmApi(),
+       gateway = devices ?? FakeDevices();
 
   @override
   final FakeWyrmApi api;
+
+  /// The device side of the gateway.
+  final FakeDevices gateway;
+
+  /// The user of this session (`who.subject` without `user:`).
+  String get userName => who.subject.replaceFirst('user:', '');
 
   final WhoAmI who;
   // ignore: close_sinks, a test's session lives as long as the test.
@@ -260,7 +284,11 @@ class FakeSession implements WyrmSession {
     String name,
     String password,
     List<String> roles,
-  ) async => userTable[name] = GatewayUser(name, roles);
+  ) async {
+    api.calls.add(Call('add_user', name));
+    api.guard('user:$name');
+    userTable[name] = GatewayUser(name, roles);
+  }
 
   @override
   Future<void> removeUser(String name) async => userTable.remove(name);
@@ -281,7 +309,285 @@ class FakeSession implements WyrmSession {
       );
 
   @override
+  Future<String> registerDevice({
+    required String site,
+    required String user,
+    required String name,
+    required String platform,
+    required String alg,
+    required Uint8List publicKey,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => gateway.register(
+    site: site,
+    user: user,
+    name: name,
+    platform: platform,
+    publicKey: publicKey,
+    sign: sign,
+  );
+
+  @override
+  Future<void> unlock({
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => gateway.login(site: site, user: user, device: device, sign: sign);
+
+  @override
+  Future<void> confirmWithDevice({
+    required WyrmException e,
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => gateway.confirmDevice(
+    e: e,
+    site: site,
+    user: user,
+    device: device,
+    sign: sign,
+  );
+
+  @override
+  Future<void> confirmWithPassword(String password) =>
+      gateway.confirmPassword(password);
+
+  @override
+  Future<List<GatewayDevice>> devices() async =>
+      gateway.listOf(userName, own: gateway.sessionDevice);
+
+  @override
+  Future<List<GatewayDevice>> userDevices(String name) async =>
+      gateway.listOf(name);
+
+  @override
+  Future<void> removeDevice(String id) async => gateway.remove(id, userName);
+
+  @override
+  Future<void> signOutEverywhere() async {
+    gateway.signedOutEverywhere++;
+    for (final d in gateway.records.values) {
+      if (d.user == userName) {
+        d.state = 'signed_out';
+      }
+    }
+  }
+
+  @override
   Future<void> close() async => closed = true;
+}
+
+/// One device record of [FakeDevices].
+final class FakeDeviceRecord {
+  FakeDeviceRecord(this.id, this.user, this.name, this.publicKey);
+
+  final String id;
+  final String user;
+  final String name;
+  final Uint8List publicKey;
+  var state = 'active';
+  String? removedBy;
+  var lastUsed = 0;
+}
+
+/// The device side of a gateway (ADR 0050): records, nonces, the checks of
+/// every signature with [FakeDeviceKey.verify] over the bytes
+/// `wyrm_client` builds, the refusal codes and the step-up.
+class FakeDevices {
+  FakeDevices({
+    this.site = 'central',
+    this.origin = 'http://127.0.0.1:8445',
+    this.password = 'wyrm-demo-1',
+  });
+
+  final String site;
+  final String origin;
+  final String password;
+
+  final records = <String, FakeDeviceRecord>{};
+  var _next = 0;
+  var _nonce = 0;
+
+  /// The refusal code every device login gets, until a test clears it.
+  String? refuse;
+
+  /// `devices_off` for every device call.
+  var off = false;
+
+  /// The session was confirmed (a login, a device or a password confirm).
+  var confirmed = false;
+
+  /// A registration needs a fresh password check (`password_required`).
+  var passwordFresh = true;
+
+  /// The device of the session a device login made.
+  String? sessionDevice;
+
+  var logins = 0;
+  var confirms = 0;
+  var signedOutEverywhere = 0;
+
+  /// What the last `password_due` clear named (a password login's device).
+  String? passwordSeen;
+
+  Uint8List _newNonce() =>
+      Uint8List.fromList([for (var i = 0; i < 8; i++) (_nonce * 7 + i) & 0xff])
+        ..[0] = ++_nonce;
+
+  static WyrmException _code(String code) => WyrmException.of(
+    Status.permissionDenied,
+    code.replaceAll('_', ' '),
+    code: code,
+  );
+
+  static WyrmException get _bare =>
+      WyrmException.of(Status.permissionDenied, 'unauthorized');
+
+  Future<String> register({
+    required String site,
+    required String user,
+    required String name,
+    required String platform,
+    required Uint8List publicKey,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) async {
+    if (off) {
+      throw _code('devices_off');
+    }
+    if (!passwordFresh) {
+      throw _code('password_required');
+    }
+    final nonce = _newNonce();
+    final sig = await sign(
+      deviceRegisterMessage(this.site, origin, user, nonce, publicKey),
+    );
+    if (!FakeDeviceKey.verify(
+      publicKey,
+      deviceRegisterMessage(site, origin, user, nonce, publicKey),
+      sig,
+    )) {
+      throw _bare;
+    }
+    final id = 'd${++_next}';
+    records[id] = FakeDeviceRecord(id, user, name, publicKey);
+    return id;
+  }
+
+  /// A device login (also the idle unlock).
+  Future<void> login({
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) async {
+    final nonce = _newNonce();
+    final sig = await sign(
+      deviceLoginMessage(site, origin, user, device, nonce),
+    );
+    final d = records[device];
+    if (d == null ||
+        d.user != user ||
+        !FakeDeviceKey.verify(
+          d.publicKey,
+          deviceLoginMessage(this.site, origin, user, device, nonce),
+          sig,
+        )) {
+      throw _bare;
+    }
+    if (off) {
+      throw _code('devices_off');
+    }
+    if (d.state == 'removed') {
+      throw _code('device_removed');
+    }
+    if (d.state == 'signed_out') {
+      throw _code('password_changed');
+    }
+    if (refuse case final code?) {
+      throw _code(code);
+    }
+    logins++;
+    d.lastUsed++;
+    sessionDevice = device;
+    confirmed = true;
+  }
+
+  /// The refusal the step-up guard gives for [id] before a confirm.
+  void check(String id) {
+    if (!confirmed) {
+      throw WyrmException.of(
+        Status.permissionDenied,
+        'confirm this change',
+        code: 'confirm_required',
+        nonce: _newNonce(),
+        request: Uint8List.fromList(List.filled(32, id.length & 0xff)),
+      );
+    }
+  }
+
+  Future<void> confirmDevice({
+    required WyrmException e,
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) async {
+    final nonce = e.nonce!;
+    final request = e.request!;
+    final sig = await sign(
+      deviceConfirmMessage(site, origin, user, device, nonce, request),
+    );
+    final d = records[device];
+    if (d == null ||
+        !FakeDeviceKey.verify(
+          d.publicKey,
+          deviceConfirmMessage(this.site, origin, user, device, nonce, request),
+          sig,
+        )) {
+      throw _bare;
+    }
+    confirms++;
+    confirmed = true;
+  }
+
+  Future<void> confirmPassword(String password) async {
+    if (password != this.password) {
+      throw _code('bad_password');
+    }
+    confirms++;
+    confirmed = true;
+    passwordFresh = true;
+  }
+
+  List<GatewayDevice> listOf(String user, {String? own}) => [
+    for (final d in records.values)
+      if (d.user == user)
+        GatewayDevice(
+          id: d.id,
+          name: d.name,
+          platform: 'mac',
+          lastUsed: d.lastUsed,
+          state: d.state,
+          thisSession: d.id == own,
+          removedBy: d.removedBy,
+        ),
+  ];
+
+  /// The owner forgets; anyone else (an admin) leaves a tombstone.
+  void remove(String id, String by) {
+    final d = records[id];
+    if (d == null) {
+      throw WyrmException.of(Status.notFound, 'no device $id');
+    }
+    if (d.user == by || d.state == 'removed') {
+      records.remove(id);
+    } else {
+      d
+        ..state = 'removed'
+        ..removedBy = 'user:$by';
+    }
+  }
 }
 
 /// Opens [session], or throws [error]; records what it was asked.
@@ -304,20 +610,63 @@ class FakeLogin implements WyrmLogin {
   String? user;
   String? password;
 
+  /// The device the last password login named.
+  String? device;
+
+  /// What `/api/info` answers; null is a gateway that does not.
+  GatewayInfo? info_ = const GatewayInfo(
+    site: 'central',
+    version: '0.1.0',
+    tls: false,
+    devices: DevicePolicy(enabled: true),
+  );
+
   @override
   Future<WyrmSession> open(
     List<Uri> gateways, {
     required String user,
     required String password,
+    String? device,
   }) async {
     this.gateways = gateways;
     this.user = user;
     this.password = password;
+    this.device = device;
     if (error case final Exception e) {
       throw e;
     }
+    session.gateway
+      ..confirmed = true
+      ..passwordFresh = true
+      ..passwordSeen = device;
     return session;
   }
+
+  @override
+  Future<WyrmSession> openWithDevice(
+    Uri gateway, {
+    required String site,
+    required String user,
+    required String device,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) async {
+    gateways = [gateway];
+    this.user = user;
+    await session.gateway.login(
+      site: site,
+      user: user,
+      device: device,
+      sign: sign,
+    );
+    session.gateway.passwordFresh = false;
+    return session;
+  }
+
+  @override
+  Future<GatewayInfo?> info(
+    Uri gateway, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async => info_;
 
   @override
   Future<GatewayProbe> probe(
@@ -329,16 +678,23 @@ class FakeLogin implements WyrmLogin {
   }
 }
 
-/// A store with real [AppDependencies] over in-memory storage and [login].
-Store<AppState> fakeStore({AppState? initial, FakeLogin? login}) =>
-    Store<AppState>(
-      initialState: initial ?? AppState.initial(),
-      dependencies: (s) => AppDependencies(
-        s,
-        InMemoryKeyValueStorage(),
-        login: login ?? FakeLogin(),
-      ),
-    );
+/// A store with real [AppDependencies] over in-memory storage (or
+/// [settings]), [login] and [keys] (a fake device key that offers nothing
+/// unless a test gives one).
+Store<AppState> fakeStore({
+  AppState? initial,
+  FakeLogin? login,
+  FakeDeviceKey? keys,
+  BaseKeyValueStorage? settings,
+}) => Store<AppState>(
+  initialState: initial ?? AppState.initial(),
+  dependencies: (s) => AppDependencies(
+    s,
+    settings ?? InMemoryKeyValueStorage(),
+    login: login ?? FakeLogin(),
+    deviceKey: keys ?? FakeDeviceKey(availability: DeviceKeyAvailability.none),
+  ),
+);
 
 /// The store's dependencies, typed.
 AppDependencies depsOf(Store<AppState> store) =>

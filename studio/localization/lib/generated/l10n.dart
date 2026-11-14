@@ -15150,6 +15150,1182 @@ class S {
     );
   }
 
+  /// `Logged in to {site} as {user} · {role}`
+  String unlockOfferChecked(Object site, Object user, Object role) {
+    return Intl.message(
+      'Logged in to $site as $user · $role',
+      name: 'unlockOfferChecked',
+      desc: '',
+      args: [site, user, role],
+    );
+  }
+
+  /// `Unlock with {name} next time?`
+  String unlockOfferTitle(Object name) {
+    return Intl.message(
+      'Unlock with $name next time?',
+      name: 'unlockOfferTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Instead of the password, {name} opens a key that proves to {site} it is you on {device}.`
+  String unlockOfferText(Object name, Object site, Object device) {
+    return Intl.message(
+      'Instead of the password, $name opens a key that proves to $site it is you on $device.',
+      name: 'unlockOfferText',
+      desc: '',
+      args: [name, site, device],
+    );
+  }
+
+  /// `One key for {user} on {site}, made inside {store}. It never leaves it; Studio never keeps your password.`
+  String unlockFactStore(Object user, Object site, Object store) {
+    return Intl.message(
+      'One key for $user on $site, made inside $store. It never leaves it; Studio never keeps your password.',
+      name: 'unlockFactStore',
+      desc: '',
+      args: [user, site, store],
+    );
+  }
+
+  /// `Works with {site} and its standby {standby}. Other gateways ask for their own.`
+  String unlockFactStandby(Object site, Object standby) {
+    return Intl.message(
+      'Works with $site and its standby $standby. Other gateways ask for their own.',
+      name: 'unlockFactStandby',
+      desc: '',
+      args: [site, standby],
+    );
+  }
+
+  /// `Works with {site}. Other gateways ask for their own.`
+  String unlockFactSite(Object site) {
+    return Intl.message(
+      'Works with $site. Other gateways ask for their own.',
+      name: 'unlockFactSite',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `It ends when the fingerprints here change, when your password changes, or when an administrator removes this device.`
+  String get unlockFactEndsFingers {
+    return Intl.message(
+      'It ends when the fingerprints here change, when your password changes, or when an administrator removes this device.',
+      name: 'unlockFactEndsFingers',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `It ends when the faces here change, when your password changes, or when an administrator removes this device.`
+  String get unlockFactEndsFaces {
+    return Intl.message(
+      'It ends when the faces here change, when your password changes, or when an administrator removes this device.',
+      name: 'unlockFactEndsFaces',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} asks for the password once every {days} days.`
+  String unlockFactPassword(Object site, Object days) {
+    return Intl.message(
+      '$site asks for the password once every $days days.',
+      name: 'unlockFactPassword',
+      desc: '',
+      args: [site, days],
+    );
+  }
+
+  /// `Use {name}`
+  String unlockUse(Object name) {
+    return Intl.message('Use $name', name: 'unlockUse', desc: '', args: [name]);
+  }
+
+  /// `Not now`
+  String get unlockNotNow {
+    return Intl.message('Not now', name: 'unlockNotNow', desc: '', args: []);
+  }
+
+  /// `Don’t ask on this computer`
+  String get unlockDontAsk {
+    return Intl.message(
+      'Don’t ask on this computer',
+      name: 'unlockDontAsk',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} allows it: biometric devices on, up to {max} per user (gateway.devices). You can turn it off in the account menu › Security.`
+  String unlockPolicyLine(Object site, Object max) {
+    return Intl.message(
+      '$site allows it: biometric devices on, up to $max per user (gateway.devices). You can turn it off in the account menu › Security.',
+      name: 'unlockPolicyLine',
+      desc: '',
+      args: [site, max],
+    );
+  }
+
+  /// `This computer has no biometric unlock`
+  String get unlockNoBioTitle {
+    return Intl.message(
+      'This computer has no biometric unlock',
+      name: 'unlockNoBioTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio can only bind a key to Touch ID, Face ID, Windows Hello or an Android fingerprint. Here it will ask for the password each time.`
+  String get unlockNoBioText {
+    return Intl.message(
+      'Studio can only bind a key to Touch ID, Face ID, Windows Hello or an Android fingerprint. Here it will ask for the password each time.',
+      name: 'unlockNoBioText',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio remembers the gateway and the user, never the password.`
+  String get unlockNoBioFactRemember {
+    return Intl.message(
+      'Studio remembers the gateway and the user, never the password.',
+      name: 'unlockNoBioFactRemember',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `On a computer with a fingerprint reader, use macOS or Windows to unlock with it.`
+  String get unlockNoBioFactOther {
+    return Intl.message(
+      'On a computer with a fingerprint reader, use macOS or Windows to unlock with it.',
+      name: 'unlockNoBioFactOther',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Open Studio`
+  String get unlockOpenStudio {
+    return Intl.message(
+      'Open Studio',
+      name: 'unlockOpenStudio',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Welcome back`
+  String get unlockWelcomeBack {
+    return Intl.message(
+      'Welcome back',
+      name: 'unlockWelcomeBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unlock to open the tree of {site}.`
+  String unlockToOpen(Object site) {
+    return Intl.message(
+      'Unlock to open the tree of $site.',
+      name: 'unlockToOpen',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `to {site}’s gateway.`
+  String unlockLogInTo(Object site) {
+    return Intl.message(
+      'to $site’s gateway.',
+      name: 'unlockLogInTo',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `· {role} on {site}`
+  String unlockRoleOn(Object role, Object site) {
+    return Intl.message(
+      '· $role on $site',
+      name: 'unlockRoleOn',
+      desc: '',
+      args: [role, site],
+    );
+  }
+
+  /// `{host} + standby`
+  String unlockPlusStandby(Object host) {
+    return Intl.message(
+      '$host + standby',
+      name: 'unlockPlusStandby',
+      desc: '',
+      args: [host],
+    );
+  }
+
+  /// `{name} · {when}`
+  String unlockLastUsed(Object name, Object when) {
+    return Intl.message(
+      '$name · $when',
+      name: 'unlockLastUsed',
+      desc: '',
+      args: [name, when],
+    );
+  }
+
+  /// `password`
+  String get unlockLastPassword {
+    return Intl.message(
+      'password',
+      name: 'unlockLastPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Unlock with {name}`
+  String unlockWith(Object name) {
+    return Intl.message(
+      'Unlock with $name',
+      name: 'unlockWith',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Or press Enter`
+  String get unlockOrEnter {
+    return Intl.message(
+      'Or press Enter',
+      name: 'unlockOrEnter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Checking the key with {site}…`
+  String unlockChecking(Object site) {
+    return Intl.message(
+      'Checking the key with $site…',
+      name: 'unlockChecking',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Use the password`
+  String get unlockUsePassword {
+    return Intl.message(
+      'Use the password',
+      name: 'unlockUsePassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Another account or gateway`
+  String get unlockAnother {
+    return Intl.message(
+      'Another account or gateway',
+      name: 'unlockAnother',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Key in {store} · added {date}`
+  String unlockKeyIn(Object store, Object date) {
+    return Intl.message(
+      'Key in $store · added $date',
+      name: 'unlockKeyIn',
+      desc: '',
+      args: [store, date],
+    );
+  }
+
+  /// `Password for {user}`
+  String unlockPasswordFor(Object user) {
+    return Intl.message(
+      'Password for $user',
+      name: 'unlockPasswordFor',
+      desc: '',
+      args: [user],
+    );
+  }
+
+  /// `Turn {name} on again after I log in`
+  String unlockReEnable(Object name) {
+    return Intl.message(
+      'Turn $name on again after I log in',
+      name: 'unlockReEnable',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{name} did not match 3 times`
+  String unlockLockoutTitle(Object name) {
+    return Intl.message(
+      '$name did not match 3 times',
+      name: 'unlockLockoutTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{name} did not open the key`
+  String unlockCancelTitle(Object name) {
+    return Intl.message(
+      '$name did not open the key',
+      name: 'unlockCancelTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Log in with the password. {name} stays on for the next time.`
+  String unlockFallbackText(Object name) {
+    return Intl.message(
+      'Log in with the password. $name stays on for the next time.',
+      name: 'unlockFallbackText',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{name} was turned off for this account`
+  String unlockChangedTitle(Object name) {
+    return Intl.message(
+      '$name was turned off for this account',
+      name: 'unlockChangedTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The fingerprints on {device} changed, so the key Studio kept no longer opens. Someone with the new finger cannot sign in as you.`
+  String unlockChangedFingers(Object device) {
+    return Intl.message(
+      'The fingerprints on $device changed, so the key Studio kept no longer opens. Someone with the new finger cannot sign in as you.',
+      name: 'unlockChangedFingers',
+      desc: '',
+      args: [device],
+    );
+  }
+
+  /// `The faces on {device} changed, so the key Studio kept no longer opens. Someone with the new face cannot sign in as you.`
+  String unlockChangedFaces(Object device) {
+    return Intl.message(
+      'The faces on $device changed, so the key Studio kept no longer opens. Someone with the new face cannot sign in as you.',
+      name: 'unlockChangedFaces',
+      desc: '',
+      args: [device],
+    );
+  }
+
+  /// `Removed by an administrator`
+  String get unlockRemovedTitle {
+    return Intl.message(
+      'Removed by an administrator',
+      name: 'unlockRemovedTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `An administrator removed {device} from your devices. Log in with the password; you can turn {name} on again after.`
+  String unlockRemovedText(Object device, Object name) {
+    return Intl.message(
+      'An administrator removed $device from your devices. Log in with the password; you can turn $name on again after.',
+      name: 'unlockRemovedText',
+      desc: '',
+      args: [device, name],
+    );
+  }
+
+  /// `{site} asks for the password every {days} days`
+  String unlockDueTitle(Object site, Object days) {
+    return Intl.message(
+      '$site asks for the password every $days days',
+      name: 'unlockDueTitle',
+      desc: '',
+      args: [site, days],
+    );
+  }
+
+  /// `It was {days} days since the last password here. {name} works again after this login.`
+  String unlockDueText(Object days, Object name) {
+    return Intl.message(
+      'It was $days days since the last password here. $name works again after this login.',
+      name: 'unlockDueText',
+      desc: '',
+      args: [days, name],
+    );
+  }
+
+  /// `Your password changed`
+  String get unlockPasswordChangedTitle {
+    return Intl.message(
+      'Your password changed',
+      name: 'unlockPasswordChangedTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `A new password signs out every device. Log in with the new one.`
+  String get unlockPasswordChangedText {
+    return Intl.message(
+      'A new password signs out every device. Log in with the new one.',
+      name: 'unlockPasswordChangedText',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} no longer allows unlocking with biometrics`
+  String unlockOffTitle(Object site) {
+    return Intl.message(
+      '$site no longer allows unlocking with biometrics',
+      name: 'unlockOffTitle',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `An administrator turned devices off on this gateway. Studio removed its key; log in with the password.`
+  String get unlockOffText {
+    return Intl.message(
+      'An administrator turned devices off on this gateway. Studio removed its key; log in with the password.',
+      name: 'unlockOffText',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} does not know this key`
+  String unlockUnknownTitle(Object site) {
+    return Intl.message(
+      '$site does not know this key',
+      name: 'unlockUnknownTitle',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `The gateway has no record of {device} any more. Log in with the password; you can turn {name} on again after.`
+  String unlockUnknownText(Object device, Object name) {
+    return Intl.message(
+      'The gateway has no record of $device any more. Log in with the password; you can turn $name on again after.',
+      name: 'unlockUnknownText',
+      desc: '',
+      args: [device, name],
+    );
+  }
+
+  /// `No biometric unlock on this computer`
+  String get unlockNoneTitle {
+    return Intl.message(
+      'No biometric unlock on this computer',
+      name: 'unlockNoneTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Linux has no system prompt Studio can bind a key to, so this computer always asks for the password.`
+  String get unlockNoneLinux {
+    return Intl.message(
+      'Linux has no system prompt Studio can bind a key to, so this computer always asks for the password.',
+      name: 'unlockNoneLinux',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio found no Touch ID or Windows Hello set up here, so this computer asks for the password.`
+  String get unlockNoneOther {
+    return Intl.message(
+      'Studio found no Touch ID or Windows Hello set up here, so this computer asks for the password.',
+      name: 'unlockNoneOther',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `sign in to {site} as {user}`
+  String unlockPrompt(Object site, Object user) {
+    return Intl.message(
+      'sign in to $site as $user',
+      name: 'unlockPrompt',
+      desc: '',
+      args: [site, user],
+    );
+  }
+
+  /// `turn on unlocking {site} as {user}`
+  String unlockEnablePrompt(Object site, Object user) {
+    return Intl.message(
+      'turn on unlocking $site as $user',
+      name: 'unlockEnablePrompt',
+      desc: '',
+      args: [site, user],
+    );
+  }
+
+  /// `confirm changes on {site}`
+  String unlockConfirmPrompt(Object site) {
+    return Intl.message(
+      'confirm changes on $site',
+      name: 'unlockConfirmPrompt',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `{name} could not be turned on`
+  String unlockOffToast(Object name) {
+    return Intl.message(
+      '$name could not be turned on',
+      name: 'unlockOffToast',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `this Mac’s Secure Enclave`
+  String get unlockStoreMac {
+    return Intl.message(
+      'this Mac’s Secure Enclave',
+      name: 'unlockStoreMac',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this PC’s TPM`
+  String get unlockStoreWindows {
+    return Intl.message(
+      'this PC’s TPM',
+      name: 'unlockStoreWindows',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this iPhone’s Secure Enclave`
+  String get unlockStoreIos {
+    return Intl.message(
+      'this iPhone’s Secure Enclave',
+      name: 'unlockStoreIos',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this phone’s hardware keystore`
+  String get unlockStoreAndroid {
+    return Intl.message(
+      'this phone’s hardware keystore',
+      name: 'unlockStoreAndroid',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this Mac`
+  String get unlockDeviceMac {
+    return Intl.message(
+      'this Mac',
+      name: 'unlockDeviceMac',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this PC`
+  String get unlockDevicePc {
+    return Intl.message('this PC', name: 'unlockDevicePc', desc: '', args: []);
+  }
+
+  /// `this iPhone`
+  String get unlockDeviceIphone {
+    return Intl.message(
+      'this iPhone',
+      name: 'unlockDeviceIphone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this phone`
+  String get unlockDevicePhone {
+    return Intl.message(
+      'this phone',
+      name: 'unlockDevicePhone',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this computer`
+  String get unlockDeviceComputer {
+    return Intl.message(
+      'this computer',
+      name: 'unlockDeviceComputer',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `fingerprint`
+  String get unlockNameFingerprint {
+    return Intl.message(
+      'fingerprint',
+      name: 'unlockNameFingerprint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `face unlock`
+  String get unlockNameFace {
+    return Intl.message(
+      'face unlock',
+      name: 'unlockNameFace',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `iris`
+  String get unlockNameIris {
+    return Intl.message('iris', name: 'unlockNameIris', desc: '', args: []);
+  }
+
+  /// `biometrics`
+  String get unlockNameBiometric {
+    return Intl.message(
+      'biometrics',
+      name: 'unlockNameBiometric',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Studio is locked`
+  String get lockTitle {
+    return Intl.message(
+      'Studio is locked',
+      name: 'lockTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{user} on {site} · locked after {min} min without use. Values and the tree stay hidden; links, flows and the session keep running.`
+  String lockText(Object user, Object site, Object min) {
+    return Intl.message(
+      '$user on $site · locked after $min min without use. Values and the tree stay hidden; links, flows and the session keep running.',
+      name: 'lockText',
+      desc: '',
+      args: [user, site, min],
+    );
+  }
+
+  /// `{n, plural, =1{1 change is waiting in Review and apply; it is kept.} other{{n} changes are waiting in Review and apply; they are kept.}}`
+  String lockKept(num n) {
+    return Intl.plural(
+      n,
+      one: '1 change is waiting in Review and apply; it is kept.',
+      other: '$n changes are waiting in Review and apply; they are kept.',
+      name: 'lockKept',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `Unlock`
+  String get lockUnlock {
+    return Intl.message('Unlock', name: 'lockUnlock', desc: '', args: []);
+  }
+
+  /// `The password is wrong.`
+  String get lockWrongPassword {
+    return Intl.message(
+      'The password is wrong.',
+      name: 'lockWrongPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Confirm it is you`
+  String get stepUpTitle {
+    return Intl.message(
+      'Confirm it is you',
+      name: 'stepUpTitle',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =1{Apply 1 change on {site}.} other{Apply {n} changes on {site}.}} {site} asks for a fresh confirmation before config changes.`
+  String stepUpLead(num n, Object site) {
+    return Intl.message(
+      '${Intl.plural(n, one: 'Apply 1 change on $site.', other: 'Apply $n changes on $site.')} $site asks for a fresh confirmation before config changes.',
+      name: 'stepUpLead',
+      desc: '',
+      args: [n, site],
+    );
+  }
+
+  /// `{name} signs this one request: {site} gets a proof bound to these changes, and stays confirmed on {device} for 5 minutes.`
+  String stepUpDevice(Object name, Object site, Object device) {
+    return Intl.message(
+      '$name signs this one request: $site gets a proof bound to these changes, and stays confirmed on $device for 5 minutes.',
+      name: 'stepUpDevice',
+      desc: '',
+      args: [name, site, device],
+    );
+  }
+
+  /// `Enter your password: {site} stays confirmed for 5 minutes.`
+  String stepUpPasswordOnly(Object site) {
+    return Intl.message(
+      'Enter your password: $site stays confirmed for 5 minutes.',
+      name: 'stepUpPasswordOnly',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Waiting for {name}…`
+  String stepUpWaiting(Object name) {
+    return Intl.message(
+      'Waiting for $name…',
+      name: 'stepUpWaiting',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Confirm with {name}`
+  String stepUpConfirmWith(Object name) {
+    return Intl.message(
+      'Confirm with $name',
+      name: 'stepUpConfirmWith',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `Confirm`
+  String get stepUpConfirm {
+    return Intl.message('Confirm', name: 'stepUpConfirm', desc: '', args: []);
+  }
+
+  /// `{name} did not confirm. Try again or use the password.`
+  String stepUpStopped(Object name) {
+    return Intl.message(
+      '$name did not confirm. Try again or use the password.',
+      name: 'stepUpStopped',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{site} did not take the confirmation: {reason}`
+  String stepUpRefused(Object site, Object reason) {
+    return Intl.message(
+      '$site did not take the confirmation: $reason',
+      name: 'stepUpRefused',
+      desc: '',
+      args: [site, reason],
+    );
+  }
+
+  /// `Security`
+  String get securityMenu {
+    return Intl.message('Security', name: 'securityMenu', desc: '', args: []);
+  }
+
+  /// `Security`
+  String get securityTitle {
+    return Intl.message('Security', name: 'securityTitle', desc: '', args: []);
+  }
+
+  /// `On {device}`
+  String securityOn(Object device) {
+    return Intl.message(
+      'On $device',
+      name: 'securityOn',
+      desc: '',
+      args: [device],
+    );
+  }
+
+  /// `A key in {store}, added {date}. Off removes the key here and {device} from your devices.`
+  String securityUnlockDesc(Object store, Object date, Object device) {
+    return Intl.message(
+      'A key in $store, added $date. Off removes the key here and $device from your devices.',
+      name: 'securityUnlockDesc',
+      desc: '',
+      args: [store, date, device],
+    );
+  }
+
+  /// `Off: Studio asks for the password here. On makes a key in {store}.`
+  String securityUnlockOffDesc(Object store) {
+    return Intl.message(
+      'Off: Studio asks for the password here. On makes a key in $store.',
+      name: 'securityUnlockOffDesc',
+      desc: '',
+      args: [store],
+    );
+  }
+
+  /// `No biometric unlock on this computer: it asks for the password.`
+  String get securityNoBio {
+    return Intl.message(
+      'No biometric unlock on this computer: it asks for the password.',
+      name: 'securityNoBio',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Lock Studio after`
+  String get securityLockAfter {
+    return Intl.message(
+      'Lock Studio after',
+      name: 'securityLockAfter',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Hides the tree and values; the session and Review and apply are kept. {site} allows at most {max} min.`
+  String securityLockDesc(Object site, Object max) {
+    return Intl.message(
+      'Hides the tree and values; the session and Review and apply are kept. $site allows at most $max min.',
+      name: 'securityLockDesc',
+      desc: '',
+      args: [site, max],
+    );
+  }
+
+  /// `Off`
+  String get securityLockOff {
+    return Intl.message('Off', name: 'securityLockOff', desc: '', args: []);
+  }
+
+  /// `{n} min`
+  String securityMinutes(Object n) {
+    return Intl.message('$n min', name: 'securityMinutes', desc: '', args: [n]);
+  }
+
+  /// `Confirm before config changes`
+  String get securityConfirm {
+    return Intl.message(
+      'Confirm before config changes',
+      name: 'securityConfirm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Set by {site} (gateway.devices.step_up: config); you cannot turn it off here.`
+  String securityConfirmForced(Object site) {
+    return Intl.message(
+      'Set by $site (gateway.devices.step_up: config); you cannot turn it off here.',
+      name: 'securityConfirmForced',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `{site} does not ask for it (gateway.devices.step_up: none); only the gateway can turn it on.`
+  String securityConfirmNone(Object site) {
+    return Intl.message(
+      '$site does not ask for it (gateway.devices.step_up: none); only the gateway can turn it on.',
+      name: 'securityConfirmNone',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Your devices on {site}`
+  String securityDevicesOn(Object site) {
+    return Intl.message(
+      'Your devices on $site',
+      name: 'securityDevicesOn',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `this device`
+  String get securityThisDevice {
+    return Intl.message(
+      'this device',
+      name: 'securityThisDevice',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{n, plural, =0{password due today} =1{password due in 1 day} other{password due in {n} days}}`
+  String securityDue(num n) {
+    return Intl.plural(
+      n,
+      zero: 'password due today',
+      one: 'password due in 1 day',
+      other: 'password due in $n days',
+      name: 'securityDue',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `removed by {admin}`
+  String securityRemovedBy(Object admin) {
+    return Intl.message(
+      'removed by $admin',
+      name: 'securityRemovedBy',
+      desc: '',
+      args: [admin],
+    );
+  }
+
+  /// `signed out`
+  String get securitySignedOut {
+    return Intl.message(
+      'signed out',
+      name: 'securitySignedOut',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `used now`
+  String get securityUsedNow {
+    return Intl.message(
+      'used now',
+      name: 'securityUsedNow',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `added {date}`
+  String securityAdded(Object date) {
+    return Intl.message(
+      'added $date',
+      name: 'securityAdded',
+      desc: '',
+      args: [date],
+    );
+  }
+
+  /// `removed · signs in with the password only`
+  String get securityRemoved {
+    return Intl.message(
+      'removed · signs in with the password only',
+      name: 'securityRemoved',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Turn off`
+  String get securityTurnOff {
+    return Intl.message(
+      'Turn off',
+      name: 'securityTurnOff',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Remove`
+  String get securityRemove {
+    return Intl.message('Remove', name: 'securityRemove', desc: '', args: []);
+  }
+
+  /// `Forget`
+  String get securityForget {
+    return Intl.message('Forget', name: 'securityForget', desc: '', args: []);
+  }
+
+  /// `{site}’s policy: devices {state} · up to {max} · password every {days} days{confirm}. An administrator sees and removes devices in Access › Users.`
+  String securityPolicy(
+    Object site,
+    Object state,
+    Object max,
+    Object days,
+    Object confirm,
+  ) {
+    return Intl.message(
+      '$site’s policy: devices $state · up to $max · password every $days days$confirm. An administrator sees and removes devices in Access › Users.',
+      name: 'securityPolicy',
+      desc: '',
+      args: [site, state, max, days, confirm],
+    );
+  }
+
+  /// `on`
+  String get securityPolicyOn {
+    return Intl.message('on', name: 'securityPolicyOn', desc: '', args: []);
+  }
+
+  /// `off`
+  String get securityPolicyOff {
+    return Intl.message('off', name: 'securityPolicyOff', desc: '', args: []);
+  }
+
+  /// ` · confirm config changes`
+  String get securityPolicyConfirm {
+    return Intl.message(
+      ' · confirm config changes',
+      name: 'securityPolicyConfirm',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sign out everywhere`
+  String get securitySignOutAll {
+    return Intl.message(
+      'Sign out everywhere',
+      name: 'securitySignOutAll',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Every session and every device of {user} ends, this one too.`
+  String securitySignOutAllNote(Object user) {
+    return Intl.message(
+      'Every session and every device of $user ends, this one too.',
+      name: 'securitySignOutAllNote',
+      desc: '',
+      args: [user],
+    );
+  }
+
+  /// `No devices yet.`
+  String get securityNoDevices {
+    return Intl.message(
+      'No devices yet.',
+      name: 'securityNoDevices',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `{site} asks for your password before a new key.`
+  String securityPasswordNeeded(Object site) {
+    return Intl.message(
+      '$site asks for your password before a new key.',
+      name: 'securityPasswordNeeded',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `Turn on`
+  String get securityTurnOn {
+    return Intl.message('Turn on', name: 'securityTurnOn', desc: '', args: []);
+  }
+
+  /// `Devices`
+  String get colDevices {
+    return Intl.message('Devices', name: 'colDevices', desc: '', args: []);
+  }
+
+  /// `Devices`
+  String get groupDevices {
+    return Intl.message('Devices', name: 'groupDevices', desc: '', args: []);
+  }
+
+  /// `{method} · {when}`
+  String deviceLine(Object method, Object when) {
+    return Intl.message(
+      '$method · $when',
+      name: 'deviceLine',
+      desc: '',
+      args: [method, when],
+    );
+  }
+
+  /// `Remove {name}?`
+  String deviceRemoveTitle(Object name) {
+    return Intl.message(
+      'Remove $name?',
+      name: 'deviceRemoveTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `{user} can no longer unlock with it; it signs in with the password only. The record stays as removed by you until it is forgotten.`
+  String deviceRemoveText(Object user) {
+    return Intl.message(
+      '$user can no longer unlock with it; it signs in with the password only. The record stays as removed by you until it is forgotten.',
+      name: 'deviceRemoveText',
+      desc: '',
+      args: [user],
+    );
+  }
+
+  /// `Forget {name}?`
+  String deviceForgetTitle(Object name) {
+    return Intl.message(
+      'Forget $name?',
+      name: 'deviceForgetTitle',
+      desc: '',
+      args: [name],
+    );
+  }
+
+  /// `The record goes from the gateway.`
+  String get deviceForgetText {
+    return Intl.message(
+      'The record goes from the gateway.',
+      name: 'deviceForgetText',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `No devices.`
+  String get devicesNone {
+    return Intl.message('No devices.', name: 'devicesNone', desc: '', args: []);
+  }
+
+  /// `Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec`
+  String get monthsShort {
+    return Intl.message(
+      'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec',
+      name: 'monthsShort',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `now`
+  String get unlockAgoNow {
+    return Intl.message('now', name: 'unlockAgoNow', desc: '', args: []);
+  }
+
   /// `Answer, or ask something else…`
   String get hintPlanning {
     return Intl.message(

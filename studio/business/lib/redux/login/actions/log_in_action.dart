@@ -70,11 +70,19 @@ class LogInAction extends Action with WaitingAction {
       throw _unreachable(last.reason ?? '', gateways.first).withDialog(false);
     }
 
-    // 2. Checking the user and the password.
+    // 2. Checking the user and the password. A device key of this user here
+    // is named, so the gateway notes it saw the password (ADR 0050
+    // decision 6: `password_due` clears without a new key).
     dispatchSync(SetLoginProgressAction(step: 1, probes: probes));
+    final record = await deps.deviceRecords.read(gateways.first.origin, user);
     final WyrmSession session;
     try {
-      session = await deps.login.open(gateways, user: user, password: password);
+      session = await deps.login.open(
+        gateways,
+        user: user,
+        password: password,
+        device: record.usable ? record.deviceId : null,
+      );
     } on WyrmException catch (e) {
       final wrong = e.status == StatusCode.of(Status.permissionDenied);
       dispatchSync(
@@ -103,39 +111,9 @@ class LogInAction extends Action with WaitingAction {
 
     // 3. Reading the role and the sites.
     dispatchSync(SetLoginProgressAction(step: 2));
-    final WhoAmI me;
-    try {
-      me = await session.me();
-    } on Object catch (e) {
-      await session.close();
-      throw switch (e) {
-        final WyrmException w => StudioException.refused(
-          w,
-          call: 'me',
-          thing: '${gateways.first}',
-        ),
-        _ => StudioException.said(
-          ErrorKind.reach,
-          faultLine(e),
-          call: 'me',
-          thing: '${gateways.first}',
-        ),
-      };
-    }
-    await deps.attach(session);
-
-    return state.copyWith(
-      session: SessionState(token: me.subject.isEmpty ? user : me.subject),
-      site: SiteState(
-        gateway: session.base.toString(),
-        user: me.subject.isEmpty ? user : me.subject,
-        name: me.site,
-        role: me.roles.isEmpty ? me.max : me.roles.join(', '),
-        max: me.max,
-        connected: true,
-        grants: [for (final (k, p) in me.grants) Grant(key: k, level: p)].lock,
-      ),
-      login: state.login.copyWith(
+    final opened = await openedSession(this, session, user, gateways.first);
+    return opened.copyWith(
+      login: opened.login.copyWith(
         password: null,
         step: 0,
         failure: null,
@@ -147,6 +125,52 @@ class LogInAction extends Action with WaitingAction {
       ),
     );
   }
+}
+
+/// The rest of a log-in, by password or by device key: `/api/me` into
+/// `site`, the session as `deps.wyrm`, and the token written last (the auth
+/// guard reacts to it).
+Future<AppState> openedSession(
+  Action a,
+  WyrmSession session,
+  String user,
+  Uri gateway,
+) async {
+  final WhoAmI me;
+  try {
+    me = await session.me();
+  } on Object catch (e) {
+    await session.close();
+    throw switch (e) {
+      final WyrmException w => StudioException.refused(
+        w,
+        call: 'me',
+        thing: '$gateway',
+      ),
+      _ => StudioException.said(
+        ErrorKind.reach,
+        faultLine(e),
+        call: 'me',
+        thing: '$gateway',
+      ),
+    };
+  }
+  await a.deps.attach(session);
+  // The idle lock's clock starts with the session (ADR 0050 §1.4).
+  a.deps.idleLock.arm(Duration(minutes: a.state.device.lockAfter));
+  final subject = me.subject.isEmpty ? user : me.subject;
+  return a.state.copyWith(
+    session: SessionState(token: subject),
+    site: SiteState(
+      gateway: session.base.toString(),
+      user: subject,
+      name: me.site,
+      role: me.roles.isEmpty ? me.max : me.roles.join(', '),
+      max: me.max,
+      connected: true,
+      grants: [for (final (k, p) in me.grants) Grant(key: k, level: p)].lock,
+    ),
+  );
 }
 
 /// [gateway] in front of [recent], once, and at most five: the gateways that

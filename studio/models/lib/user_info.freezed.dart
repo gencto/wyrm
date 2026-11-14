@@ -15,7 +15,8 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$UserInfo {
 
- String get name; IList<String> get roles; bool get disabled;
+ String get name; IList<String> get roles; bool get disabled;/// Devices that can log in (ADR 0050), as `/api/users` counts them.
+ int get devices;
 /// Create a copy of UserInfo
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +28,20 @@ $UserInfoCopyWith<UserInfo> get copyWith => _$UserInfoCopyWithImpl<UserInfo>(thi
 @override
 bool operator ==(Object other) {
   final _this = this as UserInfo;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is UserInfo&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.roles, _this.roles)&&(identical(other.disabled, _this.disabled) || other.disabled == _this.disabled));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is UserInfo&&(identical(other.name, _this.name) || other.name == _this.name)&&const DeepCollectionEquality().equals(other.roles, _this.roles)&&(identical(other.disabled, _this.disabled) || other.disabled == _this.disabled)&&(identical(other.devices, _this.devices) || other.devices == _this.devices));
 }
 
 
 @override
 int get hashCode {
   final _this = this as UserInfo;
-  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.roles),_this.disabled);
+  return Object.hash(runtimeType,_this.name,const DeepCollectionEquality().hash(_this.roles),_this.disabled,_this.devices);
 }
 
 @override
 String toString() {
   final _this = this as UserInfo;
-  return 'UserInfo(name: ${_this.name}, roles: ${_this.roles}, disabled: ${_this.disabled})';
+  return 'UserInfo(name: ${_this.name}, roles: ${_this.roles}, disabled: ${_this.disabled}, devices: ${_this.devices})';
 }
 
 
@@ -51,7 +52,7 @@ abstract mixin class $UserInfoCopyWith<$Res>  {
   factory $UserInfoCopyWith(UserInfo value, $Res Function(UserInfo) _then) = _$UserInfoCopyWithImpl;
 @useResult
 $Res call({
- String name, IList<String> roles, bool disabled
+ String name, IList<String> roles, bool disabled, int devices
 });
 
 
@@ -68,12 +69,13 @@ class _$UserInfoCopyWithImpl<$Res>
 
 /// Create a copy of UserInfo
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? roles = null,Object? disabled = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? name = null,Object? roles = null,Object? disabled = null,Object? devices = null,}) {
   return _then(UserInfo(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,roles: null == roles ? _self.roles : roles // ignore: cast_nullable_to_non_nullable
 as IList<String>,disabled: null == disabled ? _self.disabled : disabled // ignore: cast_nullable_to_non_nullable
-as bool,
+as bool,devices: null == devices ? _self.devices : devices // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 
@@ -85,12 +87,14 @@ as bool,
 
 
 class _UserInfo implements UserInfo {
-  const _UserInfo({required this.name, this.roles = const IListConst([]), this.disabled = false});
+  const _UserInfo({required this.name, this.roles = const IListConst([]), this.disabled = false, this.devices = 0});
   
 
 @override final  String name;
 @override@JsonKey() final  IList<String> roles;
 @override@JsonKey() final  bool disabled;
+/// Devices that can log in (ADR 0050), as `/api/users` counts them.
+@override@JsonKey() final  int devices;
 
 /// Create a copy of UserInfo
 /// with the given fields replaced by the non-null parameter values.
@@ -102,18 +106,18 @@ _$UserInfoCopyWith<_UserInfo> get copyWith => __$UserInfoCopyWithImpl<_UserInfo>
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _UserInfo&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.roles, roles)&&(identical(other.disabled, disabled) || other.disabled == disabled));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _UserInfo&&(identical(other.name, name) || other.name == name)&&const DeepCollectionEquality().equals(other.roles, roles)&&(identical(other.disabled, disabled) || other.disabled == disabled)&&(identical(other.devices, devices) || other.devices == devices));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(roles),disabled);
+    return Object.hash(runtimeType,name,const DeepCollectionEquality().hash(roles),disabled,devices);
 }
 
 @override
 String toString() {
-    return 'UserInfo(name: $name, roles: $roles, disabled: $disabled)';
+    return 'UserInfo(name: $name, roles: $roles, disabled: $disabled, devices: $devices)';
 }
 
 
@@ -124,7 +128,7 @@ abstract mixin class _$UserInfoCopyWith<$Res> implements $UserInfoCopyWith<$Res>
   factory _$UserInfoCopyWith(_UserInfo value, $Res Function(_UserInfo) _then) = __$UserInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String name, IList<String> roles, bool disabled
+ String name, IList<String> roles, bool disabled, int devices
 });
 
 
@@ -141,12 +145,13 @@ class __$UserInfoCopyWithImpl<$Res>
 
 /// Create a copy of UserInfo
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? roles = null,Object? disabled = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? name = null,Object? roles = null,Object? disabled = null,Object? devices = null,}) {
   return _then(_UserInfo(
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,roles: null == roles ? _self.roles : roles // ignore: cast_nullable_to_non_nullable
 as IList<String>,disabled: null == disabled ? _self.disabled : disabled // ignore: cast_nullable_to_non_nullable
-as bool,
+as bool,devices: null == devices ? _self.devices : devices // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 
