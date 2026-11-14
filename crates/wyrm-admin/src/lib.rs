@@ -16,12 +16,14 @@ pub mod official;
 pub mod packages;
 pub mod peers;
 pub mod registry;
+pub mod release;
 pub mod restore_point;
 pub mod secret;
 pub mod secrets;
 pub mod supervisor;
 
 pub use control::backups::{BackupConfig, LinkBackup, SendLink};
+pub use control::broker_update::{UpdateConfig, UpdateMode};
 pub use control::{
     Attached, ConfigLink, Control, ControlConfig, EmbeddedHost, PeerConfig, RunningLink,
     UpstreamConf,

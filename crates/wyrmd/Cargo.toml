@@ -8,6 +8,18 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# Builds `wyrmd_next`, a second broker binary that says it is a later
+# version: only for the tests of the broker's own update (ADR 0048 §2).
+# The dev-dependency on this crate below turns it on for `cargo test`; a
+# build of `wyrmd` itself never has it.
+test-next = []
+
+[[bin]]
+name = "wyrmd_next"
+path = "src/bin/wyrmd_next.rs"
+required-features = ["test-next"]
+
 [dependencies]
 wyrm-core.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["advanced", "process"] }
@@ -65,10 +77,15 @@ wyrm-client.workspace = true
 json5.workspace = true
 clap.workspace = true
 hex.workspace = true
+# release tooling and the update of the broker itself (ADR 0048 §2)
+flate2.workspace = true
+ed25519-dalek.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+# the feature for the tests' second binary (see `[features]`)
+wyrmd = { path = ".", features = ["test-next"] }
 wyrm-link-modbus = { workspace = true, features = ["sim"] }
 wyrm-link-probe.workspace = true
 wyrm-gateway-client.workspace = true

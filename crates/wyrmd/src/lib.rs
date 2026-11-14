@@ -8,7 +8,9 @@
 #![forbid(unsafe_code)]
 
 pub mod arbiter;
+pub mod cli;
 pub mod standby;
+pub mod update;
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -139,6 +141,9 @@ pub struct Config {
     /// (ADR 0048).
     #[serde(default)]
     pub backups: BackupsSection,
+    /// The broker's own update (ADR 0048 §2): off by default.
+    #[serde(default)]
+    pub updates: update::UpdatesSection,
     /// The file this configuration was read from (set by `wyrmd`): the
     /// `config` section of a backup copies it.
     #[serde(skip)]
@@ -185,6 +190,10 @@ const CONFIG_SHOWN: &[&str] = &[
     "standby.peer",
     "standby.witness",
     "standby.arbiter",
+    // the release keys are public keys
+    "updates.mode",
+    "updates.channel",
+    "updates.keys",
     "backups.send_links",
     "backups.send_links.link",
     "backups.send_links.folder",
@@ -800,6 +809,7 @@ impl Config {
         let cfg: Config = json5::from_str(text).map_err(|e| format!("wyrmd.json5: {e}"))?;
         wyrm_core::keyspace::validate_segment(&cfg.site).map_err(|e| format!("site: {e}"))?;
         cfg.backups.checked_send_links()?;
+        cfg.updates.validate()?;
         // `downstream/<d>` is the broker node of downstream site d (ADR 0007).
         for d in &cfg.peers.downstream {
             if cfg.links.contains_key(&d.site) {
@@ -2071,6 +2081,7 @@ impl Daemon {
                 ]),
             },
             keep_previous_days: cfg.packages.keep_previous_days,
+            updates: update::update_config(&cfg)?,
         };
         let (ctl, reload) = Control::open(ctl_cfg, Arc::new(Drivers))?;
         wyrm_link_wasm::set_component_root(ctl.component_store());
@@ -2180,6 +2191,9 @@ impl Daemon {
                 ),
             );
         }
+        // an update the guard took back is recorded by the version it
+        // went back to (ADR 0048 §2.6)
+        ctl.update_started();
         Ok(Self {
             cfg,
             ctl,
@@ -2335,6 +2349,7 @@ mod tests {
         ("LinkSection", "links.*"),
         ("LinkLimits", "link_limits"),
         ("StandbySection", "standby"),
+        ("UpdatesSection", "updates"),
     ];
 
     /// `(field, type)` of every `pub` field of `pub struct <name>` in `src`.
@@ -2357,11 +2372,47 @@ mod tests {
     /// configuration that holds text is on the list of fields a backup
     /// shows or on the list of fields it masks. A new field that is on
     /// neither fails here (it would be masked: masked is the default, but
+    /// `updates.channel` is shown in the config copy of a backup. A channel
+    /// with a credential is refused when the configuration is read; a file
+    /// that has one all the same loses it in the copy (the second net of
+    /// `mask_config`: a shown text keeps no userinfo and nothing after `?`
+    /// or `#`).
+    #[test]
+    fn a_credential_in_the_update_channel_is_never_in_the_config_copy() {
+        let dir = std::env::temp_dir().join(format!("wyrmd-channel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wyrmd.json5");
+        let text = r#"{ site: "s", updates: { mode: "external",
+            channel: "https://user:tok@host.example/x?sig=abc" } }"#;
+        std::fs::write(&path, text).unwrap();
+        let e = Config::from_json5(text).unwrap_err().to_string();
+        assert!(e.contains("updates.channel"), "{e}");
+        assert!(!e.contains("tok") && !e.contains("abc"), "{e}");
+        let copy = masked_config(&path).unwrap();
+        // no part of the credential is in the copy (the copy is not printed)
+        let leaked = ["user", "tok", "sig", "abc"]
+            .iter()
+            .filter(|part| copy.contains(*part))
+            .count();
+        assert_eq!(
+            leaked, 0,
+            "parts of the URL's credential in the config copy"
+        );
+        assert!(copy.contains("host.example"), "the host is shown");
+        assert!(copy.contains("external"), "the mode is shown");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// nobody chose). Read from the sources: the structs are `Deserialize`
     /// only.
     #[test]
     fn every_text_field_of_the_config_is_shown_or_masked_on_purpose() {
-        let sources = [include_str!("lib.rs"), include_str!("standby.rs")];
+        let sources = [
+            include_str!("lib.rs"),
+            include_str!("standby.rs"),
+            include_str!("update.rs"),
+        ];
         let listed = |path: &str| CONFIG_SHOWN.contains(&path) || CONFIG_MASKED.contains(&path);
         let mut found = std::collections::BTreeSet::new();
         for (name, prefix) in CONFIG_STRUCTS {

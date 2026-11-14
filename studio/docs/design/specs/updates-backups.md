@@ -2,7 +2,7 @@
 
 Boards (canvas row *Updates, restore points, backups*): `LinkUpdate` with `LinkUpdateProgress`, `LinkUpdateDone`, `LinkUpdateRolledBack`; `LinkBackup`; `BrokerUpdate` with `BrokerUpdateRestart`, `BrokerUpdateDone`, `BrokerUpdateRolledBack`, `BrokerUpdateExternal`; `Backup` (clickable checkboxes) with `BackupProgress`, `BackupDone`, `BackupRestore`. Broker side: **ADR 0048** (proposed). The boards win for what is visible; this spec says where each screen sits, what it reads and calls, and its states.
 
-**Order of work.** The broker parts come first. ADR 0048 §1 (package updates) and §3 (backups, link backup, broker restore, `send`) are built: §1, §2 and §4 below name the broker's values and actions as they are in the code (guides `docs/links.md` §5a and `docs/backups.md`). ADR 0048 §2 (broker self-update) is not built: §3 below is the plan, and its entry points stay hidden, never shown disabled with a promise.
+**Order of work.** The broker parts come first. ADR 0048 §1 (package updates) and §3 (backups, link backup, broker restore, `send`) are built: §1, §2 and §4 below name the broker's values and actions as they are in the code (guides `docs/links.md` §5a and `docs/backups.md`). ADR 0048 §2 (broker self-update) is built too: §3 below names its values and actions as they are in the code (guide `docs/operations.md` §2 "A broker that updates itself"). It is opt-in on the host (`updates.mode`); with `off` the card is not shown.
 
 ## 1. Updating links (`LinkUpdate*`)
 
@@ -40,22 +40,48 @@ The action answers once the links restarted; there is no progress stream. The st
 **Built behind one flag that is off** (`Features.brokerUpdate` in `business/lib/wyrm/features.dart`): the dialog, its state (`broker_update`) and the two actions exist and have goldens and tests fed by fixtures; the card `Broker version` is the one entry point and is not shown while the flag is off. Not built yet: the attention items, the entry from Sites, the offline banner's `Updating <site>`, and the dry run (`update?check`: the Dart client has no check call, so the review lists what the broker checks, without results). Assumed of the broker (ADR 0048 §2, to be fixed to the code when it exists): values `sys/latest`, `sys/update_state` (`none`, `staged`, `trial`, `confirmed`, `rolled_back`), `sys/update_last` (a map: `from`, `to`, `reason`, `down_s`, `links_back`, `links`, `back_s`, `rollback_until`), `sys/update_mode` (`self`, `external`), actions `sys/~act/update {version, confirm_site}` and `sys/~act/rollback_update`.
 
 ### Where
-System › Maintenance: a card `Broker version` (first on the tab): `0.1.0 · 0.2.0 is available` (from `sys` `latest`, `update_available`) with `Update…`; when `update_state` is `trial` or a rollback is still possible, the card shows that state and `Roll back to <v>…` until `keep_days`. The System attention panel adds `Broker update available` (info) and `Update rolled back` (warn).
+System › Maintenance: a card `Broker version` (first on the tab), by `sys/update_mode` (`off`, `external`, `self`): hidden for `off`. `0.1.0 · 0.2.0 is available` (from `sys` `version`, `latest`, `update_available`) with `Update…` (`self`) or `How to update…` (`external`); `Check now` → `sys/~act/check_updates` → `{latest, update_available}`. When `sys/update_hint` is not empty in `self` mode (the layout or the guard is missing, the index cannot be read, no channel), the card shows that text and `Update…` opens the file path below (no channel) or is disabled (layout, guard). When `update_state` is `trial`, or `confirmed` with `update_last.keep_until` in the future, the card shows that state and `Roll back to <update_last.from>…`. The System attention panel adds `Broker update available` (info) and `Update rolled back` (warn; `failed`: the new version stays).
 
 ### Review (dialog 640, board `BrokerUpdate`)
-- Title `Update <site> to wyrmd <v>`, pill `<from> → <to>`, sub-line: release date, channel, `the broker restarts once`.
-- `Checked before anything changes` (from a dry run: `sys/~act/update?check` with ADR 0047): signature and SHA-256, the new binary's `check` of the configuration, room on disk, SCHEMA moves (warn: rollback restores the pre-update backup, later changes lost), links built for this broker (`wyrm_link`), standby (warn: update the standby first, with a link to it).
-- `How it goes`: the five steps of ADR 0048 §2.4–2.6 in plain words.
-- `Type <site> to confirm` (input; the primary stays disabled until it matches) → `sys/~act/update {version, confirm_site}`.
-- Downstream sites: the same dialog from Sites › site ▸ `Update broker…` when the upstream has `allow_config` (else not shown).
+- Title `Update <site> to wyrmd <v>`, pill `<from> → <to>`, sub-line: release date (`update_last.latest_date`), channel, `the broker restarts once`.
+- `Checked before anything changes`: a dry run `sys/~act/update?check` with the same arguments (ADR 0047). It answers `ok` or one refusal (its message is shown as the failed check): mode, site name, layout and guard, another job, the release's signature, version and SCHEMA rules, the standby. It does not fetch the archive; the archive's hash, the new binary's `check` of the configuration and state, and the room on disk are checked by `update` itself and show in the progress. The broker returns no list of checks.
+- `How it goes`: the steps of `docs/operations.md` in plain words.
+- `Type <site> to confirm` (input; the primary stays disabled until it matches) → `sys/~act/update {version, confirm_site}` → `{success, message, version, restart}` at once.
+- Without a channel (`update_hint` says so; today's way): `Update from file…` picks the archive, its `.release.json` and `.sig`; the archive goes up in parts (`sys/backups/~act/restore_begin {size}`, `restore_part {upload, offset, data}`), then `update {upload, release, signature, confirm_site}` (`release` and `signature` as text).
+- A standby pair (`sys/standby_version` exists): two steps. `Update the standby` → `update {target: "standby", upload, release, signature, confirm_site}`, then `sys/standby_update` (`ordered <v>`, `<v> trial`, `<v> confirmed`, `<v> rolled_back`, `<v> failed`); `Update this broker` is enabled when `standby_version` is the target and `standby_update` is `<v> confirmed`. `without_standby: true` only behind its own confirm, when the standby is not connected. With a channel the standby step takes `{target: "standby", version, confirm_site}`.
+- Downstream sites: the same dialog from Sites › site ▸ `Update broker…` when the upstream has `allow_config` (else not shown). `Roll back` is not offered there (the broker refuses it for such a session).
 
 ### Restarting (`BrokerUpdateRestart`)
-Studio loses the gateway on purpose. The dialog stays, with a spinner card `<site> is restarting on <v>` and a counter, and the steps as they are known (before the restart from the action; after, from `sys` `update_state` once the socket is back). `WyrmGateway.loginAny` logs in again by itself (ADR 0036 option 2); the shell's offline banner says `Updating <site>` instead of `Connection lost`. The text under the steps says what links and devices do meanwhile.
+Before the restart the steps come from `update_last.step` (`fetching`, `checking`, `staged`, `backup`) while `update_state` is `none` or `staged`; an update that ends there shows `update_last.result: failed` with `reason` and nothing changed. Then Studio loses the gateway on purpose. The dialog stays, with a spinner card `<site> is restarting on <v>` and a counter. `WyrmGateway.loginAny` logs in again by itself (ADR 0036 option 2); the shell's offline banner says `Updating <site>` instead of `Connection lost`. After the socket is back: `update_state` `trial` (progress `update_last.ran_s` of `trial_s`: the trial is counted in the time the version ran, so it stands still while the broker is down; `deadline` is only an estimate; `attempts`), then `confirmed`, or `rolled_back` on the old version. The text under the steps says what links and devices do meanwhile.
 
 ### Result (`BrokerUpdateDone`, `BrokerUpdateRolledBack`, `BrokerUpdateExternal`)
-- Confirmed: banner (good), facts `Version`, `Without the broker`, `Links back`, `Roll back` (until), `Audit`; buttons `Close`, `Roll back to <from>…` (neutral; its own confirm with `Changes made after the update are lost`).
-- Rolled back: banner (warn) with the reason from `update_last`, facts `Tried`, `Reason`, `Now`, `Log of <v>`, `Audit`; `Open the log of <v>`.
-- External (`updates.mode: "external"`): no update button; the dialog says the image is changed where the container is defined, shows the two commands, and offers `Make the backup` (§4 with `control` + `keys`).
+- Confirmed: banner (good), facts `Version` (`to`), `Without the broker` (`without_s`), `Links back` (`links`), `Roll back` (until `keep_until`), `Audit` (`update_start`, `update_confirmed`); buttons `Close`, `Roll back to <from>…` (neutral; its own confirm with the site name and `Changes made after the update are lost` when `schemas_moved` is not empty) → `sys/~act/rollback_update {confirm_site}`.
+- Rolled back: banner (warn) with `update_last.reason`, facts `Tried` (`to`), `Reason`, `Now` (`from`), `Control plane restored` (`restored`), `Audit` (`update_rollback`); `Open the log`.
+- External (`update_mode: external`): no update button; the dialog shows `sys/update_hint` (what to run outside the broker) and offers `Make the backup` (§4 with `control`).
+
+### What the broker has, against what the Studio screens were built on
+The screens of branch `studio/updates-backups` took their names from ADR 0048 §2 before the broker was built. The broker differs in these points; nothing else does. Adapt Studio once.
+
+| Studio assumed | The broker has | Type, values |
+|---|---|---|
+| `sys/latest` | the same | string; empty without an index |
+| (none) | `sys/update_available` | bool |
+| `sys/update_state`: `none`, `staged`, `trial`, `confirmed`, `rolled_back` | the same, and a sixth value `failed` | string. `failed`: a rollback was due and could not be done as a whole; `update_last.reason` says which version runs and on what state (the old version on the state as it is when the backup could not be used; the new version when the old one is gone; the other version when a binary did not verify). `staged` shows only for the seconds before the stop |
+| `sys/update_mode`: `self`, `external` | `off`, `external`, `self` | string; `off` is the default: hide the card |
+| (none) | `sys/update_hint` | string; empty when nothing stands in the way. `self`: what is missing (layout, guard, index, channel). `external`: what to run outside the broker |
+| `update_last.from`, `to`, `reason` | the same | strings |
+| `update_last.down_s` | `without_s` | number: seconds from the stop of the old version to the router of the new one |
+| `update_last.links` (the links) | `links` | a **number**: how many links had to come back. The broker keeps no list in `sys` (the names are in `data_dir/update.json` and, when they do not come back, in `reason`) |
+| `update_last.links_back` | not there | a confirmed update means all of `links` are back; a failed trial names the missing ones in `reason` |
+| `update_last.back_s` | not there | use `at` − `started` (confirmed or rolled back at, the old version stopped at; unix seconds) |
+| `update_last.rollback_until` | `keep_until` | number, unix seconds; 0 until confirmed |
+| (none) | `update_last.result`, `at`, `started`, `by`, `attempts`, `trial_s`, `ran_s`, `deadline` (an estimate), `restored`, `backup`, `schemas_moved`, `role`, `step`, `latest_date`, `latest_notes` | `result` = the state the file holds (`trial`, `confirmed`, `rolled_back`, `failed`); `step` only while an update is prepared; `schemas_moved` a list of store names; `backup` the id in `sys/backups` |
+| `sys/~act/update {version, confirm_site}` | the same two, plus `upload`, `release`, `signature`, `target` (`active`, `standby`), `without_standby` (bool) | answers `{success, message, version, restart}` at once; the work goes on after the answer. `version` may be empty (the latest) |
+| `sys/~act/rollback_update` (no arguments) | `rollback_update {confirm_site}` | `confirm_site` is required; answers `{success, message, restart}`; refused through an upstream |
+| a dry run that returns checks | `update?check` answers `ok` or one refusal | no list; the archive is not fetched by the dry run |
+| (none) | `sys/~act/check_updates` | `{latest, update_available}`; reads the index now |
+| (none) | `sys/standby_version`, `sys/standby_update` | strings; declared only on a broker of a standby pair |
+| upload of a signed archive | `sys/backups/~act/restore_begin {size}` → `{upload, part_size}`, `restore_part {upload, offset, data}`, `restore_abort {upload}`, then `update {upload, release, signature, confirm_site}` | the upload actions are the ones of a backup restore; `release` and `signature` are the text of `wyrmd-<v>.release.json` and of its `.sig`; at most two uploads are open at once |
 
 ## 4. Backing up and restoring the broker (`Backup*`)
 
@@ -85,7 +111,7 @@ System › Maintenance: the card `Back up and restore` (today the copyable comma
 | Links › Updates | `sys/links` attributes `updates_available`, `catalog`; `sys/packages/<name>` values `version`, `latest`, `update_available`, `state`, `changes_state`, `previous`, `last_update` (`result`: `checking`, `ok`, `rolled_back`, `failed`) | `sys/packages/<name>` `update`, `rollback`; `sys/links` `install_zip`, `install_url`, `install_git` (custom) |
 | Link inspector | `sys/links/<id>/restore_points` | `sys/links/<id>` `backup`; `sys/packages/<name>` `rollback` |
 | Add a link ▸ From backup | the file's `manifest.json`, read by Studio | `sys/backups` `restore_begin`, `restore_part`, `restore_abort`; `sys/links` `install_backup` |
-| System › Broker version | `sys` `version`, `latest`, `update_available`, `update_state`, `update_last` | `update` (`?check` first), `rollback_update` |
+| System › Broker version | `sys` `version`, `latest`, `update_available`, `update_state` (`none`, `staged`, `trial`, `confirmed`, `rolled_back`, `failed`), `update_last`, `update_mode`, `update_hint`, `standby_version`, `standby_update` | `sys` `update` (`?check` first), `rollback_update`, `check_updates`; `sys/backups` `restore_begin`, `restore_part` (the archive) |
 | System › Backups | `sys/backups` attributes `export_secrets`, `send_links`, `sections`, `keep_days`, `max_mb`; `sys/backups/<id>` attributes `kind`, `name`, `sections`, `sealed`, `link`, `by`, values `status`, `progress`, `step`, `size`, `sha256`, `created`, `expires`, `error`, `sent_to`, `send_status`, `send_progress`, `send_error` | `sys/backups` `estimate`, `create`, `restore_begin`, `restore_part`, `restore_abort`, `restore_check`, `restore_apply`; `sys/backups/<id>` `download_part`, `send`, `remove` |
 
 All are config; the views check `site.needs('config', …)` and lock the buttons for others with the reason (Studio's rule).

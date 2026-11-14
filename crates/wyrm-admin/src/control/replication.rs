@@ -779,6 +779,21 @@ impl Control {
                 self.note_fork(t, what, &detail);
                 Value::Map(BTreeMap::from([("ok".to_owned(), Value::Bool(true))]))
             }
+            // the broker's own update (ADR 0048 §2.8): the standby says what
+            // it runs and gets the release staged for it
+            ["update", version, state, to] => self.standby_update_report(version, state, to),
+            ["update_part", offset, len] => {
+                let (Ok(offset), Ok(len)) = (offset.parse::<u64>(), len.parse::<u64>()) else {
+                    return error_value("offset and len: numbers");
+                };
+                match self.standby_update_part(offset, len) {
+                    Ok(part) => Value::Map(BTreeMap::from([
+                        ("offset".to_owned(), Value::UInt(offset)),
+                        ("data".to_owned(), Value::Bytes(part)),
+                    ])),
+                    Err(e) => error_value(&e),
+                }
+            }
             ["files"] => files_value(&files_of(d)),
             ["file", offset, len, rest @ ..] => {
                 let name = rest.join("/");
