@@ -120,7 +120,8 @@ After a run stops at a step, the model gets one more turn (param `review_turns`)
 reads, and it offers ways out as suggestions. While the turn runs, the task shows
 `reviewing: true`. What the model found is `review` in the record. The task stays `failed`.
 
-Limits: 8 suggestions in a task, 16 rows each, `label` 80 bytes, `detail` 300 bytes. A row
+Limits: 8 suggestions in a task, 16 rows each, `label` 80 bytes, `detail` 300 bytes (a cut
+text keeps its `…` inside the bound). A row
 must be a node that the agent may read and that the asker of the task may read. A task that
 fails drops the suggestions of its planning. A row is checked against the asker's rights
 from their token's `auth` (spec 04), and only until that token's `exp`. The asker's own
@@ -143,8 +144,23 @@ Explorer drawer.
 - `key` is a plain node key of the task's site that the agent may read and that the asker of
   the task may read. It is checked like a row of a suggestion: against the asker's rights
   from their token's `auth`, only until its `exp`. Without them the finding is refused.
-- Limits: 12 findings in a task, `label` 80 bytes, `detail` 300 bytes (longer text is cut). A
-  second finding on the same node is refused.
+- Limits: 12 findings in a task, `label` 80 bytes, `detail` 300 bytes. Longer text is cut,
+  and the `…` that marks the cut is inside the bound.
+- One row per node. A second finding on a node replaces the words of its row, in the same
+  place: the turn after a run corrects what planning noted.
+- A finding the link does not note is counted by why in `findings_refused`:
+  `{rights_unknown | rights_expired | outside_rights | limit | invalid: <count>}`. These are
+  fixed words, never the model's text. Studio says from them why rows are missing.
+
+The asker's rights last as long as the token of their last call on the task: Ask, or their
+own Answer or Approve. Through a gateway such a token lasts 5 min. Nothing else renews the
+rights, so findings are refused as `rights_expired` in two common cases:
+
+1. The turn after a stopped run starts when the run ends, not by a person. If another
+   person approved the plan, their approval does not renew the asker's rights.
+2. The asker approved, and the run took more than about 5 min after the approval.
+
+The same holds for the rows of a suggestion.
 - A finding runs nothing and is no part of the plan (not in its hash). A task that fails keeps
   its findings: they say what was read.
 

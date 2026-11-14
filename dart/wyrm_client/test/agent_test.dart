@@ -186,6 +186,12 @@ void main() {
     expect((f[0].key, f[0].label, f[0].detail), ('wy/s/downstream/m/plc1', 'plc1', '4 of 5 good'));
     expect((f[1].label, f[1].detail), ('valve', ''));
     expect(findingCount(VMap({'state': const VStr('done'), 'findings': const VInt(2)})), 2);
+    expect(
+        findingsRefused(VMap({
+          'findings_refused': VMap({'rights_expired': const VInt(2), 'limit': const VInt(0), 'x': const VStr('y')}),
+        })),
+        {'rights_expired': 2});
+    expect(findingsRefused(record), isEmpty);
     // a record and a value of an agent link older than the field
     final old = VMap({'state': const VStr('done'), 'plan': VArray(const [])});
     expect(TaskFinding.of(old), isEmpty);

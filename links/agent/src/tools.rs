@@ -584,16 +584,18 @@ impl Suggestion {
     }
 }
 
+/// [s] trimmed and at most [max] bytes, the `…` that marks a cut included.
 fn cut(s: &str, max: usize) -> String {
+    const MORE: &str = "…";
     let s = s.trim();
     if s.len() <= max {
         return s.to_owned();
     }
-    let mut end = max;
+    let mut end = max.saturating_sub(MORE.len());
     while !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &s[..end])
+    format!("{}{MORE}", &s[..end])
 }
 
 /// A suggestion of the model (`suggest`) without its id, checked and bounded: `steps` is
@@ -704,22 +706,72 @@ impl Finding {
     }
 }
 
+/// Why a finding of the model was not noted (`~state.findings_refused`, by name with a
+/// count): fixed words, never the model's text. A reader says from them why rows are
+/// missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Refused {
+    /// The asker's rights are not known: their token had no `auth`, or the link restarted.
+    RightsUnknown,
+    /// The asker's rights were known from a token that has expired.
+    RightsExpired,
+    /// The node is outside what the agent or the asker may read.
+    OutsideRights,
+    /// The task already holds [`MAX_FINDINGS`].
+    Limit,
+    /// No node key or no label.
+    Invalid,
+}
+
+impl Refused {
+    pub const ALL: [Self; 5] = [
+        Self::RightsUnknown,
+        Self::RightsExpired,
+        Self::OutsideRights,
+        Self::Limit,
+        Self::Invalid,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::RightsUnknown => "rights_unknown",
+            Self::RightsExpired => "rights_expired",
+            Self::OutsideRights => "outside_rights",
+            Self::Limit => "limit",
+            Self::Invalid => "invalid",
+        }
+    }
+
+    pub fn from_name(n: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.name() == n)
+    }
+}
+
 /// A finding of the model (`found`), checked and bounded as a row of a suggestion: the
 /// node is a plain key of the site inside what the agent may read, and `asker_reads(node)`
-/// says the asker of the task may read it too.
+/// says the asker of the task may read it too. A refusal says why, in fixed words, and
+/// what to tell the model.
 pub fn finding_of(
     input: &Json,
     policy: &Policy,
     asker_reads: impl Fn(&str) -> bool,
-) -> Result<Finding, String> {
-    let key = policy.node_key(str_field(input, "path")?)?;
-    policy.may_read(&key)?;
+) -> Result<Finding, (Refused, String)> {
+    let invalid = |e: String| (Refused::Invalid, e);
+    let key = policy
+        .node_key(str_field(input, "path").map_err(invalid)?)
+        .map_err(invalid)?;
+    policy
+        .may_read(&key)
+        .map_err(|e| (Refused::OutsideRights, e))?;
     if !asker_reads(&key) {
-        return Err(format!("{key}: the asker of this task may not read it"));
+        return Err((
+            Refused::OutsideRights,
+            format!("{key}: the asker of this task may not read it"),
+        ));
     }
     let label = cut(input["label"].as_str().unwrap_or(""), MAX_LABEL);
     if label.is_empty() {
-        return Err("`label` (text) is required".into());
+        return Err(invalid("`label` (text) is required".into()));
     }
     Ok(Finding {
         key,
@@ -1025,7 +1077,7 @@ pub fn definitions() -> Json {
                 "path": path, "label": {"type": "string"}, "detail": {"type": "string"}
             }, "required": ["path", "label"]}, "description": "Nodes the same thing may be done for (at most 16)."}
          }, "required": ["label"]}},
-        {"name": "found", "description": "Note one thing you read about a node, for the person's list *What I found*: `label` names the node as a person would (`plc1`, `valve`), `detail` says in a few words what you read (`4 of 5 points good`, `bad since 03:12, exception 0x02`). One call per node, at most 12 in a task; only nodes you read in the tree. It changes nothing and is no check: the person's screen marks the row from the node's live value, not from your words.",
+        {"name": "found", "description": "Note one thing you read about a node, for the person's list *What I found*: `label` names the node as a person would (`plc1`, `valve`), `detail` says in a few words what you read (`4 of 5 points good`, `bad since 03:12, exception 0x02`). One row per node, at most 12 in a task: a second call on a node replaces what you noted for it; only nodes you read in the tree. It changes nothing and is no check: the person's screen marks the row from the node's live value, not from your words.",
          "input_schema": {"type": "object", "properties": {
             "path": path,
             "label": {"type": "string", "description": "A few words: the node's name."},
@@ -1363,6 +1415,20 @@ mod tests {
         assert_eq!(waits_before(&plan, 6, all), 350.0);
         // a proof that is skipped waits for nothing
         assert_eq!(waits_before(&plan, 4, |n| n == 3), 100.0);
+    }
+
+    /// A cut text keeps its bound with the `…` that marks it, on a char boundary.
+    #[test]
+    fn a_cut_text_keeps_its_bound_with_the_ellipsis() {
+        assert_eq!(cut("  short  ", 80), "short");
+        let long = "x".repeat(500);
+        let c = cut(&long, MAX_LABEL);
+        assert!(c.len() <= MAX_LABEL && c.ends_with('…'), "{}", c.len());
+        let c = cut(&long, MAX_DETAIL);
+        assert!(c.len() <= MAX_DETAIL, "{}", c.len());
+        // two-byte chars: never cut inside one
+        let c = cut(&"ё".repeat(100), MAX_LABEL);
+        assert!(c.len() <= MAX_LABEL && c.ends_with('…'), "{}", c.len());
     }
 
     #[test]

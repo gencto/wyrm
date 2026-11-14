@@ -14,7 +14,7 @@
 //! [`COMPACT_AT`] records (at start and while running, see [`compact`]):
 //! removed tasks then also leave the disk.
 
-use crate::tools::{Check, Finding, OpKind, PlanOp, StepResult, Suggestion};
+use crate::tools::{Check, Finding, OpKind, PlanOp, Refused, StepResult, Suggestion};
 use crate::{Question, TaskState};
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
@@ -256,6 +256,8 @@ pub struct Extras {
     /// What the model read about nodes (`found`; absent in records written before the
     /// second amendment of 2026-11-14).
     pub findings: Vec<Finding>,
+    /// Findings the link did not note, by why (fixed words, no model text).
+    pub findings_refused: BTreeMap<Refused, u32>,
 }
 
 impl Extras {
@@ -267,11 +269,13 @@ impl Extras {
             && self.replaced_by.is_none()
             && self.review.is_none()
             && self.findings.is_empty()
+            && self.findings_refused.is_empty()
     }
 }
 
 /// The plan as persisted: the array of its steps, or, with [`Extras`], a map
-/// `{steps, questions?, parent?, context?, suggestions?, replaced_by?, review?, findings?}`.
+/// `{steps, questions?, parent?, context?, suggestions?, replaced_by?, review?, findings?,
+/// findings_refused?}`.
 pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
     let steps = Value::Array(plan.iter().map(plan_op_value).collect());
     let v = if extras.is_empty() {
@@ -321,6 +325,12 @@ pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
             m.insert(
                 "findings".to_owned(),
                 Value::Array(extras.findings.iter().map(Finding::to_value).collect()),
+            );
+        }
+        if !extras.findings_refused.is_empty() {
+            m.insert(
+                "findings_refused".to_owned(),
+                refused_value(&extras.findings_refused),
             );
         }
         Value::Map(m)
@@ -378,11 +388,33 @@ pub fn decode_plan(b: &[u8]) -> Result<(Vec<PlanOp>, Extras), String> {
                     Some(Value::Array(a)) => a.iter().filter_map(Finding::from_value).collect(),
                     _ => Vec::new(),
                 },
+                findings_refused: match m.get("findings_refused") {
+                    Some(Value::Map(r)) => r
+                        .iter()
+                        .filter_map(|(k, v)| {
+                            let n = match v {
+                                Value::UInt(n) => u32::try_from(*n).ok()?,
+                                _ => return None,
+                            };
+                            Some((Refused::from_name(k)?, n))
+                        })
+                        .collect(),
+                    _ => BTreeMap::new(),
+                },
             };
             Ok((plan, extras))
         }
         _ => Err("plan: not an array".into()),
     }
+}
+
+/// `{<why>: <count>}` of the findings not noted (`~state.findings_refused`).
+pub fn refused_value(r: &BTreeMap<Refused, u32>) -> Value {
+    Value::Map(
+        r.iter()
+            .map(|(k, n)| (k.name().to_owned(), Value::UInt((*n).into())))
+            .collect(),
+    )
 }
 
 fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
@@ -552,6 +584,7 @@ mod tests {
                 label: "unit 3".into(),
                 detail: "bad since 03:12".into(),
             }],
+            findings_refused: BTreeMap::from([(Refused::RightsExpired, 2)]),
         };
         let (q, back) = decode_plan(&encode_plan(&p, &more)).unwrap();
         assert_eq!((q.len(), back), (1, more.clone()));
@@ -562,6 +595,7 @@ mod tests {
             replaced_by: None,
             review: None,
             findings: Vec::new(),
+            findings_refused: BTreeMap::new(),
             ..more
         };
         let (_, back) = decode_plan(&encode_plan(&p, &before)).unwrap();
@@ -728,6 +762,7 @@ mod tests {
             (Some("t1-3"), Some("no answer"))
         );
         assert!(extras.findings.is_empty(), "no findings");
+        assert!(extras.findings_refused.is_empty(), "none refused");
     }
 
     #[test]
