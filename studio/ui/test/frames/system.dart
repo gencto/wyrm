@@ -111,6 +111,7 @@ SystemPage _page({
   Ha ha = Ha.ok,
   bool loading = false,
   bool rights = true,
+  bool backups = false,
 }) {
   final lag = ha == Ha.lagging;
   final dash = loading ? '—' : null;
@@ -576,7 +577,51 @@ SystemPage _page({
       ],
       profilesEmpty: 'No profiles.',
       profilesFooter: '`sys/profiles` › Put Profile, Remove Profile · config',
-      backupTitle: 'Back up and restore',
+      backups: backups
+          ? BackupsCardVm(
+              title: 'Backups',
+              note: 'Made while the broker runs, kept on it for 7 days. Download one or send it to a file store.',
+              empty: 'No backup is kept on the broker.',
+              backUpLabel: 'Back up…',
+              restoreLabel: 'Restore…',
+              reason: rights ? null : _reason,
+              rows: const [
+                RowItemVm(
+                  id: 'b3',
+                  title: 'plant-20261113t154012z.wyrm-backup',
+                  subtitle: 'broker · control, keys, storage, links · 2026-11-13 15:40',
+                  trailing: 'being made · 46 %',
+                  action: 'Open',
+                ),
+                RowItemVm(
+                  id: 'b2',
+                  title: 'plant-modbus-20261113t152400z.wyrm-link',
+                  subtitle: 'link modbus · settings, data, package · 2026-11-13 15:24',
+                  trailing: '3.1 MiB',
+                  action: 'Open',
+                ),
+                RowItemVm(
+                  id: 'b1',
+                  title: 'plant-20261112t030000z.wyrm-backup',
+                  subtitle:
+                      'broker · control, storage, history · 2026-11-12 03:00',
+                  trailing: '462 MiB',
+                  action: 'Open',
+                ),
+              ],
+            )
+          : null,
+      version: backups
+          ? const BrokerVersionCardVm(
+              title: 'Broker version',
+              line: '0.1.0 · 0.2.0 is available',
+              action: 'Update…',
+              tone: Tone.ember,
+            )
+          : null,
+      backupTitle: backups
+          ? 'When the broker does not start'
+          : 'Back up and restore',
       backupNote: "Everything the broker owns is in its `data_dir` (here 1.9 GiB). Studio does not take backups: they hold the site's keys and are made on the host. The steps, ready to copy:",
       commands: const [
         CommandCardVm(
@@ -655,6 +700,10 @@ SystemPage _page({
     onPutProfile: () {},
     onRemoveProfile: _none,
     onCopyCommand: _none,
+    onBackUp: () {},
+    onRestore: () {},
+    onOpenBackup: _none,
+    onBrokerUpdate: () {},
     onElsewhere: _none,
     onBanner: () {},
     onGuide: () {},
@@ -678,6 +727,10 @@ SystemPage systemLog() => _page(tab: 'log');
 
 /// Board `SystemMaint`.
 SystemPage systemMaint() => _page(tab: 'maintenance');
+
+/// Maintenance of a broker with backups (ADR 0048 §3) and, as it will be
+/// once the broker updates itself (§2), the card *Broker version*.
+SystemPage systemMaintBackups() => _page(tab: 'maintenance', backups: true);
 
 /// No `sys` value yet: tiles with `—`, the traffic `Collecting…`.
 SystemPage systemLoading() => _page(loading: true);

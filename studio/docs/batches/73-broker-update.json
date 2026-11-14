@@ -1,0 +1,77 @@
+{
+  "intents": [
+    {
+      "command": "add-substate",
+      "args": [
+        "broker_update"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "broker_update",
+        "stage:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "broker_update",
+        "confirm:String"
+      ],
+      "options": {
+        "default": "''",
+        "action": true
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "open_broker_update"
+      ],
+      "options": {
+        "state": "broker_update",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "close_broker_update"
+      ],
+      "options": {
+        "state": "broker_update",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "update_broker"
+      ],
+      "options": {
+        "state": "broker_update",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "rollback_broker_update"
+      ],
+      "options": {
+        "state": "broker_update",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    }
+  ]
+}

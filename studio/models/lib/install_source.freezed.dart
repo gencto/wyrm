@@ -392,6 +392,76 @@ as String?,
 /// @nodoc
 
 
+class InstallSourceBackup implements InstallSource {
+  const InstallSourceBackup({required this.fileName, required this.size});
+  
+
+ final  String fileName;
+ final  int size;
+
+/// Create a copy of InstallSource
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$InstallSourceBackupCopyWith<InstallSourceBackup> get copyWith => _$InstallSourceBackupCopyWithImpl<InstallSourceBackup>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is InstallSourceBackup&&(identical(other.fileName, fileName) || other.fileName == fileName)&&(identical(other.size, size) || other.size == size));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,fileName,size);
+}
+
+@override
+String toString() {
+    return 'InstallSource.backup(fileName: $fileName, size: $size)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $InstallSourceBackupCopyWith<$Res> implements $InstallSourceCopyWith<$Res> {
+  factory $InstallSourceBackupCopyWith(InstallSourceBackup value, $Res Function(InstallSourceBackup) _then) = _$InstallSourceBackupCopyWithImpl;
+@useResult
+$Res call({
+ String fileName, int size
+});
+
+
+
+
+}
+/// @nodoc
+class _$InstallSourceBackupCopyWithImpl<$Res>
+    implements $InstallSourceBackupCopyWith<$Res> {
+  _$InstallSourceBackupCopyWithImpl(this._self, this._then);
+
+  final InstallSourceBackup _self;
+  final $Res Function(InstallSourceBackup) _then;
+
+/// Create a copy of InstallSource
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? fileName = null,Object? size = null,}) {
+  return _then(InstallSourceBackup(
+fileName: null == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
+as String,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
+as int,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
 class InstallSourceWasm implements InstallSource {
   const InstallSourceWasm({required this.bytes, required this.fileName});
   

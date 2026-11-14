@@ -7,6 +7,7 @@ import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'redux/app_state.dart';
+import 'redux/backups/actions/retrieve_backups_action.dart';
 import 'redux/links/actions/retrieve_links_action.dart';
 import 'redux/packages/actions/retrieve_packages_action.dart';
 import 'redux/quarantine/actions/retrieve_quarantine_action.dart';
@@ -124,6 +125,9 @@ class AppDependencies {
       }
       if (store.state.packages.view.isNotEmpty) {
         unawaited(store.dispatchAndWait(RetrievePackagesAction()));
+      }
+      if (store.state.backups.sections.isNotEmpty) {
+        unawaited(store.dispatchAndWait(RetrieveBackupsAction(quiet: true)));
       }
     },
   ];

@@ -246,7 +246,7 @@ sequenceDiagram
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
     participant A1 as SetStepAction
-    participant A2 as InstallLinkAction
+    participant A2 as _backup ? InstallBackupAction(read: file!.read, passphrase: passphrase) : InstallLinkAction()
     participant A3 as CheckPackageAction
     participant ST as AppState
 
@@ -256,11 +256,13 @@ sequenceDiagram
         VM->>A1: dispatchSync
         A1->>ST: copyWith(linkInstall.step)
         VM->>+A2: dispatchAndWait
-        Note over A2: NonReentrant · WaitingAction · async
-        A2->>ST: copyWith(linkInstall.phase, linkInstall.message, linkInstall.refusedField, linkInstall.refusedSaid, linkInstall.step)
-        A2->>ST: dispatchSync(_Phase)
-        A2->>ST: dispatchAndWait(RetrieveLinksAction)
         A2-->>-VM: ActionStatus
+    end
+    alt _backup && key == 'choose'
+        VM->>+A3: dispatchAndWait
+        Note over A3: async
+        A3->>ST: copyWith(linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode)
+        A3-->>-VM: ActionStatus
     end
     alt !_official && key == 'choose'
         VM->>+A3: dispatchAndWait
@@ -300,7 +302,7 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `LinkInstallPageConnector` — 2 dispatches
+- `LinkInstallPageConnector` — 3 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -317,7 +319,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onMode` | `SetModeAction` | `linkInstall.mode` |
 | `onStep` | `SetStepAction` | `linkInstall.step` |
 | `onBack` | `GoAction.pop`, `SetStepAction` | `linkInstall.step` |
-| `onNext` | `SetStepAction` ?, `InstallLinkAction` ?, `CheckPackageAction` ?, `SetStepAction` | `linkInstall.step`, `linkInstall.phase, linkInstall.message, linkInstall.refusedField, linkInstall.refusedSaid, linkInstall.step`, `linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode` |
+| `onNext` | `SetStepAction` ?, `_backup ? InstallBackupAction(read: file!.read, passphrase: passphrase) : InstallLinkAction()` ?, `CheckPackageAction` ?, `CheckPackageAction` ?, `SetStepAction` | `linkInstall.step`, `linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode` |
 | `onResultAction` | `SetSelectedNodeAction`, `GoAction.pop`, `GoAction.pop`, `ChooseInstallSourceAction`, `SetStepAction` | `nodes.selectedNode`, `linkInstall`, `linkInstall.step` |
 
 `?` marks a dispatch that only runs under a condition.

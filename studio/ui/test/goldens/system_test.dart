@@ -49,6 +49,10 @@ void main() {
   );
   testWidgets('log', (t) => shoot(t, 'system_log', systemLog()));
   testWidgets('maintenance', (t) => shoot(t, 'system_maint', systemMaint()));
+  testWidgets(
+    'maintenance with backups and the broker version',
+    (t) => shoot(t, 'system_maint_backups', systemMaintBackups()),
+  );
   testWidgets('loading', (t) => shoot(t, 'system_loading', systemLoading()));
   testWidgets(
     'no config on sys',

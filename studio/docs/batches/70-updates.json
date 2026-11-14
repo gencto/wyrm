@@ -1,0 +1,189 @@
+{
+  "intents": [
+    {
+      "command": "add-model",
+      "args": [
+        "update_report"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "restore_point"
+      ]
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "updates"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "package:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "view:String"
+      ],
+      "options": {
+        "default": "'review'"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "takePoint:bool"
+      ],
+      "options": {
+        "default": "true",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "autoRollback:bool"
+      ],
+      "options": {
+        "default": "true",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "acceptNew:bool"
+      ],
+      "options": {
+        "default": "false",
+        "action": true
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "asks:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "message:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "seenAt:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "seenResult:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "queue:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "updates",
+        "fileName:String?"
+      ]
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "open_update"
+      ],
+      "options": {
+        "state": "updates",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "close_update"
+      ],
+      "options": {
+        "state": "updates",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "update_package"
+      ],
+      "options": {
+        "state": "updates",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "rollback_package"
+      ],
+      "options": {
+        "state": "updates",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "links",
+        "updatesAvailable:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    },
+    {
+      "command": "add-widget",
+      "args": [
+        "task_sheet"
+      ],
+      "options": {
+        "dir": "overlays",
+        "kind": "view"
+      }
+    }
+  ]
+}

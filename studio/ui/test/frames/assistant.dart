@@ -79,6 +79,7 @@ Widget assistantPlan() => AssistantPage(
     note:
         "The plan is in the task's record. Studio shows it when the "
         'gateway can read documents.',
+    caution: true,
     buttons: [
       TaskButtonVm(id: 'reject', label: 'Reject'),
       TaskButtonVm(

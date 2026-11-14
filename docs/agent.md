@@ -128,6 +128,12 @@ you approve, read each step's key and arguments in `plan`, not only the reason.
 The API key is entered once with ▸ **Set Secret** (`anthropic_api_key`) and is never shown.
 It goes only to `api_base`, over TLS with the system roots.
 
+The secret may also hold an OAuth access token of the `ant` CLI (it starts with `sk-ant-oat`;
+`ant auth print-credentials --access-token` prints it after `ant auth login`). The link then
+sends it as `Authorization: Bearer`. Such a token lasts some hours and the link does not
+refresh it: when Ask fails with `HTTP 401`, set the secret again. Use it to try the assistant;
+give a broker that runs for long an API key.
+
 A change of `api_base` (▸ Update with another host or path) deletes the API key secret. Enter
 the key again after the change; the audit shows `secret_dropped`. A user with `config` on the
 link cannot read the secret, and this rule stops them from sending the key to a host of their

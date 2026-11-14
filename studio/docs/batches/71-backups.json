@@ -1,0 +1,476 @@
+{
+  "intents": [
+    {
+      "command": "add-model",
+      "args": [
+        "backup_job"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "send_link"
+      ]
+    },
+    {
+      "command": "add-model",
+      "args": [
+        "restore_check"
+      ]
+    },
+    {
+      "command": "add-substate",
+      "args": [
+        "backups"
+      ],
+      "options": {
+        "kind": "value"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "table:IMap<String, BackupJob>"
+      ],
+      "options": {
+        "default": "IMapConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "view:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "exportSecrets:bool"
+      ],
+      "options": {
+        "default": "false"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "sendLinks:IList<SendLink>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "sections:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "keepDays:int"
+      ],
+      "options": {
+        "default": "7"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "stage:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "link:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "chosen:ISet<String>"
+      ],
+      "options": {
+        "default": "ISetConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "historyDays:int?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "offLinks:ISet<String>"
+      ],
+      "options": {
+        "default": "ISetConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "where:String"
+      ],
+      "options": {
+        "default": "'computer'"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "sendLink:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "sendConnection:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "sendPath:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "connections:IList<String>"
+      ],
+      "options": {
+        "default": "IListConst([])"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "estimate:IMap<String, int>"
+      ],
+      "options": {
+        "default": "IMapConst({})"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "job:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "downloading:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "downloaded:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "savedTo:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "upload:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "uploadName:String?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "uploadSize:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "uploaded:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "check:RestoreCheck?"
+      ]
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "mode:String"
+      ],
+      "options": {
+        "default": "'add'"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "replaceKeys:bool"
+      ],
+      "options": {
+        "default": "false"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "acceptRights:bool"
+      ],
+      "options": {
+        "default": "false"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "backups",
+        "result:String?"
+      ]
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "open_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "set_backup_form"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "sync"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "close_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "async"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "retrieve_backups"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "estimate_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "create_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "download_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "remove_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "send_backup"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "retrieve_send_connections"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting"
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "upload_restore"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "check_restore"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "apply_restore"
+      ],
+      "options": {
+        "state": "backups",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-action",
+      "args": [
+        "install_backup"
+      ],
+      "options": {
+        "state": "link_install",
+        "kind": "waiting",
+        "mixin": [
+          "nonReentrant"
+        ]
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "backupSize:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    },
+    {
+      "command": "add-field",
+      "args": [
+        "link_install",
+        "uploaded:int"
+      ],
+      "options": {
+        "default": "0"
+      }
+    }
+  ]
+}

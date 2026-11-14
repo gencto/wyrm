@@ -297,6 +297,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       .awaitingApproval => TaskCardVm(
         title: S.current.planCard,
         note: S.current.planNote,
+        caution: true,
         buttons: [
           TaskButtonVm(
             id: 'reject',
@@ -323,6 +324,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       .failed => TaskCardVm(
         title: _stateLabel(t.state),
         note: t.error ?? S.current.failedNote,
+        caution: true,
       ),
     };
   }
