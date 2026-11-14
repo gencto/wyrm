@@ -1,3 +1,4 @@
+import 'package:app/common/changes.dart';
 import 'package:app/connectors/assistant_page_connector.dart';
 import 'package:app/connectors/explorer_page_connector.dart';
 import 'package:app/navigation/app_router.dart';
@@ -9,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/rights_panel.dart';
+import 'package:ui/assistant/suggestion_tile.dart';
+import 'package:ui/buttons/button.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -42,7 +45,13 @@ void _cfg(AssistantApp app) {
       Value.from([
         {
           'rev': 2,
-          'params': {'require_approval': 'write'},
+          'params': {
+            'require_approval': 'write',
+            'allowed_prefixes': [
+              'wy/central/downstream/modbus',
+              'wy/central/storage',
+            ],
+          },
         },
       ]),
     ];
@@ -153,7 +162,7 @@ void main() {
     );
     await app.settle(tester);
 
-    final c = app.store.state.changes.table['params:agent']!;
+    final c = app.store.state.changes.table['params:$_links']!;
     expect(c.args['params'], {
       'require_approval': 'config',
       'allowed_prefixes': ['wy/central/downstream/modbus'],
@@ -198,9 +207,10 @@ void main() {
     expect(find.text('Approve 2 changes and run'), findsOneWidget);
     await tester.tap(find.text('Ask ivan first'));
     await tester.pumpAndSettle();
+    // the dialog holds the draft
     expect(
       find.textContaining('Ivan, did you move valve to offset 12'),
-      findsOneWidget,
+      findsNWidgets(2),
     );
     expect(find.textContaining('nothing is sent to anyone'), findsOneWidget);
     await tester.tap(find.text('Copy'));
@@ -329,4 +339,114 @@ void main() {
     expect(find.text('Ask ivan first'), findsOneWidget);
     expect(find.textContaining('without a person'), findsOneWidget);
   });
+
+  testWidgets('two prefix edits in a row: the panel shows each, and the '
+      'first is not undone (review item 1)', (tester) async {
+    final app = AssistantApp();
+    _cfg(app);
+    await app.pump(tester);
+    await tester.tap(find.text('What it may do'));
+    await app.settle(tester);
+
+    List<String> chips() => [
+      for (final (k, _)
+          in tester.widget<RightsPanel>(find.byType(RightsPanel)).vm.prefixes)
+        k,
+    ];
+    final panel = tester.widget<RightsPanel>(find.byType(RightsPanel));
+    panel.onRemovePrefix!('wy/central/storage');
+    await app.settle(tester);
+    expect(chips(), ['wy/central/downstream/modbus']);
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onRemovePrefix!(
+      'wy/central/downstream/modbus',
+    );
+    await app.settle(tester);
+    expect(chips(), isEmpty);
+
+    // picked back, the mode is unstaged; the prefixes stay staged
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!('config');
+    await app.settle(tester);
+    expect(
+      tester
+          .widget<RightsPanel>(find.byType(RightsPanel))
+          .vm
+          .modes
+          .firstWhere((m) => m.selected)
+          .id,
+      'config',
+    );
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!('write');
+    await app.settle(tester);
+    final c = app.store.state.changes.table['params:$_links']!;
+    expect(c.args['params'], {
+      'require_approval': 'write',
+      'allowed_prefixes': <Object?>[],
+    });
+  });
+
+  testWidgets('Review shows the whole link key and each param that changes '
+      '(review item 3)', (tester) async {
+    final app = AssistantApp();
+    _cfg(app);
+    await app.pump(tester);
+    await tester.tap(find.text('What it may do'));
+    await app.settle(tester);
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!('config');
+    await app.settle(tester);
+
+    final card = changeCards(_Reader(app.store.state)).single;
+    expect(card.key_, _links);
+    expect(card.field, 'params · require_approval');
+    expect(card.from, 'rev 2: require_approval write');
+    expect(card.to, 'require_approval config');
+  });
+
+  testWidgets("the drawer: the second button is the model's tile with the "
+      'guess, never a system button (review item 4)', (tester) async {
+    final app = AssistantApp()
+      ..task('t-1', planRecord()..['suggestions'] = [_askIvan]);
+    await _drawer(tester, app, selected: 't-1');
+
+    final tile = tester.widget<SuggestionTile>(find.byType(SuggestionTile));
+    expect(tile.vm.label, 'Ask ivan first');
+    expect(tile.vm.tag, 'nothing · its guess');
+    expect(tile.vm.note, 'a draft to copy · sends nothing');
+    expect(find.text('The assistant suggests'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is Button && w.label == 'Ask ivan first'),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the drawer: a question about the selection never replaces '
+      'the plan on screen; New task clears it (review item 5)', (
+    tester,
+  ) async {
+    final app = AssistantApp()..task('t-1', planRecord());
+    app.api.invokes['$_agent ▸ ask'] = [
+      Value.from({'task': 't-2', 'state': 'planning'}),
+    ];
+    await _drawer(tester, app, selected: 't-1');
+
+    expect(find.textContaining('this plan is replaced'), findsNothing);
+    await tester.enterText(find.byType(TextField), 'why is valve bad?');
+    await tester.pump();
+    await tester.tap(find.text('Ask'));
+    await app.settle(tester);
+    final ask = app.calls('ask').single;
+    expect(ask.args?['parent'], isNull);
+    expect(app.store.state.tasks.table['t-1']!.replacedBy, isNull);
+
+    await tester.tap(find.text('New task'));
+    await app.settle(tester);
+    expect(app.store.state.tasks.selectedTask, isNull);
+    expect(find.text('New task'), findsNothing);
+  });
+}
+
+class _Reader with Selectors {
+  _Reader(this.state);
+
+  @override
+  final AppState state;
 }

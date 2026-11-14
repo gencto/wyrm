@@ -174,11 +174,73 @@ extension TaskApproval on Selectors {
     lacks: (level, key) => site.grants.isEmpty ? null : site.needs(level, key),
   );
 
+  /// The first step of [t] that runs once approved (by [choices]) and
+  /// whose arguments are masked because their schema is not known, while
+  /// the person has not shown them (`assistant.revealed`); null when none.
+  /// Approve waits for it (spec `assistant.md` §3, ADR 0029).
+  int? unseenArgs(AgentTask t, List<StepChoice> choices) {
+    final shown = assistant.revealed[t.id] ?? const ISetConst<int>({});
+    for (final s in t.plan) {
+      final runs = choices.where((c) => c.n == s.n).firstOrNull?.runs ?? false;
+      if (runs && !s.argsKnown && s.args.isNotEmpty && !shown.contains(s.n)) {
+        return s.n;
+      }
+    }
+    return null;
+  }
+
   /// Why this gateway cannot sign for the agent's tasks: the site on
   /// screen is not the gateway's own (ADR 0049, not decided: a downstream
   /// site's agent links are not known here). Null when it can.
   String? get otherSite =>
       site.viewed != null && site.viewed != site.name ? site.viewed : null;
+}
+
+/// The params of a link as they will be once the staged update of it is
+/// applied (`sys/links/<id>` ▸ `update {params}`, keyed by the link's full
+/// key, so another site's link of the same id is not it).
+extension StagedParams on Selectors {
+  /// The update staged for the link [key] and the params it was made from;
+  /// null when none is staged.
+  ({StagedChange change, Map<String, Object?> base})? stagedParamsOf(
+    String key,
+  ) {
+    for (final c in changes.table.values) {
+      if (c.key == key &&
+          c.action == 'update' &&
+          c.args['params'] is Map<String, Object?>) {
+        return (
+          change: c,
+          base: switch (c.value) {
+            final Map<String, Object?> m => m,
+            _ => const <String, Object?>{},
+          },
+        );
+      }
+    }
+    return null;
+  }
+
+  /// The agent link's `require_approval` and `allowed_prefixes` as they will
+  /// be: from the update staged for it on this site, else as read.
+  ({String mode, List<String> prefixes, bool staged}) get agentParams {
+    final agent = assistant.agent;
+    final staged = agent == null
+        ? null
+        : stagedParamsOf('${site.root}/sys/links/${agent.split('/').last}');
+    final params = staged?.change.args['params'] as Map<String, Object?>?;
+    return (
+      mode: switch (params?['require_approval']) {
+        final String m => m,
+        _ => assistant.cfg['require_approval'] ?? 'write',
+      },
+      prefixes: switch (params?['allowed_prefixes']) {
+        final List<Object?> l => [for (final e in l) ?(e is String ? e : null)],
+        _ => assistant.prefixes.toList(),
+      },
+      staged: staged != null,
+    );
+  }
 }
 
 /// Values that belong to the app rather than to one slice. They sit on the

@@ -6,6 +6,7 @@ import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_row_pick_action.dart';
+import 'package:business/redux/assistant/actions/set_step_reveal_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -60,6 +61,14 @@ void main() {
           'model': const VStr('claude-opus-5-5'),
           'allowed_prefixes': Value.from(['wy/central/downstream/modbus']),
           'api_key_ref': const VStr('anthropic_api_key'),
+        },
+      )
+      // the schema of the plan's invoke step: its arguments are known
+      ..metas['wy/central/downstream/modbus/tcp'] = NodeMeta(
+        actions: {
+          'add_device': ActionMeta(
+            params: {'name': ParamMeta(), 'unit': ParamMeta()},
+          ),
         },
       );
     await s.dispatchAndWait(RetrieveLinksAction());
@@ -477,6 +486,39 @@ void main() {
         (n as VInt).v,
     ];
 
+    test('a step whose masked arguments were not shown is not approved '
+        '(review, ADR 0029)', () async {
+      await withAgent();
+      api
+        ..docs['$task ~state'] = Value.from({
+          'state': 'awaiting_approval',
+          'owner': 'user:olena',
+          'plan': [
+            {
+              'n': 1,
+              'invoke': 'wy/central/downstream/http/erp',
+              'action': 'set_secret',
+              'args': {'name': 'erp', 'value': 'hunter2'},
+              'level': 'config',
+              'approval': true,
+              'check': 'at_run',
+            },
+          ],
+        })
+        ..invokes['$task ▸ approve'] = [];
+      await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+      await s.dispatchAndWait(approve());
+      expect(api.calls.where((c) => c.action == 'approve'), isEmpty);
+      expect(s.state.assistant.refusals['t-1'], ApproveTaskAction.unseen(1));
+
+      // shown once: the refusal goes, and the approval is sent
+      s.dispatchSync(SetStepRevealAction('t-1', 1, shown: true));
+      expect(s.state.assistant.refusals['t-1'], isNull);
+      await s.dispatchAndWait(approve());
+      expect(sent(), [1]);
+    });
+
     test('every ticked step is sent by number, with the plan hash', () async {
       await waiting();
       api.invokes['$task ▸ approve'] = [
@@ -746,7 +788,38 @@ void main() {
       expect(as('olena', const []).decidesFor(t('user:olena')), isTrue);
     });
 
-    test('the session max caps every grant, as the gateway does', () {
+    test("the levels are the gateway's for the /api/me it sends", () {
+      // what the gateway sends: `max` is the highest level of the grants
+      // (`Grants::new`, roles.rs), and the first grant that touches a key
+      // decides; a `none` before a wider grant shuts the agent's approve
+      final me = _Reader(
+        AppState.initial().copyWith
+            .site(
+              name: 'central',
+              user: 'ivan',
+              max: 'config',
+              grants: const [
+                Grant(key: '$agent/**', level: 'write'),
+                Grant(key: 'wy/central/downstream/modbus/**', level: 'config'),
+                Grant(key: 'wy/central/**', level: 'read'),
+              ].lock,
+            )
+            .copyWith
+            .assistant(agent: agent),
+      );
+      expect(
+        me.site.levelOn('wy/central/downstream/modbus/tcp/~act/add_device'),
+        'config',
+      );
+      expect(me.site.levelSigned('$agent/tasks/t-1/~act/approve'), 'write');
+      expect(me.site.levelOn('wy/central/sys/links/agent/~act/update'), 'read');
+      expect(me.decidesFor(t('user:olena')), isFalse);
+      expect(me.mayFollow(t('user:olena')), isFalse);
+    });
+
+    test('a max below a grant caps it, as Grants::perm does (the '
+        "gateway's own unit test first_match_wins_and_max_caps builds the "
+        'same state; its /api/me never sends one)', () {
       // `/api/me` says `max: write`: a config grant gives write only
       final capped = _Reader(
         AppState.initial().copyWith

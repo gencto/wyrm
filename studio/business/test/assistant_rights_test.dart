@@ -15,6 +15,7 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -77,48 +78,132 @@ void main() {
     expect(s.state.assistant.cfg['api_base'], 'https://api.anthropic.com');
   });
 
+  void history(String key, Map<String, Object?> params, {int rev = 3}) =>
+      api.invokes['$key ▸ history'] = [
+        Value.from([
+          {'rev': rev, 'params': params},
+        ]),
+      ];
+
+  StagedChange staged() => s.state.changes.table['params:$links']!;
+
   test('a param is staged as an update of the whole params, built on the '
       'one already staged', () async {
     await logIn();
-    api.invokes['$links ▸ history'] = [
-      Value.from([
-        {
-          'rev': 3,
-          'params': {
-            'model': 'claude-sonnet-5-5',
-            'require_approval': 'write',
-            'allowed_prefixes': ['wy/central/downstream/modbus'],
-          },
-        },
-      ]),
-    ];
+    history(links, {
+      'model': 'claude-sonnet-5-5',
+      'require_approval': 'write',
+      'allowed_prefixes': ['wy/central/downstream/modbus'],
+    });
 
+    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
     await s.dispatchAndWait(
-      StageAgentParamAction('require_approval', 'config'),
-    );
-    await s.dispatchAndWait(
-      StageAgentParamAction('allowed_prefixes', ['wy/central/storage']),
+      StageAgentParamAction.addPrefix('wy/central/storage'),
     );
 
-    final c = s.state.changes.table['params:agent']!;
-    expect(
-      (c.key, c.action, c.level, c.from),
-      (
-        links,
-        'update',
-        'config',
-        'rev 3',
-      ),
-    );
+    final c = staged();
+    expect((c.key, c.action, c.level), (links, 'update', 'config'));
     expect(c.args['params'], {
       'model': 'claude-sonnet-5-5',
       'require_approval': 'config',
-      'allowed_prefixes': ['wy/central/storage'],
+      'allowed_prefixes': [
+        'wy/central/downstream/modbus',
+        'wy/central/storage',
+      ],
     });
     // the history was read once: the second edit built on the first
     expect(api.calls.where((c) => c.action == 'history'), hasLength(1));
     // nothing is sent before Review applies it
     expect(api.calls.where((c) => c.action == 'update'), isEmpty);
+  });
+
+  test('two prefix edits in a row: the second keeps the first, and the '
+      'panel shows the list as staged (review item 1)', () async {
+    await logIn();
+    history(links, {
+      'allowed_prefixes': ['A', 'B', 'C'],
+    });
+
+    await s.dispatchAndWait(StageAgentParamAction.removePrefix('A'));
+    expect(_Reader(s.state).agentParams.prefixes, ['B', 'C']);
+    await s.dispatchAndWait(StageAgentParamAction.removePrefix('B'));
+
+    expect(staged().args['params'], {
+      'allowed_prefixes': ['C'],
+    });
+    expect(_Reader(s.state).agentParams.prefixes, ['C']);
+  });
+
+  test('a mode staged, then picked back: the update is unstaged (review '
+      'item 1)', () async {
+    await logIn();
+    history(links, {'require_approval': 'write', 'model': 'm'});
+
+    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
+    expect(_Reader(s.state).agentParams.mode, 'config');
+    await s.dispatchAndWait(StageAgentParamAction.mode('write'));
+
+    expect(s.state.changes.table, isEmpty);
+    expect(_Reader(s.state).agentParams.mode, 'write');
+  });
+
+  test('the same link id on another site is never the base (review item '
+      '2)', () async {
+    await logIn();
+    history(links, {
+      'api_base': 'https://central.example',
+      'allowed_prefixes': ['wy/central/downstream/modbus'],
+    });
+    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
+
+    // plant has an agent link of the same id
+    const plantLinks = 'wy/plant/sys/links/agent';
+    api
+      ..children_['wy/plant/sys/links'] = [Child('agent', NodeMeta())]
+      ..metas[plantLinks] = NodeMeta(
+        attr: {'driver': const VStr('agent'), 'mode': const VStr('embedded')},
+      )
+      ..metas['wy/plant/downstream/agent'] = NodeMeta(cfg: {});
+    history(plantLinks, {
+      'api_base': 'https://plant.example',
+      'allowed_prefixes': ['wy/plant/downstream/s7'],
+    }, rev: 8);
+    s.dispatchSync(ViewSiteAction('plant'));
+    await s.dispatchAndWait(RetrieveLinksAction());
+    await s.dispatchAndWait(RetrieveAgentAction());
+    await s.dispatchAndWait(StageAgentParamAction.mode('never'));
+
+    final plant = s.state.changes.table['params:$plantLinks']!;
+    expect(plant.key, plantLinks);
+    expect(plant.args['params'], {
+      'api_base': 'https://plant.example',
+      'allowed_prefixes': ['wy/plant/downstream/s7'],
+      'require_approval': 'never',
+    });
+    // central's staged update is still its own
+    expect(
+      (staged().args['params']! as Map)['api_base'],
+      'https://central.example',
+    );
+    expect(s.state.changes.view, hasLength(2));
+  });
+
+  test('the review card names each param that changes, what it was and '
+      'what it will be (review item 3)', () async {
+    await logIn();
+    history(links, {
+      'model': 'm',
+      'require_approval': 'write',
+      'allowed_prefixes': ['A', 'B'],
+    }, rev: 4);
+
+    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
+    await s.dispatchAndWait(StageAgentParamAction.removePrefix('A'));
+
+    final c = staged();
+    expect(c.field, 'params · require_approval, allowed_prefixes');
+    expect(c.from, 'rev 4: require_approval write; allowed_prefixes A, B');
+    expect(c.to, 'require_approval config; allowed_prefixes B');
   });
 
   test(
@@ -141,7 +226,7 @@ void main() {
       );
 
       final failed = await s.dispatchAndWait(
-        StageAgentParamAction('require_approval', 'config'),
+        StageAgentParamAction.mode('config'),
       );
       expect(failed.originalError, isA<UserException>());
       expect(s.state.changes.table, isEmpty);
@@ -151,7 +236,7 @@ void main() {
         ..errors.remove('$links ▸ history')
         ..invokes['$links ▸ history'] = [Value.from(<Object?>[])];
       final empty = await s.dispatchAndWait(
-        StageAgentParamAction('require_approval', 'config'),
+        StageAgentParamAction.mode('config'),
       );
       expect(empty.originalError, isA<UserException>());
       expect(s.state.changes.table, isEmpty);
@@ -220,4 +305,11 @@ void main() {
     expect(s.state.nodes.point, 'wy/central/downstream/modbus/tcp/ahu2/sp');
     expect(s.state.nodes.tab, 'history');
   });
+}
+
+class _Reader with Selectors {
+  _Reader(this.state);
+
+  @override
+  final AppState state;
 }

@@ -9,6 +9,7 @@ import 'conversation.dart';
 import 'plan_card.dart';
 import 'run_card.dart';
 import 'stopped_card.dart';
+import 'suggestion_tile.dart';
 import 'task_card.dart';
 
 /// Board *AssistantDrawer*: the Assistant over Explorer (⌘J), 420 wide, about
@@ -36,6 +37,11 @@ class AssistantDrawer extends StatelessWidget {
     this.stopped,
     this.onWay,
     this.card,
+    this.secondLabel,
+    this.second,
+    this.onSecond,
+    this.newTask,
+    this.onNewTask,
     this.empty,
     super.key,
   });
@@ -68,6 +74,18 @@ class AssistantDrawer extends StatelessWidget {
   /// model may offer.
   final TaskCardVm? card;
   final ValueChanged<String> onButton;
+
+  /// `The assistant suggests`: above [second].
+  final String? secondLabel;
+
+  /// The second button the model may offer (spec §5), as the model's
+  /// tile: its words, the guessed changes, what a pick does.
+  final SuggestionTileVm? second;
+  final VoidCallback? onSecond;
+
+  /// `New task`: a question in the drawer then starts a task of its own.
+  final String? newTask;
+  final VoidCallback? onNewTask;
 
   /// The ask box, in the drawer's density.
   final AssistantComposer composer;
@@ -115,6 +133,8 @@ class AssistantDrawer extends StatelessWidget {
                       ),
                     ),
                   const Spacer(),
+                  if (newTask case final n? when onNewTask != null)
+                    TextButton(onPressed: onNewTask, child: Text(n)),
                   if (onOpenFull != null)
                     TextButton(onPressed: onOpenFull, child: Text(openFull)),
                   IconButton(
@@ -158,6 +178,25 @@ class AssistantDrawer extends StatelessWidget {
                             StoppedCard(vm: st, onPick: onWay),
                           if (card case final k?)
                             TaskCard(vm: k, onButton: onButton),
+                          if (second case final t?)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 42, top: 12),
+                              child: Column(
+                                crossAxisAlignment: .stretch,
+                                spacing: 6,
+                                children: [
+                                  if (secondLabel case final l?)
+                                    Text(
+                                      l,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: c.text3,
+                                      ),
+                                    ),
+                                  SuggestionTile(vm: t, onTap: onSecond),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),

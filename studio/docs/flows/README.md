@@ -59,13 +59,13 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `LogInPage` | `/login` | yes | 8 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
 | `StudioPage` | `/studio` | no | 13 | [studio](studio.md) |
-| `ExplorerPage` | `/studio/explorer` | no | 54 | [explorer](explorer.md) |
+| `ExplorerPage` | `/studio/explorer` | no | 56 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 4 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 10 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 6 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
-| `AssistantPage` | `/studio/assistant` | no | 22 | [assistant](assistant.md) |
+| `AssistantPage` | `/studio/assistant` | no | 24 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 42 | [flowEditor](flowEditor.md) |

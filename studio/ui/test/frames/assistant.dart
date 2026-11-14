@@ -247,9 +247,10 @@ Widget assistantFix() {
       ],
     ),
     chips: const [('wy/plant/downstream/modbus/tcp-line2', 'modbus/tcp-line2')],
-    askHint:
-        'Ask to change the plan, e.g. “skip step 4”… (a new plan replaces '
-        'this one)',
+    askHint: 'Ask to change the plan, e.g. “skip step 4”…',
+    askNote:
+        'Sending asks for a new plan: this plan is replaced and can no '
+        'longer be approved.',
   );
 }
 
@@ -372,6 +373,7 @@ Widget _assistant({
   String askHint =
       'Ask for a change, or a question about the network (Cmd+Enter)',
   String? detail,
+  String? askNote,
   RightsPanelVm? rights,
   ChoicesCardVm? choices,
   String state = 'awaiting approval',
@@ -460,6 +462,7 @@ Widget _assistant({
   onButton: (_) {},
   draft: '',
   askHint: askHint,
+  askNote: askNote,
   askLabel: 'Ask',
   chips: chips,
   onChipRemove: (_) {},
@@ -665,13 +668,23 @@ Widget assistantDrawer() => Builder(
                 label: 'Approve 1 change and run',
                 primary: true,
               ),
-              TaskButtonVm(id: 'second', label: 'Ask ivan first'),
             ],
           ),
           onButton: (_) {},
+          secondLabel: 'The assistant suggests',
+          second: const SuggestionTileVm(
+            id: 's1',
+            label: 'Ask ivan first',
+            detail: 'Ivan, did you move valve to offset 12 at 03:05?',
+            tag: 'nothing · its guess',
+            note: 'a draft to copy · sends nothing',
+          ),
+          onSecond: () {},
+          newTask: 'New task',
+          onNewTask: () {},
           composer: AssistantComposer(
             draft: '',
-            hint: 'Ask to change the plan, e.g. “skip step 4”…',
+            hint: 'Ask about what you see… (Cmd+Enter)',
             label: 'Ask',
             onDraft: (_) {},
             onAsk: () {},

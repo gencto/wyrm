@@ -121,7 +121,7 @@ sequenceDiagram
     UI->>VM: onReveal()
     alt id != null
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(assistant.revealed)
+        A1->>ST: copyWith(assistant.revealed, assistant.refusals)
     end
 ```
 
@@ -133,15 +133,15 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as StageAgentParamAction
+    participant A1 as StageAgentParamAction.mode
     participant ST as AppState
 
     User->>UI: onMode
     UI->>VM: onMode()
     VM->>+A1: dispatchAndWait
     Note over A1: async
+    A1->>ST: copyWith(changes.table, changes.view)
     A1->>ST: dispatchAndWait(RetrieveLinkHistoryAction)
-    A1->>ST: dispatchAndWait(UpdateLinkParamsAction)
     A1-->>-VM: ActionStatus
 ```
 
@@ -153,15 +153,15 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as StageAgentParamAction
+    participant A1 as StageAgentParamAction.removePrefix
     participant ST as AppState
 
     User->>UI: onRemovePrefix
     UI->>VM: onRemovePrefix()
     VM->>+A1: dispatchAndWait
     Note over A1: async
+    A1->>ST: copyWith(changes.table, changes.view)
     A1->>ST: dispatchAndWait(RetrieveLinkHistoryAction)
-    A1->>ST: dispatchAndWait(UpdateLinkParamsAction)
     A1-->>-VM: ActionStatus
 ```
 
@@ -173,16 +173,16 @@ sequenceDiagram
     actor User
     participant UI as AssistantPage
     participant VM as AssistantPageConnector
-    participant A1 as StageAgentParamAction
+    participant A1 as StageAgentParamAction.addPrefix
     participant ST as AppState
 
     User->>UI: onAddPrefix
     UI->>VM: onAddPrefix()
-    alt p != null && p.trim().isNotEmpty && !assistant.prefixes.contains(p.trim())
+    alt p != null && p.trim().isNotEmpty
         VM->>+A1: dispatchAndWait
         Note over A1: async
+        A1->>ST: copyWith(changes.table, changes.view)
         A1->>ST: dispatchAndWait(RetrieveLinkHistoryAction)
-        A1->>ST: dispatchAndWait(UpdateLinkParamsAction)
         A1-->>-VM: ActionStatus
     end
 ```
@@ -376,6 +376,39 @@ sequenceDiagram
     A1->>ST: copyWith(assistant.draft)
 ```
 
+## onAskFresh
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction()
+
+    User->>UI: onAskFresh
+    UI->>VM: onAskFresh()
+    VM->>+A1: dispatchAndWait
+    A1-->>-VM: ActionStatus
+```
+
+## onNewTask
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as AssistantPage
+    participant VM as AssistantPageConnector
+    participant A1 as SetSelectedTaskAction
+    participant ST as AppState
+
+    User->>UI: onNewTask
+    UI->>VM: onNewTask()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(tasks.selectedTask)
+```
+
 ## onAsk
 
 ```mermaid
@@ -544,10 +577,10 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onAnswer` | `AnswerTaskAction` ? | `assistant.picks, assistant.draft` |
 | `onPickSuggestion` | `PickSuggestionAction` ? | `assistant.rowPicks` |
 | `onRow` | `SetRowPickAction` ? | `assistant.rowPicks` |
-| `onReveal` | `SetStepRevealAction` ? | `assistant.revealed` |
-| `onMode` | `StageAgentParamAction` | — |
-| `onRemovePrefix` | `StageAgentParamAction` | — |
-| `onAddPrefix` | `StageAgentParamAction` ? | — |
+| `onReveal` | `SetStepRevealAction` ? | `assistant.revealed, assistant.refusals` |
+| `onMode` | `StageAgentParamAction.mode` | `changes.table, changes.view` |
+| `onRemovePrefix` | `StageAgentParamAction.removePrefix` | `changes.table, changes.view` |
+| `onAddPrefix` | `StageAgentParamAction.addPrefix` ? | `changes.table, changes.view` |
 | `onOpenFull` | `SetDrawerAction`, `GoAction.navigate` | `assistant.drawer` |
 | `onCloseDrawer` | `SetDrawerAction` | `assistant.drawer` |
 | `onChipRemove` | `SetChipAction` | `assistant.chips` |
@@ -557,6 +590,8 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onNew` | `SetSelectedTaskAction`, `SetPanelAction` | `tasks.selectedTask`, `assistant.panel` |
 | `onTask` | `SetSelectedTaskAction`, `RetrieveTaskRecordAction` | `tasks.selectedTask`, `assistant.docs` |
 | `onDraft` | `SetDraftAction` | `assistant.draft` |
+| `onAskFresh` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction()` | — |
+| `onNewTask` | `SetSelectedTaskAction` | `tasks.selectedTask` |
 | `onAsk` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction(parent: task != null && task.replacedBy == null && mayFollow(task) ? id : null)` | — |
 | `onPanel` | `SetPanelAction`, `RetrieveAgentSecretsAction` ? | `assistant.panel`, `assistant.secrets` |
 | `onAddAgent` | `GoAction.push` | — |

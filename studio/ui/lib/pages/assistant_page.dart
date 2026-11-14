@@ -69,6 +69,7 @@ class AssistantPage extends StatelessWidget {
     this.onAnswer,
     this.card,
     this.askReason,
+    this.askNote,
     this.chips = const [],
     this.onChipRemove,
     this.addChipLabel,
@@ -139,6 +140,9 @@ class AssistantPage extends StatelessWidget {
 
   /// Why asking is not possible (no write on the agent, no agent).
   final String? askReason;
+
+  /// What sending does to the plan that waits: shown above the box.
+  final String? askNote;
 
   /// The `@` chips that go with the ask as its context.
   final List<ChipVm> chips;
@@ -295,6 +299,7 @@ class AssistantPage extends StatelessWidget {
             addChipLabel: addChipLabel,
             addChipReason: addChipReason,
             onAddChip: onAddChip,
+            note: askNote,
           ),
         ],
       );

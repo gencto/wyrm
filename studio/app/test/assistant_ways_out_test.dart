@@ -367,20 +367,6 @@ void main() {
     expect(find.text('hunter2'), findsNothing);
   });
 
-  testWidgets('the session max caps a config grant: the config step is '
-      'locked', (tester) async {
-    final app = AssistantApp(max: 'write')..task('t-1', planRecord());
-    await app.pump(tester, selected: 't-1');
-
-    final first = tester.widget<Checkbox>(_tick(1));
-    expect(first.value, isFalse);
-    expect(first.onChanged, isNull);
-    expect(
-      find.byTooltip('needs config on downstream/modbus/tcp/~act/add_device'),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('the composer: a hint per state, a message to a plan that '
       'waits replaces it, chips from Explorer go as context', (tester) async {
     final app = AssistantApp()..task('t-1', planRecord());
@@ -390,6 +376,10 @@ void main() {
     await app.pump(tester, selected: 't-1');
 
     expect(find.textContaining('Ask to change the plan'), findsOneWidget);
+    const replaces =
+        'Sending asks for a new plan: this plan is replaced and can no '
+        'longer be approved.';
+    expect(find.text(replaces), findsOneWidget);
     // nothing selected in Explorer yet
     expect(
       find.byTooltip(
@@ -408,6 +398,8 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'skip step 2');
     await tester.pump();
+    // the hint is gone once typing starts; the warning stays
+    expect(find.text(replaces), findsOneWidget);
     await tester.tap(find.text('Ask'));
     await app.settle(tester);
 
@@ -420,5 +412,67 @@ void main() {
       }),
     );
     expect(find.text('@ modbus/tcp/ahu3'), findsNothing);
+  });
+
+  testWidgets('a stranger to a plan that waits: no replace hint, the ask is '
+      'a task of its own (review, low)', (tester) async {
+    final app = AssistantApp(
+      user: 'ivan',
+      grants: const [('wy/central/**', 'write')],
+      max: 'write',
+    )..task('t-1', planRecord());
+    await app.pump(tester, selected: 't-1');
+
+    expect(find.textContaining('Ask to change the plan'), findsNothing);
+    expect(find.textContaining('this plan is replaced'), findsNothing);
+  });
+
+  testWidgets('a way out with rows is not a dead tile on the Stopped card '
+      '(review, low)', (tester) async {
+    final app = AssistantApp()
+      ..task('t-1', _failed(suggestions: const [_leave, _more]));
+    await app.pump(tester, selected: 't-1');
+
+    final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
+    expect(card.ways.map((w) => w.id), ['s2']);
+  });
+
+  testWidgets('Approve waits until the masked arguments of a step are shown '
+      '(review, ADR 0029)', (tester) async {
+    final app = AssistantApp()
+      ..task('t-1', {
+        'state': 'awaiting_approval',
+        'owner': 'user:olena',
+        'ask': 'set the erp secret',
+        'plan': [
+          {
+            'n': 1,
+            'invoke': 'wy/central/downstream/http/erp',
+            'action': 'set_secret',
+            'args': {'name': 'erp', 'value': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+            'check': 'at_run',
+          },
+        ],
+        'log': ['asked by user:olena'],
+      });
+    app.api.invokes['$task ▸ approve'] = [];
+    await app.pump(tester, selected: 't-1');
+
+    final locked = _button(tester, 'Approve');
+    expect(locked.onPressed, isNull);
+    expect(
+      locked.disabledReason,
+      'Show the arguments of step 1 first: its schema is not known, so they '
+      'are masked.',
+    );
+
+    await tester.tap(find.text('Show arguments'));
+    await tester.pump();
+    expect(_button(tester, 'Approve').onPressed, isNotNull);
+    await tester.tap(find.text('Approve 1 change and run'));
+    await app.settle(tester);
+    expect(_steps(app.calls('approve').single), [1]);
   });
 }

@@ -14581,10 +14581,10 @@ class S {
     );
   }
 
-  /// `Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)`
+  /// `Ask to change the plan, e.g. “skip step 4”…`
   String get hintAwaiting {
     return Intl.message(
-      'Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)',
+      'Ask to change the plan, e.g. “skip step 4”…',
       name: 'hintAwaiting',
       desc: '',
       args: [],
@@ -15077,6 +15077,56 @@ class S {
     return Intl.message(
       'Ask about what you see… (Cmd+Enter)',
       name: 'drawerHint',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Sending asks for a new plan: this plan is replaced and can no longer be approved.`
+  String get composerReplaces {
+    return Intl.message(
+      'Sending asks for a new plan: this plan is replaced and can no longer be approved.',
+      name: 'composerReplaces',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Show the arguments of step {n} first: its schema is not known, so they are masked.`
+  String approveReveal(Object n) {
+    return Intl.message(
+      'Show the arguments of step $n first: its schema is not known, so they are masked.',
+      name: 'approveReveal',
+      desc: '',
+      args: [n],
+    );
+  }
+
+  /// `a draft to copy · sends nothing`
+  String get draftTileNote {
+    return Intl.message(
+      'a draft to copy · sends nothing',
+      name: 'draftTileNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The assistant suggests`
+  String get drawerSuggests {
+    return Intl.message(
+      'The assistant suggests',
+      name: 'drawerSuggests',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `a new ask that follows this task`
+  String get followUpTileNote {
+    return Intl.message(
+      'a new ask that follows this task',
+      name: 'followUpTileNote',
       desc: '',
       args: [],
     );

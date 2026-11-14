@@ -1822,7 +1822,7 @@
     "runStoppedOne": "stopped · step {n} changed something and stays done",
     "planSavedSecrets": "Secret arguments are not in the file: {steps}. Add them before you run it.",
     "hintPlanning": "Answer, or ask something else…",
-    "hintAwaiting": "Ask to change the plan, e.g. “skip step 4”… (a new plan replaces this one)",
+    "hintAwaiting": "Ask to change the plan, e.g. “skip step 4”…",
     "hintRunning": "You can write while it runs…",
     "hintDone": "What next?",
     "hintFailed": "Tell it what you know about {node}…",
@@ -1879,5 +1879,10 @@
     "draftNote": "The plan still waits for your approval: nothing is sent to anyone. Copy the text and send it yourself.",
     "copyText": "Copy",
     "draftCopied": "Copied.",
-    "drawerHint": "Ask about what you see… (Cmd+Enter)"
+    "drawerHint": "Ask about what you see… (Cmd+Enter)",
+    "composerReplaces": "Sending asks for a new plan: this plan is replaced and can no longer be approved.",
+    "approveReveal": "Show the arguments of step {n} first: its schema is not known, so they are masked.",
+    "draftTileNote": "a draft to copy · sends nothing",
+    "drawerSuggests": "The assistant suggests",
+    "followUpTileNote": "a new ask that follows this task"
 }

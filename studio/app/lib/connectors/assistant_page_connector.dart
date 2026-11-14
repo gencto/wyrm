@@ -130,6 +130,7 @@ class AssistantPageConnector extends StatelessWidget {
         onAddChip: vm.onAddChip,
         onDraft: vm.onDraft,
         onAsk: vm.onAsk,
+        askNote: vm.replaces,
         panels: [
           TabItemVm(id: 'task', label: S.current.panelThisTask),
           TabItemVm(id: 'rights', label: S.current.panelMayDo),
@@ -183,16 +184,21 @@ Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
   run: vm.run,
   stopped: vm.stopped,
   onWay: vm.onPickSuggestion,
-  card: vm.drawerCard,
+  card: vm.card,
+  secondLabel: S.current.drawerSuggests,
+  second: vm.second,
+  onSecond: () => vm.onButton(context, 'second'),
+  newTask: S.current.newTask,
+  onNewTask: vm.taskKey == null ? null : vm.onNewTask,
   onButton: (b) => vm.onButton(context, b),
   empty: vm.empty,
   composer: AssistantComposer(
     draft: vm.draft,
-    hint: vm.taskKey == null ? S.current.drawerHint : vm.askHint,
+    hint: vm.answering ? vm.askHint : S.current.drawerHint,
     label: vm.answering ? S.current.answerButton : S.current.askButton,
     reason: vm.askReason,
     onDraft: vm.onDraft,
-    onAsk: vm.onAsk,
+    onAsk: vm.onAskFresh,
     chips: vm.chips,
     onChipRemove: vm.onChipRemove,
     addChipLabel: vm.answering ? null : S.current.addFromExplorer,
@@ -313,21 +319,12 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         if (agent != null && rights) '$agent/budget_used_today',
       ],
       card: task == null ? null : _card(task, cancelReason, choices),
-      drawerCard: task == null
-          ? null
-          : _withSecond(task, _card(task, cancelReason, choices)),
+      second: task == null ? null : _secondTile(task),
       rights: rights ? _rights() : null,
-      onMode: (m) => unawaited(
-        dispatchAndWait(StageAgentParamAction('require_approval', m)),
-      ),
-      onRemovePrefix: (p) => unawaited(
-        dispatchAndWait(
-          StageAgentParamAction('allowed_prefixes', [
-            for (final q in assistant.prefixes)
-              if (q != p) q,
-          ]),
-        ),
-      ),
+      // the edits are made on the params as staged, in the action
+      onMode: (m) => unawaited(dispatchAndWait(StageAgentParamAction.mode(m))),
+      onRemovePrefix: (p) =>
+          unawaited(dispatchAndWait(StageAgentParamAction.removePrefix(p))),
       onAddPrefix: (context) async {
         final p = await ReasonDialog.ask(
           context,
@@ -339,15 +336,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
           confirm: S.current.addPrefixButton,
           cancel: S.current.cancel,
         );
-        if (p != null &&
-            p.trim().isNotEmpty &&
-            !assistant.prefixes.contains(p.trim())) {
-          await dispatchAndWait(
-            StageAgentParamAction('allowed_prefixes', [
-              ...assistant.prefixes,
-              p.trim(),
-            ]),
-          );
+        if (p != null && p.trim().isNotEmpty) {
+          await dispatchAndWait(StageAgentParamAction.addPrefix(p.trim()));
         }
       },
       onOpenFull: id == null
@@ -442,6 +432,23 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       // while the assistant waits for an answer, the box answers it in
       // the person's own words; else it follows the selected task (a plan
       // that waits is replaced by the new one, spec assistant.md §4)
+      // in the drawer a question about the selection is a task of its own:
+      // it never follows (nor replaces) the task on screen
+      onAskFresh: () => unawaited(
+        dispatchAndWait(
+          id != null && task?.state == .awaitingAnswer
+              ? AnswerTaskAction(id, text: assistant.draft)
+              : AskAgentAction(),
+        ),
+      ),
+      onNewTask: () => dispatchSync(SetSelectedTaskAction(null)),
+      replaces:
+          task != null &&
+              task.state == .awaitingApproval &&
+              task.replacedBy == null &&
+              mayFollow(task)
+          ? S.current.composerReplaces
+          : null,
       onAsk: () => unawaited(
         dispatchAndWait(
           id != null && task?.state == .awaitingAnswer
@@ -996,6 +1003,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     final runs = choices?.where((c) => c.runs).length ?? 0;
     final byAgent = choices?.where((c) => c.byAgent && !c.skipped).length ?? 0;
     final refusal = assistant.refusals[t.id];
+    // masked arguments (schema not known) are looked at before Approve
+    final unseen = unseenArgs(t, choices ?? const []);
     final left = _leftOut(t);
     final cancel = TaskButtonVm(
       id: 'cancel',
@@ -1055,6 +1064,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
               ),
               _ when _approving => '…',
               _ when ticked == 0 => S.current.approveNone,
+              _ when unseen != null => S.current.approveReveal(unseen),
               _ =>
                 agent == null
                     ? null
@@ -1214,7 +1224,12 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         _ => null,
       },
       waysLabel: S.current.waysOut,
-      ways: [for (final s in t.suggestions) _tile(t, s)],
+      // a suggestion with rows needs its ticks: the Result card has them,
+      // a tile here would do nothing
+      ways: [
+        for (final s in t.suggestions)
+          if (s.rows.isEmpty) _tile(t, s),
+      ],
       // docs/agent.md: with these modes a pick may write without a person
       caution: switch (_unattended) {
         final mode? => S.current.waysCaution(mode),
@@ -1237,37 +1252,32 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
   TaskSuggestion? _second(AgentTask t) =>
       t.suggestions.where((s) => s.step == null && s.rows.isEmpty).firstOrNull;
 
-  /// [card] with the second button: while the plan waits it opens the
-  /// suggestion's text as a draft to copy (no ask: that would replace a
-  /// plan the person may still approve); after a done task it is a
-  /// follow-up ask. A failed task's Stopped card has all of them.
-  TaskCardVm? _withSecond(AgentTask t, TaskCardVm? card) {
+  /// The second button of the drawer as the model's tile: its words, the
+  /// changes it guesses, and what a pick does. While the plan waits it is
+  /// a draft to copy (an ask would replace a plan the person may still
+  /// approve); after a done task it is a follow-up ask, with the caution
+  /// of the agent's mode. A failed task's Stopped card has all of them.
+  SuggestionTileVm? _secondTile(AgentTask t) {
     final s = _second(t);
-    if (card == null ||
-        s == null ||
+    if (s == null ||
         t.replacedBy != null ||
         (t.state != .awaitingApproval && t.state != .done)) {
-      return card;
+      return null;
     }
-    // a pick after the task is a follow-up ask: with these modes its plan
-    // may write without a person (docs/agent.md, AI-4)
-    final mode = t.state == .done ? _unattended : null;
-    return TaskCardVm(
-      title: card.title,
-      note: mode == null
-          ? card.note
-          : '${card.note}\n${S.current.waysCaution(mode)}',
-      caution: card.caution || mode != null,
-      buttons: [
-        ...card.buttons,
-        TaskButtonVm(
-          id: 'second',
-          label: s.label,
-          disabledReason: t.state == .awaitingApproval
-              ? null
-              : _followReason(t),
-        ),
-      ],
+    final waits = t.state == .awaitingApproval;
+    return SuggestionTileVm(
+      id: s.id,
+      label: s.label,
+      detail: s.detail,
+      tag: S.current.changesGuess(s.changes),
+      tagTone: s.changes == 0 ? .neutral : .ember,
+      note: waits
+          ? S.current.draftTileNote
+          : switch (_unattended) {
+              final mode? => S.current.waysCaution(mode),
+              null => S.current.followUpTileNote,
+            },
+      disabledReason: waits ? null : _followReason(t),
     );
   }
 
@@ -1279,7 +1289,9 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     final id = agent?.split('/').last ?? 'agent';
     final links = '${site.root}/sys/links/$id';
     final cfg = assistant.cfg;
-    final mode = cfg['require_approval'] ?? 'write';
+    // as they will be once the staged update is applied
+    final params = agentParams;
+    final mode = params.mode;
     final used = switch (live.values['$agent/budget_used_today']?.value) {
       final num n => _tokens(n),
       _ => '—',
@@ -1301,7 +1313,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       ],
       prefixesLabel: S.current.prefixesLabel,
       prefixes: [
-        for (final p in assistant.prefixes)
+        for (final p in params.prefixes)
           (p, p.split('/').length > 2 ? p.split('/').skip(2).join('/') : p),
       ],
       prefixesNote: S.current.prefixesNote,
@@ -1336,9 +1348,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       editReason: agent == null
           ? S.current.noAgent
           : site.needs('config', '$links/~act/update'),
-      staged: changes.table.containsKey('params:$id')
-          ? S.current.paramsStaged
-          : null,
+      staged: params.staged ? S.current.paramsStaged : null,
     );
   }
 
@@ -1354,7 +1364,9 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     null => S.current.askHint,
     .awaitingAnswer => S.current.answerHint,
     .planning => S.current.hintPlanning,
-    .awaitingApproval when t!.replacedBy == null => S.current.hintAwaiting,
+    .awaitingApproval when t!.replacedBy == null && mayFollow(t) =>
+      S.current.hintAwaiting,
+    .awaitingApproval => S.current.askHint,
     .running => S.current.hintRunning,
     .done => S.current.hintDone,
     .failed when t!.replacedBy == null => S.current.hintFailed(
@@ -1449,7 +1461,10 @@ class _Vm extends Vm {
     required this.onAnswer,
     required this.watch,
     required this.card,
-    required this.drawerCard,
+    required this.second,
+    required this.onAskFresh,
+    required this.onNewTask,
+    required this.replaces,
     required this.rights,
     required this.onMode,
     required this.onRemovePrefix,
@@ -1494,7 +1509,8 @@ class _Vm extends Vm {
            answering,
            watch,
            card,
-           drawerCard,
+           second,
+           replaces,
            rights,
            draft,
            askHint,
@@ -1537,8 +1553,15 @@ class _Vm extends Vm {
   final List<String> watch;
   final TaskCardVm? card;
 
-  /// [card] in the drawer, with the second button the model may offer.
-  final TaskCardVm? drawerCard;
+  /// The drawer's second button: the model's tile.
+  final SuggestionTileVm? second;
+
+  /// An ask from the drawer: a task of its own, never a follow-up.
+  final VoidCallback onAskFresh;
+  final VoidCallback onNewTask;
+
+  /// What sending does to the plan that waits (it replaces it).
+  final String? replaces;
   final RightsPanelVm? rights;
   final ValueChanged<String> onMode;
   final ValueChanged<String> onRemovePrefix;

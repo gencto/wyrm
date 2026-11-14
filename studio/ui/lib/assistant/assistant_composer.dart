@@ -25,6 +25,7 @@ class AssistantComposer extends StatefulWidget {
     this.addChipReason,
     this.onAddChip,
     this.dense = false,
+    this.note,
     super.key,
   });
 
@@ -42,6 +43,10 @@ class AssistantComposer extends StatefulWidget {
 
   /// The drawer's density: smaller margins.
   final bool dense;
+
+  /// What sending does beyond an ask (it replaces a plan that waits):
+  /// shown above the field whatever is typed.
+  final String? note;
 
   @override
   State<AssistantComposer> createState() => _AssistantComposerState();
@@ -182,6 +187,8 @@ class _AssistantComposerState extends State<AssistantComposer> {
                   ),
               ],
             ),
+          if (widget.note case final n?)
+            Text(n, style: TextStyle(fontSize: 12, color: c.warn)),
           box,
         ],
       ),

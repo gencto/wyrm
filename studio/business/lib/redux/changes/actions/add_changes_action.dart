@@ -23,7 +23,7 @@ class AddChangesAction extends Action {
         table = table.add(same.id, c.copyWith(id: same.id, from: same.from));
       } else {
         table = table.add(c.id, c);
-        view = view.add(c.id);
+        view = view.contains(c.id) ? view : view.add(c.id);
       }
     }
     return state.copyWith.changes(table: table, view: view, message: null);
