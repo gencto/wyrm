@@ -100,7 +100,7 @@ impl InGateway {
         let st = self.st.clone();
         let principal = p.clone();
         tokio::spawn(async move {
-            serve_frames(st, principal, stream, sink).await;
+            serve_frames(st, principal, false, stream, sink).await;
             drop(slot);
         });
         let s = Session {

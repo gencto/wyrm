@@ -1351,6 +1351,15 @@ impl Broker {
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (install, quarantine)
             g.set_downstream_sites(ctl.peers().reachable());
+            // which links are agents is the registry's word, never a link's own (ADR 0049)
+            g.set_agent_links(
+                ctl.registry()
+                    .links
+                    .values()
+                    .filter(|l| l.driver == "agent")
+                    .map(|l| l.id.clone())
+                    .collect(),
+            );
         }
         // The engine trusts admin keys and the gateway's (user requests),
         // never the flow key: flow tokens do not command flows.
@@ -1907,6 +1916,18 @@ fn gateway_audit(ctl: &Control, e: AuditEvent) {
             Status::Ok,
             &format!("write={write} config={config}"),
         ),
+        AuditEvent::Approved {
+            user,
+            task,
+            steps,
+            skipped,
+        } => ctl.record(
+            &format!("user:{user}"),
+            "approve",
+            &task,
+            Status::Ok,
+            &format!("signed={} skipped={skipped}", steps.join(",")),
+        ),
         e => ctl.record("gateway", "event", "", Status::Ok, &format!("{e:?}")),
     }
 }
@@ -2204,6 +2225,12 @@ impl Daemon {
         &mut self,
         mut shutdown: std::pin::Pin<&mut impl Future<Output = ()>>,
     ) -> Result<(), Error> {
+        // Long actions are closed by this loop alone, before a rebuild, and
+        // opened again by it once the next broker is up. A first start opens
+        // nothing: the listeners answer before `Broker::start` returns (by
+        // Zenoh's `scouting/delay`, 500 ms), so an unasked `reopen` there
+        // would undo a `quiesce` taken meanwhile.
+        let mut closed = false;
         loop {
             if let Some(ep) = &self.cfg.peers.listen {
                 if !wait_udp_free(ep, QUIC_PORT_WAIT).await {
@@ -2221,7 +2248,9 @@ impl Daemon {
                 self.gateway.as_ref(),
             )
             .await?;
-            self.ctl.reopen();
+            if std::mem::take(&mut closed) {
+                self.ctl.reopen();
+            }
             self.ctl.release_standby();
             tracing::info!(site = %self.cfg.site, locators = ?broker.locators(), "broker up");
             let reload = tokio::select! {
@@ -2244,6 +2273,7 @@ impl Daemon {
                 }
                 // A package install in flight finishes on this broker; new
                 // ones answer `busy` until the next broker is up.
+                closed = true;
                 self.ctl.quiesce(Duration::from_secs(180)).await;
                 // Fail closed: an old runtime that did not close may keep
                 // sessions under the old ACL, so the daemon ends and its

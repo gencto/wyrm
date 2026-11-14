@@ -5266,6 +5266,100 @@ async fn agent_key_is_trusted_capped_at_write() {
     env.stop().await;
 }
 
+/// ADR 0049 (review): the gateway signs the steps of a plan only for a task of a link the
+/// registry calls an agent, one of the config or one installed while the broker runs; a
+/// link that is none gets no token of the user, whatever it serves.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
+    let port = free_port();
+    let env_lock = GATEWAY_ENV.lock().await;
+    // made for this run: the first admin's password is no constant of the code
+    let password = format!(
+        "{:x}-{:x}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let password = password.as_str();
+    std::env::set_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV, password);
+    let env = Env::start(
+        "agentlinks",
+        &format!(
+            r#"links: {{
+                mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 0, depth: 0, fanout: 1 }} }},
+                ai: {{ driver: "agent", params: {{ allowed_prefixes: ["wy/e2e/downstream/mock"] }} }},
+            }},
+            gateway: {{ listen: "127.0.0.1:{port}", admin_user: "root" }},"#
+        ),
+    )
+    .await;
+    drop(env_lock);
+    let addr = env.gateway.clone().expect("gateway").local_addr().await;
+    assert_eq!(addr.port(), port);
+    let gw =
+        wyrm_gateway_client::Gateway::login(&format!("http://127.0.0.1:{port}"), "root", password)
+            .await
+            .expect("login");
+    let approve = |link: &'static str| {
+        let gw = &gw;
+        async move {
+            let args = Value::Map(BTreeMap::from([
+                ("steps".to_owned(), Value::Array(vec![Value::UInt(1)])),
+                ("plan".to_owned(), Value::from("h")),
+            ]));
+            let key = format!("wy/{SITE}/downstream/{link}/tasks/1");
+            let conn = gw.connect().await.expect("socket");
+            let e = conn.invoke(&key, "approve", args).await.unwrap_err();
+            (e.is(wyrm_core::Status::PermissionDenied), e.to_string())
+        }
+    };
+    // not an agent link: refused by the gateway, nothing read from the link
+    let (denied, e) = approve("mock").await;
+    assert!(denied && e.contains("agent link"), "{e}");
+    // the agent of the config: the gateway goes on to read the task (there is none)
+    let (denied, e) = approve("ai").await;
+    assert!(!denied && !e.contains("agent link"), "{e}");
+    // an agent installed while the broker runs
+    let (denied, e) = approve("ai2").await;
+    assert!(denied && e.contains("agent link"), "{e}");
+    let c = env.client().await;
+    let args = BTreeMap::from([
+        ("id".to_owned(), Value::from("ai2")),
+        ("driver".to_owned(), Value::from("agent")),
+        (
+            "params".to_owned(),
+            Value::Map(BTreeMap::from([(
+                "allowed_prefixes".to_owned(),
+                Value::Array(vec![Value::from("wy/e2e/downstream/mock")]),
+            )])),
+        ),
+    ]);
+    c.invoke_one(&format!("wy/{SITE}/sys/links"), "install", Value::Map(args))
+        .await
+        .expect("install the agent");
+    eventually("the gateway knows the new agent link", 20, || async {
+        let gw = wyrm_gateway_client::Gateway::login(
+            &format!("http://127.0.0.1:{port}"),
+            "root",
+            password,
+        )
+        .await
+        .ok()?;
+        let conn = gw.connect().await.ok()?;
+        let args = Value::Map(BTreeMap::from([
+            ("steps".to_owned(), Value::Array(vec![Value::UInt(1)])),
+            ("plan".to_owned(), Value::from("h")),
+        ]));
+        let key = format!("wy/{SITE}/downstream/ai2/tasks/1");
+        let e = conn.invoke(&key, "approve", args).await.err()?;
+        (!e.to_string().contains("agent link")).then_some(())
+    })
+    .await;
+    env.stop().await;
+}
+
 /// Security review AI-3: the agent's LLM API key is dropped when `api_base` changes, so a
 /// `config` operator cannot send the key to a host of their own.
 #[tokio::test(flavor = "multi_thread")]
@@ -5298,6 +5392,14 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         .await
         .expect("set the key");
     let names = |v: Option<Value>| format!("{v:?}");
+    // ADR 0049 §10: the names of the link's secrets are readable, never a value
+    let listed = names(
+        c.invoke_one(&node, "secrets", Value::Map(BTreeMap::new()))
+            .await
+            .unwrap(),
+    );
+    assert!(listed.contains("anthropic_api_key"), "{listed}");
+    assert!(!listed.contains("sk-test"), "{listed}");
     // the same base: the key stays
     let mut up = BTreeMap::new();
     up.insert("params".to_owned(), params("https://api.anthropic.com/"));
@@ -11180,23 +11282,24 @@ async fn backup_while_writing() {
     assert!(job.sections.contains(&"control".to_owned()), "always made");
     assert!(job.expires > job.created + 6 * 86_400);
 
-    // the tree shows it
+    // The tree shows it. A job's values are published one after another
+    // (`status` first, `size` last), so `done` alone does not say that the
+    // others are there yet: wait for all three.
     let node = format!("{backups}/{id}");
-    let status = eventually("status in the tree", 10, || async {
-        last_val(&c, &format!("{node}/status"))
-            .await
-            .filter(|v| *v == Value::from("done"))
+    eventually("the finished job in the tree", 10, || async {
+        let shown = [
+            ("status", Value::from("done")),
+            ("sha256", Value::from(job.sha256.clone())),
+            ("size", Value::UInt(job.size)),
+        ];
+        for (name, want) in shown {
+            if last_val(&c, &format!("{node}/{name}")).await != Some(want) {
+                return None;
+            }
+        }
+        Some(())
     })
     .await;
-    assert_eq!(status, Value::from("done"));
-    assert_eq!(
-        last_val(&c, &format!("{node}/sha256")).await,
-        Some(Value::from(job.sha256.clone()))
-    );
-    assert_eq!(
-        last_val(&c, &format!("{node}/size")).await,
-        Some(Value::UInt(job.size))
-    );
 
     // read back in small parts: the same bytes as the file, its SHA-256
     let bytes = download_backup(&c, &id, 4096).await;

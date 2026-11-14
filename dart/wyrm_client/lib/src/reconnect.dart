@@ -219,6 +219,9 @@ class ReconnectingClient implements WyrmApi {
       _read((c) => c.history(key, from: from, to: to, agg: agg, window: window, limit: limit));
 
   @override
+  Future<Value> doc(String key, String suffix) => _read((c) => c.doc(key, suffix));
+
+  @override
   Future<void> close() async {
     if (_shut) return;
     _shut = true;

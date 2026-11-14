@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod approve;
 mod http;
 mod limit;
 #[cfg(feature = "mcp")]
@@ -150,6 +151,43 @@ impl UserTokens {
     }
 }
 
+impl UserTokens {
+    /// A human approval of one step of an agent's plan (ADR 0049): a token for exactly the
+    /// request `key`, capped at the `level` the step needs, good only for the request body
+    /// that hashes to `body` (claim `args`, spec 04) and for [`approve::APPROVAL_TTL`].
+    /// `None`: the site is out of reach or no grant of the user covers the key. The caller
+    /// has checked that the user's level on `key` reaches `level`; a grant below it makes a
+    /// token the responder refuses, never one that gives more.
+    pub fn approval(&self, key: &str, level: Perm, body: [u8; 32]) -> Option<Vec<u8>> {
+        use wyrm_client::TokenSource as _;
+        let site = key.strip_prefix("wy/")?.split('/').next()?;
+        if site != self.site && !self.downstream.iter().any(|d| d == site) {
+            return None;
+        }
+        self.for_site(site)
+            .max(level.min(self.max))
+            .ttl(approve::APPROVAL_TTL)
+            .bound_to(body)
+            .token(key)
+    }
+}
+
+/// A request the gateway refuses itself: a spec-04 status (≥ `0x20`) and a message.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Refusal {
+    pub status: wyrm_core::Status,
+    pub message: String,
+}
+
+impl Refusal {
+    pub(crate) fn new(status: wyrm_core::Status, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+        }
+    }
+}
+
 impl wyrm_client::TokenSource for UserTokens {
     fn token(&self, key: &str) -> Option<Vec<u8>> {
         let site = key.strip_prefix("wy/")?.split('/').next()?;
@@ -193,6 +231,14 @@ pub enum AuditEvent {
         write: bool,
         config: bool,
     },
+    /// The gateway signed approvals of an agent's plan for the user (ADR 0049): the task
+    /// and the request keys of the steps, `skipped` those left out.
+    Approved {
+        user: String,
+        task: String,
+        steps: Vec<String>,
+        skipped: usize,
+    },
 }
 
 type AuditHook = Arc<dyn Fn(AuditEvent) + Send + Sync>;
@@ -230,6 +276,10 @@ pub struct Gateway {
     /// Other sites' points this site records (ADR 0020), followed while
     /// the gateway serves.
     sites: Arc<watch::Sender<Arc<overlay::Sites>>>,
+    /// The ids of this site's agent links (driver `agent`), told by the broker
+    /// ([`Gateway::set_agent_links`]): the only links whose tasks the gateway signs
+    /// approvals for.
+    agent_links: RwLock<Vec<String>>,
     /// Open WebSockets and the request bucket of each user (review GW-2).
     per_user: Mutex<std::collections::HashMap<String, UserUse>>,
 }
@@ -340,6 +390,7 @@ impl Gateway {
             tickets: Mutex::new(Default::default()),
             downstream_sites: RwLock::new(cfg.downstream_sites.clone()),
             sites: Arc::new(watch::channel(Arc::default()).0),
+            agent_links: RwLock::new(Vec::new()),
             per_user: Mutex::new(Default::default()),
             cfg,
         }))
@@ -465,6 +516,27 @@ impl Gateway {
             .downstream_sites
             .write()
             .unwrap_or_else(|p| p.into_inner()) = sites;
+    }
+
+    /// The agent links of this site (their link ids), from the broker's registry. The
+    /// gateway signs approvals only for tasks of these links (ADR 0049): a link cannot make
+    /// itself one, whatever it serves under its own subtree.
+    pub fn set_agent_links(&self, links: Vec<String>) {
+        *self.agent_links.write().unwrap_or_else(|p| p.into_inner()) = links;
+    }
+
+    /// The task id when `key` is `wy/<this site>/downstream/<agent link>/tasks/<id>`.
+    pub(crate) fn agent_task(&self, key: &str) -> Option<String> {
+        let rest = key.strip_prefix(&format!("wy/{}/downstream/", self.cfg.site))?;
+        let mut parts = rest.split('/');
+        let (link, tasks, id) = (parts.next()?, parts.next()?, parts.next()?);
+        let known = self
+            .agent_links
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .any(|l| l == link);
+        (known && tasks == "tasks" && parts.next().is_none()).then(|| id.to_owned())
     }
 
     /// `key` with a downstream site's prefix replaced by the own site's (roles

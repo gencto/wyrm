@@ -151,6 +151,95 @@ void main() {
   });
 
   // Last: the restart closes `c` too.
+  // ADR 0049: the agent link behind the gateway, with a scripted model.
+  group('agent tasks', () {
+    const agent = 'wy/test/downstream/agent';
+
+    Future<Value> record(String task, bool Function(String state) until) async {
+      for (var i = 0; i < 400; i++) {
+        final r = await c.doc(task, '~state');
+        final st = switch (r['state']) { VStr(:final v) => v, _ => '' };
+        if (until(st)) return r;
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+      fail('the task never got there');
+    }
+
+    String text(Value? v) => switch (v) { VStr(:final v) => v, _ => fail('text expected: $v') };
+
+    test('doc: the record of a task, a closed set of suffixes', () async {
+      final rows = await c.askAgent(agent, 'set two points').toList();
+      expect(text(rows.last['state']), 'awaiting_approval');
+      final task = '$agent/tasks/${text(rows.last['task'])}';
+      final rec = await c.doc(task, '~state');
+      expect(text(rec['ask']), 'set two points');
+      final plan = rec['plan'] as VArray;
+      expect(plan.v, hasLength(4));
+      expect(text(plan.v[0]['set']), '$root/g0/p0');
+      expect(plan.v[0]['value'], const VFloat(42.5));
+      expect(text(plan.v[2]['expect']), '$root/g0/p0');
+      // the hash made here is the link's (and the gateway's)
+      expect(planHash(plan), text(rec['plan_hash']));
+      await expectLater(
+          c.doc(task, 'state'),
+          throwsA(isA<WyrmException>()
+              .having((e) => e.status.known, 'status', Status.invalidParameter)
+              .having(isUnknownOp, 'unknown op', isFalse)));
+      await expectLater(c.doc('$root/g0/p0', '~state'),
+          throwsA(isA<WyrmException>().having((e) => e.status.known, 'status', Status.notSupported)));
+      await c.invoke(task, 'reject').toList();
+    });
+
+    test('approve: the ticked step runs, the others are skipped', () async {
+      await c.invoke(root, 'reset').toList();
+      final rows = await c.askAgent(agent, 'set two points').toList();
+      final task = '$agent/tasks/${text(rows.last['task'])}';
+      final rec = await c.doc(task, '~state');
+      final hash = planHash(rec['plan'])!;
+      // another plan than the one that is stored
+      await expectLater(
+          c.approveTask(task, steps: [1], plan: '00'),
+          throwsA(isA<WyrmException>().having((e) => e.message, 'message', contains('read it again'))));
+      // a step that sends nothing
+      await expectLater(c.approveTask(task, steps: [3], plan: hash), throwsA(isA<WyrmException>()));
+      final r = await c.approveTask(task, steps: [1], plan: hash);
+      expect(text(r?['state']), 'running');
+      final done = await record(task, (s) => s != 'running');
+      expect(text(done['state']), 'done');
+      final plan = (done['plan'] as VArray).v;
+      String status(int i) => text(plan[i]['result']?['status']);
+      expect([for (var i = 0; i < 4; i++) status(i)], ['ok', 'skipped', 'ok', 'skipped']);
+      expect(text(plan[3]['result']?['message']), 'skipped: needs step 2');
+      // the public value: where the run is, in fixed words
+      final val = await c
+          .subscribe(task)
+          .where((e) => e is ValSample)
+          .cast<ValSample>()
+          .first
+          .timeout(const Duration(seconds: 10));
+      expect(val.sample.v['of'], const VInt(4));
+      expect(val.sample.v['last']?['result'], const VStr('skipped'));
+      await c.invoke(root, 'reset').toList();
+    });
+
+    test('the model asks back; the answer resumes it', () async {
+      final rows = await c.askAgent(agent, 'ask me first, then set two points').toList();
+      expect(text(rows.last['state']), 'awaiting_answer');
+      final task = '$agent/tasks/${text(rows.last['task'])}';
+      final rec = await c.doc(task, '~state');
+      final q = (rec['questions'] as VArray).v.single;
+      expect(text(q['id']), 'q1');
+      expect((q['options'] as VArray).v, hasLength(2));
+      await expectLater(c.answerTask(task, answers: {'q1': ['nope']}).toList(), throwsA(isA<WyrmException>()));
+      final after = await c.answerTask(task, answers: {'q1': ['g0']}).toList();
+      expect(text(after.last['state']), 'awaiting_approval');
+      final planned = await c.doc(task, '~state');
+      expect((planned['plan'] as VArray).v, hasLength(4));
+      expect((planned['questions'] as VArray).v.single['answer'], VArray([const VStr('g0')]));
+      await c.invoke(task, 'cancel').toList();
+    });
+  });
+
   test('a gateway restart: a new socket, the streams open again', () async {
     final rc = await gw.client();
     final states = <bool>[];

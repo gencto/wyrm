@@ -47,6 +47,8 @@ tokio-tungstenite = { workspace = true, optional = true }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-history.workspace = true
 wyrm-link-mock.workspace = true
+# approvals of an agent task end to end, with a scripted model
+wyrm-link-agent.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util"] }
 tokio-tungstenite.workspace = true
 futures-util = { workspace = true, features = ["sink", "std"] }

@@ -118,6 +118,17 @@ abstract interface class WyrmApi {
   Future<List<HistRow>> history(String key,
       {required String from, String to = '', String? agg, String? window, int? limit});
 
+  /// A document of the node [key]: [suffix] is `~state` or `~def` (spec 01).
+  /// Rights as `list` on the node; a restricted node (an agent's `tasks`)
+  /// decides by the caller's own rights. A gateway older than the op answers
+  /// `invalid_parameter` ([isUnknownOp]).
+  Future<Value> doc(String key, String suffix);
+
   /// End every stream and the connection.
   Future<void> close();
 }
+
+/// Is [e] the answer of a gateway that does not know the op (one older than
+/// `doc`)?
+bool isUnknownOp(WyrmException e) =>
+    e.status.known == Status.invalidParameter && e.message.startsWith('unknown op');
