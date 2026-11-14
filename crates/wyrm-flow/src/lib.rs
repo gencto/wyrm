@@ -10,6 +10,7 @@ pub mod blocks;
 pub mod catalog;
 pub mod catalog3;
 mod commands;
+mod cpu_clock;
 pub mod def;
 pub mod engine;
 pub mod nodes;

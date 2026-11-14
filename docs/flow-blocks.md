@@ -546,7 +546,10 @@ Per-row scripts (`table_filter`, `table_remove_rows`, `table_edit_rows`,
 variable: names come from the data, and the compiler checks a script when the
 flow is deployed. `state` is a map that lives for one table. A missing cell is
 `()`: write `row.kw != () && row.kw > 5`. All the scripts of one table have
-100 ms; past that the block gives `null` and the reason on `error`.
+100 ms; past that the block gives `null` and the reason on `error`. The 100 ms
+are CPU time of the thread that runs them: time the host keeps that thread off
+a core does not count (the wall clock only where the platform has no thread CPU
+clock: NetBSD, illumos, Windows, wasm32).
 
 | Type | Inputs | Outputs | Parameters and what it gives |
 |---|---|---|---|

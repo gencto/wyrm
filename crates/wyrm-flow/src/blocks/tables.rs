@@ -9,7 +9,7 @@ use crate::nodes::PortType::{self, *};
 use crate::script;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use wyrm_core::Value;
 
 /// The longest CSV or JSON text a table block reads or writes, bytes.
@@ -17,7 +17,8 @@ pub const MAX_TEXT_TABLE: usize = 512 * 1024;
 /// The longest field of a CSV text, bytes: a longer one refuses the text.
 pub const MAX_FIELD: usize = 64 * 1024;
 
-/// The longest time the per-row scripts of one table may take together.
+/// The longest time the per-row scripts of one table may take together (spec 06): CPU time
+/// of the thread that runs them, so a thread the host keeps off its core loses no table.
 const SCRIPT_BUDGET: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -412,11 +413,12 @@ fn per_row<T>(
     t: &Table,
     mut each: impl FnMut(usize, Value) -> T,
 ) -> Result<Vec<T>, String> {
-    let start = Instant::now();
+    // one thread runs every row: the budget is read on the thread that started it
+    let budget = crate::cpu_clock::Budget::start(SCRIPT_BUDGET);
     let mut state = rhai::Map::new();
     let mut out = Vec::with_capacity(t.rows.len());
     for (i, r) in t.rows.iter().enumerate() {
-        if start.elapsed() > SCRIPT_BUDGET {
+        if budget.spent() {
             return Err(format!(
                 "the scripts took longer than {} ms for the table",
                 SCRIPT_BUDGET.as_millis()
@@ -1588,6 +1590,53 @@ mod tests {
                 r("valve", Value::Null, "B"),
             ],
         }
+    }
+
+    /// Per-row scripts of `expr` with two more functions: `off_core(ms)` stands for a
+    /// preemption (wall time goes by, the thread uses no CPU), `burn(ms)` uses CPU time.
+    fn timed_scripts(expr: &str) -> Scripts {
+        let mut engine = script::engine();
+        engine.register_fn("off_core", |ms: i64| {
+            std::thread::sleep(Duration::from_millis(ms.unsigned_abs()))
+        });
+        engine.register_fn("burn", |ms: i64| {
+            let b = crate::cpu_clock::Budget::start(Duration::from_millis(ms.unsigned_abs()));
+            while !b.spent() {}
+        });
+        let ast = script::compile(&engine, expr, ROW_VARS).unwrap();
+        Scripts {
+            engine,
+            expr: Some(ast),
+            columns: Vec::new(),
+        }
+    }
+
+    /// The 100 ms of a table's scripts are CPU time of the thread (spec 06): a thread the host
+    /// keeps off its core for longer still gives its table. (With the wall clock five rows of
+    /// 30 ms off the core ended the table at row 4.)
+    #[test]
+    fn time_off_the_core_is_not_the_tables() {
+        if crate::cpu_clock::thread_cpu().is_none() {
+            return; // no thread CPU clock here: the wall clock decides
+        }
+        let rows = |n: usize| Table {
+            columns: vec!["i".into()],
+            rows: (0..n)
+                .map(|i| map(&[("i", Value::from(i as i64))]))
+                .collect(),
+        };
+        let sc = timed_scripts("off_core(30); true");
+        let ast = sc.expr.clone().unwrap();
+        let started = std::time::Instant::now();
+        let kept = per_row(&sc, &ast, &rows(5), |_, x| truth(&x, false)).expect("not a timeout");
+        assert!(started.elapsed() > SCRIPT_BUDGET, "{:?}", started.elapsed());
+        assert_eq!(kept, [true; 5]);
+        // scripts that do use their 100 ms still end the table (8 ms a row, under the 10 ms
+        // of one call)
+        let sc = timed_scripts("burn(8); true");
+        let ast = sc.expr.clone().unwrap();
+        let e = per_row(&sc, &ast, &rows(40), |_, x| truth(&x, false)).unwrap_err();
+        assert!(e.contains("longer than 100 ms"), "{e}");
     }
 
     fn t2() -> Table {
