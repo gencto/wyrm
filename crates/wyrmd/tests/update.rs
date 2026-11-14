@@ -64,10 +64,56 @@ fn temp_dir(name: &str) -> PathBuf {
     d.canonicalize().unwrap()
 }
 
+/// A binary cargo built for this test, small enough for an update. A debug
+/// build on Linux keeps its debug info inside the executable and is then
+/// larger than the largest binary an update takes (`MAX_BINARY`); such a
+/// build is used as a copy without the debug info. A release is far below
+/// the bound, so nothing but a test build needs this.
+fn slim(built: &str, name: &str) -> PathBuf {
+    let built = PathBuf::from(built);
+    let size = std::fs::metadata(&built)
+        .unwrap_or_else(|e| panic!("{}: {e}", built.display()))
+        .len();
+    if size <= release::MAX_BINARY / 2 {
+        return built;
+    }
+    let copy = temp_dir("bins").join(name);
+    let done = Command::new("strip")
+        .arg("--strip-debug")
+        .arg("-o")
+        .arg(&copy)
+        .arg(&built)
+        .output()
+        .unwrap_or_else(|e| {
+            panic!(
+                "{} has {size} bytes, more than an update takes, and `strip` cannot be run to \
+                 drop its debug info: {e}",
+                built.display()
+            )
+        });
+    assert!(done.status.success(), "strip {}: {done:?}", built.display());
+    let left = std::fs::metadata(&copy).unwrap().len();
+    assert!(
+        left <= release::MAX_BINARY,
+        "{}: {left} bytes without the debug info, still more than an update takes",
+        built.display()
+    );
+    copy
+}
+
+/// The broker of this build.
+fn this_bin() -> PathBuf {
+    static BIN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    BIN.get_or_init(|| slim(env!("CARGO_BIN_EXE_wyrmd"), "wyrmd"))
+        .clone()
+}
+
 /// The second binary (`src/bin/wyrmd_next.rs`), built by cargo for this
 /// test like `wyrmd` itself.
 fn next_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_wyrmd_next"))
+    static BIN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    BIN.get_or_init(|| slim(env!("CARGO_BIN_EXE_wyrmd_next"), "wyrmd_next"))
+        .clone()
 }
 
 async fn eventually<T, F, Fut>(what: &str, secs: u64, mut f: F) -> T
@@ -288,7 +334,7 @@ impl Site {
     fn launch(name: &str, updates: &str, extra: &str, before: impl FnOnce(&Path)) -> Self {
         let root = temp_dir(name);
         let (prefix, data) = (root.join("opt"), root.join("data"));
-        let made = Command::new(env!("CARGO_BIN_EXE_wyrmd"))
+        let made = Command::new(this_bin())
             .arg("install-layout")
             .arg(&prefix)
             .env_clear()
@@ -541,7 +587,7 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     assert_eq!(id.version, "0.2.0");
     assert_ne!(
         release::sha256_file(&next_bin()).unwrap(),
-        release::sha256_file(Path::new(env!("CARGO_BIN_EXE_wyrmd"))).unwrap(),
+        release::sha256_file(&this_bin()).unwrap(),
         "two different binaries"
     );
     // the channel: an index and the archive beside it
@@ -632,7 +678,7 @@ async fn a_broker_updates_itself_and_is_confirmed() {
     if u.in_trial() {
         assert_eq!(
             release::sha256_file(&site.prefix.join("bin").join(release::GUARD)).unwrap(),
-            release::sha256_file(Path::new(env!("CARGO_BIN_EXE_wyrmd"))).unwrap()
+            release::sha256_file(&this_bin()).unwrap()
         );
     }
     site.wait_state("confirmed").await;
@@ -1099,7 +1145,7 @@ impl Local {
             dir.join("data").display()
         ))
         .unwrap();
-        let daemon = wyrmd::Daemon::open(cfg, env!("CARGO_BIN_EXE_wyrmd").into()).unwrap();
+        let daemon = wyrmd::Daemon::open(cfg, this_bin()).unwrap();
         let (stop, rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(daemon.run_until(async {
             let _ = rx.await;
@@ -1305,7 +1351,7 @@ fn release_index_refuses_what_does_not_verify() {
     let public = hex::encode(release_key().verifying_key().to_bytes());
     let other = ed25519_dalek::SigningKey::from_bytes(&[3; 32]);
     let tool = |args: &[&str], key: Option<&str>| {
-        let mut c = Command::new(env!("CARGO_BIN_EXE_wyrmd"));
+        let mut c = Command::new(this_bin());
         c.arg("release").args(args).current_dir(&d).env_clear();
         if let Some(k) = key {
             c.env("WYRMD_RELEASE_KEY", k);
