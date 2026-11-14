@@ -17,6 +17,7 @@ import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/labels.dart';
+import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
@@ -36,6 +37,9 @@ import 'package:ui/pages/assistant_page.dart';
 import '../common/tab_visibility.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+
+/// What a secret argument of a plan step is shown as.
+const secretMask = '••••••';
 
 @RoutePage()
 class AssistantPageConnector extends StatelessWidget {
@@ -251,7 +255,13 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
   PlanCardVm _plan(AgentTask t) => PlanCardVm(
     title: S.current.planSteps(t.plan.length),
     state: t.state == .awaitingApproval
-        ? S.current.planChecked
+        ? switch (planChecks(t.plan)) {
+            (now: _, atRun: 0) => S.current.planChecked,
+            (:final now, :final atRun) => S.current.planCheckedPartly(
+              now,
+              atRun,
+            ),
+          }
         : _stateLabel(t.state),
     stateTone: _tone(t.state),
     note: S.current.planWhyNote,
@@ -270,7 +280,12 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
       level: s.level,
       changes: changes,
       args: [
-        for (final e in s.args.entries) (e.key, _shown(e.value)),
+        for (final e in s.args.entries)
+          (
+            e.key,
+            // a secret is not shown; the approval is still bound to it
+            s.secret.contains(e.key) ? secretMask : _shown(e.value),
+          ),
         if (s.op != 'sleep')
           if (s.seconds case final sec?)
             ('timeout', S.current.planSleep(_num(sec))),
@@ -279,6 +294,7 @@ class _Factory extends VmFactory<AppState, AssistantPageConnector, _Vm>
           ? (s.check == 'at_run' ? S.current.checkAtRun : S.current.checkNow)
           : null,
       checked: s.check != 'at_run',
+      argsNote: s.secret.isEmpty ? null : S.current.planSecretNote,
       warn: s.warn,
       why: s.reason,
       note: s.after.isEmpty

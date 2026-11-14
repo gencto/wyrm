@@ -1768,5 +1768,7 @@
     "planWaiting": "The plan waits for approval. Nothing runs before it.",
     "taskBy": "by {who}",
     "taskFailedAt": "failed at step {n}",
-    "taskNoChanges": "nothing changed"
+    "taskNoChanges": "nothing changed",
+    "planCheckedPartly": "awaiting approval · {now} checked now, {atRun} when it runs",
+    "planSecretNote": "A secret argument is not shown. The approval is still for the value the plan holds."
 }

@@ -13,6 +13,7 @@ import 'package:business/redux/tasks/actions/cancel_task_action.dart';
 import 'package:business/redux/tasks/actions/reject_task_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
+import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -253,6 +254,92 @@ void main() {
     expect(status.originalError, isNull);
     expect(s.state.assistant.docs, isTrue);
     expect(s.state.tasks.table['t-1'], isNull);
+  });
+
+  test('the ask stream reaches a state before ~val does: the record is read '
+      'all the same', () async {
+    await withAgent();
+    // no `~val` sample arrives in this test: only the stream says the state
+    api.streamed.add('$agent ▸ ask');
+    s.dispatchSync(SetDraftAction('add ahu2'));
+    final asked = s.dispatchAndWait(AskAgentAction());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final stream = api.opened['$agent ▸ ask']!.single
+      ..add(Value.from({'task': 't-1', 'state': 'planning'}));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    api.docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval');
+    stream.add(
+      Value.from({
+        'task': 't-1',
+        'event': 'state',
+        'text': 'awaiting_approval',
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    // while the stream is still open the plan is already there
+    final t = s.state.tasks.table['t-1']!;
+    expect(t.state, TaskState.awaitingApproval);
+    expect(t.recorded, isTrue);
+    expect(t.plan, hasLength(3));
+
+    // and the end of the stream reads where the task stands
+    api.docs['$agent/tasks/t-1 ~state'] = record('running');
+    await stream.close();
+    await asked;
+    expect(s.state.tasks.table['t-1']!.state, TaskState.running);
+  });
+
+  test('a secret argument of a step is named from the action meta', () async {
+    await withAgent();
+    api
+      ..docs['$agent/tasks/t-1 ~state'] = Value.from({
+        'state': 'awaiting_approval',
+        'plan': [
+          {
+            'n': 1,
+            'invoke': 'wy/central/downstream/http',
+            'action': 'add_connection',
+            'args': {'name': 'erp', 'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+          },
+          {
+            'n': 2,
+            'invoke': 'wy/central/downstream/http/erp',
+            'action': 'set_password',
+            'args': {'password': 'hunter2'},
+            'level': 'config',
+            'approval': true,
+            'check': 'at_run',
+          },
+        ],
+      })
+      ..metas['wy/central/downstream/http'] = NodeMeta(
+        actions: {
+          'add_connection': ActionMeta(
+            params: {
+              'name': ParamMeta(),
+              'password': ParamMeta(editor: 'password'),
+            },
+          ),
+        },
+      );
+
+    await s.dispatchAndWait(RetrieveTaskRecordAction('t-1'));
+
+    final [a, b] = s.state.tasks.table['t-1']!.plan.toList();
+    expect(a.secret, {'password'});
+    // the node of step 2 does not exist yet: its schema is not known
+    expect(b.secret, isEmpty);
+  });
+
+  test('how far a plan was checked counts the steps that change something', () {
+    final plan = agentTaskOf('t', record('awaiting_approval')).plan;
+    // step 1 now, step 2 when it runs, step 3 only reads
+    expect(planChecks(plan), (now: 1, atRun: 1));
+    expect(planChecks(plan.take(1)), (now: 1, atRun: 0));
   });
 
   test('approve refuses until the gateway signs approvals', () async {

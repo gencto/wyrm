@@ -122,9 +122,11 @@ sequenceDiagram
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(_Select)
     A1->>ST: dispatchSync(_ClearDraft)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
     A1->>ST: dispatchSync(AddTaskEventAction)
+    A1->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A1->>ST: dispatchSync(AddTasksAction)
     A1-->>-VM: ActionStatus
 ```

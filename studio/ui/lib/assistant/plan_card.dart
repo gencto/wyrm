@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
+import '../indicators/app_icon.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/tag_chip.dart';
@@ -24,6 +25,7 @@ final class PlanStepVm extends Equatable {
     this.changes = false,
     this.check,
     this.checked = true,
+    this.argsNote,
     this.why,
     this.warn,
     this.ticked,
@@ -58,6 +60,9 @@ final class PlanStepVm extends Equatable {
   /// The check was made now (a tick); else it is made when the step runs.
   final bool checked;
 
+  /// A line under the arguments (some are secret and not shown).
+  final String? argsNote;
+
   /// The model's reason.
   final String? why;
 
@@ -89,6 +94,7 @@ final class PlanStepVm extends Equatable {
     changes,
     check,
     checked,
+    argsNote,
     why,
     warn,
     ticked,
@@ -266,12 +272,26 @@ class _Step extends StatelessWidget {
                       ),
                     ],
                   ),
+                if (vm.argsNote case final n?) Text(n, style: small),
                 if (vm.check case final k?)
-                  Text(
-                    '${vm.checked ? '✓' : '◷'} $k',
-                    style: small.copyWith(
-                      color: vm.checked ? c.good : c.text3,
-                    ),
+                  Row(
+                    spacing: 6,
+                    children: [
+                      // an icon of the set: a glyph may be missing in a font
+                      AppIcon(
+                        vm.checked ? 'ui_check' : 'action_hist',
+                        size: 14,
+                        color: vm.checked ? c.good : c.text3,
+                      ),
+                      Expanded(
+                        child: Text(
+                          k,
+                          style: small.copyWith(
+                            color: vm.checked ? c.good : c.text3,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 if (vm.warn case final w?)
                   Container(
