@@ -4,6 +4,7 @@ import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_secrets_action.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
+import 'package:business/redux/links/actions/retrieve_link_history_action.dart';
 import 'package:business/redux/links/actions/retrieve_links_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
@@ -11,6 +12,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -117,6 +119,68 @@ void main() {
     expect(api.calls.where((c) => c.action == 'history'), hasLength(1));
     // nothing is sent before Review applies it
     expect(api.calls.where((c) => c.action == 'update'), isEmpty);
+  });
+
+  test(
+    'nothing is staged when the params of the agent cannot be read',
+    () async {
+      await logIn();
+      // the Links tab left another link's revisions in the one list
+      api.invokes['wy/central/sys/links/modbus ▸ history'] = [
+        Value.from([
+          {
+            'rev': 9,
+            'params': {'connections': <Object?>[]},
+          },
+        ]),
+      ];
+      await s.dispatchAndWait(RetrieveLinkHistoryAction('modbus'));
+      api.errors['$links ▸ history'] = WyrmException.of(
+        Status.permissionDenied,
+        'needs config',
+      );
+
+      final failed = await s.dispatchAndWait(
+        StageAgentParamAction('require_approval', 'config'),
+      );
+      expect(failed.originalError, isA<UserException>());
+      expect(s.state.changes.table, isEmpty);
+
+      // a history without a revision is no base either
+      api
+        ..errors.remove('$links ▸ history')
+        ..invokes['$links ▸ history'] = [Value.from(<Object?>[])];
+      final empty = await s.dispatchAndWait(
+        StageAgentParamAction('require_approval', 'config'),
+      );
+      expect(empty.originalError, isA<UserException>());
+      expect(s.state.changes.table, isEmpty);
+    },
+  );
+
+  test('the secret names of another agent are not kept', () async {
+    await logIn();
+    api.invokes['$links ▸ secrets'] = [
+      Value.from(['anthropic_api_key']),
+    ];
+    await s.dispatchAndWait(RetrieveAgentSecretsAction());
+    expect(s.state.assistant.secrets, isNotNull);
+    // the same agent read again keeps them
+    await s.dispatchAndWait(RetrieveAgentAction());
+    expect(s.state.assistant.secrets, isNotNull);
+
+    // another site's agent: not known until read for it
+    api
+      ..children_['wy/plant/sys/links'] = [Child('agent', NodeMeta())]
+      ..metas['wy/plant/sys/links/agent'] = NodeMeta(
+        attr: {'driver': const VStr('agent'), 'mode': const VStr('embedded')},
+      )
+      ..metas['wy/plant/downstream/agent'] = NodeMeta(cfg: {});
+    s.dispatchSync(ViewSiteAction('plant'));
+    await s.dispatchAndWait(RetrieveLinksAction());
+    await s.dispatchAndWait(RetrieveAgentAction());
+    expect(s.state.assistant.agent, 'wy/plant/downstream/agent');
+    expect(s.state.assistant.secrets, isNull);
   });
 
   test('the secret names say whether the API key is set; without config '

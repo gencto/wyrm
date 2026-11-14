@@ -61,6 +61,9 @@ class RetrieveAgentAction extends Action with WaitingAction {
       agent: key,
       cfg: cfg.lock,
       prefixes: prefixes.lock,
+      // the names were of the agent read before (maybe another site's):
+      // not known until they are read for this one
+      secrets: key == assistant.agent ? assistant.secrets : null,
     );
   }
 

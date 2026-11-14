@@ -1249,10 +1249,15 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         (t.state != .awaitingApproval && t.state != .done)) {
       return card;
     }
+    // a pick after the task is a follow-up ask: with these modes its plan
+    // may write without a person (docs/agent.md, AI-4)
+    final mode = t.state == .done ? _unattended : null;
     return TaskCardVm(
       title: card.title,
-      note: card.note,
-      caution: card.caution,
+      note: mode == null
+          ? card.note
+          : '${card.note}\n${S.current.waysCaution(mode)}',
+      caution: card.caution || mode != null,
       buttons: [
         ...card.buttons,
         TaskButtonVm(

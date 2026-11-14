@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:models/error_kind.dart';
+
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_link_history_action.dart';
@@ -30,13 +33,25 @@ class StageAgentParamAction extends Action {
       base = {...staged};
       from = changes.table['params:$id']!.from;
     } else {
-      await dispatchAndWait(RetrieveLinkHistoryAction(id));
+      // `links.revisions` is one list for every link: only a read of this
+      // link's history that just succeeded is its base. Without it nothing
+      // is staged: an update of the param alone would replace every other
+      // param of the agent with its default.
+      final read = await dispatchAndWait(RetrieveLinkHistoryAction(id));
       final newest = links.revisions.firstOrNull;
-      base = switch (jsonDecode(newest?.params ?? '{}')) {
-        final Map<String, Object?> m => {...m},
-        _ => {},
-      };
-      from = 'rev ${newest?.rev ?? 0}';
+      final params = newest == null ? null : jsonDecode(newest.params);
+      if (!read.isCompletedOk || params is! Map<String, Object?>) {
+        throw StudioException.said(
+          ErrorKind.broker,
+          'The parameters of the agent link could not be read, so nothing '
+          'was staged.',
+          key: '${site.root}/sys/links/$id',
+          call: 'history',
+          thing: id,
+        );
+      }
+      base = {...params};
+      from = 'rev ${newest!.rev}';
     }
     base[name] = value;
     await dispatchAndWait(

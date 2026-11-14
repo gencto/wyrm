@@ -289,6 +289,7 @@ sequenceDiagram
     A3->>ST: dispatchAndWait(RetrieveLinksAction)
     A3->>ST: dispatchAndWait(RetrieveAgentAction)
     A3->>ST: dispatchAndWait(RetrieveTasksAction)
+    A3->>ST: dispatchAndWait(RetrieveAgentSecretsAction)
     A3->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     A3-->>-VM: ActionStatus
 ```

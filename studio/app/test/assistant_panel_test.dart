@@ -236,6 +236,8 @@ void main() {
       app.calls('ask').single.args?['parent'],
       const VStr('t-1'),
     );
+    // with require_approval write, no caution on the card
+    expect(find.textContaining('without a person'), findsNothing);
     // the follow-up is on screen, and the tab is one press away
     expect(app.store.state.tasks.selectedTask, 't-2');
     expect(find.text('tasks/t-2'), findsOneWidget);
@@ -300,5 +302,31 @@ void main() {
     expect(find.text('Open full'), findsNothing);
     await cmdJ();
     expect(find.byType(AssistantDrawerConnector), findsNothing);
+  });
+
+  testWidgets('the drawer: with require_approval config the second button '
+      'of a done task says its plan may write without a person', (
+    tester,
+  ) async {
+    final app = AssistantApp()
+      ..task(
+        't-1',
+        planRecord(
+          state: 'done',
+          step: 3,
+          results: const {
+            1: {'status': 'ok', 'message': 'added ahu2'},
+            2: {'status': 'ok', 'message': 'ok'},
+            3: {'status': 'ok', 'message': '21.5'},
+          },
+        )..['suggestions'] = [_askIvan],
+      );
+    app.api.metas[_agent] = NodeMeta(
+      cfg: {'require_approval': const VStr('config')},
+    );
+    await _drawer(tester, app, selected: 't-1');
+
+    expect(find.text('Ask ivan first'), findsOneWidget);
+    expect(find.textContaining('without a person'), findsOneWidget);
   });
 }
