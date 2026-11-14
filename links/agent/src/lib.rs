@@ -8,7 +8,7 @@
 //! | `budget_used_today` | LLM tokens used this UTC day |
 //! | `~act/ask {task, parent?, context?}` | level `write`, stream: creates `tasks/<id>`, streams progress, ends with `{task, state}`; `parent` = a task this one follows (one that waits for a person is replaced by it), `context` = keys the asker attached |
 //! | `tasks/<id>/~val` | `{state, step, of, last?: {n, ok, result}, suggestions?, findings?, reviewing?, replaced_by?}` (public: numbers, fixed words and task ids only) |
-//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, findings[]?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`, a finding `{key, label, detail}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn? (the link's finding), model_warn? (the model's words), reason?, result?: {status: ok \| failed \| skipped, message, time}` |
+//! | `tasks/<id>/~state` | `{state, owner, ask, plan[], plan_hash, questions[]?, suggestions[]?, findings[]?, findings_refused?, parent?, replaced_by?, context[]?, step, log[], error?, review?, reviewing?, tokens}` (restricted: `list`); a suggestion is `{id, label, detail, changes, step?, rows?: [{key, label, detail}]}`, a finding `{key, label, detail}`, `findings_refused` = `{rights_unknown | rights_expired | outside_rights | limit | invalid: <count>}`; a step is the `wyrm-agent run` step (`{set, value}`, `{invoke, action, args}`, `{wait, timeout_s}`, `{expect, equals \| min/max \| changes, timeout_s}`, `{sleep_s}`) with `n, level, after?, approval, check, warn? (the link's finding), model_warn? (the model's words), reason?, result?: {status: ok \| failed \| skipped, message, time}` |
 //! | `tasks/<id>/~act/approve {approvals, plan?}` | level `write`: `approvals` = `{<step number> \| <request key>: <ptok, bytes or base64>}`, one human token per step at the step's level; a step that needs one and gets none is skipped, with the steps that need it; `plan` = the `plan_hash` the approver read |
 //! | `tasks/<id>/~act/answer {answers?, text?}` | level `write`, stream like `ask`: `answers` = `{<question id>: [<option id>] \| text}` |
 //! | `tasks/<id>/~act/reject`, `cancel` | level `write`; `cancel` also ends the review turn after a stopped run |
@@ -49,7 +49,7 @@ pub mod tools;
 use crate::llm::{usage_tokens, AnthropicClient, LlmClient};
 use crate::store::{AgentStore, TaskRec};
 use crate::tools::{
-    check_proposal, ApprovalMode, Finding, PlanOp, Policy, Reader, StepResult, StepStatus,
+    check_proposal, ApprovalMode, Finding, PlanOp, Policy, Reader, Refused, StepResult, StepStatus,
     Suggestion,
 };
 use ed25519_dalek::SigningKey;
@@ -457,6 +457,8 @@ struct Task {
     /// What the model read about nodes (`found`): rows of *What I found*. Bounded, kept
     /// when the task fails (they say what was read, not what to do).
     findings: Vec<Finding>,
+    /// Findings not noted, by why (fixed words): a reader says why rows are missing.
+    findings_refused: BTreeMap<Refused, u32>,
     /// The asker's rights (spec 04 `auth`) as their latest call on the task carried them
     /// (`ask`, then their own `answer` or `approve`): what they may read bounds the rows of
     /// a suggestion, and only until that token's `exp` ([`asker_rights`]). `None`: not
@@ -480,6 +482,7 @@ impl Task {
                     replaced_by: self.replaced_by.clone(),
                     review: self.review.clone(),
                     findings: self.findings.clone(),
+                    findings_refused: self.findings_refused.clone(),
                 },
             ),
             log: self.log.clone(),
@@ -507,6 +510,7 @@ impl Task {
             replaced_by: extras.replaced_by,
             review: extras.review,
             findings: extras.findings,
+            findings_refused: extras.findings_refused,
             reviewing: false,
             rights: None,
             step: 0,
@@ -655,6 +659,12 @@ impl Task {
             m.insert(
                 "findings".to_owned(),
                 Value::Array(self.findings.iter().map(Finding::to_value).collect()),
+            );
+        }
+        if !self.findings_refused.is_empty() {
+            m.insert(
+                "findings_refused".to_owned(),
+                store::refused_value(&self.findings_refused),
             );
         }
         if self.reviewing {
@@ -1559,6 +1569,7 @@ impl Agent {
                     replaced_by: None,
                     review: None,
                     findings: Vec::new(),
+                    findings_refused: BTreeMap::new(),
                     reviewing: false,
                     rights: asker_rights(who),
                 },
@@ -2554,39 +2565,60 @@ async fn suggest(
 }
 
 /// `found`: one row of *What I found* (see [`Finding`]): a node the agent and the asker of
-/// the task may read, with the model's words about it. Bounded; one row per node.
+/// the task may read, with the model's words about it. Bounded; one row per node: a second
+/// call on a node replaces its words in place (same order, same count), so a later turn
+/// (the review after a run) corrects what planning noted. A refusal is counted by why in
+/// `findings_refused`.
 async fn found(
     sh: &Shared,
     policy: &Policy,
     id: &str,
     input: &Json,
 ) -> std::result::Result<Json, String> {
-    let live = match sh.lock().tasks.get(id) {
-        Some(t) => t.live_rights(),
+    let rights = match sh.lock().tasks.get(id) {
+        Some(t) => t.rights.clone(),
         None => return Err("the task is gone".into()),
     };
-    let Some(who) = live else {
-        return Err(
-            "`found` needs the rights of the task's asker, and they are not known now \
-                    (their token had no `auth`, has expired, or the link restarted): say it \
-                    in your answer instead"
-                .into(),
-        );
+    let now = now_s();
+    let checked = match rights {
+        None => Err((Refused::RightsUnknown, None)),
+        Some(who) => match who.claims.as_ref().map(|c| now < c.exp) {
+            Some(true) => Ok(who),
+            Some(false) => Err((Refused::RightsExpired, None)),
+            None => Err((Refused::RightsUnknown, None)),
+        },
+    }
+    .and_then(|who| {
+        tools::finding_of(input, policy, |node| {
+            who.perm_on(&format!("{node}/~val")) >= Perm::Read
+        })
+        .map_err(|(why, e)| (why, Some(e)))
+    });
+    let f = match checked {
+        Ok(f) => f,
+        Err((why, e)) => {
+            sh.with_task_saved(id, |t| *t.findings_refused.entry(why).or_insert(0) += 1)
+                .await;
+            return Err(e.unwrap_or_else(|| {
+                "`found` is not available in this task now: the rights of its asker are not \
+                 known (their token had no `auth`, has expired, or the link restarted). Note \
+                 no findings"
+                    .into()
+            }));
+        }
     };
-    let f = tools::finding_of(input, policy, |node| {
-        who.perm_on(&format!("{node}/~val")) >= Perm::Read
-    })?;
     sh.with_task_saved(id, |t| {
+        if let Some(i) = t.findings.iter().position(|x| x.key == f.key) {
+            t.push_log(format!("found {} again", f.key));
+            let n = t.findings.len();
+            t.findings[i] = f;
+            return Ok(json!({"ok": true, "n": n, "replaced": true}));
+        }
         if t.findings.len() >= tools::MAX_FINDINGS {
+            *t.findings_refused.entry(Refused::Limit).or_insert(0) += 1;
             return Err(format!(
                 "this task already holds {} findings",
                 tools::MAX_FINDINGS
-            ));
-        }
-        if t.findings.iter().any(|x| x.key == f.key) {
-            return Err(format!(
-                "{} is already in the findings: one per node",
-                f.key
             ));
         }
         t.push_log(format!("found {}", f.key));

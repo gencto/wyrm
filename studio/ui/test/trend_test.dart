@@ -15,6 +15,7 @@ TrendSample _s(int min, double? v, {TrendQuality q = .good}) =>
 
 void main() {
   setUpAll(() => S.load(const Locale('en')));
+  _marksAtOneTime();
 
   group('axis', () {
     test('fits with a step of 1, 2, 2.5 or 5 × 10ⁿ', () {
@@ -246,5 +247,57 @@ void main() {
       expect(find.text('Click A again to clear it'), findsNothing);
       expect(find.text('Click to set marker A'), findsNothing);
     });
+  });
+}
+
+/// The Assistant drawer's compact timeline (review L3): two audit records at
+/// the same time are two marks, and the chart builds without a duplicate key.
+void _marksAtOneTime() {
+  testWidgets('two marks at one time are drawn, keyed by place', (
+    tester,
+  ) async {
+    final samples = [for (var i = 0; i <= 10; i++) _s(i, i.toDouble())];
+    await tester.pumpWidget(
+      frame(
+        SizedBox(
+          width: 400,
+          child: Trend(
+            vm: TrendVm(
+              series: [
+                TrendSeriesVm(
+                  id: 'p',
+                  name: 'p',
+                  color: TrendColor.byIndex(0),
+                  samples: samples,
+                  overview: samples,
+                ),
+              ],
+              rangeStart: 0,
+              rangeEnd: 10 * _m,
+              windowStart: 0,
+              windowEnd: 10 * _m,
+              rollup: 'raw',
+              format: trendFormat,
+              card: false,
+              legend: false,
+              hint: false,
+              brush: false,
+              plotHeight: 64,
+              marks: const [
+                TrendMark(5 * _m, 'user:ivan · set p'),
+                TrendMark(5 * _m, 'user:olena · set p'),
+              ],
+            ),
+            onWindow: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('mark-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('mark-1')), findsOneWidget);
+    // no brush under a compact chart
+    expect(find.text('all'), findsNothing);
   });
 }

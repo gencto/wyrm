@@ -741,6 +741,74 @@ sequenceDiagram
     end
 ```
 
+## AssistantDrawer ▸ onWatchKeys
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant R1 as AssistantDrawerConnector
+    participant A1 as WatchKeysAction
+    participant ST as AppState
+
+    User->>UI: AssistantDrawer ▸ onWatchKeys
+    UI->>R1: onWatchKeys()
+    R1->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+```
+
+## AssistantDrawer ▸ onUnwatchKeys
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant R1 as AssistantDrawerConnector
+    participant A1 as UnwatchKeysAction
+    participant ST as AppState
+
+    User->>UI: AssistantDrawer ▸ onUnwatchKeys
+    UI->>R1: onUnwatchKeys()
+    R1->>A1: dispatchSync
+    A1->>ST: copyWith(live.watched)
+```
+
+## AssistantDrawer ▸ onTimelineWindow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant R1 as AssistantDrawerConnector
+    participant A1 as SetHistoryWindowAction
+    participant ST as AppState
+
+    User->>UI: AssistantDrawer ▸ onTimelineWindow
+    UI->>R1: onTimelineWindow()
+    R1->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.historyWindow)
+```
+
+## AssistantDrawer ▸ onTimelineReset
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant R1 as AssistantDrawerConnector
+    participant A1 as SetHistoryWindowAction
+    participant ST as AppState
+
+    User->>UI: AssistantDrawer ▸ onTimelineReset
+    UI->>R1: onTimelineReset()
+    R1->>A1: dispatchSync
+    A1->>ST: copyWith(nodes.historyWindow)
+```
+
 ## AssistantDrawer ▸ onMode
 
 ```mermaid
@@ -873,7 +941,7 @@ sequenceDiagram
 
     User->>UI: AssistantDrawer ▸ onAddChip
     UI->>R1: onAddChip()
-    alt offered != null
+    alt picked != null && contextKey(root, picked) == picked && reads(picked)
         R1->>A1: dispatchSync
         A1->>ST: copyWith(assistant.chips)
     end
@@ -1185,7 +1253,7 @@ sequenceDiagram
 _Not drawn — these files dispatch outside any interaction:_
 
 - `ExplorerPageConnector` — 4 dispatches
-- `AssistantDrawerConnector` — 1 dispatch
+- `AssistantDrawerConnector` — 5 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
@@ -1227,6 +1295,10 @@ _Not drawn — these files dispatch outside any interaction:_
 | `AssistantDrawer ▸ onPickSuggestion` | `PickSuggestionAction` ? | `assistant.rowPicks` |
 | `AssistantDrawer ▸ onRow` | `SetRowPickAction` ? | `assistant.rowPicks` |
 | `AssistantDrawer ▸ onReveal` | `SetStepRevealAction` ? | `assistant.revealed, assistant.refusals` |
+| `AssistantDrawer ▸ onWatchKeys` | `WatchKeysAction` | `live.watched` |
+| `AssistantDrawer ▸ onUnwatchKeys` | `UnwatchKeysAction` | `live.watched` |
+| `AssistantDrawer ▸ onTimelineWindow` | `SetHistoryWindowAction` | `nodes.historyWindow` |
+| `AssistantDrawer ▸ onTimelineReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `AssistantDrawer ▸ onMode` | `StageAgentParamAction.mode` | `changes.table, changes.view` |
 | `AssistantDrawer ▸ onRemovePrefix` | `StageAgentParamAction.removePrefix` | `changes.table, changes.view` |
 | `AssistantDrawer ▸ onAddPrefix` | `StageAgentParamAction.addPrefix` ? | `changes.table, changes.view` |

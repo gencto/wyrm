@@ -21,7 +21,7 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
   /// suggestions, whether the model reviews the run and the task that
   /// replaced it, as last heard: when any moves, the record has something
   /// new (a review ends with the state still `failed`).
-  final _seen = <String, (int, int, int, bool, String?)>{};
+  final _seen = <String, (int, int, int, int, bool, String?)>{};
 
   @override
   void onTaskState(
@@ -30,11 +30,12 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     int step = 0,
     int finished = 0,
     int suggestions = 0,
+    int findings = 0,
     bool reviewing = false,
     String? replacedBy,
   }) {
     final known = _store.state.tasks.table[id];
-    final now = (step, finished, suggestions, reviewing, replacedBy);
+    final now = (step, finished, suggestions, findings, reviewing, replacedBy);
     final moved = _seen[id] != now;
     _seen[id] = now;
     if (known?.state == state && !moved) {

@@ -6,6 +6,7 @@ import '../theme/typography.dart';
 import 'assistant_composer.dart';
 import 'choices_card.dart';
 import 'conversation.dart';
+import 'found_card.dart';
 import 'plan_card.dart';
 import 'run_card.dart';
 import 'stopped_card.dart';
@@ -43,6 +44,9 @@ class AssistantDrawer extends StatelessWidget {
     this.newTask,
     this.onNewTask,
     this.empty,
+    this.found,
+    this.onTimelineWindow,
+    this.onTimelineReset,
     super.key,
   });
 
@@ -92,6 +96,12 @@ class AssistantDrawer extends StatelessWidget {
 
   /// Why there is nothing to ask (no agent link).
   final String? empty;
+
+  /// *What I found* and the mini timeline of the selected point; null when
+  /// there is neither.
+  final FoundCardVm? found;
+  final void Function(int start, int end)? onTimelineWindow;
+  final VoidCallback? onTimelineReset;
 
   @override
   Widget build(BuildContext context) {
@@ -160,6 +170,12 @@ class AssistantDrawer extends StatelessWidget {
                       trailing: Column(
                         crossAxisAlignment: .stretch,
                         children: [
+                          if (found case final f?)
+                            FoundCard(
+                              vm: f,
+                              onWindow: onTimelineWindow ?? (_, _) {},
+                              onReset: onTimelineReset,
+                            ),
                           if (choices case final q?)
                             ChoicesCard(
                               vm: q,

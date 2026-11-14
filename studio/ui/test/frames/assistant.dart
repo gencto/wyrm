@@ -3,6 +3,7 @@ import 'package:ui/assistant/assistant_composer.dart';
 import 'package:ui/assistant/assistant_drawer.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/found_card.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
@@ -13,10 +14,14 @@ import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/pages/assistant_page.dart';
+
+import 'trend.dart' show trendFormat;
 
 /// Board *Assistant* with a task that waits for approval: both changes
 /// ticked. With [refusal] the last approval was refused and the task still
@@ -700,5 +705,187 @@ Widget assistantDrawer() => Builder(
         ),
       ),
     ],
+  ),
+);
+
+/// Board *AssistantDrawer* with *What I found*: the nodes the model read,
+/// marked from their live values, and the mini timeline of the selected
+/// point with the audit record on it.
+Widget assistantDrawerFound() {
+  // 02:12 … 03:12 UTC, a sample a minute; bad after 03:05 + 7 min
+  final end = DateTime.utc(2026, 11, 14, 3, 30).microsecondsSinceEpoch;
+  const minute = 60 * 1000000;
+  final start = end - 60 * minute;
+  final edit = end - 25 * minute;
+  final samples = [
+    for (var i = 0; i <= 60; i++)
+      TrendSample(
+        start + i * minute,
+        start + i * minute < edit + 7 * minute ? 11.0 : null,
+        q: start + i * minute < edit + 7 * minute ? .good : .bad,
+      ),
+  ];
+  return Builder(
+    builder: (context) => Stack(
+      children: [
+        const Positioned.fill(child: ColoredBox(color: Color(0xFF0E1113))),
+        Positioned(
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 420,
+          child: AssistantDrawer(
+            title: 'Assistant',
+            taskKey: 'tasks/t-0141',
+            openFull: 'Open full',
+            closeLabel: 'Close (Cmd+J)',
+            onOpenFull: () {},
+            onClose: () {},
+            events: const [
+              ConversationEventVm(kind: .ask, text: 'Why is the valve bad?'),
+              ConversationEventVm(
+                kind: .text,
+                text:
+                    'The connection and plc1 are fine; only valve fails. Its '
+                    'offset was changed 7 minutes before it went bad.',
+              ),
+              ConversationEventVm(
+                kind: .reads,
+                reads: ['read · tree', 'read · get', 'read · audit'],
+              ),
+            ],
+            found: FoundCardVm(
+              title: 'What I found · read only',
+              note:
+                  "The words are the assistant's. Each mark is the node's "
+                  'live value now, read with your rights.',
+              rows: const [
+                FoundRowVm(
+                  label: 'tcp-boiler',
+                  detail: 'connected · 10.0.4.12:502',
+                  node: 'modbus/tcp-boiler',
+                  mark: .none,
+                  markLabel: 'no value read',
+                ),
+                FoundRowVm(
+                  label: 'plc1',
+                  detail: '4 of 5 points good',
+                  node: 'modbus/tcp-boiler/plc1',
+                  mark: .good,
+                  markLabel: 'good now',
+                ),
+                FoundRowVm(
+                  label: 'valve',
+                  detail:
+                      'bad since 03:12 · exception 0x02 illegal data address',
+                  node: 'modbus/tcp-boiler/plc1/valve',
+                  mark: .bad,
+                  markLabel: 'bad now',
+                ),
+              ],
+              timelineLabel: 'valve · last 1h',
+              timeline: TrendVm(
+                title: 'valve',
+                series: [
+                  TrendSeriesVm(
+                    id: 'valve',
+                    name: 'valve',
+                    color: TrendColor.byIndex(0),
+                    unit: '%',
+                    decimals: 0,
+                    samples: samples,
+                    overview: samples,
+                  ),
+                ],
+                rangeStart: start,
+                rangeEnd: end,
+                windowStart: start,
+                windowEnd: end,
+                rollup: 'raw',
+                endsNow: true,
+                card: false,
+                legend: false,
+                hint: false,
+                brush: false,
+                plotHeight: 64,
+                marks: [
+                  TrendMark(
+                    edit,
+                    'user:ivan · invoke modbus/tcp-boiler/plc1/valve/~act/edit',
+                  ),
+                ],
+                format: trendFormat,
+              ),
+              auditLabel: 'From sys/audit',
+              audit: const [
+                FoundAuditVm(
+                  time: '03:05',
+                  text: 'user:ivan · invoke modbus/tcp-boiler/plc1/valve/~act/edit',
+                ),
+              ],
+            ),
+            onTimelineWindow: (_, _) {},
+            card: const TaskCardVm(
+              title: 'Done',
+              note: 'Nothing changed: the assistant only read.',
+            ),
+            onButton: (_) {},
+            newTask: 'New task',
+            onNewTask: () {},
+            composer: AssistantComposer(
+              draft: '',
+              hint: 'Ask about what you see… (Cmd+Enter)',
+              label: 'Ask',
+              onDraft: (_) {},
+              onAsk: () {},
+              chips: const [
+                (
+                  'wy/plant/downstream/modbus/tcp-boiler/plc1/valve',
+                  'modbus/tcp-boiler/plc1/valve',
+                ),
+              ],
+              addChipLabel: '+ from Explorer',
+              dense: true,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// *+ from Explorer*: the key picker over the nodes Explorer read, the
+/// selection first, with a key typed below the site.
+Widget assistantKeyPicker() => Builder(
+  builder: (context) => ColoredBox(
+    color: const Color(0xFF0E1113),
+    child: Align(
+      alignment: const Alignment(0, -0.6),
+      child: SearchPalette(
+        hint: 'Add a node of plant as @ chip: filter, or type its key',
+        entries: const [
+          SearchEntryVm(
+            id: 'wy/plant/downstream/modbus/tcp-boiler/plc1/valve',
+            title: 'valve',
+            icon: 'node_point',
+            detail: 'selected in Explorer',
+          ),
+          SearchEntryVm(
+            id: 'wy/plant/downstream/modbus/tcp-boiler',
+            title: 'tcp-boiler',
+            icon: 'node_device',
+            detail: 'modbus/tcp-boiler',
+          ),
+          SearchEntryVm(
+            id: 'wy/plant/downstream/modbus/tcp-boiler/plc1',
+            title: 'Boiler PLC',
+            icon: 'node_device',
+            detail: 'modbus/tcp-boiler/plc1',
+          ),
+        ],
+        goTo: (_) => null,
+        onPick: (_) {},
+      ),
+    ),
   ),
 );

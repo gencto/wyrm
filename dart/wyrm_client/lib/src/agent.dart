@@ -127,6 +127,18 @@ class TaskFinding {
   }
 }
 
+/// The findings the agent link did not note, by why
+/// (`~state.findings_refused`): `rights_unknown`, `rights_expired`,
+/// `outside_rights`, `limit`, `invalid`, each with a count. Fixed words of the
+/// link, never the model's text; empty for an older record.
+Map<String, int> findingsRefused(Value? record) => switch (record?['findings_refused']) {
+      VMap(:final v) => {
+          for (final e in v.entries)
+            if (e.value case VInt(:final v) when v > 0) e.key: v,
+        },
+      _ => const {},
+    };
+
 /// How many findings the task holds, from its public `~val` (the texts are
 /// in the record, read with `doc`).
 int findingCount(Value? value) => switch (value?['findings']) { VInt(:final v) => v, _ => 0 };

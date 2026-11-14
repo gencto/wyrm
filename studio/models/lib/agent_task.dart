@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'plan_step.dart';
+import 'task_finding.dart';
 import 'task_question.dart';
 import 'task_state.dart';
 import 'task_suggestion.dart';
@@ -46,6 +47,14 @@ abstract class AgentTask with _$AgentTask {
 
     /// The model reads why the run stopped (`reviewing`).
     @Default(false) bool reviewing,
+
+    /// What the model read about nodes (`findings`, ADR 0049 amendment 2).
+    @Default(IListConst([])) IList<TaskFinding> findings,
+
+    /// Findings the agent link did not note, by why (`findings_refused`:
+    /// `rights_expired`, `rights_unknown`, `outside_rights`, `limit`,
+    /// `invalid`), each with a count.
+    @Default(IMapConst({})) IMap<String, int> findingsRefused,
 
     /// The record (`~state`) was read; before that only the state is known.
     @Default(false) bool recorded,

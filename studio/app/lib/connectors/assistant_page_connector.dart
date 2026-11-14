@@ -10,6 +10,7 @@ import 'package:business/redux/assistant/actions/load_assistant_action.dart';
 import 'package:business/redux/assistant/actions/pick_suggestion_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_action.dart';
 import 'package:business/redux/assistant/actions/retrieve_agent_secrets_action.dart';
+import 'package:business/redux/assistant/actions/retrieve_timeline_audit_action.dart';
 import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_draft_action.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
@@ -21,8 +22,12 @@ import 'package:business/redux/assistant/actions/set_step_reveal_action.dart';
 import 'package:business/redux/assistant/actions/set_step_tick_action.dart';
 import 'package:business/redux/assistant/actions/set_watched_action.dart';
 import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
+import 'package:business/redux/live/actions/unwatch_keys_action.dart';
+import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
+import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
+import 'package:business/redux/nodes/actions/set_history_window_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/tasks/actions/answer_task_action.dart';
 import 'package:business/redux/tasks/actions/approve_task_action.dart';
@@ -32,6 +37,8 @@ import 'package:business/redux/tasks/actions/retrieve_task_record_action.dart';
 import 'package:business/redux/tasks/actions/save_plan_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
+import 'package:business/wyrm/context_keys.dart';
+import 'package:business/wyrm/history_steps.dart';
 import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
@@ -40,8 +47,13 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/audit_entry.dart';
+import 'package:models/hist_point.dart';
+import 'package:models/node_info.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/quality.dart';
 import 'package:models/task_event.dart';
+import 'package:models/task_finding.dart';
 import 'package:models/task_question.dart';
 import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
@@ -49,6 +61,7 @@ import 'package:ui/assistant/assistant_composer.dart';
 import 'package:ui/assistant/assistant_drawer.dart';
 import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
+import 'package:ui/assistant/found_card.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
 import 'package:ui/assistant/plan_card.dart';
@@ -59,15 +72,19 @@ import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/reason_dialog.dart';
+import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/pages/assistant_page.dart';
 
 import '../common/files.dart';
 import '../common/tab_visibility.dart';
+import '../common/trend.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -127,7 +144,7 @@ class AssistantPageConnector extends StatelessWidget {
         onChipRemove: vm.onChipRemove,
         addChipLabel: vm.answering ? null : S.current.addFromExplorer,
         addChipReason: vm.addChipReason,
-        onAddChip: vm.onAddChip,
+        onAddChip: () => vm.onAddChip(context),
         onDraft: vm.onDraft,
         onAsk: vm.onAsk,
         askNote: vm.replaces,
@@ -153,6 +170,17 @@ class AssistantPageConnector extends StatelessWidget {
   );
 }
 
+/// What the drawer subscribes to while Explorer's tab (and so the drawer)
+/// is shown: the nodes of its findings, for their marks. Its own readers
+/// (`WatchKeysAction`/`UnwatchKeysAction` count them), apart from the
+/// Assistant tab's `assistant.watched`: the two are shown at other times.
+final class _DrawerWatch {
+  var shown = false;
+  var keys = <String>[];
+}
+
+final _drawerWatching = _DrawerWatch();
+
 /// The Assistant as a drawer over Explorer (⌘J, spec `assistant.md` §5):
 /// the same task and cards as the tab, from the same view-model.
 class AssistantDrawerConnector extends StatelessWidget {
@@ -162,8 +190,59 @@ class AssistantDrawerConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
-    builder: _drawer,
+    // reads the selected point's timeline
+    onInitialBuild: (context, store, vm) =>
+        _readTimeline(store, vm.timelinePoint),
+    onWillChange: (context, store, before, now) {
+      // the finding nodes, watched while Explorer is shown (a new key is
+      // watched before an old one is let go, so a key in both stays)
+      if (_drawerWatching.shown &&
+          !AssistantPageConnector._sameKeys(
+            _drawerWatching.keys,
+            now.findingKeys,
+          )) {
+        store
+          ..dispatchSync(WatchKeysAction(now.findingKeys))
+          ..dispatchSync(UnwatchKeysAction(_drawerWatching.keys));
+        _drawerWatching.keys = now.findingKeys;
+      }
+      if (before.timelinePoint != now.timelinePoint) {
+        _readTimeline(store, now.timelinePoint);
+      }
+    },
+    // the drawer is in Explorer's page: shown while Explorer's tab is the
+    // active one and the drawer is open (ADR 0037 rule 5)
+    builder: (context, vm) => TabVisibility(
+      onShow: () {
+        _drawerWatching
+          ..shown = true
+          ..keys = vm.findingKeys;
+        vm.onWatchKeys(vm.findingKeys);
+      },
+      onHide: () {
+        final keys = _drawerWatching.keys;
+        _drawerWatching
+          ..shown = false
+          ..keys = const [];
+        vm.onUnwatchKeys(keys);
+      },
+      child: _drawer(context, vm),
+    ),
   );
+
+  /// The history of [point] (shared with Explorer › History, the same
+  /// point) and its audit marks, unless they were read for it already.
+  static void _readTimeline(Store<AppState> store, String? point) {
+    if (point == null) {
+      return;
+    }
+    if (store.state.nodes.historyKey != point) {
+      unawaited(store.dispatchAndWait(RetrieveHistoryAction(point)));
+    }
+    if (store.state.assistant.timelineKey != point) {
+      unawaited(store.dispatchAndWait(RetrieveTimelineAuditAction(point)));
+    }
+  }
 }
 
 Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
@@ -192,6 +271,9 @@ Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
   onNewTask: vm.taskKey == null ? null : vm.onNewTask,
   onButton: (b) => vm.onButton(context, b),
   empty: vm.empty,
+  found: vm.found,
+  onTimelineWindow: vm.onTimelineWindow,
+  onTimelineReset: vm.onTimelineReset,
   composer: AssistantComposer(
     draft: vm.draft,
     hint: vm.answering ? vm.askHint : S.current.drawerHint,
@@ -203,7 +285,7 @@ Widget _drawer(BuildContext context, _Vm vm) => AssistantDrawer(
     onChipRemove: vm.onChipRemove,
     addChipLabel: vm.answering ? null : S.current.addFromExplorer,
     addChipReason: vm.addChipReason,
-    onAddChip: vm.onAddChip,
+    onAddChip: () => vm.onAddChip(context),
     dense: true,
   ),
 );
@@ -318,6 +400,19 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         // that panel is shown
         if (agent != null && rights) '$agent/budget_used_today',
       ],
+      // the marks of *What I found* in the drawer: the nodes' live values
+      findingKeys: assistant.drawer && task != null
+          ? [for (final f in _findings(task)) f.key]
+          : const [],
+      onWatchKeys: (keys) => dispatchSync(WatchKeysAction(keys)),
+      onUnwatchKeys: (keys) => dispatchSync(UnwatchKeysAction(keys)),
+      found: assistant.drawer ? _found(task) : null,
+      timelinePoint: assistant.drawer ? _timelinePoint() : null,
+      onTimelineWindow: (a, b) {
+        final (start, end) = _historyRange(nodes.historyKey);
+        dispatchSync(SetHistoryWindowAction(trendWindow(a, b, start, end)));
+      },
+      onTimelineReset: () => dispatchSync(SetHistoryWindowAction(null)),
       card: task == null ? null : _card(task, cancelReason, choices),
       second: task == null ? null : _secondTile(task),
       rights: rights ? _rights() : null,
@@ -351,12 +446,12 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       askHint: _hint(task),
       chips: [for (final k in assistant.chips) (k, _short(k))],
       onChipRemove: (k) => dispatchSync(SetChipAction(k, on: false)),
-      addChipReason: offered == null ? S.current.addFromExplorerNone : null,
-      onAddChip: () {
-        if (offered != null) {
-          dispatchSync(SetChipAction(offered));
-        }
-      },
+      addChipReason: site.root == null
+          ? S.current.addFromExplorerNone
+          : assistant.chips.length >= maxContextKeys
+          ? S.current.pickKeyFull('$maxContextKeys')
+          : null,
+      onAddChip: (context) => _pickKey(context, offered),
       askReason: agent == null
           ? S.current.noAgent
           : (site.needs('write', agent) ??
@@ -1381,6 +1476,250 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     _ => S.current.hintDone,
   };
 
+  /// *+ from Explorer*: a key picker over the nodes Explorer has read on
+  /// the site on screen (the selection first), or a key typed in full or
+  /// below the site. Only plain node keys of this site are offered; the
+  /// pick is an `@` chip.
+  Future<void> _pickKey(BuildContext context, String? selected) async {
+    final root = site.root;
+    if (root == null || assistant.chips.length >= maxContextKeys) {
+      return;
+    }
+    final chips = assistant.chips.toSet();
+    final point = nodes.point;
+    // only keys the agent reads: one it does not refuses the whole ask
+    // (unknown before its meta is read: then every key is offered)
+    bool reads(String k) =>
+        assistant.cfg.isEmpty ||
+        agentReads(root, assistant.agent, assistant.prefixes, k);
+    final first = [
+      ?selected,
+      if (point != null && point != selected && !chips.contains(point)) point,
+    ].where((k) => contextKey(root, k) == k && reads(k)).toList();
+    SearchEntryVm entry(String k, {String? detail}) => SearchEntryVm(
+      id: k,
+      title: switch (nodes.table[k]) {
+        NodeInfo(:final display?, :final name)
+            when display.trim().isNotEmpty && display != name =>
+          display,
+        final n => n?.name ?? _short(k),
+      },
+      icon: AppIcon.nodeName(
+        key: k,
+        root: root,
+        profile: nodes.table[k]?.profile,
+        type: nodes.table[k]?.type,
+      ),
+      detail: detail ?? _short(k),
+    );
+    final picked = await SearchPalette.show(
+      context,
+      hint: S.current.pickKeyHint(root.split('/').last),
+      entries: [
+        for (final k in first) entry(k, detail: S.current.pickKeySelected),
+        for (final k in nodes.view.take(400))
+          if (!first.contains(k) &&
+              !chips.contains(k) &&
+              contextKey(root, k) == k &&
+              reads(k))
+            entry(k),
+      ],
+      goTo: (text) {
+        final k = text.contains('/') ? contextKey(root, text) : null;
+        if (k == null || chips.contains(k)) {
+          return null;
+        }
+        // said, not offered: picking it does nothing
+        return reads(k)
+            ? SearchEntryVm(
+                id: k,
+                title: S.current.pickKeyTyped(_short(k)),
+                icon: 'ui_chevron_right',
+              )
+            : SearchEntryVm(
+                id: '',
+                title: S.current.pickKeyOutside(_short(k)),
+                icon: 'ui_close',
+              );
+      },
+    );
+    if (picked != null && contextKey(root, picked) == picked && reads(picked)) {
+      dispatchSync(SetChipAction(picked));
+    }
+  }
+
+  /// The point the drawer's mini timeline shows: the one selected in
+  /// Explorer's points, on the site on screen.
+  String? _timelinePoint() {
+    final p = nodes.point;
+    return p != null && site.root != null && p.startsWith('${site.root}/')
+        ? p
+        : null;
+  }
+
+  /// The range of the history read for [key] in µs (as Explorer's).
+  (int, int) _historyRange(String? key) {
+    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final rows = nodes.historyKey == key && key != null
+        ? nodes.history
+        : const IListConst<HistPoint>([]);
+    final e = trendRangeEnd(nodes.historyAt, [rows.lastOrNull?.time]);
+    return (e - span.inMicroseconds, e);
+  }
+
+  /// *What I found* (the task's findings, each marked from its node's live
+  /// value) and the mini timeline of the drawer's point with the audit
+  /// records on it (spec assistant.md §5).
+  FoundCardVm? _found(AgentTask? task) {
+    final rows = [
+      for (final f in task == null ? const <TaskFinding>[] : _findings(task))
+        _foundRow(f),
+    ];
+    final missing = [
+      for (final MapEntry(:key, :value)
+          in (task?.findingsRefused ?? const IMapConst<String, int>({}))
+              .entries)
+        if (value > 0) _refusedText(key, value),
+    ];
+    final point = _timelinePoint();
+    if (rows.isEmpty && missing.isEmpty && point == null) {
+      return null;
+    }
+    final root = site.root ?? '';
+    final canAudit = site.can('config', '$root/sys/audit');
+    final audit = assistant.timelineKey == point
+        ? assistant.timelineAudit
+        : const IListConst<AuditEntry>([]);
+    return FoundCardVm(
+      title: S.current.foundTitle,
+      note: S.current.foundNote,
+      rows: rows,
+      missing: missing,
+      timelineLabel: point == null
+          ? null
+          : S.current.timelineLabel(
+              nodes.table[point]?.display ?? point.split('/').last,
+              nodes.historyRange,
+            ),
+      timeline: point == null ? null : _timeline(point, audit),
+      auditLabel: S.current.timelineAudit,
+      audit: [
+        for (final a in audit.take(5))
+          FoundAuditVm(
+            time: _clock(a.time),
+            text: S.current.timelineAuditLine(
+              a.who,
+              a.op,
+              _short(a.key),
+            ),
+            bad: a.status != 0,
+          ),
+      ],
+      auditNote: !canAudit
+          ? S.current.auditNeeds
+          : assistant.timelineKey == point && audit.isEmpty
+          ? S.current.timelineAuditNone
+          : null,
+    );
+  }
+
+  /// The findings Studio shows: those whose key is a plain node key of the
+  /// site on screen. The agent link checks this; a record of an older or a
+  /// foreign link is not trusted to (a pattern key would be subscribed).
+  List<TaskFinding> _findings(AgentTask task) {
+    final root = site.root;
+    return [
+      for (final f in task.findings)
+        if (contextKey(root, f.key) == f.key) f,
+    ];
+  }
+
+  /// Why [n] findings are missing, from the link's fixed word [why].
+  static String _refusedText(String why, int n) => switch (why) {
+    'rights_expired' => S.current.foundRefusedExpired('$n'),
+    'rights_unknown' => S.current.foundRefusedUnknown('$n'),
+    'outside_rights' => S.current.foundRefusedOutside('$n'),
+    'limit' => S.current.foundRefusedLimit('$n'),
+    _ => S.current.foundRefusedInvalid('$n'),
+  };
+
+  FoundRowVm _foundRow(TaskFinding f) {
+    final q = live.values[f.key]?.quality;
+    return FoundRowVm(
+      label: f.label,
+      detail: f.detail,
+      node: _short(f.key),
+      mark: switch (q) {
+        Quality.good => .good,
+        Quality.bad => .bad,
+        _ => .none,
+      },
+      markLabel: switch (q) {
+        Quality.good => S.current.foundGood,
+        Quality.bad => S.current.foundBad,
+        Quality.uncertain => S.current.foundUncertain,
+        null => S.current.foundNoValue,
+      },
+    );
+  }
+
+  /// The point's compact trend: the rows Explorer reads for it, no brush,
+  /// the audit records as marks.
+  TrendVm _timeline(String point, IList<AuditEntry> audit) {
+    final (rs, re) = _historyRange(point);
+    final w = nodes.historyWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final read = nodes.historyKey == point;
+    final rows = read ? nodes.history : const IListConst<HistPoint>([]);
+    final info = nodes.table[point];
+    return TrendVm(
+      title: info?.display ?? point.split('/').last,
+      series: [
+        TrendSeriesVm(
+          id: point,
+          name: point.split('/').last,
+          label: info?.display ?? '',
+          color: TrendColor.byIndex(0),
+          unit: info?.unit ?? '',
+          decimals: trendDecimals(rows),
+          samples: trendSamples(rows),
+          overview: trendSamples(rows),
+        ),
+      ],
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      rollup: rollupText(null),
+      minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
+      endsNow: true,
+      following: w?.end == null,
+      loading: !read || (rows.isEmpty && nodes.historyLoading),
+      empty: S.current.noHistory,
+      card: false,
+      legend: false,
+      hint: false,
+      brush: false,
+      plotHeight: 64,
+      marks: [
+        for (final a in audit.reversed)
+          TrendMark(
+            a.time.microsecondsSinceEpoch,
+            S.current.timelineAuditLine(a.who, a.op, _short(a.key)),
+          ),
+      ],
+      format: trendFormat(),
+    );
+  }
+
+  static String _clock(DateTime t) {
+    final l = t.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(l.hour)}:${two(l.minute)}';
+  }
+
   /// A key as it is shown in a chip: below the site, without `downstream/`.
   static String _short(String key) {
     final below = key.split('/').skip(2).join('/');
@@ -1477,6 +1816,13 @@ class _Vm extends Vm {
     required this.onChipRemove,
     required this.addChipReason,
     required this.onAddChip,
+    required this.found,
+    required this.findingKeys,
+    required this.onWatchKeys,
+    required this.onUnwatchKeys,
+    required this.timelinePoint,
+    required this.onTimelineWindow,
+    required this.onTimelineReset,
     required this.askReason,
     required this.panel,
     required this.facts,
@@ -1516,6 +1862,9 @@ class _Vm extends Vm {
            askHint,
            chips,
            addChipReason,
+           found,
+           findingKeys,
+           timelinePoint,
            askReason,
            panel,
            facts,
@@ -1573,7 +1922,22 @@ class _Vm extends Vm {
   final List<ChipVm> chips;
   final ValueChanged<String> onChipRemove;
   final String? addChipReason;
-  final VoidCallback onAddChip;
+
+  /// *+ from Explorer*: the key picker.
+  final Future<void> Function(BuildContext context) onAddChip;
+
+  /// The drawer's *What I found* and mini timeline; null when closed.
+  final FoundCardVm? found;
+
+  /// The nodes of the findings, watched by the drawer for their marks.
+  final List<String> findingKeys;
+  final ValueChanged<List<String>> onWatchKeys;
+  final ValueChanged<List<String>> onUnwatchKeys;
+
+  /// The point the drawer's timeline shows (the Explorer point).
+  final String? timelinePoint;
+  final void Function(int start, int end) onTimelineWindow;
+  final VoidCallback onTimelineReset;
   final String? askReason;
   final String panel;
   final List<FactVm> facts;

@@ -1093,6 +1093,12 @@ extension type SelectAssistant(AppState _state) {
 
   /// Returns secrets
   ISet<String>? get secrets => _state.assistant.secrets;
+
+  /// Returns timelineKey
+  String? get timelineKey => _state.assistant.timelineKey;
+
+  /// Returns timelineAudit
+  IList<AuditEntry> get timelineAudit => _state.assistant.timelineAudit;
 }
 
 extension type SelectChanges(AppState _state) {

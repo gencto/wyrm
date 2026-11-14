@@ -2461,9 +2461,10 @@ async fn a_review_can_be_cancelled() {
 
 /// ADR 0049, amendment 2 of 2026-11-14: what the model read about nodes (`found`) is in
 /// the record, one row per node and bounded, each a node the agent and the asker may
-/// read. The public value holds their count and no word of them. They stay when the task
-/// fails and are no part of the plan (its hash). Unknown rights refuse them; the turn
-/// after a stopped run has the tool too.
+/// read. The public value holds their count and no word of them. A second `found` on a
+/// node replaces its words in place. Each refusal is counted by why, in fixed words
+/// (`findings_refused`): rights unknown or expired, outside the rights, the limit, not a
+/// node key. Findings stay when the task fails and are no part of the plan (its hash).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
     let f = |path: &str, label: &str| json!({"path": path, "label": label});
@@ -2478,8 +2479,8 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
             "ok1".into(),
             json!({"path": "downstream/mock/p0", "label": "p0", "detail": long}),
         ),
-        // one row per node
-        ("b5".into(), f("wy/test/downstream/mock/p0", "again")),
+        // the same node again: its words are replaced
+        ("ok2".into(), f("wy/test/downstream/mock/p0", "again")),
     ];
     let mut wide_calls: Vec<(String, Json)> = vec![(
         "t1".into(),
@@ -2492,7 +2493,11 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
         let c: Vec<(&str, &str, Json)> = c
             .iter()
             .map(|(id, input)| {
-                let tool = if id == "t1" { "propose" } else { "found" };
+                let tool = if id.starts_with('t') {
+                    "propose"
+                } else {
+                    "found"
+                };
                 (id.as_str(), tool, input.clone())
             })
             .collect();
@@ -2503,20 +2508,35 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
         end("p0 is fine."),
         calls(&wide_calls),
         end("Plan: set p0."),
+        // no `auth`; then rights that expired before the model's turn
         tool_use(&[("n1", "found", f("downstream/mock/p0", "p0"))]),
         end("Nothing to change."),
-        // a run that stops, then the turn after it notes what it read
-        tool_use(&[(
-            "e1",
-            "propose",
-            json!({"op": "expect", "path": "downstream/mock/p0", "min": 100, "timeout_s": 0.2}),
-        )]),
-        end("Plan: prove p0."),
-        tool_use(&[(
-            "r1",
-            "found",
-            json!({"path": "downstream/mock/p0", "label": "p0", "detail": "holds 0"}),
-        )]),
+        tool_use(&[("x1", "found", f("downstream/mock/p0", "p0"))]),
+        end("Nothing to change."),
+        // a plan that stops at its proof; the turn after it corrects and adds a finding
+        calls(&[
+            (
+                "t1".into(),
+                json!({"op": "set", "path": "downstream/mock/p0", "value": 3}),
+            ),
+            (
+                "t2".into(),
+                json!({"op": "expect", "path": "downstream/mock/p0", "min": 100, "timeout_s": 0.2}),
+            ),
+            (
+                "f1".into(),
+                json!({"path": "downstream/mock/p0", "label": "p0", "detail": "will be 3"}),
+            ),
+        ]),
+        end("Plan: set p0 and prove it."),
+        tool_use(&[
+            (
+                "r1",
+                "found",
+                json!({"path": "downstream/mock/p0", "label": "p0", "detail": "holds 3"}),
+            ),
+            ("r2", "found", f("downstream/mock/p1", "p1")),
+        ]),
         end("p0 holds less than 100."),
     ];
     let env = Env::start(params(&["downstream/mock"]), script).await;
@@ -2531,37 +2551,59 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
                     g("wy/test/downstream/mock/p0/**", Perm::Read),
                 ]),
         ));
+    let refused = |doc: &Value| -> Vec<(String, u64)> {
+        match get(doc, "findings_refused") {
+            Value::Map(m) => m
+                .iter()
+                .map(|(k, v)| {
+                    let n = match v {
+                        Value::UInt(n) => *n,
+                        other => panic!("count: {other:?}"),
+                    };
+                    (k.clone(), n)
+                })
+                .collect(),
+            Value::Null => Vec::new(),
+            other => panic!("findings_refused: {other:?}"),
+        }
+    };
+    let pairs = |p: &[(&str, u64)]| -> Vec<(String, u64)> {
+        p.iter().map(|(k, n)| ((*k).to_owned(), *n)).collect()
+    };
+
     let (id, _) = env.ask_with(&narrow, "how is p0?").await.unwrap();
     let doc = env.wait_state(&id, "done").await;
     let seen = env.llm.seen();
-    let refused: Vec<bool> = narrow_calls
+    let errors: Vec<bool> = narrow_calls
         .iter()
         .map(|(c, _)| result_for(&seen, c)["is_error"].as_bool().unwrap())
         .collect();
-    assert_eq!(refused, [true, true, true, true, false, true]);
+    assert_eq!(errors, [true, true, true, true, false, false]);
     let r = result_for(&seen, "b1");
     assert!(
         r["content"].as_str().unwrap().contains("may not read"),
         "{r}"
     );
-    let r = result_for(&seen, "b5");
-    assert!(
-        r["content"].as_str().unwrap().contains("one per node"),
-        "{r}"
-    );
+    let r = result_for(&seen, "ok2");
+    assert!(r["content"].as_str().unwrap().contains("replaced"), "{r}");
     let found = items(&doc, "findings");
-    assert_eq!(found.len(), 1);
+    assert_eq!(found.len(), 1, "one row per node");
     assert_eq!(field(&found[0], "key").as_deref(), Some(P0));
-    assert_eq!(field(&found[0], "label").as_deref(), Some("p0"));
-    assert!(field(&found[0], "detail").unwrap().len() < 320);
+    assert_eq!(field(&found[0], "label").as_deref(), Some("again"));
+    assert_eq!(field(&found[0], "detail").as_deref(), Some(""));
+    assert_eq!(
+        refused(&doc),
+        pairs(&[("invalid", 2), ("outside_rights", 2)]),
+        "counted by why, in fixed words"
+    );
     let pv = env.task(&id);
     assert_eq!(get(&pv, "findings"), &Value::UInt(1));
     assert!(
-        !format!("{pv:?}").contains("xxx"),
+        !format!("{pv:?}").contains("again"),
         "no text in ~val: {pv:?}"
     );
 
-    // at most 12; they stay when the task fails, and the plan's hash is the same
+    // at most 12; they stay when the task fails
     let (id, _) = env.ask("set p0").await.unwrap();
     let doc = env.wait_state(&id, "awaiting_approval").await;
     assert_eq!(items(&doc, "findings").len(), 12);
@@ -2571,7 +2613,7 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
         r["content"].as_str().unwrap().contains("12 findings"),
         "{r}"
     );
-    let hash = field(&doc, "plan_hash");
+    assert_eq!(refused(&doc), pairs(&[("limit", 1)]));
     let reason = Value::Map(BTreeMap::from([("reason".into(), Value::from("no"))]));
     env.task_action(&env.human(Perm::Config), &id, "reject", reason)
         .await
@@ -2582,10 +2624,9 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
         12,
         "kept when the task fails"
     );
-    assert_eq!(field(&doc, "plan_hash"), hash, "no part of the plan");
     assert_eq!(get(&env.task(&id), "findings"), &Value::UInt(12));
 
-    // rights not known (a token without `auth`): refused
+    // rights not known (a token without `auth`): refused, and the model is told to note none
     let blind = WyrmClient::new(env.session.clone())
         .with_timeout(Duration::from_secs(5))
         .with_tokens(Arc::new(NoAuth(Default::default())));
@@ -2593,12 +2634,47 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
     let doc = env.wait_state(&id, "done").await;
     let r = result_for(&env.llm.seen(), "n1");
     assert_eq!(r["is_error"], true, "{r}");
-    assert!(r["content"].as_str().unwrap().contains("not known"), "{r}");
+    let text = r["content"].as_str().unwrap();
+    assert!(
+        text.contains("not known") && text.contains("Note no findings"),
+        "{r}"
+    );
     assert!(items(&doc, "findings").is_empty());
+    assert_eq!(refused(&doc), pairs(&[("rights_unknown", 1)]));
     assert_eq!(get(&env.task(&id), "findings"), &Value::Null);
 
-    // the turn after a stopped run
-    let (id, _) = env.ask("prove p0").await.unwrap();
+    // rights that expired before the model's turn (a token of 1 s)
+    let short = WyrmClient::new(env.session.clone())
+        .with_timeout(Duration::from_secs(5))
+        .with_tokens(Arc::new(
+            SigningTokens::new(test_key(), SITE)
+                .subject("user:op")
+                .ttl(Duration::from_secs(1)),
+        ));
+    *env.llm.delay.lock().unwrap() = Duration::from_millis(2100);
+    let (id, _) = env.ask_with(&short, "how is p0?").await.unwrap();
+    let doc = env.wait_state(&id, "done").await;
+    *env.llm.delay.lock().unwrap() = Duration::ZERO;
+    assert!(items(&doc, "findings").is_empty());
+    assert_eq!(refused(&doc), pairs(&[("rights_expired", 1)]));
+
+    // the turn after a stopped run corrects a finding in place and adds one; the plan
+    // and its hash stay as they were
+    let (id, _) = env.ask("set p0 and prove it").await.unwrap();
+    let doc = env.wait_state(&id, "awaiting_approval").await;
+    let hash = field(&doc, "plan_hash");
+    assert!(hash.is_some());
+    let found = items(&doc, "findings");
+    assert_eq!(field(&found[0], "detail").as_deref(), Some("will be 3"));
+    let k0 = format!("{P0}/~set");
+    env.task_action(
+        &env.human(Perm::Write),
+        &id,
+        "approve",
+        approvals(&[("1", human_token("user:op", &k0))]),
+    )
+    .await
+    .unwrap();
     env.wait_state(&id, "failed").await;
     let mut doc = Value::Null;
     for _ in 0..400 {
@@ -2609,7 +2685,22 @@ async fn findings_are_bounded_inside_the_askers_rights_and_stay() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     let found = items(&doc, "findings");
-    assert_eq!(found.len(), 1, "{doc:?}");
-    assert_eq!(field(&found[0], "detail").as_deref(), Some("holds 0"));
+    let rows: Vec<_> = found
+        .iter()
+        .map(|f| (field(f, "key").unwrap(), field(f, "detail").unwrap()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (P0.to_owned(), "holds 3".to_owned()),
+            ("wy/test/downstream/mock/p1".to_owned(), String::new()),
+        ],
+        "{doc:?}"
+    );
+    assert_eq!(
+        field(&doc, "plan_hash"),
+        hash,
+        "findings are no part of the plan"
+    );
     env.stop().await;
 }
