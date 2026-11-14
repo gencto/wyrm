@@ -918,7 +918,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "${site} asks for the password once every ${days} days.";
 
   static String m389(site) =>
-      "Works with ${site} and its standby. Other gateways ask for their own.";
+      "Works with ${site}. Other gateways ask for their own.";
 
   static String m390(site, standby) =>
       "Works with ${site} and its standby ${standby}. Other gateways ask for their own.";

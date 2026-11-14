@@ -918,7 +918,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "${site} просить пароль раз на ${days} днів.";
 
   static String m389(site) =>
-      "Працює з ${site} і його резервним шлюзом. Інші шлюзи просять свій власний.";
+      "Працює з ${site}. Інші шлюзи просять свій власний.";
 
   static String m390(site, standby) =>
       "Працює з ${site} і його резервним ${standby}. Інші шлюзи просять свій власний.";

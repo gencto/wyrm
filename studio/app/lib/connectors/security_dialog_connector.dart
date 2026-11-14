@@ -204,7 +204,7 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
       onDevice: (id) => unawaited(dispatchAndWait(RemoveDeviceAction(id))),
       onSignOut: () async {
         await dispatchAndWait(SignOutEverywhereAction());
-        if (state.session.token == null) {
+        if (currentState().session.token == null) {
           dispatchSync(GoAction.replace(const LogInRoute()));
         }
       },

@@ -222,7 +222,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       }
       // Before Welcome: the offer, or a key made again (spec §2).
       await dispatchAndWait(OfferDeviceAction(enable: enable));
-      if (state.device.stage == UnlockStage.offer) {
+      if (currentState().device.stage == UnlockStage.offer) {
         return;
       }
       await open();
@@ -235,7 +235,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
           auto: auto,
         ),
       );
-      if (status.isCompletedOk && state.session.token != null) {
+      if (status.isCompletedOk && currentState().session.token != null) {
         await open();
       }
     }
@@ -359,7 +359,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
           ? _offer(standbyUri)
           : null,
       onOfferUse: () => unawaited(() async {
-        if (state.device.available) {
+        if (currentState().device.available) {
           await enable();
         } else {
           await dispatchAndWait(DeclineOfferAction());

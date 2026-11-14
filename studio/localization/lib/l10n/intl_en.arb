@@ -1890,7 +1890,7 @@
     "unlockOfferText": "Instead of the password, {name} opens a key that proves to {site} it is you on {device}.",
     "unlockFactStore": "One key for {user} on {site}, made inside {store}. It never leaves it; Studio never keeps your password.",
     "unlockFactStandby": "Works with {site} and its standby {standby}. Other gateways ask for their own.",
-    "unlockFactSite": "Works with {site} and its standby. Other gateways ask for their own.",
+    "unlockFactSite": "Works with {site}. Other gateways ask for their own.",
     "unlockFactEndsFingers": "It ends when the fingerprints here change, when your password changes, or when an administrator removes this device.",
     "unlockFactEndsFaces": "It ends when the faces here change, when your password changes, or when an administrator removes this device.",
     "unlockFactPassword": "{site} asks for the password once every {days} days.",

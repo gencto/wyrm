@@ -84,7 +84,7 @@ class _Factory extends VmFactory<AppState, LockOverlayConnector, _Vm>
               );
               // The gateway refused the key: Studio logged out, and the
               // log-in page says why.
-              if (state.session.token == null) {
+              if (currentState().session.token == null) {
                 dispatchSync(GoAction.replace(const LogInRoute()));
               }
             }())

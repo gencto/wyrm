@@ -15200,10 +15200,10 @@ class S {
     );
   }
 
-  /// `Works with {site} and its standby. Other gateways ask for their own.`
+  /// `Works with {site}. Other gateways ask for their own.`
   String unlockFactSite(Object site) {
     return Intl.message(
-      'Works with $site and its standby. Other gateways ask for their own.',
+      'Works with $site. Other gateways ask for their own.',
       name: 'unlockFactSite',
       desc: '',
       args: [site],
