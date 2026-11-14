@@ -120,6 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         writable: true,
     };
     let link = wyrm_link_sdk::spawn::<Mock>(session.clone(), lc, mock).await?;
+    gw.set_agent_links(vec!["agent".into()]);
     let mut lc = LinkConfig::new(SITE, "agent");
     lc.admin_keys = vec![gw.verifying_key()];
     lc.answer_val = true;

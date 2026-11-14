@@ -276,6 +276,10 @@ pub struct Gateway {
     /// Other sites' points this site records (ADR 0020), followed while
     /// the gateway serves.
     sites: Arc<watch::Sender<Arc<overlay::Sites>>>,
+    /// The ids of this site's agent links (driver `agent`), told by the broker
+    /// ([`Gateway::set_agent_links`]): the only links whose tasks the gateway signs
+    /// approvals for.
+    agent_links: RwLock<Vec<String>>,
     /// Open WebSockets and the request bucket of each user (review GW-2).
     per_user: Mutex<std::collections::HashMap<String, UserUse>>,
 }
@@ -386,6 +390,7 @@ impl Gateway {
             tickets: Mutex::new(Default::default()),
             downstream_sites: RwLock::new(cfg.downstream_sites.clone()),
             sites: Arc::new(watch::channel(Arc::default()).0),
+            agent_links: RwLock::new(Vec::new()),
             per_user: Mutex::new(Default::default()),
             cfg,
         }))
@@ -511,6 +516,27 @@ impl Gateway {
             .downstream_sites
             .write()
             .unwrap_or_else(|p| p.into_inner()) = sites;
+    }
+
+    /// The agent links of this site (their link ids), from the broker's registry. The
+    /// gateway signs approvals only for tasks of these links (ADR 0049): a link cannot make
+    /// itself one, whatever it serves under its own subtree.
+    pub fn set_agent_links(&self, links: Vec<String>) {
+        *self.agent_links.write().unwrap_or_else(|p| p.into_inner()) = links;
+    }
+
+    /// The task id when `key` is `wy/<this site>/downstream/<agent link>/tasks/<id>`.
+    pub(crate) fn agent_task(&self, key: &str) -> Option<String> {
+        let rest = key.strip_prefix(&format!("wy/{}/downstream/", self.cfg.site))?;
+        let mut parts = rest.split('/');
+        let (link, tasks, id) = (parts.next()?, parts.next()?, parts.next()?);
+        let known = self
+            .agent_links
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .any(|l| l == link);
+        (known && tasks == "tasks" && parts.next().is_none()).then(|| id.to_owned())
     }
 
     /// `key` with a downstream site's prefix replaced by the own site's (roles

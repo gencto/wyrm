@@ -163,6 +163,10 @@ impl Conn {
             }
             ClientError::new(r.status, r.message)
         };
+        // A person's own session and a task of an agent link of this site, by the broker's
+        // registry: an MCP client approves nothing, and no other link that serves a
+        // plan-shaped document gets a token of the user.
+        crate::approve::gate(self.human, self.gw.agent_task(key).is_some()).map_err(refused)?;
         let ask = Ask::parse(args).map_err(refused)?;
         let site = key.split('/').nth(1).unwrap_or_default();
         let doc = c.doc(key, "~state").await?;
@@ -208,6 +212,8 @@ struct Conn {
     out: mpsc::Sender<Out>,
     grants: watch::Sender<Arc<Grants>>,
     inflight: Arc<Semaphore>,
+    /// A person's own login (see [`serve_frames`]).
+    human: bool,
 }
 
 struct Req {
@@ -254,13 +260,21 @@ async fn run(st: AppState, p: Principal, socket: WebSocket) {
         Ok(Message::Close(_)) | Err(_) => WsIn::Close,
         Ok(_) => WsIn::Other,
     });
-    serve_frames(st, p, stream, sink).await;
+    serve_frames(st, p, true, stream, sink).await;
 }
 
 /// The protocol over any frame transport: an axum socket, or the in-process
 /// pipe of the MCP endpoint (ADR 0041).
-pub(crate) async fn serve_frames<St, Si>(st: AppState, p: Principal, stream: St, sink: Si)
-where
+///
+/// `human`: the session is a person's own login, not an MCP client's token: only such a
+/// session gets approvals of an agent's plan signed (ADR 0049).
+pub(crate) async fn serve_frames<St, Si>(
+    st: AppState,
+    p: Principal,
+    human: bool,
+    stream: St,
+    sink: Si,
+) where
     St: futures_util::Stream<Item = WsIn> + Send + Unpin,
     Si: futures_util::Sink<WsOut> + Send + Unpin + 'static,
 {
@@ -290,6 +304,7 @@ where
         out: out_tx.clone(),
         grants: watch::channel(Arc::new(p.grants.clone())).0,
         inflight: Arc::new(Semaphore::new(MAX_INFLIGHT)),
+        human,
     });
     let claims = p.claims.clone();
     let left = Duration::from_secs(claims.exp.saturating_sub(crate::session::now_s()));

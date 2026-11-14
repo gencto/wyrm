@@ -1003,7 +1003,10 @@ fn task_meta() -> NodeMeta {
             // `write` on the task: what a person may approve is decided by the tokens, one
             // per step at the level the step needs (ADR 0049 §3)
             ActionMeta::new()
-                .param("approvals", ParamMeta::of(TypeCode::Map).required(true))
+                // Two forms: `approvals` from a caller with its own key, or `steps` from a
+                // user of the gateway, which signs them and sends `approvals` (ADR 0049 §2)
+                .param("approvals", ParamMeta::of(TypeCode::Map))
+                .param("steps", ParamMeta::of(TypeCode::Array))
                 .param("plan", ParamMeta::of(TypeCode::String))
                 .level(Perm::Write),
         ),
@@ -1535,7 +1538,16 @@ impl Agent {
             ));
         }
         let Some(Value::Map(given)) = arg(&args, "approvals") else {
-            return Err(LinkError::invalid_parameter("approvals: map required"));
+            // `steps` alone is the form of a gateway user: the gateway makes `approvals`
+            // of it. Here it came from a caller no gateway signs for.
+            return Err(LinkError::invalid_parameter(
+                if arg(&args, "steps").is_some() {
+                    "steps: only a gateway signs the steps of its user; a caller with its \
+                     own key sends approvals {<step>: <ptok>}"
+                } else {
+                    "approvals: map required"
+                },
+            ));
         };
         let mut toks: Vec<(String, Vec<u8>)> = Vec::new();
         for (k, v) in given {
@@ -1666,6 +1678,18 @@ impl Agent {
                             info.sub, sub
                         ),
                     ));
+                }
+                // The token was made now and the step is sent after the waits before it:
+                // one that cannot live that long is refused here, while the person can
+                // still leave the step for a follow-up.
+                let waits = tools::waits_before(&t.plan, n, |k| skip.contains_key(&k));
+                if waits > 0.0 && waits + tools::APPROVAL_MARGIN_S > info.expires_in_s as f64 {
+                    return Err(LinkError::invalid_parameter(format!(
+                        "step {n} may be sent {waits} s after this approval (the waits before \
+                         it), and its approval is good for {} s: leave it out and ask for it \
+                         as a follow-up when this plan is done",
+                        info.expires_in_s
+                    )));
                 }
                 per_op.push(Approval::Token(tok));
             }
@@ -2605,6 +2629,29 @@ mod tests {
             tokens: 3,
             created: 1,
             seq: 4,
+        }
+    }
+
+    /// What `approve` says of itself is what its callers send: a client that checks
+    /// arguments against `~meta` takes the form of a gateway user and the form of a caller
+    /// with its own key (review of ADR 0049: `approvals` was required, `steps` unknown).
+    #[test]
+    fn the_meta_of_approve_takes_both_forms() {
+        let meta = task_meta();
+        let approve = &meta.actions.as_ref().unwrap()["approve"];
+        assert_eq!(approve.level, Some(Perm::Write));
+        let args = |kv: Vec<(&str, Value)>| -> BTreeMap<String, Value> {
+            kv.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
+        };
+        for form in [
+            args(vec![
+                ("steps", Value::Array(vec![Value::UInt(1)])),
+                ("plan", Value::from("h")),
+            ]),
+            args(vec![("approvals", Value::Map(BTreeMap::new()))]),
+        ] {
+            let r = wyrm_mcp::check::prepare_args(&approve.params, form.clone());
+            assert_eq!(r, Ok(form));
         }
     }
 

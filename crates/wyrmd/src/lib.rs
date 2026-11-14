@@ -1341,6 +1341,15 @@ impl Broker {
         if let Some(g) = gateway {
             // downstream sites may have changed at runtime (install, quarantine)
             g.set_downstream_sites(ctl.peers().reachable());
+            // which links are agents is the registry's word, never a link's own (ADR 0049)
+            g.set_agent_links(
+                ctl.registry()
+                    .links
+                    .values()
+                    .filter(|l| l.driver == "agent")
+                    .map(|l| l.id.clone())
+                    .collect(),
+            );
         }
         // The engine trusts admin keys and the gateway's (user requests),
         // never the flow key: flow tokens do not command flows.

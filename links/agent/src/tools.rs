@@ -216,6 +216,32 @@ impl Check {
 /// Longest `wait`/`expect` timeout and `sleep` of a step, seconds (as `wyrm-agent run`).
 pub const MAX_STEP_WAIT_S: f64 = 600.0;
 
+/// Longest time the waits of a plan (`wait`/`expect` timeouts, `sleep`) may add up to before
+/// a step that needs a person, seconds. An approval is a token with a short life (spec 04:
+/// single use, `exp` at most 15 min away; the gateway signs for 5 min), made when the person
+/// approves, not when the step is sent: a step that comes later than its token lives can
+/// only fail. Such a step belongs in a follow-up task, approved when its turn comes.
+pub const MAX_WAIT_BEFORE_APPROVAL_S: f64 = 240.0;
+
+/// What a step's approval must still live when the waits before the step have run out,
+/// seconds: the time the requests before it may take.
+pub const APPROVAL_MARGIN_S: f64 = 30.0;
+
+// a step the plan takes is one a token of the gateway (5 min) outlives
+const _: () = assert!(MAX_WAIT_BEFORE_APPROVAL_S + APPROVAL_MARGIN_S <= 300.0);
+
+/// The longest the steps before step `n` (from 1) may wait in all, seconds: the timeouts of
+/// the `wait`/`expect` steps and the `sleep`s among them that run (`skipped(k)`: step `k`
+/// does not).
+pub fn waits_before(plan: &[PlanOp], n: usize, skipped: impl Fn(usize) -> bool) -> f64 {
+    plan.iter()
+        .take(n.saturating_sub(1))
+        .enumerate()
+        .filter(|(i, op)| !op.op.changes() && !skipped(i + 1))
+        .map(|(_, op)| op.seconds.unwrap_or(0.0))
+        .sum()
+}
+
 /// One validated plan step. Its number `n` is its place in the plan, from 1.
 #[derive(Debug, Clone)]
 pub struct PlanOp {
@@ -649,6 +675,18 @@ pub async fn check_proposal(
     if check::is_control_plane(&policy.site, &node) {
         level = Perm::Config;
     }
+    // A person's approval does not outlive long waits: the model learns it here, not the
+    // person at the step.
+    let waits = waits_before(plan, plan.len() + 1, |_| false);
+    if policy.mode.needs_approval(level) && waits > MAX_WAIT_BEFORE_APPROVAL_S {
+        return Err(format!(
+            "this step needs a person's approval, and an approval is good for a few minutes \
+             only: the waits before it add up to {waits} s (at most \
+             {MAX_WAIT_BEFORE_APPROVAL_S} s). Shorten the timeouts, put the step before the \
+             waits, or end the plan before this step and tell the person to ask for the rest \
+             as a follow-up when this plan is done"
+        ));
+    }
     Ok(PlanOp {
         node,
         key,
@@ -993,6 +1031,43 @@ fn enum_name(values: Option<&[String]>, i: usize) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An approval is made when the person approves and spent when the step is sent: the
+    /// waits between the two are those of the proof steps before it that run.
+    #[test]
+    fn the_waits_before_a_step_are_those_of_the_proofs_that_run() {
+        let step = |op: OpKind, seconds: Option<f64>| PlanOp {
+            op,
+            node: String::new(),
+            key: String::new(),
+            action: None,
+            payload: Value::Null,
+            seconds,
+            level: Perm::Read,
+            needs_approval: false,
+            reason: None,
+            check: Check::Now,
+            warn: None,
+            after: Vec::new(),
+            result: None,
+        };
+        let plan = [
+            step(OpKind::Set, None),
+            step(OpKind::Expect, Some(100.0)),
+            step(OpKind::Sleep, Some(200.0)),
+            step(OpKind::Set, None),
+            step(OpKind::Wait, Some(50.0)),
+        ];
+        let all = |_: usize| false;
+        assert_eq!(waits_before(&plan, 1, all), 0.0);
+        assert_eq!(waits_before(&plan, 2, all), 0.0);
+        assert_eq!(waits_before(&plan, 4, all), 300.0);
+        // the step's own wait is not before it; a step after the last one sees them all
+        assert_eq!(waits_before(&plan, 5, all), 300.0);
+        assert_eq!(waits_before(&plan, 6, all), 350.0);
+        // a proof that is skipped waits for nothing
+        assert_eq!(waits_before(&plan, 4, |n| n == 3), 100.0);
+    }
 
     #[test]
     fn an_enum_value_has_a_name() {

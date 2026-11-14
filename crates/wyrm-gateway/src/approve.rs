@@ -5,6 +5,11 @@
 //! gateway signs those tokens with the user's rights, as it signs flow deploy proofs
 //! (ADR 0008). The rule, in the order it is checked:
 //!
+//! 0. the session is a person's own (a login with a password): a session of an MCP client
+//!    (`/mcp`, ADR 0041) is refused, because approving a plan is a human act; and the key
+//!    is `wy/<this site>/downstream/<link>/tasks/<id>` where `<link>` is an agent link by
+//!    the broker's registry ([`crate::Gateway::set_agent_links`]), not by what the link
+//!    serves: no other link gets a token of the user;
 //! 1. the plan is the one the agent link stores: the gateway reads `tasks/<id>/~state` itself
 //!    with the user's own token; the client names steps by number and nothing else of a
 //!    step comes from the client (`approvals` in the arguments means a caller with its own
@@ -32,7 +37,10 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 use wyrm_core::{Perm, Status, Value};
 
-/// Lifetime of an approval token: the run must send the step within it.
+/// Lifetime of an approval token: the run must send the step within it. Kept short (spec
+/// 04: at most 15 min, single use): the agent link takes no approval whose step comes later
+/// than the token lives (`links/agent` `tools::MAX_WAIT_BEFORE_APPROVAL_S`), and the rest of
+/// a long plan is approved as a follow-up, when its turn comes.
 pub const APPROVAL_TTL: Duration = Duration::from_secs(300);
 /// Largest document the `doc` op returns, and the largest task record `approve` reads.
 pub const MAX_DOC: usize = 1024 * 1024;
@@ -94,6 +102,24 @@ fn text<'a>(m: &'a BTreeMap<String, Value>, k: &str) -> Option<&'a str> {
 /// `approvals` the caller brings its own tokens and the gateway adds nothing.
 pub(crate) fn asks_for_tokens(args: &Value) -> bool {
     matches!(args, Value::Map(m) if m.contains_key("steps") && !m.contains_key("approvals"))
+}
+
+/// Rule 0 of the module, before anything is read: `human` is a person's own session,
+/// `agent_task` says the key is a task of an agent link of this site.
+pub(crate) fn gate(human: bool, agent_task: bool) -> Result<(), Refusal> {
+    if !human {
+        return Err(Refusal::new(
+            Status::PermissionDenied,
+            "approving a plan is for a person: approve it in Studio",
+        ));
+    }
+    if !agent_task {
+        return Err(Refusal::new(
+            Status::PermissionDenied,
+            "approvals are signed only for a task of an agent link of this site",
+        ));
+    }
+    Ok(())
 }
 
 impl Ask {
@@ -402,6 +428,23 @@ mod tests {
         Ask {
             steps: steps.to_vec(),
             plan: plan.to_owned(),
+        }
+    }
+
+    /// Approving is a human act on a task of an agent link: a session of an MCP client gets
+    /// no token even where its user's grants reach every step (review of ADR 0049: the
+    /// connector's `allow_config` switch looks at the level of `approve`, not of the steps).
+    #[test]
+    fn only_a_person_approves_and_only_a_task_of_an_agent_link() {
+        assert!(gate(true, true).is_ok());
+        for (human, task, want) in [
+            (false, true, "for a person"),
+            (true, false, "agent link"),
+            (false, false, "for a person"),
+        ] {
+            let e = gate(human, task).unwrap_err();
+            assert_eq!(e.status, Status::PermissionDenied);
+            assert!(e.message.contains(want), "{}", e.message);
         }
     }
 

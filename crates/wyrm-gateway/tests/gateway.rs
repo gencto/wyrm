@@ -1421,6 +1421,7 @@ async fn spawn_agent(env: &Env) -> LinkHandle<wyrm_link_agent::Agent> {
         ], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 10}}),
         json!({"content": [{"type": "text", "text": "Plan: three steps."}], "stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 10}}),
     ];
+    env.gw.set_agent_links(vec!["agent".into()]);
     let mut lc = LinkConfig::new(SITE, "agent");
     lc.admin_keys = vec![env.gw.verifying_key()];
     lc.answer_val = true;
@@ -1550,6 +1551,30 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
     assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
     let r = fo.call("invoke", &task, approve_args(&[1], &hash)).await;
     assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+
+    // only a task of a link the broker calls an agent: while the gateway does not know
+    // this link as one, whatever it serves gets no token of the user
+    env.gw.set_agent_links(Vec::new());
+    let r = root.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    assert!(err_message(&r).contains("agent link"), "{r:?}");
+    env.gw.set_agent_links(vec!["mock".into()]);
+    let r = root.call("invoke", &task, approve_args(&[1], &hash)).await;
+    assert_eq!(err_status(&r), Some(Status::PermissionDenied), "{r:?}");
+    env.gw.set_agent_links(vec!["agent".into()]);
+    // a key that is not a task node of it
+    for key in [
+        AGENT.to_owned(),
+        format!("{task}/x"),
+        format!("{ROOT}/tasks/{id}"),
+    ] {
+        let r = root.call("invoke", &key, approve_args(&[1], &hash)).await;
+        assert_eq!(
+            err_status(&r),
+            Some(Status::PermissionDenied),
+            "{key}: {r:?}"
+        );
+    }
 
     // the client names steps of the stored plan and nothing else
     for (steps, plan_hash, want) in [
