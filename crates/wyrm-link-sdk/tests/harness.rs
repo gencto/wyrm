@@ -781,6 +781,98 @@ async fn stop_returns_after_the_queryable_is_gone() {
     );
 }
 
+/// A driver whose action `go` says that it runs and answers when it is let go.
+struct Gate(GateConfig);
+
+type GateConfig = (
+    tokio::sync::mpsc::UnboundedSender<()>,
+    Arc<tokio::sync::Notify>,
+);
+
+impl Link for Gate {
+    const NAME: &'static str = "gate";
+    const VERSION: &'static str = "0.1.0";
+    type Config = GateConfig;
+
+    async fn start(cfg: Self::Config, ctx: LinkCtx) -> wyrm_link_sdk::Result<Self> {
+        ctx.declare_action(
+            "",
+            "go",
+            ActionMeta::new()
+                .result(ActionResult::Type(TypeCode::String))
+                .level(Perm::Write),
+        )
+        .await?;
+        Ok(Self(cfg))
+    }
+
+    async fn on_invoke(
+        &mut self,
+        _path: &str,
+        _action: &str,
+        _args: Value,
+        _who: &Caller,
+        out: ReplySink,
+    ) -> wyrm_link_sdk::Result<()> {
+        let _ = self.0 .0.send(());
+        self.0 .1.notified().await;
+        out.reply("gone").await
+    }
+}
+
+/// When `stop` returns, the requests the driver finished are answered: the answer is sent
+/// by a task of the request, beside the driver's, and a host that closes the session next
+/// (a router rebuild) cut it off when that task had not run yet. One worker, so the task
+/// of the answer runs only after the driver's task has taken `stop` too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn stop_returns_after_finished_requests_are_answered() {
+    let (entered_tx, mut entered) = tokio::sync::mpsc::unbounded_channel();
+    let go = Arc::new(tokio::sync::Notify::new());
+    let h = TestHarness::<Gate>::start((entered_tx, go.clone())).await;
+    let answers = Arc::new(Mutex::new(Vec::new()));
+    let att = wyrm_core::Attachment {
+        ptok: Some(h.ptok(Perm::Write)),
+        ..Default::default()
+    };
+    let seen = answers.clone();
+    h.session()
+        .get(h.key("", "~act/go"))
+        .attachment(wyrm_core::codec::to_vec(&att).unwrap())
+        .payload(wyrm_core::codec::to_vec(&Value::Map(Default::default())).unwrap())
+        .timeout(Duration::from_secs(10))
+        .callback(move |r| {
+            if let Ok(s) = r.result() {
+                let att: wyrm_core::Attachment = s
+                    .attachment()
+                    .and_then(|a| wyrm_core::codec::from_slice(&a.to_bytes()).ok())
+                    .unwrap_or_default();
+                seen.lock().unwrap().push(status(&att));
+            }
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), entered.recv())
+        .await
+        .expect("the driver runs the action");
+    // `stop` (and then the close of the session) waits for the driver; only then the
+    // driver answers, so its task goes on to the stop before the answer's task runs
+    let ctx = h.ctx().clone();
+    let stop = tokio::spawn(h.stop());
+    while !ctx.is_closed() {
+        tokio::task::yield_now().await;
+    }
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    go.notify_one();
+    stop.await.unwrap();
+    assert_eq!(
+        *answers.lock().unwrap(),
+        [Status::Ok],
+        "the answer of a finished request"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn data_dir_reaches_ctx() {
     let (h, _) = harness().await;
