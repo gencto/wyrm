@@ -5365,7 +5365,6 @@ async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_api_base_drops_the_agent_api_key() {
     let env = Env::start("agentbase", "").await;
-    let c = env.client().await;
     let links = format!("wy/{SITE}/sys/links");
     let params = |base: &str| {
         Value::Map(BTreeMap::from([
@@ -5380,7 +5379,10 @@ async fn a_new_api_base_drops_the_agent_api_key() {
     args.insert("id".to_owned(), Value::from("ai3"));
     args.insert("driver".to_owned(), Value::from("agent"));
     args.insert("params".to_owned(), params("https://api.anthropic.com"));
-    c.invoke_one(&links, "install", Value::Map(args))
+    // Every change of an agent link (its install, a secret, its params) rebuilds the router
+    // 300 ms later (ADR 0006), and a call that meets the rebuild has no answer: each step
+    // waits for the router its change asked for.
+    invoke_rebuilt(&env, &links, "install", Value::Map(args))
         .await
         .expect("install the agent");
     let node = format!("{links}/ai3");
@@ -5388,9 +5390,10 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         ("name".to_owned(), Value::from("anthropic_api_key")),
         ("value".to_owned(), Value::Bytes(b"sk-test".to_vec())),
     ]);
-    c.invoke_one(&node, "set_secret", Value::Map(secret.clone()))
+    invoke_rebuilt(&env, &node, "set_secret", Value::Map(secret.clone()))
         .await
         .expect("set the key");
+    let c = slow_client(&env).await;
     let names = |v: Option<Value>| format!("{v:?}");
     // ADR 0049 §10: the names of the link's secrets are readable, never a value
     let listed = names(
@@ -5403,7 +5406,9 @@ async fn a_new_api_base_drops_the_agent_api_key() {
     // the same base: the key stays
     let mut up = BTreeMap::new();
     up.insert("params".to_owned(), params("https://api.anthropic.com/"));
-    c.invoke_one(&node, "update", Value::Map(up)).await.unwrap();
+    invoke_rebuilt(&env, &node, "update", Value::Map(up))
+        .await
+        .unwrap();
     assert!(!env
         .ctl
         .audit_tail(50)
@@ -5412,7 +5417,9 @@ async fn a_new_api_base_drops_the_agent_api_key() {
     // another base: dropped, and the audit says so
     let mut up = BTreeMap::new();
     up.insert("params".to_owned(), params("https://llm.example"));
-    c.invoke_one(&node, "update", Value::Map(up)).await.unwrap();
+    invoke_rebuilt(&env, &node, "update", Value::Map(up))
+        .await
+        .unwrap();
     assert!(env
         .ctl
         .audit_tail(50)
@@ -5420,9 +5427,10 @@ async fn a_new_api_base_drops_the_agent_api_key() {
         .any(|r| r.op == "secret_dropped" && r.key == "ai3"));
     // the three-step way round it (automated review of d8ce568): another key name at the same
     // base, then the new base, then the old name back. Each change of either field drops.
-    c.invoke_one(&node, "set_secret", Value::Map(secret.clone()))
+    invoke_rebuilt(&env, &node, "set_secret", Value::Map(secret.clone()))
         .await
         .expect("enter the key again");
+    let c = slow_client(&env).await;
     let with = |base: &str, key_ref: &str| {
         let mut p = params(base);
         if let Value::Map(m) = &mut p {
@@ -5442,10 +5450,14 @@ async fn a_new_api_base_drops_the_agent_api_key() {
     // signing key's name, should that ever change
     let before = dropped();
     for key_ref in ["decoy", "agent_key"] {
-        assert!(c
+        let refused = c
             .invoke_one(&node, "update", with("https://llm.example", key_ref))
             .await
-            .is_err());
+            .unwrap_err();
+        assert!(
+            refused.is(wyrm_core::Status::InvalidParameter),
+            "{key_ref}: {refused}"
+        );
     }
     assert_eq!(dropped(), before);
     let empty = BTreeMap::from([("name".to_owned(), Value::from("other"))]);
@@ -7491,6 +7503,23 @@ fn point_writes(env: &Env, point: &str) -> usize {
         .iter()
         .filter(|r| r.op == "set" && (r.key == point || r.key.starts_with(&below)))
         .count()
+}
+
+/// `action` on `node` for an action that rebuilds the router (ADR 0006), then the wait for
+/// the new router: the caller's next request is made to a broker that answers.
+async fn invoke_rebuilt(
+    env: &Env,
+    node: &str,
+    action: &str,
+    args: Value,
+) -> Result<Option<Value>, wyrm_client::ClientError> {
+    let c = slow_client(env).await;
+    let watch = BrokerWatch::new(env).await;
+    let r = c.invoke_one(node, action, args).await?;
+    watch
+        .rebuilt(&format!("the rebuild after {action} on {node}"))
+        .await;
+    Ok(r)
 }
 
 /// The broker's liveliness token, watched from before an action that rebuilds the router.
