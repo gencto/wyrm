@@ -6,7 +6,6 @@ import '../../../wyrm/decode/hist_point.dart';
 import '../../../wyrm/history_steps.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import '../../nodes/actions/retrieve_history_action.dart';
 
 /// Reads the min and max of every bucket of the trend (`agg=min` and
 /// `agg=max` with the same `window`, both at once per key) for the tooltip
@@ -37,7 +36,7 @@ class LoadTrendExtremesAction extends Action {
       from = d.from.toIso8601String();
       to = d.to.toIso8601String();
     } else {
-      final span = RetrieveHistoryAction.span(historian.range);
+      final span = historian.range.span;
       step = stepFor(span);
       from = DateTime.now().toUtc().subtract(span).toIso8601String();
       to = '';

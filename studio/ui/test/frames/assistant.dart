@@ -737,7 +737,6 @@ Widget assistantKeyPicker() => Builder(
           ),
         ],
         goTo: (_) => null,
-        onPick: (_) {},
       ),
     ),
   ),

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/quality_mark.dart';
@@ -36,8 +37,8 @@ enum SiteNodeKind {
   relayed,
 }
 
-/// One node of the map.
-final class SiteNodeVm extends Equatable {
+/// One node of the map; [T] names a node (its id and its [parent]'s).
+final class SiteNodeVm<T> extends Equatable {
   const SiteNodeVm({
     required this.id,
     required this.name,
@@ -49,13 +50,13 @@ final class SiteNodeVm extends Equatable {
     this.selected = false,
   });
 
-  final String id;
+  final T id;
   final String name;
   final SiteNodeKind kind;
   final String sub;
 
   /// The node it hangs from (its edge); the self node for most.
-  final String? parent;
+  final T? parent;
   final bool offline;
 
   /// `YOU`, `MQTT`.
@@ -92,11 +93,16 @@ final class SiteNodeVm extends Equatable {
 /// platforms above, the site, the brokers, devices and waiting connections
 /// below, relayed sites under their relay). Edges are solid when connected,
 /// dashed when offline or waiting, dotted to platforms.
-class SiteMap extends StatelessWidget {
-  const SiteMap({required this.nodes, required this.onTap, super.key});
+class SiteMap<T> extends StatelessWidget {
+  /// [onTap] gets the id of the node tapped.
+  SiteMap({required this.nodes, required ValueChanged<T> onTap, super.key})
+    : _onTap = [for (final n in nodes) () => onTap(n.id)];
 
-  final List<SiteNodeVm> nodes;
-  final ValueChanged<String> onTap;
+  final List<SiteNodeVm<T>> nodes;
+
+  // The callback is applied to each node's id here: a field of type
+  // `ValueChanged<T>` would hold `T` against its variance.
+  final List<VoidCallback> _onTap;
 
   static const _rowY = [0.0, 110.0, 230.0, 350.0];
   static const _gap = 18.0;
@@ -107,11 +113,11 @@ class SiteMap extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, box) {
         final width = box.maxWidth;
-        final rows = <int, List<SiteNodeVm>>{};
+        final rows = <int, List<SiteNodeVm<T>>>{};
         for (final n in nodes) {
           (rows[n.row] ??= []).add(n);
         }
-        final pos = <String, Rect>{};
+        final pos = <T, Rect>{};
         for (final MapEntry(key: row, value: list) in rows.entries) {
           final sizes = [for (final n in list) _size(n)];
           final widths = sizes.fold<double>(0, (s, z) => s + z.width);
@@ -138,11 +144,11 @@ class SiteMap extends StatelessWidget {
                   painter: _Edges(nodes: nodes, pos: pos, c: c),
                 ),
               ),
-              for (final n in nodes)
+              for (final (i, n) in nodes.indexed)
                 if (pos[n.id] case final r?)
                   Positioned.fromRect(
                     rect: r,
-                    child: _Card(vm: n, onTap: onTap),
+                    child: _Card(vm: n, onTap: _onTap[i]),
                   ),
             ],
           ),
@@ -151,15 +157,15 @@ class SiteMap extends StatelessWidget {
     );
   }
 
-  static Size _size(SiteNodeVm n) =>
+  static Size _size(SiteNodeVm<Object?> n) =>
       n.small ? const Size(150, 44) : const Size(176, 60);
 }
 
 class _Card extends StatelessWidget {
   const _Card({required this.vm, required this.onTap});
 
-  final SiteNodeVm vm;
-  final ValueChanged<String> onTap;
+  final SiteNodeVm<Object?> vm;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +192,7 @@ class _Card extends StatelessWidget {
       color: bg,
       shape: RoundedRectangleBorder(borderRadius: radius, side: border),
       child: InkWell(
-        onTap: () => onTap(vm.id),
+        onTap: onTap,
         borderRadius: radius,
         child: Padding(
           padding: EdgeInsets.symmetric(
@@ -253,11 +259,11 @@ class _Card extends StatelessWidget {
   }
 }
 
-class _Edges extends CustomPainter {
+class _Edges<T> extends CustomPainter {
   _Edges({required this.nodes, required this.pos, required this.c});
 
-  final List<SiteNodeVm> nodes;
-  final Map<String, Rect> pos;
+  final List<SiteNodeVm<T>> nodes;
+  final Map<T, Rect> pos;
   final AppColors c;
 
   @override
@@ -300,15 +306,12 @@ class _Edges extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_Edges old) => old.nodes != nodes || old.pos != pos;
+  bool shouldRepaint(_Edges<T> old) => old.nodes != nodes || old.pos != pos;
 }
 
 /// The legend under the map's title.
 class SiteLegend extends StatelessWidget {
-  const SiteLegend({required this.labels, super.key});
-
-  /// connected, offline, waiting in quarantine, platform.
-  final (String, String, String, String) labels;
+  const SiteLegend({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -334,10 +337,10 @@ class SiteLegend extends StatelessWidget {
       spacing: 18,
       runSpacing: 8,
       children: [
-        item(c.good, false, false, labels.$1),
-        item(c.muted, true, false, labels.$2),
-        item(c.warn, true, false, labels.$3),
-        item(c.good, false, true, labels.$4),
+        item(c.good, false, false, S.current.legendConnected),
+        item(c.muted, true, false, S.current.legendOffline),
+        item(c.warn, true, false, S.current.legendWaiting),
+        item(c.good, false, true, S.current.legendPlatform),
       ],
     );
   }
@@ -376,5 +379,5 @@ class _Line extends CustomPainter {
 }
 
 /// A tone for a site node's state word.
-Tone siteTone(SiteNodeVm n) =>
+Tone siteTone(SiteNodeVm<Object?> n) =>
     n.waiting ? Tone.warn : (n.offline ? Tone.neutral : Tone.good);

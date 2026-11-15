@@ -2,40 +2,26 @@ import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
+import 'package:business/redux/access/actions/pick_user_action.dart';
 import 'package:business/redux/access/actions/poll_access_action.dart';
-import 'package:business/redux/access/actions/remove_user_action.dart';
-import 'package:business/redux/access/actions/retrieve_access_action.dart';
-import 'package:business/redux/access/actions/save_user_action.dart';
-import 'package:business/redux/access/actions/set_grant_action.dart';
-import 'package:business/redux/access/actions/set_selected_action.dart';
 import 'package:business/redux/access/actions/set_shown_action.dart';
 import 'package:business/redux/access/actions/set_tab_action.dart';
+import 'package:business/redux/access/actions/show_access_action.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/device/actions/remove_device_action.dart';
-import 'package:business/redux/device/actions/retrieve_user_devices_action.dart';
-import 'package:business/wyrm/device_keys.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:ui/buttons/action_row.dart';
-import 'package:ui/buttons/segmented_tabs.dart';
-import 'package:ui/containers/detail_inspector.dart';
-import 'package:ui/containers/fact_grid.dart';
-import 'package:ui/forms/action_form.dart';
-import 'package:ui/forms/param_form.dart';
-import 'package:ui/indicators/status_pill.dart';
-import 'package:ui/models/tone.dart';
-import 'package:ui/overlays/confirm_dialog.dart';
-import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/pages/access_page.dart';
-import 'package:ui/tables/row_table.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../common/every.dart';
-import '../common/forms.dart';
 import '../common/tab_visibility.dart';
-import '../common/unlock.dart';
+import '../dialogs/access_dialogs.dart';
+import '../mappers/access_mappers.dart';
+import '../mappers/rights_mappers.dart';
 
-const _levels = ['none', 'list', 'read', 'write', 'config'];
-
+/// Access: the gateway's users, the grants and the audit tail, mapped
+/// through `app/lib/mappers/access_mappers.dart`; `AccessPage` words them.
+/// One action per intent; its forms and confirmations open from the
+/// widget, with the widget's context (`app/lib/dialogs/access_dialogs.dart`).
 @RoutePage()
 class AccessPageConnector extends StatelessWidget {
   const AccessPageConnector({super.key});
@@ -53,46 +39,12 @@ class AccessPageConnector extends StatelessWidget {
         enabled: vm.polling,
         onTick: vm.onPoll,
         child: AccessPage(
-          title: S.current.accessOn(vm.site),
-          subtitle: S.current.accessSubtitle,
-          tabs: [
-            TabItemVm(
-              id: 'users',
-              label: S.current.tabUsers,
-              count: '${vm.userCount}',
-            ),
-            TabItemVm(
-              id: 'grants',
-              label: S.current.tabGrants,
-              count: '${vm.grantCount}',
-            ),
-            TabItemVm(id: 'audit', label: S.current.tabAudit),
-          ],
-          tab: vm.tab,
+          vm: vm.page,
           onTab: vm.onTab,
-          columns: vm.tab == 'grants'
-              ? [
-                  ColumnVm(S.current.colRole, flex: 2),
-                  ColumnVm(S.current.colKey, flex: 4),
-                  ColumnVm(S.current.colLevel),
-                  ColumnVm(S.current.colSource),
-                ]
-              : [
-                  ColumnVm(S.current.colUser, flex: 2),
-                  ColumnVm(S.current.colRoles, flex: 3),
-                  ColumnVm(S.current.colDevices),
-                  ColumnVm(S.current.colState),
-                ],
-          rows: vm.rows,
-          onRow: vm.onRow,
-          empty: vm.empty,
-          audit: vm.audit,
-          addLabel: vm.tab == 'grants' ? S.current.addGrant : S.current.addUser,
-          addReason: vm.addReason,
-          onAdd: () =>
-              vm.onAction(context, vm.tab == 'grants' ? 'grant' : 'add-user'),
-          inspector: vm.inspector,
-          onAction: (a) => vm.onAction(context, a),
+          onUser: vm.onUser,
+          onAddUser: () => unawaited(addUser(context)),
+          onAddGrant: () => unawaited(addGrant(context)),
+          onPick: (pick) => unawaited(changeUser(context, pick)),
         ),
       ),
     ),
@@ -105,410 +57,61 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
   _Factory(super._connector);
 
   @override
-  _Vm fromStore() {
-    final a = access;
-    final home = site.home ?? '';
-    final sel = a.selected;
-    final u = a.users.where((x) => x.name == sel).firstOrNull;
-    final devicesOfU = [...?state.device.userDevices[u?.name ?? '']];
-    final sysReason = site.needs('config', '$home/sys');
-    final roles = {
-      for (final g in a.grants)
-        if (g.source == 'gateway') g.subject,
-    };
+  _Vm fromStore() => _vm(now: DateTime.now());
+
+  /// The view-model at [now] (the devices' rows are computed against it).
+  _Vm _vm({required DateTime now}) {
+    final sys = '${site.home}/sys';
+    final u = access.pickedUser;
     return _Vm(
-      site: site.name ?? '',
-      tab: a.tab,
-      userCount: a.users.length,
-      grantCount: a.grants.length,
-      rows: a.tab == 'grants'
-          ? [
-              for (final (i, g) in a.grants.indexed)
-                RowVm(
-                  id: 'grant:$i',
-                  cells: [
-                    CellVm(title: g.subject, strong: true),
-                    CellVm(title: g.path, monospace: true),
-                    CellVm(title: g.level, monospace: true),
-                    CellVm(title: g.source),
-                  ],
-                ),
-            ]
-          : [
-              for (final x in a.users)
-                RowVm(
-                  id: x.name,
-                  selected: x.name == sel,
-                  cells: [
-                    CellVm(title: x.name, strong: true),
-                    CellVm(title: x.roles.join(', ')),
-                    // Devices that can log in (ADR 0050 §1.5).
-                    CellVm(title: '${x.devices}', monospace: true),
-                    CellVm(
-                      title: x.disabled
-                          ? S.current.userDisabled
-                          : S.current.userActive,
-                      tone: x.disabled ? Tone.neutral : Tone.good,
-                    ),
-                  ],
-                ),
-            ],
-      empty: a.tab == 'audit'
-          ? S.current.noAudit
-          : (a.tab == 'grants' ? S.current.noGrants : S.current.noUsers),
-      audit: a.audit.unlock,
-      addReason: a.tab == 'grants'
-          ? sysReason
-          : (site.can('config', '$home/sys') ? null : S.current.adminsOnly),
-      inspector: a.tab != 'users' || u == null
-          ? null
-          : DetailInspectorVm(
-              eyebrow: S.current.gatewayUser,
-              title: u.name,
-              pill: u.disabled
-                  ? StatusPillVm(
-                      label: S.current.userDisabled,
-                      tone: Tone.neutral,
-                    )
-                  : StatusPillVm(label: S.current.userActive, tone: Tone.good),
-              facts: [
-                FactVm(label: S.current.colRoles, value: u.roles.join(', ')),
-                FactVm(
-                  label: S.current.factSubject,
-                  value: 'user:${u.name}',
-                  mono: true,
-                ),
-                FactVm(
-                  label: S.current.factGrants,
-                  value: [
-                    for (final g in a.grants)
-                      if (u.roles.contains(g.subject)) '${g.level} ${g.path}',
-                  ].join('\n'),
-                  mono: true,
-                ),
-              ],
-              groups: [
-                ActionGroupVm(
-                  label: S.current.groupChange,
-                  actions: [
-                    ActionRowVm(
-                      id: 'roles',
-                      icon: 'action_grant',
-                      title: S.current.setRoles,
-                      description: S.current.setRolesNote,
-                      code: 'roles',
-                    ),
-                    ActionRowVm(
-                      id: 'password',
-                      icon: 'action_key',
-                      title: S.current.setPassword,
-                      description: S.current.setPasswordNote,
-                      code: 'password',
-                    ),
-                    ActionRowVm(
-                      id: 'disable',
-                      icon: 'action_block',
-                      title: u.disabled
-                          ? S.current.enableUser
-                          : S.current.disableUser,
-                      description: S.current.disableUserNote,
-                      code: 'disabled',
-                      tone: u.disabled ? Tone.neutral : Tone.warn,
-                    ),
-                  ],
-                ),
-                // The user's devices, each with Remove (Forget once an
-                // administrator removed it), ADR 0050 §1.5.
-                ActionGroupVm(
-                  label: S.current.groupDevices,
-                  actions: [
-                    for (final dv in devicesOfU)
-                      ActionRowVm(
-                        id: 'device:${dv.id}',
-                        icon: 'action_trash',
-                        title: dv.state == .removed
-                            ? [
-                                dv.name,
-                                S.current.securityRemovedBy(dv.removedByUser),
-                              ].join(' · ')
-                            : dv.name,
-                        description: S.current.deviceLine(
-                          dv.platform?.wire ?? '',
-                          dv.lastUsed == 0
-                              ? S.current.securityAdded(shortDate(dv.added))
-                              : agoOf(dv.lastUsed),
-                        ),
-                        code: dv.state == .removed
-                            ? S.current.securityForget
-                            : S.current.securityRemove,
-                        tone: Tone.bad,
-                      ),
-                  ],
-                ),
-                ActionGroupVm(
-                  label: S.current.groupRemove,
-                  actions: [
-                    ActionRowVm(
-                      id: 'remove',
-                      icon: 'action_trash',
-                      title: S.current.removeUser,
-                      description: S.current.removeUserNote,
-                      code: 'DELETE',
-                      tone: Tone.bad,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+      page: AccessVm(
+        site: site.name ?? '',
+        tab: access.tab.view,
+        users: [for (final x in access.users) x.row],
+        grants: [for (final g in access.grants) g.row],
+        audit: [for (final l in access.audit) l.row],
+        picked: u == null
+            ? null
+            : PickedUserVm(
+                user: u.row,
+                grants: [for (final g in access.grantsOf(u)) g.row],
+                devices: [
+                  for (final r in device.userRowsAt(u.name, now)) r.accessRow,
+                ],
+              ),
+        usersLocked: site.lacks(Perm.config, sys) != null,
+        grantsDisabled: site.lacks(Perm.config, sys)?.disabled,
+      ),
       polling: access.shown,
-      onShow: () {
-        dispatchSync(SetShownAction(true));
-        unawaited(dispatchAndWait(RetrieveAccessAction()));
-      },
+      onShow: () => dispatch(ShowAccessAction()),
       onHide: () => dispatchSync(SetShownAction(false)),
-      onPoll: () => unawaited(dispatchAndWait(PollAccessAction())),
-      onTab: (t) => dispatchSync(SetTabAction(t)),
-      onRow: (id) {
-        if (!id.startsWith('grant:')) {
-          dispatchSync(SetSelectedAction(id));
-          unawaited(
-            dispatchAndWait(RetrieveUserDevicesAction(id, quiet: true)),
-          );
-        }
-      },
-      onAction: (context, action) async {
-        final roleChoices = roles.isEmpty
-            ? const ['admin', 'engineer', 'operator', 'viewer']
-            : roles.toList();
-        if (action.startsWith('device:') && u != null) {
-          final id = action.substring('device:'.length);
-          final dv = devicesOfU.where((x) => x.id == id).firstOrNull;
-          if (dv == null) {
-            return;
-          }
-          final forget = dv.state == .removed;
-          if (await ConfirmDialog.ask(
-            context,
-            title: forget
-                ? S.current.deviceForgetTitle(dv.name)
-                : S.current.deviceRemoveTitle(dv.name),
-            message: forget
-                ? S.current.deviceForgetText
-                : S.current.deviceRemoveText(u.name),
-            confirm: forget ? S.current.securityForget : S.current.remove,
-            cancel: S.current.cancel,
-          )) {
-            await dispatchAndWait(RemoveDeviceAction(id, user: u.name));
-          }
-          return;
-        }
-        switch (action) {
-          case 'add-user':
-            await _form(
-              context,
-              S.current.addUser,
-              [
-                ParamFieldVm(
-                  id: 'name',
-                  label: S.current.colUser,
-                  kind: ParamKind.text,
-                  required: true,
-                  onChanged: (_) {},
-                ),
-                ParamFieldVm(
-                  id: 'password',
-                  label: S.current.password,
-                  kind: ParamKind.secret,
-                  required: true,
-                  onChanged: (_) {},
-                ),
-                ParamFieldVm(
-                  id: 'roles',
-                  label: S.current.colRoles,
-                  kind: ParamKind.text,
-                  required: true,
-                  hint: roleChoices.join(', '),
-                  onChanged: (_) {},
-                ),
-              ],
-              (v) => SaveUserAction(
-                v['name']! as String,
-                password: v['password'] as String?,
-                roles: _split(v['roles']),
-                isNew: true,
-              ),
-            );
-          case 'roles' when u != null:
-            await _form(
-              context,
-              S.current.setRoles,
-              [
-                ParamFieldVm(
-                  id: 'roles',
-                  label: S.current.colRoles,
-                  kind: ParamKind.text,
-                  value: u.roles.join(', '),
-                  required: true,
-                  hint: roleChoices.join(', '),
-                  onChanged: (_) {},
-                ),
-              ],
-              (v) => SaveUserAction(u.name, roles: _split(v['roles'])),
-            );
-          case 'password' when u != null:
-            await _form(
-              context,
-              S.current.setPassword,
-              [
-                ParamFieldVm(
-                  id: 'password',
-                  label: S.current.password,
-                  kind: ParamKind.secret,
-                  required: true,
-                  onChanged: (_) {},
-                ),
-              ],
-              (v) => SaveUserAction(u.name, password: v['password'] as String?),
-            );
-          case 'disable' when u != null:
-            await dispatchAndWait(
-              SaveUserAction(u.name, disabled: !u.disabled),
-            );
-          case 'remove' when u != null:
-            if (await ConfirmDialog.ask(
-              context,
-              title: S.current.removeUserTitle(u.name),
-              message: S.current.removeUserNote,
-              confirm: S.current.remove,
-              cancel: S.current.cancel,
-            )) {
-              await dispatchAndWait(RemoveUserAction(u.name));
-            }
-          case 'grant':
-            await _form(
-              context,
-              S.current.addGrant,
-              [
-                ParamFieldVm(
-                  id: 'role',
-                  label: S.current.colRole,
-                  kind: ParamKind.choice,
-                  choices: roleChoices,
-                  required: true,
-                  onChanged: (_) {},
-                ),
-                ParamFieldVm(
-                  id: 'path',
-                  label: S.current.colKey,
-                  kind: ParamKind.text,
-                  required: true,
-                  hint: 'wy/{site}/downstream/**',
-                  onChanged: (_) {},
-                ),
-                ParamFieldVm(
-                  id: 'level',
-                  label: S.current.colLevel,
-                  kind: ParamKind.choice,
-                  choices: _levels,
-                  value: 'read',
-                  required: true,
-                  onChanged: (_) {},
-                ),
-              ],
-              (v) => SetGrantAction(
-                v['role']! as String,
-                v['path']! as String,
-                v['level']! as String,
-              ),
-            );
-        }
-      },
+      onPoll: () => dispatch(PollAccessAction()),
+      onTab: (t) => dispatchSync(SetTabAction(t.tab)),
+      onUser: (name) => dispatch(PickUserAction(name)),
     );
   }
-
-  static List<String> _split(Object? v) => [
-    for (final s in '${v ?? ''}'.split(','))
-      if (s.trim().isNotEmpty) s.trim(),
-  ];
-
-  Future<void> _form(
-    BuildContext context,
-    String title,
-    List<ParamFieldVm> fields,
-    ReduxAction<AppState> Function(Map<String, Object?> v) make,
-  ) => showDialog<void>(
-    context: context,
-    builder: (dialog) => PanelDialog(
-      title: title,
-      width: 520,
-      child: ActionForm(
-        fields: fields,
-        submit: title,
-        // The gateway calls the user's name `user`.
-        onSubmit: (v) => sendForm(
-          dispatchAndWait(make(v)),
-          fields: const {'user': 'name'},
-          onOk: () {
-            if (dialog.mounted) {
-              Navigator.of(dialog).pop();
-            }
-          },
-        ),
-      ),
-    ),
-  );
 }
 
-/// The view-model holds the part of the Store state the dumb-widget needs.
+/// What Access draws ([page] and [polling], compared) and what it starts
+/// (not).
 class _Vm extends Vm {
   _Vm({
-    required this.site,
-    required this.tab,
-    required this.userCount,
-    required this.grantCount,
-    required this.rows,
-    required this.empty,
-    required this.audit,
-    required this.addReason,
-    required this.inspector,
+    required this.page,
     required this.polling,
     required this.onShow,
     required this.onHide,
     required this.onPoll,
     required this.onTab,
-    required this.onRow,
-    required this.onAction,
-  }) : super(
-         equals: [
-           site,
-           tab,
-           userCount,
-           grantCount,
-           rows,
-           empty,
-           audit,
-           addReason,
-           inspector,
-           polling,
-         ],
-       );
+    required this.onUser,
+  }) : super(equals: [page, polling]);
 
-  final String site;
-  final String tab;
-  final int userCount;
-  final int grantCount;
-  final List<RowVm> rows;
-  final String empty;
-  final List<String> audit;
-  final String? addReason;
-  final DetailInspectorVm? inspector;
+  final AccessVm page;
 
   /// The tab is shown: Access reads again every 10 s.
   final bool polling;
   final VoidCallback onShow;
   final VoidCallback onHide;
   final VoidCallback onPoll;
-  final ValueChanged<String> onTab;
-  final ValueChanged<String> onRow;
-  final Future<void> Function(BuildContext context, String action) onAction;
+  final ValueChanged<AccessView> onTab;
+  final ValueChanged<String> onUser;
 }

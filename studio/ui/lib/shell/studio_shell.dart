@@ -2,7 +2,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../alerts/offline_banner.dart';
 import '../theme/extensions/colors.dart';
-import 'top_bar.dart';
 import 'workspace_rail.dart';
 
 /// The four fixed zones (board *Design system* §01): top bar 56, rail 76,
@@ -24,8 +23,9 @@ class StudioShell extends StatelessWidget {
     super.key,
   });
 
-  /// The top bar, built with the shell's width in mind.
-  final TopBar Function(bool compact) topBar;
+  /// The top bar, built with the shell's width in mind: its value is
+  /// whether the shell is compact (below 800 px).
+  final ValueWidgetBuilder<bool> topBar;
   final List<RailItemVm> rail;
   final int selected;
   final ValueChanged<int> onSelect;
@@ -65,7 +65,7 @@ class StudioShell extends StatelessWidget {
               Positioned.fill(
                 child: Column(
                   children: [
-                    topBar(compact),
+                    topBar(context, compact, null),
                     if (offline case final m?) OfflineBanner(message: m),
                     Expanded(
                       child: compact

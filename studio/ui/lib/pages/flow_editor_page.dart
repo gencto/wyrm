@@ -263,7 +263,7 @@ class FlowEditorPage extends StatelessWidget {
   /// Why Deploy is off (`Nothing to deploy`); null: it is on.
   final String? deployReason;
 
-  final List<TabItemVm> paletteTabs;
+  final List<TabItemVm<String>> paletteTabs;
   final String paletteTab;
   final ValueChanged<String> onPaletteTab;
   final List<PaletteEntryVm> palette;

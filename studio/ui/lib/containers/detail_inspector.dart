@@ -14,11 +14,11 @@ import 'fact_grid.dart';
 import 'section_label.dart';
 
 /// A labelled group of actions.
-final class ActionGroupVm extends Equatable {
+final class ActionGroupVm<T> extends Equatable {
   const ActionGroupVm({required this.label, required this.actions});
 
   final String label;
-  final List<ActionRowVm> actions;
+  final List<ActionRowVm<T>> actions;
 
   @override
   List<Object?> get props => [label, actions];
@@ -60,7 +60,7 @@ final class InspectorFormVm extends Equatable {
 }
 
 /// What the right panel shows for one selection.
-final class DetailInspectorVm extends Equatable {
+final class DetailInspectorVm<T> extends Equatable {
   const DetailInspectorVm({
     required this.title,
     this.eyebrow,
@@ -81,7 +81,7 @@ final class DetailInspectorVm extends Equatable {
   final List<FactVm> facts;
 
   /// Groups of actions, in order.
-  final List<ActionGroupVm> groups;
+  final List<ActionGroupVm<T>> groups;
   final InspectorFormVm? form;
 
   /// A boxed note at the bottom.
@@ -102,19 +102,26 @@ final class DetailInspectorVm extends Equatable {
 
 /// The inspector of the canvas boards (Links, Sites): header with a status
 /// pill, facts, groups of action cards, an optional form.
-class DetailInspector extends StatelessWidget {
-  const DetailInspector({
+class DetailInspector<T> extends StatelessWidget {
+  /// [onAction] gets the id of the action row tapped.
+  DetailInspector({
     required this.vm,
-    required this.onAction,
+    required ValueChanged<T> onAction,
     this.onSubmit,
     this.onSecondary,
     this.busy = false,
     this.width = 340,
     super.key,
-  });
+  }) : _rows = [
+         for (final g in vm.groups)
+           [for (final a in g.actions) ActionRow<T>(vm: a, onTap: onAction)],
+       ];
 
-  final DetailInspectorVm vm;
-  final ValueChanged<String> onAction;
+  final DetailInspectorVm<T> vm;
+
+  // The rows of each group, with [onAction] applied to their ids here: a
+  // field of type `ValueChanged<T>` would hold `T` against its variance.
+  final List<List<ActionRow<T>>> _rows;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
@@ -184,12 +191,12 @@ class DetailInspector extends StatelessWidget {
               crossAxisAlignment: .stretch,
               spacing: 8,
               children: [
-                for (final g in vm.groups) ...[
+                for (final (i, g) in vm.groups.indexed) ...[
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: SectionLabel(g.label),
                   ),
-                  for (final a in g.actions) ActionRow(vm: a, onTap: onAction),
+                  ..._rows[i],
                 ],
                 if (vm.form case final f?) ...[
                   Padding(

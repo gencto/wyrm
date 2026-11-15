@@ -27,11 +27,11 @@ flowchart LR
     frxBack(["◀ back"])
 
     logIn ==>|"⚡ EnterStudioAction (replace)"| studio
-    studio ==>|"onLogOut (replace)"| logIn
     explorer -->|"onTapFlowEditor"| flowEditor
     explorer -->|"onAddAgent"| linkInstall
     links -->|"onTapLinkInstall"| linkInstall
-    flows -->|"onTapFlowEditor"| flowEditor
+    flows -->|"onNew"| flowEditor
+    flows -->|"onEdit"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
@@ -50,13 +50,13 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `SplashPage` _(initial)_ | `/splash` | no | 0 | [splash](splash.md) |
 | `LogInPage` | `/login` | yes | 19 | [logIn](logIn.md) |
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
-| `StudioPage` | `/studio` | no | 17 | [studio](studio.md) |
+| `StudioPage` | `/studio` | no | 18 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 58 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
-| `FlowsPage` | `/studio/flows` | no | 4 | [flows](flows.md) |
-| `HistoryPage` | `/studio/history` | no | 11 | [history](history.md) |
-| `AccessPage` | `/studio/access` | no | 6 | [access](access.md) |
-| `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
+| `FlowsPage` | `/studio/flows` | no | 5 | [flows](flows.md) |
+| `HistoryPage` | `/studio/history` | no | 10 | [history](history.md) |
+| `AccessPage` | `/studio/access` | no | 5 | [access](access.md) |
+| `SitesPage` | `/studio/sites` | no | 4 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 23 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
 | `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |

@@ -5,12 +5,13 @@ import '../alerts/read_fail.dart';
 import '../containers/action_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/fail_chip.dart';
+import '../indicators/flow_state_tag.dart';
 import '../indicators/level_badge.dart';
 import '../indicators/sample_mark.dart';
-import '../indicators/status_pill.dart';
 import '../indicators/value_type.dart';
 import '../models/disabled.dart';
-import '../models/tone.dart';
+
+export '../indicators/flow_state_tag.dart' show FlowStateTag;
 
 // What the Explorer page draws, as the connector hands it: typed values
 // (enums, numbers, times) and the domain's own text (a node's name, a
@@ -162,29 +163,6 @@ enum PointsEmpty {
     noPointsYet => S.current.noPointsYet,
     noPoints => S.current.noPoints,
   };
-}
-
-/// A flow's state: its tone and words (`v2 deployed`, `v3 · error`, `v1
-/// stopped`, `not deployed`).
-enum FlowStateTag {
-  error(Tone.bad),
-  deployed(Tone.good),
-  stopped(Tone.neutral),
-  notDeployed(Tone.neutral);
-
-  const FlowStateTag(this.tone);
-
-  final Tone tone;
-
-  String label(int? version) => switch (this) {
-    error => S.current.flowError(version ?? 0),
-    deployed => S.current.flowDeployed(version ?? 0),
-    stopped => S.current.flowStopped(version ?? 0),
-    notDeployed => S.current.notDeployed,
-  };
-
-  StatusPillVm pill(int? version) =>
-      StatusPillVm(label: label(version), tone: tone);
 }
 
 /// The line under the node's name: `modbus device · unit 1 ·

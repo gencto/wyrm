@@ -14,6 +14,7 @@ import 'package:models/login_failure.dart';
 import 'package:models/node_info.dart';
 import 'package:models/refusal_code.dart';
 import 'package:models/site_choice.dart';
+import 'package:models/site_relation.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/step_up_error.dart';
 import 'package:models/step_up_line.dart';
@@ -146,8 +147,8 @@ void main() {
         role: 'engineer',
         choices: const IListConst([
           SiteChoice(site: 'plant'),
-          SiteChoice(site: 'edge', relation: 'downstream'),
-          SiteChoice(site: 'central', relation: 'upstream'),
+          SiteChoice(site: 'edge', relation: SiteRelation.downstream),
+          SiteChoice(site: 'central', relation: SiteRelation.upstream),
         ]),
       ),
       nodes: a.nodes.copyWith(

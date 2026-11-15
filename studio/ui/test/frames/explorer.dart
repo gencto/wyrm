@@ -55,7 +55,7 @@ Widget _shell(
   onSelect: _none,
   offline: offline,
   drawer: drawer,
-  topBar: (compact) => TopBar(
+  topBar: (_, compact, _) => TopBar(
     vm: TopBarVm(
       site: site,
       siteDetail: route,

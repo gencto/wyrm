@@ -555,10 +555,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
 
   // ---- the words of the typed values -------------------------------------
 
-  List<TabItemVm> get _tabItems => [
+  List<TabItemVm<ExplorerTabTag>> get _tabItems => [
     for (final t in _w.tabs)
       TabItemVm(
-        id: t.tag.name,
+        id: t.tag,
         label: t.tag.label,
         count: switch (t.count) {
           final n? => '$n',
@@ -836,8 +836,8 @@ class _ExplorerPageState extends State<ExplorerPage> {
           ),
           SegmentedTabs(
             tabs: _tabItems,
-            selected: _w.tab.name,
-            onSelect: (id) => _w.onTab(ExplorerTabTag.values.byName(id)),
+            selected: _w.tab,
+            onSelect: _w.onTab,
             plainCounts: true,
             height: 44,
           ),
@@ -881,7 +881,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
               onReset: _w.onTrendReset,
             ),
           if (_w.historyRows.isNotEmpty)
-            RowTable(
+            RowTable<String>(
               columns: [
                 ColumnVm(S.current.colTime, flex: 2),
                 ColumnVm(S.current.colValue, flex: 3),
@@ -914,7 +914,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
             style: TextStyle(fontSize: FontSizes.md, color: c.text4),
           ),
         if (_w.auditRows.isNotEmpty)
-          RowTable(
+          RowTable<String>(
             columns: [
               ColumnVm(S.current.colTime, flex: 2),
               ColumnVm(S.current.colOp),
@@ -1332,7 +1332,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
         ],
       ),
       if (r.rows.isNotEmpty)
-        RowTable(
+        RowTable<String>(
           columns: [for (final c in r.columns) ColumnVm(c)],
           rows: [
             for (final row in r.rows)

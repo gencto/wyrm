@@ -15,7 +15,7 @@ import 'trend.dart';
 
 const _base = 'wy/plant/downstream/plc1';
 
-HistoryPage historyFrame() => HistoryPage(
+HistoryPage<String, String> historyFrame() => HistoryPage(
   groupsLabel: 'WATCH GROUPS · 3',
   groups: const [
     GroupItemVm(

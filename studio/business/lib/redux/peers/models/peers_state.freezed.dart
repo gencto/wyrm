@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$PeersState {
 
- IMap<String, Peer> get table; IList<String> get view; String? get selectedPeer;
+ IMap<String, Peer> get table; IList<String> get view; SitePick? get selectedPeer;
 /// Create a copy of PeersState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,11 +51,11 @@ abstract mixin class $PeersStateCopyWith<$Res>  {
   factory $PeersStateCopyWith(PeersState value, $Res Function(PeersState) _then) = _$PeersStateCopyWithImpl;
 @useResult
 $Res call({
- IMap<String, Peer> table, IList<String> view, String? selectedPeer
+ IMap<String, Peer> table, IList<String> view, SitePick? selectedPeer
 });
 
 
-
+$SitePickCopyWith<$Res>? get selectedPeer;
 
 }
 /// @nodoc
@@ -73,10 +73,22 @@ class _$PeersStateCopyWithImpl<$Res>
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, Peer>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,selectedPeer: freezed == selectedPeer ? _self.selectedPeer : selectedPeer // ignore: cast_nullable_to_non_nullable
-as String?,
+as SitePick?,
   ));
 }
+/// Create a copy of PeersState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$SitePickCopyWith<$Res>? get selectedPeer {
+    if (_self.selectedPeer == null) {
+    return null;
+  }
 
+  return $SitePickCopyWith<$Res>(_self.selectedPeer!, (value) {
+    return _then(_self.copyWith(selectedPeer: value));
+  });
+}
 }
 
 
@@ -90,7 +102,7 @@ class _PeersState implements PeersState {
 
 @override@JsonKey() final  IMap<String, Peer> table;
 @override@JsonKey() final  IList<String> view;
-@override final  String? selectedPeer;
+@override final  SitePick? selectedPeer;
 
 /// Create a copy of PeersState
 /// with the given fields replaced by the non-null parameter values.
@@ -124,11 +136,11 @@ abstract mixin class _$PeersStateCopyWith<$Res> implements $PeersStateCopyWith<$
   factory _$PeersStateCopyWith(_PeersState value, $Res Function(_PeersState) _then) = __$PeersStateCopyWithImpl;
 @override @useResult
 $Res call({
- IMap<String, Peer> table, IList<String> view, String? selectedPeer
+ IMap<String, Peer> table, IList<String> view, SitePick? selectedPeer
 });
 
 
-
+@override $SitePickCopyWith<$Res>? get selectedPeer;
 
 }
 /// @nodoc
@@ -146,11 +158,23 @@ class __$PeersStateCopyWithImpl<$Res>
 table: null == table ? _self.table : table // ignore: cast_nullable_to_non_nullable
 as IMap<String, Peer>,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
 as IList<String>,selectedPeer: freezed == selectedPeer ? _self.selectedPeer : selectedPeer // ignore: cast_nullable_to_non_nullable
-as String?,
+as SitePick?,
   ));
 }
 
+/// Create a copy of PeersState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$SitePickCopyWith<$Res>? get selectedPeer {
+    if (_self.selectedPeer == null) {
+    return null;
+  }
 
+  return $SitePickCopyWith<$Res>(_self.selectedPeer!, (value) {
+    return _then(_self.copyWith(selectedPeer: value));
+  });
+}
 }
 
 // dart format on

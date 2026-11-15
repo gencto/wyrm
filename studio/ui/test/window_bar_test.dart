@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/shell/window_bar.dart';
 import 'package:ui/shell/window_controls.dart';
@@ -34,6 +35,9 @@ Widget _bar(WindowBarVm vm, {VoidCallback? onButton}) => frame(
 );
 
 void main() {
+  // The window's buttons name themselves (studio-rules §5).
+  setUpAll(() => S.load(const Locale('en')));
+
   testWidgets('with a native frame the bar is its padding and nothing else', (
     t,
   ) async {
@@ -133,7 +137,8 @@ void main() {
     expect(t.getSize(find.byType(WindowControls)), const Size(138, 32));
     await t.tap(find.bySemanticsLabel('Minimize'));
     await t.tap(find.bySemanticsLabel('Maximize'));
-    await t.tap(find.bySemanticsLabel('Close'));
+    // the name the app gives it (the widget's own default was 'Close')
+    await t.tap(find.bySemanticsLabel('Close window'));
     expect(calls, ['minimize', 'maximize', 'close']);
     expect(find.bySemanticsLabel('Restore'), findsNothing);
 

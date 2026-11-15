@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/site_choice.dart';
+import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/mappers/values.dart';
@@ -44,7 +45,11 @@ class RetrieveSitesAction extends Action with WaitingAction {
           final d = str(attrOf(c.meta, 'site')) ?? c.name;
           if (seen.add(d)) {
             choices.add(
-              SiteChoice(site: d, relation: 'downstream', via: via ?? s),
+              SiteChoice(
+                site: d,
+                relation: SiteRelation.downstream,
+                via: via ?? s,
+              ),
             );
             next.add((d, s == home ? null : s));
           }
@@ -55,7 +60,9 @@ class RetrieveSitesAction extends Action with WaitingAction {
     try {
       for (final u in await api.children('wy/$home/sys/upstream')) {
         if (seen.add(u.name)) {
-          choices.add(SiteChoice(site: u.name, relation: 'upstream'));
+          choices.add(
+            SiteChoice(site: u.name, relation: SiteRelation.upstream),
+          );
         }
       }
     } on WyrmException {

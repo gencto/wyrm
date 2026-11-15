@@ -17,7 +17,7 @@ import 'package:ui/tables/row_table.dart';
 
 void _none(Object? _) {}
 
-List<TabItemVm> tabs() => const [
+List<TabItemVm<String>> tabs() => const [
   TabItemVm(id: 'local', label: 'On this broker', count: '5'),
   TabItemVm(id: 'remote', label: 'On other devices', count: '3'),
   TabItemVm(
