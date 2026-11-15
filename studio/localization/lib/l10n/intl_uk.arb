@@ -930,6 +930,7 @@
     "sysCopy": "Копіювати",
     "sysSaveLog": "Зберегти як .log",
     "sysNoLines": "На цьому рівні рядків немає.",
+    "sysLogInvalid": "Відповідь не є журналом ({detail}).",
     "sysAround": "Близько (UTC)",
     "sysAroundHint": "гг:хх:сс",
     "sysAroundClear": "Показати весь час",

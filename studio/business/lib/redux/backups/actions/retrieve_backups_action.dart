@@ -1,10 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/send_link.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/backup_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/backup_job.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -21,6 +21,12 @@ class RetrieveBackupsAction extends Action with WaitingAction {
   @override
   Action again() => RetrieveBackupsAction(quiet: quiet);
 
+  AppState _none() => state.copyWith.backups(
+    table: const IMapConst({}),
+    view: const IListConst([]),
+    sections: const IListConst([]),
+  );
+
   @override
   Future<AppState?> reduce() async {
     final root = site.root;
@@ -29,6 +35,12 @@ class RetrieveBackupsAction extends Action with WaitingAction {
     }
     final api = deps.wyrm;
     final base = '$root/sys/backups';
+    const none = (
+      exportSecrets: false,
+      sendLinks: IListConst<SendLink>([]),
+      sections: IListConst<String>([]),
+      keepDays: 7,
+    );
     final NodeMeta meta;
     try {
       meta = await api.meta(base);
@@ -36,27 +48,32 @@ class RetrieveBackupsAction extends Action with WaitingAction {
       if (e.status.known != Status.notFound) {
         rethrow;
       }
-      return state.copyWith.backups(
-        table: const IMapConst({}),
-        view: const IListConst([]),
-        sections: const IListConst([]),
-      );
+      return _none();
     }
+    // a `sys/backups` this client cannot read offers no backup, as a
+    // broker without it; logged with the attribute at fault
+    final attrs = backupsAttrsOf(meta).orWarn(base) ?? none;
     final ids = await listOf(api, base);
-    final jobs = await Future.wait([
-      for (final c in ids)
-        metaOf(api, '$base/${c.name}').then((m) => backupJobOf(c.name, m)),
-    ]);
+    // a backup this client cannot read is left out, and logged
+    final jobs = [
+      for (final j in await Future.wait([
+        for (final c in ids)
+          metaOf(api, '$base/${c.name}').then(
+            (m) => backupJobOf(c.name, m).orWarn('$base/${c.name}'),
+          ),
+      ]))
+        ?j,
+    ];
     return state.copyWith.backups(
       table: IMap<String, BackupJob>.fromValues(
         values: jobs,
         keyMapper: (j) => j.id,
       ),
       view: [for (final j in jobs) j.id].lock,
-      exportSecrets: boolean(attrOf(meta, 'export_secrets')) ?? false,
-      sendLinks: sendLinksOf(attrOf(meta, 'send_links')),
-      sections: strings(attrOf(meta, 'sections')).lock,
-      keepDays: integer(attrOf(meta, 'keep_days')) ?? 7,
+      exportSecrets: attrs.exportSecrets,
+      sendLinks: attrs.sendLinks,
+      sections: attrs.sections,
+      keepDays: attrs.keepDays,
     );
   }
 }

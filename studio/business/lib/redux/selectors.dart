@@ -6,6 +6,7 @@ import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
+import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/flow_draft.dart';
@@ -25,7 +26,9 @@ import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_set.dart';
 import 'package:models/live_value.dart';
+import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
+import 'package:models/log_read_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
@@ -35,8 +38,10 @@ import 'package:models/package_info.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
+import 'package:models/peer_kind.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
@@ -46,7 +51,11 @@ import 'package:models/standby_state.dart';
 import 'package:models/step_up_request.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/studio_notice.dart';
+import 'package:models/sys_status.dart';
+import 'package:models/sys_value.dart';
+import 'package:models/system_tab.dart';
 import 'package:models/task_event.dart';
+import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
@@ -57,12 +66,17 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/decode/backup_job.dart';
+import '../wyrm/decode/broker_self_update.dart';
+import '../wyrm/decode/sys_status.dart';
 import '../wyrm/device_keys.dart';
+import '../wyrm/features.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
+import '../wyrm/mappers/log_line_mapper.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -79,6 +93,7 @@ import 'flows/actions/retrieve_flows_action.dart';
 import 'historian/actions/load_trend_window_action.dart';
 import 'historian/actions/retrieve_historian_action.dart';
 import 'historian/actions/retrieve_series_action.dart';
+import 'last_result.dart';
 import 'link_install/actions/install_link_action.dart';
 import 'links/actions/deauthorize_link_action.dart';
 import 'links/actions/get_link_log_action.dart';
@@ -351,16 +366,46 @@ extension SelectComposites on Selectors {
 /// under `sys` (specs/system.md). They read `live`, `links`, `quarantine`
 /// and `system` at once, so they sit on the facade.
 extension SelectBrokerHealth on Selectors {
-  num? _sys(String key) =>
-      switch (live.values['${site.root}/sys/$key']?.value) {
-        final num n => n,
-        _ => null,
-      };
+  String get _sysKey => '${site.root}/sys';
+
+  /// What a decode of [keys] below `sys` reads: the site, and the live
+  /// value of each key (the same object while it does not change).
+  List<Object?> _sysInputs(Iterable<String> keys) => [
+    site.viewed,
+    for (final k in keys) live.values['$_sysKey/$k'],
+  ];
+
+  /// The values of `sys`, decoded once per change of their own live
+  /// values, not on a tick of another point (a value of another type is
+  /// left out and logged).
+  SysStatus get sysStatus => _sysStatus.of(
+    _sysInputs(sysStatusKeys),
+    () => sysStatusOf(
+      (k) => live.values['$_sysKey/$k']?.value,
+      'sys of ${site.viewed}',
+    ),
+  );
+
+  /// The `description` of the node of [v] (a tile's tooltip); empty
+  /// before it was read.
+  String sysAbout(SysValue v) => system.about['$_sysKey/${v.key}'] ?? '';
+
+  /// The unit the node of [v] names, if any.
+  String? sysUnit(SysValue v) => system.units['$_sysKey/${v.key}'];
+
+  /// The Log tab reads the log again every 5 s: `every 5 s` is on, the
+  /// tab is shown and the user may read it.
+  bool get systemLogPolls =>
+      system.auto && system.tab == SystemTab.log && sysConfigReason == null;
+
+  /// Why the user may not change `sys` (`needs config on sys`); null when
+  /// they may.
+  String? get sysConfigReason => site.needs('config', _sysKey);
 
   /// The state of [link]: its live `sys/links/<id>/state` when watched,
   /// else what was read with the list.
   String linkStateOf_(LinkInfo link) =>
-      switch (live.values['${site.root}/sys/links/${link.id}/state']) {
+      switch (live.values['$_sysKey/links/${link.id}/state']) {
         final v? => linkStateOf(v.value),
         null => link.state,
       };
@@ -383,17 +428,56 @@ extension SelectBrokerHealth on Selectors {
       if (links.table[id] case final l? when linkStateOf_(l) == 'failed') l,
   ];
 
+  /// The entries of `sys/quarantine` that wait (not held back by
+  /// Deauthorize), in list order.
+  List<QuarantineEntry> get _waiting => [
+    for (final id in quarantine.view)
+      if (quarantine.table[id] case final q? when !q.deauthorized) q,
+  ];
+
+  /// The link that has waited in quarantine longest (no time: first).
+  QuarantineEntry? get oldestWaitingLink =>
+      ([
+            for (final q in _waiting)
+              if (q.kind != QuarantineKind.broker) q,
+          ]..sort(
+            (a, b) => (a.firstSeen ?? DateTime(0)).compareTo(
+              b.firstSeen ?? DateTime(0),
+            ),
+          ))
+          .firstOrNull;
+
+  /// The first connected peer of [kind], while `sys` says one of that
+  /// kind is connected.
+  String? connectedPeer(PeerKind kind) {
+    final count = switch (kind) {
+      PeerKind.upstream => sysStatus[SysValue.upstreamConnected],
+      PeerKind.downstream => sysStatus[SysValue.downstreamConnected],
+      // `sys` counts only the brokers above and below
+      PeerKind.relayed || PeerKind.platform || PeerKind.device => null,
+    };
+    if ((count ?? 0) <= 0) {
+      return null;
+    }
+    return peers.table.values
+        .where((p) => p.kind == kind && p.connected)
+        .map((p) => p.site)
+        .firstOrNull;
+  }
+
   /// The warm standby, from `standby_connected`, `standby_lag` and
   /// `standby_forks`.
   StandbyState get standby {
-    final connected = _sys('standby_connected');
+    final status = sysStatus;
+    final connected = status[SysValue.standbyConnected];
     if (connected == null) {
       return StandbyState.unknown;
     }
     if (connected <= 0) {
       return StandbyState.none;
     }
-    return (_sys('standby_lag') ?? 0) > 0 || (_sys('standby_forks') ?? 0) > 0
+    return (status[SysValue.standbyLag] ?? 0) > 0 ||
+            (status[SysValue.standbyForks] ?? 0) > 0
         ? StandbyState.behind
         : StandbyState.following;
   }
@@ -403,13 +487,11 @@ extension SelectBrokerHealth on Selectors {
   /// waits for Authorize, the ACL counter grown since the screen was last
   /// shown, and last that no standby follows.
   List<AttentionItem> get attention {
-    final lag = _sys('standby_lag') ?? 0;
-    final forks = _sys('standby_forks') ?? 0;
-    final waiting = [
-      for (final id in quarantine.view)
-        if (quarantine.table[id] case final q? when !q.deauthorized) q,
-    ];
-    final acl = _sys('acl_denied');
+    final status = sysStatus;
+    final lag = status[SysValue.standbyLag] ?? 0;
+    final forks = status[SysValue.standbyForks] ?? 0;
+    final waiting = _waiting;
+    final acl = status[SysValue.aclDenied];
     final seen = system.aclSeen;
     return [
       if (lag > 0 || forks > 0)
@@ -421,7 +503,7 @@ extension SelectBrokerHealth on Selectors {
       for (final l in failedLinks)
         AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
       for (final q in waiting)
-        if (q.kind != 'broker')
+        if (q.kind != QuarantineKind.broker)
           AttentionItem(
             kind: AttentionKind.quarantine,
             subject: q.node,
@@ -429,7 +511,7 @@ extension SelectBrokerHealth on Selectors {
             since: q.firstSeen,
           ),
       for (final q in waiting)
-        if (q.kind == 'broker')
+        if (q.kind == QuarantineKind.broker)
           AttentionItem(
             kind: AttentionKind.brokerWaiting,
             subject: q.node,
@@ -446,7 +528,118 @@ extension SelectBrokerHealth on Selectors {
         const AttentionItem(kind: AttentionKind.noStandby),
     ];
   }
+
+  /// The level the broker logs at.
+  LogLevel? get brokerLogLevel => sysStatus.logLevel;
+
+  /// The change of `sys/log_level` staged in Review and apply, if any.
+  StagedChange? get stagedLogLevel => changes.table.values
+      .where((c) => c.key == '$_sysKey/log_level' && c.field == 'value')
+      .firstOrNull;
+
+  /// The level the Log tab shows as the broker's: the staged one, else
+  /// the broker's own, else `info`.
+  LogLevel get shownLogLevel =>
+      switch (stagedLogLevel) {
+        final c? => LogLevel.fromWire(c.to),
+        null => null,
+      } ??
+      brokerLogLevel ??
+      LogLevel.info;
+
+  /// The lines the log box shows: all that were read, or the ones near the
+  /// toolbar's time. Copy and Save as .log write these.
+  List<LogLine> get shownLog => linesAround(system.log, system.around);
+
+  /// The links whose own log the Log toolbar can read: embedded and WASM
+  /// links (a process link's log is its own).
+  List<LinkInfo> get logSourceLinks => [
+    for (final id in links.view)
+      if (links.table[id] case final l?
+          when l.mode == LinkMode.embedded || l.mode == LinkMode.wasm)
+        l,
+  ];
+
+  /// The kept backup [id] with its live values, or null.
+  BackupJob? backupJob(String id) => switch (backups.table[id]) {
+    final j? => backupLiveOf(
+      j,
+      (leaf) => live.values['$_sysKey/backups/$id/$leaf']?.value,
+      '$_sysKey/backups/$id',
+    ),
+    null => null,
+  };
+
+  /// The kept backups with their live values, newest first (the ids are in
+  /// the order the broker made them).
+  List<BackupJob> get backupRows => _backupRows.of(
+    [
+      backups.table,
+      backups.view,
+      ..._sysInputs([
+        for (final id in backups.view)
+          for (final leaf in backupLeaves) 'backups/$id/$leaf',
+      ]),
+    ],
+    () => [for (final id in backups.view.reversed) ?backupJob(id)],
+  );
+
+  /// The broker's update as System offers it: null while the broker part
+  /// does not exist ([Features.brokerUpdate]) and for a broker that says
+  /// nothing of it.
+  BrokerSelfUpdate? get offeredSelfUpdate => switch (selfUpdate) {
+    final u when Features.brokerUpdate && u.known => u,
+    _ => null,
+  };
+
+  /// What the broker says of its own update (ADR 0048 §2.4).
+  BrokerSelfUpdate get selfUpdate => _selfUpdate.of(
+    _sysInputs(selfUpdateKeys),
+    () => brokerSelfUpdateOf(
+      (k) => live.values['$_sysKey/$k']?.value,
+      'update of ${site.viewed}',
+    ),
+  );
+
+  /// The traffic trend's range (the ring's first and last sample, µs), the
+  /// window on it (the stored one, else all of it, clamped to the range),
+  /// whether the window follows now, and the narrowest window (ten
+  /// samples at the ring's pace); null before two samples.
+  TrafficTrendView? get trafficTrend {
+    final samples = system.samples;
+    if (samples.length < 2) {
+      return null;
+    }
+    final rs = samples.first.time.microsecondsSinceEpoch;
+    final re = samples.last.time.microsecondsSinceEpoch;
+    final w = system.trafficWindow;
+    final we = w?.end?.microsecondsSinceEpoch ?? re;
+    final ws = w == null ? rs : we - w.span.inMicroseconds;
+    return (
+      rangeStart: rs,
+      rangeEnd: re,
+      windowStart: ws.clamp(rs, re),
+      windowEnd: we.clamp(rs, re),
+      minWindow: 10 * ((re - rs) ~/ (samples.length - 1)),
+      following: w?.end == null,
+    );
+  }
 }
+
+final _sysStatus = LastResult<SysStatus>();
+final _backupRows = LastResult<List<BackupJob>>();
+final _selfUpdate = LastResult<BrokerSelfUpdate>();
+
+/// The range and window of System's traffic trend (µs), as
+/// [SelectBrokerHealth.trafficTrend] gives them.
+typedef TrafficTrendView = ({
+  int rangeStart,
+  int rangeEnd,
+  int windowStart,
+  int windowEnd,
+  int minWindow,
+  bool following,
+});
 
 extension type SelectConnectivity(AppState _state) {
   bool get isConnected => _state.connectivity.isAvailable;
@@ -1232,7 +1425,7 @@ extension type SelectSystem(AppState _state) {
   IList<LogLine> get log => _state.system.log;
 
   /// Returns logLevel
-  String? get logLevel => _state.system.logLevel;
+  LogLevel? get logLevel => _state.system.logLevel;
 
   /// Returns filter
   String? get filter => _state.system.filter;
@@ -1241,10 +1434,10 @@ extension type SelectSystem(AppState _state) {
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveSystemLogAction>();
 
   /// Returns tab
-  String get tab => _state.system.tab;
+  SystemTab get tab => _state.system.tab;
 
   /// Returns measure
-  String get measure => _state.system.measure;
+  TrafficMeasure get measure => _state.system.measure;
 
   /// Returns source
   String? get source => _state.system.source;
@@ -1259,7 +1452,7 @@ extension type SelectSystem(AppState _state) {
   bool get shown => _state.system.shown;
 
   /// Returns logError
-  String? get logError => _state.system.logError;
+  LogReadError? get logError => _state.system.logError;
 
   /// Returns samples
   IList<TrafficSample> get samples => _state.system.samples;
@@ -1466,6 +1659,9 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns saved
   IMap<String, String> get saved => _state.backups.saved;
+
+  /// Returns opening
+  int get opening => _state.backups.opening;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {

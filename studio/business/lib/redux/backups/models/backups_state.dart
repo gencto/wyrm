@@ -16,6 +16,10 @@ abstract class BackupsState with _$BackupsState {
     @Default(IListConst([])) IList<String> sections,
     @Default(7) int keepDays,
     String? stage,
+
+    /// Counts the dialogs opened: a read started for one is dropped when it
+    /// ends under another (or none).
+    @Default(0) int opening,
     String? link,
     @Default(ISetConst({})) ISet<String> chosen,
     int? historyDays,

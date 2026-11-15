@@ -930,6 +930,8 @@
     "sysCopy": "Copy",
     "sysSaveLog": "Save as .log",
     "sysNoLines": "No lines at this level.",
+    "sysLogInvalid": "The answer is not a log ({detail}).",
+    "@sysLogInvalid": {"placeholders": {"detail": {"type": "String"}}},
     "sysAround": "Around (UTC)",
     "sysAroundHint": "hh:mm:ss",
     "sysAroundClear": "Show every time",

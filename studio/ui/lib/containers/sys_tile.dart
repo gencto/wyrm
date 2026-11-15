@@ -160,10 +160,7 @@ class SysTile extends StatelessWidget {
           }
         : c.line1;
     final body = Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: 14,
-      ),
+      padding: Insets.systemPanel,
       child: Column(
         crossAxisAlignment: .start,
         spacing: 6,

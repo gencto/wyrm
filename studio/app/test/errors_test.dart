@@ -23,13 +23,13 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart' hide Action;
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
+import 'package:models/system_tab.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/alerts/panel_fault.dart';
 import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/panel_dialog.dart';
-import 'package:ui/pages/system_page.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -642,7 +642,7 @@ void main() {
       // router).
       aimLogAt(store, e);
 
-      expect(store.state.system.tab, SystemPage.logTab);
+      expect(store.state.system.tab, SystemTab.log);
       expect(store.state.system.around, logClockOf(at));
       final utc = at.toUtc();
       expect(

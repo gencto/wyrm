@@ -88,4 +88,66 @@ abstract final class Formats {
     final s = d.inSeconds < 0 ? 0 : d.inSeconds;
     return '${_two(s ~/ 60)}:${_two(s % 60)}';
   }
+
+  /// A whole number with its thousands separated: `18,402`, `-3`.
+  static String count(num n) {
+    final digits = n.round().abs().toString();
+    final out = StringBuffer(n < 0 ? '-' : '');
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) {
+        out.write(',');
+      }
+      out.write(digits[i]);
+    }
+    return out.toString();
+  }
+
+  /// A measured figure: one decimal below 100 (none when it is `.0`),
+  /// whole and [count]ed from 100 up: `3.4`, `7`, `413`, `1,520`.
+  static String figure(num n) {
+    if (n.abs() >= 100) {
+      return count(n);
+    }
+    final s = n.toStringAsFixed(1);
+    return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+  }
+
+  /// A size given in MiB as a tile shows it: the [figure] in MiB, or GiB
+  /// with one decimal from 1024 MiB up: `(842, MiB)`, `(18.0, GiB)`.
+  static ({String figure, String unit}) mebibyteFigure(num mib) => mib >= 1024
+      ? (figure: (mib / 1024).toStringAsFixed(1), unit: 'GiB')
+      : (figure: figure(mib), unit: 'MiB');
+
+  /// [mebibyteFigure] as one text: `842 MiB`, `18.0 GiB`.
+  static String mebibyteText(num mib) {
+    final f = mebibyteFigure(mib);
+    return '${f.figure} ${f.unit}';
+  }
+
+  /// A moment in UTC to the minute, as the broker's own times are shown:
+  /// `2026-11-04 21:58 UTC`.
+  static String utcMinute(DateTime t) {
+    final u = t.toUtc();
+    return '${u.year}-${_two(u.month)}-${_two(u.day)} '
+        '${_two(u.hour)}:${_two(u.minute)} UTC';
+  }
+
+  /// The time of day in UTC to the second, as the broker's log writes it:
+  /// `02:01:44`.
+  static String utcClockSeconds(DateTime t) {
+    final u = t.toUtc();
+    return '${_two(u.hour)}:${_two(u.minute)}:${_two(u.second)}';
+  }
+
+  /// How long something has run, in its two largest units: `6 d 4 h`,
+  /// `3 h 12 min`, `5 min`.
+  static String runFor(Duration d) {
+    if (d.inDays > 0) {
+      return '${d.inDays} d ${d.inHours % 24} h';
+    }
+    if (d.inHours > 0) {
+      return '${d.inHours} h ${d.inMinutes % 60} min';
+    }
+    return '${d.inMinutes} min';
+  }
 }
