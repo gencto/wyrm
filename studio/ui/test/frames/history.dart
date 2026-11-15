@@ -1,6 +1,8 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/detail_inspector.dart';
 import 'package:ui/containers/fact_grid.dart';
+import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/history_page.dart';
 import 'package:ui/tables/row_table.dart';
 
@@ -95,7 +97,11 @@ HistoryPage historyFrame() => HistoryPage(
       ],
     ),
   ],
-  onPoint: (_, _) {},
+  picked: ToggleVm(
+    selected: const ISetConst({}),
+    onToggle: (_, {required on}) {},
+  ),
+  onPick: (_) {},
   footer: 'Historian: redb, one file per UTC day · 1.9 GiB',
   inspector: const DetailInspectorVm(
     eyebrow: 'WATCH GROUP',

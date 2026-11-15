@@ -20,6 +20,7 @@ import '../indicators/key_text.dart';
 import '../indicators/lines_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
+import '../models/panels.dart';
 import '../models/value_changed.dart';
 import '../overlays/log_view.dart';
 import '../overlays/value_viewer.dart';
@@ -481,7 +482,7 @@ class ExplorerPage extends StatelessWidget {
 
   /// The tree and inspector widths the viewer chose (§1).
   final SidePanelWidths panels;
-  final ItemChanged<PanelSide, double>? onPanelWidth;
+  final PanelResized? onPanelWidth;
 
   /// The open value viewer of a point, live; null: none is open.
   final ValueViewerVm? viewer;

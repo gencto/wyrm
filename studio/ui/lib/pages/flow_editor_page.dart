@@ -18,6 +18,7 @@ import '../flows/scope_prompt.dart';
 import '../flows/shortcut_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../models/panels.dart';
 import '../models/value_changed.dart';
 import '../overlays/confirm_dialog.dart';
 import '../overlays/value_viewer.dart';
@@ -158,7 +159,7 @@ class FlowEditorPage extends StatelessWidget {
 
   /// An item of a palette entry's context menu. `rename` asks for the new
   /// name first and goes to [onRenameBlock].
-  final ItemChanged<String, String>? onPaletteMenu;
+  final MenuPicked? onPaletteMenu;
   final String paletteEmpty;
 
   /// The `key:<point>` entries that may also be written: dropped on the
@@ -175,7 +176,7 @@ class FlowEditorPage extends StatelessWidget {
   final ValueChanged<CustomBlockResult>? onCreateBlock;
 
   /// `Rename` of a custom block of the palette: the entry, the new name.
-  final ItemChanged<String, String>? onRenameBlock;
+  final Renamed? onRenameBlock;
   final Validate<String>? validateBlockName;
   final String renameTitle;
   final String renameLabel;
@@ -289,9 +290,9 @@ class FlowEditorPage extends StatelessWidget {
   final List<InspectorRowVm> inspectorRows;
   final FlowSummaryVm? summary;
   final List<String> inspectorFooter;
-  final ItemChanged<String, String> onFieldChanged;
+  final FieldEdited onFieldChanged;
   final ValueChanged<String> onFieldUnbind;
-  final ItemChanged<String, FieldRefVm> onFieldBind;
+  final FieldBound<FieldRefVm> onFieldBind;
   final ValueChanged<String> onProblem;
   final String removeLabel;
   final VoidCallback? onRemove;
@@ -717,5 +718,5 @@ class FlowEditorPage extends StatelessWidget {
 
   /// The palette and inspector widths the viewer chose (spec §1).
   final SidePanelWidths panels;
-  final ItemChanged<PanelSide, double>? onPanelWidth;
+  final PanelResized? onPanelWidth;
 }

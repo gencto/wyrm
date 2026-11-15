@@ -451,10 +451,10 @@ class TaskSheet extends StatelessWidget {
 
   /// A chip (`group`, `chip id`) or an option of a [SheetChoice]
   /// (`choice id`, `value`).
-  final ItemChanged<String, String>? onPick;
+  final OptionPicked? onPick;
 
   /// The text of a [SheetField] by its id.
-  final ItemChanged<String, String>? onText;
+  final FieldEdited? onText;
 
   /// The link of a [SheetRow].
   final ValueChanged<String>? onAction;
@@ -1454,7 +1454,7 @@ class _SheetInput extends StatefulWidget {
 
   final SheetField field;
   final Color ground;
-  final ItemChanged<String, String>? onText;
+  final FieldEdited? onText;
 
   @override
   State<_SheetInput> createState() => _SheetInputState();

@@ -283,9 +283,9 @@ class FieldInspector extends StatelessWidget {
   /// Shown above everything (the id field of a new flow).
   final Widget? header;
   final List<String> footer;
-  final ItemChanged<String, String> onChanged;
+  final FieldEdited onChanged;
   final ValueChanged<String> onUnbind;
-  final ItemChanged<String, FieldRefVm> onBind;
+  final FieldBound<FieldRefVm> onBind;
   final ValueChanged<String> onProblem;
 
   /// `Go to source` of a bound field: selects the block its wire comes
@@ -588,9 +588,9 @@ class _Row extends StatelessWidget {
   final String pinLockedLabel;
   final ValueChanged<String>? onView;
   final String viewLabel;
-  final ItemChanged<String, String> onChanged;
+  final FieldEdited onChanged;
   final ValueChanged<String> onUnbind;
-  final ItemChanged<String, FieldRefVm> onBind;
+  final FieldBound<FieldRefVm> onBind;
   final ValueChanged<String>? onGoToSource;
   final String unbindLabel;
   final String bindLabel;

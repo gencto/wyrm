@@ -4,7 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../models/value_changed.dart';
+import '../models/panels.dart';
 import '../theme/extensions/colors.dart';
 
 /// Which side panel of a [SidePanels] changed.
@@ -89,7 +89,7 @@ class SidePanels extends StatefulWidget {
   final SidePanel? left;
   final Widget center;
   final SidePanel? right;
-  final ItemChanged<PanelSide, double>? onChanged;
+  final PanelResized? onChanged;
   final double minCenter;
 
   @override

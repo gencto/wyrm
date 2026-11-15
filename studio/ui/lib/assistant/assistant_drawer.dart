@@ -66,7 +66,7 @@ class AssistantDrawer extends StatelessWidget {
 
   final List<ConversationEventVm> events;
   final ChoicesCardVm? choices;
-  final ItemChanged<String, String>? onPick;
+  final OptionPicked? onPick;
   final VoidCallback? onAnswer;
   final PlanCardVm? plan;
   final Toggled<int>? onTick;

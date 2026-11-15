@@ -13,10 +13,23 @@ import 'package:flutter/widgets.dart';
 // visible). The value a callback reports about — the selection of a
 // [ToggleVm], the value of a [FieldVm] — is in `props`.
 
-/// [item] changed to [value]: a field of a row (`onFieldChanged(id, text)`),
-/// a panel's width (`onPanelWidth(side, width)`), the answer to a question
-/// (`onPick(question, option)`). Use [ValueChanged] when there is no item.
-typedef ItemChanged<K, V> = void Function(K item, V value);
+/// The field [field] of a list of fields was edited to [text]: one
+/// callback for every row, the rows keyed by their id (data-driven-widgets,
+/// "Out of the model"). A single field takes a [FieldVm].
+typedef FieldEdited = void Function(String field, String text);
+
+/// The field [field] was bound to [source] (a port, another block's
+/// output).
+typedef FieldBound<S> = void Function(String field, S source);
+
+/// [option] was picked for the question or group [question].
+typedef OptionPicked = void Function(String question, String option);
+
+/// The menu item [item] was picked for [entry] (a palette entry, a block).
+typedef MenuPicked = void Function(String entry, String item);
+
+/// [entry] was renamed to [name].
+typedef Renamed = void Function(String entry, String name);
 
 /// [item] was turned [on] or off: a tick of a step, a pin of a field, a row
 /// in or out of a set. With the set itself, take a [ToggleVm].

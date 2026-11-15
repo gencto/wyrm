@@ -92,7 +92,7 @@ class ChoicesCard extends StatelessWidget {
   final ChoicesCardVm vm;
 
   /// An option of a question was tapped.
-  final ItemChanged<String, String> onPick;
+  final OptionPicked onPick;
   final VoidCallback onConfirm;
 
   @override

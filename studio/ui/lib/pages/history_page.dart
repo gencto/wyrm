@@ -7,6 +7,7 @@ import '../charts/trend.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/section_label.dart';
 import '../containers/side_panels.dart';
+import '../models/panels.dart';
 import '../models/value_changed.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
@@ -50,7 +51,8 @@ class HistoryPage extends StatelessWidget {
     required this.pointsLabel,
     required this.columns,
     required this.points,
-    required this.onPoint,
+    required this.picked,
+    required this.onPick,
     required this.onAction,
     this.addReason,
     this.title,
@@ -97,9 +99,11 @@ class HistoryPage extends StatelessWidget {
   /// How to pick points for the trend, under the points label.
   final String? pointsHint;
 
-  /// A point row was clicked (its id); `add` when ⌘ or Ctrl was held: the
-  /// point joins the trend instead of replacing what it shows.
-  final ItemChanged<String, bool> onPoint;
+  /// The points on the trend; a ⌘- or Ctrl-click toggles a point in them.
+  final ToggleVm<String> picked;
+
+  /// A plain click: the trend shows this point alone.
+  final ValueChanged<String> onPick;
 
   /// The historian's size, under the groups.
   final String? footer;
@@ -108,7 +112,7 @@ class HistoryPage extends StatelessWidget {
 
   /// The groups and inspector widths the viewer chose.
   final SidePanelWidths panels;
-  final ItemChanged<PanelSide, double>? onPanelWidth;
+  final PanelResized? onPanelWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +287,11 @@ class HistoryPage extends StatelessWidget {
                 rows: points,
                 onTap: (id) {
                   final keys = HardwareKeyboard.instance;
-                  onPoint(id, keys.isMetaPressed || keys.isControlPressed);
+                  if (keys.isMetaPressed || keys.isControlPressed) {
+                    picked.toggle(id);
+                  } else {
+                    onPick(id);
+                  }
                 },
                 empty: pointsEmpty,
                 rowHeight: 40,

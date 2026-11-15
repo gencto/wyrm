@@ -153,7 +153,7 @@ class BlockPalette extends StatefulWidget {
   final ValueChanged<String>? onQuery;
 
   /// An item of an entry's context menu: the entry's id, the item's.
-  final ItemChanged<String, String>? onMenu;
+  final MenuPicked? onMenu;
 
   /// Said in place of the list when there is nothing to list.
   final String empty;

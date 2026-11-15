@@ -129,7 +129,7 @@ class AssistantPage extends StatelessWidget {
 
   /// What the assistant asked the person, answered or not.
   final ChoicesCardVm? choices;
-  final ItemChanged<String, String>? onPick;
+  final OptionPicked? onPick;
 
   /// The picks of [choices] are sent (`Write the plan`).
   final VoidCallback? onAnswer;

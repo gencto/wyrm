@@ -91,7 +91,7 @@ sequenceDiagram
     A1->>ST: dispatchSync(FollowHistoryAction)
 ```
 
-## onPoint
+## trendPoints.onToggle
 
 ```mermaid
 sequenceDiagram
@@ -99,28 +99,36 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as PickPointAction
-    participant A2 as RetrieveSeriesAction
-    participant A3 as LoadTrendWindowAction
+    participant A1 as PickTrendPointAction
     participant ST as AppState
 
-    User->>UI: onPoint
-    UI->>VM: onPoint()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(historian.points, historian.series, historian.low, historian.high, historian.detail, historian.hidden, historian.trendGen)
-    A1->>ST: dispatchSync(FollowHistoryAction)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.series, historian.low, historian.high, historian.detail)
-    A2->>ST: dispatchAndWait(LoadTrendExtremesAction)
-    A2-->>-VM: ActionStatus
-    alt historian.window != null
-        VM->>+A3: dispatchAndWait
-        Note over A3: Debounce · WaitingAction · async
-        A3->>ST: copyWith(historian.detail)
-        A3->>ST: dispatchAndWait(LoadTrendExtremesAction)
-        A3-->>-VM: ActionStatus
-    end
+    User->>UI: trendPoints.onToggle
+    UI->>VM: trendPoints()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(PickPointAction)
+    A1->>ST: dispatchAndWait(RetrieveSeriesAction)
+    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
+```
+
+## onPick
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as HistoryPage
+    participant VM as HistoryPageConnector
+    participant A1 as PickTrendPointAction
+    participant ST as AppState
+
+    User->>UI: onPick
+    UI->>VM: onPick()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(PickPointAction)
+    A1->>ST: dispatchAndWait(RetrieveSeriesAction)
+    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
 ```
 
 ## onTrendWindow
@@ -227,7 +235,8 @@ sequenceDiagram
 | `onShow` | `FollowHistoryAction`, `RetrieveSeriesAction` ?, `LoadTrendWindowAction` ? | `historian.follow`, `historian.series, historian.low, historian.high, historian.detail`, `historian.detail` |
 | `onHide` | `FollowHistoryAction` | `historian.follow` |
 | `onGroup` | `SetSelectedAction` | `historian.selected, historian.points, historian.series` |
-| `onPoint` | `PickPointAction`, `RetrieveSeriesAction`, `LoadTrendWindowAction` ? | `historian.points, historian.series, historian.low, historian.high, historian.detail, historian.hidden, historian.trendGen`, `historian.series, historian.low, historian.high, historian.detail`, `historian.detail` |
+| `trendPoints.onToggle` | `PickTrendPointAction` | — |
+| `onPick` | `PickTrendPointAction` | — |
 | `onTrendWindow` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
 | `onTrendToggle` | `ToggleTrendSeriesAction` | `historian.hidden` |
 | `onTrendReset` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
