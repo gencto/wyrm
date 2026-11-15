@@ -403,19 +403,21 @@ The shared parts the rules point to. Copy the reference connector,
 | 7 | `FieldEdited`, `FieldBound`, `OptionPicked`, `MenuPicked`, `Renamed`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `PanelResized`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/` |
 | 8 | a gateway or agent record: its `fromValue` in `wyrm_client` (`GatewayDevice`, `GatewayInfo`, …, `DecodeError`); a Studio-only shape: `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)` (`flowPermissionsOf`); `orWarn(where)` logs an `Invalid` with its field, never a silent null | `dart/wyrm_client`, `business/lib/wyrm/decode/` |
 
-Open questions for the owner (observed while building these; not rules):
-- A project typedef (`Toggled<T>`) in a connector's `_Vm` makes `frx doctor`
-  report it as a value left out of equality: it reads only Flutter's own
-  typedefs as callbacks. Should `_Vm` fields use `ValueChanged`/`VoidCallback`
-  or a `ui` model (`ToggleVm`, `FieldVm`) until `frx` learns the project's
-  typedefs?
-- `multi-dispatch` also counts a block that is not a callback: a
-  `fromStore() {` body, an `if (…) {` or `switch (…) {` block, a private
-  method, when two dispatches sit anywhere inside. Should the check count
-  only closures passed as arguments?
-- `context-in-connector` counts the connector's own `build(BuildContext)`.
-  Is 1 per connector the expected floor, or should the connector's widget
-  move out of the scanned file?
+Owner decisions (2026-11-15), on the questions raised while building the
+foundation:
+- **A project typedef in `_Vm`** (`Toggled<T>`, `FieldEdited`…) is allowed
+  once `frx doctor` reads the project's own function typedefs as callbacks
+  (today it reads only Flutter's and reports them as values left out of
+  equality). Until `frx` does, a `_Vm` field uses `ValueChanged`/
+  `VoidCallback` or a `ui` model (`ToggleVm`, `FieldVm`); a `ui` widget's
+  parameter may use the project typedefs now.
+- **`multi-dispatch` counts only closures passed as arguments** (positional
+  or named). A `fromStore()` body, an `if`/`switch` block or a private method
+  with two dispatches is not a callback and is not counted; rule 9 still asks
+  for one action per intent there too.
+- **A connector's own `Widget build(BuildContext context)` is not counted** by
+  `context-in-connector`; every other `BuildContext` in a connector, a mapper
+  or `business` is.
 
 To collapse a callback with several dispatches (rule 9):
 1. Name the intent and make one action for it (`frx add-action`). A step
