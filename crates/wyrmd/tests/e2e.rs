@@ -6896,7 +6896,7 @@ async fn history_records_and_answers() {
     .await;
     // spec 03 through the router: `get <point>/~val?history=`
     let point = format!("wy/{SITE}/downstream/mock/g0/p0");
-    let since = wyrm_client::HistoryQuery::since("2020-01-01");
+    let since = wyrm_client::HistoryQuery::since(wyrm_client::TimeUs::parse("2020-01-01").unwrap());
     let h = c.history(&point, &since).await.unwrap();
     assert!(h.len() >= 5 && h.iter().all(|r| r.q.is_some()), "{h:?}");
     assert!(h.windows(2).all(|w| w[0].t <= w[1].t), "time order");
@@ -6909,7 +6909,7 @@ async fn history_records_and_answers() {
         .history(
             &point,
             &wyrm_client::HistoryQuery {
-                agg: Some("count".into()),
+                rollup: wyrm_client::Rollup::Count,
                 ..since.clone()
             },
         )
@@ -6926,11 +6926,40 @@ async fn history_records_and_answers() {
             .is_empty(),
         "not recorded"
     );
-    let bad = c
-        .history(&point, &wyrm_client::HistoryQuery::since("yesterday"))
-        .await
-        .expect_err("bad range");
-    assert!(bad.is(wyrm_core::Status::InvalidParameter), "{bad}");
+    assert!(
+        wyrm_client::HistoryQuery::from_text("yesterday", "", None, None, None).is_err(),
+        "bad range"
+    );
+    // the historian itself refuses a selector that names a parameter twice
+    // (review S2), and a `since` in the future
+    for params in [
+        "history=2020-01-01..&limit=100000&limit=10",
+        "history=2020-01-01..&limit=5&x=1",
+        "since=2999-01-01",
+    ] {
+        let replies = c
+            .session()
+            .get(format!("{point}/~val?{params}"))
+            .consolidation(zenoh::query::ConsolidationMode::None)
+            .timeout(Duration::from_secs(5))
+            .await
+            .unwrap();
+        // the storage answers the same key with the last value, without a status
+        let mut statuses = Vec::new();
+        while let Ok(r) = replies.recv_async().await {
+            let Ok(sample) = r.result() else { continue };
+            let Some(a) = sample.attachment() else {
+                continue;
+            };
+            let att: wyrm_core::Attachment = wyrm_core::codec::from_slice(&a.to_bytes()).unwrap();
+            statuses.extend(att.status.map(|s| s.code()));
+        }
+        assert_eq!(
+            statuses,
+            [wyrm_core::Status::InvalidParameter.code()],
+            "{params}"
+        );
+    }
     // a watch made with no rows gets both dates once it records, not only
     // after a restart
     eventually("watch dates", 10, || async {
@@ -7100,7 +7129,7 @@ async fn history_overlays_mark_recorded_points() {
     })
     .await;
     let mut n = 0.0;
-    let since = wyrm_client::HistoryQuery::since("2020-01-01");
+    let since = wyrm_client::HistoryQuery::since(wyrm_client::TimeUs::parse("2020-01-01").unwrap());
     eventually("the storage value recorded", 20, || {
         n += 1.0;
         let (c, sp, since) = (&c, sp.clone(), since.clone());
