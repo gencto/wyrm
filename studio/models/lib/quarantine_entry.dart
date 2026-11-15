@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'quarantine_kind.dart';
+
 part 'quarantine_entry.freezed.dart';
 
 @freezed
@@ -13,7 +15,7 @@ abstract class QuarantineEntry with _$QuarantineEntry {
     required String node,
 
     /// `link` or `broker`.
-    @Default('link') String kind,
+    @Default(QuarantineKind.link) QuarantineKind kind,
     String? from,
     DateTime? firstSeen,
     @Default(IListConst([])) IList<String> via,

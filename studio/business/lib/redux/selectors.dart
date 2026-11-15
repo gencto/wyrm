@@ -40,6 +40,7 @@ import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
@@ -91,6 +92,7 @@ import 'flows/actions/retrieve_flows_action.dart';
 import 'historian/actions/load_trend_window_action.dart';
 import 'historian/actions/retrieve_historian_action.dart';
 import 'historian/actions/retrieve_series_action.dart';
+import 'last_result.dart';
 import 'link_install/actions/install_link_action.dart';
 import 'links/actions/deauthorize_link_action.dart';
 import 'links/actions/get_link_log_action.dart';
@@ -365,11 +367,14 @@ extension SelectComposites on Selectors {
 extension SelectBrokerHealth on Selectors {
   String get _sysKey => '${site.root}/sys';
 
-  /// The values of `sys`, decoded once (a value of another type is left
-  /// out and logged).
-  SysStatus get sysStatus => sysStatusOf(
-    (k) => live.values['$_sysKey/$k']?.value,
-    'sys of ${site.viewed}',
+  /// The values of `sys`, decoded once per change of the live values (a
+  /// value of another type is left out and logged).
+  SysStatus get sysStatus => _sysStatus.of(
+    [live.values, site.viewed],
+    () => sysStatusOf(
+      (k) => live.values['$_sysKey/$k']?.value,
+      'sys of ${site.viewed}',
+    ),
   );
 
   /// The `description` of the node of [v] (a tile's tooltip); empty
@@ -420,7 +425,7 @@ extension SelectBrokerHealth on Selectors {
   QuarantineEntry? get oldestWaitingLink =>
       ([
             for (final q in _waiting)
-              if (q.kind != 'broker') q,
+              if (q.kind != QuarantineKind.broker) q,
           ]..sort(
             (a, b) => (a.firstSeen ?? DateTime(0)).compareTo(
               b.firstSeen ?? DateTime(0),
@@ -484,7 +489,7 @@ extension SelectBrokerHealth on Selectors {
       for (final l in failedLinks)
         AttentionItem(kind: AttentionKind.linkFailed, subject: l.id),
       for (final q in waiting)
-        if (q.kind != 'broker')
+        if (q.kind != QuarantineKind.broker)
           AttentionItem(
             kind: AttentionKind.quarantine,
             subject: q.node,
@@ -492,7 +497,7 @@ extension SelectBrokerHealth on Selectors {
             since: q.firstSeen,
           ),
       for (final q in waiting)
-        if (q.kind == 'broker')
+        if (q.kind == QuarantineKind.broker)
           AttentionItem(
             kind: AttentionKind.brokerWaiting,
             subject: q.node,
@@ -553,9 +558,10 @@ extension SelectBrokerHealth on Selectors {
 
   /// The kept backups with their live values, newest first (the ids are in
   /// the order the broker made them).
-  List<BackupJob> get backupRows => [
-    for (final id in backups.view.reversed) ?backupJob(id),
-  ];
+  List<BackupJob> get backupRows => _backupRows.of(
+    [live.values, site.viewed, backups.table, backups.view],
+    () => [for (final id in backups.view.reversed) ?backupJob(id)],
+  );
 
   /// The broker's update as System offers it: null while the broker part
   /// does not exist ([Features.brokerUpdate]) and for a broker that says
@@ -566,9 +572,12 @@ extension SelectBrokerHealth on Selectors {
   };
 
   /// What the broker says of its own update (ADR 0048 §2.4).
-  BrokerSelfUpdate get selfUpdate => brokerSelfUpdateOf(
-    (k) => live.values['$_sysKey/$k']?.value,
-    'update of ${site.viewed}',
+  BrokerSelfUpdate get selfUpdate => _selfUpdate.of(
+    [live.values, site.viewed],
+    () => brokerSelfUpdateOf(
+      (k) => live.values['$_sysKey/$k']?.value,
+      'update of ${site.viewed}',
+    ),
   );
 
   /// The traffic trend's range (the ring's first and last sample, µs), the
@@ -595,6 +604,10 @@ extension SelectBrokerHealth on Selectors {
     );
   }
 }
+
+final _sysStatus = LastResult<SysStatus>();
+final _backupRows = LastResult<List<BackupJob>>();
+final _selfUpdate = LastResult<BrokerSelfUpdate>();
 
 /// The range and window of System's traffic trend (µs), as
 /// [SelectBrokerHealth.trafficTrend] gives them.

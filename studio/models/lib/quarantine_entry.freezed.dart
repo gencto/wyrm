@@ -17,7 +17,7 @@ mixin _$QuarantineEntry {
 
  String get cn;/// The node under `sys/quarantine` (the CN made a key segment).
  String get node;/// `link` or `broker`.
- String get kind; String? get from; DateTime? get firstSeen; IList<String> get via;/// The broker key hash to compare (kind broker).
+ QuarantineKind get kind; String? get from; DateTime? get firstSeen; IList<String> get via;/// The broker key hash to compare (kind broker).
  String? get key; bool get deauthorized;
 /// Create a copy of QuarantineEntry
 /// with the given fields replaced by the non-null parameter values.
@@ -54,7 +54,7 @@ abstract mixin class $QuarantineEntryCopyWith<$Res>  {
   factory $QuarantineEntryCopyWith(QuarantineEntry value, $Res Function(QuarantineEntry) _then) = _$QuarantineEntryCopyWithImpl;
 @useResult
 $Res call({
- String cn, String node, String kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
+ String cn, String node, QuarantineKind kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
 });
 
 
@@ -76,7 +76,7 @@ class _$QuarantineEntryCopyWithImpl<$Res>
 cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
 as String,node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as String,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
+as QuarantineKind,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
 as String?,firstSeen: freezed == firstSeen ? _self.firstSeen : firstSeen // ignore: cast_nullable_to_non_nullable
 as DateTime?,via: null == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
 as IList<String>,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
@@ -93,14 +93,14 @@ as bool,
 
 
 class _QuarantineEntry implements QuarantineEntry {
-  const _QuarantineEntry({required this.cn, required this.node, this.kind = 'link', this.from, this.firstSeen, this.via = const IListConst([]), this.key, this.deauthorized = false});
+  const _QuarantineEntry({required this.cn, required this.node, this.kind = QuarantineKind.link, this.from, this.firstSeen, this.via = const IListConst([]), this.key, this.deauthorized = false});
   
 
 @override final  String cn;
 /// The node under `sys/quarantine` (the CN made a key segment).
 @override final  String node;
 /// `link` or `broker`.
-@override@JsonKey() final  String kind;
+@override@JsonKey() final  QuarantineKind kind;
 @override final  String? from;
 @override final  DateTime? firstSeen;
 @override@JsonKey() final  IList<String> via;
@@ -140,7 +140,7 @@ abstract mixin class _$QuarantineEntryCopyWith<$Res> implements $QuarantineEntry
   factory _$QuarantineEntryCopyWith(_QuarantineEntry value, $Res Function(_QuarantineEntry) _then) = __$QuarantineEntryCopyWithImpl;
 @override @useResult
 $Res call({
- String cn, String node, String kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
+ String cn, String node, QuarantineKind kind, String? from, DateTime? firstSeen, IList<String> via, String? key, bool deauthorized
 });
 
 
@@ -162,7 +162,7 @@ class __$QuarantineEntryCopyWithImpl<$Res>
 cn: null == cn ? _self.cn : cn // ignore: cast_nullable_to_non_nullable
 as String,node: null == node ? _self.node : node // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as String,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
+as QuarantineKind,from: freezed == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
 as String?,firstSeen: freezed == firstSeen ? _self.firstSeen : firstSeen // ignore: cast_nullable_to_non_nullable
 as DateTime?,via: null == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
 as IList<String>,key: freezed == key ? _self.key : key // ignore: cast_nullable_to_non_nullable

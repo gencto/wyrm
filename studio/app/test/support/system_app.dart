@@ -23,6 +23,7 @@ import 'package:models/live_value.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:ui/alerts/toast_stack.dart';
 import 'package:ui/models/tone.dart';
@@ -350,7 +351,7 @@ class SystemApp {
     QuarantineEntry(
       cn: 'broker:line2',
       node: 'line2',
-      kind: 'broker',
+      kind: QuarantineKind.broker,
       via: ['line3'].lock,
     ),
     const QuarantineEntry(

@@ -143,7 +143,7 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
           parent: 'self:$viewed',
           selected: sel == 'downstream:${p.site}',
         ),
-      for (final q in waiting.where((q) => q.kind == 'broker'))
+      for (final q in waiting.where((q) => q.kind == .broker))
         SiteNodeVm(
           id: 'waiting:${q.node}',
           name: q.cn,
@@ -164,7 +164,7 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
           parent: 'self:$viewed',
           selected: sel == 'device:${p.site}',
         ),
-      for (final q in waiting.where((q) => q.kind != 'broker'))
+      for (final q in waiting.where((q) => q.kind != .broker))
         SiteNodeVm(
           id: 'waiting:${q.node}',
           name: q.cn,
@@ -384,7 +384,7 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
           return null;
         }
         final specs = quarantine.forms[name];
-        final broker = q.kind == 'broker';
+        final broker = q.kind == .broker;
         return DetailInspectorVm(
           eyebrow: broker
               ? S.current.brokerWaiting

@@ -5,6 +5,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/backups/actions/apply_restore_action.dart';
 import 'package:business/redux/backups/actions/cancel_download_action.dart';
+import 'package:business/redux/backups/actions/change_backup_form_action.dart';
 import 'package:business/redux/backups/actions/check_restore_action.dart';
 import 'package:business/redux/backups/actions/close_backup_action.dart';
 import 'package:business/redux/backups/actions/create_backup_action.dart';
@@ -14,7 +15,6 @@ import 'package:business/redux/backups/actions/follow_restore_action.dart';
 import 'package:business/redux/backups/actions/open_backup_action.dart';
 import 'package:business/redux/backups/actions/remove_backup_action.dart';
 import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
-import 'package:business/redux/backups/actions/retrieve_send_connections_action.dart';
 import 'package:business/redux/backups/actions/send_backup_action.dart';
 import 'package:business/redux/backups/actions/set_backup_form_action.dart';
 import 'package:business/redux/backups/actions/upload_restore_action.dart';
@@ -73,14 +73,17 @@ Future<void> showBackupDialog(
     return;
   }
   store.dispatchSync(OpenBackupAction(link: link, job: job, restore: restore));
-  if (link == null && job == null && !restore) {
-    unawaited(store.dispatchAndWait(EstimateBackupAction()));
-  }
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _BackupDialog(store: store),
-  );
+  // A broker backup shows the size of each section, read while the dialog
+  // is open; the dialog is closed in the store once both have ended.
+  await Future.wait([
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _BackupDialog(store: store),
+    ),
+    if (link == null && job == null && !restore)
+      store.dispatchAndWait(EstimateBackupAction()),
+  ]);
   await store.dispatchAndWait(CloseBackupAction());
 }
 
@@ -288,7 +291,7 @@ class _BackupDialogState extends State<_BackupDialog> {
             // Sent; it is needed no more.
             _forget();
             if (_store.state.backups.stage == 'restarting') {
-              unawaited(_store.dispatchAndWait(FollowRestoreAction()));
+              await _store.dispatchAndWait(FollowRestoreAction());
             }
           }
         }
@@ -365,26 +368,29 @@ class _BackupDialogState extends State<_BackupDialog> {
     },
   );
 
-  void _pick(String group, String value) {
+  Future<void> _pick(String group, String value) async {
     switch (group) {
       case 'history':
-        _store.dispatchSync(SetBackupFormAction(historyDays: int.parse(value)));
-        unawaited(_store.dispatchAndWait(EstimateBackupAction()));
+        await _store.dispatchAndWait(
+          ChangeBackupFormAction.estimate(
+            SetBackupFormAction(historyDays: int.parse(value)),
+          ),
+        );
       case 'links':
-        _store.dispatchSync(SetBackupFormAction(toggleLink: value));
-        unawaited(_store.dispatchAndWait(EstimateBackupAction()));
+        await _store.dispatchAndWait(
+          ChangeBackupFormAction.estimate(
+            SetBackupFormAction(toggleLink: value),
+          ),
+        );
       case 'where':
         _store.dispatchSync(SetBackupFormAction(where: value));
         // One link the host lists: it is the choice.
         final links = _store.state.backups.sendLinks;
         if (value == 'store' && links.length == 1) {
-          _pick('sendLink', links.first.link);
+          await _pick('sendLink', links.first.link);
         }
       case 'sendLink':
-        _store.dispatchSync(SetBackupFormAction(sendLink: value));
-        unawaited(
-          _store.dispatchAndWait(RetrieveSendConnectionsAction(value)),
-        );
+        await _store.dispatchAndWait(ChangeBackupFormAction.sendLink(value));
       case 'sendConnection':
         _store.dispatchSync(SetBackupFormAction(sendConnection: value));
       case 'mode':

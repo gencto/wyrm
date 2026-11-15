@@ -12,7 +12,6 @@
     "app/lib/connectors/step_up_dialog_connector.dart": 2,
     "app/lib/connectors/studio_page_connector.dart": 3,
     "app/lib/connectors/toast_stack_connector.dart": 1,
-    "app/lib/dialogs/backup_dialogs.dart": 5,
     "app/lib/dialogs/error_dialogs.dart": 3,
     "app/lib/dialogs/link_dialogs.dart": 3,
     "business/lib/redux/access/actions/save_user_action.dart": 1,

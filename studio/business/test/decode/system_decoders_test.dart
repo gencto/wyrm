@@ -1,3 +1,4 @@
+import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/decode/backup_job.dart';
 import 'package:business/wyrm/decode/broker_self_update.dart';
 import 'package:business/wyrm/decode/cleared_links.dart';
@@ -43,6 +44,39 @@ void main() {
   };
 
   group('sys values', () {
+    test('decoded once per change of the live values, not per read', () {
+      final values = IMap({
+        'wy/plant/sys/links_connected': LiveValue(
+          time: DateTime.utc(2026),
+          value: 'four',
+        ),
+        'wy/plant/sys/sessions': LiveValue(time: DateTime.utc(2026), value: 7),
+      });
+      final a = AppState.initial();
+      var state = a.copyWith(
+        site: a.site.copyWith(name: 'plant'),
+        live: a.live.copyWith(values: values),
+      );
+      // reads of every selector that needs it, and a change elsewhere
+      for (var i = 0; i < 3; i++) {
+        final s = _Sel(state);
+        expect(s.sysStatus[SysValue.sessions], 7);
+        expect(s.standby, isNotNull);
+        expect(s.attention, isEmpty);
+        state = state.copyWith.system(lines: 100 + i);
+      }
+      expect(warned, ['sys of plant: sys.links_connected: not a number']);
+      // a new value is decoded again
+      state = state.copyWith.live(
+        values: values.add(
+          'wy/plant/sys/sessions',
+          LiveValue(time: DateTime.utc(2026), value: 8),
+        ),
+      );
+      expect(_Sel(state).sysStatus[SysValue.sessions], 8);
+      expect(warned, hasLength(2));
+    });
+
     test('numbers, texts, the start time and the level decode once', () {
       final values = <String, Object?>{
         'links_connected': 4,
@@ -451,4 +485,11 @@ void main() {
       );
     });
   });
+}
+
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }

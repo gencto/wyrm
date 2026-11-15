@@ -10,6 +10,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/system/actions/clear_conns_action.dart';
+import 'package:business/redux/system/actions/follow_traffic_action.dart';
 import 'package:business/redux/system/actions/poll_system_log_action.dart';
 import 'package:business/redux/system/actions/put_profile_action.dart';
 import 'package:business/redux/system/actions/remove_profile_action.dart';
@@ -25,17 +26,20 @@ import 'package:business/redux/system/actions/set_log_level_action.dart';
 import 'package:business/redux/system/actions/set_shown_action.dart';
 import 'package:business/redux/system/actions/set_source_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart';
+import 'package:business/redux/system/actions/zoom_traffic_action.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:business/wyrm/mappers/profile_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/attention_kind.dart';
+import 'package:models/hist_window.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:models/quarantine_entry.dart';
+import 'package:models/quarantine_kind.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/system_tab.dart';
 import 'package:models/workspace.dart';
@@ -464,7 +468,7 @@ void main() {
                     'line2': const QuarantineEntry(
                       cn: 'broker:line2',
                       node: 'line2',
-                      kind: 'broker',
+                      kind: QuarantineKind.broker,
                       via: IListConst(['cell-a']),
                     ),
                     'field-gw': QuarantineEntry(
@@ -620,6 +624,72 @@ void main() {
     });
   });
 
+  group('traffic window', () {
+    // a ring of ten samples a minute apart, 01:00 to 01:09
+    void ring() {
+      s.dispatchSync(SampleTrafficAction());
+      for (var m = 0; m < 10; m++) {
+        sys({
+          for (final k in SampleTrafficAction.keys) k: 1.0 + m,
+        }, at: DateTime.utc(2026, 11, 10, 1, m));
+        s.dispatchSync(SampleTrafficAction());
+      }
+    }
+
+    int us(int minute) =>
+        DateTime.utc(2026, 11, 10, 1, minute).microsecondsSinceEpoch;
+
+    test('nothing before two samples', () {
+      s.dispatchSync(ZoomTrafficAction(us(2), us(4)));
+      expect(s.state.system.trafficWindow, isNull);
+    });
+
+    test('a window inside the ring is kept with its end; the whole ring '
+        'is none; one to the newest sample follows now', () {
+      ring();
+      s.dispatchSync(ZoomTrafficAction(us(2), us(4)));
+      expect(
+        s.state.system.trafficWindow,
+        HistWindow(
+          span: const Duration(minutes: 2),
+          end: DateTime.utc(2026, 11, 10, 1, 4),
+        ),
+      );
+      s.dispatchSync(ZoomTrafficAction(us(0), us(9)));
+      expect(s.state.system.trafficWindow, isNull);
+      s.dispatchSync(ZoomTrafficAction(us(6), us(9)));
+      expect(
+        s.state.system.trafficWindow,
+        const HistWindow(span: Duration(minutes: 3)),
+      );
+    });
+
+    test('Follow now keeps the width and lets the end follow', () {
+      ring();
+      s
+        ..dispatchSync(ZoomTrafficAction(us(2), us(4)))
+        ..dispatchSync(FollowTrafficAction());
+      expect(
+        s.state.system.trafficWindow,
+        const HistWindow(span: Duration(minutes: 2)),
+      );
+      // following already: nothing to do
+      final before = s.state;
+      s.dispatchSync(FollowTrafficAction());
+      expect(identical(s.state, before), isTrue);
+    });
+
+    test('the trend view clamps the window to the ring', () {
+      ring();
+      s.dispatchSync(ZoomTrafficAction(us(2), us(4)));
+      final v = _Sel(s.state).trafficTrend!;
+      expect((v.rangeStart, v.rangeEnd), (us(0), us(9)));
+      expect((v.windowStart, v.windowEnd), (us(2), us(4)));
+      expect(v.minWindow, us(10) - us(0), reason: 'ten samples');
+      expect(v.following, isFalse);
+    });
+  });
+
   group('sys descriptions', () {
     test('the description and unit of every value node, read once', () async {
       api
@@ -671,4 +741,11 @@ class _Set extends ReduxAction<AppState> {
 
   @override
   AppState reduce() => change(state);
+}
+
+class _Sel with Selectors {
+  _Sel(this.state);
+
+  @override
+  final AppState state;
 }

@@ -48,9 +48,10 @@ Future<AppState?> readSystemLog(Action a) async {
         log: lines.reversed.toList().lock,
         logError: null,
       ),
-      // shown in the log box, as a refusal is: the lines held stay
+      // shown in the log box as a refusal is (`<status>: <message>`, the
+      // status `invalid`): the lines held stay
       final Invalid<List<LogLine>> i => a.state.copyWith.system(
-        logError: 'invalid answer: ${i.shape}.${i.field}: ${i.reason}',
+        logError: 'invalid: ${i.shape}.${i.field}: ${i.reason}',
       ),
     };
   } on WyrmException catch (e) {

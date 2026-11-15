@@ -23,13 +23,18 @@ class ClearConnsAction extends Action with NonReentrant, WaitingAction {
   @override
   Future<AppState?> reduce() async {
     final rows = await invokeAll(deps.wyrm, '${site.root}/sys', 'clear_conns');
-    removed =
-        clearedLinksOf(rows).orWarn('clear_conns of ${site.viewed}') ??
-        const [];
+    final cleared = clearedLinksOf(
+      rows,
+    ).orWarn('clear_conns of ${site.viewed}');
+    removed = cleared ?? const [];
     await dispatchAndWait(RetrieveLinksAction(quiet: true));
-    await dispatchAndWait(
-      ShowNoticeAction.system(SystemNotice.cleared(removed.lock)),
-    );
+    // an answer this client cannot read says nothing (it is logged), not
+    // "none removed"
+    if (cleared != null) {
+      await dispatchAndWait(
+        ShowNoticeAction.system(SystemNotice.cleared(cleared.lock)),
+      );
+    }
     return null;
   }
 }
