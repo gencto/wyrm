@@ -6,7 +6,8 @@ description: >-
   strings, each package owns its types, no `BuildContext` in connectors or
   business, text resolved in `ui` and `localization` and never in connectors,
   theme tokens instead of numbers, typed callbacks from `value_changed.dart`,
-  one typed decode boundary for wire values. Read before writing or changing any
+  one typed decode boundary for wire values, one dispatch per intent with
+  rebuilds controlled (`notify`, one state, `null`). Read before writing or changing any
   connector, action, reducer, mapper, widget or view-model in `studio/`, and
   before reviewing Studio code. These rules win over any older text in another
   skill.
@@ -328,6 +329,60 @@ final class FlowPermissions {
 
 **Check.** `untyped-wire` in `app/lib` and `business/lib` outside
 `business/lib/wyrm/decode/` and `business/lib/wyrm/mappers/values.dart`.
+
+## 9. One intent, one dispatch; rebuilds are decided, not accepted
+
+**Rule.** A callback in a connector (or a page, a dialog) dispatches **one**
+action. When one intent needs several steps — set a field, start a load,
+navigate — they are one action that runs the others inside its `reduce` with
+`dispatch`/`dispatchAndWait`. Inside that action the rebuild is controlled on
+purpose:
+- intermediate steps the screen must not show are dispatched with
+  `notify: false`;
+- the action returns one new state at the end (one `copyWith` that sets every
+  field) instead of several dispatches that each set one field;
+- `reduce` returns `null` when nothing changed — no state, no rebuild;
+- a waiting action chooses `notifyBefore`/`notifyAfter`
+  (`business/lib/redux/common/action.dart`) for what the screen really shows;
+- a connector's `_Vm` compares exactly what is drawn (`data-driven-widgets`,
+  "Equality"), so a dispatch that changes nothing on this screen does not
+  rebuild it.
+
+**Why.** Each dispatch notifies every connector on the screen, and each
+connector runs its `fromStore` again; three dispatches in one tap are three
+full rebuilds, and a half-applied state is drawn in between. On the owner's
+fast Mac it does not show; on a slow machine, a big flow or a remote broker it
+does — as jank and as a flash of a state that never should have been seen. A
+fast CPU is not a reason to rebuild: every rebuild is decided.
+
+```dart
+// bad — app/lib/connectors/…: one tap, three dispatches, three rebuilds
+onOpen: (id) {
+  dispatchSync(SelectTaskAction(id));
+  dispatchSync(SetDrawerAction(open: true));
+  dispatch(RetrieveTaskRecordAction(id));
+},
+
+// good — one action owns the intent
+onOpen: (id) => dispatch(OpenTaskAction(id)),
+
+class OpenTaskAction extends Action {
+  OpenTaskAction(this.id);
+  final String id;
+
+  @override
+  Future<AppState?> reduce() async {
+    // shown at once, in one state: the selection and the open drawer
+    dispatchSync(SelectTaskAction(id), notify: false);
+    final shown = state.copyWith.assistant(selectedTask: id, drawer: true);
+    dispatch(RetrieveTaskRecordAction(id));   // its own WaitingAction
+    return shown;
+  }
+}
+```
+
+**Check.** `multi-dispatch`: a callback body with two or more `dispatch…(`
+calls, in `app/lib/connectors`, `app/lib/pages`, `app/lib/dialogs`.
 
 ---
 

@@ -26,7 +26,8 @@ Studio code.** It wins over older text in the other skills. In short: no
 and a connector only maps; no `BuildContext` in connectors or `business`; text
 resolved in `ui`/`localization`, never in a connector; theme tokens, not
 numbers; callbacks typed in `ui/lib/models/value_changed.dart`; one typed
-decode boundary for wire values.
+decode boundary for wire values; one dispatch per intent, with each rebuild
+decided (`notify: false`, one state at the end, `null` when nothing changed).
 
 `dart run tool/check_rules.dart` (CI job `studio`) counts every forbidden
 pattern per file against `tool/rules_baseline.json`. A count may only go down;

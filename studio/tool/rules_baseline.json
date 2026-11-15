@@ -432,5 +432,27 @@
     "business/lib/wyrm/package_check.dart": 9,
     "business/lib/wyrm/session.dart": 3,
     "business/lib/wyrm/transfer.dart": 6
+  },
+  "multi-dispatch": {
+    "app/lib/connectors/access_page_connector.dart": 2,
+    "app/lib/connectors/assistant_page_connector.dart": 7,
+    "app/lib/connectors/explorer_page_connector.dart": 4,
+    "app/lib/connectors/flow_editor_page_connector.dart": 7,
+    "app/lib/connectors/flows_page_connector.dart": 1,
+    "app/lib/connectors/history_page_connector.dart": 4,
+    "app/lib/connectors/link_install_page_connector.dart": 10,
+    "app/lib/connectors/links_page_connector.dart": 6,
+    "app/lib/connectors/lock_overlay_connector.dart": 2,
+    "app/lib/connectors/log_in_page_connector.dart": 6,
+    "app/lib/connectors/security_dialog_connector.dart": 1,
+    "app/lib/connectors/sites_page_connector.dart": 5,
+    "app/lib/connectors/step_up_dialog_connector.dart": 1,
+    "app/lib/connectors/studio_page_connector.dart": 2,
+    "app/lib/connectors/system_page_connector.dart": 6,
+    "app/lib/connectors/toast_stack_connector.dart": 1,
+    "app/lib/dialogs/backup_dialogs.dart": 5,
+    "app/lib/dialogs/broker_update_dialog.dart": 2,
+    "app/lib/dialogs/error_dialogs.dart": 1,
+    "app/lib/dialogs/link_dialogs.dart": 2
   }
 }

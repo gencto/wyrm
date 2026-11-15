@@ -114,7 +114,42 @@ final _rules = <Rule>[
       'business/lib/wyrm/mappers/values.dart',
     ],
   ),
+  // 9. one intent, one dispatch
+  const Rule('multi-dispatch', [
+    'app/lib/connectors/',
+    'app/lib/pages/',
+    'app/lib/dialogs/',
+  ], _multiDispatch),
 ];
+
+/// Callback bodies (`(…) { … }` or `(…) async { … }`) with two or more
+/// dispatches: one intent is one action (rule 9).
+int _multiDispatch(String text) {
+  final c = _code(text);
+  final open = RegExp(r'\([^(){};]*\)\s*(?:async\s*)?\{');
+  final call = RegExp(r'(?<![\w.])(?:\w+\.)?dispatch\w*\(');
+  var n = 0;
+  for (final m in open.allMatches(c)) {
+    var depth = 1;
+    var j = m.end;
+    while (j < c.length && depth > 0) {
+      final ch = c[j];
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+      }
+      j++;
+    }
+    final body = c.substring(m.end, j);
+    // only the body's own level: a nested callback is counted by itself
+    final own = body.replaceAll(RegExp(r'\{[^{}]*\}'), '');
+    if (call.allMatches(own).length >= 2) {
+      n++;
+    }
+  }
+  return n;
+}
 
 const _baselinePath = 'tool/rules_baseline.json';
 
