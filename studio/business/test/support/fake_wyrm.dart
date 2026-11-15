@@ -566,7 +566,7 @@ class FakeDevices {
         GatewayDevice(
           id: d.id,
           name: d.name,
-          platform: 'mac',
+          platform: 'macos',
           lastUsed: d.lastUsed,
           state: d.state,
           thisSession: d.id == own,
