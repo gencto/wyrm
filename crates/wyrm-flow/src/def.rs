@@ -164,11 +164,9 @@ fn uint(v: &Value, path: &str) -> Result<u64> {
 
 fn perm(v: &Value, path: &str) -> Result<Perm> {
     match v {
-        Value::Str(s) => Perm::ALL
-            .iter()
-            .copied()
-            .find(|p| p.name() == s)
-            .ok_or_else(|| DefError(format!("{path}: unknown permission {s}"))),
+        Value::Str(s) => {
+            Perm::from_name(s).ok_or_else(|| DefError(format!("{path}: unknown permission {s}")))
+        }
         v => Perm::try_from(u8::try_from(uint(v, path)?).unwrap_or(u8::MAX))
             .map_err(|_| DefError(format!("{path}: permission out of range"))),
     }

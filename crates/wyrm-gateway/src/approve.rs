@@ -174,7 +174,7 @@ impl Ask {
 }
 
 fn level_of(name: &str) -> Option<Perm> {
-    Perm::ALL.iter().copied().find(|p| p.name() == name)
+    Perm::from_name(name)
 }
 
 /// The hash of a plan (`links/agent` `tools::plan_hash`): SHA-256, in hex, of the canonical

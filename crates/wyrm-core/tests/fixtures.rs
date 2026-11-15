@@ -266,7 +266,10 @@ fn wire_enums_match_spec_tables() {
             );
             for v in <$ty>::ALL {
                 assert_eq!(<$ty>::try_from(v.code()), Ok(*v));
+                assert_eq!(<$ty>::from_name(v.name()), Some(*v));
+                assert_eq!(v.name().parse::<$ty>(), Ok(*v));
             }
+            assert_eq!(<$ty>::from_name(""), None);
         }};
     }
 

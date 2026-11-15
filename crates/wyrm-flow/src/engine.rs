@@ -252,11 +252,7 @@ struct State {
 type Shared = Arc<AsyncMutex<State>>;
 
 fn type_code(name: &str) -> TypeCode {
-    TypeCode::ALL
-        .iter()
-        .copied()
-        .find(|t| t.name() == name)
-        .unwrap_or(TypeCode::Dynamic)
+    TypeCode::from_name(name).unwrap_or(TypeCode::Dynamic)
 }
 
 /// `publish.meta` → node meta (`is`, `type`, `unit`, `attr`).

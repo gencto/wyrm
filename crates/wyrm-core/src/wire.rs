@@ -7,7 +7,10 @@
 //!   do not write `as u8` at call sites;
 //! * `TryFrom<u8>` (`Err` carries the unknown code) — the only way back;
 //! * `name(self) -> &'static str` and `ALL` — used by the test that checks
-//!   every table against `spec/tables.json`.
+//!   every table against `spec/tables.json`;
+//! * `from_name(&str) -> Option<Self>` and `FromStr` (`Err` is
+//!   [`UnknownName`]) — the only way back from a spec name; do not write
+//!   `ALL.iter().find(|x| x.name() == s)` at call sites.
 //!
 //! Extra derives (`Default`, `PartialOrd`, `Ord`) go on the enum as usual.
 //!
@@ -25,7 +28,22 @@
 //! assert_eq!(Level::try_from(1), Ok(Level::High));
 //! assert_eq!(Level::try_from(9), Err(9));
 //! assert_eq!(Level::Low.name(), "low");
+//! assert_eq!(Level::from_name("high"), Some(Level::High));
+//! assert_eq!("low".parse::<Level>(), Ok(Level::Low));
+//! assert!("High".parse::<Level>().is_err());
 //! ```
+
+/// A name that is not in a `wire_enum!` table (the `FromStr` error).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownName;
+
+impl core::fmt::Display for UnknownName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("unknown name")
+    }
+}
+
+impl std::error::Error for UnknownName {}
 
 #[macro_export]
 macro_rules! wire_enum {
@@ -59,6 +77,21 @@ macro_rules! wire_enum {
                 match self {
                     $(Self::$variant => $name,)+
                 }
+            }
+
+            /// The variant with this spec name; `None` for any other text.
+            pub fn from_name(name: &str) -> ::core::option::Option<Self> {
+                match name {
+                    $($name => ::core::option::Option::Some(Self::$variant),)+
+                    _ => ::core::option::Option::None,
+                }
+            }
+        }
+
+        impl ::core::str::FromStr for $ty {
+            type Err = $crate::wire::UnknownName;
+            fn from_str(s: &str) -> ::core::result::Result<Self, Self::Err> {
+                Self::from_name(s).ok_or($crate::wire::UnknownName)
             }
         }
 

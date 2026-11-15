@@ -462,7 +462,7 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
 }
 
 pub fn state_from_name(n: &str) -> Option<TaskState> {
-    TaskState::ALL.iter().copied().find(|s| s.name() == n)
+    TaskState::from_name(n)
 }
 
 #[cfg(test)]

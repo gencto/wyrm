@@ -622,11 +622,7 @@ fn approval_token(
     if ttl_s == 0 || ttl_s > 900 {
         return Err("ttl-s: 1..=900".into());
     }
-    let perm = wyrm_core::Perm::ALL
-        .iter()
-        .copied()
-        .find(|p| p.name() == perm)
-        .ok_or("perm: none|list|read|write|config")?;
+    let perm = wyrm_core::Perm::from_name(perm).ok_or("perm: none|list|read|write|config")?;
     let mut src = SigningTokens::new(key, site)
         .subject(subject)
         .max(perm)

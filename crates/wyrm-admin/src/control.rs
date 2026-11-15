@@ -4144,10 +4144,7 @@ impl Link for Admin {
             (["links", id], "grant") => {
                 let path = arg_str(&args, "path").unwrap_or_default().trim().to_owned();
                 let level = arg_str(&args, "level").unwrap_or_default();
-                let level = Perm::ALL
-                    .iter()
-                    .copied()
-                    .find(|p| p.name() == level)
+                let level = Perm::from_name(level)
                     .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
                 self.grant(id, &path, level, &sub).await.map(|_| None)
             }
@@ -4252,10 +4249,7 @@ impl Link for Admin {
                 };
                 let (role, path) = (need("role")?, need("path")?);
                 let level = need("level")?;
-                let level = Perm::ALL
-                    .iter()
-                    .copied()
-                    .find(|p| p.name() == level)
+                let level = Perm::from_name(level)
                     .ok_or_else(|| LinkError::invalid_parameter(format!("level: {level}?")))?;
                 roles
                     .set_grant(role, path, level)
