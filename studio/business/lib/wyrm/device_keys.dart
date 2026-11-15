@@ -5,7 +5,6 @@ import 'package:crypto/crypto.dart';
 import 'package:device_key/device_key.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
-import 'package:models/device_policy_info.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/unlock_refusal.dart';
@@ -67,16 +66,6 @@ String keyAlias(String origin, String user) {
 
 /// The state's [KeyKind] for the plugin's.
 KeyKind keyKindOf(DeviceKeyKind k) => KeyKind.values.byName(k.name);
-
-/// The gateway's device policy as the state keeps it.
-DevicePolicyInfo policyOf(DevicePolicy p) => DevicePolicyInfo(
-  enabled: p.enabled,
-  maxPerUser: p.maxPerUser,
-  passwordEveryDays: p.passwordEveryDays,
-  idleLockMaxMin: p.idleLockMaxMin,
-  stepUp: p.stepUp.wire,
-  allowDeviceCredential: p.allowDeviceCredential,
-);
 
 /// The device records of a list, newest use first.
 IList<GatewayDevice> newestFirst(List<GatewayDevice> ds) =>

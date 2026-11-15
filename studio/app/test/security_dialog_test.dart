@@ -1,6 +1,3 @@
-// A long word of the dialog is written as adjacent strings: one item.
-// ignore_for_file: no_adjacent_strings_in_list
-
 import 'package:app/connectors/security_dialog_connector.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
@@ -14,12 +11,16 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:models/device_policy_info.dart';
 import 'package:models/key_kind.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart'
-    show DevicePlatform, GatewayDevice, GatewayDeviceState;
+    show
+        DevicePlatform,
+        DevicePolicy,
+        GatewayDevice,
+        GatewayDeviceState,
+        StepUp;
 
 import 'support/assistant_app.dart';
 
@@ -32,7 +33,11 @@ void main() {
 
   int s(DateTime t) => t.millisecondsSinceEpoch ~/ 1000;
 
-  AppState stateAt(DateTime now, {bool confirm = true, String? error}) {
+  AppState stateAt(
+    DateTime now, {
+    bool confirm = true,
+    bool wrongPassword = false,
+  }) {
     final a = AppState.initial();
     return a.copyWith(
       site: a.site.copyWith(name: 'plant'),
@@ -44,11 +49,11 @@ void main() {
         deviceId: 'd1',
         added: s(DateTime(2026, 11, 3, 10)),
         lockAfter: 15,
-        needPassword: error != null,
-        securityError: error,
-        policy: DevicePolicyInfo(
+        needPassword: wrongPassword,
+        passwordRefused: wrongPassword,
+        policy: DevicePolicy(
           enabled: true,
-          stepUp: confirm ? 'config' : 'none',
+          stepUp: confirm ? StepUp.config : StepUp.none,
         ),
         devices: IList([
           GatewayDevice(
@@ -139,7 +144,7 @@ void main() {
     await S.load(const Locale('en'));
     final got = await words(
       t,
-      stateAt(DateTime.now(), confirm: false, error: 'bad_password'),
+      stateAt(DateTime.now(), confirm: false, wrongPassword: true),
     );
     expect(got, _expectedNoConfirm);
   }, variant: mac);
@@ -231,15 +236,12 @@ const _expected = <String>[
   '×',
   'ON THIS MAC',
   'Unlock with Touch ID',
-  'A key in this Mac’s Secure Enclave, added 3 Nov. Off removes the '
-      'key here and this Mac from your devices.',
+  _long1,
   'Lock Studio after',
-  'Hides the tree and values; the session and Review and apply are '
-      'kept. plant allows at most 30 min.',
+  _long2,
   '15 min',
   'Confirm before config changes',
-  'Set by plant (gateway.devices.step_up: config); you cannot turn it '
-      'off here.',
+  _long3,
   'YOUR DEVICES ON PLANT',
   'mac',
   'MacBook Pro · Studio this device',
@@ -261,9 +263,7 @@ const _expected = <String>[
   'Old box signed out',
   'biometrics',
   'Remove',
-  'plant’s policy: devices on · up to 5 · password every 30 days · '
-      'confirm config changes. An administrator sees and removes devices '
-      'in Access › Users.',
+  _long4,
   'Sign out everywhere',
 ];
 
@@ -273,18 +273,15 @@ const _expectedNoConfirm = <String>[
   '×',
   'ON THIS MAC',
   'Unlock with Touch ID',
-  'A key in this Mac’s Secure Enclave, added 3 Nov. Off removes the '
-      'key here and this Mac from your devices.',
+  _long1,
   'plant asks for your password before a new key.',
   'The password is wrong.',
   'Turn on',
   'Lock Studio after',
-  'Hides the tree and values; the session and Review and apply are '
-      'kept. plant allows at most 30 min.',
+  _long2,
   '15 min',
   'Confirm before config changes',
-  'plant does not ask for it (gateway.devices.step_up: none); only the '
-      'gateway can turn it on.',
+  _long5,
   'YOUR DEVICES ON PLANT',
   'mac',
   'MacBook Pro · Studio this device',
@@ -306,7 +303,37 @@ const _expectedNoConfirm = <String>[
   'Old box signed out',
   'biometrics',
   'Remove',
-  'plant’s policy: devices on · up to 5 · password every 30 days. An '
-      'administrator sees and removes devices in Access › Users.',
+  _long6,
   'Sign out everywhere',
 ];
+
+/// A word of the dialog too long for one line.
+const _long1 =
+    'A key in this Mac’s Secure Enclave, added 3 Nov. Off removes the '
+    'key here and this Mac from your devices.';
+
+/// A word of the dialog too long for one line.
+const _long2 =
+    'Hides the tree and values; the session and Review and apply are '
+    'kept. plant allows at most 30 min.';
+
+/// A word of the dialog too long for one line.
+const _long3 =
+    'Set by plant (gateway.devices.step_up: config); you cannot turn it '
+    'off here.';
+
+/// A word of the dialog too long for one line.
+const _long4 =
+    'plant’s policy: devices on · up to 5 · password every 30 days · '
+    'confirm config changes. An administrator sees and removes devices '
+    'in Access › Users.';
+
+/// A word of the dialog too long for one line.
+const _long5 =
+    'plant does not ask for it (gateway.devices.step_up: none); only the '
+    'gateway can turn it on.';
+
+/// A word of the dialog too long for one line.
+const _long6 =
+    'plant’s policy: devices on · up to 5 · password every 30 days. An '
+    'administrator sees and removes devices in Access › Users.';

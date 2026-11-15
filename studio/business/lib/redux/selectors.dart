@@ -8,7 +8,6 @@ import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
-import 'package:models/device_policy_info.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
@@ -54,7 +53,8 @@ import 'package:models/unlock_stage.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
-import 'package:wyrm_client/wyrm_client.dart' show GatewayDevice;
+import 'package:wyrm_client/wyrm_client.dart'
+    show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
 import '../wyrm/keys.dart';
@@ -1510,7 +1510,7 @@ extension type SelectDevice(AppState _state) {
   bool get noticed => _state.device.noticed;
 
   /// Returns policy
-  DevicePolicyInfo? get policy => _state.device.policy;
+  DevicePolicy? get policy => _state.device.policy;
 
   /// Returns stage
   UnlockStage get stage => _state.device.stage;
@@ -1546,9 +1546,6 @@ extension type SelectDevice(AppState _state) {
   /// Returns needPassword
   bool get needPassword => _state.device.needPassword;
 
-  /// Returns securityError
-  String? get securityError => _state.device.securityError;
-
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<LoadDeviceAction>();
 
@@ -1569,18 +1566,18 @@ extension type SelectDevice(AppState _state) {
 
   /// The gateway asks for a fresh confirmation before a config change
   /// (`gateway.devices.step_up: config`).
-  bool get confirmsConfig => _state.device.policy?.stepUp == 'config';
+  bool get confirmsConfig => _state.device.policy?.stepUp == StepUp.config;
 
   /// The longest idle lock the gateway allows, in minutes (30 when not
   /// told).
   int get lockMaxMin => _state.device.policy?.idleLockMaxMin ?? 30;
 
-  /// The gateway refused the password asked before a new key.
-  bool get passwordRefused => _state.device.securityError == 'bad_password';
-
   /// The unlock switch is being turned on or off.
   bool get isSettingUnlock =>
       _state.wait.isWaitingForType<SetDeviceUnlockAction>();
+
+  /// Returns passwordRefused
+  bool get passwordRefused => _state.device.passwordRefused;
 }
 
 extension type SelectDiscovery(AppState _state) {

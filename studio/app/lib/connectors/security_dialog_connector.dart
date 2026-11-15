@@ -7,8 +7,8 @@ import 'package:business/redux/device/actions/set_lock_after_action.dart';
 import 'package:business/redux/device/actions/sign_out_everywhere_action.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:models/device_policy_info.dart';
 import 'package:ui/overlays/security_dialog.dart';
+import 'package:wyrm_client/wyrm_client.dart' show DevicePolicy;
 
 import '../mappers/device_mappers.dart';
 import '../mappers/security_mappers.dart';
@@ -51,12 +51,11 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
   @override
   _Vm fromStore() => _vm(
     now: DateTime.now(),
-    policy: device.policy ?? const DevicePolicyInfo(),
+    policy: device.policy ?? const DevicePolicy(),
   );
 
-  // An arrow body, not a block: `tool/check_rules.dart` reads a block that
-  // holds several callbacks as one callback with several dispatches.
-  _Vm _vm({required DateTime now, required DevicePolicyInfo policy}) => _Vm(
+  /// The view-model at [now], with the site's device [policy].
+  _Vm _vm({required DateTime now, required DevicePolicy policy}) => _Vm(
     dialog: SecurityDialogVm(
       user: (login.user ?? '').trim(),
       site: site.name ?? '',
@@ -79,7 +78,6 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
       busy: device.isSettingUnlock,
       askPassword: device.needPassword,
       passwordWrong: device.passwordRefused,
-      passwordError: device.securityError,
     ),
     onUnlock: (r) => dispatch(
       SetDeviceUnlockAction(on: r.on, reason: r.reason, password: r.password),

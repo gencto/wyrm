@@ -142,7 +142,6 @@ final class SecurityDialogVm extends Equatable {
     this.busy = false,
     this.askPassword = false,
     this.passwordWrong = false,
-    this.passwordError,
   });
 
   final String user;
@@ -188,9 +187,6 @@ final class SecurityDialogVm extends Equatable {
   /// The last password was wrong.
   final bool passwordWrong;
 
-  /// Another refusal of the password, as the gateway said it.
-  final String? passwordError;
-
   @override
   List<Object?> get props => [
     user,
@@ -211,7 +207,6 @@ final class SecurityDialogVm extends Equatable {
     busy,
     askPassword,
     passwordWrong,
-    passwordError,
   ];
 }
 
@@ -399,7 +394,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                                           onChanged: (v) => _typed = v,
                                           error: vm.passwordWrong
                                               ? s.lockWrongPassword
-                                              : vm.passwordError,
+                                              : null,
                                         ),
                                         label: s.securityPasswordNeeded(
                                           vm.site,

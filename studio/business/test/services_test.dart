@@ -232,6 +232,5 @@ void main() {
 /// Links shown: `links.view` holds an id, as after a first read.
 class _ShowLinks extends Action {
   @override
-  AppState reduce() =>
-      state.copyWith.links(view: const IListConst(['modbus']));
+  AppState reduce() => state.copyWith.links(view: const IListConst(['modbus']));
 }

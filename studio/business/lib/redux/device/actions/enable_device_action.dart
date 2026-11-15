@@ -91,15 +91,15 @@ class EnableDeviceAction extends Action with WaitingAction {
         offered: true,
         stage: UnlockStage.none,
         needPassword: false,
-        securityError: null,
+        passwordRefused: false,
       );
     } on WyrmException catch (e) {
-      if (e.code == 'password_required') {
-        dispatchSync(_NeedPassword());
-        return null;
-      }
-      if (e.code == 'bad_password') {
-        dispatchSync(_NeedPassword(error: e.code));
+      final refusal = e.refusal;
+      if (refusal == GatewayRefusal.passwordRequired ||
+          refusal == GatewayRefusal.badPassword) {
+        dispatchSync(
+          _NeedPassword(refused: refusal == GatewayRefusal.badPassword),
+        );
         return null;
       }
       dispatchSync(_Left());
@@ -137,11 +137,12 @@ class _Left extends Action {
 
 /// Account › Security asks for the password before the key.
 class _NeedPassword extends Action {
-  _NeedPassword({this.error});
+  _NeedPassword({this.refused = false});
 
-  final String? error;
+  /// The password given was wrong.
+  final bool refused;
 
   @override
   AppState reduce() =>
-      state.copyWith.device(needPassword: true, securityError: error);
+      state.copyWith.device(needPassword: true, passwordRefused: refused);
 }

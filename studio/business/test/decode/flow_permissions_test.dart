@@ -39,7 +39,11 @@ void main() {
   });
 
   test('anything else is invalid with the field, not a fault', () {
-    for (final bad in [99, 'admin', const ['write']]) {
+    for (final bad in [
+      99,
+      'admin',
+      const ['write'],
+    ]) {
       expect(
         flowPermissionsOf(perms(bad)),
         const Invalid<FlowPermissions>(
