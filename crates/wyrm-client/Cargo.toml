@@ -29,6 +29,7 @@ wyrm-link-sdk = { workspace = true, features = ["harness", "advanced"] }
 wyrm-client = { path = ".", features = ["advanced"] }
 wyrm-link-mock.workspace = true
 ed25519-dalek.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# `test-util`: paused time for the route-gap reads (`read_through_gap`)
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 # two sessions over loopback TCP (tests/stall.rs)
 zenoh = { workspace = true, features = ["transport_tcp"] }
