@@ -1,3 +1,5 @@
+import 'package:logging/logging.dart';
+
 /// What a decoder of `business/lib/wyrm/decode/` returns (studio-rules §8):
 /// the typed value, or why the wire value is not one, with the field.
 ///
@@ -7,12 +9,23 @@
 sealed class Decoded<T> {
   const Decoded();
 
-  /// The value, or null when it did not decode.
-  T? get valueOrNull => switch (this) {
+  /// The value; for an [Invalid] one, null **and a warning** naming the
+  /// shape, the field and the reason, with [where] (`flow plant-1`). A
+  /// caller that can show the fault switches on [Valid] / [Invalid]
+  /// itself; nothing turns an [Invalid] into a silent null.
+  T? orWarn(String where) => switch (this) {
     Valid(:final value) => value,
-    Invalid() => null,
+    final Invalid<T> i => _warn<T>(where, i),
   };
+
+  static R? _warn<R>(String where, Invalid<R> i) {
+    decodeLog.warning('$where: ${i.shape}.${i.field}: ${i.reason}');
+    return null;
+  }
 }
+
+/// The log a decode failure goes to.
+final decodeLog = Logger('wyrm.decode');
 
 /// The wire value is a [T].
 final class Valid<T> extends Decoded<T> {

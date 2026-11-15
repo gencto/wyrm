@@ -91,7 +91,7 @@ FlowDraft flowDraftOf(String id, Value def) => flowReadOf(id, def).draft;
       blocks: blocks.lock,
       edges: edges.lock,
       rest: rest.lock,
-      permissions: flowPermissionsOf(def['permissions']).valueOrNull,
+      permissions: flowPermissionsOf(def['permissions']).orWarn('flow $id'),
     ),
     placed: placed,
   );

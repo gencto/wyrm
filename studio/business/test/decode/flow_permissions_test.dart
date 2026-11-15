@@ -23,8 +23,14 @@ void main() {
             as Map<String, Object?>;
     expect(levels, isNotEmpty);
     for (final MapEntry(:key, :value) in levels.entries) {
-      final byCode = flowPermissionsOf(perms(int.parse(key))).valueOrNull;
-      final byName = flowPermissionsOf(perms(value)).valueOrNull;
+      final byCode = switch (flowPermissionsOf(perms(int.parse(key)))) {
+        Valid(:final value) => value,
+        Invalid() => null,
+      };
+      final byName = switch (flowPermissionsOf(perms(value))) {
+        Valid(:final value) => value,
+        Invalid() => null,
+      };
       expect(byCode?.maxperm?.wireName, value, reason: 'code $key');
       expect(byName, byCode, reason: 'name $value');
     }
@@ -58,6 +64,23 @@ void main() {
       flowPermissionsOf(Value.from('write')),
       const Invalid<FlowPermissions>('flow permissions', '', 'not a map'),
     );
+  });
+
+  test('a draft with a bad maxperm has none, and the log names the field', () {
+    final logged = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => logged.add(r.message));
+    addTearDown(sub.cancel);
+    final d = flowDraftOf(
+      'f',
+      Value.from({
+        'id': 'f',
+        'permissions': {'maxperm': 'admin'},
+        'nodes': <String, Object?>{},
+        'edges': <Object?>[],
+      }),
+    );
+    expect(d.permissions, isNull);
+    expect(logged, ['flow f: flow permissions.maxperm: not a level']);
   });
 
   test('a draft carries them typed, and writes them back as they came', () {
