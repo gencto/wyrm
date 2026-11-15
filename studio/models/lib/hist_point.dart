@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'quality.dart';
+
 part 'hist_point.freezed.dart';
 
 /// One recorded value of a point (`~val?history=`).
@@ -14,7 +16,7 @@ abstract class HistPoint with _$HistPoint {
     /// The value as text.
     @Default('') String text,
 
-    /// `good`, `uncertain`, `bad`; null for a rollup row.
-    String? quality,
+    /// Null for a rollup row.
+    Quality? quality,
   }) = _HistPoint;
 }

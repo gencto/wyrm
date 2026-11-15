@@ -1,25 +1,27 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
-/// One item of a [NodeMenu]: an action of the node.
-final class NodeMenuItemVm extends Equatable {
+/// One item of a [NodeMenu]: an action of the node (its name), or another
+/// pick (a poll rate); [id] is handed back when picked.
+final class NodeMenuItemVm<T> extends Equatable {
   const NodeMenuItemVm({
     required this.id,
     required this.label,
     this.level = '',
     this.danger = false,
-    this.disabledReason,
+    this.disabled,
     this.code,
   });
 
-  /// The action's name, handed back when picked.
-  final String id;
+  /// Handed back when picked.
+  final T id;
 
   /// Its display name, ending in `…` when it opens a form.
   final String label;
@@ -27,29 +29,29 @@ final class NodeMenuItemVm extends Equatable {
   /// `config`, `write`, `read`: the hint on the right.
   final String level;
   final bool danger;
-  final String? disabledReason;
+  final Disabled? disabled;
 
   /// The action's own name, in the item's tooltip when the label says it
   /// in other words.
   final String? code;
 
   @override
-  List<Object?> get props => [id, label, level, danger, disabledReason, code];
+  List<Object?> get props => [id, label, level, danger, disabled, code];
 }
 
 /// A group of items under its header (the action `group`).
-final class NodeMenuGroupVm extends Equatable {
+final class NodeMenuGroupVm<T> extends Equatable {
   const NodeMenuGroupVm({required this.label, required this.items});
 
   final String label;
-  final List<NodeMenuItemVm> items;
+  final List<NodeMenuItemVm<T>> items;
 
   @override
   List<Object?> get props => [label, items];
 }
 
 /// What a [NodeMenu] shows.
-final class NodeMenuVm extends Equatable {
+final class NodeMenuVm<T> extends Equatable {
   const NodeMenuVm({
     required this.title,
     required this.subtitle,
@@ -63,7 +65,7 @@ final class NodeMenuVm extends Equatable {
 
   /// `Modbus device · 7 actions`.
   final String subtitle;
-  final List<NodeMenuGroupVm> groups;
+  final List<NodeMenuGroupVm<T>> groups;
   final String copyLabel;
   final String copyShortcut;
 
@@ -80,23 +82,22 @@ final class NodeMenuVm extends Equatable {
 /// The node menu of board *Explorer · Actions* (docs/design/specs/
 /// explorer.md §5): 300 wide, radius 10, the node's name over its actions
 /// grouped by `group`, each with its level on the right, danger items in
-/// coral, and a footer row Copy key. [onPick] gets the action's id, or
-/// [copyId] for the footer.
-class NodeMenu extends StatelessWidget {
+/// coral, and a footer row Copy key. [onPick] gets the place of the item
+/// picked, or [MenuSpot.copy] for the footer ([show] turns it into the
+/// item's id).
+class NodeMenu<T> extends StatelessWidget {
   const NodeMenu({required this.vm, required this.onPick, super.key});
 
-  final NodeMenuVm vm;
-  final ValueChanged<String> onPick;
+  final NodeMenuVm<T> vm;
+  final ValueChanged<MenuSpot> onPick;
 
-  /// The id [onPick] gets for the footer row.
-  static const copyId = '\u0000copy';
-
-  /// Shows the menu at [at] (global) and returns what was picked.
-  static Future<String?> show(
+  /// Shows the menu at [at] (global) and returns what was picked; null when
+  /// it closed without a pick.
+  static Future<MenuPick<T>?> show<T>(
     BuildContext context, {
     required Offset at,
-    required NodeMenuVm vm,
-  }) => showDialog<String>(
+    required NodeMenuVm<T> vm,
+  }) => showDialog<MenuPick<T>>(
     context: context,
     barrierColor: Colors.transparent,
     builder: (context) {
@@ -108,9 +109,14 @@ class NodeMenu extends StatelessWidget {
             top: at.dy.clamp(8, size.height - 120),
             child: ConstrainedBox(
               constraints: BoxConstraints(maxHeight: size.height - 16),
-              child: NodeMenu(
+              child: NodeMenu<T>(
                 vm: vm,
-                onPick: (id) => Navigator.of(context).pop(id),
+                onPick: (spot) => Navigator.of(context).pop(switch (spot) {
+                  MenuItemSpot(:final group, :final item) => ItemPicked(
+                    vm.groups[group].items[item].id,
+                  ),
+                  MenuCopySpot() => CopyPicked<T>(),
+                }),
               ),
             ),
           ),
@@ -122,10 +128,11 @@ class NodeMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    Widget item(NodeMenuItemVm i) {
-      final enabled = i.disabledReason == null;
+    Widget item(int group, int index, NodeMenuItemVm<T> i) {
+      final why = i.disabled?.text;
+      final enabled = why == null;
       final row = InkWell(
-        onTap: enabled ? () => onPick(i.id) : null,
+        onTap: enabled ? () => onPick(MenuItemSpot(group, index)) : null,
         child: Container(
           height: 38,
           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -153,7 +160,7 @@ class NodeMenu extends StatelessWidget {
         ),
       );
       if (!enabled) {
-        return Tooltip(message: i.disabledReason, child: row);
+        return Tooltip(message: why, child: row);
       }
       final code = i.code;
       return code == null || i.label.startsWith(code)
@@ -222,7 +229,7 @@ class NodeMenu extends StatelessWidget {
                   ],
                 ),
               ),
-              for (final g in vm.groups) ...[
+              for (final (gi, g) in vm.groups.indexed) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     14,
@@ -242,11 +249,11 @@ class NodeMenu extends StatelessWidget {
                     ),
                   ),
                 ),
-                for (final i in g.items) item(i),
+                for (final (ii, i) in g.items.indexed) item(gi, ii, i),
               ],
               Divider(height: 13, color: c.line1),
               InkWell(
-                onTap: () => onPick(copyId),
+                onTap: () => onPick(MenuSpot.copy),
                 child: Container(
                   height: 34,
                   padding: const EdgeInsets.symmetric(
@@ -277,4 +284,42 @@ class NodeMenu extends StatelessWidget {
       ),
     );
   }
+}
+
+/// What was picked in a [NodeMenu].
+sealed class MenuPick<T> {
+  const MenuPick();
+}
+
+/// An item: its id.
+final class ItemPicked<T> extends MenuPick<T> {
+  const ItemPicked(this.id);
+
+  final T id;
+}
+
+/// The footer row: Copy key.
+final class CopyPicked<T> extends MenuPick<T> {
+  const CopyPicked();
+}
+
+/// Where a pick in a [NodeMenu] was: an item, or the footer.
+sealed class MenuSpot {
+  const MenuSpot();
+
+  /// The footer row.
+  static const copy = MenuCopySpot();
+}
+
+/// The item [item] of the group [group].
+final class MenuItemSpot extends MenuSpot {
+  const MenuItemSpot(this.group, this.item);
+
+  final int group;
+  final int item;
+}
+
+/// The footer row: Copy key.
+final class MenuCopySpot extends MenuSpot {
+  const MenuCopySpot();
 }

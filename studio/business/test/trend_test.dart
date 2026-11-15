@@ -17,6 +17,7 @@ import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/quality.dart' as studio;
 import 'package:models/trend_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -132,7 +133,7 @@ void main() {
     expect(str(r.single['to']), '');
     final d = s.state.historian.detail!;
     expect(d.step, 'raw');
-    expect(d.points[a]!.last.quality, 'uncertain');
+    expect(d.points[a]!.last.quality, studio.Quality.uncertain);
   });
 
   test('a key at the raw limit is read again as 1 min buckets', () async {

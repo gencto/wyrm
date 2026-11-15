@@ -6,15 +6,15 @@ import 'package:wyrm_client/wyrm_client.dart';
 NodeInfo nodeInfoOf(String parent, Child child) {
   final m = child.meta;
   final writable = switch (m.writable) {
-    Writable.write => 'write',
-    Writable.config => 'config',
-    _ => null,
+    Writable.write => Perm.write,
+    Writable.config => Perm.config,
+    Writable.never || null => null,
   };
   return NodeInfo(
     key: '$parent/${child.name}',
     name: child.name,
     display: m.displayName,
-    type: m.ty?.wireName,
+    type: m.ty,
     unit: m.unit?.toString(),
     writable: writable,
     // spec 02 0.2.6: the triangle only where a child node exists

@@ -71,7 +71,7 @@ class AppendSamplesAction extends Action {
           _ => null,
         },
         text: '${v.value ?? ''}',
-        quality: bucket == null ? v.quality.name : null,
+        quality: bucket == null ? v.quality : null,
       );
       final last = s.lastOrNull;
       if (last != null && !point.time.isAfter(last.time)) {

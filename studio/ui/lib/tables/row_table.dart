@@ -49,9 +49,12 @@ final class CellVm extends Equatable {
 
 /// One row of a [RowTable].
 final class RowVm<T> extends Equatable {
-  const RowVm({required this.id, required this.cells, this.selected = false});
+  const RowVm({required this.cells, this.id, this.selected = false});
 
-  final T id;
+  /// What a tap on the row reports (an enum of a closed set, a thing's own
+  /// name); null: the row is not one a tap reports (a history row, an
+  /// audit record).
+  final T? id;
   final List<CellVm> cells;
   final bool selected;
 
@@ -84,7 +87,13 @@ class RowTable<T> extends StatelessWidget {
     super.key,
   }) : _onTap = onTap == null
            ? null
-           : [for (final r in rows) () => onTap(r.id)];
+           : [
+               for (final r in rows)
+                 switch (r.id) {
+                   final id? => () => onTap(id),
+                   null => null,
+                 },
+             ];
 
   /// 58 for two-line rows, 40 for one line (points, history).
   final double rowHeight;
@@ -94,7 +103,7 @@ class RowTable<T> extends StatelessWidget {
 
   // The callback is applied to each id here, in the constructor: a field
   // of type `ValueChanged<T>` would hold `T` against its variance.
-  final List<VoidCallback>? _onTap;
+  final List<VoidCallback?>? _onTap;
 
   /// Shown as the only row when there are none.
   final String? empty;

@@ -1,7 +1,9 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/level_badge.dart';
+import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -12,30 +14,33 @@ final class ActionCardVm extends Equatable {
     required this.id,
     required this.title,
     required this.level,
-    required this.detail,
+    required this.params,
+    this.result,
     this.selected = false,
-    this.disabledReason,
+    this.disabled,
   });
 
   final String id;
   final String title;
 
-  /// `read`, `write`, `config`.
-  final String level;
+  final AccessLevel level;
 
-  /// `4 parameters · returns rows`.
-  final String detail;
+  /// How many parameters it takes; its result type, when it has one
+  /// (`id · 4 parameters · returns rows`).
+  final int params;
+  final String? result;
   final bool selected;
-  final String? disabledReason;
+  final Disabled? disabled;
 
   @override
   List<Object?> get props => [
     id,
     title,
     level,
-    detail,
+    params,
+    result,
     selected,
-    disabledReason,
+    disabled,
   ];
 }
 
@@ -49,7 +54,8 @@ class ActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final off = vm.disabledReason != null;
+    final why = vm.disabled?.text;
+    final off = why != null;
     final card = Material(
       color: vm.selected ? c.emberFill : c.ground2,
       shape: RoundedRectangleBorder(
@@ -82,11 +88,18 @@ class ActionCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  LevelBadge(level: vm.level),
+                  LevelBadge.of(vm.level),
                 ],
               ),
               Text(
-                vm.disabledReason ?? vm.detail,
+                why ??
+                    [
+                      // The action's own name stays in reach (owner
+                      // 2026-11-11).
+                      vm.id,
+                      S.current.paramCount(vm.params),
+                      if (vm.result case final r?) S.current.returns(r),
+                    ].join(' · '),
                 style: off
                     ? TextStyle(fontSize: FontSizes.sm, color: c.text4)
                     : mono(size: 11, color: c.text4),
@@ -96,6 +109,6 @@ class ActionCard extends StatelessWidget {
         ),
       ),
     );
-    return off ? Tooltip(message: vm.disabledReason, child: card) : card;
+    return off ? Tooltip(message: why, child: card) : card;
   }
 }

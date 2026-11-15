@@ -95,11 +95,9 @@ sequenceDiagram
     User->>UI: onGoToKey
     UI->>VM: onGoToKey()
     VM->>A1: dispatch
-    A1->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
-    A1->>ST: dispatchSync(ToggleNodeAction)
-    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
-    A1->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
+    Note over A1: async
+    A1->>ST: dispatchSync(ShowNodeAction)
+    A1->>ST: dispatchAndWait(a)
 ```
 
 ## onReview
@@ -338,7 +336,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onClearProblems` | `ClearProblemsAction` | `problems.items, problems.toasts, problems.unread` |
 | `onRetryProblem` | `RetryProblemAction` | — |
 | `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant` |
-| `onGoToKey` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
+| `onGoToKey` | `SelectNodeAction` | — |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |
 | `onApply` | `ApplyChangesAction` | `changes.table, changes.view, changes.message, changes.open` |

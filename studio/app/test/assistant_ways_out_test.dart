@@ -430,7 +430,7 @@ void main() {
         'longer be approved.';
     expect(find.text(replaces), findsOneWidget);
     // as Explorer does: the change reaches the tab on the next frame
-    app.store.dispatchSync(SelectNodeAction(_ahu3));
+    await app.store.dispatchAndWait(SelectNodeAction(_ahu3));
     await tester.pump();
     await tester.pump();
     // the key picker offers the Explorer selection first

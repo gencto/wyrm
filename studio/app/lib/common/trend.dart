@@ -3,6 +3,7 @@ import 'package:business/wyrm/history_steps.dart';
 import 'package:business/wyrm/trend_window.dart' show decimalsOf;
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/hist_point.dart';
+import 'package:models/quality.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/charts/trend_format.dart' show trendRollup;
 
@@ -18,10 +19,10 @@ export 'package:ui/charts/trend_format.dart' show trendFormat;
 /// name (`15m`).
 String rollupText(String? step) => trendRollup(stepDuration(step));
 
-TrendQuality _quality(String? q) => switch (q) {
-  'bad' => .bad,
-  'uncertain' => .uncertain,
-  _ => .good,
+TrendQuality _quality(Quality? q) => switch (q) {
+  Quality.bad => .bad,
+  Quality.uncertain => .uncertain,
+  Quality.good || null => .good,
 };
 
 /// [rows] as samples, with the bucket's min and max from [low] and [high]

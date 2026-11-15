@@ -2,14 +2,15 @@
 // ignore_for_file: lines_longer_than_80_chars
 
 import 'package:material_ui/material_ui.dart';
-import 'package:ui/buttons/segmented_tabs.dart';
-import 'package:ui/containers/fact_grid.dart';
-import 'package:ui/containers/inspector_sections.dart';
 import 'package:ui/containers/side_panels.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/indicators/level_badge.dart';
+import 'package:ui/indicators/node_state.dart';
 import 'package:ui/indicators/quality_mark.dart';
+import 'package:ui/indicators/sample_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
-import 'package:ui/models/tone.dart';
+import 'package:ui/indicators/value_type.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
@@ -19,8 +20,6 @@ import 'package:ui/shell/window_bar.dart';
 import 'package:ui/shell/window_controls.dart';
 import 'package:ui/shell/workspace_rail.dart';
 import 'package:ui/tables/points_table.dart';
-import 'package:ui/tables/row_table.dart';
-import 'package:ui/trees/node_tree.dart';
 import 'package:ui/trees/tree_row.dart';
 
 // The data of board *Studio · Explorer* (canvas `Main.dc.html`) as the
@@ -83,7 +82,7 @@ List<TreeRowVm> _tree() => const [
     depth: 0,
     hasChildren: true,
     expanded: true,
-    meta: '4',
+    count: 4,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/modbus',
@@ -92,9 +91,8 @@ List<TreeRowVm> _tree() => const [
     icon: 'node_link',
     hasChildren: true,
     expanded: true,
-    chip: 'Process',
-    dot: Tone.good,
-    dotLabel: 'Connected',
+    mode: .process,
+    state: .connected,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/modbus/tcp-boiler',
@@ -103,8 +101,7 @@ List<TreeRowVm> _tree() => const [
     icon: 'node_conn',
     hasChildren: true,
     expanded: true,
-    dot: Tone.good,
-    dotLabel: 'Connected',
+    state: .connected,
   ),
   TreeRowVm(
     id: _dev,
@@ -113,7 +110,7 @@ List<TreeRowVm> _tree() => const [
     icon: 'node_device',
     hasChildren: true,
     selected: true,
-    meta: '9',
+    count: 9,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/modbus/tcp-boiler/plc2',
@@ -121,7 +118,7 @@ List<TreeRowVm> _tree() => const [
     depth: 3,
     icon: 'node_device',
     hasChildren: true,
-    meta: '14',
+    count: 14,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/modbus/rtu-line1',
@@ -129,8 +126,7 @@ List<TreeRowVm> _tree() => const [
     depth: 2,
     icon: 'node_conn',
     hasChildren: true,
-    dot: Tone.warn,
-    dotLabel: 'Connecting',
+    state: .starting,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/opc-ua',
@@ -138,9 +134,8 @@ List<TreeRowVm> _tree() => const [
     depth: 1,
     icon: 'node_link',
     hasChildren: true,
-    chip: 'Embedded',
-    dot: Tone.good,
-    dotLabel: 'Connected',
+    mode: .embedded,
+    state: .connected,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/bacnet',
@@ -148,9 +143,8 @@ List<TreeRowVm> _tree() => const [
     depth: 1,
     icon: 'node_link',
     hasChildren: true,
-    chip: 'WASM',
-    dot: Tone.bad,
-    dotLabel: 'Failed',
+    mode: .wasm,
+    state: .failed,
   ),
   TreeRowVm(
     id: 'wy/plant/downstream/field-gw',
@@ -158,9 +152,8 @@ List<TreeRowVm> _tree() => const [
     depth: 1,
     icon: 'node_link',
     hasChildren: true,
-    chip: 'External',
-    dot: Tone.warn,
-    dotLabel: 'In quarantine',
+    mode: .external,
+    state: .starting,
   ),
   TreeRowVm(
     id: 'wy/plant/dataflows',
@@ -168,22 +161,21 @@ List<TreeRowVm> _tree() => const [
     depth: 0,
     hasChildren: true,
     expanded: true,
-    meta: '2',
+    count: 2,
   ),
   TreeRowVm(
     id: 'wy/plant/dataflows/tank-level',
     name: 'tank-level',
     depth: 1,
     icon: 'node_flow',
-    dot: Tone.good,
-    dotLabel: 'Deployed',
+    state: .connected,
   ),
   TreeRowVm(
     id: 'wy/plant/dataflows/boiler-guard',
     name: 'boiler-guard',
     depth: 1,
     icon: 'node_flow',
-    meta: 'draft',
+    draft: true,
   ),
   TreeRowVm(
     id: 'wy/plant/storage',
@@ -199,18 +191,19 @@ List<TreeRowVm> _tree() => const [
   ),
 ];
 
-const _good = QualityMarkVm(label: 'good', tone: Tone.good);
+ModbusRegisterVm _hr(int addr, [RegisterArea area = .holding]) =>
+    ModbusRegisterVm(addr: '$addr', area: area);
 
 PointRowVm _p(
   String n,
   String l,
-  String a,
+  RegisterVm a,
   String t,
-  String u,
-  String v, {
-  String poll = '1 s',
-  String? was,
-  QualityMarkVm q = _good,
+  String? u,
+  String? v, {
+  num poll = 1,
+  num? was,
+  SampleMark q = .good,
   bool w = false,
   bool st = false,
   bool sel = false,
@@ -220,18 +213,12 @@ PointRowVm _p(
   name: n,
   display: l,
   register: a,
-  type: t,
+  dtype: t,
   unit: u,
   poll: poll,
   pollWas: was,
-  value: stale ? v : v,
-  quality: stale
-      ? const QualityMarkVm(
-          label: 'stale',
-          tone: Tone.neutral,
-          mark: Mark.dashed,
-        )
-      : q,
+  value: v,
+  mark: stale ? .stale : q,
   writable: w,
   staged: st,
   selected: sel,
@@ -239,16 +226,16 @@ PointRowVm _p(
 );
 
 List<PointRowVm> _points({bool select = true, bool stale = false}) => [
-  _p('t1', 'Supply temp', 'HR 0', 'f32', '°C', '82.5', stale: stale),
+  _p('t1', 'Supply temp', _hr(0), 'f32', '°C', '82.5', stale: stale),
   _p(
     't2',
     'Return temp',
-    'HR 2',
+    _hr(2),
     'f32',
     '°C',
     '64.1',
-    poll: '500 ms',
-    was: '1 s',
+    poll: 0.5,
+    was: 1,
     st: true,
     sel: select,
     stale: stale,
@@ -256,250 +243,218 @@ List<PointRowVm> _points({bool select = true, bool stale = false}) => [
   _p(
     't3',
     'Flue temp',
-    'HR 6',
+    _hr(6),
     'f32',
     '°C',
-    '—',
+    null,
     st: true,
-    q: const QualityMarkVm(
-      label: 'not applied',
-      tone: Tone.neutral,
-      mark: Mark.ring,
-    ),
+    q: .notApplied,
     stale: stale,
   ),
-  _p('p1', 'Pressure', 'HR 4', 'f32', 'bar', '2.31', stale: stale),
-  _p('pump', 'Pump run', 'Coil 0', 'binary', '—', 'on', w: true, stale: stale),
-  _p('fan', 'Fan speed', 'HR 9', 'u16', '%', '72', st: true, stale: stale),
+  _p('p1', 'Pressure', _hr(4), 'f32', 'bar', '2.31', stale: stale),
+  _p(
+    'pump',
+    'Pump run',
+    _hr(0, .coil),
+    'binary',
+    null,
+    'on',
+    w: true,
+    stale: stale,
+  ),
+  _p('fan', 'Fan speed', _hr(9), 'u16', '%', '72', st: true, stale: stale),
   _p(
     'flow',
     'Flow rate',
-    'IR 0',
+    _hr(0, .input),
     'f32',
     'm³/h',
     '12.8',
-    poll: '5 s',
-    q: const QualityMarkVm(
-      label: 'uncertain',
-      tone: Tone.warn,
-      mark: Mark.ring,
-    ),
+    poll: 5,
+    q: .uncertain,
     stale: stale,
   ),
   _p(
     'valve',
     'Valve position',
-    'HR 11',
+    _hr(11),
     'u16',
     '%',
-    '—',
-    q: const QualityMarkVm(label: 'bad', tone: Tone.bad),
+    null,
+    q: .bad,
     w: true,
     stale: stale,
   ),
-  _p('alarm', 'Alarm word', 'HR 19', 'bits16', '—', '0x0000', stale: stale),
+  _p('alarm', 'Alarm word', _hr(19), 'bits16', null, '0x0000', stale: stale),
 ];
 
-const List<TabItemVm<String>> _tabs = [
-  TabItemVm(id: 'points', label: 'Points', count: '9'),
-  TabItemVm(id: 'params', label: 'Parameters'),
-  TabItemVm(id: 'actions', label: 'Actions', count: '7'),
-  TabItemVm(id: 'history', label: 'History'),
-  TabItemVm(id: 'audit', label: 'Audit'),
+const _tabs = [
+  ExplorerTabVm(.points, count: 9),
+  ExplorerTabVm(.parameters),
+  ExplorerTabVm(.actions, count: 7),
+  ExplorerTabVm(.history),
+  ExplorerTabVm(.audit),
 ];
 
 const _toolbar = [
-  ToolButtonVm(id: 'add_point', label: 'Add point', icon: 'ui_add'),
-  ToolButtonVm(
-    id: 'import',
-    label: 'Import CSV or DSA tree',
-    icon: 'ui_upload',
-    quiet: true,
-  ),
-  ToolButtonVm(
-    id: 'apply_profile',
-    label: 'Apply profile',
-    icon: 'ui_profile',
-    quiet: true,
-    disabledReason:
-        'The broker has no action to apply a profile to a device yet.',
-  ),
+  ToolButtonVm(.addPoint),
+  ToolButtonVm(.importPoints),
+  ToolButtonVm(.applyProfile, disabled: NotThere(.profile)),
 ];
 
-ParamFieldVm _f(
-  String id,
-  String label,
+ExplorerFieldVm _f(
+  String code,
   Object? value, {
+  PointFieldWord? word,
   ParamKind kind = ParamKind.text,
   List<String> choices = const [],
-  bool enabled = true,
-  String? description,
-}) => ParamFieldVm(
-  id: id,
-  label: label,
+  bool missing = false,
+}) => ExplorerFieldVm(
+  code: code,
+  label: code,
+  word: word,
   kind: kind,
   value: value,
   choices: choices,
-  enabled: enabled,
-  description: description,
-  onChanged: _none,
+  missing: missing,
 );
 
+const _node = '$_dev/t2';
+
 PointInspectorVm _pointInspector() => PointInspectorVm(
-  eyebrow: 'Point',
+  key: _node,
   name: 't2',
   display: 'Return temp',
   value: '64.1 °C',
-  quality: const QualityMarkVm(label: 'good · 12:00:03', tone: Tone.good),
+  mark: .good,
+  time: DateTime(2026, 11, 8, 12, 0, 3),
   sections: [
-    InspectorSectionVm(
-      label: 'Register',
+    PointFieldsSectionVm(
+      node: _node,
+      value: false,
       fields: [
         _f(
           'table',
-          'Area',
           'holding',
+          word: .area,
           kind: ParamKind.choice,
           choices: const ['coil', 'discrete', 'input', 'holding'],
         ),
-        _f('addr', 'Address', 2, kind: ParamKind.number),
+        _f('addr', 2, word: .address, kind: ParamKind.number),
         _f(
           'dtype',
-          'Data type',
           'f32',
+          word: .dataType,
           kind: ParamKind.choice,
           choices: const ['u16', 'f32', 'f32_wswap'],
         ),
-        _f('word_order', 'Word order', 'ABCD', enabled: false),
+        _f('word_order', WordOrderTag.abcd, word: .wordOrder, missing: true),
       ],
     ),
-    InspectorSectionVm(
-      label: 'Value',
-      columns: 3,
+    PointFieldsSectionVm(
+      node: _node,
+      value: true,
       fields: [
-        _f('unit', 'Unit', '°C'),
-        _f('scale', 'Scale', 1.0, kind: ParamKind.number),
-        _f('precision', 'Precision', null, enabled: false),
+        _f('unit', '°C', word: .unit),
+        _f('scale', 1.0, word: .scale, kind: ParamKind.number),
+        _f('precision', null, word: .precision, missing: true),
       ],
     ),
-    const InspectorSectionVm(
-      label: 'Polling',
-      note: 'staged · was 1 s',
-      segments: ['250 ms', '500 ms', '1 s', '5 s'],
-      segment: 1,
-      onSegment: _none,
+    const PollingSectionVm(
+      node: _node,
+      code: 'poll_s',
+      rates: [0.25, 0.5, 1, 5],
+      now: 0.5,
+      was: 1,
+      staged: true,
     ),
-    InspectorSectionVm(
-      label: 'Write',
-      fields: [
-        _f(
-          'writable',
-          'Writable',
-          false,
-          kind: ParamKind.toggle,
-          description: 'Turning this on needs config level',
-        ),
-      ],
+    WriteSectionVm(
+      node: _node,
+      level: AccessLevel.config,
+      fields: [_f('writable', false, word: .writable, kind: ParamKind.toggle)],
     ),
-    const InspectorSectionVm(
-      label: 'What the tree will publish',
-      code: [
-        ('~meta', '{type: number, unit: °C, writable: false}'),
-        ('~val', '{v: 64.1, q: good, t: 12:00:03}'),
-      ],
+    PublishSectionVm(
+      type: ValueType.number,
+      unit: '°C',
+      writable: false,
+      value: '64.1',
+      quality: .good,
+      time: DateTime(2026, 11, 8, 12, 0, 3),
     ),
   ],
 );
 
 NodeInspectorVm _deviceInspector() => NodeInspectorVm(
-  eyebrow: 'Device',
+  key: _dev,
+  kind: .device,
   title: 'plc1',
   sections: [
-    InspectorSectionVm(
-      label: 'Parameters',
+    ParamsSectionVm(
+      node: _dev,
       fields: [
-        _f('unit', 'unit', 1, kind: ParamKind.number),
+        _f('unit', 1, kind: ParamKind.number),
         _f(
-          'ping',
           'ping',
           'probe',
           kind: ParamKind.choice,
           choices: const ['probe', 'fc17', 'none'],
         ),
-        _f('ping_s', 'ping_s', 5.0, kind: ParamKind.number),
-        _f('max_regs', 'max_regs', 125, kind: ParamKind.number),
-        _f('contiguous_only', 'contiguous_only', false, kind: ParamKind.toggle),
+        _f('ping_s', 5.0, kind: ParamKind.number),
+        _f('max_regs', 125, kind: ParamKind.number),
+        _f('contiguous_only', false, kind: ParamKind.toggle),
       ],
     ),
-    const InspectorSectionVm(
-      label: 'Diagnostics',
-      facts: [
-        FactVm(label: 'requests', value: '18 342', mono: true),
-        FactVm(label: 'errors', value: '0', mono: true),
-        FactVm(label: 'timeouts', value: '2', mono: true),
-        FactVm(label: 'last_rtt_ms', value: '4 ms', mono: true),
-        FactVm(label: 'avg_rtt_ms', value: '5.2 ms', mono: true),
-      ],
-    ),
+    const DiagnosticsSectionVm([
+      FactRowVm('requests', 'requests', '18 342'),
+      FactRowVm('errors', 'errors', '0'),
+      FactRowVm('timeouts', 'timeouts', '2'),
+      FactRowVm('last_rtt_ms', 'last_rtt_ms', '4 ms'),
+      FactRowVm('avg_rtt_ms', 'avg_rtt_ms', '5.2 ms'),
+    ]),
   ],
 );
 
 ExplorerPage _page({
   List<PointRowVm>? points,
   ExplorerInspectorVm? inspector,
-  String? empty,
-  StatusPillVm pill = const StatusPillVm(label: 'Connected', tone: Tone.good),
+  PointsEmpty? empty,
+  StatusPillVm? pill,
   SidePanelWidths panels = const SidePanelWidths(),
   ValueViewerVm? viewer,
   String title = 'plc1',
   String? titleName,
 }) => ExplorerPage(
-  treeLabel: 'Tree · plant',
+  site: 'plant',
   tree: _tree(),
   onTap: _none,
   onToggle: _none,
-  onMenu: (_, _) {},
+  onOpenMenu: _none,
   onTreeFilter: _none,
-  treeFilterHint: 'Filter',
-  treeNote: const TreeNoteVm(
-    lead: 'The tree shows data only.',
-    code: 'sys/**',
-    middle: 'is edited in',
-    and: 'and',
-    links: [
-      ('links', 'Links'),
-      ('access', 'Access'),
-      ('sites', 'Sites'),
-      ('system', 'System'),
-    ],
-  ),
+  onNoteLink: _none,
   keyName: _dev,
-  onCopyKey: () {},
+  onCopy: _none,
   title: title,
   titleName: titleName,
-  pill: pill,
-  subtitle: 'modbus device · unit 1 · 10.0.4.20:502 · last read 12:00:03',
-  headerButtons: const [
-    ToolButtonVm(
-      id: 'ping',
-      label: 'Ping',
-      disabledReason: 'This node has no ping action: the driver pings by itself (cfg ping).',
-    ),
-  ],
-  actionsLabel: 'Actions',
-  onActions: _none,
+  pill: pill ?? NodeState.connected.pill(),
+  subtitle: ExplorerSubtitleVm(
+    kind: .device,
+    driver: 'modbus',
+    unit: '1',
+    host: '10.0.4.20',
+    port: '502',
+    lastRead: DateTime(2026, 11, 8, 12, 0, 3),
+  ),
+  headerButtons: const [ToolButtonVm(.ping, disabled: NotThere(.ping))],
   onTool: _none,
   tabs: _tabs,
-  tab: 'points',
+  tab: .points,
   onTab: _none,
   onTapFlowEditor: _none,
   toolbar: _toolbar,
   onPointFilter: _none,
-  pointFilterHint: 'Filter points',
   points: points ?? _points(),
   pointsEmpty: empty,
   emptyButtons: _toolbar.take(2).toList(),
-  pointsNote: 'Values update live. Edits are staged in this session; nothing is written to the device until you apply.',
   onPoint: _none,
   onCheck: _none,
   onRange: _none,
@@ -632,7 +587,7 @@ Widget explorerReview() => _shell(
 Widget explorerEmpty() => _shell(
   _page(
     points: const [],
-    empty: 'No points yet',
+    empty: .noPointsYet,
     inspector: _deviceInspector(),
   ),
   changes: 0,
@@ -643,15 +598,11 @@ Widget explorerOffline() => _shell(
   _page(
     points: _points(stale: true),
     inspector: PointInspectorVm(
-      eyebrow: 'Point',
+      key: _node,
       name: 't2',
       display: 'Return temp',
       value: '64.1 °C',
-      quality: const QualityMarkVm(
-        label: 'stale',
-        tone: Tone.neutral,
-        mark: Mark.dashed,
-      ),
+      mark: .stale,
       sections: _pointInspector().sections,
     ),
   ),
@@ -679,7 +630,7 @@ List<TreeRowVm> _edgeTree(String selected, {String? longName}) => [
     depth: 0,
     hasChildren: true,
     expanded: true,
-    meta: '3',
+    count: 3,
   ),
   const TreeRowVm(
     id: '$_edge/downstream/modbus',
@@ -688,9 +639,8 @@ List<TreeRowVm> _edgeTree(String selected, {String? longName}) => [
     icon: 'node_link',
     hasChildren: true,
     expanded: true,
-    chip: 'Embedded',
-    dot: Tone.good,
-    dotLabel: 'Connected',
+    mode: .embedded,
+    state: .connected,
   ),
   const TreeRowVm(
     id: '$_edge/downstream/modbus/line1',
@@ -713,9 +663,8 @@ List<TreeRowVm> _edgeTree(String selected, {String? longName}) => [
     depth: 1,
     icon: 'node_link',
     hasChildren: true,
-    chip: 'Embedded',
-    dot: Tone.good,
-    dotLabel: 'Connected',
+    mode: .embedded,
+    state: .connected,
   ),
   const TreeRowVm(
     id: '$_edge/dataflows',
@@ -723,7 +672,7 @@ List<TreeRowVm> _edgeTree(String selected, {String? longName}) => [
     depth: 0,
     hasChildren: true,
     expanded: true,
-    meta: '1',
+    count: 1,
   ),
   TreeRowVm(
     id: _flowKey,
@@ -739,7 +688,7 @@ List<TreeRowVm> _edgeTree(String selected, {String? longName}) => [
     depth: 0,
     hasChildren: true,
     expanded: true,
-    meta: '1',
+    count: 1,
   ),
   TreeRowVm(
     id: '$_edge/storage/line1',
@@ -761,77 +710,59 @@ ExplorerPage _edgePage({
   required String keyName,
   required List<TreeRowVm> tree,
   required String title,
-  required String subtitle,
-  required List<TabItemVm<String>> tabs,
-  required String tab,
+  required ExplorerSubtitleVm subtitle,
+  required List<ExplorerTabVm> tabs,
+  required ExplorerTabTag tab,
   StatusPillVm? pill,
-  ToolButtonVm? openButton,
+  String? flowId,
   List<ToolButtonVm> headerButtons = const [],
-  List<InspectorSectionVm> params = const [],
-  List<RowVm<String>> children = const [],
+  List<ExplorerSectionVm> params = const [],
+  List<ChildRowVm> children = const [],
   List<PointRowVm> points = const [],
   ExplorerInspectorVm? inspector,
 }) => ExplorerPage(
-  treeLabel: 'Tree · edge',
+  site: 'edge',
   tree: tree,
   onTap: _none,
   onToggle: _none,
-  onMenu: (_, _) {},
+  onOpenMenu: _none,
   onTreeFilter: _none,
-  treeFilterHint: 'Filter',
   keyName: keyName,
-  onCopyKey: () {},
+  onCopy: _none,
   title: title,
   pill: pill,
   subtitle: subtitle,
-  openButton: openButton,
+  flowId: flowId,
   onTapFlowEditor: _none,
   headerButtons: headerButtons,
-  actionsLabel: 'Actions',
-  onActions: _none,
   onTool: _none,
   tabs: tabs,
   tab: tab,
   onTab: _none,
   toolbar: _toolbar,
   onPointFilter: _none,
-  pointFilterHint: 'Filter points',
   points: points,
   onPoint: _none,
   onCheck: _none,
   onRange: _none,
   onCheckAll: () {},
   params: params,
-  childColumns: const [
-    ColumnVm('Name', flex: 4),
-    ColumnVm('Kind', flex: 2),
-    ColumnVm('Value', flex: 3),
-  ],
   children: children,
-  childrenEmpty: 'Nothing under this node.',
-  childrenNote:
-      'Select a row: a node opens in the tree, a value opens in the inspector.',
   onChild: _none,
   inspector: inspector,
 );
 
-const _flowState = InspectorSectionVm(
-  label: 'State',
-  facts: [
-    FactVm(label: 'State', value: 'v2 deployed'),
-    FactVm(label: 'Version', value: 'v2', mono: true),
-    FactVm(label: 'Deployed by', value: 'user:admin@central', mono: true),
-    FactVm(label: 'Since', value: '2026-11-08 08:03:19', mono: true),
-  ],
+final _flowState = FlowStateSectionVm(
+  state: .deployed,
+  version: 2,
+  deployedBy: 'user:admin@central',
+  since: DateTime(2026, 11, 8, 8, 3, 19),
 );
 
-const _flowAttributes = InspectorSectionVm(
-  label: 'Attributes',
-  facts: [
-    FactVm(label: 'display', value: _flowDisplay, mono: true),
-    FactVm(label: 'version', value: '2', mono: true),
-  ],
-);
+const _flowAttributes = AttributesSectionVm([
+  FactRowVm('display', 'display', _flowDisplay),
+  FactRowVm('version', 'version', '2'),
+]);
 
 /// A flow selected: its name, its state from `~val`, Edit dataflow, and no
 /// points.
@@ -840,22 +771,23 @@ Widget explorerFlow() => _shell(
     keyName: _flowKey,
     tree: _edgeTree(_flowKey),
     title: 'ahu2_ctl',
-    pill: const StatusPillVm(label: 'v2 deployed', tone: Tone.good),
-    subtitle: 'dataflow · deployed by user:admin@central · $_flowDisplay',
-    openButton: const ToolButtonVm(
-      id: 'ahu2_ctl',
-      label: 'Edit dataflow',
-      icon: 'action_edit',
+    pill: FlowStateTag.deployed.pill(2),
+    subtitle: const ExplorerSubtitleVm(
+      kind: .dataflow,
+      deployedBy: 'user:admin@central',
+      description: _flowDisplay,
     ),
+    flowId: 'ahu2_ctl',
     tabs: const [
-      TabItemVm(id: 'params', label: 'Parameters'),
-      TabItemVm(id: 'actions', label: 'Actions', count: '8'),
-      TabItemVm(id: 'audit', label: 'Audit'),
+      ExplorerTabVm(.parameters),
+      ExplorerTabVm(.actions, count: 8),
+      ExplorerTabVm(.audit),
     ],
-    tab: 'params',
-    params: const [_flowState, _flowAttributes],
-    inspector: const NodeInspectorVm(
-      eyebrow: 'Dataflow',
+    tab: .parameters,
+    params: [_flowState, _flowAttributes],
+    inspector: NodeInspectorVm(
+      key: _flowKey,
+      kind: .dataflow,
       title: 'ahu2_ctl',
       sections: [_flowState, _flowAttributes],
     ),
@@ -872,61 +804,54 @@ Widget explorerFolder() => _shell(
     keyName: '$_edge/storage/line1',
     tree: _edgeTree('$_edge/storage/line1'),
     title: 'line1',
-    subtitle: 'storage · 3 children',
+    subtitle: const ExplorerSubtitleVm(kind: .storage, children: 3),
     tabs: const [
-      TabItemVm(id: 'children', label: 'Contents', count: '3'),
-      TabItemVm(id: 'params', label: 'Parameters'),
-      TabItemVm(id: 'actions', label: 'Actions', count: '5'),
-      TabItemVm(id: 'history', label: 'History'),
-      TabItemVm(id: 'audit', label: 'Audit'),
+      ExplorerTabVm(.contents, count: 3),
+      ExplorerTabVm(.parameters),
+      ExplorerTabVm(.actions, count: 5),
+      ExplorerTabVm(.history),
+      ExplorerTabVm(.audit),
     ],
-    tab: 'children',
+    tab: .contents,
     children: const [
-      RowVm(
-        id: '$_edge/storage/line1/fault',
-        cells: [
-          CellVm(title: 'fault', monospace: true),
-          CellVm(title: 'bool · RW'),
-          CellVm(title: 'false', monospace: true),
-        ],
+      ChildRowVm(
+        key: '$_edge/storage/line1/fault',
+        name: 'fault',
+        type: ValueType.bool_,
+        writable: true,
+        value: 'false',
       ),
-      RowVm(
-        id: '$_edge/storage/line1/temp',
+      ChildRowVm(
+        key: '$_edge/storage/line1/temp',
+        name: 'temp',
+        display: 'Line 1 air temp',
+        type: ValueType.number,
+        writable: true,
+        value: '21.5 °C',
         selected: true,
-        cells: [
-          CellVm(title: 'temp', subtitle: 'Line 1 air temp', monospace: true),
-          CellVm(title: 'number · RW'),
-          CellVm(title: '21.5 °C', monospace: true),
-        ],
       ),
-      RowVm(
-        id: '$_edge/storage/line1/test',
-        cells: [
-          CellVm(title: 'test', monospace: true),
-          CellVm(title: 'storage'),
-          CellVm(title: '—', monospace: true),
-        ],
+      ChildRowVm(
+        key: '$_edge/storage/line1/test',
+        name: 'test',
+        kind: .storage,
       ),
     ],
     inspector: PointInspectorVm(
-      eyebrow: 'Point',
+      key: '$_edge/storage/line1/temp',
       name: 'temp',
       display: 'Line 1 air temp',
       value: '21.5 °C',
-      quality: const QualityMarkVm(label: 'good · 08:03:19', tone: Tone.good),
+      mark: .good,
+      time: DateTime(2026, 11, 8, 8, 3, 19),
       sections: const [
-        InspectorSectionVm(
-          label: 'Value',
-          facts: [
-            FactVm(label: 'Type', value: 'number', mono: true),
-            FactVm(label: 'Unit', value: '°C'),
-            FactVm(label: 'Write', value: 'write'),
-          ],
+        PointFactsSectionVm(
+          type: ValueType.number,
+          unit: '°C',
+          level: AccessLevel.write,
         ),
       ],
-      edit: _f('value', 'New value', 21.5, kind: ParamKind.number),
-      editLabel: 'Set value',
-      stageLabel: 'Stage',
+      edit: ParamKind.number,
+      editValue: 21.5,
     ),
   ),
   changes: 0,
@@ -947,33 +872,39 @@ Widget explorerLongName() => _shell(
     keyName: '$_edge/downstream/modbus/line1/$_longName',
     tree: _edgeTree(_longName, longName: _longName),
     title: _longName,
-    pill: const StatusPillVm(label: 'Connected', tone: Tone.good),
-    subtitle:
-        'modbus device · unit 1 · 127.0.0.1:5020 · last read 08:03:19 · '
-        '$_longDisplay',
-    headerButtons: const [ToolButtonVm(id: 'ping', label: 'Ping')],
+    pill: NodeState.connected.pill(),
+    subtitle: ExplorerSubtitleVm(
+      kind: .device,
+      driver: 'modbus',
+      unit: '1',
+      host: '127.0.0.1',
+      port: '5020',
+      lastRead: DateTime(2026, 11, 8, 8, 3, 19),
+      description: _longDisplay,
+    ),
+    headerButtons: const [ToolButtonVm(.ping)],
     tabs: _tabs,
-    tab: 'points',
+    tab: .points,
     points: [
       const PointRowVm(
         id: '$_edge/downstream/modbus/line1/$_longName/$_longName',
         name: _longName,
         display: _longDisplay,
-        register: 'HR 40003',
-        type: 'f32_wbswap',
+        register: ModbusRegisterVm(addr: '40003', area: .holding),
+        dtype: 'f32_wbswap',
         unit: '°C',
-        poll: '1 s',
+        poll: 1,
         value: '21.5',
-        quality: _good,
+        mark: .good,
       ),
       ..._points(select: false),
     ],
     inspector: const PointInspectorVm(
-      eyebrow: 'Point',
+      key: '$_edge/downstream/modbus/line1/$_longName/$_longName',
       name: _longName,
       display: _longDisplay,
       value: '21.5 °C',
-      quality: _good,
+      mark: .good,
       sections: [],
     ),
   ),

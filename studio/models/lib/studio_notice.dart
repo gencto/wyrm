@@ -1,5 +1,6 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'notice_kind.dart';
 import 'system_notice.dart';
 
 part 'studio_notice.freezed.dart';
@@ -12,7 +13,14 @@ abstract class StudioNotice with _$StudioNotice {
     /// From the same counter as `StudioError.id`, so the toasts keep the
     /// order they came in.
     required int id,
+
+    /// The words, when the one who said it has them; empty for a [kind]
+    /// or a [system] notice, whose words `ui` says.
     @Default('') String title,
+
+    /// What was copied, when `ui` words it (with [count]).
+    NoticeKind? kind,
+    @Default(0) int count,
 
     /// One line under the title.
     String? detail,

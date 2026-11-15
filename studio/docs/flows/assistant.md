@@ -140,10 +140,12 @@ sequenceDiagram
     A2->>ST: dispatchSync(SetSelectedTaskAction)
     A2->>ST: dispatchAndWait(RetrieveTaskRecordAction)
     VM->>A3: dispatch
-    A3->>ST: dispatchSync(a)
+    Note over A3: async
+    A3->>ST: dispatchAndWait(a)
     A3->>ST: dispatchSync(GoAction.navigate)
     VM->>A3: dispatch
-    A3->>ST: dispatchSync(a)
+    Note over A3: async
+    A3->>ST: dispatchAndWait(a)
     A3->>ST: dispatchSync(GoAction.navigate)
     VM->>A4: dispatch
     Note over A4: TaskRows · NonReentrant · WaitingAction · async
@@ -410,7 +412,8 @@ sequenceDiagram
     User->>UI: onOpenFull
     UI->>VM: onOpenFull()
     VM->>A1: dispatch
-    A1->>ST: dispatchSync(a)
+    Note over A1: async
+    A1->>ST: dispatchAndWait(a)
     A1->>ST: dispatchSync(GoAction.navigate)
 ```
 

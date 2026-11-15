@@ -17094,6 +17094,136 @@ class S {
     );
   }
 
+  /// `good`
+  String get qualityGood {
+    return Intl.message('good', name: 'qualityGood', desc: '', args: []);
+  }
+
+  /// `uncertain`
+  String get qualityUncertain {
+    return Intl.message(
+      'uncertain',
+      name: 'qualityUncertain',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `bad`
+  String get qualityBad {
+    return Intl.message('bad', name: 'qualityBad', desc: '', args: []);
+  }
+
+  /// `WASM`
+  String get modeWasm {
+    return Intl.message('WASM', name: 'modeWasm', desc: '', args: []);
+  }
+
+  /// `draft`
+  String get treeDraft {
+    return Intl.message('draft', name: 'treeDraft', desc: '', args: []);
+  }
+
+  /// `HR`
+  String get areaHolding {
+    return Intl.message('HR', name: 'areaHolding', desc: '', args: []);
+  }
+
+  /// `IR`
+  String get areaInput {
+    return Intl.message('IR', name: 'areaInput', desc: '', args: []);
+  }
+
+  /// `Coil`
+  String get areaCoil {
+    return Intl.message('Coil', name: 'areaCoil', desc: '', args: []);
+  }
+
+  /// `DI`
+  String get areaDiscrete {
+    return Intl.message('DI', name: 'areaDiscrete', desc: '', args: []);
+  }
+
+  /// `needs {level} on {path}`
+  String needsLevelOn(String level, String path) {
+    return Intl.message(
+      'needs $level on $path',
+      name: 'needsLevelOn',
+      desc: '',
+      args: [level, path],
+    );
+  }
+
+  /// `RW`
+  String get pointRw {
+    return Intl.message('RW', name: 'pointRw', desc: '', args: []);
+  }
+
+  /// `R`
+  String get pointR {
+    return Intl.message('R', name: 'pointR', desc: '', args: []);
+  }
+
+  /// `1 h`
+  String get historyRange1h {
+    return Intl.message('1 h', name: 'historyRange1h', desc: '', args: []);
+  }
+
+  /// `24 h`
+  String get historyRange24h {
+    return Intl.message('24 h', name: 'historyRange24h', desc: '', args: []);
+  }
+
+  /// `7 d`
+  String get historyRange7d {
+    return Intl.message('7 d', name: 'historyRange7d', desc: '', args: []);
+  }
+
+  /// `v{version}`
+  String factVersionOf(int version) {
+    return Intl.message(
+      'v$version',
+      name: 'factVersionOf',
+      desc: '',
+      args: [version],
+    );
+  }
+
+  /// `none`
+  String get levelNone {
+    return Intl.message('none', name: 'levelNone', desc: '', args: []);
+  }
+
+  /// `list`
+  String get levelList {
+    return Intl.message('list', name: 'levelList', desc: '', args: []);
+  }
+
+  /// `read`
+  String get levelRead {
+    return Intl.message('read', name: 'levelRead', desc: '', args: []);
+  }
+
+  /// `write`
+  String get levelWrite {
+    return Intl.message('write', name: 'levelWrite', desc: '', args: []);
+  }
+
+  /// `config`
+  String get levelConfig {
+    return Intl.message('config', name: 'levelConfig', desc: '', args: []);
+  }
+
+  /// `error`
+  String get flowProblemUnknown {
+    return Intl.message(
+      'error',
+      name: 'flowProblemUnknown',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `Not known`
   String get modeUnknown {
     return Intl.message('Not known', name: 'modeUnknown', desc: '', args: []);
@@ -17127,56 +17257,6 @@ class S {
       desc: '',
       args: [],
     );
-  }
-
-  /// `needs {level} on {path}`
-  String needsLevelOn(String level, String path) {
-    return Intl.message(
-      'needs $level on $path',
-      name: 'needsLevelOn',
-      desc: '',
-      args: [level, path],
-    );
-  }
-
-  /// `none`
-  String get levelNone {
-    return Intl.message('none', name: 'levelNone', desc: '', args: []);
-  }
-
-  /// `list`
-  String get levelList {
-    return Intl.message('list', name: 'levelList', desc: '', args: []);
-  }
-
-  /// `read`
-  String get levelRead {
-    return Intl.message('read', name: 'levelRead', desc: '', args: []);
-  }
-
-  /// `write`
-  String get levelWrite {
-    return Intl.message('write', name: 'levelWrite', desc: '', args: []);
-  }
-
-  /// `config`
-  String get levelConfig {
-    return Intl.message('config', name: 'levelConfig', desc: '', args: []);
-  }
-
-  /// `1 h`
-  String get historyRange1h {
-    return Intl.message('1 h', name: 'historyRange1h', desc: '', args: []);
-  }
-
-  /// `24 h`
-  String get historyRange24h {
-    return Intl.message('24 h', name: 'historyRange24h', desc: '', args: []);
-  }
-
-  /// `7 d`
-  String get historyRange7d {
-    return Intl.message('7 d', name: 'historyRange7d', desc: '', args: []);
   }
 
   /// `30 d`
