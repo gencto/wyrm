@@ -27,13 +27,11 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as ChooseInstallSourceAction
-    participant ST as AppState
+    participant A1 as StartInstallOverAction
 
     User->>UI: onFrom
     UI->>VM: onFrom()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall)
 ```
 
 ## onCategory
@@ -101,7 +99,7 @@ sequenceDiagram
     User->>UI: onMethod
     UI->>VM: onMethod()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.method, linkInstall.source, linkInstall.refusedField, linkInstall.refusedSaid)
+    A1->>ST: copyWith(linkInstall.method, linkInstall.source, linkInstall.acceptRights, linkInstall.refusedField, linkInstall.refusedSaid)
 ```
 
 ## onPickFile
@@ -231,7 +229,7 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as switch (a) {InstallResultAction.explorer => ShowInstalledLinkAction(installedLinkKey), InstallResultAction.links => GoAction.pop(), InstallResultAction.again => ChooseInstallSourceAction(InstallPath.official), InstallResultAction.back => ChangeInstallAnswersAction()}
+    participant A1 as switch (a) {InstallResultAction.explorer => ShowInstalledLinkAction(installedLinkKey), InstallResultAction.links => GoAction.pop(), InstallResultAction.again => StartInstallOverAction(_held, InstallPath.official), InstallResultAction.back => ChangeInstallAnswersAction()}
 
     User->>UI: onResult
     UI->>VM: onResult()
@@ -246,13 +244,11 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as SetStepAction
-    participant ST as AppState
+    participant A1 as InstallBackAction
 
     User->>UI: onStep
     UI->>VM: onStep()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.step)
 ```
 
 ## onBack
@@ -263,15 +259,11 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as BackInstallStepAction
-    participant ST as AppState
-    participant NAV as Router
+    participant A1 as InstallBackAction
 
     User->>UI: onBack
     UI->>VM: onBack()
-    VM->>NAV: GoAction.pop
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.step)
 ```
 
 ## onNext
@@ -303,11 +295,11 @@ _Not drawn — these files dispatch outside any interaction:_
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onClose` | `GoAction.pop` | — |
-| `onFrom` | `ChooseInstallSourceAction` | `linkInstall` |
+| `onFrom` | `StartInstallOverAction` | — |
 | `onCategory` | `SetCategoryAction` | `linkInstall.category` |
 | `onQuery` | `SetQueryAction` | `linkInstall.query` |
 | `onItem` | `SetItemAction` | `linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.rights` |
-| `onMethod` | `SetMethodAction` | `linkInstall.method, linkInstall.source, linkInstall.refusedField, linkInstall.refusedSaid` |
+| `onMethod` | `SetMethodAction` | `linkInstall.method, linkInstall.source, linkInstall.acceptRights, linkInstall.refusedField, linkInstall.refusedSaid` |
 | `onPickFile` | `PickLinkBackupAction`, `PickPackageFileAction` | — |
 | `onUrl` | `SetPackageUrlAction` | — |
 | `onRef` | `SetGitRefAction` | — |
@@ -315,9 +307,9 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onMode` | `SetModeAction` | `linkInstall.mode` |
 | `onName` | `SetNameAction` | `linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid` |
 | `onAccept` | `SetAcceptRightsAction` | `linkInstall.acceptRights` |
-| `onResult` | `switch (a) {InstallResultAction.explorer => ShowInstalledLinkAction(installedLinkKey), InstallResultAction.links => GoAction.pop(), InstallResultAction.again => ChooseInstallSourceAction(InstallPath.official), InstallResultAction.back => ChangeInstallAnswersAction()}` | — |
-| `onStep` | `SetStepAction` | `linkInstall.step` |
-| `onBack` | `GoAction.pop`, `BackInstallStepAction` | `linkInstall.step` |
+| `onResult` | `switch (a) {InstallResultAction.explorer => ShowInstalledLinkAction(installedLinkKey), InstallResultAction.links => GoAction.pop(), InstallResultAction.again => StartInstallOverAction(_held, InstallPath.official), InstallResultAction.back => ChangeInstallAnswersAction()}` | — |
+| `onStep` | `InstallBackAction` | — |
+| `onBack` | `InstallBackAction` | — |
 | `onNext` | `ContinueInstallAction` | `linkInstall.step` |
 
 `?` marks a dispatch that only runs under a condition.

@@ -34,7 +34,6 @@ flowchart LR
     flows -->|"onTapFlowEditor"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
     linkInstall -.->|"onClose"| frxBack
-    linkInstall -.->|"onBack"| frxBack
     flowEditor -.->|"onClose"| frxBack
     flowEditor ==>|"onLogo (navigate)"| explorer
 
