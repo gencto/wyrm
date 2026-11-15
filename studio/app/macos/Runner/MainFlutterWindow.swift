@@ -29,6 +29,11 @@ class MainFlutterWindow: NSWindow {
       self.toolbarStyle = .unified
     }
 
+    // Closing the window hides it and keeps it: Studio stays in the Dock and
+    // the Dock icon brings this same window and Flutter view back
+    // (`AppDelegate.applicationShouldHandleReopen`).
+    self.isReleasedWhenClosed = false
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
