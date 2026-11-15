@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -510,7 +511,12 @@ String flowCommandLabel(FlowCommand command) {
 /// `Enter`), or the icon of a glyph the bundled fonts do not hold (⌘ ⌥ ⇧
 /// and the arrows: `key_*` of the icon set).
 class KeyGlyph extends StatelessWidget {
-  const KeyGlyph(this.token, {required this.color, this.size = 11, super.key});
+  const KeyGlyph(
+    this.token, {
+    required this.color,
+    this.size = FontSizes.xs,
+    super.key,
+  });
 
   final String token;
   final Color color;
@@ -586,9 +592,9 @@ class ShortcutCard extends StatelessWidget {
     final m = mac ?? flowOnMac;
 
     Widget chip(String t) => Container(
-      constraints: const BoxConstraints(minWidth: 22),
-      height: 22,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      constraints: const BoxConstraints(minWidth: AppSizes.flowKeyChip),
+      height: AppSizes.flowKeyChip,
+      padding: Insets.flowKeyChip,
       decoration: BoxDecoration(
         color: c.ground4,
         border: .all(color: c.line2),
@@ -601,8 +607,8 @@ class ShortcutCard extends StatelessWidget {
     );
 
     Widget combo(List<String> chips) => Wrap(
-      spacing: 3,
-      runSpacing: 3,
+      spacing: AppSpacing.flowKeyChips,
+      runSpacing: AppSpacing.flowKeyChips,
       alignment: .end,
       children: chips.map(chip).toList(),
     );
@@ -623,11 +629,11 @@ class ShortcutCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
         child: Row(
           crossAxisAlignment: .start,
-          spacing: 12,
+          spacing: AppSpacing.flowShortcutRow,
           children: [
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 3),
+                padding: Insets.flowShortcutLabel,
                 child: Text(
                   flowCommandLabel(sc.command),
                   style: TextStyle(fontSize: FontSizes.md, color: c.text2),
@@ -635,11 +641,13 @@ class ShortcutCard extends StatelessWidget {
               ),
             ),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 216),
+              constraints: const BoxConstraints(
+                maxWidth: AppSizes.flowShortcutKeys,
+              ),
               child: Wrap(
                 alignment: .end,
-                spacing: 6,
-                runSpacing: 4,
+                spacing: AppSpacing.flowChips,
+                runSpacing: AppSpacing.xs,
                 crossAxisAlignment: .center,
                 children: [
                   for (final (i, x) in combos.indexed) ...[
@@ -666,7 +674,7 @@ class ShortcutCard extends StatelessWidget {
       mainAxisSize: .min,
       children: [
         Padding(
-          padding: const EdgeInsets.only(bottom: 6),
+          padding: Insets.flowShortcutGroupTitle,
           child: Text(
             switch (g) {
               .select => s.scGroupSelect,
@@ -696,18 +704,15 @@ class ShortcutCard extends StatelessWidget {
       ),
       clipBehavior: .antiAlias,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 760),
+        constraints: const BoxConstraints(
+          maxWidth: AppSizes.flowShortcutCard,
+        ),
         child: Column(
           mainAxisSize: .min,
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                18,
-                10,
-                AppSpacing.sm,
-                10,
-              ),
+              padding: Insets.flowShortcutHead,
               decoration: BoxDecoration(
                 color: c.ground3,
                 border: Border(bottom: BorderSide(color: c.line1)),
@@ -728,28 +733,27 @@ class ShortcutCard extends StatelessWidget {
                     tooltip: s.closeLabel,
                     visualDensity: .compact,
                     onPressed: onClose,
-                    icon: AppIcon('ui_close', size: 16, color: c.text3),
+                    icon: AppIcon(
+                      'ui_close',
+                      size: AppSizes.flowCardClose,
+                      color: c.text3,
+                    ),
                   ),
                 ],
               ),
             ),
             Flexible(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(
-                  18,
-                  14,
-                  18,
-                  AppSpacing.md,
-                ),
+                padding: Insets.flowShortcutBody,
                 child: Row(
                   crossAxisAlignment: .start,
-                  spacing: 28,
+                  spacing: AppSpacing.flowShortcutColumns,
                   children: [
                     Expanded(
                       child: Column(
                         mainAxisSize: .min,
                         crossAxisAlignment: .stretch,
-                        spacing: 16,
+                        spacing: AppSpacing.md,
                         children: [group(.select), group(.edit)],
                       ),
                     ),
@@ -759,12 +763,7 @@ class ShortcutCard extends StatelessWidget {
               ),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                18,
-                10,
-                18,
-                12,
-              ),
+              padding: Insets.flowShortcutFoot,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),

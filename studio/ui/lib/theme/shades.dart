@@ -26,3 +26,10 @@ abstract final class Shades {
   /// never shows.
   static const mask = Color(0xFF000000);
 }
+
+/// Grounds that stay the same in both brightnesses, outside the palette of
+/// `AppColors`. Named for what they fill.
+abstract final class FixedGrounds {
+  /// The header of an own (`MY`) block on the flow canvas.
+  static const flowOwnBlockHeader = Color(0xFF3A2A1C);
+}

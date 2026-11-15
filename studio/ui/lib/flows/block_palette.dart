@@ -7,8 +7,10 @@ import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/motion.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
@@ -235,7 +237,7 @@ class _BlockPaletteState extends State<BlockPalette> {
         for (final m in e.menu)
           PopupMenuItem(
             value: m.id,
-            height: 34,
+            height: AppSizes.flowMenuItem,
             enabled: m.disabledReason == null,
             child: Tooltip(
               message: m.disabledReason ?? '',
@@ -264,7 +266,7 @@ class _BlockPaletteState extends State<BlockPalette> {
     final row = TreeRow(
       key: ValueKey('tree-${r.drag ?? r.id}'),
       vm: r,
-      height: 32,
+      height: AppSizes.flowPaletteRow,
       onTap: (id) =>
           drag == null ? widget.onTreeToggle?.call(id) : widget.onPick(drag),
       onToggle: widget.onTreeToggle,
@@ -309,9 +311,9 @@ class _BlockPaletteState extends State<BlockPalette> {
             equal: true,
           ),
           Padding(
-            padding: const EdgeInsets.all(10),
+            padding: Insets.flowPaletteSearch,
             child: Container(
-              height: 34,
+              height: AppSizes.flowField,
               padding: Insets.control,
               decoration: BoxDecoration(
                 color: c.ground3,
@@ -321,9 +323,13 @@ class _BlockPaletteState extends State<BlockPalette> {
                 ),
               ),
               child: Row(
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
-                  AppIcon('ui_search', size: 14, color: c.text4),
+                  AppIcon(
+                    'ui_search',
+                    size: AppSizes.flowSearchIcon,
+                    color: c.text4,
+                  ),
                   Expanded(
                     child: TextField(
                       focusNode: _search,
@@ -357,12 +363,7 @@ class _BlockPaletteState extends State<BlockPalette> {
               child: rows.isEmpty
                   ? _Empty(widget.empty)
                   : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(
-                        6,
-                        AppSpacing.none,
-                        6,
-                        12,
-                      ),
+                      padding: Insets.flowPaletteList,
                       itemCount: rows.length,
                       itemBuilder: (_, i) => _treeRow(rows[i]),
                     ),
@@ -372,12 +373,7 @@ class _BlockPaletteState extends State<BlockPalette> {
           else
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  6,
-                  AppSpacing.none,
-                  6,
-                  12,
-                ),
+                padding: Insets.flowPaletteList,
                 children: [
                   for (final MapEntry(key: g, value: list)
                       in groups.entries) ...[
@@ -399,18 +395,13 @@ class _BlockPaletteState extends State<BlockPalette> {
             ),
           if (widget.notes.isNotEmpty)
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                12,
-                10,
-                12,
-                14,
-              ),
+              padding: Insets.flowPaletteNotes,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Column(
                 crossAxisAlignment: .start,
-                spacing: 6,
+                spacing: AppSpacing.flowLines,
                 children: [
                   for (final n in widget.notes)
                     Text.rich(
@@ -488,15 +479,19 @@ class _Group extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: SizedBox(
-        height: tree ? 32 : 34,
+        height: tree ? AppSizes.flowPaletteRow : AppSizes.flowPaletteGroup,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          padding: Insets.flowPaletteGroup,
           child: Row(
-            spacing: 6,
+            spacing: AppSpacing.flowRowParts,
             children: [
               RotatedBox(
                 quarterTurns: open ? 1 : 0,
-                child: AppIcon('ui_chevron_right', size: 12, color: c.text4),
+                child: AppIcon(
+                  'ui_chevron_right',
+                  size: AppSizes.flowGroupChevron,
+                  color: c.text4,
+                ),
               ),
               Expanded(
                 child: Text(
@@ -504,7 +499,7 @@ class _Group extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: tree
-                      ? mono(size: 12, color: c.text3)
+                      ? mono(size: FontSizes.sm, color: c.text3)
                       : TextStyle(
                           fontSize: FontSizes.md,
                           fontWeight: .w600,
@@ -536,7 +531,7 @@ class _BlockRow extends StatelessWidget {
       _ => (c.ground4, c.text2),
     };
     final row = SizedBox(
-      height: 32,
+      height: AppSizes.flowPaletteRow,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg,
@@ -545,11 +540,11 @@ class _BlockRow extends StatelessWidget {
           AppSpacing.none,
         ),
         child: Row(
-          spacing: 10,
+          spacing: AppSpacing.flowPaletteRow,
           children: [
             Container(
-              width: 24,
-              height: 16,
+              width: AppSizes.flowPaletteTag.width,
+              height: AppSizes.flowPaletteTag.height,
               alignment: .center,
               decoration: BoxDecoration(
                 color: bg,
@@ -559,9 +554,14 @@ class _BlockRow extends StatelessWidget {
               ),
               child: Text(
                 e.tag,
-                style: mono(size: 9, weight: .w600, color: ink).copyWith(
-                  height: 1.1,
-                ),
+                style:
+                    mono(
+                      size: FontSizes.flowTag,
+                      weight: .w600,
+                      color: ink,
+                    ).copyWith(
+                      height: 1.1,
+                    ),
               ),
             ),
             Expanded(
@@ -577,12 +577,14 @@ class _BlockRow extends StatelessWidget {
             ),
             if (e.value case final v?)
               ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 84),
+                constraints: const BoxConstraints(
+                  maxWidth: AppSizes.flowPaletteValue,
+                ),
                 child: Text(
                   v,
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: mono(size: 11, color: c.text4),
+                  style: mono(size: FontSizes.xs, color: c.text4),
                 ),
               ),
           ],
@@ -592,7 +594,7 @@ class _BlockRow extends StatelessWidget {
     return switch (e.disabledReason ?? e.detail) {
       final d? when d.isNotEmpty => Tooltip(
         message: d,
-        waitDuration: const Duration(milliseconds: 500),
+        waitDuration: Motion.flowTipWait,
         child: row,
       ),
       _ => row,
@@ -612,13 +614,8 @@ class _TreeRow extends StatelessWidget {
     final c = context.colors;
     final accent = e.action ? c.emberSoft : c.text4;
     return Container(
-      height: 32,
-      padding: const EdgeInsets.fromLTRB(
-        22,
-        AppSpacing.none,
-        AppSpacing.sm,
-        AppSpacing.none,
-      ),
+      height: AppSizes.flowPaletteRow,
+      padding: Insets.flowPaletteTreeRow,
       decoration: BoxDecoration(
         color: e.dragging ? c.emberFill : (e.used ? c.ground2 : null),
         border: .all(
@@ -628,28 +625,33 @@ class _TreeRow extends StatelessWidget {
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
       child: Row(
-        spacing: 8,
+        spacing: AppSpacing.sm,
         children: [
           SizedBox(
-            width: 22,
-            child: Text(e.tag, style: mono(size: 10, color: accent)),
+            width: AppSizes.flowPaletteTreeTag,
+            child: Text(
+              e.tag,
+              style: mono(size: FontSizes.flowDetail, color: accent),
+            ),
           ),
           Expanded(
             child: Text(
               e.title,
               overflow: .ellipsis,
               maxLines: 1,
-              style: mono(size: 12, color: c.text2),
+              style: mono(size: FontSizes.sm, color: c.text2),
             ),
           ),
           if (e.value case final v?)
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 90),
+              constraints: const BoxConstraints(
+                maxWidth: AppSizes.flowPaletteTreeValue,
+              ),
               child: Text(
                 v,
                 overflow: .ellipsis,
                 maxLines: 1,
-                style: mono(size: 11, color: accent),
+                style: mono(size: FontSizes.xs, color: accent),
               ),
             ),
         ],
@@ -669,7 +671,7 @@ class _Feedback extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Container(
-        height: 32,
+        height: AppSizes.flowPaletteRow,
         padding: Insets.control,
         alignment: .center,
         decoration: BoxDecoration(
@@ -686,7 +688,10 @@ class _Feedback extends StatelessWidget {
             ),
           ],
         ),
-        child: Text(title, style: mono(size: 12, color: c.emberNew)),
+        child: Text(
+          title,
+          style: mono(size: FontSizes.sm, color: c.emberNew),
+        ),
       ),
     );
   }

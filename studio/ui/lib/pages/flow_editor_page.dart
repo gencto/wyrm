@@ -25,6 +25,7 @@ import '../overlays/value_viewer.dart';
 import '../shell/window_bar.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
@@ -330,17 +331,17 @@ class FlowEditorPage extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              constraints: const BoxConstraints(minHeight: 52),
-              padding: const EdgeInsets.symmetric(vertical: 6),
+              constraints: const BoxConstraints(minHeight: AppSizes.flowTopBar),
+              padding: Insets.flowTopBar,
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
               child: WindowBar(
                 vm: window,
-                padding: 16,
+                padding: AppSpacing.md,
                 child: Row(
-                  spacing: 18,
+                  spacing: AppSpacing.flowTopBar,
                   children: [
                     InkWell(
                       onTap: onLogo,
@@ -348,7 +349,7 @@ class FlowEditorPage extends StatelessWidget {
                     ),
                     Expanded(
                       child: Row(
-                        spacing: 8,
+                        spacing: AppSpacing.sm,
                         children: [
                           if (crumbs.isNotEmpty)
                             Button.quiet(
@@ -378,7 +379,7 @@ class FlowEditorPage extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: .ellipsis,
                                 style: mono(
-                                  size: 14,
+                                  size: FontSizes.lg,
                                   color: crumbs.isEmpty ? c.text1 : c.text3,
                                 ),
                               ),
@@ -396,7 +397,7 @@ class FlowEditorPage extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: .ellipsis,
                                   style: mono(
-                                    size: 14,
+                                    size: FontSizes.lg,
                                     color: i == crumbs.length - 1
                                         ? c.text1
                                         : c.text3,
@@ -412,7 +413,10 @@ class FlowEditorPage extends StatelessWidget {
                                 b,
                                 maxLines: 1,
                                 overflow: .ellipsis,
-                                style: mono(size: 14, color: c.emberSoft),
+                                style: mono(
+                                  size: FontSizes.lg,
+                                  color: c.emberSoft,
+                                ),
                               ),
                             ),
                           ],
@@ -438,22 +442,24 @@ class FlowEditorPage extends StatelessWidget {
                       ),
                     ),
                     Row(
-                      spacing: 10,
+                      spacing: AppSpacing.flowTopBarActions,
                       children: [
                         Row(
-                          spacing: 6,
+                          spacing: AppSpacing.flowRowParts,
                           children: [
                             if (stateDot)
                               Container(
-                                width: 6,
-                                height: 6,
+                                width: AppSizes.flowDot,
+                                height: AppSizes.flowDot,
                                 decoration: BoxDecoration(
                                   shape: .circle,
                                   color: c.good,
                                 ),
                               ),
                             ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 320),
+                              constraints: const BoxConstraints(
+                                maxWidth: AppSizes.flowStateText,
+                              ),
                               child: Text(
                                 state,
                                 maxLines: 1,
@@ -483,7 +489,11 @@ class FlowEditorPage extends StatelessWidget {
                           ),
                         IconButton(
                           onPressed: onClose,
-                          icon: AppIcon('ui_close', size: 18, color: c.text2),
+                          icon: AppIcon(
+                            'ui_close',
+                            size: AppSizes.flowEditorClose,
+                            color: c.text2,
+                          ),
                         ),
                       ],
                     ),
@@ -567,7 +577,7 @@ class FlowEditorPage extends StatelessWidget {
     onChanged: onPanelWidth,
     left: SidePanel(
       width: panels.left,
-      defaultWidth: 220,
+      defaultWidth: AppSizes.flowPalette,
       child: BlockPalette(
         tabs: paletteTabs,
         tab: paletteTab,
@@ -612,16 +622,11 @@ class FlowEditorPage extends StatelessWidget {
     ),
     right: SidePanel(
       width: panels.right,
-      defaultWidth: 320,
+      defaultWidth: AppSizes.flowInspector,
       child: FieldInspector(
         header: switch (nameField) {
           final f? => Padding(
-            padding: const EdgeInsets.fromLTRB(
-              18,
-              AppSpacing.md,
-              18,
-              AppSpacing.none,
-            ),
+            padding: Insets.flowInspectorName,
             child: ParamField(vm: f),
           ),
           null => null,
@@ -680,7 +685,7 @@ class FlowEditorPage extends StatelessWidget {
         for (final (value, label) in [(entry, readLabel), (write, writeLabel)])
           PopupMenuItem(
             value: value,
-            height: 34,
+            height: AppSizes.flowMenuItem,
             child: Text(
               label,
               style: TextStyle(fontSize: FontSizes.md, color: c.text1),

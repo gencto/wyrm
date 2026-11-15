@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -44,36 +45,37 @@ class FlowLegend extends StatelessWidget {
     final style = TextStyle(fontSize: FontSizes.sm, color: c.text3);
     Widget line(Color color, String label) => Row(
       mainAxisSize: .min,
-      spacing: 6,
+      spacing: AppSpacing.flowRowParts,
       children: [
-        Container(width: 18, height: 2, color: color),
+        Container(
+          width: AppSizes.flowLegendLine.width,
+          height: AppSizes.flowLegendLine.height,
+          color: color,
+        ),
         Text(label, style: style),
       ],
     );
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: AppSpacing.sm,
-      ),
+      padding: Insets.flowLegend,
       decoration: BoxDecoration(
         color: c.ground1.withValues(alpha: 0.92),
         border: .all(color: c.line1),
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.control)),
       ),
       child: Wrap(
-        spacing: 16,
-        runSpacing: 8,
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.sm,
         crossAxisAlignment: .center,
         children: [
           line(c.good, vm.reads),
           line(c.ember, vm.writes),
           Row(
             mainAxisSize: .min,
-            spacing: 6,
+            spacing: AppSpacing.flowRowParts,
             children: [
               Container(
-                width: 9,
-                height: 9,
+                width: AppSizes.flowLegendRing,
+                height: AppSizes.flowLegendRing,
                 decoration: BoxDecoration(
                   shape: .circle,
                   border: .all(color: c.muted, width: 2),

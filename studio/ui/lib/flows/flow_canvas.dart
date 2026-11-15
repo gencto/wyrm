@@ -10,7 +10,9 @@ import 'package:material_ui/material_ui.dart';
 import '../models/value_changed.dart';
 import '../overlays/floating_window.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/motion.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
@@ -1106,7 +1108,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
         last.$1 != block ||
         last.$2 != row ||
         row.isEmpty ||
-        now - last.$3 > const Duration(milliseconds: 400)) {
+        now - last.$3 > Motion.flowDoubleClick) {
       return;
     }
     _lastClick = null;
@@ -1255,7 +1257,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
                     scaleEnabled: false,
                     minScale: FlowCanvas.minScale,
                     maxScale: FlowCanvas.maxScale,
-                    boundaryMargin: const EdgeInsets.all(200),
+                    boundaryMargin: Insets.flowCanvasBoundary,
                     child: SizedBox(
                       key: _key,
                       width: extent.width,
@@ -1312,9 +1314,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
                             if (w.warning case final text?)
                               if (_mid(byId, w) case final m?)
                                 Positioned(
-                                  left: m.dx - 60,
-                                  top: m.dy - 11,
-                                  width: 120,
+                                  left: m.dx - AppSizes.flowWarnChipWidth / 2,
+                                  top: m.dy - AppSizes.flowWarnChip / 2,
+                                  width: AppSizes.flowWarnChipWidth,
                                   child: Center(
                                     child: _WarnChip(text, w.warningNote),
                                   ),
@@ -1328,9 +1330,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
                                   decoration: BoxDecoration(
                                     color: c.ember.withValues(alpha: 0.08),
                                     border: .all(color: c.ember),
-                                    borderRadius: const BorderRadius.all(
-                                      Radius.circular(2),
-                                    ),
+                                    borderRadius: Radii.flowMarquee,
                                   ),
                                 ),
                               ),
@@ -1349,13 +1349,13 @@ class _FlowCanvasState extends State<FlowCanvas> {
               ),
             ),
             Positioned(
-              left: 16,
-              bottom: 16,
-              right: 16,
+              left: AppSpacing.md,
+              bottom: AppSpacing.md,
+              right: AppSpacing.md,
               child: Row(
                 key: _bar,
                 crossAxisAlignment: .end,
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   if (widget.legend case final l?)
                     Flexible(
@@ -1499,7 +1499,7 @@ class _CanvasTools extends StatelessWidget {
       bool on = false,
     }) => Tooltip(
       message: tip,
-      waitDuration: const Duration(milliseconds: 500),
+      waitDuration: Motion.flowTipWait,
       child: Material(
         key: key,
         color: (on ? c.emberTint : c.ground1).withValues(alpha: 0.92),
@@ -1514,7 +1514,7 @@ class _CanvasTools extends StatelessWidget {
           onTap: onTap,
           child: Container(
             width: width,
-            height: 34,
+            height: AppSizes.flowCanvasTool,
             padding: Insets.control,
             alignment: .center,
             child: child,
@@ -1525,19 +1525,22 @@ class _CanvasTools extends StatelessWidget {
 
     return Row(
       mainAxisSize: .min,
-      spacing: 8,
+      spacing: AppSpacing.sm,
       children: [
         button(
           key: const ValueKey('flow-zoom'),
           tip: S.current.scZoomReset,
           onTap: onZoom,
-          child: Text(zoom, style: mono(size: 12, color: c.text3)),
+          child: Text(
+            zoom,
+            style: mono(size: FontSizes.sm, color: c.text3),
+          ),
         ),
         button(
           key: const ValueKey('flow-help'),
           tip: S.current.scTitle,
           onTap: onHelp,
-          width: 34,
+          width: AppSizes.flowCanvasTool,
           on: helpOpen,
           child: Text(
             '?',
@@ -1586,7 +1589,7 @@ class _WarnChip extends StatelessWidget {
     return Tooltip(
       message: note,
       child: Container(
-        height: 22,
+        height: AppSizes.flowWarnChip,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
         alignment: .center,
         decoration: BoxDecoration(
@@ -1615,7 +1618,7 @@ class _Refusal extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      height: 24,
+      height: AppSizes.flowRefusal,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
       alignment: .center,
       decoration: BoxDecoration(
@@ -1623,7 +1626,10 @@ class _Refusal extends StatelessWidget {
         border: .all(color: c.badLine),
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
-      child: Text(text, style: mono(size: 11, color: c.bad)),
+      child: Text(
+        text,
+        style: mono(size: FontSizes.xs, color: c.bad),
+      ),
     );
   }
 }

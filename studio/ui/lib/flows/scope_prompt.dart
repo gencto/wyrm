@@ -7,6 +7,7 @@ import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -76,7 +77,7 @@ class ScopePrompt extends StatefulWidget {
   /// What is wrong with a scope; null: it can be saved.
   final Validate<String>? validate;
 
-  static const width = 320.0;
+  static const double width = AppSizes.flowScopePrompt;
 
   @override
   State<ScopePrompt> createState() => _ScopePromptState();
@@ -125,7 +126,7 @@ class _ScopePromptState extends State<ScopePrompt> {
         color: Colors.transparent,
         child: Container(
           width: ScopePrompt.width,
-          padding: const EdgeInsets.all(12),
+          padding: Insets.flowScopePrompt,
           decoration: BoxDecoration(
             color: c.ground2,
             border: .all(color: c.emberLine),
@@ -143,7 +144,7 @@ class _ScopePromptState extends State<ScopePrompt> {
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Text(
                 vm.title,
@@ -154,7 +155,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                 ),
               ),
               Container(
-                height: 34,
+                height: AppSizes.flowField,
                 padding: Insets.control,
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
@@ -170,7 +171,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                   focusNode: _focus,
                   // Enter saves; a refused scope keeps the cursor here.
                   onEditingComplete: _save,
-                  style: mono(size: 12, color: c.text1),
+                  style: mono(size: FontSizes.sm, color: c.text1),
                   decoration: const InputDecoration.collapsed(hintText: '')
                       .copyWith(
                         enabledBorder: InputBorder.none,
@@ -181,8 +182,8 @@ class _ScopePromptState extends State<ScopePrompt> {
               ),
               if (vm.suggestions.isNotEmpty)
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
+                  spacing: AppSpacing.flowChips,
+                  runSpacing: AppSpacing.flowChips,
                   children: [
                     for (final s in vm.suggestions)
                       InkWell(
@@ -191,10 +192,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                           Radius.circular(AppRadii.chip),
                         ),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
+                          padding: Insets.flowScopeChip,
                           decoration: BoxDecoration(
                             color: c.ground4,
                             border: .all(
@@ -206,7 +204,10 @@ class _ScopePromptState extends State<ScopePrompt> {
                               Radius.circular(AppRadii.chip),
                             ),
                           ),
-                          child: Text(s, style: mono(size: 11, color: c.text2)),
+                          child: Text(
+                            s,
+                            style: mono(size: FontSizes.xs, color: c.text2),
+                          ),
                         ),
                       ),
                   ],
@@ -221,7 +222,7 @@ class _ScopePromptState extends State<ScopePrompt> {
               ),
               Row(
                 mainAxisAlignment: .end,
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   Button.quiet(
                     label: vm.cancelLabel,
