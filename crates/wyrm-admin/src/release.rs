@@ -1807,7 +1807,7 @@ pub fn restore_control(
     if r.manifest().kind != format::Kind::Broker {
         return Err("not a broker backup".into());
     }
-    if r.manifest().sealed.how != "broker" {
+    if r.manifest().sealed.how != crate::backup::How::Broker {
         return Err("not sealed for this broker".into());
     }
     let key_path = data_dir.join("secrets.key");

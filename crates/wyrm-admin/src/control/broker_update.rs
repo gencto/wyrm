@@ -511,14 +511,19 @@ impl Control {
         if self.update.running.load(Ordering::SeqCst) {
             return Some("an update of the broker is being prepared".into());
         }
-        if self.backups().list().iter().any(|j| j.status == "running") {
+        if self
+            .backups()
+            .list()
+            .iter()
+            .any(|j| j.status == super::backups::JobStatus::Running)
+        {
             return Some("a backup is being made".into());
         }
         if self
             .backups()
             .list()
             .iter()
-            .any(|j| j.send_status == "sending")
+            .any(|j| j.send_status == Some(super::backups::SendStatus::Sending))
         {
             return Some("a backup is being sent".into());
         }
@@ -1178,7 +1183,7 @@ async fn run(
                 // sealed for this broker: the guard checks the manifest
                 // with the key of secrets.key before it restores from it
                 seal: SealWith::Broker,
-                label: "pre-update".into(),
+                label: super::backups::JobKind::PreUpdate,
                 pinned: true,
                 remote: false,
                 estimate: false,
@@ -2011,7 +2016,7 @@ mod tests {
                     link: None,
                     history_days: None,
                     seal,
-                    label: "pre-update".into(),
+                    label: super::backups::JobKind::PreUpdate,
                     pinned: true,
                     remote: false,
                     estimate: false,
@@ -2021,7 +2026,7 @@ mod tests {
             .unwrap()
         };
         let job = pre_update(SealWith::Broker);
-        assert_eq!(job.sealed, "broker");
+        assert_eq!(job.sealed, Some(crate::backup::How::Broker));
         let stores = release::stores_of(&d);
         assert!(stores.contains(&"registry".to_owned()), "{stores:?}");
         assert!(!stores.contains(&"users".to_owned()), "no gateway here");

@@ -22,7 +22,7 @@
 //! A backup that holds the `keys` section is never sent: the site's
 //! identity does not go to a store by a remote command.
 
-use super::backups::{Job, SendLink};
+use super::backups::{Job, JobStatus, SendLink, SendStatus};
 use super::*;
 use ed25519_dalek::SigningKey;
 
@@ -154,7 +154,7 @@ pub fn check_folder(folder: &str) -> Result<(), String> {
 /// Check the arguments of `send` for the job `j` against the host's list.
 fn target_of(j: &Job, args: &Value, send_links: &[SendLink]) -> Result<Target, LinkError> {
     let bad = |m: &str| LinkError::invalid_parameter(m.to_owned());
-    if j.status != "done" {
+    if j.status != JobStatus::Done {
         return Err(LinkError::new(
             Status::Busy,
             format!("backup {} is {}", j.id, j.status),
@@ -314,12 +314,12 @@ impl Sending {
         let ctl = &self.ctl;
         ctl.backups().sent(&self.id, |j| match &r {
             Ok(()) => {
-                j.send_status = "done".into();
+                j.send_status = Some(SendStatus::Done);
                 j.send_progress = 100;
                 j.send_error.clear();
             }
             Err(e) => {
-                j.send_status = "failed".into();
+                j.send_status = Some(SendStatus::Failed);
                 j.send_error = e.clone();
             }
         });
@@ -424,7 +424,7 @@ pub(super) async fn send(
     }
     ctl.backups().update(id, |j| {
         j.sent_to = to.shown();
-        j.send_status = "sending".into();
+        j.send_status = Some(SendStatus::Sending);
         j.send_progress = 0;
         j.send_error.clear();
     });
@@ -498,14 +498,16 @@ pub(super) async fn declare(ctx: &LinkCtx, path: &str) -> wyrm_link_sdk::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backup::How;
+    use crate::control::backups::JobKind;
 
     fn job(sections: &[&str]) -> Job {
         Job {
             id: "20261113t101502z".into(),
-            kind: "full".into(),
+            kind: JobKind::Full,
             link: String::new(),
             sections: sections.iter().map(|s| (*s).to_owned()).collect(),
-            status: "done".into(),
+            status: JobStatus::Done,
             progress: 100,
             step: String::new(),
             size: 10,
@@ -514,11 +516,11 @@ mod tests {
             expires: 2,
             error: String::new(),
             file: "plant-20261113T101502Z.wyrm-backup".into(),
-            sealed: "none".into(),
+            sealed: Some(How::None),
             by: "user:a".into(),
             pinned: false,
             sent_to: String::new(),
-            send_status: String::new(),
+            send_status: None,
             send_progress: 0,
             send_error: String::new(),
         }
@@ -570,7 +572,7 @@ mod tests {
         assert!(e.message.contains("keys"), "{e}");
         assert!(e.status.code() >= 0x20);
         let mut running = job(&["control"]);
-        running.status = "running".into();
+        running.status = JobStatus::Running;
         let e = target_of(&running, &ok, &allowed).unwrap_err();
         assert_eq!(e.status, Status::Busy, "{e}");
     }

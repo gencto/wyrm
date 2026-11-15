@@ -111,9 +111,7 @@
   },
   "C3-string-closed-set": {
     "crates/wyrm-admin/src/audit.rs": 2,
-    "crates/wyrm-admin/src/backup.rs": 1,
     "crates/wyrm-admin/src/control.rs": 1,
-    "crates/wyrm-admin/src/control/backups.rs": 5,
     "crates/wyrm-admin/src/control/broker_update.rs": 1,
     "crates/wyrm-admin/src/fetch.rs": 1,
     "crates/wyrm-admin/src/history.rs": 1,
@@ -400,7 +398,7 @@
   },
   "C6-string-set": {
     "crates/wyrm-admin/src/acl.rs": 37,
-    "crates/wyrm-admin/src/backup.rs": 6,
+    "crates/wyrm-admin/src/backup.rs": 5,
     "crates/wyrm-admin/src/control.rs": 13,
     "crates/wyrm-admin/src/control/backups.rs": 6,
     "crates/wyrm-admin/src/control/broker_update.rs": 11,
