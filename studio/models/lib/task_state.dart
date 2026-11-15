@@ -6,5 +6,8 @@ enum TaskState {
   awaitingApproval,
   running,
   done,
-  failed,
+  failed;
+
+  /// Nothing more happens to the task.
+  bool get finished => this == done || this == failed;
 }

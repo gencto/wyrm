@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
@@ -6,26 +7,27 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'task_badge.dart';
+
+/// One key a finished plan touched, with its value now.
+typedef ResultFact = ({String key, String? value});
 
 /// What [ResultCard] draws.
 final class ResultCardVm extends Equatable {
-  const ResultCardVm({
-    required this.title,
-    required this.facts,
-    this.note,
-  });
+  const ResultCardVm({required this.facts});
+
+  /// The keys the plan touched (full keys) and their values now, as text;
+  /// a null value: none was read.
+  final List<ResultFact> facts;
 
   /// `Result`.
-  final String title;
-
-  /// The keys the plan touched and their values now: `(key, value)`.
-  final List<(String, String)> facts;
+  String get title => S.current.resultTitle;
 
   /// The line under the facts (the values are read live).
-  final String? note;
+  String get note => S.current.resultNote;
 
   @override
-  List<Object?> get props => [title, facts, note];
+  List<Object?> get props => [facts];
 }
 
 /// Board *AssistantDone*: what a finished plan left behind, as the keys it
@@ -40,12 +42,7 @@ class ResultCard extends StatelessWidget {
     final c = context.colors;
     return Container(
       margin: Insets.assistantCard,
-      padding: const EdgeInsets.fromLTRB(
-        14,
-        12,
-        14,
-        12,
-      ),
+      padding: Insets.card,
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.line2),
@@ -56,7 +53,7 @@ class ResultCard extends StatelessWidget {
         spacing: 8,
         children: [
           SectionLabel(vm.title),
-          for (final (key, value) in vm.facts)
+          for (final (:key, :value) in vm.facts)
             Row(
               crossAxisAlignment: .start,
               spacing: 12,
@@ -64,29 +61,28 @@ class ResultCard extends StatelessWidget {
                 Expanded(
                   flex: 3,
                   child: SelectableText(
-                    key,
+                    belowSection(key),
                     style: mono(size: 12, color: c.text2),
                   ),
                 ),
                 Expanded(
                   flex: 2,
                   child: Text(
-                    value,
+                    value ?? S.current.resultNoValue,
                     textAlign: .right,
                     style: mono(size: 13, color: c.text1),
                   ),
                 ),
               ],
             ),
-          if (vm.note case final n?)
-            Text(
-              n,
-              style: TextStyle(
-                fontSize: FontSizes.sm,
-                height: 1.45,
-                color: c.text3,
-              ),
+          Text(
+            vm.note,
+            style: TextStyle(
+              fontSize: FontSizes.sm,
+              height: 1.45,
+              color: c.text3,
             ),
+          ),
         ],
       ),
     );

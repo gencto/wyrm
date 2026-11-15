@@ -1,3 +1,5 @@
+import 'package:models/assistant_panel.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_links_action.dart';
@@ -20,7 +22,7 @@ class LoadAssistantAction extends Action {
     await dispatchAndWait(RetrieveAgentAction());
     await dispatchAndWait(RetrieveTasksAction());
     // What it may do is on screen: the secret names of this agent
-    if (assistant.panel == 'rights') {
+    if (assistant.panel == AssistantPanel.rights) {
       await dispatchAndWait(RetrieveAgentSecretsAction());
     }
     if (tasks.selectedTask case final id?) {

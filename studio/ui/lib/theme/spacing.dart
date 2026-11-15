@@ -75,4 +75,29 @@ abstract final class Insets {
   /// Around an Assistant card: indented past the avatar column (42) and
   /// apart from the next card.
   static const assistantCard = EdgeInsets.only(left: 42, bottom: 12);
+
+  /// An Assistant line under the model's mark: indented past the avatar
+  /// column, as [assistantCard] is.
+  static const assistantIndent = EdgeInsets.only(left: 42);
+
+  /// The title row of a card with rows under it (a plan, a run): as
+  /// [card] at the sides and the top, tighter above the first row.
+  static const cardHead = EdgeInsets.fromLTRB(14, 12, 14, 10);
+
+  /// One row of a card (a plan's step, a suggestion's title): as [card]
+  /// at the sides, tighter between rows.
+  static const cardRow = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+
+  /// The line that closes a card under its rows (a note): tighter under
+  /// the last row, as [card] at the bottom.
+  static const cardFoot = EdgeInsets.fromLTRB(14, 10, 14, 12);
+
+  /// Inside a warning band in a card (a link's finding, a caution).
+  static const band = EdgeInsets.symmetric(horizontal: 10, vertical: 6);
+
+  /// Inside a removable chip: the text, then its close button.
+  static const chip = EdgeInsets.only(left: AppSpacing.sm, right: 2);
+
+  /// Around a small text button beside chips (`+ prefix`).
+  static const textLink = EdgeInsets.symmetric(horizontal: 6, vertical: 3);
 }

@@ -11,16 +11,29 @@ class SetOptionPickAction extends Action {
     this.task,
     this.question,
     this.option, {
-    required this.multiple,
+    required bool this.multiple,
   });
+
+  /// Whether the question takes several options is read from the task.
+  SetOptionPickAction.of(this.task, this.question, this.option)
+    : multiple = null;
 
   final String task;
   final String question;
   final String option;
-  final bool multiple;
+  final bool? multiple;
 
   @override
-  AppState reduce() {
+  AppState? reduce() {
+    final multiple =
+        this.multiple ??
+        tasks.table[task]?.questions
+            .where((q) => q.id == question)
+            .firstOrNull
+            ?.multiple;
+    if (multiple == null) {
+      return null;
+    }
     final key = '$task/$question';
     final was = assistant.picks[key] ?? const ISetConst<String>({});
     final now = was.contains(option)

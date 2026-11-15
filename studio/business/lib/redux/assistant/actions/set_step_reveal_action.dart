@@ -7,16 +7,19 @@ import '../../common/action.dart';
 /// whose schema is not known (`PlanStep.argsKnown` false: any of them may
 /// be a secret). A known secret argument is never shown.
 class SetStepRevealAction extends Action {
-  SetStepRevealAction(this.task, this.n, {required this.shown});
+  SetStepRevealAction(this.task, this.n, {required bool this.shown});
+
+  /// Shows them when they are masked, and the other way round.
+  SetStepRevealAction.toggle(this.task, this.n) : shown = null;
 
   final String task;
   final int n;
-  final bool shown;
+  final bool? shown;
 
   @override
   AppState reduce() {
     final was = assistant.revealed[task] ?? const ISetConst<int>({});
-    final now = shown ? was.add(n) : was.remove(n);
+    final now = (shown ?? !was.contains(n)) ? was.add(n) : was.remove(n);
     return state.copyWith.assistant(
       revealed: now.isEmpty
           ? assistant.revealed.remove(task)

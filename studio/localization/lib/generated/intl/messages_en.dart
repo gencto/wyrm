@@ -546,7 +546,8 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m229(s) => "${s} s";
 
-  static String m230(n) => "Plan · ${n} steps";
+  static String m230(n) =>
+      "${Intl.plural(n, one: 'Plan · 1 step', other: 'Plan · ${n} steps')}";
 
   static String m231(s) => "timeout ${s} s";
 
@@ -2213,6 +2214,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "The draft does not validate.",
     ),
     "fixReplaces": MessageLookupByLibrary.simpleMessage("replaces this plan"),
+    "fixReplacesModeUnknown": MessageLookupByLibrary.simpleMessage(
+      "replaces this plan; who approves is not known, so the new plan\'s write steps may run without a person",
+    ),
     "fixReplacesNoPerson": m151,
     "flowBack": MessageLookupByLibrary.simpleMessage("Back"),
     "flowDeployed": m152,
@@ -2543,6 +2547,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "modeProcess": MessageLookupByLibrary.simpleMessage("Process"),
     "modeProcessNote": MessageLookupByLibrary.simpleMessage(
       "Its own process on this host, watched and restarted by the broker.",
+    ),
+    "modeUnknown": MessageLookupByLibrary.simpleMessage("Not known"),
+    "modeUnknownCaution": MessageLookupByLibrary.simpleMessage(
+      "Who approves is not known (the agent\'s settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant\'s guess, not a check. Read a tile before you pick it.",
+    ),
+    "modeUnknownDetail": MessageLookupByLibrary.simpleMessage(
+      "The agent\'s settings could not be read, so who approves is not known.",
     ),
     "modeWasmNote": MessageLookupByLibrary.simpleMessage(
       "Inside the broker, in the sandbox: no files, only the network it is allowed, memory and time limits. Set by the package kind.",

@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
@@ -8,23 +9,33 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'task_badge.dart';
 
 /// What one entry of the conversation is.
 enum ConversationKind {
-  /// What the person asked (a bubble on the right).
+  /// What the person asked, or answered in words (a bubble on the right).
   ask,
+
+  /// The options the person picked on the card (a bubble on the right).
+  answer,
 
   /// A line from the model (a spark and the text).
   text,
 
   /// What the agent read: [ConversationEventVm.reads] as chips.
-  reads,
+  read,
 
   /// A state the task reached (a mark and the word).
   state,
 
+  /// A line of the record that says what was done (a ring and the text).
+  note,
+
   /// An error from the agent or the broker.
   error,
+
+  /// The agent has no tasks yet.
+  noTasks,
 }
 
 /// One entry of the conversation.
@@ -33,20 +44,54 @@ final class ConversationEventVm extends Equatable {
     required this.kind,
     this.text = '',
     this.reads = const [],
-    this.tone = Tone.neutral,
+    this.badge,
   });
 
+  /// One read-only tool the model called.
+  ConversationEventVm.read(String tool)
+    : this(kind: ConversationKind.read, reads: [tool]);
+
   final ConversationKind kind;
+
+  /// The words: the person's, the model's, the record's.
   final String text;
 
-  /// `read · tree modbus/tcp-line2` chips of a [ConversationKind.reads].
+  /// The tools of a [ConversationKind.read] (`tree modbus/tcp-line2`).
   final List<String> reads;
 
+  /// The state of a [ConversationKind.state].
+  final TaskBadge? badge;
+
+  /// What the entry says.
+  String get shown => switch (kind) {
+    ConversationKind.answer => S.current.choicesFromCard(text),
+    ConversationKind.state => badge?.label ?? text,
+    ConversationKind.noTasks => S.current.noTasks,
+    _ => text,
+  };
+
   /// The tone of a [ConversationKind.state].
-  final Tone tone;
+  Tone get tone => badge?.tone ?? Tone.neutral;
 
   @override
-  List<Object?> get props => [kind, text, reads, tone];
+  List<Object?> get props => [kind, text, reads, badge];
+}
+
+/// [events] with each run of reads in one row of chips.
+List<ConversationEventVm> _rows(List<ConversationEventVm> events) {
+  final out = <ConversationEventVm>[];
+  for (final e in events) {
+    if (e.kind == ConversationKind.read &&
+        out.lastOrNull?.kind == ConversationKind.read) {
+      out.last = ConversationEventVm(
+        kind: ConversationKind.read,
+        reads: [...out.last.reads, ...e.reads],
+      );
+    } else {
+      out.add(e);
+    }
+  }
+  return out;
 }
 
 /// Board *Assistant*: the ask on the right, the model's lines with a spark,
@@ -82,7 +127,7 @@ class Conversation extends StatelessWidget {
             AppSpacing.lg,
           ),
     children: [
-      for (final e in events)
+      for (final e in _rows(events))
         Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _Event(vm: e),
@@ -146,7 +191,7 @@ class _Event extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     switch (vm.kind) {
-      case .ask:
+      case .ask || .answer:
         return Align(
           alignment: .centerRight,
           child: ConstrainedBox(
@@ -161,7 +206,7 @@ class _Event extends StatelessWidget {
                 borderRadius: Radii.card,
               ),
               child: SelectableText(
-                vm.text,
+                vm.shown,
                 style: TextStyle(
                   fontSize: FontSizes.lg,
                   height: 1.5,
@@ -171,7 +216,7 @@ class _Event extends StatelessWidget {
             ),
           ),
         );
-      case .text:
+      case .text || .noTasks:
         return Row(
           crossAxisAlignment: .start,
           spacing: 12,
@@ -193,7 +238,7 @@ class _Event extends StatelessWidget {
                 child: SelectableText.rich(
                   TextSpan(
                     children: modelSpans(
-                      vm.text,
+                      vm.shown,
                       code: mono(size: 13, color: c.text1),
                     ),
                   ),
@@ -207,9 +252,9 @@ class _Event extends StatelessWidget {
             ),
           ],
         );
-      case .reads:
+      case .read:
         return Padding(
-          padding: const EdgeInsets.only(left: 42),
+          padding: Insets.assistantIndent,
           child: Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -224,14 +269,17 @@ class _Event extends StatelessWidget {
                     border: Border.all(color: c.line2),
                     borderRadius: Radii.chip,
                   ),
-                  child: Text(r, style: mono(size: 12, color: c.text3)),
+                  child: Text(
+                    'read · $r',
+                    style: mono(size: 12, color: c.text3),
+                  ),
                 ),
             ],
           ),
         );
-      case .state:
+      case .state || .note:
         return Padding(
-          padding: const EdgeInsets.only(left: 42),
+          padding: Insets.assistantIndent,
           child: Row(
             spacing: 8,
             children: [
@@ -240,7 +288,7 @@ class _Event extends StatelessWidget {
                 color: vm.tone == .neutral ? c.text3 : toneColor(c, vm.tone),
               ),
               Text(
-                vm.text,
+                vm.shown,
                 style: TextStyle(fontSize: FontSizes.md, color: c.text3),
               ),
             ],
@@ -248,7 +296,7 @@ class _Event extends StatelessWidget {
         );
       case .error:
         return Padding(
-          padding: const EdgeInsets.only(left: 42),
+          padding: Insets.assistantIndent,
           child: Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 12,

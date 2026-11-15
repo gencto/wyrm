@@ -1,9 +1,12 @@
 import 'dart:convert';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/agent_params.dart';
+import 'package:models/approval_mode.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 
+import '../../../wyrm/decode/agent_params.dart';
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -21,34 +24,28 @@ import '../../links/actions/retrieve_link_history_action.dart';
 /// before, so a second edit keeps the first. An edit that brings every
 /// param back to the revision unstages the update. The review card names
 /// each param that changes, with what it was and what it will be.
-class StageAgentParamAction extends Action {
+class StageAgentParamAction extends Action with WaitingAction {
   /// `require_approval` becomes [mode].
-  StageAgentParamAction.mode(String mode)
-    : _edit = ((p) => p['require_approval'] = mode);
+  StageAgentParamAction.mode(ApprovalMode mode)
+    : _edit = ((p) => p.copyWith(requireApproval: mode));
 
   /// [prefix] joins `allowed_prefixes` (once).
   StageAgentParamAction.addPrefix(String prefix)
     : _edit = ((p) {
-        final list = _prefixes(p);
-        if (!list.contains(prefix)) {
-          p['allowed_prefixes'] = [...list, prefix];
-        }
+        final list = p.allowedPrefixes ?? const IListConst<String>([]);
+        return list.contains(prefix)
+            ? p
+            : p.copyWith(allowedPrefixes: list.add(prefix));
       });
 
   /// [prefix] leaves `allowed_prefixes`.
   StageAgentParamAction.removePrefix(String prefix)
-    : _edit = ((p) => p['allowed_prefixes'] = [
-        for (final q in _prefixes(p))
-          if (q != prefix) q,
-      ]);
+    : _edit = ((p) => p.copyWith(
+        allowedPrefixes: (p.allowedPrefixes ?? const IListConst<String>([]))
+            .remove(prefix),
+      ));
 
-  final void Function(Map<String, Object?> params) _edit;
-
-  static List<String> _prefixes(Map<String, Object?> p) =>
-      switch (p['allowed_prefixes']) {
-        final List<Object?> l => [for (final e in l) ?(e is String ? e : null)],
-        _ => const [],
-      };
+  final AgentParams Function(AgentParams params) _edit;
 
   @override
   Future<AppState?> reduce() async {
@@ -58,10 +55,10 @@ class StageAgentParamAction extends Action {
     }
     final id = agent.split('/').last;
     final key = '${site.root}/sys/links/$id';
-    final staged = stagedParamsOf(key);
-    Map<String, Object?> revision;
+    final staged = stagedAgentParamsOf(key);
+    AgentParams revision;
     String rev;
-    if (staged case (:final change, :final base) when base.isNotEmpty) {
+    if (staged case (:final change, :final base, params: _)) {
       revision = base;
       rev = change.from.split(':').first;
     } else {
@@ -71,8 +68,10 @@ class StageAgentParamAction extends Action {
       // param of the agent with its default.
       final read = await dispatchAndWait(RetrieveLinkHistoryAction(id));
       final newest = links.revisions.firstOrNull;
-      final params = newest == null ? null : jsonDecode(newest.params);
-      if (!read.isCompletedOk || params is! Map<String, Object?>) {
+      final params = newest == null || !read.isCompletedOk
+          ? null
+          : agentParamsOf(jsonDecode(newest.params)).orWarn(key);
+      if (params == null) {
         throw StudioException.said(
           ErrorKind.broker,
           'The parameters of the agent link could not be read, so nothing '
@@ -85,16 +84,20 @@ class StageAgentParamAction extends Action {
       revision = params;
       rev = 'rev ${newest!.rev}';
     }
-    final next = <String, Object?>{
-      ...?(staged?.change.args['params'] as Map<String, Object?>?),
-    };
-    if (staged == null) {
-      next.addAll(revision);
-    }
-    _edit(next);
+    final next = _edit(staged?.params ?? revision);
     final changed = [
-      for (final k in {...revision.keys, ...next.keys})
-        if (jsonEncode(revision[k]) != jsonEncode(next[k])) k,
+      if (next.requireApproval != revision.requireApproval)
+        (
+          name: 'require_approval',
+          was: revision.requireApproval?.wire,
+          now: next.requireApproval?.wire,
+        ),
+      if (next.allowedPrefixes != revision.allowedPrefixes)
+        (
+          name: 'allowed_prefixes',
+          was: _listed(revision.allowedPrefixes),
+          now: _listed(next.allowedPrefixes),
+        ),
     ];
     final cid = 'params:$key';
     final old = staged?.change.id;
@@ -110,26 +113,21 @@ class StageAgentParamAction extends Action {
         view: view.remove(cid),
       );
     }
-    String shown(Object? v) => switch (v) {
-      null => '—',
-      final List<Object?> l => l.isEmpty ? '[]' : l.join(', '),
-      final Object o => '$o',
-    };
     final change = StagedChange(
       id: cid,
       op: 'Edit',
       key: key,
-      field: 'params · ${changed.join(', ')}',
+      field: 'params · ${[for (final c in changed) c.name].join(', ')}',
       from:
-          '$rev: ${[for (final k in changed) '$k ${shown(revision[k])}'].join(
+          '$rev: ${[for (final c in changed) '${c.name} ${c.was ?? '—'}'].join(
             '; ',
           )}',
-      to: [for (final k in changed) '$k ${shown(next[k])}'].join('; '),
+      to: [for (final c in changed) '${c.name} ${c.now ?? '—'}'].join('; '),
       level: 'config',
       action: 'update',
-      args: {'params': next}.lock,
+      args: {'params': agentParamsJson(next)}.lock,
       // what the edits are measured against
-      value: revision,
+      value: agentParamsJson(revision),
     );
     return state.copyWith.changes(
       table: table.add(cid, change),
@@ -137,4 +135,12 @@ class StageAgentParamAction extends Action {
       message: null,
     );
   }
+
+  /// A prefix list as the review card says it: `A, B`, `[]`; null when
+  /// the params do not set it.
+  static String? _listed(IList<String>? l) => switch (l) {
+    null => null,
+    final l when l.isEmpty => '[]',
+    final l => l.join(', '),
+  };
 }
