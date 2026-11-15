@@ -45,7 +45,7 @@ pub struct SessionClaims {
 
 wyrm_core::name_enum! {
     /// How a session was made. Tokens from before ADR 0050 carry none and are password logins.
-    pub enum Amr {
+    pub enum Amr as "amr" {
         /// `POST /api/login` with the password.
         Password => "pwd",
         /// `POST /api/device/login` with a device key.

@@ -403,7 +403,10 @@ ONLY_BEFORE = re.compile(r"\bonly\(\s*$")
 def c6(s: Source) -> list[int]:
     """A closed set written as strings: an inline `["a", "b", …]` (with or without `&`,
     also `vec![…]`; but the key list of `Fields::only(&[…])`), `matches!(x, "a" | "b")`,
-    `x == "a" || x == "b"`, and a `const`/`static` table of `&str` (also of tuples)."""
+    `x == "a" || x == "b"`, and a `const`/`static` table of `&str` (also of tuples). The
+    `name_enum!` macro itself is exempt: its `NAMES` is the one declaration of a set."""
+    if s.path == "crates/wyrm-core/src/named.rs":
+        return []
     hits = []
     inline = r'(?:vec!)?&?\[\s*"[^"\n]*"(?:\s*,\s*"[^"\n]*")+\s*,?\s*\]'
     for m in re.finditer(inline, s.code):

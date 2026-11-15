@@ -30,7 +30,7 @@ pub type Kind = &'static Platform;
 
 wyrm_core::name_enum! {
     /// How a message's text is marked up.
-    pub enum Format {
+    pub enum Format as "format" {
         Plain => "plain",
         /// Telegram `parse_mode: HTML`.
         Html => "html",
@@ -54,7 +54,7 @@ impl Format {
 
 wyrm_core::name_enum! {
     /// What a message carries.
-    pub enum MsgKind {
+    pub enum MsgKind as "message kind" {
         Text => "text",
         Photo => "photo",
         Document => "document",
@@ -760,7 +760,7 @@ impl Template {
 // ---------- chat user ----------
 
 wyrm_core::name_enum! {
-    pub enum UserStatus {
+    pub enum UserStatus as "user status" {
         /// Invited: waits for `/start <code>` from its account.
         Pending => "pending",
         Active => "active",

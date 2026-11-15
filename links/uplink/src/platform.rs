@@ -15,7 +15,7 @@ pub type Map = BTreeMap<String, Value>;
 wyrm_core::name_enum! {
     /// The platforms (ADR 0035).
     #[derive(PartialOrd, Ord)]
-    pub enum Kind {
+    pub enum Kind as "uplink kind" {
         /// Any MQTT broker, one topic per point (a Unified Namespace).
         Mqtt => "mqtt",
         /// Sparkplug B 3.0: the site as an edge node, links as devices.

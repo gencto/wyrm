@@ -20,7 +20,7 @@ const VALUE_GET_MAX: usize = 200;
 wyrm_core::name_enum! {
     /// When a write-level operation needs a human approval (`config` always does).
     #[derive(Default)]
-    pub enum ApprovalMode {
+    pub enum ApprovalMode as "approval mode" {
         /// Only config-level operations need approval.
         Config => "config",
         /// Every operation needs approval (the default).
@@ -130,7 +130,7 @@ wyrm_core::name_enum! {
     /// What one step of a plan does. `set` and `invoke` change the site; `wait`, `expect` and
     /// `sleep` only read (the plan proves itself) and need no approval. The names are the keys of
     /// a step in the `wyrm-agent run` plan format (`wyrm_mcp::gw::Step`, ADR 0033, 0049 §6).
-    pub enum OpKind {
+    pub enum OpKind as "op kind" {
         Set => "set",
         Invoke => "invoke",
         /// Wait until the node exists.
@@ -240,7 +240,7 @@ pub struct PlanOp {
 
 wyrm_core::name_enum! {
     /// How one step of a run ended.
-    pub enum StepStatus {
+    pub enum StepStatus as "step status" {
         Ok => "ok",
         Failed => "failed",
         /// Left out by the approver, or a step that needs one left out: never sent.
@@ -658,7 +658,7 @@ wyrm_core::name_enum! {
     /// count): fixed words, never the model's text. A reader says from them why rows are
     /// missing.
     #[derive(PartialOrd, Ord)]
-    pub enum Refused {
+    pub enum Refused as "refusal" {
         /// The asker's rights are not known: their token had no `auth`, or the link restarted.
         RightsUnknown => "rights_unknown",
         /// The asker's rights were known from a token that has expired.

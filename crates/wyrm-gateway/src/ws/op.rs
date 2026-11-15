@@ -11,7 +11,7 @@ use wyrm_core::{Perm, Value};
 
 wyrm_core::name_enum! {
     /// The op names of a request frame (`op`).
-    pub(crate) enum OpName {
+    pub(crate) enum OpName as "op" {
         Meta => "meta",
         Children => "children",
         List => "list",
@@ -27,7 +27,7 @@ wyrm_core::name_enum! {
 
 wyrm_core::name_enum! {
     /// The documents `doc` reads (spec 01).
-    pub(crate) enum DocSuffix {
+    pub(crate) enum DocSuffix as "doc suffix" {
         State => "~state",
         Def => "~def",
     }

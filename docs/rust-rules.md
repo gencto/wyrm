@@ -232,8 +232,14 @@ levels), comparisons that are not a lookup, and the closed sets of T5.
 
 **Rule.** A field, argument or state whose values are a fixed list is an enum
 (`wire_enum!` when it has wire codes, `ParamEnum` for an action argument,
-otherwise `name_enum!`). The string becomes the
-enum once, where it is decoded. No `String` field documented as "`a`, `b` or
+otherwise `wyrm_core::name_enum!`, which generates `name()`, `from_name()`,
+`NAMES` and the codecs). The string becomes the enum once, where it is
+decoded. A `name_enum!` type is kept as its name in CBOR, postcard and JSON,
+the bytes a `String` field wrote, so a store needs no migration; a name that
+is not in the set is a decode error, never a default. A `wire_enum!` type
+kept by its name in a store says so on the field
+(`#[cbor(with = "wyrm_core::named::cbor")]`,
+`#[serde(with = "wyrm_core::named::serde")]`). No `String` field documented as "`a`, `b` or
 `c`", no inline `&["a", "b"]` set, no `const NAMES: [&str; N]` checked by
 hand. The key list of `Fields::only(&[…])` (the names an argument map may
 hold) is not a set of values and is not counted.
@@ -263,7 +269,8 @@ if job.status != JobStatus::Done { … }
 "one of …", "a, b or c"). C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
-tuples).
+tuples). The `name_enum!` macro (`wyrm-core/src/named.rs`) is exempt from
+C6: its `NAMES` is the one declaration of a set.
 
 ## 7. One typed decoder per `Value` shape
 

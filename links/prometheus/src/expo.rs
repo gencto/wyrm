@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 wyrm_core::name_enum! {
     /// The type a `# TYPE` line gives a metric family.
-    pub enum MetricType {
+    pub enum MetricType as "metric type" {
         Counter => "counter",
         Gauge => "gauge",
         Histogram => "histogram",

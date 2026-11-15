@@ -55,7 +55,7 @@ wyrm_core::name_enum! {
     /// How a link runs (wiki "Режими розгортання").
     #[derive(Serialize, Deserialize, Encode, Decode)]
     #[cbor(index_only)]
-    pub enum Mode {
+    pub enum Mode as "link mode" without codec {
         /// In-process, started by the broker.
         #[n(0)]
         Embedded => "embedded",

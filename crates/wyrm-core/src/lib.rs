@@ -12,6 +12,7 @@ pub mod history;
 pub mod keyspace;
 pub mod mac;
 pub mod meta;
+pub mod named;
 pub mod profile;
 pub mod ptok;
 pub mod status;
