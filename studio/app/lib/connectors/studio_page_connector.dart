@@ -15,7 +15,6 @@ import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
-import 'package:business/wyrm/shell.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/shell/studio_frame.dart';
@@ -96,13 +95,13 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
   _Vm fromStore() {
     final home = site.name ?? '';
     final viewed = site.viewed ?? home;
-    final pill = problemsCount;
+    final pill = problems.pill;
     return _Vm(
       frame: StudioFrameVm(
         site: viewed,
         root: site.root ?? '',
         home: viewed == home,
-        via: viewedVia,
+        via: site.viewedVia,
         sites: [for (final c in site.choices) c.vm],
         connected: site.connected,
         changes: changes.view.length,
@@ -118,14 +117,14 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
         reviewOpen: changes.open,
         reviewError: changes.message,
         applying: changes.isWaiting,
-        cards: [for (final c in reviewCards) c.data],
+        cards: [for (final c in changes.reviewCards) c.data],
         level: site.levelOn('${site.root}/downstream'),
-        audit: reviewAudit,
+        audit: changes.reviewAudit,
         links: [
           for (final id in links.view)
             SearchLinkVm(id: id, driver: links.table[id]?.driver),
         ],
-        nodes: [for (final n in searchNodes) n.vm],
+        nodes: [for (final n in nodes.searchNodes) n.vm],
         refreshing: {for (final w in refreshingWorkspaces) w.tab}.lock,
         window: windowBar(fullScreen: window.fullScreen),
       ),

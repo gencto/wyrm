@@ -6,7 +6,6 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/peers/actions/set_selected_peer_action.dart';
 import 'package:business/redux/peers/actions/show_sites_action.dart';
-import 'package:business/wyrm/sites.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/pages/sites_page.dart';
 
@@ -17,8 +16,9 @@ import '../mappers/sites_mappers.dart';
 import '../navigation/sites_go_action.dart';
 
 /// Sites: the map around the site on screen and the inspector of the node
-/// picked, computed in business (`siteMap`, `siteDetail`) and mapped
-/// through `app/lib/mappers/sites_mappers.dart`; `SitesPage` words them.
+/// picked, computed in business (`peers.siteMap`, `peers.siteDetail`) and
+/// mapped through `app/lib/mappers/sites_mappers.dart`; `SitesPage` words
+/// them.
 /// One action per intent; the forms and confirmations open from the
 /// widget, with the widget's context (`app/lib/dialogs/sites_dialogs.dart`).
 @RoutePage()
@@ -53,14 +53,14 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
 
   @override
   _Vm fromStore() {
-    final keys = sitesKeys;
+    final keys = peers.sitesKeys;
     return _Vm(
       page: SitesVm(
         site: site.viewed ?? '',
-        nodes: [for (final n in siteMap) n.data],
-        waiting: sitesWaiting,
-        detail: siteDetail?.vm,
-        lack: sitesLack?.disabled,
+        nodes: [for (final n in peers.siteMap) n.data],
+        waiting: peers.sitesWaiting,
+        detail: peers.siteDetail?.vm,
+        lack: peers.sitesLack?.disabled,
         busy: peers.isWaiting || quarantine.isWaiting,
       ),
       onShow: () => dispatch(ShowSitesAction()),

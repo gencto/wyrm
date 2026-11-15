@@ -76,7 +76,12 @@ final class HistoryTrend {
 }
 
 /// What History's trend is made of, from the state.
-extension HistoryTrendSelect on Selectors {
+final class _Trend with Selectors {
+  _Trend(this.state);
+
+  @override
+  final AppState state;
+
   /// The trend's range in µs: the span of `historian.range` up to the last
   /// read or the newest sample since, whichever is later (so the trend
   /// stays equal between dispatches and still follows new samples).
@@ -151,3 +156,9 @@ extension HistoryTrendSelect on Selectors {
     );
   }
 }
+
+// History's trend as functions of the state: the selectors of
+// `SelectHistorian` call them.
+TrendSpan historyRangeOf(AppState s) => _Trend(s).historyRange;
+
+HistoryTrend? historyTrendOf(AppState s) => _Trend(s).historyTrend;

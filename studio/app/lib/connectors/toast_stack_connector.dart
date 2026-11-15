@@ -43,7 +43,7 @@ class _Factory extends VmFactory<AppState, ToastStackConnector, _Vm>
   @override
   _Vm fromStore() => _Vm(
     toasts: [
-      for (final t in toasts)
+      for (final t in problems.shownToasts)
         switch (t) {
           ErrorToast(:final error) => errorToastVm(error),
           NoticeToast(:final notice) => notice.toast,

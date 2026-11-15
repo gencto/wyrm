@@ -1,6 +1,5 @@
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/historian/actions/reread_trend_action.dart';
-import 'package:business/wyrm/historian_stats.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/pages/history_screen.dart';
@@ -22,7 +21,7 @@ class _Sel with Selectors {
 /// went through, the trend is read again ([RereadTrendAction]).
 Future<void> askHistory(BuildContext context, HistoryAct act) {
   final call = act.call;
-  final key = _Sel(AppStore.of(context).state).historyKeyOf(call.node);
+  final key = _Sel(AppStore.of(context).state).historian.keyOf(call.node);
   return runNodeAction(
     context,
     key,

@@ -152,7 +152,12 @@ final class PlatformDetail extends SiteDetail {
 }
 
 /// What Sites shows, computed from the state.
-extension SitesSelect on Selectors {
+final class _Sites with Selectors {
+  _Sites(this.state);
+
+  @override
+  final AppState state;
+
   /// The values Sites watches while shown.
   List<String> get sitesKeys => [
     '${site.root}/sys/version',
@@ -329,3 +334,17 @@ extension SitesSelect on Selectors {
     };
   }
 }
+
+// What Sites shows, as functions of the state: the selectors of
+// `SelectPeers` (business/lib/redux/selectors.dart) call them.
+List<String> sitesKeysOf(AppState s) => _Sites(s).sitesKeys;
+
+SitePick sitePickedOf(AppState s) => _Sites(s).sitePicked;
+
+List<String> sitesWaitingOf(AppState s) => _Sites(s).sitesWaiting;
+
+Lack? sitesLackOf(AppState s) => _Sites(s).sitesLack;
+
+List<SiteMapNode> siteMapOf(AppState s) => _Sites(s).siteMap;
+
+SiteDetail? siteDetailOf(AppState s) => _Sites(s).siteDetail;

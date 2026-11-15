@@ -12,8 +12,6 @@ import 'package:business/redux/historian/actions/show_history_action.dart';
 import 'package:business/redux/historian/actions/toggle_trend_series_action.dart';
 import 'package:business/redux/historian/actions/zoom_history_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
-import 'package:business/wyrm/historian_stats.dart';
-import 'package:business/wyrm/history_trend.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/models/panels.dart';
@@ -28,7 +26,7 @@ import '../mappers/history_mappers.dart';
 import '../mappers/rights_mappers.dart';
 
 /// History (docs/studio.md §7.7): the watch groups of `sys/history`, the
-/// picked points' trend (computed in business, `historyTrend`), mapped
+/// picked points' trend (computed in business, `historian.trend`), mapped
 /// through `app/lib/mappers/history_mappers.dart`; `HistoryScreen` words
 /// them. One action per intent; an action of the inspector opens its form
 /// from the widget, with the widget's context (`askHistory`).
@@ -71,15 +69,15 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
       screen: HistoryScreenVm(
         groups: [for (final g in historian.shownGroups) g.vm(series)],
         selected: historian.selected,
-        stats: historianStats.vm,
+        stats: historian.historianStats.vm,
         span: historian.range.tab,
         picked: ToggleVm(
           selected: historian.points.toISet(),
           onToggle: (key, {required on}) =>
               dispatch(PickTrendPointAction(key, add: true)),
         ),
-        trend: historyTrend?.vm,
-        watch: pickedWatch,
+        trend: historian.trend?.vm,
+        watch: historian.pickedWatch,
         disabled: site.lacks(Perm.config, '${site.root}/sys/history')?.disabled,
         panels: WorkspacePanels.history.widths(panels.widths),
       ),

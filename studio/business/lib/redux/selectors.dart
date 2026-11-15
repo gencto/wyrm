@@ -26,6 +26,7 @@ import 'package:models/grant_source.dart';
 import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/history_call.dart';
 import 'package:models/history_range.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
@@ -92,6 +93,8 @@ import '../wyrm/device_keys.dart';
 import '../wyrm/explorer.dart';
 import '../wyrm/features.dart';
 import '../wyrm/gateway_label.dart';
+import '../wyrm/historian_stats.dart';
+import '../wyrm/history_trend.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/agent_task_mapper.dart';
@@ -100,7 +103,10 @@ import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
 import '../wyrm/rights.dart';
+import '../wyrm/shell.dart';
+import '../wyrm/sites.dart';
 import '../wyrm/task_facts.dart';
+import '../wyrm/trend_window.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -662,6 +668,9 @@ extension SelectComposites on Selectors {
   /// every action carrying it and nothing here names any of them.
   bool get isBusy => state.wait.isWaitingForType<BlockingAction>();
 
+  /// The workspaces reading again what they show.
+  ISet<Workspace> get refreshingWorkspaces => refreshingWorkspacesOf(state);
+
   /// [ws] is reading again data it already shows: stale while revalidate
   /// (docs/studio.md §6.7). The workspace keeps its content and the shell
   /// lays the sweep bar over it.
@@ -1169,6 +1178,9 @@ extension type SelectSite(AppState _state) {
   /// The highest level the session may use (`/api/me` `max`); null from a
   /// gateway that does not send it.
   String? get max => _state.site.max;
+
+  /// Returns viewedVia
+  List<String> get viewedVia => viewedViaOf(_state);
 }
 
 extension type SelectNodes(AppState _state) {
@@ -1271,6 +1283,9 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns menuAsked
   String? get menuAsked => _state.nodes.menuAsked;
+
+  /// Returns searchNodes
+  List<SearchNode> get searchNodes => searchNodesOf(_state);
 }
 
 extension type SelectLive(AppState _state) {
@@ -1450,6 +1465,24 @@ extension type SelectPeers(AppState _state) {
 
   /// Returns selectedPeer
   SitePick? get selectedPeer => _state.peers.selectedPeer;
+
+  /// Returns sitesKeys
+  List<String> get sitesKeys => sitesKeysOf(_state);
+
+  /// Returns sitePicked
+  SitePick get sitePicked => sitePickedOf(_state);
+
+  /// Returns sitesWaiting
+  List<String> get sitesWaiting => sitesWaitingOf(_state);
+
+  /// Returns sitesLack
+  Lack? get sitesLack => sitesLackOf(_state);
+
+  /// Returns siteMap
+  List<SiteMapNode> get siteMap => siteMapOf(_state);
+
+  /// Returns siteDetail
+  SiteDetail? get siteDetail => siteDetailOf(_state);
 }
 
 extension type SelectFlows(AppState _state) {
@@ -1737,6 +1770,12 @@ extension type SelectChanges(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
+
+  /// Returns reviewCards
+  List<ReviewCard> get reviewCards => reviewCardsOf(_state);
+
+  /// Returns reviewAudit
+  String get reviewAudit => reviewAuditOf(_state);
 }
 
 extension type SelectHistorian(AppState _state) {
@@ -1809,6 +1848,24 @@ extension type SelectHistorian(AppState _state) {
   /// The trend's window is being read finer (the bar over the plot).
   bool get windowLoading =>
       _state.wait.isWaitingForType<LoadTrendWindowAction>();
+
+  /// Returns trendSpan
+  TrendSpan get trendSpan => historyRangeOf(_state);
+
+  /// Returns trend
+  HistoryTrend? get trend => historyTrendOf(_state);
+
+  /// Returns shownGroup
+  WatchGroup? get shownGroup => shownGroupOf(_state);
+
+  /// Returns pickedWatch
+  String? get pickedWatch => pickedWatchOf(_state);
+
+  /// Returns historianStats
+  HistorianStats get historianStats => historianStatsOf(_state);
+
+  /// The key of [node] for History's calls.
+  String keyOf(HistoryNode node) => historyKeyOf(_state, node);
 }
 
 extension type SelectAccess(AppState _state) {
@@ -1965,6 +2022,12 @@ extension type SelectProblems(AppState _state) {
 
   /// Returns notices
   IList<StudioNotice> get notices => _state.problems.notices;
+
+  /// Returns pill
+  ProblemsCount? get pill => problemsCountOf(_state);
+
+  /// Returns shownToasts
+  List<Toast> get shownToasts => toastsOf(_state);
 }
 
 extension type SelectUpdates(AppState _state) {

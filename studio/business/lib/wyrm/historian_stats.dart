@@ -25,7 +25,12 @@ final class HistorianStats {
 }
 
 /// What History shows of the historian, from the state.
-extension HistorianSelect on Selectors {
+final class _Historian with Selectors {
+  _Historian(this.state);
+
+  @override
+  final AppState state;
+
   HistorianStats get historianStats {
     final s = historian.shownStats;
     final size = s['database_size'];
@@ -67,3 +72,14 @@ extension HistorianSelect on Selectors {
     };
   }
 }
+
+// What History shows of the historian, as functions of the state: the
+// selectors of `SelectHistorian` call them.
+HistorianStats historianStatsOf(AppState s) => _Historian(s).historianStats;
+
+WatchGroup? shownGroupOf(AppState s) => _Historian(s).shownGroup;
+
+String? pickedWatchOf(AppState s) => _Historian(s).pickedWatch;
+
+String historyKeyOf(AppState s, HistoryNode node) =>
+    _Historian(s).historyKeyOf(node);

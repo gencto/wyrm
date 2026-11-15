@@ -1,4 +1,3 @@
-import '../../../wyrm/history_trend.dart';
 import '../../../wyrm/trend_window.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -16,7 +15,7 @@ class ZoomHistoryAction extends Action {
 
   @override
   AppState? reduce() {
-    final range = historyRange;
+    final range = historian.trendSpan;
     dispatchSync(
       SetTrendWindowAction(trendWindow(start, end, range.start, range.end)),
     );

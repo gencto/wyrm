@@ -2,7 +2,6 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/links/actions/set_tab_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
-import 'package:business/wyrm/sites.dart';
 import 'package:models/links_tab.dart';
 import 'package:ui/pages/sites_page.dart';
 
@@ -20,7 +19,7 @@ class SitesGoAction extends ReduxAction<AppState> with Selectors {
 
   @override
   Future<AppState?> reduce() async {
-    final name = sitePicked.name;
+    final name = peers.sitePicked.name;
     await dispatchAndWait(switch (go) {
       SiteGo.quarantine => GoAfterAction(const LinksRoute(), [
         SetTabAction(LinksTab.quarantine),

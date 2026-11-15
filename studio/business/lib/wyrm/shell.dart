@@ -83,7 +83,12 @@ final class NoticeToast extends Toast {
 }
 
 /// What the Studio shell shows, computed from the state.
-extension ShellSelect on Selectors {
+final class _Shell with Selectors {
+  _Shell(this.state);
+
+  @override
+  final AppState state;
+
   /// The sites the viewed one is reached through (empty: the site logged
   /// into, or one reached directly).
   List<String> get viewedVia {
@@ -171,3 +176,20 @@ extension ShellSelect on Selectors {
     ]..sort((a, b) => a.id.compareTo(b.id));
   }
 }
+
+// What the shell shows, as functions of the state: the selectors in
+// business/lib/redux/selectors.dart call them.
+List<String> viewedViaOf(AppState s) => _Shell(s).viewedVia;
+
+List<ReviewCard> reviewCardsOf(AppState s) => _Shell(s).reviewCards;
+
+String reviewAuditOf(AppState s) => _Shell(s).reviewAudit;
+
+ProblemsCount? problemsCountOf(AppState s) => _Shell(s).problemsCount;
+
+ISet<Workspace> refreshingWorkspacesOf(AppState s) =>
+    _Shell(s).refreshingWorkspaces;
+
+List<SearchNode> searchNodesOf(AppState s) => _Shell(s).searchNodes;
+
+List<Toast> toastsOf(AppState s) => _Shell(s).toasts;

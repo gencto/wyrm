@@ -6,7 +6,6 @@ import 'package:business/redux/peers/actions/authorize_broker_action.dart';
 import 'package:business/redux/peers/actions/deauthorize_broker_action.dart';
 import 'package:business/redux/peers/actions/issue_site_token_action.dart';
 import 'package:business/redux/quarantine/actions/reject_quarantine_action.dart';
-import 'package:business/wyrm/sites.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/forms/action_form.dart';
@@ -138,7 +137,7 @@ Future<void> issueToken(BuildContext context) {
 /// `Deauthorize` of the broker below picked, once the user said yes.
 Future<void> deauthorizeBroker(BuildContext context) async {
   final store = AppStore.of(context);
-  final name = _Sel(store.state).sitePicked.name;
+  final name = _Sel(store.state).peers.sitePicked.name;
   if (await ConfirmDialog.ask(
     context,
     title: S.current.deauthorizeTitle(name),
@@ -154,7 +153,7 @@ Future<void> deauthorizeBroker(BuildContext context) async {
 Future<void> rejectWaiting(BuildContext context) async {
   final store = AppStore.of(context);
   final s = _Sel(store.state);
-  final node = s.sitePicked.name;
+  final node = s.peers.sitePicked.name;
   if (await ConfirmDialog.ask(
     context,
     title: S.current.rejectTitle(s.quarantine.table[node]?.cn ?? node),
@@ -173,7 +172,7 @@ Future<FieldRefusal?> approveBroker(
   Map<String, Object?> values,
 ) {
   final store = AppStore.of(context);
-  final node = _Sel(store.state).sitePicked.name;
+  final node = _Sel(store.state).peers.sitePicked.name;
   return sendForm(
     store.dispatchAndWait(AuthorizeBrokerAction(node, plainArgs(values))),
   );
