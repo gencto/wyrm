@@ -1,7 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
 import 'package:models/error_kind.dart';
-import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
@@ -133,7 +132,7 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
         // challenge): the password, the key kept.
         return state.copyWith.device(
           stage: locked ? UnlockStage.none : UnlockStage.fallback,
-          lockError: locked ? LockError.refused(e.message) : null,
+          lockError: locked ? lockErrorOf(e) : null,
           fallback: UnlockFallback.notOpened,
         );
       }

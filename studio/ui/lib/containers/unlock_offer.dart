@@ -1,7 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../buttons/log_in_button.dart';
 import '../indicators/biometric_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
@@ -262,7 +261,7 @@ class OfferButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Material(
-      color: busy ? LogInButton.busyFill : c.ember,
+      color: busy ? c.emberBusy : c.ember,
       clipBehavior: .antiAlias,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(AppRadii.card)),

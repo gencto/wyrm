@@ -2288,6 +2288,16 @@ extension type SelectDevice(AppState _state) {
   /// told).
   int get lockMaxMin => _state.device.policy?.idleLockMaxMin ?? 30;
 
+  /// The device keys a user may have on the gateway (5 when not told).
+  int get maxPerUser => _state.device.policy?.maxPerUser ?? 5;
+
+  /// Every how many days the gateway asks for the password again (30 when
+  /// not told).
+  int get passwordEveryDays => _state.device.policy?.passwordEveryDays ?? 30;
+
+  /// The site the offer names: the one logged into, else the key's.
+  String get offerSite => _state.site.name ?? _state.device.keySite ?? '';
+
   /// This user's device records as rows of Account › Security at [now].
   IList<DeviceRow> rowsAt(DateTime now) => [
     for (final d in _state.device.devices)
@@ -2431,18 +2441,23 @@ extension type SelectDiscovery(AppState _state) {
     now: now,
   );
 
-  /// The range and the port *Probe a range* uses: what was typed, else the
-  /// /24 around this computer and the port of the gateway in the field.
-  ({String range, String port}) get rangeAndPort => rangeAndPortOf(
-    range: _state.discovery.range,
-    subnet: _state.discovery.subnet,
-    port: _state.discovery.rangePort,
-    field: _state.login.gateway,
-  );
+  /// The range *Probe a range* uses: what was typed, else the /24 around
+  /// this computer.
+  String get rangeText =>
+      _state.discovery.range ?? _state.discovery.subnet ?? '';
+
+  /// The port *Probe a range* uses until one is typed.
+  int get defaultProbePort => defaultProbePortOf(_state.login.gateway);
+
+  /// The port field as it reads: what was typed, else the default port.
+  String get portText => _state.discovery.rangePort ?? '$defaultProbePort';
 
   /// What is wrong with the range; null when it can be probed.
-  RangeFault? get rangeFault => rangeFaultOf(rangeAndPort.range);
+  RangeFault? get rangeFault => rangeFaultOf(rangeText);
 
-  /// The port to probe; null when it is not one.
-  int? get probePort => probePortOf(rangeAndPort.port);
+  /// The port to probe; null while what is typed is not one.
+  int? get probePort => switch (_state.discovery.rangePort) {
+    final typed? => probePortOf(typed),
+    null => defaultProbePort,
+  };
 }

@@ -12,6 +12,7 @@ import 'package:business/redux/discovery/actions/find_gateways_action.dart';
 import 'package:business/redux/discovery/actions/pick_found_gateway_action.dart';
 import 'package:business/redux/discovery/actions/probe_range_action.dart';
 import 'package:business/redux/discovery/actions/trust_gateway_action.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -827,5 +828,6 @@ Store<AppState> discoveryStore({
     gatewayInfo: info ?? FakeInfo(),
     browser: FakeBrowser(found),
     browseDuration: Duration.zero,
+    prompts: const PlainPrompts(),
   ),
 );

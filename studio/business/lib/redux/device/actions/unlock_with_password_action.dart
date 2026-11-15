@@ -23,11 +23,7 @@ class UnlockWithPasswordAction extends Action with NonReentrant, WaitingAction {
     try {
       await session.confirmWithPassword(password);
     } on WyrmException catch (e) {
-      return state.copyWith.device(
-        lockError: e.refusal == GatewayRefusal.badPassword
-            ? const .wrongPassword()
-            : .refused(saidBy(e)),
-      );
+      return state.copyWith.device(lockError: lockErrorOf(e));
     }
     deps.idleLock.arm(Duration(minutes: state.device.lockAfter));
     return state.copyWith.device(locked: false, lockError: null);

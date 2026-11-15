@@ -7,6 +7,7 @@ import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
 import 'package:app/errors.dart';
 import 'package:app/faults.dart';
+import 'package:app/run_env.dart' show devicePrompts;
 import 'package:app/start_fault_app.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
@@ -72,8 +73,12 @@ class _Refused extends Action {
 
 Store<AppState> _store() => Store<AppState>(
   initialState: AppState.initial(),
-  dependencies: (s) =>
-      AppDependencies(s, InMemoryKeyValueStorage(), wording: wordError),
+  dependencies: (s) => AppDependencies(
+    s,
+    InMemoryKeyValueStorage(),
+    wording: wordError,
+    prompts: devicePrompts,
+  ),
 );
 
 /// The app's own arrangement: the dialog host above the Navigator, which

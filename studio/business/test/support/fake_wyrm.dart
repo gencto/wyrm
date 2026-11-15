@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
 import 'package:storage/storage.dart';
@@ -713,6 +714,7 @@ Store<AppState> fakeStore({
     settings ?? InMemoryKeyValueStorage(),
     login: login ?? FakeLogin(),
     deviceKey: keys ?? FakeDeviceKey(availability: DeviceKeyAvailability.none),
+    prompts: const PlainPrompts(),
   ),
 );
 

@@ -58,6 +58,12 @@ const darkColors = AppColors(
   badLine: Color(0xFF5A3328),
   thumb: Color(0xFF2F373D),
   thumbHover: Color(0xFF4A535A),
+  noticeFill: Color(0xFF1A1810),
+  noticeLine: Color(0xFF6A5A2A),
+  refusalFill: Color(0xFF1C1513),
+  emberBusy: Color(0xFFC9772F),
+  heroGlow: Color(0xFF1A1511),
+  heroEdge: Color(0xFF2A2F33),
 );
 
 /// A light stand-in with the same roles (no light design yet).
@@ -94,6 +100,14 @@ const lightColors = AppColors(
   badLine: Color(0xFFE0A897),
   thumb: Color(0xFFCFCAC0),
   thumbHover: Color(0xFFB1AA9E),
+  // The log-in page's notices and hero have no light design yet: the dark
+  // values, as they were before they became tokens.
+  noticeFill: Color(0xFF1A1810),
+  noticeLine: Color(0xFF6A5A2A),
+  refusalFill: Color(0xFF1C1513),
+  emberBusy: Color(0xFFC9772F),
+  heroGlow: Color(0xFF1A1511),
+  heroEdge: Color(0xFF2A2F33),
 );
 
 ThemeData lightTheme() => _themeFrom(lightColors, .light);

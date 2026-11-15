@@ -12,6 +12,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_info.dart';
+import 'package:models/refusal_code.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/step_up_error.dart';
@@ -632,7 +633,19 @@ void main() {
       variant: mac,
     );
     testWidgets(
-      'another refusal, in its own words',
+      'a refusal the gateway named, in Studio words',
+      (t) => lock(
+        t,
+        'lock refused',
+        app: LogInApp(),
+        put: (a) => a.copyWith.device(
+          lockError: const LockError.gateway(RefusalCode.tooManyDevices),
+        ),
+      ),
+      variant: mac,
+    );
+    testWidgets(
+      'a refusal with no code, in its own words',
       (t) => lock(
         t,
         'lock other',
@@ -689,7 +702,8 @@ void main() {
       ('step-up wrong', const StepUpError.wrongPassword()),
       ('step-up cancelled', stepUpErrorOf(const SignCancelled())),
       ('step-up locked', stepUpErrorOf(const SignLockout())),
-      ('step-up refused', const StepUpError.refused('device_removed')),
+      ('step-up refused', const StepUpError.gateway(RefusalCode.deviceRemoved)),
+      ('step-up said', const StepUpError.refused('too many tries')),
     ]) {
       testWidgets(
         'an error: $name',

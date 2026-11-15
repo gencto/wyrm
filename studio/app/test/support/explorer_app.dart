@@ -1,5 +1,6 @@
 import 'package:app/connectors/explorer_page_connector.dart';
 import 'package:app/connectors/toast_stack_connector.dart';
+import 'package:app/run_env.dart' show devicePrompts;
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
@@ -59,6 +60,7 @@ class ExplorerApp {
         login: login,
         deviceKey: FakeDeviceKey(availability: DeviceKeyAvailability.none),
         clock: () => now,
+        prompts: devicePrompts,
       ),
     );
     _broker();

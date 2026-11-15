@@ -559,7 +559,7 @@ class _LogInPageState extends State<LogInPage> {
           textInputAction: .next,
           onLeave: widget.onGatewayLeave,
           hint: widget.gatewayHint,
-          border: warn ? TrustCard.border : null,
+          border: warn ? c.noticeLine : null,
           leading: StatusDot(
             color: dot,
             halo: widget.gatewayTone == .neutral ? 0 : 4,

@@ -142,11 +142,79 @@ String toString() {
 /// @nodoc
 
 
-class StepUpRefused implements StepUpError {
-  const StepUpRefused(this.said);
+class StepUpGateway implements StepUpError {
+  const StepUpGateway(this.code);
   
 
- final  String said;
+ final  RefusalCode code;
+
+/// Create a copy of StepUpError
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$StepUpGatewayCopyWith<StepUpGateway> get copyWith => _$StepUpGatewayCopyWithImpl<StepUpGateway>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is StepUpGateway&&(identical(other.code, code) || other.code == code));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,code);
+}
+
+@override
+String toString() {
+    return 'StepUpError.gateway(code: $code)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $StepUpGatewayCopyWith<$Res> implements $StepUpErrorCopyWith<$Res> {
+  factory $StepUpGatewayCopyWith(StepUpGateway value, $Res Function(StepUpGateway) _then) = _$StepUpGatewayCopyWithImpl;
+@useResult
+$Res call({
+ RefusalCode code
+});
+
+
+
+
+}
+/// @nodoc
+class _$StepUpGatewayCopyWithImpl<$Res>
+    implements $StepUpGatewayCopyWith<$Res> {
+  _$StepUpGatewayCopyWithImpl(this._self, this._then);
+
+  final StepUpGateway _self;
+  final $Res Function(StepUpGateway) _then;
+
+/// Create a copy of StepUpError
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? code = null,}) {
+  return _then(StepUpGateway(
+null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
+as RefusalCode,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class StepUpRefused implements StepUpError {
+  const StepUpRefused(this.message);
+  
+
+ final  String message;
 
 /// Create a copy of StepUpError
 /// with the given fields replaced by the non-null parameter values.
@@ -158,18 +226,18 @@ $StepUpRefusedCopyWith<StepUpRefused> get copyWith => _$StepUpRefusedCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is StepUpRefused&&(identical(other.said, said) || other.said == said));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is StepUpRefused&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,said);
+    return Object.hash(runtimeType,message);
 }
 
 @override
 String toString() {
-    return 'StepUpError.refused(said: $said)';
+    return 'StepUpError.refused(message: $message)';
 }
 
 
@@ -180,7 +248,7 @@ abstract mixin class $StepUpRefusedCopyWith<$Res> implements $StepUpErrorCopyWit
   factory $StepUpRefusedCopyWith(StepUpRefused value, $Res Function(StepUpRefused) _then) = _$StepUpRefusedCopyWithImpl;
 @useResult
 $Res call({
- String said
+ String message
 });
 
 
@@ -197,9 +265,9 @@ class _$StepUpRefusedCopyWithImpl<$Res>
 
 /// Create a copy of StepUpError
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? said = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? message = null,}) {
   return _then(StepUpRefused(
-null == said ? _self.said : said // ignore: cast_nullable_to_non_nullable
+null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }

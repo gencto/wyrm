@@ -55,13 +55,13 @@ class AppDependencies {
   AppDependencies(
     this._store,
     this.settings, {
+    required this.prompts,
     WyrmLogin? login,
     this._deviceKey,
     ErrorWording? wording,
     GatewayInfoReader? gatewayInfo,
     this._browser,
     this.browseDuration = browseFor,
-    this.prompts = const PlainPrompts(),
     this.clock = DateTime.now,
   }) : login =
            login ??

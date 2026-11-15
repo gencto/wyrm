@@ -11,6 +11,7 @@ import '../../links/actions/retrieve_links_action.dart';
 import '../../nodes/actions/retrieve_nodes_action.dart';
 import '../../site/actions/retrieve_sites_action.dart';
 import 'set_preload_action.dart';
+import 'start_preload_reads_action.dart';
 
 /// The welcome after a log-in (docs/design/specs/login.md §5): reads, one
 /// after the other, what the first screens need, so that moving between the
@@ -61,11 +62,11 @@ class OpenTreeAction extends Action {
       final left = atMost - clock.elapsed;
       if (left <= Duration.zero) {
         // The deadline: what has not started loads in the background.
-        // Started, not waited for: each read notifies when it lands. One
-        // to five reads, those the deadline reached before they started.
-        dispatchAll([
-          for (var j = i; j < steps; j++) ?_action(j, root),
-        ]);
+        dispatchSync(
+          StartPreloadReadsAction([
+            for (var j = i; j < steps; j++) ?_action(j, root),
+          ]),
+        );
         late.addAll([for (var j = i; j < steps; j++) j]);
         dispatchSync(SetPreloadAction(steps, late: late));
         break;

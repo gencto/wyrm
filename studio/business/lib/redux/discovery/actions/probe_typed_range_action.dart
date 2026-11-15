@@ -13,7 +13,7 @@ class ProbeTypedRangeAction extends Action {
     if (discovery.rangeFault != null || port == null) {
       return null;
     }
-    await dispatchAndWait(ProbeRangeAction(discovery.rangeAndPort.range, port));
+    await dispatchAndWait(ProbeRangeAction(discovery.rangeText, port));
     return null;
   }
 }

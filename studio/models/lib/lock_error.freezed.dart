@@ -78,11 +78,79 @@ String toString() {
 /// @nodoc
 
 
-class LockErrorRefused implements LockError {
-  const LockErrorRefused(this.said);
+class LockErrorGateway implements LockError {
+  const LockErrorGateway(this.code);
   
 
- final  String said;
+ final  RefusalCode code;
+
+/// Create a copy of LockError
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$LockErrorGatewayCopyWith<LockErrorGateway> get copyWith => _$LockErrorGatewayCopyWithImpl<LockErrorGateway>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LockErrorGateway&&(identical(other.code, code) || other.code == code));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,code);
+}
+
+@override
+String toString() {
+    return 'LockError.gateway(code: $code)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $LockErrorGatewayCopyWith<$Res> implements $LockErrorCopyWith<$Res> {
+  factory $LockErrorGatewayCopyWith(LockErrorGateway value, $Res Function(LockErrorGateway) _then) = _$LockErrorGatewayCopyWithImpl;
+@useResult
+$Res call({
+ RefusalCode code
+});
+
+
+
+
+}
+/// @nodoc
+class _$LockErrorGatewayCopyWithImpl<$Res>
+    implements $LockErrorGatewayCopyWith<$Res> {
+  _$LockErrorGatewayCopyWithImpl(this._self, this._then);
+
+  final LockErrorGateway _self;
+  final $Res Function(LockErrorGateway) _then;
+
+/// Create a copy of LockError
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? code = null,}) {
+  return _then(LockErrorGateway(
+null == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
+as RefusalCode,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class LockErrorRefused implements LockError {
+  const LockErrorRefused(this.message);
+  
+
+ final  String message;
 
 /// Create a copy of LockError
 /// with the given fields replaced by the non-null parameter values.
@@ -94,18 +162,18 @@ $LockErrorRefusedCopyWith<LockErrorRefused> get copyWith => _$LockErrorRefusedCo
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is LockErrorRefused&&(identical(other.said, said) || other.said == said));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is LockErrorRefused&&(identical(other.message, message) || other.message == message));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,said);
+    return Object.hash(runtimeType,message);
 }
 
 @override
 String toString() {
-    return 'LockError.refused(said: $said)';
+    return 'LockError.refused(message: $message)';
 }
 
 
@@ -116,7 +184,7 @@ abstract mixin class $LockErrorRefusedCopyWith<$Res> implements $LockErrorCopyWi
   factory $LockErrorRefusedCopyWith(LockErrorRefused value, $Res Function(LockErrorRefused) _then) = _$LockErrorRefusedCopyWithImpl;
 @useResult
 $Res call({
- String said
+ String message
 });
 
 
@@ -133,9 +201,9 @@ class _$LockErrorRefusedCopyWithImpl<$Res>
 
 /// Create a copy of LockError
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') $Res call({Object? said = null,}) {
+@pragma('vm:prefer-inline') $Res call({Object? message = null,}) {
   return _then(LockErrorRefused(
-null == said ? _self.said : said // ignore: cast_nullable_to_non_nullable
+null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }

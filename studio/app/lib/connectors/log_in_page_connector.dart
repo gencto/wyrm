@@ -164,11 +164,11 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
                 method: device.kind.method,
                 os: platform.os,
                 biometric: device.available,
-                site: site.name ?? device.keySite ?? '',
+                site: device.offerSite,
                 user: site.userName,
                 role: site.role ?? '',
-                maxPerUser: device.policy?.maxPerUser ?? 5,
-                passwordEveryDays: device.policy?.passwordEveryDays ?? 30,
+                maxPerUser: device.maxPerUser,
+                passwordEveryDays: device.passwordEveryDays,
                 standbyHost: standby?.host,
                 busy: device.isEnabling,
               )
@@ -241,7 +241,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       host: field.mainHost,
       withStandby: field.standbyUri != null,
       down: login.down,
-      passwordEveryDays: device.policy?.passwordEveryDays ?? 30,
+      passwordEveryDays: device.passwordEveryDays,
       lastUsed: device.lastUsedAt,
       keyShown: device.keyShown,
       keyAdded: device.keyAddedAt,
@@ -252,29 +252,26 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
   }
 
   /// *Find on this network* (unlock-discover.md §4).
-  DiscoverData _discover(HostPlatform platform) {
-    final typed = discovery.rangeAndPort;
-    return DiscoverData(
-      rows: [for (final r in discovery.rowsAt(DateTime.now())) r.line],
-      scanning: discovery.scanning,
-      probing: discovery.probing,
-      ended: discovery.ended,
-      network: discovery.network,
-      subnet: discovery.subnet,
-      range: FieldVm(
-        value: typed.range,
-        onChanged: (v) => dispatchSync(SetRangeAction(v)),
-      ),
-      port: FieldVm(
-        value: typed.port,
-        onChanged: (v) => dispatchSync(SetRangePortAction(v)),
-      ),
-      rangeProblem: discovery.rangeFault?.problem,
-      portBad: discovery.probePort == null,
-      permission: platform.permission,
-      settings: OpenNetworkSettingsAction.pageOf(platform) != null,
-    );
-  }
+  DiscoverData _discover(HostPlatform platform) => DiscoverData(
+    rows: [for (final r in discovery.rowsAt(DateTime.now())) r.line],
+    scanning: discovery.scanning,
+    probing: discovery.probing,
+    ended: discovery.ended,
+    network: discovery.network,
+    subnet: discovery.subnet,
+    range: FieldVm(
+      value: discovery.rangeText,
+      onChanged: (v) => dispatchSync(SetRangeAction(v)),
+    ),
+    port: FieldVm(
+      value: discovery.portText,
+      onChanged: (v) => dispatchSync(SetRangePortAction(v)),
+    ),
+    rangeProblem: discovery.rangeFault?.problem,
+    portBad: discovery.probePort == null,
+    permission: platform.permission,
+    settings: OpenNetworkSettingsAction.pageOf(platform) != null,
+  );
 }
 
 /// What the page draws ([screen], compared), whether its optional controls

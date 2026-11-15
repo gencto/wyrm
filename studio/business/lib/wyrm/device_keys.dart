@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:models/device_tag.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
+import 'package:models/lock_error.dart';
+import 'package:models/refusal_code.dart';
 import 'package:models/step_up_error.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
@@ -174,16 +176,44 @@ UnlockFallback fallbackOf(SignResult r) => switch (r) {
 };
 
 /// What the step-up dialog says when the prompt gave [r] instead of a
-/// signature.
+/// signature. A signature is never a stop ([signer] returns it), so
+/// [Signed] reads as the prompt that gave none.
 StepUpError stepUpErrorOf(SignResult r) => switch (r) {
-  SignCancelled() || SignLockout() || SignUnavailable() => const .stopped(),
+  SignCancelled() ||
+  SignLockout() ||
+  SignUnavailable() ||
+  Signed() => const .stopped(),
   SignInvalidated() => const .keyGone(),
   SignFailed(:final message) => .refused(message),
-  Signed() => const .refused('signed'),
 };
 
-/// The gateway's own words for a refusal: its code, else its message.
-String saidBy(WyrmException e) => e.code ?? e.message;
+/// The code of a refusal the gateway named, as Studio keeps it.
+RefusalCode refusalCodeOf(GatewayRefusal r) => switch (r) {
+  GatewayRefusal.deviceRemoved => .deviceRemoved,
+  GatewayRefusal.passwordChanged => .passwordChanged,
+  GatewayRefusal.passwordDue => .passwordDue,
+  GatewayRefusal.devicesOff => .devicesOff,
+  GatewayRefusal.confirmRequired => .confirmRequired,
+  GatewayRefusal.passwordRequired => .passwordRequired,
+  GatewayRefusal.tooManyDevices => .tooManyDevices,
+  GatewayRefusal.badPassword => .badPassword,
+};
+
+/// Why the lock stays on after the gateway refused [e]: the password, a
+/// refusal it named, else its message.
+LockError lockErrorOf(WyrmException e) => switch (e.refusal) {
+  GatewayRefusal.badPassword => const .wrongPassword(),
+  final r? => .gateway(refusalCodeOf(r)),
+  null => .refused(e.message),
+};
+
+/// What the step-up says after the gateway refused [e]: the password, a
+/// refusal it named, else its message.
+StepUpError stepUpRefusalOf(WyrmException e) => switch (e.refusal) {
+  GatewayRefusal.badPassword => const .wrongPassword(),
+  final r? => .gateway(refusalCodeOf(r)),
+  null => .refused(e.message),
+};
 
 /// The words of the OS prompts of the device key (unlock-discover.md §2):
 /// `ui`'s, handed to `AppDependencies` by `app`, so that `business` writes

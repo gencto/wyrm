@@ -28,6 +28,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:device_key/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/unlock_refusal.dart';
@@ -81,7 +82,12 @@ void main() {
   Future<Store<AppState>> page() async {
     final s = Store<AppState>(
       initialState: AppState.initial(),
-      dependencies: (s) => AppDependencies(s, settings, deviceKey: keys),
+      dependencies: (s) => AppDependencies(
+        s,
+        settings,
+        deviceKey: keys,
+        prompts: const PlainPrompts(),
+      ),
     );
     await s.dispatchAndWait(SetGatewayAction(gateway));
     await s.dispatchAndWait(SetUserAction('admin'));

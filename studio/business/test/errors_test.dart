@@ -1,5 +1,6 @@
 import 'dart:io';
 
+
 import 'package:async_redux/async_redux.dart';
 import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';
@@ -24,11 +25,11 @@ import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
 import 'package:business/redux/store.dart';
 import 'package:business/wyrm/calls.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/live_value.dart';
-
 import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -581,7 +582,11 @@ void main() {
         ..writeAsStringSync('this is not a sembast database\n{{{');
 
       await expectLater(
-        createStore(await Environment.dev(), directory: dir.path),
+        createStore(
+          await Environment.dev(),
+          directory: dir.path,
+          prompts: const PlainPrompts(),
+        ),
         throwsA(
           isA<StorageFault>().having((f) => f.path, 'path', file.path),
         ),

@@ -335,17 +335,13 @@ FoundRow _rowOf(
   );
 }
 
-/// The range and the port *Probe a range* uses: what was typed, else the
-/// /24 around this computer and the port of the gateway in the field.
-({String range, String port}) rangeAndPortOf({
-  required String? range,
-  required String? subnet,
-  required String? port,
-  required String? field,
-}) => (
-  range: range ?? subnet ?? '',
-  port: port ?? '${parseGateways(field ?? '').firstOrNull?.port ?? 8446}',
-);
+/// The port *Probe a range* uses until one is typed: the port of the
+/// gateway in the [field], else the gateway's default.
+int defaultProbePortOf(String? field) =>
+    parseGateways(field ?? '').firstOrNull?.port ?? defaultGatewayPort;
+
+/// The port a WYRM gateway listens on by default.
+const defaultGatewayPort = 8446;
 
 /// What is wrong with [range]; null when it can be probed.
 RangeFault? rangeFaultOf(String range) {

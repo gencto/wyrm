@@ -58,9 +58,7 @@ class ConfirmStepUpAction extends Action with NonReentrant, WaitingAction {
       return state.copyWith.device(
         stepUp: pending.copyWith(
           busy: false,
-          error: e.refusal == GatewayRefusal.badPassword
-              ? const .wrongPassword()
-              : .refused(saidBy(e)),
+          error: stepUpRefusalOf(e),
           // The key is not taken any more: the password still is.
           passwordOnly: pending.passwordOnly || password == null,
         ),

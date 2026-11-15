@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../indicators/refusal_reason.dart';
 import '../indicators/unlock_method.dart';
 import 'lock_overlay.dart';
 
@@ -12,11 +13,15 @@ sealed class LockProblem extends Equatable {
   /// The gateway refused the password.
   const factory LockProblem.wrongPassword() = LockWrongPassword;
 
-  /// Another refusal, in the gateway's words.
+  /// A refusal the gateway named.
+  const factory LockProblem.refused(RefusalReason reason) = LockRefused;
+
+  /// A refusal it did not name: its message as it is.
   const factory LockProblem.said(String text) = LockSaid;
 
   String get text => switch (this) {
     LockWrongPassword() => S.current.lockWrongPassword,
+    LockRefused(:final reason) => S.current.lockRefused(reason.text),
     LockSaid(:final text) => text,
   };
 }
@@ -25,6 +30,13 @@ final class LockWrongPassword extends LockProblem {
   const LockWrongPassword();
   @override
   List<Object?> get props => const [];
+}
+
+final class LockRefused extends LockProblem {
+  const LockRefused(this.reason);
+  final RefusalReason reason;
+  @override
+  List<Object?> get props => [reason];
 }
 
 final class LockSaid extends LockProblem {

@@ -6,7 +6,6 @@ import '../indicators/wyrm_loader.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
-import '../theme/tints.dart';
 import '../theme/typography.dart';
 
 /// The log-in's button (docs/design/specs/login.md §3.6): 50 high, radius 10,
@@ -23,13 +22,12 @@ class LogInButton extends StatelessWidget {
   final bool busy;
 
   /// The ember of a pressed, busy button (the board's `#C9772F`).
-  static const Color busyFill = Tints.emberBusy;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Material(
-      color: busy ? busyFill : c.ember,
+      color: busy ? c.emberBusy : c.ember,
       clipBehavior: .antiAlias,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(AppRadii.card)),

@@ -3,11 +3,13 @@ import 'package:business/wyrm/log_in_page.dart';
 import 'package:models/found_problem.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/lock_error.dart';
+import 'package:models/refusal_code.dart';
 import 'package:models/step_up_error.dart';
 import 'package:models/trust_refusal.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
+import 'package:ui/indicators/refusal_reason.dart';
 import 'package:ui/models/gateway_note.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/lock_screen.dart';
@@ -177,10 +179,24 @@ extension TrustRefusalCard on TrustRefusal {
   };
 }
 
+extension RefusalCodeReason on RefusalCode {
+  RefusalReason get reason => switch (this) {
+    RefusalCode.deviceRemoved => .deviceRemoved,
+    RefusalCode.passwordChanged => .passwordChanged,
+    RefusalCode.passwordDue => .passwordDue,
+    RefusalCode.devicesOff => .devicesOff,
+    RefusalCode.confirmRequired => .confirmRequired,
+    RefusalCode.passwordRequired => .passwordRequired,
+    RefusalCode.tooManyDevices => .tooManyDevices,
+    RefusalCode.badPassword => .badPassword,
+  };
+}
+
 extension LockErrorProblem on LockError {
   LockProblem get problem => switch (this) {
     LockErrorWrongPassword() => const LockProblem.wrongPassword(),
-    LockErrorRefused(:final said) => LockProblem.said(said),
+    LockErrorGateway(:final code) => LockProblem.refused(code.reason),
+    LockErrorRefused(:final message) => LockProblem.said(message),
   };
 }
 
@@ -189,7 +205,8 @@ extension StepUpErrorProblem on StepUpError {
     StepUpWrongPassword() => const StepUpProblem.wrongPassword(),
     StepUpStopped() => const StepUpProblem.stopped(),
     StepUpKeyGone() => const StepUpProblem.keyGone(),
-    StepUpRefused(:final said) => StepUpProblem.said(said),
+    StepUpGateway(:final code) => StepUpProblem.refused(code.reason),
+    StepUpRefused(:final message) => StepUpProblem.said(message),
   };
 }
 

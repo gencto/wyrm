@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/device_os.dart';
+import '../indicators/refusal_reason.dart';
 import '../indicators/unlock_method.dart';
 import 'step_up_dialog.dart';
 
@@ -19,7 +20,11 @@ sealed class StepUpProblem extends Equatable {
   /// The key no longer opens.
   const factory StepUpProblem.keyGone() = StepUpKeyGoneProblem;
 
-  /// Another refusal, in the gateway's or the OS's words.
+  /// A refusal the gateway named.
+  const factory StepUpProblem.refused(RefusalReason reason) =
+      StepUpRefusedProblem;
+
+  /// A refusal it did not name, or the OS's failure: its message as it is.
   const factory StepUpProblem.said(String text) = StepUpSaidProblem;
 
   /// Its words, with the [site] and the unlock [method].
@@ -27,6 +32,10 @@ sealed class StepUpProblem extends Equatable {
     StepUpWrongPasswordProblem() => S.current.lockWrongPassword,
     StepUpStoppedProblem() => S.current.stepUpStopped(method.label),
     StepUpKeyGoneProblem() => S.current.stepUpKeyGone(site),
+    StepUpRefusedProblem(:final reason) => S.current.stepUpRefused(
+      site,
+      reason.text,
+    ),
     StepUpSaidProblem(:final said) => S.current.stepUpRefused(site, said),
   };
 }
@@ -47,6 +56,13 @@ final class StepUpKeyGoneProblem extends StepUpProblem {
   const StepUpKeyGoneProblem();
   @override
   List<Object?> get props => const [];
+}
+
+final class StepUpRefusedProblem extends StepUpProblem {
+  const StepUpRefusedProblem(this.reason);
+  final RefusalReason reason;
+  @override
+  List<Object?> get props => [reason];
 }
 
 final class StepUpSaidProblem extends StepUpProblem {

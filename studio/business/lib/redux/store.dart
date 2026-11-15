@@ -16,12 +16,12 @@ import 'problems/actions/add_problem_action.dart';
 late Store<AppState>? _store;
 
 Store<AppState> newStore({
+  required DevicePrompts prompts,
   required Environment environment,
   required AppState initialState,
   required BaseKeyValueStorage settings,
   Persistor<AppState>? persistor,
   ErrorWording? wording,
-  DevicePrompts prompts = const PlainPrompts(),
 }) {
   WaitAction.reducer = _waitReducer;
 
@@ -99,8 +99,8 @@ Future<String> setAsideSettings(String path) async {
 /// `run_env.dart` then shows the start screen instead of the app.
 Future<Store<AppState>> createStore(
   Environment environment, {
+  required DevicePrompts prompts,
   ErrorWording? wording,
-  DevicePrompts prompts = const PlainPrompts(),
   String? directory,
 }) async {
   final settings = await openSettings(directory: directory);

@@ -44,6 +44,12 @@ mixin _$AppColors on ThemeExtension<AppColors> {
     Color? badLine,
     Color? thumb,
     Color? thumbHover,
+    Color? noticeFill,
+    Color? noticeLine,
+    Color? refusalFill,
+    Color? emberBusy,
+    Color? heroGlow,
+    Color? heroEdge,
   }) {
     final _this = (this as AppColors);
 
@@ -80,6 +86,12 @@ mixin _$AppColors on ThemeExtension<AppColors> {
       badLine: badLine ?? _this.badLine,
       thumb: thumb ?? _this.thumb,
       thumbHover: thumbHover ?? _this.thumbHover,
+      noticeFill: noticeFill ?? _this.noticeFill,
+      noticeLine: noticeLine ?? _this.noticeLine,
+      refusalFill: refusalFill ?? _this.refusalFill,
+      emberBusy: emberBusy ?? _this.emberBusy,
+      heroGlow: heroGlow ?? _this.heroGlow,
+      heroEdge: heroEdge ?? _this.heroEdge,
     );
   }
 
@@ -124,6 +136,12 @@ mixin _$AppColors on ThemeExtension<AppColors> {
       badLine: Color.lerp(_this.badLine, other.badLine, t)!,
       thumb: Color.lerp(_this.thumb, other.thumb, t)!,
       thumbHover: Color.lerp(_this.thumbHover, other.thumbHover, t)!,
+      noticeFill: Color.lerp(_this.noticeFill, other.noticeFill, t)!,
+      noticeLine: Color.lerp(_this.noticeLine, other.noticeLine, t)!,
+      refusalFill: Color.lerp(_this.refusalFill, other.refusalFill, t)!,
+      emberBusy: Color.lerp(_this.emberBusy, other.emberBusy, t)!,
+      heroGlow: Color.lerp(_this.heroGlow, other.heroGlow, t)!,
+      heroEdge: Color.lerp(_this.heroEdge, other.heroEdge, t)!,
     );
   }
 
@@ -171,7 +189,13 @@ mixin _$AppColors on ThemeExtension<AppColors> {
         _other.badTint == _this.badTint &&
         _other.badLine == _this.badLine &&
         _other.thumb == _this.thumb &&
-        _other.thumbHover == _this.thumbHover;
+        _other.thumbHover == _this.thumbHover &&
+        _other.noticeFill == _this.noticeFill &&
+        _other.noticeLine == _this.noticeLine &&
+        _other.refusalFill == _this.refusalFill &&
+        _other.emberBusy == _this.emberBusy &&
+        _other.heroGlow == _this.heroGlow &&
+        _other.heroEdge == _this.heroEdge;
   }
 
   @override
@@ -212,6 +236,12 @@ mixin _$AppColors on ThemeExtension<AppColors> {
       _this.badLine,
       _this.thumb,
       _this.thumbHover,
+      _this.noticeFill,
+      _this.noticeLine,
+      _this.refusalFill,
+      _this.emberBusy,
+      _this.heroGlow,
+      _this.heroEdge,
     ]);
   }
 }

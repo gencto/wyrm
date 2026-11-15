@@ -3,7 +3,9 @@ import '../../app_state.dart';
 import '../../common/action.dart';
 
 /// `Lock Studio after` in Account › Security: off (0), 5, 15 or 30 minutes,
-/// never more than the gateway's `idle_lock_max_min`. Kept per gateway and
+/// never more than the gateway's `idle_lock_max_min`, and never more than
+/// 30 while the gateway's policy is not known (`device.lockMaxMin`: an
+/// older wyrmd whose `/api/info` Studio cannot read). Kept per gateway and
 /// user on this computer; the clock starts again with it.
 class SetLockAfterAction extends Action {
   SetLockAfterAction(this.minutes);
@@ -12,8 +14,8 @@ class SetLockAfterAction extends Action {
 
   @override
   Future<AppState?> reduce() async {
-    final max = state.device.policy?.idleLockMaxMin;
-    final m = max != null && max > 0 && minutes > max ? max : minutes;
+    final max = device.lockMaxMin;
+    final m = max > 0 && minutes > max ? max : minutes;
     final account = accountOf(login.gateway, login.user);
     if (account != null) {
       final records = deps.deviceRecords;

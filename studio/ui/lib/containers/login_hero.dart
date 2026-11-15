@@ -12,7 +12,6 @@ import '../theme/motion.dart';
 import '../theme/shades.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
-import '../theme/tints.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
 
@@ -52,9 +51,6 @@ class LoginHero extends StatefulWidget {
   /// How far the logo moves down under the window buttons.
   static const buttonsClearance = 20.0;
 
-  /// The glow's warm centre (the board's `#1A1511`).
-  static const Color glow = Tints.heroGlow;
-
   @override
   State<LoginHero> createState() => _LoginHeroState();
 }
@@ -88,7 +84,7 @@ class _LoginHeroState extends State<LoginHero> {
         padding: Insets.heroMark,
         child: ClipRect(
           child: CustomPaint(
-            painter: _Glow(LoginHero.glow, c.ground0),
+            painter: _Glow(c.heroGlow, c.ground0),
             child: Stack(
               fit: .expand,
               children: [
@@ -301,6 +297,7 @@ class _NetworkLayerState extends State<_NetworkLayer>
           grey: c.line3,
           star: c.line1,
           node: c.ground1,
+          edge: c.heroEdge,
         ),
       ),
     );
@@ -338,6 +335,7 @@ class _Network extends CustomPainter {
     required this.grey,
     required this.star,
     required this.node,
+    required this.edge,
   }) : super(repaint: Listenable.merge([fast, slow, stars]));
 
   /// The `CustomPaint` this painter draws on: the origin of [quiet]'s rects.
@@ -353,7 +351,8 @@ class _Network extends CustomPainter {
   final Color star;
   final Color node;
 
-  static const Color _edgeInk = Tints.heroEdge;
+  /// The quiet edges between the nodes.
+  final Color edge;
 
   /// How far around a quiet widget the network is erased, and how soft the
   /// edge of that is.
@@ -468,12 +467,12 @@ class _Network extends CustomPainter {
       );
     }
 
-    final edge = Paint()
-      ..color = _edgeInk
+    final edgePaint = Paint()
+      ..color = edge
       ..style = .stroke
       ..strokeWidth = 1.2;
     for (final p in _paths) {
-      canvas.drawPath(p, edge);
+      canvas.drawPath(p, edgePaint);
     }
 
     if (!still) {
@@ -545,5 +544,6 @@ class _Network extends CustomPainter {
       old.ember != ember ||
       old.grey != grey ||
       old.star != star ||
-      old.node != node;
+      old.node != node ||
+      old.edge != edge;
 }
