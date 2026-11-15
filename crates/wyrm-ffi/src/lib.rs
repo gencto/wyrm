@@ -78,6 +78,16 @@ pub struct WyrmHandle {
     inner: Arc<Inner>,
 }
 
+// C calls the entry points from any thread, also two at once on one handle
+// (`wyrm_next_event` on a reader thread while another thread sends requests):
+// `handle()` hands out `&WyrmHandle` across threads and `wyrm_free` drops it
+// on whichever thread frees it. That is sound only while `WyrmHandle` is
+// `Send + Sync`; a field that is not (an `Rc`, a `RefCell`) must fail here.
+const _: () = {
+    const fn send_sync<T: Send + Sync>() {}
+    send_sync::<WyrmHandle>()
+};
+
 struct Inner {
     client: WyrmClient,
     tx: mpsc::Sender<Vec<u8>>,
@@ -123,9 +133,12 @@ unsafe fn bytes<'a>(p: *const u8, len: usize) -> Option<&'a [u8]> {
 /// `h` is null or a live handle from `wyrm_open*`.
 unsafe fn handle<'a>(h: *const WyrmHandle) -> Option<&'a WyrmHandle> {
     // SAFETY: null gives `None`; any other `h` is, by the caller's contract,
-    // a pointer from `Box::into_raw` in `open_handle` (aligned, initialized)
-    // that `wyrm_free` has not freed and will not free while this borrow
-    // lives (no other thread frees a handle that is in use).
+    // a pointer from `Box::into_raw(Box::new(handle))` in `open_handle` or
+    // `wyrm_open_test_mock` (the only two places that hand one out; aligned,
+    // initialized) that `wyrm_free` has not freed and will not free while
+    // this borrow lives (no other thread frees a handle that is in use). The
+    // shared borrow may be used from several threads at once: `WyrmHandle`
+    // is `Sync` (asserted at compile time below).
     unsafe { h.as_ref() }
 }
 
@@ -422,9 +435,11 @@ pub unsafe extern "C" fn wyrm_free(h: *mut WyrmHandle) {
     let _ = guard(|| {
         // SAFETY: `h` is a live handle (contract); the borrow ends inside the call.
         unsafe { wyrm_shutdown(h) };
-        // SAFETY: `h` came from `Box::into_raw` in `open_handle` (contract: a
-        // live handle), no other thread uses it any more, and the caller
-        // never passes it again, so this is the one owner and the one free.
+        // SAFETY: `h` came from `Box::into_raw(Box::new(handle))` in
+        // `open_handle` or `wyrm_open_test_mock` (contract: a live handle), no
+        // other thread uses it any more, and the caller never passes it again,
+        // so this is the one owner and the one free, with the layout the box
+        // was allocated with.
         let b = unsafe { Box::from_raw(h) };
         let WyrmHandle { rt, inner } = *b;
         drop(inner);
