@@ -5,9 +5,16 @@ on:
 # Every job reads only; none needs the token to write (ADR 0031).
 permissions:
   contents: read
+# A newer push to a pull request cancels the run it replaces: a stale run only
+# holds runners and keeps showing "in progress" after its result is known.
+# Runs on main are never cancelled, so every merged commit is checked.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -22,6 +29,7 @@ jobs:
   audit:
     # RUSTSEC advisories against Cargo.lock; accepted ones are listed with reasons in .cargo/audit.toml
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -30,6 +38,7 @@ jobs:
       - run: cargo audit
   fixtures-in-sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
@@ -41,6 +50,7 @@ jobs:
     # spec rule: every SDK must pass the CBOR fixture test; and the Dart
     # packages, the typed decode boundary of every Dart client (Studio too).
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
