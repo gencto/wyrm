@@ -145,8 +145,10 @@ reason goes away; 17 allows in product code had none.
 **Rule.** A library or service logs through `tracing`; it never prints to
 stdout. Command lines (`tools/wyr`, `wyrm-agent`, `wyrmd`'s `cli` module and
 `wyrmd release`, the `wyrm-*-sim` simulators) allow `print_stdout` once, at
-their crate or module root. `std::process::exit` is called only where the exit
-code is the answer (`wyrmd check`, the update trial exit), with that reason.
+their crate or module root. An exit code goes back to `main` as a
+`std::process::ExitCode` (`wyrmd check` → 1, a given-up update trial →
+`TRIAL_EXIT`), so every `Drop` runs first. `std::process::exit` stays only in
+`wyr`'s `out!`, where a closed stdout ends the CLI and nothing is open.
 
 **Why.** stdout of a broker or a link process is captured by the supervisor as
 its log; a stray `println!` there is a log line without level or span. An
@@ -179,9 +181,10 @@ Value::UInt(u) => u8::try_from(*u).ok(),          // then Quality::try_from(c)
 let level = Perm::from_name(level)
 ```
 
-**Check.** C1 `int-cast`, C2 `name-lookup` (C2 is at zero: keep it there; a
-plain enum's own `from_name` over `Self::ALL` is its one definition and is not
-counted).
+**Check.** C1 `int-cast`, C2 `name-lookup`: `ALL…name() ==` and any
+`.find(|x| x.name() == s)` or `name(*x) == s` search. C2 is at zero: keep it
+there. A plain enum's own `from_name` (or `parse`, `from_str`) is its one
+definition and is not counted.
 
 ## 6. A closed set is an enum, not a `String`
 
@@ -260,7 +263,9 @@ pub enum PackageError { #[error("manifest: {0}")] Manifest(#[from] serde_json::E
 pub fn read_manifest(zip: &[u8]) -> Result<Manifest, PackageError>
 ```
 
-**Check.** C5 `string-error`; clippy `map_err_ignore` (baselined).
+**Check.** C5 `string-error` (also through a `type Out = Result<_, String>` or
+`type Result<T> = …Result<T, String>` alias of the same file); clippy
+`map_err_ignore` (baselined).
 
 ## 9. A selector or query is written from typed values
 
@@ -302,7 +307,8 @@ let _ = getrandom::fill(key.as_mut());
 getrandom::fill(key.as_mut()).map_err(|_| Error::NoRandomness)?;
 ```
 
-**Check.** C8 `dropped-result`; clippy `let_underscore_must_use` (baselined).
+**Check.** C8 `dropped-result` (`let _ =`, `_ =`, and such a call ended with
+`.ok();`); clippy `let_underscore_must_use` (baselined).
 
 ## 11. One clock and one hex helper
 
@@ -313,7 +319,8 @@ define its own.
 **Why.** **X2**: 33 clock helpers, each with its own `as u64` from `u128`; 12
 hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), 4 `sha256_hex`.
 
-**Check.** C9 `duplicate-helper`.
+**Check.** C9 `duplicate-helper`: a `fn` outside `wyrm-core` whose name starts
+with `now_` or contains `hex` or `sha256`.
 
 ## 12. A secret parameter is a `Secret`
 
@@ -355,9 +362,10 @@ password: Secret,
 --bins --all-features` with these lints as warnings, in JSON, and counts per
 file (test code is not counted). The counts depend on the platform and the
 clippy version (`cfg(target_os)` code, libc field widths, new lint behaviour),
-so the baseline is the measurement of CI's platform: Linux x86_64, newest
-stable. When a new stable clippy counts differently, lower or re-measure the
-baseline in its own commit and say why.
+so the baseline must match CI's platform: Linux x86_64, newest stable. The
+first baseline was measured on macOS aarch64 with stable 1.99.1, and CI on
+Linux x86_64 got the same counts. When a new stable clippy counts differently,
+lower or re-measure the baseline in its own commit and say why.
 
 ---
 
