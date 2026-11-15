@@ -216,10 +216,7 @@ class LinkInstallPage extends StatelessWidget {
                           crossAxisAlignment: .stretch,
                           children: [
                             Padding(
-                              padding: const EdgeInsets.only(
-                                left: AppSpacing.sm,
-                                bottom: 12,
-                              ),
+                              padding: Insets.wizardRailLabel,
                               child: SectionLabel(vm.from.rail),
                             ),
                             StepRail(

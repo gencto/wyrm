@@ -131,6 +131,16 @@ abstract final class Insets {
   /// Around a wizard's steps in its left rail (board *Add a link*).
   static const wizardRail = EdgeInsets.fromLTRB(12, 20, 12, 20);
 
+  /// Around the label above a wizard's steps.
+  static const wizardRailLabel = EdgeInsets.only(
+    left: AppSpacing.sm,
+    bottom: 12,
+  );
+
+  /// Inside a setting's card above a table (Quarantine's admission
+  /// options).
+  static const settingCard = EdgeInsets.symmetric(horizontal: 14, vertical: 6);
+
   /// Around a wizard's answers in its right column.
   static const wizardAnswers = EdgeInsets.all(20);
 

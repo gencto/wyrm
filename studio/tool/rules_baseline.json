@@ -248,8 +248,6 @@
     "ui/lib/pages/flows_page.dart": 2,
     "ui/lib/pages/gallery_page.dart": 7,
     "ui/lib/pages/history_page.dart": 8,
-    "ui/lib/pages/link_install_page.dart": 1,
-    "ui/lib/pages/links_page.dart": 1,
     "ui/lib/pages/log_in_page.dart": 4,
     "ui/lib/pages/sites_page.dart": 5,
     "ui/lib/shell/studio_shell.dart": 1,

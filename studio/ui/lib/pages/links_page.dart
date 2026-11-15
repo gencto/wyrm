@@ -157,10 +157,7 @@ class LinksPage extends StatelessWidget {
               final cards = [
                 for (final s in settings)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
-                    ),
+                    padding: Insets.settingCard,
                     decoration: BoxDecoration(
                       color: c.ground1,
                       border: .all(color: c.line1),
