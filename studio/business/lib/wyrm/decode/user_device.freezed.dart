@@ -15,11 +15,10 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$UserDevice {
 
- String get id; String get name;/// `mac`, `windows`, `ios`, `android`.
- String get platform;/// Seconds since the Unix epoch; 0 when not known.
- int get added; int get lastUsed; int get passwordDueAt;/// `active`, `removed` (by an administrator) or `signed_out`.
- String get state;/// The device of this session.
- bool get thisDevice;/// `user:<admin>` who removed it.
+ String get id; String get name;/// Null when the record names a platform Studio does not know.
+ DevicePlatform? get platform;/// Seconds since the Unix epoch; 0 when not known.
+ int get added; int get lastUsed; int get passwordDueAt; DeviceRecordState get state;/// The device of this session.
+ bool get thisDevice;/// The user who removed it (the `user:` of the subject taken off).
  String? get removedBy;
 /// Create a copy of UserDevice
 /// with the given fields replaced by the non-null parameter values.
@@ -56,7 +55,7 @@ abstract mixin class $UserDeviceCopyWith<$Res>  {
   factory $UserDeviceCopyWith(UserDevice value, $Res Function(UserDevice) _then) = _$UserDeviceCopyWithImpl;
 @useResult
 $Res call({
- String id, String name, String platform, int added, int lastUsed, int passwordDueAt, String state, bool thisDevice, String? removedBy
+ String id, String name, DevicePlatform? platform, int added, int lastUsed, int passwordDueAt, DeviceRecordState state, bool thisDevice, String? removedBy
 });
 
 
@@ -73,16 +72,16 @@ class _$UserDeviceCopyWithImpl<$Res>
 
 /// Create a copy of UserDevice
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? platform = null,Object? added = null,Object? lastUsed = null,Object? passwordDueAt = null,Object? state = null,Object? thisDevice = null,Object? removedBy = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? platform = freezed,Object? added = null,Object? lastUsed = null,Object? passwordDueAt = null,Object? state = null,Object? thisDevice = null,Object? removedBy = freezed,}) {
   return _then(UserDevice(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,platform: null == platform ? _self.platform : platform // ignore: cast_nullable_to_non_nullable
-as String,added: null == added ? _self.added : added // ignore: cast_nullable_to_non_nullable
+as String,platform: freezed == platform ? _self.platform : platform // ignore: cast_nullable_to_non_nullable
+as DevicePlatform?,added: null == added ? _self.added : added // ignore: cast_nullable_to_non_nullable
 as int,lastUsed: null == lastUsed ? _self.lastUsed : lastUsed // ignore: cast_nullable_to_non_nullable
 as int,passwordDueAt: null == passwordDueAt ? _self.passwordDueAt : passwordDueAt // ignore: cast_nullable_to_non_nullable
 as int,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
-as String,thisDevice: null == thisDevice ? _self.thisDevice : thisDevice // ignore: cast_nullable_to_non_nullable
+as DeviceRecordState,thisDevice: null == thisDevice ? _self.thisDevice : thisDevice // ignore: cast_nullable_to_non_nullable
 as bool,removedBy: freezed == removedBy ? _self.removedBy : removedBy // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
@@ -96,22 +95,21 @@ as String?,
 
 
 class _UserDevice implements UserDevice {
-  const _UserDevice({required this.id, required this.name, this.platform = '', this.added = 0, this.lastUsed = 0, this.passwordDueAt = 0, this.state = 'active', this.thisDevice = false, this.removedBy});
+  const _UserDevice({required this.id, required this.name, this.platform, this.added = 0, this.lastUsed = 0, this.passwordDueAt = 0, this.state = DeviceRecordState.active, this.thisDevice = false, this.removedBy});
   
 
 @override final  String id;
 @override final  String name;
-/// `mac`, `windows`, `ios`, `android`.
-@override@JsonKey() final  String platform;
+/// Null when the record names a platform Studio does not know.
+@override final  DevicePlatform? platform;
 /// Seconds since the Unix epoch; 0 when not known.
 @override@JsonKey() final  int added;
 @override@JsonKey() final  int lastUsed;
 @override@JsonKey() final  int passwordDueAt;
-/// `active`, `removed` (by an administrator) or `signed_out`.
-@override@JsonKey() final  String state;
+@override@JsonKey() final  DeviceRecordState state;
 /// The device of this session.
 @override@JsonKey() final  bool thisDevice;
-/// `user:<admin>` who removed it.
+/// The user who removed it (the `user:` of the subject taken off).
 @override final  String? removedBy;
 
 /// Create a copy of UserDevice
@@ -146,7 +144,7 @@ abstract mixin class _$UserDeviceCopyWith<$Res> implements $UserDeviceCopyWith<$
   factory _$UserDeviceCopyWith(_UserDevice value, $Res Function(_UserDevice) _then) = __$UserDeviceCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String name, String platform, int added, int lastUsed, int passwordDueAt, String state, bool thisDevice, String? removedBy
+ String id, String name, DevicePlatform? platform, int added, int lastUsed, int passwordDueAt, DeviceRecordState state, bool thisDevice, String? removedBy
 });
 
 
@@ -163,16 +161,16 @@ class __$UserDeviceCopyWithImpl<$Res>
 
 /// Create a copy of UserDevice
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? platform = null,Object? added = null,Object? lastUsed = null,Object? passwordDueAt = null,Object? state = null,Object? thisDevice = null,Object? removedBy = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? platform = freezed,Object? added = null,Object? lastUsed = null,Object? passwordDueAt = null,Object? state = null,Object? thisDevice = null,Object? removedBy = freezed,}) {
   return _then(_UserDevice(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,platform: null == platform ? _self.platform : platform // ignore: cast_nullable_to_non_nullable
-as String,added: null == added ? _self.added : added // ignore: cast_nullable_to_non_nullable
+as String,platform: freezed == platform ? _self.platform : platform // ignore: cast_nullable_to_non_nullable
+as DevicePlatform?,added: null == added ? _self.added : added // ignore: cast_nullable_to_non_nullable
 as int,lastUsed: null == lastUsed ? _self.lastUsed : lastUsed // ignore: cast_nullable_to_non_nullable
 as int,passwordDueAt: null == passwordDueAt ? _self.passwordDueAt : passwordDueAt // ignore: cast_nullable_to_non_nullable
 as int,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
-as String,thisDevice: null == thisDevice ? _self.thisDevice : thisDevice // ignore: cast_nullable_to_non_nullable
+as DeviceRecordState,thisDevice: null == thisDevice ? _self.thisDevice : thisDevice // ignore: cast_nullable_to_non_nullable
 as bool,removedBy: freezed == removedBy ? _self.removedBy : removedBy // ignore: cast_nullable_to_non_nullable
 as String?,
   ));

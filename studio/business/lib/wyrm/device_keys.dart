@@ -3,33 +3,31 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:device_key/device_key.dart';
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:models/device_policy_info.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/unlock_refusal.dart';
-import 'package:models/user_device.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'decode/user_device.dart';
 import 'session.dart';
 
 // What Studio does with the device key of ADR 0050, in one place: the
 // platform names, the alias of a key, the signer that turns the OS prompt
 // into bytes, and the mapping of the gateway's answers.
 
-/// `macos`, `windows`, `linux`, `ios` or `android`: the platform a device
-/// record names and the log-in page draws (unlock-discover.md §1). The
-/// gateway takes `macos | windows | ios | android` on the wire (ADR 0050).
-String devicePlatform() {
+/// The platform Studio runs on: the one a new device record names and the
+/// log-in page draws (unlock-discover.md §1).
+DevicePlatform devicePlatform() {
   if (kIsWeb) {
-    return 'web';
+    return .web;
   }
   return switch (defaultTargetPlatform) {
-    TargetPlatform.macOS => 'macos',
-    TargetPlatform.windows => 'windows',
-    TargetPlatform.iOS => 'ios',
-    TargetPlatform.android => 'android',
-    _ => 'linux',
+    TargetPlatform.macOS => .macos,
+    TargetPlatform.windows => .windows,
+    TargetPlatform.iOS => .ios,
+    TargetPlatform.android => .android,
+    _ => .linux,
   };
 }
 
@@ -66,24 +64,6 @@ DevicePolicyInfo policyOf(DevicePolicy p) => DevicePolicyInfo(
   stepUp: p.stepUp,
   allowDeviceCredential: p.allowDeviceCredential,
 );
-
-/// A device record as the state keeps it.
-UserDevice userDeviceOf(GatewayDevice d) => UserDevice(
-  id: d.id,
-  name: d.name,
-  platform: d.platform,
-  added: d.added,
-  lastUsed: d.lastUsed,
-  passwordDueAt: d.passwordDueAt,
-  state: d.state,
-  thisDevice: d.thisSession,
-  removedBy: d.removedBy,
-);
-
-/// The device records of a list, newest use first.
-IList<UserDevice> userDevicesOf(List<GatewayDevice> ds) => ([
-  for (final d in ds) userDeviceOf(d),
-]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed))).lock;
 
 /// Why the gateway refused a device login, from its `code`; null for a
 /// failure that is not a refusal of the key.

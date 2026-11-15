@@ -7,14 +7,15 @@ import 'package:business/redux/device/actions/retrieve_devices_action.dart';
 import 'package:business/redux/device/actions/set_device_unlock_action.dart';
 import 'package:business/redux/device/actions/set_lock_after_action.dart';
 import 'package:business/redux/device/actions/sign_out_everywhere_action.dart';
+import 'package:business/wyrm/decode/user_device.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:models/user_device.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/security_dialog.dart';
 
 import '../common/unlock.dart';
+import '../mappers/device_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -52,24 +53,6 @@ class SecurityDialogConnector extends StatelessWidget {
   );
 }
 
-/// `mac`, `iOS`, `win`, `and` on the device tile.
-String _os(String platform) => switch (platform) {
-  'macos' => 'mac',
-  'ios' => 'iOS',
-  'windows' => 'win',
-  'android' => 'and',
-  final p => p.isEmpty ? '?' : p.substring(0, p.length < 3 ? p.length : 3),
-};
-
-/// The method a device record unlocks with, by its platform.
-String _method(String platform) => switch (platform) {
-  'macos' => 'Touch ID',
-  'ios' => 'Face ID',
-  'windows' => 'Windows Hello',
-  'android' => S.current.unlockNameFingerprint,
-  _ => S.current.unlockNameBiometric,
-};
-
 /// Factory that creates a view-model for the StoreConnector.
 class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
     with Selectors {
@@ -82,27 +65,25 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
     final platform = devicePlatform();
     final siteName = site.name ?? '';
     final user = (login.user ?? '').trim();
-    final name = unlockName(d.kind);
+    final name = d.kind.method.label;
     final policy = d.policy;
     final max = policy?.idleLockMaxMin ?? 30;
     final on = d.deviceId != null && d.keyId != null && !d.stale;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     SecurityDeviceVm row(UserDevice x) {
       final own = x.thisDevice || x.id == d.deviceId;
-      final removed = x.state == 'removed';
+      final removed = x.state == .removed;
       final dueDays = x.passwordDueAt == 0
           ? null
           : ((x.passwordDueAt - now) / 86400).ceil();
       final (tag, tone) = removed
           ? (
-              s.securityRemovedBy(
-                (x.removedBy ?? '').replaceFirst('user:', ''),
-              ),
+              s.securityRemovedBy(x.removedBy ?? ''),
               Tone.bad,
             )
           : own
           ? (s.securityThisDevice, Tone.good)
-          : x.state == 'signed_out'
+          : x.state == .signedOut
           ? (s.securitySignedOut, Tone.neutral)
           : dueDays != null && dueDays <= 7
           ? (s.securityDue(dueDays < 0 ? 0 : dueDays), Tone.warn)
@@ -112,14 +93,14 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
           : agoOf(x.lastUsed);
       return SecurityDeviceVm(
         id: x.id,
-        os: _os(x.platform),
+        os: x.platform.os.tile,
         name: x.name,
         tag: tag,
         tagTone: tone,
         detail: removed
-            ? [_method(x.platform), s.securityRemoved].join(' · ')
+            ? [x.platform.os.method, s.securityRemoved].join(' · ')
             : [
-                _method(x.platform),
+                x.platform.os.method,
                 if (when.isNotEmpty) when,
                 if (x.added > 0) s.securityAdded(shortDate(x.added)),
               ].join(' · '),
@@ -137,17 +118,17 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
       dialog: SecurityDialogVm(
         title: s.securityTitle,
         subtitle: '$user · $siteName',
-        onThis: s.securityOn(unlockDevice(platform)),
+        onThis: s.securityOn(platform.os.device),
         unlockTitle: s.unlockWith(name),
         unlockText: !d.available
             ? s.securityNoBio
             : on
             ? s.securityUnlockDesc(
-                unlockStore(platform),
+                platform.os.store,
                 shortDate(d.added),
-                unlockDevice(platform),
+                platform.os.device,
               )
-            : s.securityUnlockOffDesc(unlockStore(platform)),
+            : s.securityUnlockOffDesc(platform.os.store),
         unlockOn: on,
         unlockEnabled: d.available && (policy?.enabled ?? true),
         lockTitle: s.securityLockAfter,

@@ -744,7 +744,7 @@ void main() {
       expect(c.gateway.records['x1']?.state, 'removed');
       expect(
         s.state.device.userDevices['olena']?.single.removedBy,
-        'user:admin',
+        'admin',
       );
       await s.dispatchAndWait(RemoveDeviceAction('x1', user: 'olena'));
       expect(c.gateway.records, isEmpty);

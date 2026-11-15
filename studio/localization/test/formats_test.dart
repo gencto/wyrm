@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 
 void main() {
-  setUp(() async => S.load(const Locale('en')));
+  setUp(() => S.load(const Locale('en')));
 
   test('bytes: B under a KiB, one decimal under 100, whole above', () {
     expect(Formats.bytes(812), '812 B');

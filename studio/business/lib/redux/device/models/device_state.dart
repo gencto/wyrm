@@ -5,7 +5,7 @@ import 'package:models/key_kind.dart';
 import 'package:models/step_up_request.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
-import 'package:models/user_device.dart';
+import '../../../wyrm/decode/user_device.dart';
 
 part 'device_state.freezed.dart';
 

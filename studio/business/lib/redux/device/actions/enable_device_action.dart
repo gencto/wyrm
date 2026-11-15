@@ -55,7 +55,7 @@ class EnableDeviceAction extends Action with WaitingAction {
           site: site,
           user: account.user,
           name: deviceName(),
-          platform: devicePlatform(),
+          platform: devicePlatform().wire,
           alg: pub.alg,
           publicKey: pub.publicKey,
           sign: signer(keys, alias, reason),

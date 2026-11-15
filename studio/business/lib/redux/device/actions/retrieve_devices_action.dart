@@ -1,7 +1,7 @@
 import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/device_keys.dart';
+import '../../../wyrm/decode/user_device.dart';
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';

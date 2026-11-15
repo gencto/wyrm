@@ -51,12 +51,12 @@ import 'package:models/task_event.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
-import 'package:models/user_device.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 
 import '../wyrm/approval.dart';
+import '../wyrm/decode/user_device.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';

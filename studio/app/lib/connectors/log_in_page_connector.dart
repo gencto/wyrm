@@ -46,7 +46,6 @@ import 'package:ui/containers/discover_panel.dart';
 import 'package:ui/containers/unlock_offer.dart';
 import 'package:ui/containers/unlock_panel.dart';
 import 'package:ui/containers/welcome_panel.dart';
-import 'package:ui/indicators/biometric_icon.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
@@ -56,6 +55,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../common/unlock.dart';
 import '../common/validators.dart';
 import '../common/window.dart';
+import '../mappers/device_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -643,18 +643,18 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     final d = device;
     final s = S.current;
     final platform = devicePlatform();
-    final name = unlockName(d.kind);
+    final name = d.kind.method.label;
     final siteName = site.name ?? d.keySite ?? '';
     final user = _userName(site.user ?? login.user ?? '');
     final role = site.role ?? '';
     final policy = d.policy;
-    final faces = unlockGlyph(d.kind) == BiometricGlyph.face;
+    final faces = d.kind.method.glyph == .face;
     final checked = s.unlockOfferChecked(siteName, user, role);
     final line = s.unlockPolicyLine(siteName, policy?.maxPerUser ?? 5);
     if (!d.available) {
       return UnlockOfferVm(
         checked: checked,
-        glyph: BiometricGlyph.key,
+        glyph: .key,
         title: s.unlockNoBioTitle,
         text: s.unlockNoBioText,
         facts: [
@@ -667,11 +667,11 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     }
     return UnlockOfferVm(
       checked: checked,
-      glyph: unlockGlyph(d.kind),
+      glyph: d.kind.method.glyph,
       title: s.unlockOfferTitle(name),
-      text: s.unlockOfferText(name, siteName, unlockDevice(platform)),
+      text: s.unlockOfferText(name, siteName, platform.os.device),
       facts: [
-        OfferFactVm(s.unlockFactStore(user, siteName, unlockStore(platform))),
+        OfferFactVm(s.unlockFactStore(user, siteName, platform.os.store)),
         OfferFactVm(
           standby == null
               ? s.unlockFactSite(siteName)
@@ -718,10 +718,10 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     }
     final s = S.current;
     final platform = devicePlatform();
-    final name = unlockName(d.kind);
-    final glyph = unlockGlyph(d.kind);
-    final faces = glyph == BiometricGlyph.face;
-    final where = unlockDevice(platform);
+    final name = d.kind.method.label;
+    final glyph = d.kind.method.glyph;
+    final faces = glyph == .face;
+    final where = platform.os.device;
     final siteName = d.keySite ?? shortHost(parseGateways(main).first);
     final user = (login.user ?? '').trim();
     final days = d.policy?.passwordEveryDays ?? 30;
@@ -770,7 +770,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       },
       UnlockStage.noBiometrics => UnlockNoticeVm(
         title: s.unlockNoneTitle,
-        text: platform == 'linux' ? s.unlockNoneLinux : s.unlockNoneOther,
+        text: platform == .linux ? s.unlockNoneLinux : s.unlockNoneOther,
         tone: Tone.neutral,
       ),
       _ => null,
@@ -787,7 +787,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
             stage == UnlockStage.changed ||
             stage == UnlockStage.signedOut
         ? tls
-        : s.unlockKeyIn(unlockStore(platform), shortDate(d.added));
+        : s.unlockKeyIn(platform.os.store, shortDate(d.added));
     return UnlockPanelVm(
       title: bio ? s.unlockWelcomeBack : s.logIn,
       subtitle: bio ? s.unlockToOpen(siteName) : s.unlockLogInTo(siteName),
