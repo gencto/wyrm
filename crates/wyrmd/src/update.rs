@@ -13,6 +13,7 @@ use std::time::Duration;
 use wyrm_admin::control::broker_update::{guard_fresh, stage, ORDER_PART, STATE_STORES};
 use wyrm_admin::release::{self, Identity, Layout, UpdateFile};
 use wyrm_admin::{UpdateConfig, UpdateMode};
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use wyrm_core::Value;
 use zenoh::Session;
 
@@ -95,39 +96,26 @@ impl UpdatesSection {
 pub fn check_channel(url: &str) -> Result<(), String> {
     const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
         (plain http only to a loopback address)";
-    let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
-        (true, r)
-    } else if let Some(r) = url.strip_prefix("http://") {
-        (false, r)
-    } else {
+    if url.len() > 1024 {
         return Err(HELP.into());
-    };
-    if rest.contains(['?', '#']) {
+    }
+    let u = HttpUrl::parse(url, SchemeCase::Lower).map_err(|e| match e {
+        UrlError::Credentials => "updates.channel: no name or password before the host (the URL \
+             is shown in sys and in backups); a channel is a public URL"
+            .to_owned(),
+        _ => HELP.to_owned(),
+    })?;
+    if u.url.query.is_some() || u.url.fragment.is_some() {
         return Err(
             "updates.channel: no query string and no fragment (the URL is shown in sys and in \
              backups); a channel is a public URL"
                 .into(),
         );
     }
-    let authority = rest.split('/').next().unwrap_or_default();
-    if authority.contains('@') {
-        return Err(
-            "updates.channel: no name or password before the host (the URL is shown in sys \
-             and in backups); a channel is a public URL"
-                .into(),
-        );
-    }
-    if url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.len() > 1024 {
+    if u.url.path.is_empty() {
         return Err(HELP.into());
     }
-    let host = match authority.strip_prefix('[') {
-        Some(v6) => v6.split(']').next().unwrap_or_default(),
-        None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
-    };
-    if host.is_empty() || !rest.contains('/') {
-        return Err(HELP.into());
-    }
-    if !tls && !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+    if !u.tls && !matches!(u.host().text().as_str(), "127.0.0.1" | "localhost" | "::1") {
         return Err(HELP.into());
     }
     Ok(())
@@ -889,4 +877,89 @@ pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
 
 fn pretty<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, String> {
     serde_json::to_vec_pretty(v).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The check before review S4, kept to compare.
+    fn old_check_channel(url: &str) -> Result<(), String> {
+        const HELP: &str = "updates.channel: https://<host>/<path to releases.json> \
+            (plain http only to a loopback address)";
+        let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
+            (true, r)
+        } else if let Some(r) = url.strip_prefix("http://") {
+            (false, r)
+        } else {
+            return Err(HELP.into());
+        };
+        if rest.contains(['?', '#']) {
+            return Err(
+                "updates.channel: no query string and no fragment (the URL is shown in sys and in \
+                 backups); a channel is a public URL"
+                    .into(),
+            );
+        }
+        let authority = rest.split('/').next().unwrap_or_default();
+        if authority.contains('@') {
+            return Err(
+                "updates.channel: no name or password before the host (the URL is shown in sys \
+                 and in backups); a channel is a public URL"
+                    .into(),
+            );
+        }
+        if url.chars().any(|c| c.is_whitespace() || c.is_control()) || url.len() > 1024 {
+            return Err(HELP.into());
+        }
+        let host = match authority.strip_prefix('[') {
+            Some(v6) => v6.split(']').next().unwrap_or_default(),
+            None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
+        };
+        if host.is_empty() || !rest.contains('/') {
+            return Err(HELP.into());
+        }
+        if !tls && !matches!(host, "127.0.0.1" | "localhost" | "::1") {
+            return Err(HELP.into());
+        }
+        Ok(())
+    }
+
+    /// Review S4: every channel the old check took is taken, what it refused stays
+    /// refused, with the same reason.
+    #[test]
+    fn channels_check_as_before() {
+        for s in [
+            "https://dl.example/wyrmd/releases.json",
+            "https://dl.example:8443/r.json",
+            "http://127.0.0.1:8000/releases.json",
+            "http://[::1]:8000/releases.json",
+            "http://localhost/r.json",
+            "https://dl.example/",
+        ] {
+            assert_eq!(check_channel(s), old_check_channel(s), "{s}");
+            assert!(check_channel(s).is_ok(), "{s}");
+        }
+        for s in [
+            "ftp://dl.example/r.json",
+            "http://dl.example/r.json",
+            "https://dl.example",
+            "https://dl.example/r.json?token=x",
+            "https://dl.example/r.json#f",
+            "https://u:p@dl.example/r.json",
+            "https://dl.example/a b",
+            "HTTPS://dl.example/r.json",
+        ] {
+            assert_eq!(check_channel(s), old_check_channel(s), "{s}");
+        }
+        // refused now, taken before: a bad port, a host that is no host
+        for s in [
+            "https://dl.example:99999/r.json",
+            "https://[x/r.json",
+            "https://h%2e/r",
+        ] {
+            assert!(old_check_channel(s).is_ok(), "{s}");
+            assert!(check_channel(s).is_err(), "{s}");
+        }
+    }
 }
