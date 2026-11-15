@@ -317,7 +317,6 @@ extension ExplorerChildRowVm on ExplorerChildRow {
 
 extension ExplorerFieldOf on ExplorerField {
   ExplorerFieldVm get vm => ExplorerFieldVm(
-    id: id,
     code: code,
     label: label,
     word: param?.word,
@@ -352,11 +351,15 @@ extension ExplorerSectionOf on ExplorerSection {
       ParamsSectionVm(
         node: key,
         fields: [for (final f in fields) f.vm],
-        cfg: cfg,
+        cfg: [for (final f in cfg) f.vm],
         noEdit: noEdit,
       ),
-    AttributesSection(:final attr) => AttributesSectionVm(attr),
-    DiagnosticsSection(:final facts) => DiagnosticsSectionVm(facts),
+    AttributesSection(:final attr) => AttributesSectionVm([
+      for (final f in attr) f.vm,
+    ]),
+    DiagnosticsSection(:final facts) => DiagnosticsSectionVm([
+      for (final f in facts) f.vm,
+    ]),
     PointFactsSection(:final type, :final unit, :final writable) =>
       PointFactsSectionVm(
         type: type?.valueType,
@@ -408,7 +411,8 @@ extension ExplorerSectionOf on ExplorerSection {
 extension ExplorerInspectorOf on ExplorerInspector {
   ExplorerInspectorVm get vm => switch (this) {
     final ActionInspector a => ActionInspectorVm(
-      id: '${a.key} ▸ ${a.action.name}',
+      node: a.key,
+      action: a.action.name,
       title: a.title,
       keyName: '…/${a.key.split('/').last}/~act/${a.action.name}',
       staged: a.staged,
@@ -426,8 +430,8 @@ extension ExplorerInspectorOf on ExplorerInspector {
       mark: p.mark.sample,
       time: p.time,
       sections: [for (final s in p.sections) s.vm],
+      key: p.key,
       fails: p.fails.vm,
-      failKey: p.key,
       edit: p.edit?.kind,
       editValue: p.editValue,
       choices: p.choices,
@@ -439,8 +443,8 @@ extension ExplorerInspectorOf on ExplorerInspector {
       title: n.title,
       name: n.name,
       sections: [for (final s in n.sections) s.vm],
+      key: n.key,
       fails: n.fails.vm,
-      failKey: n.key,
     ),
   };
 }
@@ -520,4 +524,8 @@ extension ExplorerViewerVm on ExplorerViewer {
       final s => s.quality.sample.vm(at: s.time),
     },
   );
+}
+
+extension NodeFactVm on NodeFact {
+  FactRowVm get vm => FactRowVm(name, label, value);
 }

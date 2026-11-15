@@ -438,7 +438,6 @@ enum WordOrderTag {
 /// [missing]: the driver has no parameter for it (shown, disabled).
 final class ExplorerFieldVm extends Equatable {
   const ExplorerFieldVm({
-    required this.id,
     required this.code,
     required this.label,
     required this.kind,
@@ -450,9 +449,8 @@ final class ExplorerFieldVm extends Equatable {
     this.missing = false,
   });
 
-  final String id;
-
-  /// The parameter's name, handed back with a change.
+  /// The parameter's name: the field's id in its form, handed back with
+  /// a change.
   final String code;
   final String label;
   final PointFieldWord? word;
@@ -467,7 +465,6 @@ final class ExplorerFieldVm extends Equatable {
 
   @override
   List<Object?> get props => [
-    id,
     code,
     label,
     word,
@@ -478,6 +475,19 @@ final class ExplorerFieldVm extends Equatable {
     description,
     missing,
   ];
+}
+
+/// One fact of a node: its [name] (the `cfg` entry, the value's name, in
+/// the tooltip), its [label] and its [value] (the driver's text; null: `—`).
+final class FactRowVm extends Equatable {
+  const FactRowVm(this.name, this.label, this.value);
+
+  final String name;
+  final String label;
+  final String? value;
+
+  @override
+  List<Object?> get props => [name, label, value];
 }
 
 /// A section of the inspector or of the Parameters tab.
@@ -517,8 +527,8 @@ final class ParamsSectionVm extends ExplorerSectionVm {
   final String node;
   final List<ExplorerFieldVm> fields;
 
-  /// `cfg` as (name, label, value).
-  final List<(String, String, String)> cfg;
+  /// `cfg`, a fact per entry.
+  final List<FactRowVm> cfg;
 
   /// The node has neither an `edit` nor a `cfg`.
   final bool noEdit;
@@ -531,7 +541,8 @@ final class ParamsSectionVm extends ExplorerSectionVm {
 final class AttributesSectionVm extends ExplorerSectionVm {
   const AttributesSectionVm(this.attr);
 
-  final List<(String, String)> attr;
+  /// `attr`, a fact per entry.
+  final List<FactRowVm> attr;
 
   @override
   List<Object?> get props => [attr];
@@ -541,8 +552,8 @@ final class AttributesSectionVm extends ExplorerSectionVm {
 final class DiagnosticsSectionVm extends ExplorerSectionVm {
   const DiagnosticsSectionVm(this.facts);
 
-  /// (name, label, value); the value is null with none read (`—`).
-  final List<(String, String, String?)> facts;
+  /// A fact per diagnostic value.
+  final List<FactRowVm> facts;
 
   @override
   List<Object?> get props => [facts];
@@ -655,6 +666,7 @@ sealed class ExplorerInspectorVm extends Equatable {
 /// its value and quality, then its sections.
 final class PointInspectorVm extends ExplorerInspectorVm {
   const PointInspectorVm({
+    required this.key,
     required this.name,
     required this.mark,
     required this.sections,
@@ -662,7 +674,6 @@ final class PointInspectorVm extends ExplorerInspectorVm {
     this.value,
     this.time,
     this.fails = const [],
-    this.failKey = '',
     this.edit,
     this.editValue,
     this.choices = const [],
@@ -681,9 +692,11 @@ final class PointInspectorVm extends ExplorerInspectorVm {
   final DateTime? time;
   final List<ExplorerSectionVm> sections;
 
-  /// The reads that failed, of the point [failKey].
+  /// The point's key: its fields' form and its `Read again` are its own.
+  final String key;
+
+  /// The reads of the point that failed.
   final List<ReadFailed> fails;
-  final String failKey;
 
   /// How a new value is typed; null when the point cannot be set.
   final ParamKind? edit;
@@ -692,7 +705,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
   final Map<String, String> choiceLabels;
   final Disabled? readOnly;
 
-  ReadFailVm? get fail => fails.isEmpty ? null : ReadFailVm.of(failKey, fails);
+  ReadFailVm? get fail => fails.isEmpty ? null : ReadFailVm.of(key, fails);
 
   @override
   List<Object?> get props => [
@@ -703,7 +716,7 @@ final class PointInspectorVm extends ExplorerInspectorVm {
     time,
     sections,
     fails,
-    failKey,
+    key,
     edit,
     editValue,
     choices,
@@ -715,7 +728,8 @@ final class PointInspectorVm extends ExplorerInspectorVm {
 /// An action: its form, Run now or Stage, the CLI line.
 final class ActionInspectorVm extends ExplorerInspectorVm {
   const ActionInspectorVm({
-    required this.id,
+    required this.node,
+    required this.action,
     required this.title,
     required this.keyName,
     required this.staged,
@@ -727,7 +741,9 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
     this.disabled,
   });
 
-  final String id;
+  /// The node's key and the action's name: its form is this pair's own.
+  final String node;
+  final String action;
   final String title;
   final String keyName;
 
@@ -744,7 +760,8 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
 
   @override
   List<Object?> get props => [
-    id,
+    node,
+    action,
     title,
     keyName,
     staged,
@@ -760,12 +777,12 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
 /// The node on screen with no point selected (§4 "nothing selected").
 final class NodeInspectorVm extends ExplorerInspectorVm {
   const NodeInspectorVm({
+    required this.key,
     required this.kind,
     required this.title,
     required this.sections,
     this.name,
     this.fails = const [],
-    this.failKey = '',
   });
 
   final NodeKindTag kind;
@@ -776,13 +793,15 @@ final class NodeInspectorVm extends ExplorerInspectorVm {
   /// The node's name under a [title] that is its display name.
   final String? name;
   final List<ExplorerSectionVm> sections;
-  final List<ReadFailed> fails;
-  final String failKey;
 
-  ReadFailVm? get fail => fails.isEmpty ? null : ReadFailVm.of(failKey, fails);
+  /// The node's key: its fields' form and its `Read again` are its own.
+  final String key;
+  final List<ReadFailed> fails;
+
+  ReadFailVm? get fail => fails.isEmpty ? null : ReadFailVm.of(key, fails);
 
   @override
-  List<Object?> get props => [kind, title, name, sections, fails, failKey];
+  List<Object?> get props => [kind, title, name, sections, fails, key];
 }
 
 /// An item of the node menu: an action of the node.

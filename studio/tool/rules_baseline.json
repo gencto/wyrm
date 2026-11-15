@@ -93,7 +93,6 @@
     "app/lib/common/broker_update_sheets.dart": 1,
     "app/lib/common/update_sheets.dart": 3,
     "app/lib/connectors/access_page_connector.dart": 17,
-    "app/lib/connectors/explorer_page_connector.dart": 21,
     "app/lib/connectors/flow_editor_page_connector.dart": 10,
     "app/lib/connectors/history_page_connector.dart": 9,
     "app/lib/connectors/link_install_page_connector.dart": 13,
@@ -332,7 +331,6 @@
   "untyped-wire": {
     "app/lib/common/value_viewer.dart": 6,
     "app/lib/connectors/access_page_connector.dart": 6,
-    "app/lib/connectors/explorer_page_connector.dart": 2,
     "app/lib/connectors/flow_editor_page_connector.dart": 10,
     "app/lib/connectors/link_install_page_connector.dart": 3,
     "app/lib/connectors/sites_page_connector.dart": 2,

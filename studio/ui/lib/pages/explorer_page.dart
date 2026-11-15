@@ -377,13 +377,16 @@ class _ExplorerPageState extends State<ExplorerPage> {
         at: _menuAt,
         vm: _nodeMenu(m),
       );
-      if (!mounted || picked == null) {
+      if (!mounted) {
         return;
       }
-      if (picked == NodeMenu.copyId) {
-        _w.onCopy?.call([m.key]);
-      } else {
-        _w.onMenuPick?.call(picked);
+      switch (picked) {
+        case ItemPicked(:final id):
+          _w.onMenuPick?.call(id);
+        case CopyPicked():
+          _w.onCopy?.call([m.key]);
+        case null:
+          break;
       }
     });
   }
@@ -393,7 +396,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
     _w.onOpenMenu?.call(id);
   }
 
-  NodeMenuVm _nodeMenu(ExplorerMenuVm m) => NodeMenuVm(
+  NodeMenuVm<String> _nodeMenu(ExplorerMenuVm m) => NodeMenuVm(
     title: m.name,
     subtitle: S.current.menuSubtitle(
       [?m.driver, m.kind.word].join(' '),
@@ -430,7 +433,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
     final picked = await NodeMenu.show(
       context,
       at: at,
-      vm: NodeMenuVm(
+      vm: NodeMenuVm<double>(
         title: S.current.colPoll,
         subtitle: S.current.nSelected(_w.selectionBar?.count ?? 0),
         groups: [
@@ -438,20 +441,23 @@ class _ExplorerPageState extends State<ExplorerPage> {
             label: S.current.setPoll,
             items: [
               for (final s in _w.polls)
-                NodeMenuItemVm(id: '$s', label: Formats.pollRate(s)),
+                NodeMenuItemVm(id: s, label: Formats.pollRate(s)),
             ],
           ),
         ],
         copyLabel: S.current.copyKeys,
       ),
     );
-    if (!mounted || picked == null) {
+    if (!mounted) {
       return;
     }
-    if (picked == NodeMenu.copyId) {
-      _w.onCopy?.call(_w.copyKeys);
-    } else if (double.tryParse(picked) case final s?) {
-      _w.onSetPoll?.call(s);
+    switch (picked) {
+      case ItemPicked(id: final s):
+        _w.onSetPoll?.call(s);
+      case CopyPicked():
+        _w.onCopy?.call(_w.copyKeys);
+      case null:
+        break;
     }
   }
 
@@ -568,9 +574,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
       final v => v,
     };
     return ParamFieldVm(
-      id: f.id,
+      id: f.code,
       label: label,
-      code: f.missing ? null : f.code,
+      // A field the driver has none for shows its full key as its tooltip.
+      code: f.missing ? '$node/${f.code}' : f.code,
       kind: f.kind,
       value: value,
       choices: f.choices,
@@ -624,22 +631,33 @@ class _ExplorerPageState extends State<ExplorerPage> {
       label: S.current.secParameters,
       fields: [for (final f in s.fields) _field(s.node, f)],
       facts: [
-        for (final (code, label, value) in s.cfg)
-          FactVm(label: label, code: code, value: value, mono: true),
+        for (final f in s.cfg)
+          FactVm(
+            label: f.label,
+            code: f.name,
+            value: f.value ?? '—',
+            mono: true,
+          ),
       ],
       text: s.noEdit ? S.current.noActionReason('edit') : null,
     ),
     AttributesSectionVm() => InspectorSectionVm(
       label: S.current.secAttributes,
       facts: [
-        for (final (k, v) in s.attr) FactVm(label: k, value: v, mono: true),
+        for (final f in s.attr)
+          FactVm(label: f.label, value: f.value ?? '—', mono: true),
       ],
     ),
     DiagnosticsSectionVm() => InspectorSectionVm(
       label: S.current.secDiagnostics,
       facts: [
-        for (final (code, label, value) in s.facts)
-          FactVm(label: label, code: code, value: value ?? '—', mono: true),
+        for (final f in s.facts)
+          FactVm(
+            label: f.label,
+            code: f.name,
+            value: f.value ?? '—',
+            mono: true,
+          ),
       ],
     ),
     PointFactsSectionVm() => InspectorSectionVm(
@@ -828,7 +846,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
     );
     final body = switch (_w.tab) {
       .parameters => _padded([
-        InspectorSections(sections: [for (final s in _w.params) _section(s)]),
+        InspectorSections(
+          key: ValueKey(_w.keyName),
+          sections: [for (final s in _w.params) _section(s)],
+        ),
       ]),
       .actions => _padded(_actions(c)),
       .history => _padded([
@@ -867,9 +888,8 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 ColumnVm(S.current.colQuality, flex: 2),
               ],
               rows: [
-                for (final (i, h) in _w.historyRows.indexed)
+                for (final h in _w.historyRows)
                   RowVm(
-                    id: '$i',
                     cells: [
                       CellVm(
                         title: Formats.clockSeconds(h.time),
@@ -903,9 +923,8 @@ class _ExplorerPageState extends State<ExplorerPage> {
               ColumnVm(S.current.colResult, flex: 2),
             ],
             rows: [
-              for (final (i, e) in _w.auditRows.indexed)
+              for (final e in _w.auditRows)
                 RowVm(
-                  id: '$i',
                   cells: [
                     CellVm(
                       title: Formats.clockSeconds(e.time),
@@ -1316,9 +1335,8 @@ class _ExplorerPageState extends State<ExplorerPage> {
         RowTable(
           columns: [for (final c in r.columns) ColumnVm(c)],
           rows: [
-            for (final (i, row) in r.rows.indexed)
+            for (final row in r.rows)
               RowVm(
-                id: '$i',
                 cells: [
                   for (final cell in row) CellVm(title: cell, monospace: true),
                 ],
@@ -1403,6 +1421,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
             if (ins.fail case final f?)
               ReadFail(vm: f, onRetry: _w.onReadAgain),
             InspectorSections(
+              key: ValueKey(ins.key),
               sections: [for (final s in ins.sections) _section(s)],
             ),
             if (ins.edit case final kind?) ...[
@@ -1411,7 +1430,9 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 key: ValueKey('set:${ins.name}'),
                 fields: [
                   ParamFieldVm(
-                    id: 'value',
+                    // the point's own field; a `~set` sets its `value`
+                    id: ins.key,
+                    code: 'value',
                     label: S.current.newValue,
                     kind: kind,
                     value: ins.editValue,
@@ -1468,7 +1489,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
           spacing: 16,
           children: [
             ActionForm(
-              key: ValueKey(ins.id),
+              key: ValueKey((ins.node, ins.action)),
               fields: ins.fields,
               submit: ins.staged ? S.current.stage : S.current.runNow,
               busy: _w.submit?.busy ?? false,
@@ -1516,11 +1537,13 @@ class _ExplorerPageState extends State<ExplorerPage> {
             children: [
               ReadFail(vm: f, onRetry: _w.onReadAgain),
               InspectorSections(
+                key: ValueKey(ins.key),
                 sections: [for (final s in ins.sections) _section(s)],
               ),
             ],
           ),
           null => InspectorSections(
+            key: ValueKey(ins.key),
             sections: [for (final s in ins.sections) _section(s)],
           ),
         },

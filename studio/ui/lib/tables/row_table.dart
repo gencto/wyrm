@@ -49,9 +49,11 @@ final class CellVm extends Equatable {
 
 /// One row of a [RowTable].
 final class RowVm extends Equatable {
-  const RowVm({required this.id, required this.cells, this.selected = false});
+  const RowVm({required this.cells, this.id, this.selected = false});
 
-  final String id;
+  /// What a tap on the row reports (its key); null: the row is not one a
+  /// tap reports (a history row, an audit record).
+  final String? id;
   final List<CellVm> cells;
   final bool selected;
 
@@ -140,7 +142,10 @@ class RowTable extends StatelessWidget {
             ),
           for (final r in rows)
             InkWell(
-              onTap: onTap == null ? null : () => onTap!(r.id),
+              onTap: switch ((onTap, r.id)) {
+                (final tap?, final id?) => () => tap(id),
+                _ => null,
+              },
               hoverColor: c.ground3,
               child: Container(
                 constraints: BoxConstraints(minHeight: rowHeight),

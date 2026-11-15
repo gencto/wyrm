@@ -310,7 +310,6 @@ ExplorerFieldVm _f(
   List<String> choices = const [],
   bool missing = false,
 }) => ExplorerFieldVm(
-  id: code,
   code: code,
   label: code,
   word: word,
@@ -323,6 +322,7 @@ ExplorerFieldVm _f(
 const _node = '$_dev/t2';
 
 PointInspectorVm _pointInspector() => PointInspectorVm(
+  key: _node,
   name: 't2',
   display: 'Return temp',
   value: '64.1 °C',
@@ -385,6 +385,7 @@ PointInspectorVm _pointInspector() => PointInspectorVm(
 );
 
 NodeInspectorVm _deviceInspector() => NodeInspectorVm(
+  key: _dev,
   kind: .device,
   title: 'plc1',
   sections: [
@@ -404,11 +405,11 @@ NodeInspectorVm _deviceInspector() => NodeInspectorVm(
       ],
     ),
     const DiagnosticsSectionVm([
-      ('requests', 'requests', '18 342'),
-      ('errors', 'errors', '0'),
-      ('timeouts', 'timeouts', '2'),
-      ('last_rtt_ms', 'last_rtt_ms', '4 ms'),
-      ('avg_rtt_ms', 'avg_rtt_ms', '5.2 ms'),
+      FactRowVm('requests', 'requests', '18 342'),
+      FactRowVm('errors', 'errors', '0'),
+      FactRowVm('timeouts', 'timeouts', '2'),
+      FactRowVm('last_rtt_ms', 'last_rtt_ms', '4 ms'),
+      FactRowVm('avg_rtt_ms', 'avg_rtt_ms', '5.2 ms'),
     ]),
   ],
 );
@@ -597,6 +598,7 @@ Widget explorerOffline() => _shell(
   _page(
     points: _points(stale: true),
     inspector: PointInspectorVm(
+      key: _node,
       name: 't2',
       display: 'Return temp',
       value: '64.1 °C',
@@ -758,8 +760,8 @@ final _flowState = FlowStateSectionVm(
 );
 
 const _flowAttributes = AttributesSectionVm([
-  ('display', _flowDisplay),
-  ('version', '2'),
+  FactRowVm('display', 'display', _flowDisplay),
+  FactRowVm('version', 'version', '2'),
 ]);
 
 /// A flow selected: its name, its state from `~val`, Edit dataflow, and no
@@ -784,6 +786,7 @@ Widget explorerFlow() => _shell(
     tab: .parameters,
     params: [_flowState, _flowAttributes],
     inspector: NodeInspectorVm(
+      key: _flowKey,
       kind: .dataflow,
       title: 'ahu2_ctl',
       sections: [_flowState, _flowAttributes],
@@ -834,6 +837,7 @@ Widget explorerFolder() => _shell(
       ),
     ],
     inspector: PointInspectorVm(
+      key: '$_edge/storage/line1/temp',
       name: 'temp',
       display: 'Line 1 air temp',
       value: '21.5 °C',
@@ -896,6 +900,7 @@ Widget explorerLongName() => _shell(
       ..._points(select: false),
     ],
     inspector: const PointInspectorVm(
+      key: '$_edge/downstream/modbus/line1/$_longName/$_longName',
       name: _longName,
       display: _longDisplay,
       value: '21.5 °C',

@@ -208,7 +208,7 @@ typedef ExplorerChildRow = ({
 /// One field of a node's or a point's `edit` (or one the board shows the
 /// driver has no parameter for: `missing`).
 typedef ExplorerField = ({
-  String id,
+  /// The parameter's name in the `edit`.
   String code,
   PointParam? param,
 
@@ -232,6 +232,17 @@ final class FlowStateSection extends ExplorerSection {
   final FlowSummary flow;
 }
 
+/// One fact of a node: the entry [name] of its `cfg` or `attr`, or one of
+/// its diagnostic values, shown as [label]; [value] is the driver's own
+/// text, null with none read.
+final class NodeFact {
+  const NodeFact(this.name, this.label, this.value);
+
+  final String name;
+  final String label;
+  final String? value;
+}
+
 /// The node's `edit` as fields, else its `cfg` as facts; [noEdit]: it has
 /// neither.
 final class ParamsSection extends ExplorerSection {
@@ -245,8 +256,8 @@ final class ParamsSection extends ExplorerSection {
   final String key;
   final List<ExplorerField> fields;
 
-  /// `cfg` as (name, label, value).
-  final List<(String, String, String)> cfg;
+  /// `cfg`, a fact per entry.
+  final List<NodeFact> cfg;
   final bool noEdit;
 }
 
@@ -254,15 +265,16 @@ final class ParamsSection extends ExplorerSection {
 final class AttributesSection extends ExplorerSection {
   const AttributesSection(this.attr);
 
-  final List<(String, String)> attr;
+  /// `attr`, a fact per entry (its label is its name).
+  final List<NodeFact> attr;
 }
 
 /// The framework's diagnostic values (`requests`, `errors`, …).
 final class DiagnosticsSection extends ExplorerSection {
   const DiagnosticsSection(this.facts);
 
-  /// (name, label, value); the value is null with none read.
-  final List<(String, String, String?)> facts;
+  /// A fact per diagnostic value; its value is null with none read.
+  final List<NodeFact> facts;
 }
 
 /// A point with no `edit`: its type, unit and level, read only.
@@ -1101,7 +1113,6 @@ extension type ExplorerView(AppState _state) {
     return [
       for (final (:spec, :param) in params)
         (
-          id: '$key/${spec.name}',
           code: spec.name,
           param: param,
           label: labelOf(spec.name, display: spec.display),
@@ -1114,12 +1125,7 @@ extension type ExplorerView(AppState _state) {
   }
 
   /// A field the board shows that the driver has no parameter for.
-  static ExplorerField _missing(
-    String key,
-    PointParam param, {
-    Object? value,
-  }) => (
-    id: '$key/${param.wire}',
+  static ExplorerField _missing(PointParam param, {Object? value}) => (
     code: param.wire,
     param: param,
     label: param.wire,
@@ -1154,16 +1160,18 @@ extension type ExplorerView(AppState _state) {
               : [
                   for (final e
                       in d?.cfg.entries ?? const <MapEntry<String, String>>[])
-                    (e.key, humanize(e.key), e.value),
+                    NodeFact(e.key, humanize(e.key), e.value),
                 ],
           noEdit: noParams,
         ),
       if (d != null && d.attr.isNotEmpty)
-        AttributesSection([for (final e in d.attr.entries) (e.key, e.value)]),
+        AttributesSection([
+          for (final e in d.attr.entries) NodeFact(e.key, e.key, e.value),
+        ]),
       if (withDiagnostics && diag.isNotEmpty)
         DiagnosticsSection([
           for (final n in diag)
-            (
+            NodeFact(
               n.name,
               labelOf(n.name, display: n.display),
               valueOf(_state.live.values[n.key], n.unit),
@@ -1223,7 +1231,7 @@ extension type ExplorerView(AppState _state) {
       final dtype = '${staged?['dtype'] ?? d?.cfg['dtype'] ?? ''}';
       registerFields.insert(
         registerFields.indexWhere((f) => f.param == PointParam.dtype) + 1,
-        _missing(key, PointParam.wordOrder, value: wordOrderOf(dtype)),
+        _missing(PointParam.wordOrder, value: wordOrderOf(dtype)),
       );
     }
     final pollNow = staged?[PointParam.poll.wire] ?? poll?.defaultValue;
@@ -1236,7 +1244,7 @@ extension type ExplorerView(AppState _state) {
             if (p.param == PointParam.unit || p.param == PointParam.scale) p,
         ]),
         if (!params.any((p) => p.param == PointParam.precision))
-          _missing(key, PointParam.precision),
+          _missing(PointParam.precision),
         ..._editFields(key, [
           for (final p in params)
             if (p.param?.group == PointParamGroup.value &&

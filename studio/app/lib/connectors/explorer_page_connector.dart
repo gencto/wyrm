@@ -477,8 +477,8 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
           ),
         );
       case StageValueSubmit(:final key):
-        if (values.containsKey('value')) {
-          dispatchSync(StageValueAction.entered(key, values['value']));
+        if (values.containsKey(key)) {
+          dispatchSync(StageValueAction.entered(key, values[key]));
         }
         return null;
       case NoSubmit():

@@ -25,7 +25,7 @@ sequenceDiagram
     Note over A2: WaitingAction · async
     A2->>ST: copyWith(nodes.answers)
     A2-->>-VM: ActionStatus
-    alt values.containsKey('value')
+    alt values.containsKey(key)
         VM->>A3: dispatchSync
         A3->>ST: dispatchSync(AddChangesAction)
     end

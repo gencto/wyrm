@@ -1,4 +1,3 @@
-
 /// The rollup windows a trend reads, finest first (spec trend.md §4).
 const historySteps = [
   ('1m', Duration(minutes: 1)),
