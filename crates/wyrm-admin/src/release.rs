@@ -2012,6 +2012,10 @@ pub fn pack(
 }
 
 /// Test helpers: archives of any shape, also for the e2e tests of `wyrmd`.
+#[allow(
+    clippy::expect_used,
+    reason = "test support: gzip into memory cannot fail, and a failed step fails the test"
+)]
 pub mod testkit {
     use super::*;
 

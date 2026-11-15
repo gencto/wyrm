@@ -1,6 +1,14 @@
 //! Calendar and DST fixtures of the evaluator (ADR 0022 "Model"). Expected DST instants are UTC
 //! literals, not computed with the zone.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::time::{Duration, Instant};
 
 use jiff::tz::TimeZone;

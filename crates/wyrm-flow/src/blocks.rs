@@ -335,7 +335,7 @@ fn same(a: &Value, b: &Value) -> bool {
 pub(crate) struct View<'a> {
     inv: &'a Value,
     params: &'a BTreeMap<String, Value>,
-    #[allow(dead_code)] // the statistics read the inputs themselves
+    #[allow(dead_code, reason = "the statistics read the inputs themselves")]
     items: Vec<Value>,
     now_us: u64,
     /// Every input's last sample (`table_join`'s `right`).

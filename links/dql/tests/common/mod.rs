@@ -3,7 +3,7 @@
 //! Each event's commands are applied as the portable runtime does; an event the host would fail
 //! (over 1 000 commands) panics the test.
 
-#![allow(dead_code)]
+#![allow(dead_code, reason = "shared by several test crates; each uses a part")]
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -55,7 +55,7 @@ impl Services for Sim {
     fn tcp_close(&mut self, _c: ConnId) {}
 }
 
-#[allow(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant, reason = "test events, moved once each")]
 enum Ev {
     List(u64, String, ListChange),
     Value(u64, String, Sample),

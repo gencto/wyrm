@@ -1,5 +1,13 @@
 //! Host-side `LinkConfig` options: `open_actions`, `root`, `republish_on`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

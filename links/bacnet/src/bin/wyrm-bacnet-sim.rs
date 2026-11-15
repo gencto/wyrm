@@ -2,6 +2,11 @@
 //! per second between 18 and 26; analog-value 1, binary-value 1 and
 //! multi-state-value 1 are writable with priorities.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 use std::time::Duration;
 use wyrm_link_bacnet::codec::AppValue;

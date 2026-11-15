@@ -46,3 +46,6 @@ description = "Portable link: n kept in its store, ping with a timer, echo"
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 1 }
+
+[lints]
+workspace = true

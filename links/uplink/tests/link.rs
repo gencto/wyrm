@@ -1,6 +1,14 @@
 //! The uplink against a fake MQTT broker and HTTP server on loopback: every kind's wire form,
 //! credentials, the rate and the queue, births and rebirths, restarts and config entries.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 mod common;
 
 use common::{map, s, Broker, HttpServer, SimHost};

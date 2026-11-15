@@ -170,6 +170,10 @@ pub(crate) struct OAuth {
     codes: Mutex<HashMap<String, Code>>,
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "fail closed: a failing OS RNG would give guessable codes, so the request fails"
+)]
 fn random_b64(n: usize) -> String {
     let mut b = vec![0u8; n];
     // a failing OS RNG would give guessable codes: refuse instead
@@ -260,7 +264,10 @@ impl OAuth {
 
     /// `host` and `host:port` of the public URL, for the MCP endpoint's `Host` check.
     pub(crate) fn hosts(&self) -> Vec<String> {
-        let (_, auth, _) = split_url(&self.issuer).expect("checked at start");
+        // checked at start; a broken one gives no host, so every Host check fails
+        let Some((_, auth, _)) = split_url(&self.issuer) else {
+            return Vec::new();
+        };
         let host = host_of(auth).to_owned();
         let mut v = vec![auth.to_owned()];
         if host != auth {
@@ -337,6 +344,10 @@ impl OAuth {
         m.remove(code).filter(|c| c.exp > now_s())
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "fail closed: a failing OS RNG would repeat token ids, so the request fails"
+    )]
     fn mint(&self, kind: u8, g: &Granted<'_>, ttl: Duration) -> (String, u64) {
         let Granted {
             sub,

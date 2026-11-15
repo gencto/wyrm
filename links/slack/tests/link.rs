@@ -1,6 +1,14 @@
 //! The Slack link against a fake Web API on loopback: the bearer token, a refused token,
 //! mrkdwn and Block Kit templates with escaped values, raw requests only to recipient channels.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use wyrm_core::{Status, Value};
 use wyrm_link_slack::SlackLink;
 use wyrm_messenger::testkit::{map, s, Api, SLACK_TOKEN};

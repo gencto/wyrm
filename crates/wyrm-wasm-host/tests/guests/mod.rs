@@ -5,7 +5,7 @@
 //! (`result<…>` flattens to more than one value), a bump `cabi_realloc`
 //! hands out argument memory, the return area sits at address 0.
 
-#![allow(dead_code)]
+#![allow(dead_code, reason = "shared by several test crates; each uses a part")]
 
 /// Bump allocator plus one page of memory; the heap starts at 1024.
 const CORE_PRELUDE: &str = r#"

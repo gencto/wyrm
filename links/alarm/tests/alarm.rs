@@ -1,6 +1,14 @@
 //! The alarm link on `SimHost` (ADR 0034): watches and their algorithms, inhibits, records
 //! and their life, rights, restarts, escalation, sinks, pages and the purge.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 mod common;
 
 use std::collections::BTreeMap;

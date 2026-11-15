@@ -950,6 +950,10 @@ pub fn json_to_value(j: &serde_json::Value) -> Value {
     }
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "only called with plain config structs: string keys, no failing Serialize impl"
+)]
 fn json<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_string(v).expect("plain data serializes")
 }

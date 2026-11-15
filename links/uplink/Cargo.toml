@@ -55,3 +55,6 @@ description = "Platform upstreams: live values to MQTT/UNS, Sparkplug B, ThingsB
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 2, call_ms = 5000 }
+
+[lints]
+workspace = true

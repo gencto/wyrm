@@ -11,3 +11,6 @@ authors.workspace = true
 [dependencies]
 wyrm-core.workspace = true
 minicbor.workspace = true
+
+[lints]
+workspace = true

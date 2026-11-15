@@ -52,7 +52,7 @@ pub fn disk_free(dir: &Path) -> Option<u64> {
     {
         let at = dir.ancestors().find(|p| p.exists())?;
         let v = nix::sys::statvfs::statvfs(at).ok()?;
-        #[allow(clippy::unnecessary_cast)] // the types differ by platform
+        #[allow(clippy::unnecessary_cast, reason = "the types differ by platform")]
         let (blocks, size) = (v.blocks_available() as u64, v.fragment_size() as u64);
         Some(blocks.saturating_mul(size))
     }

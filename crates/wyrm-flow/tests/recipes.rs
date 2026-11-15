@@ -2,6 +2,14 @@
 //! engine compiles a deploy, the engine's `validate` accepts it on a test site, and some of
 //! them give the values their README promises when they run on the mock link.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;

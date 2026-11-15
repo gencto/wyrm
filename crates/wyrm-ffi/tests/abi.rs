@@ -1,6 +1,15 @@
 //! The C ABI end to end through the extern functions, against the
 //! in-process mock (feature `test-harness`).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+#![allow(unsafe_code, reason = "calls the C ABI the way a C program does")]
+
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
 use std::time::{Duration, Instant};

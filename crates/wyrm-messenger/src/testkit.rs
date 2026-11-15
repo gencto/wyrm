@@ -3,6 +3,13 @@
 //! fake Telegram Bot API and Slack Web API) answers in a thread. Each event's commands are
 //! applied as the portable runtime does. A new platform adds its routes to [`Api`].
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test support (feature `testkit`): a failed step fails the calling test"
+)]
+
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

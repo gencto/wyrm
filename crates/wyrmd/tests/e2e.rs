@@ -1,6 +1,14 @@
 //! Broker end to end: external sessions (loopback TCP, mTLS) talk to links
 //! through the router, under the generated ACL.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 #[path = "../../wyrm-wasm-host/tests/guests/mod.rs"]
 mod guests;
 

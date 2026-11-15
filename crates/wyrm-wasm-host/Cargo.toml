@@ -23,3 +23,6 @@ wat.workspace = true
 # dummy components of both `wyrm:app` versions (ADR 0025 back-compat test)
 wit-component = { workspace = true, features = ["dummy-module"] }
 wit-parser = "=0.243.0"
+
+[lints]
+workspace = true

@@ -58,3 +58,6 @@ tokio-tungstenite.workspace = true
 futures-util = { workspace = true, features = ["sink", "std"] }
 rcgen.workspace = true
 tokio-rustls = { workspace = true, features = ["ring"] }
+
+[lints]
+workspace = true

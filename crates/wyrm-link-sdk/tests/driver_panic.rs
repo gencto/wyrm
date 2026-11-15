@@ -1,6 +1,14 @@
 //! Security review LNK-2: a panic in a driver call (a bug in a third-party decoder fed by a
 //! hostile device) never freezes a connection as `Connected` with its last good values.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use wyrm_core::meta::Writable;

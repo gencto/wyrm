@@ -1,5 +1,13 @@
 //! The s3 link against its simulator.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use wyrm_core::Value;
 use wyrm_filestore::testkit::{bootstrap, map, refused, scenario, state, wait, Ext, H, SEED};
 use wyrm_link_s3::sim::{self, Mode, Shared};

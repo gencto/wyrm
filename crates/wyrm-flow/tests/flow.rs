@@ -1,6 +1,14 @@
 //! Flow engine end to end on an in-memory session: a mock link as the
 //! data source and command target, the engine on `wy/test/dataflows`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

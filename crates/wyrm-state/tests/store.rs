@@ -1,3 +1,11 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

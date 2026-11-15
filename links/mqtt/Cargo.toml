@@ -41,3 +41,6 @@ name = "mqtt"
 description = "MQTT client: topics as points (JSON, raw, Sparkplug B)"
 bin = "wyrm-link-mqtt"
 features = ["process"]
+
+[lints]
+workspace = true

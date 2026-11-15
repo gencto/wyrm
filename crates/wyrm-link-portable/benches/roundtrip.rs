@@ -13,6 +13,14 @@
 //! The link's Zenoh query (`TestHarness`, a router) is not in these numbers: it is the same for
 //! every mode. Without the wasm32 target only the native numbers print.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "a benchmark run by hand: a failed step ends it, figures go to stdout"
+)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;

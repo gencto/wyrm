@@ -2,6 +2,14 @@
 //! scheduler packages), of `wyrm:app@0.2.0` (with `list` / `on-list`, frozen) and of
 //! `wyrm:app@0.3.0` (with `tls-connect`, `tls-upgrade`, `random-bytes`) side by side.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::Path;
 
 use wit_parser::{LiftLowerAbi, ManglingAndAbi, Resolve};

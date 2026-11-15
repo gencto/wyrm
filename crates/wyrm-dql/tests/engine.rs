@@ -2,6 +2,14 @@
 //! are recorded. Covers the DSA defects ADR 0025 names (`>=`, sublist removal) and the sink
 //! rules (D5: nothing on start, only changes).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::BTreeMap;
 
 use wyrm_core::{NodeMeta, Quality, Sample, TypeCode, Value};

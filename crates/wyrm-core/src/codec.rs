@@ -21,6 +21,18 @@ pub fn to_vec<T: Encode<()>>(v: &T) -> Result<Vec<u8>> {
     minicbor::to_vec(v).map_err(|e| CodecError::Encode(e.to_string()))
 }
 
+/// Canonical CBOR of a [`Value`](crate::Value) built in memory.
+///
+/// It cannot fail: the `Vec` writer is infallible and the `Value` encoder
+/// returns no error of its own (no `Error::message` arm).
+#[allow(
+    clippy::expect_used,
+    reason = "a Value into a Vec cannot fail to encode (see above)"
+)]
+pub fn value_to_vec(v: &crate::Value) -> Vec<u8> {
+    minicbor::to_vec(v).expect("a Value into a Vec always encodes")
+}
+
 pub fn from_slice<'b, T: Decode<'b, ()>>(bytes: &'b [u8]) -> Result<T> {
     minicbor::decode(bytes).map_err(|e| CodecError::Decode(e.to_string()))
 }

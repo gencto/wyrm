@@ -2,6 +2,14 @@
 //! every driver, through a small test driver with two connection kinds, a
 //! secret and folders.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use serde_json::{json, Value as Json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

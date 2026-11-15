@@ -47,3 +47,6 @@ name = "webdav"
 description = "WebDAV (Nextcloud, ownCloud, Synology, …): a folder as a tree, folders, uploads, downloads"
 bin = "wyrm-link-webdav"
 features = ["process"]
+
+[lints]
+workspace = true

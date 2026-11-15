@@ -88,8 +88,22 @@ pub struct Store<S: State> {
     snapshot_every: usize,
 }
 
+/// A new HMAC-SHA-256 with `key`.
+#[allow(
+    clippy::expect_used,
+    reason = "HMAC takes a key of any length (RFC 2104): `new_from_slice` cannot fail"
+)]
+fn hmac(key: &[u8]) -> HmacSha256 {
+    HmacSha256::new_from_slice(key).expect("HMAC takes any key length")
+}
+
+/// The `N` bytes at `at`, or `None` past the end of `b`.
+fn bytes_at<const N: usize>(b: &[u8], at: usize) -> Option<[u8; N]> {
+    b.get(at..at.checked_add(N)?)?.try_into().ok()
+}
+
 fn mac(key: &[u8], prev: &[u8; 32], lsn: u64, payload: &[u8]) -> [u8; 32] {
-    let mut m = HmacSha256::new_from_slice(key).expect("HMAC takes any key length");
+    let mut m = hmac(key);
     m.update(prev);
     m.update(&lsn.to_le_bytes());
     m.update(payload);
@@ -352,7 +366,7 @@ impl<S: State> Store<S> {
         buf.extend(&body);
         let crc = crc32c::crc32c(&buf);
         buf.extend(crc.to_le_bytes());
-        let mut m = HmacSha256::new_from_slice(&self.key).expect("any key length");
+        let mut m = hmac(&self.key);
         m.update(&buf);
         buf.extend(m.finalize().into_bytes());
 
@@ -387,7 +401,7 @@ impl<S: State> Store<S> {
                 return Err("bad header".to_owned());
             }
             let (signed, tag) = buf.split_at(buf.len() - 32);
-            let mut m = HmacSha256::new_from_slice(key).expect("any key length");
+            let mut m = hmac(key);
             m.update(signed);
             m.verify_slice(tag)
                 .map_err(|_| "HMAC mismatch".to_owned())?;
@@ -395,13 +409,13 @@ impl<S: State> Store<S> {
             if crc32c::crc32c(data).to_le_bytes() != crc {
                 return Err("CRC mismatch".to_owned());
             }
-            let schema = u32::from_le_bytes(data[4..8].try_into().unwrap());
+            let schema = u32::from_le_bytes(bytes_at(data, 4).ok_or("bad header")?);
             if schema != S::SCHEMA {
                 return Err(format!("schema {schema} != {}", S::SCHEMA));
             }
-            let lsn = u64::from_le_bytes(data[8..16].try_into().unwrap());
-            let chain: [u8; 32] = data[16..48].try_into().unwrap();
-            let len = u64::from_le_bytes(data[48..56].try_into().unwrap()) as usize;
+            let lsn = u64::from_le_bytes(bytes_at(data, 8).ok_or("bad header")?);
+            let chain: [u8; 32] = bytes_at(data, 16).ok_or("bad header")?;
+            let len = u64::from_le_bytes(bytes_at(data, 48).ok_or("bad header")?) as usize;
             let body = data.get(56..56 + len).ok_or("short body")?;
             let state: S = postcard::from_bytes(body).map_err(|e| e.to_string())?;
             Ok((state, lsn, chain))
@@ -457,15 +471,22 @@ impl<S: State> Store<S> {
             if data.len() - off < HEADER {
                 return tail_cut("short header");
             }
-            let len = u32::from_le_bytes(data[off..off + 4].try_into().unwrap()) as usize;
+            let Some(len) = bytes_at(&data, off).map(u32::from_le_bytes) else {
+                return tail_cut("short header");
+            };
+            let len = len as usize;
             if len > MAX_RECORD {
                 return tail_cut("record length out of range");
             }
             if data.len() - off - HEADER < len {
                 return tail_cut("short record");
             }
-            let crc = u32::from_le_bytes(data[off + 4..off + 8].try_into().unwrap());
-            let stored: [u8; 32] = data[off + 8..off + 40].try_into().unwrap();
+            let (Some(crc), Some(stored)) = (
+                bytes_at(&data, off + 4).map(u32::from_le_bytes),
+                bytes_at::<32>(&data, off + 8),
+            ) else {
+                return tail_cut("short header");
+            };
             let payload = &data[off + HEADER..off + HEADER + len];
             if crc32c::crc32c(payload) != crc {
                 // A bad CRC on the very last record is a torn write.

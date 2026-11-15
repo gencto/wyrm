@@ -2,6 +2,8 @@
 //! Every command prints JSON, one object per line. The password comes from
 //! `WYR_GATEWAY_PASSWORD` (never from the command line).
 
+#![allow(clippy::print_stdout, reason = "a CLI: what it prints is its result")]
+
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value as Json};
 use std::time::Duration;

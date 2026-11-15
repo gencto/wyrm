@@ -14,6 +14,10 @@ pub trait TokenSource: Send + Sync + 'static {
 }
 
 /// `0x01 || cbor(claims) || ed25519(version || claims)`.
+#[allow(
+    clippy::expect_used,
+    reason = "claims into a Vec cannot fail: the writer is infallible, the encoder has no error arm"
+)]
 pub fn sign(key: &SigningKey, claims: &PtokClaims) -> Vec<u8> {
     let mut tok = vec![PTOK_VERSION];
     tok.extend(wyrm_core::codec::to_vec(claims).expect("claims always encode"));

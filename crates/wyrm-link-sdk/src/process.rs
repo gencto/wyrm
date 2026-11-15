@@ -415,6 +415,10 @@ pub const MAIN_STACK_BYTES: usize = 8 << 20;
 /// (the static container builds, deploy/docker) `stacker` cannot tell the main thread's stack
 /// bounds, and the JSON5 parser of the Zenoh config (pest) then refuses every input with "stack
 /// limit reached". A thread the program made has known bounds on every libc.
+#[allow(
+    clippy::panic,
+    reason = "at start-up, before any work: without the thread the binary cannot run"
+)]
 pub fn run_on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     let h = std::thread::Builder::new()
         .name("main-rt".into())

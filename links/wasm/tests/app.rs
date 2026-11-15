@@ -4,6 +4,14 @@
 //! The test app (`tests/app_fixture/src/echo.rs`) is built here for wasm32-unknown-unknown and
 //! turned into a component with `wit-component`; the tests skip when the target is missing.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 #[path = "app_fixture/src/echo.rs"]
 mod echo;
 

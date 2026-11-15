@@ -523,7 +523,10 @@ impl State {
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
-        let f = self.flows.get_mut(id).expect("exists");
+        // `id` was found at the start and nothing between removes it
+        let Some(f) = self.flows.get_mut(id) else {
+            return;
+        };
         match run {
             Ok(r) => {
                 f.run = Some(r);

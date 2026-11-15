@@ -52,3 +52,6 @@ nix = { workspace = true, features = ["resource", "fs"] }
 wat.workspace = true
 # `test-util`: paused time for the peers' `connected` probes
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+
+[lints]
+workspace = true

@@ -20,3 +20,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 crc32c.workspace = true
+
+[lints]
+workspace = true

@@ -13,6 +13,15 @@ use zeroize::Zeroizing;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// HMAC-SHA256 under `key`.
+#[allow(
+    clippy::expect_used,
+    reason = "HMAC takes a key of any length (RFC 2104): `new_from_slice` cannot fail"
+)]
+fn hmac(key: &[u8]) -> HmacSha256 {
+    HmacSha256::new_from_slice(key).expect("hmac takes any key length")
+}
+
 pub const SESSION_VERSION: u8 = 0x01;
 const TAG_LEN: usize = 32;
 /// Upper bound on an encoded token; anything longer is not ours.
@@ -55,7 +64,10 @@ impl Amr {
     /// a session opens a WebSocket, gets an agent's plan approved or passes a step-up
     /// (ADR 0049): the decision is by how the session was made, not by the transport it
     /// came over. No wildcard arm: a new method is not a person until it is written here.
-    #[allow(clippy::match_like_matches_macro)] // exhaustive on purpose: no `_` arm
+    #[allow(
+        clippy::match_like_matches_macro,
+        reason = "exhaustive on purpose: no `_` arm, so a new variant must be decided here"
+    )]
     pub fn is_person(self) -> bool {
         match self {
             Amr::Password | Amr::Device => true,
@@ -93,18 +105,18 @@ pub struct SessionKey(Zeroizing<Vec<u8>>);
 impl SessionKey {
     /// `HMAC(state_key, "wyrm-gateway/session/v1")`.
     pub fn derive(state_key: &[u8]) -> Self {
-        let mut m = HmacSha256::new_from_slice(state_key).expect("hmac takes any key length");
+        let mut m = hmac(state_key);
         m.update(b"wyrm-gateway/session/v1");
         Self(Zeroizing::new(m.finalize().into_bytes().to_vec()))
     }
 
     fn mac(&self) -> HmacSha256 {
-        HmacSha256::new_from_slice(&self.0).expect("hmac takes any key length")
+        hmac(&self.0)
     }
 
     pub fn mint(&self, c: &SessionClaims) -> String {
         let mut tok = vec![SESSION_VERSION];
-        tok.extend(wyrm_core::codec::to_vec(&encode(c)).expect("claims always encode"));
+        tok.extend(wyrm_core::codec::value_to_vec(&encode(c)));
         let mut m = self.mac();
         m.update(&tok);
         tok.extend(m.finalize().into_bytes());
@@ -213,18 +225,18 @@ pub struct Sealer(Zeroizing<Vec<u8>>);
 
 impl Sealer {
     pub fn derive(state_key: &[u8], label: &str) -> Self {
-        let mut m = HmacSha256::new_from_slice(state_key).expect("hmac takes any key length");
+        let mut m = hmac(state_key);
         m.update(label.as_bytes());
         Self(Zeroizing::new(m.finalize().into_bytes().to_vec()))
     }
 
     fn mac(&self) -> HmacSha256 {
-        HmacSha256::new_from_slice(&self.0).expect("hmac takes any key length")
+        hmac(&self.0)
     }
 
     pub fn seal(&self, kind: u8, v: &Value) -> String {
         let mut tok = vec![kind];
-        tok.extend(wyrm_core::codec::to_vec(v).expect("values always encode"));
+        tok.extend(wyrm_core::codec::value_to_vec(v));
         let mut m = self.mac();
         m.update(&tok);
         tok.extend(m.finalize().into_bytes());

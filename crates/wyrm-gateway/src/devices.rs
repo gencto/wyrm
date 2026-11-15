@@ -223,7 +223,7 @@ impl KeyAlg {
 }
 
 fn array(items: Vec<Value>) -> Vec<u8> {
-    wyrm_core::codec::to_vec(&Value::Array(items)).expect("arrays always encode")
+    wyrm_core::codec::value_to_vec(&Value::Array(items))
 }
 
 /// What a device signs to log in: `["wyrm-device-login/1", site, origin, user, device,
@@ -434,9 +434,19 @@ impl Default for Nonces {
 }
 
 impl Nonces {
+    /// HMAC-SHA256 under this gateway's nonce key.
+    #[allow(
+        clippy::expect_used,
+        reason = "HMAC takes a key of any length (RFC 2104): `new_from_slice` cannot fail"
+    )]
+    fn keyed(&self) -> hmac::Hmac<Sha256> {
+        use hmac::Mac;
+        hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key")
+    }
+
     fn mac(&self, purpose: &Purpose, head: &[u8]) -> hmac::Hmac<Sha256> {
         use hmac::Mac;
-        let mut m = hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key");
+        let mut m = self.keyed();
         m.update(b"wyrm-device-nonce/1");
         m.update(&purpose.bytes());
         m.update(head);
@@ -464,14 +474,19 @@ impl Nonces {
             return Spend::Refused;
         }
         let (head, tag) = nonce.split_at(24);
-        let exp = u64::from_be_bytes(head[16..24].try_into().expect("8 bytes"));
+        let Some(exp) = head.get(16..24).and_then(|b| <[u8; 8]>::try_from(b).ok()) else {
+            return Spend::Refused;
+        };
+        let exp = u64::from_be_bytes(exp);
         if exp <= now || exp > now + CHALLENGE_TTL_S {
             return Spend::Refused;
         }
         if self.mac(purpose, head).verify_slice(tag).is_err() {
             return Spend::Refused;
         }
-        let id: [u8; 16] = head[..16].try_into().expect("16 bytes");
+        let Some(id) = head.get(..16).and_then(|b| <[u8; 16]>::try_from(b).ok()) else {
+            return Spend::Refused;
+        };
         let mut spent = self.spent.lock().unwrap_or_else(|p| p.into_inner());
         if spent.len() >= self.max_spent {
             spent.retain(|_, e| *e > now);
@@ -497,7 +512,7 @@ impl Nonces {
     /// can test a guess against it, and a new password is never in it.
     pub(crate) fn request_hash(&self, request: &Value) -> [u8; 32] {
         use hmac::Mac;
-        let mut m = hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key");
+        let mut m = self.keyed();
         m.update(b"wyrm-step-up-request/1");
         m.update(&wyrm_core::codec::to_vec(&without_secrets(request)).unwrap_or_default());
         m.finalize().into_bytes().into()
@@ -769,7 +784,10 @@ impl Gateway {
 
     /// `POST /api/devices`: register a key of `p`'s device. The key signs a `register`
     /// challenge of this session, so it is a valid key the device holds.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the HTTP request; a struct for one call site would only rename them"
+    )]
     pub(crate) fn register_device(
         &self,
         p: &Principal,
@@ -859,7 +877,10 @@ impl Gateway {
     /// `POST /api/device/login`. Order: limiter, nonce (spent), record, origin and
     /// signature, then the coded refusals; a good login mints the claims a password login
     /// would (same roles, same generation), with `amr: dev`.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the HTTP request; a struct for one call site would only rename them"
+    )]
     pub(crate) fn device_login(
         &self,
         device: &str,
@@ -903,16 +924,20 @@ impl Gateway {
         } else {
             None
         };
-        if let Some(code) = code {
-            self.audit(AuditEvent::DeviceRefused {
-                user: Some(d.user.clone()),
-                device: device.to_owned(),
-                ip,
-                code,
-            });
-            return Err(Refused::Code(code));
-        }
-        let u = user.expect("checked above");
+        let u = match (code, user) {
+            (None, Some(u)) => u,
+            // no user always has a code above ("password_changed")
+            (code, _) => {
+                let code = code.unwrap_or("password_changed");
+                self.audit(AuditEvent::DeviceRefused {
+                    user: Some(d.user.clone()),
+                    device: device.to_owned(),
+                    ip,
+                    code,
+                });
+                return Err(Refused::Code(code));
+            }
+        };
         self.limiter.succeeded(&limit_key(device), ip);
         self.store()
             .apply(Op::DeviceUsed {
@@ -948,7 +973,10 @@ impl Gateway {
     }
 
     /// `POST /api/device/confirm`: a step-up of `p`'s session with one of `p`'s devices.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the HTTP request; a struct for one call site would only rename them"
+    )]
     pub(crate) fn confirm_device(
         &self,
         p: &Principal,

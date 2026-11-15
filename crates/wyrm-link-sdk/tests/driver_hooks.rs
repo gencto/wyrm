@@ -2,6 +2,14 @@
 //! whole-operation bound) and `republish` (heartbeat of unchanged values),
 //! through a small test driver.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::time::Duration;
 use wyrm_core::meta::Writable;
 use wyrm_core::{NodeMeta, Quality, Value};

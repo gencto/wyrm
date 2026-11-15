@@ -2,6 +2,11 @@
 //! `sha1user`, `sha256user` (both with AES) and `authonly` (passphrases
 //! `<user>-pass`); the interface octet counters grow every second.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 use std::time::Duration;
 

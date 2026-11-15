@@ -242,7 +242,10 @@ impl Drop for Running {
 /// tasks record into `probe` while a watch holds it open (ADR 0038 §3). `mode`: a deployed
 /// flow, or a preview whose sinks only report (ADR 0038 §5). The run counts into `stats`
 /// (ADR 0045).
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one argument per part of a run (ADR 0038, 0045); a struct for one call site would only rename them"
+)]
 pub fn start(
     def: &FlowDef,
     ports: &BTreeMap<String, Ports>,
@@ -349,7 +352,10 @@ struct Counted {
     command: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a node task takes what it owns by value: one argument per channel and handle"
+)]
 async fn run_node(
     id: String,
     hash: u32,

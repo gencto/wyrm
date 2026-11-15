@@ -2,6 +2,14 @@
 //! through the real wire format (`TestHarness`: in-memory Zenoh session)
 //! and real OPC UA over TCP on loopback.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use opcua::crypto::{CertificateStore, X509Data};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -1314,7 +1322,7 @@ async fn slow_replies_go_stale_and_late_replies_are_dropped() {
 }
 
 /// Logs of a test run: `RUST_LOG=…`.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "called by hand while a test is debugged")]
 fn logs() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

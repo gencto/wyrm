@@ -21,6 +21,14 @@
 //! that holds `ask me` first asks back with two options (ADR 0049).
 //! For tests only: the state directory is a fresh temp directory.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "an example run by hand: a failed step ends it, output goes to stdout"
+)]
+
 use std::io::{BufRead, Write};
 use std::time::Duration;
 use wyrm_gateway::{Gateway, GatewayConfig, StepUp};

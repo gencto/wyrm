@@ -1,5 +1,13 @@
 //! The modbus framework driver against the in-process simulator.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::time::Duration;
 use wyrm_core::{Perm, Quality, Status, Value};
 use wyrm_link_modbus::{codec, sim, Conn, Device, Modbus, ModbusDriver, Point};

@@ -36,3 +36,6 @@ name = "localfs"
 description = "A directory of the host (disk, USB/SD card, NFS/SMB mount) as a tree, folders, uploads, downloads"
 bin = "wyrm-link-localfs"
 features = ["process"]
+
+[lints]
+workspace = true

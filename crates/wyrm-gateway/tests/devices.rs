@@ -1,6 +1,14 @@
 //! Device keys, the step-up and `/api/info` (ADR 0050) end to end: a gateway on an isolated
 //! Zenoh session, raw HTTP/1.1, keys made with ring as a device's secure hardware would.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use futures_util::{SinkExt, StreamExt};
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, KeyPair, RsaKeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};

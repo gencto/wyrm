@@ -1,5 +1,13 @@
 //! Host limits, sandbox and hot reload on WAT test guests.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 mod guests;
 
 use std::time::{Duration, Instant};

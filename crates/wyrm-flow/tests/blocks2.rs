@@ -1,6 +1,14 @@
 //! The second set of blocks (ADR 0040 §4, `docs/flow-blocks.md`), driven through
 //! `input`/`tick`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;

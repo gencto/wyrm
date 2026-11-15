@@ -1,6 +1,8 @@
 //! Modbus TCP device simulator for demos: holding register 0 counts up once
 //! per second, input register 1 holds 215 (21.5 with scale 0.1).
 
+#![allow(clippy::print_stdout, reason = "a CLI: it prints where it listens")]
+
 use clap::Parser;
 use std::time::Duration;
 
@@ -15,12 +17,12 @@ struct Args {
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
     let (addr, device, task) = wyrm_link_modbus::sim::spawn(&args.listen).await?;
-    device.lock().unwrap().input[1] = 215;
+    device.lock().unwrap_or_else(|p| p.into_inner()).input[1] = 215;
     println!("modbus sim on {addr}");
     let ticker = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let mut t = device.lock().unwrap();
+            let mut t = device.lock().unwrap_or_else(|p| p.into_inner());
             t.holding[0] = t.holding[0].wrapping_add(1);
         }
     });

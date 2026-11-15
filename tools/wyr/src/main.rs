@@ -6,11 +6,14 @@
 //! (mock link), `record`/`replay` (flows on recorded samples), `tree`,
 //! `watch` (= `sub`). See `tools/wyr/README.md`.
 
+#![allow(clippy::print_stdout, reason = "a CLI: what it prints is its result")]
+
 /// `println!` that exits quietly when stdout is closed (`wyr … | head`).
 macro_rules! out {
     ($($t:tt)*) => {{
         use std::io::Write as _;
         if writeln!(std::io::stdout(), $($t)*).is_err() {
+            #[allow(clippy::exit, reason = "a closed stdout (`wyr … | head`) ends the CLI quietly")]
             std::process::exit(0);
         }
     }};

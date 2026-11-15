@@ -13,6 +13,14 @@
 //! [`EXEMPT`] with the test that covers them; the meta test checks both lists against the
 //! catalog.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
@@ -409,7 +417,7 @@ impl Case {
     /// Marks a row that asserts the document where the code differs (none today: the two
     /// found were settled on 2026-11-12 by fixing the documents). Its id needs an
     /// `#[ignore]` test that calls `run_mismatch`.
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "used only while a document and the code differ")]
     fn mismatch(mut self, id: &'static str) -> Self {
         self.mismatch = Some(id);
         self
@@ -606,7 +614,7 @@ fn every_documented_case_holds() {
 }
 
 /// The rows of one mismatch: they assert the document, so they fail while the code differs.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "used only while a document and the code differ")]
 fn run_mismatch(id: &str) {
     let failures = run_cases(|c| c.mismatch == Some(id));
     assert!(failures.is_empty(), "{}", failures.join("\n"));

@@ -9,6 +9,14 @@
 //! The v3 user is SHA-1 + AES-128 with one passphrase for both
 //! (`createUser sha1user SHA "<pass>" AES "<pass>"` in `snmpd.conf`).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::time::Duration;
 use wyrm_core::{Perm, Quality, Status, Value};
 use wyrm_link_sdk::driver::{NodeState, Tree};

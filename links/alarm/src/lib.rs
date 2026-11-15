@@ -404,7 +404,10 @@ impl Alarm {
 
     /// Makes a record. Over [`MAX_OPEN`] open records, the oldest one that is normal but
     /// unacknowledged is acknowledged by `system:overflow` first.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per field of the new record; called from two places"
+    )]
     fn raise(
         &mut self,
         cx: &mut Counted,
@@ -775,7 +778,10 @@ impl Alarm {
     }
 
     /// A record for `key` of a watch from sample `s`.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per field of the new record and its watch"
+    )]
     fn make_record(
         &mut self,
         cx: &mut Counted,
@@ -1898,9 +1904,14 @@ impl Alarm {
         if let Some(c) = sinks::classes_arg(m, "classes")? {
             def.classes = c;
         }
-        let old = std::mem::replace(&mut self.sinks.get_mut(name).unwrap().def, def);
+        let Some(s) = self.sinks.get_mut(name) else {
+            return Err(not_found(format!("sinks/{name}")));
+        };
+        let old = std::mem::replace(&mut s.def, def);
         if let Err(e) = self.save_sinks(cx) {
-            self.sinks.get_mut(name).unwrap().def = old;
+            if let Some(s) = self.sinks.get_mut(name) {
+                s.def = old;
+            }
             return Err(e);
         }
         self.show_sink(cx, name);
@@ -1913,9 +1924,14 @@ impl Alarm {
         }
         let from = enum_arg(m, "from", &FROMS)?.ok_or_else(|| invalid("from", "required"))?;
         let cursor = self.cursor_from(Some(&from))?;
-        let old = std::mem::replace(&mut self.sinks.get_mut(name).unwrap().def.cursor, cursor);
+        let Some(s) = self.sinks.get_mut(name) else {
+            return Err(not_found(format!("sinks/{name}")));
+        };
+        let old = std::mem::replace(&mut s.def.cursor, cursor);
         if let Err(e) = self.save_sinks(cx) {
-            self.sinks.get_mut(name).unwrap().def.cursor = old;
+            if let Some(s) = self.sinks.get_mut(name) {
+                s.def.cursor = old;
+            }
             return Err(e);
         }
         self.show_sink(cx, name);
@@ -1962,7 +1978,9 @@ impl Alarm {
                 ));
             }
             if a != s.def.cursor {
-                self.sinks.get_mut(name).unwrap().def.cursor = a;
+                if let Some(s) = self.sinks.get_mut(name) {
+                    s.def.cursor = a;
+                }
                 self.save_sinks(cx)?;
             }
         }
@@ -1982,15 +2000,17 @@ impl Alarm {
         let mut last = cursor;
         'scan: while seq < next_seq {
             let n = store::jpage_of(seq - 1);
-            if page.as_ref().is_none_or(|(p, _)| *p != n) {
-                let entries = if n == self.jpage {
-                    self.jtail.clone()
-                } else {
-                    store::load_journal_page(cx, n)
-                };
-                page = Some((n, entries));
-            }
-            let entries = &page.as_ref().unwrap().1;
+            let entries = match &page {
+                Some((p, entries)) if *p == n => entries,
+                _ => {
+                    let entries = if n == self.jpage {
+                        self.jtail.clone()
+                    } else {
+                        store::load_journal_page(cx, n)
+                    };
+                    &page.insert((n, entries)).1
+                }
+            };
             let i = (seq - 1 - n * JOURNAL_PAGE) as usize;
             let Some(&id) = entries.get(i) else {
                 // a page cut short: on to the next one
@@ -2034,9 +2054,10 @@ impl Alarm {
             seq += 1;
         }
         let sent = rows.len() as u64;
-        let s = self.sinks.get_mut(name).unwrap();
-        s.rows_sent += sent;
-        s.last_request = Some(now);
+        if let Some(s) = self.sinks.get_mut(name) {
+            s.rows_sent += sent;
+            s.last_request = Some(now);
+        }
         self.show_sink(cx, name);
         Ok(Value::Map(Map::from([
             ("rows".to_owned(), Value::Array(rows)),

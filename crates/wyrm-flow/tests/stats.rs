@@ -2,6 +2,14 @@
 //! samples, drops and commands; reset by a redeploy; published at once on a state change
 //! and otherwise at most once per period, and only when they moved.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

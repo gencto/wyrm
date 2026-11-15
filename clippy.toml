@@ -1,0 +1,9 @@
+# Test code (`#[test]`, `#[cfg(test)]`) may unwrap, expect, panic and print;
+# product code may not (`[workspace.lints]` in Cargo.toml, docs/rust-rules.md).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+# For the baselined `too_many_lines` count of tool/check_rust_rules.py.
+too-many-lines-threshold = 150

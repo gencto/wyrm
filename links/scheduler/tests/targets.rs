@@ -2,6 +2,14 @@
 //! retries with backoff, manual override, the restart rules, and the target nodes and actions
 //! (ADR 0022 "Targets", plan Task 4).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 mod common;
 
 use common::*;

@@ -26,6 +26,11 @@ pub fn open(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// [`seal`] bound to `aad`: it must be the same for [`open_aad`].
+#[allow(
+    clippy::expect_used,
+    reason = "fail closed without randomness (a repeated nonce breaks the cipher); \
+              a 32-byte key and an in-memory buffer cannot fail to seal"
+)]
 pub(crate) fn seal_aad(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Vec<u8> {
     let mut nonce = [0u8; NONCE_LEN];
     SystemRandom::new()

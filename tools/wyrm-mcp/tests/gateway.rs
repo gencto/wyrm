@@ -2,6 +2,14 @@
 //! self-signed certificate (the `--gateway-ca` path), the mock link and a link with a
 //! config-level point, and an rmcp client over an in-memory pipe.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use rmcp::model::{CallToolRequestParams, ClientConfig};
 use rmcp::service::RunningService;
 use rmcp::{ClientHandler, RoleClient, ServiceExt};

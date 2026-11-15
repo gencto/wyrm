@@ -50,3 +50,6 @@ name = "opcua"
 description = "OPC UA client: batched reads, writes with the server's data type, browse, get_endpoints"
 bin = "wyrm-link-opcua"
 features = ["process"]
+
+[lints]
+workspace = true

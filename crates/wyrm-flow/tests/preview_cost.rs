@@ -4,6 +4,14 @@
 //!
 //! `cargo test -p wyrm-flow --release --test preview_cost -- --ignored --nocapture`
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
@@ -19,13 +27,21 @@ struct Counting;
 
 static LIVE: AtomicIsize = AtomicIsize::new(0);
 
+// SAFETY: every call goes to `System` with the caller's own arguments, so this
+// allocator keeps the contract `System` keeps; the counter has no effect on memory.
+#[allow(
+    unsafe_code,
+    reason = "a counting allocator: GlobalAlloc is an unsafe trait"
+)]
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
         LIVE.fetch_add(l.size() as isize, Ordering::Relaxed);
+        // SAFETY: the caller's `alloc` contract (non-zero size) is passed on unchanged.
         unsafe { System.alloc(l) }
     }
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
         LIVE.fetch_sub(l.size() as isize, Ordering::Relaxed);
+        // SAFETY: `p` came from `alloc` above, i.e. from `System`, with layout `l`.
         unsafe { System.dealloc(p, l) }
     }
 }

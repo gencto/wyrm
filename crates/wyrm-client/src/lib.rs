@@ -310,7 +310,10 @@ impl WyrmClient {
     }
 
     /// Raw `get` into `handler`.
-    #[allow(clippy::too_many_arguments)] // private: one argument per builder knob
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "private: one argument per builder knob"
+    )]
     async fn query_with<H>(
         &self,
         selector: &str,
@@ -996,8 +999,10 @@ struct Replies {
     dropped: Arc<AtomicU64>,
 }
 
-// moved once per reply; boxing would cost an allocation each
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "moved once per reply; boxing would cost an allocation each"
+)]
 enum ReplyStep {
     Reply(Reply),
     Overflow,

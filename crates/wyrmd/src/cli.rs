@@ -1,5 +1,10 @@
 //! The command line of `wyrmd` (`src/main.rs` calls [`main`]).
 
+#![allow(
+    clippy::print_stdout,
+    reason = "the command line: what a subcommand prints is its result"
+)]
+
 use crate::{Config, Daemon, Error};
 use clap::{Parser, Subcommand};
 
@@ -244,6 +249,10 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
     wyrm_link_sdk::process::run_on_big_stack(move || rt.block_on(run(args)))
 }
 
+#[allow(
+    clippy::exit,
+    reason = "`wyrmd check` reports a failed store with exit code 1"
+)]
 async fn run(args: Args) -> Result<(), Error> {
     if let Some(Cmd::Link { driver }) = &args.cmd {
         return crate::run_link(driver).await;
@@ -388,6 +397,10 @@ fn own_exe() -> Result<std::path::PathBuf, Error> {
 
 /// A new version that gave its trial up ends with the code the guard and
 /// the supervisor read (ADR 0048 §2.5).
+#[allow(
+    clippy::exit,
+    reason = "the exit code is the answer the update guard and the supervisor read"
+)]
 fn exit_if_asked(ctl: &wyrm_admin::Control) {
     if let Some(code) = ctl.exit_code() {
         std::process::exit(code);
@@ -397,6 +410,10 @@ fn exit_if_asked(ctl: &wyrm_admin::Control) {
 /// A broker of a standby pair (ADR 0036): follow the other broker until it
 /// is away, then run as the active one; a non-primary active steps down
 /// and follows again when the primary is back.
+#[allow(
+    clippy::exit,
+    reason = "a standby that gave its trial up ends with TRIAL_EXIT for the supervisor"
+)]
 async fn run_with_standby(cfg: Config) -> Result<(), Error> {
     use crate::standby::{follow_with, isolated, lease_lost, primary_is_back, Outcome};
     use std::sync::atomic::{AtomicBool, Ordering};

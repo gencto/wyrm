@@ -5,6 +5,13 @@
 //! Before the link starts, the store holds [`SEED`]; the link has one
 //! connection `c1`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test support (feature `testkit`): a failed step fails the calling test"
+)]
+
 use crate::store::{ENTRIES, FILES};
 use crate::{Backend, FileStore};
 use std::time::Duration;

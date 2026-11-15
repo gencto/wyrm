@@ -1,6 +1,13 @@
 //! Test support for targets (feature `testkit`): a host with real TCP over std sockets, so a
 //! target's tests talk to a fake server on loopback. TLS is the portable host's own test.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test support (feature `testkit`): a failed step fails the calling test"
+)]
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;

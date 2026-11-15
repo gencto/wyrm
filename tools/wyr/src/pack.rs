@@ -658,7 +658,9 @@ pub fn run_repo(cmd: RepoCmd) -> Result<(), Error> {
             .ok_or_else(|| format!("{}: not a file name", z.display()))?;
         let rel = format!("{}/{}/{file}", m.name, m.version);
         let dest = repo.join(&rel);
-        std::fs::create_dir_all(dest.parent().expect("a directory"))?;
+        if let Some(dir) = dest.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         std::fs::write(&dest, &bytes)?;
         let url = match &url {
             Some(base) => format!("{}/{rel}", base.trim_end_matches('/')),

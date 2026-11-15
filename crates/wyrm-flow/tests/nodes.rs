@@ -1,5 +1,13 @@
 //! Node type rules (wiki "Типи нод"), driven directly through `input`/`tick`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use wyrm_client::WyrmClient;

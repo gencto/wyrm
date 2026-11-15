@@ -1,6 +1,14 @@
 //! Builds the fixture app for `wasm32-unknown-unknown` and checks that the core module carries the
 //! component type of world `wyrm:app/app@0.3.0`, which `wit-component` needs to make it a component.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

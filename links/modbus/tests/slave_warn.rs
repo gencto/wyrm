@@ -2,6 +2,14 @@
 //! on the connection's `status` leaf. Its own test binary: the log capture
 //! is the process's global subscriber (the owner task logs on any thread).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::fmt::Write as _;
 use std::sync::Mutex;
 use std::time::Duration;

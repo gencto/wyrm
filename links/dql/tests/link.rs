@@ -1,6 +1,14 @@
 //! The DQL link on `SimHost` (ADR 0025): stored and ad-hoc queries, their tables, restarts,
 //! rights of sink queries, bounds per event.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 mod common;
 
 use common::*;

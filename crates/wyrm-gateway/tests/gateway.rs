@@ -1,6 +1,14 @@
 //! Gateway end to end: mock link + gateway on one isolated Zenoh session,
 //! raw HTTP/1.1 over TCP and a WebSocket client, CBOR everywhere.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use futures_util::{SinkExt, StreamExt};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;

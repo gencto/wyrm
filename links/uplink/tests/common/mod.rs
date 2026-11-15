@@ -2,7 +2,7 @@
 //! loopback (a fake MQTT broker or HTTP server in a thread). Each event's commands are applied
 //! as the portable runtime does; an event the host would fail (over 1 000 commands) panics.
 
-#![allow(dead_code)]
+#![allow(dead_code, reason = "shared by several test crates; each uses a part")]
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{Read, Write};

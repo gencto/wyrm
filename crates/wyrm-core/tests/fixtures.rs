@@ -2,6 +2,14 @@
 //! must decode to the documented JSON and re-encode to the exact canonical bytes.
 //! The same file drives the Dart and C bindings.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use wyrm_core::codec::{from_slice, to_vec};

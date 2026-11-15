@@ -213,8 +213,10 @@ impl ListIntake {
     }
 }
 
-// moved once per event; boxing would cost an allocation each
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "moved once per event; boxing would cost an allocation each"
+)]
 enum Step {
     Raw(Raw),
     /// Read the children again; everything before this point is covered.
@@ -673,9 +675,8 @@ impl Vals {
                     pending,
                     order,
                 } => queue.pop_front().or_else(|| {
-                    order
-                        .pop_front()
-                        .map(|k| pending.remove(&k).expect("ordered key is pending"))
+                    // every ordered key is pending; a stray one is skipped
+                    std::iter::from_fn(|| order.pop_front()).find_map(|k| pending.remove(&k))
                 }),
                 Policy::Queue(q) => q.pop_front(),
             };

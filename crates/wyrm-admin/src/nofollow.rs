@@ -50,8 +50,10 @@ fn open_nofollow(path: &Path, _dir: bool) -> std::io::Result<File> {
 /// swapped for a symlink since the walk entered it: the held handle of the
 /// parent is what cannot be swapped.
 #[cfg(unix)]
-// the widths of `st_dev` and `st_ino` differ between unix targets
-#[allow(clippy::unnecessary_cast)]
+#[allow(
+    clippy::unnecessary_cast,
+    reason = "the widths of `st_dev` and `st_ino` differ between unix targets"
+)]
 fn same_entry(parent: &File, name: &std::ffi::OsStr, meta: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::io::AsRawFd;
