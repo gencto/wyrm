@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/changes/actions/add_changes_action.dart';
 import 'package:business/redux/changes/actions/apply_changes_action.dart';
+import 'package:business/redux/device/actions/accept_offer_action.dart';
 import 'package:business/redux/device/actions/cancel_step_up_action.dart';
 import 'package:business/redux/device/actions/confirm_step_up_action.dart';
 import 'package:business/redux/device/actions/decline_offer_action.dart';
@@ -202,6 +203,39 @@ void main() {
       expect(r.site, 'central');
       expect(c.gateway.records['d1']?.name, endsWith('Studio'));
       expect(c.keys.reasons, ['turn on'], reason: 'one prompt, the register');
+    });
+
+    test('Use when the gateway wants the password first: the offer ends, '
+        'nothing is registered', () async {
+      final c = _Computer();
+      final s = await c.loggedIn();
+      await s.dispatchAndWait(OfferDeviceAction());
+      expect(s.state.device.stage, UnlockStage.offer);
+      c.gateway.passwordFresh = false;
+
+      await s.dispatchAndWait(AcceptOfferAction());
+
+      expect(s.state.device.stage, UnlockStage.none);
+      expect(s.state.device.deviceId, isNull);
+      expect(c.gateway.records, isEmpty);
+      expect(s.state.device.needPassword, isTrue);
+    });
+
+    test('Use with no biometric here closes the offer', () async {
+      // The log-in page did not say it yet (no device read before).
+      final c = _Computer(
+        keys: FakeDeviceKey(availability: DeviceKeyAvailability.none),
+      );
+      final s = c.store();
+      await fill(s);
+      await s.dispatchAndWait(LogInAction());
+      await s.dispatchAndWait(OfferDeviceAction());
+      expect(s.state.device.stage, UnlockStage.offer);
+
+      await s.dispatchAndWait(AcceptOfferAction());
+
+      expect(s.state.device.stage, UnlockStage.none);
+      expect(c.gateway.records, isEmpty);
     });
 
     test('a failure goes on to Welcome with a quiet error', () async {

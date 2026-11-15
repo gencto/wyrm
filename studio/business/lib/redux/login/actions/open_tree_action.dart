@@ -61,7 +61,8 @@ class OpenTreeAction extends Action {
       final left = atMost - clock.elapsed;
       if (left <= Duration.zero) {
         // The deadline: what has not started loads in the background.
-        // Started, not waited for: each read notifies when it lands.
+        // Started, not waited for: each read notifies when it lands. One
+        // to five reads, those the deadline reached before they started.
         dispatchAll([
           for (var j = i; j < steps; j++) ?_action(j, root),
         ]);

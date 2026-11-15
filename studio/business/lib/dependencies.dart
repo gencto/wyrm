@@ -212,8 +212,9 @@ class AppDependencies {
           if (s.site.grants.isEmpty || site.can(c.level, c.key))
             StepUpLine(
               // A staged change keeps its level as text (`write`,
-              // `config`); one Studio does not know is shown as `write`.
-              level: Perm.fromName(c.level) ?? Perm.write,
+              // `config`) until the rights move to `Perm`; one Studio does
+              // not know is shown as the strongest, never as a weaker one.
+              level: Perm.fromName(c.level) ?? Perm.config,
               text: c.action ?? '${c.op.toLowerCase()} ${c.field} = ${c.to}',
               key: c.key,
             ),

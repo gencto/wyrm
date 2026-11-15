@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
@@ -617,7 +618,10 @@ FoundGateway _withInfo(FoundGateway row, GatewayInfo info, String studio) {
   return row.copyWith(
     version: info.version.isEmpty ? row.version : info.version,
     up: up,
-    role: info.role,
+    role: switch (info.role) {
+      GatewayRole.active => BrokerRole.active,
+      GatewayRole.standby => BrokerRole.standby,
+    },
     standby: _standbyOf(info.pair, tls: row.tls) ?? row.standby,
     problem: atLeast(studio, info.minStudio) ? null : FoundProblem.studioTooOld,
     detail: atLeast(studio, info.minStudio) ? null : info.minStudio,
@@ -659,8 +663,8 @@ IMap<String, FoundGateway> mergeFound(
   final rowFirst =
       (had.problem != null && row.problem == null) ||
       (had.problem == null) == (row.problem == null) &&
-          row.role == GatewayRole.active &&
-          had.role != GatewayRole.active;
+          row.role == BrokerRole.active &&
+          had.role != BrokerRole.active;
   final (main, other) = rowFirst ? (row, had) : (had, row);
   return found.add(
     row.site,

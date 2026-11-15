@@ -14,6 +14,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
@@ -400,8 +401,8 @@ class _AccountCard extends StatelessWidget {
         spacing: 14,
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: AppSizes.avatar,
+            height: AppSizes.avatar,
             decoration: BoxDecoration(
               color: c.emberTint,
               shape: BoxShape.circle,
@@ -447,8 +448,8 @@ class _AccountCard extends StatelessWidget {
                   spacing: 6,
                   children: [
                     Container(
-                      width: 6,
-                      height: 6,
+                      width: AppSizes.dot,
+                      height: AppSizes.dot,
                       decoration: BoxDecoration(
                         color: dot,
                         shape: BoxShape.circle,

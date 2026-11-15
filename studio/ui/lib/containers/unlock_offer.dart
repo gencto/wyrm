@@ -123,8 +123,8 @@ class UnlockOffer extends StatelessWidget {
             ],
           ),
           Container(
-            width: 84,
-            height: 84,
+            width: AppSizes.offerTile,
+            height: AppSizes.offerTile,
             decoration: BoxDecoration(
               color: c.emberFill,
               borderRadius: const BorderRadius.all(
@@ -135,7 +135,7 @@ class UnlockOffer extends StatelessWidget {
             alignment: .center,
             child: BiometricIcon(
               glyph: vm.glyph,
-              size: vm.glyph == .key ? 40 : 44,
+              size: vm.glyph == .key ? AppSizes.offerKey : AppSizes.offerGlyph,
               color: c.emberSoft,
             ),
           ),
@@ -174,8 +174,8 @@ class UnlockOffer extends StatelessWidget {
                     Padding(
                       padding: Insets.bulletDot,
                       child: Container(
-                        width: 6,
-                        height: 6,
+                        width: AppSizes.dot,
+                        height: AppSizes.dot,
                         decoration: BoxDecoration(
                           color: dot(f.tone),
                           shape: BoxShape.circle,

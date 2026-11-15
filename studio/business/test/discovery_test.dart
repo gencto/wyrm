@@ -16,6 +16,7 @@ import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
@@ -116,7 +117,7 @@ void main() {
         site: 'plant',
         hosts: IListConst(['10.0.7.11:8446']),
         url: 'https://10.0.7.11:8446',
-        role: GatewayRole.standby,
+        role: BrokerRole.standby,
         seen: 1,
       );
       const active = FoundGateway(

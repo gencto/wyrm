@@ -250,8 +250,8 @@ class _StepUpDialogState extends State<StepUpDialog> {
                       spacing: 14,
                       children: [
                         Container(
-                          width: 48,
-                          height: 48,
+                          width: AppSizes.stepUpTile,
+                          height: AppSizes.stepUpTile,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
@@ -262,7 +262,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                           alignment: .center,
                           child: BiometricIcon(
                             glyph: vm.glyph,
-                            size: 26,
+                            size: AppSizes.stepUpGlyph,
                             compact: true,
                             color: c.emberSoft,
                           ),
