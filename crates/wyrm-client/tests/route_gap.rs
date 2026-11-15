@@ -24,9 +24,13 @@ fn links_root() -> String {
 }
 
 fn meta() -> NodeMeta {
+    meta_of("Fake link")
+}
+
+fn meta_of(display: &str) -> NodeMeta {
     NodeMeta {
         rev: Some(1),
-        ..NodeMeta::folder().display("Fake link")
+        ..NodeMeta::folder().display(display)
     }
 }
 
@@ -39,11 +43,21 @@ struct FakeLink {
 
 impl FakeLink {
     async fn start(session: &zenoh::Session, drop_first: usize, hold_first: usize) -> Self {
-        let root = format!("{}/fake", links_root());
+        Self::named(session, "fake", "Fake link", drop_first, hold_first).await
+    }
+
+    async fn named(
+        session: &zenoh::Session,
+        name: &str,
+        display: &str,
+        drop_first: usize,
+        hold_first: usize,
+    ) -> Self {
+        let root = format!("{}/{name}", links_root());
         let asked = Arc::new(AtomicUsize::new(0));
         let held = Arc::new(Mutex::new(Vec::new()));
         let (a, h) = (asked.clone(), held.clone());
-        let payload = to_vec(&meta()).unwrap();
+        let payload = to_vec(&meta_of(display)).unwrap();
         let att = to_vec(&Attachment::ok()).unwrap();
         let queryable = session
             .declare_queryable(format!("{root}/**"))
@@ -125,9 +139,8 @@ async fn the_snapshot_waits_out_the_gap() {
     assert_read(&kids[0]);
 }
 
-/// A link that keeps silent for a whole read (two tries that each wait
-/// their timeout) is not listed then; it is read again and listed once it
-/// answers.
+/// A link that keeps silent through a whole read (`LIST_READ_WINDOW`) is
+/// not listed then; it is read again and listed once it answers.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_silent_link_is_listed_once_it_answers() {
     let (s, c) = client().await;
@@ -137,7 +150,8 @@ async fn a_silent_link_is_listed_once_it_answers() {
         ListEvent::Refreshed(vec![])
     );
     let fake = FakeLink::start(&s, 0, 2).await;
-    // two tries of 1 s, then a pause of 1 s, then the read that answers
+    // a read of 1.5 s, a pause of 1 s, a read of 1.5 s, a pause of 2 s, then
+    // the read that answers
     match next(&mut list, Duration::from_secs(8)).await {
         ListEvent::Added(child) => assert_read(&child),
         e => panic!("expected Added, got {e:?}"),
@@ -156,16 +170,67 @@ async fn a_silent_link_that_goes_is_never_listed() {
         ListEvent::Refreshed(vec![])
     );
     let mut fake = FakeLink::start(&s, 0, usize::MAX / 2).await;
-    // the first read (two tries of 1 s) ends without a reply
-    tokio::time::timeout(Duration::from_secs(5), async {
+    // two reads end without a reply
+    tokio::time::timeout(Duration::from_secs(6), async {
         while fake.asked() < 2 {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("two tries");
+    .expect("two reads");
     drop(fake.token.take());
     // the reads again stop, and nothing is listed
     let r = tokio::time::timeout(Duration::from_secs(4), list.next()).await;
     assert!(r.is_err(), "no event for a link that never answered: {r:?}");
+}
+
+/// A silent link never holds up its siblings: the snapshot comes within one
+/// `LIST_READ_WINDOW` with the links that answered, a link added later is
+/// listed at once even while a silent one is being read, and the silent one
+/// is listed when it answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_silent_link_never_holds_up_its_siblings() {
+    use std::time::Instant;
+    // the default timeout (10 s, spec 05): the list must not wait that long
+    let s = zenoh::open(isolated_config()).await.unwrap();
+    let c = WyrmClient::new(s.clone());
+    let _a = FakeLink::named(&s, "a", "A", 0, 0).await;
+    let _b = FakeLink::named(&s, "b", "B", 0, 0).await;
+    let silent = FakeLink::named(&s, "silent", "Silent", 0, 2).await;
+    let started = Instant::now();
+    let mut list = c.list(&links_root()).await.unwrap();
+    let ListEvent::Refreshed(kids) = next(&mut list, Duration::from_secs(3)).await else {
+        panic!("Refreshed first")
+    };
+    let first = started.elapsed();
+    let names: Vec<&str> = kids.iter().map(|k| k.name.as_str()).collect();
+    assert_eq!(names, ["a", "b"], "the silent one is not in the snapshot");
+    assert!(
+        first < wyrm_client::LIST_READ_WINDOW + Duration::from_millis(700),
+        "the snapshot waited {first:?}"
+    );
+    // a link that comes while the silent one is read again: listed at once
+    let added = Instant::now();
+    let _d = FakeLink::named(&s, "d", "D", 0, 0).await;
+    match next(&mut list, Duration::from_secs(3)).await {
+        ListEvent::Added(ch) => {
+            assert_eq!(ch.name, "d");
+            assert_eq!(ch.meta, meta_of("D"));
+        }
+        e => panic!("expected Added(d), got {e:?}"),
+    }
+    assert!(
+        added.elapsed() < Duration::from_millis(700),
+        "{:?}",
+        added.elapsed()
+    );
+    // the silent one, once it answers
+    match next(&mut list, Duration::from_secs(8)).await {
+        ListEvent::Added(ch) => {
+            assert_eq!(ch.name, "silent");
+            assert_eq!(ch.meta, meta_of("Silent"));
+        }
+        e => panic!("expected Added(silent), got {e:?}"),
+    }
+    assert_eq!(silent.asked(), 3);
 }

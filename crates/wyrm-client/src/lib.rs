@@ -485,31 +485,46 @@ impl WyrmClient {
         // each, so one lost query (seen once across a peer link, backlog
         // item 6) costs half a timeout, and a missing node no more than one.
         let half = (self.timeout / 2).max(Duration::from_secs(1));
+        self.meta_raw_within(&key, &sel, 2 * half, half).await
+    }
+
+    /// One `~meta` read of `sel` (on `key`) within `budget`, each try at
+    /// most `per_try`.
+    async fn meta_raw_within(
+        &self,
+        key: &str,
+        sel: &str,
+        budget: Duration,
+        per_try: Duration,
+    ) -> Result<Response> {
         // Under a link, `timeout` means its token is there (`no_reply`
         // asked): reads go on through the route gap (see `read_through_gap`).
-        let owned = owner_key(&key).is_some();
-        read_through_gap(2 * half, half, owned, |within| {
-            let (sel, key) = (sel.as_str(), key.as_str());
-            async move {
-                match self
-                    .one_within(sel, None, Attachment::default(), false, within)
-                    .await
-                {
-                    Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
-                        self.one_within(sel, None, self.token_att(key), false, within)
-                            .await
-                    }
-                    r => r,
+        let owned = owner_key(key).is_some();
+        read_through_gap(budget, per_try, owned, |within| async move {
+            match self
+                .one_within(sel, None, Attachment::default(), false, within)
+                .await
+            {
+                Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
+                    self.one_within(sel, None, self.token_att(key), false, within)
+                        .await
                 }
+                r => r,
             }
         })
         .await
     }
 
     /// A link's root `~meta` for a list of the links root: what the read
-    /// says about the child its token announced.
-    async fn link_meta(&self, node: &str) -> LinkMeta {
-        match self.meta(node).await {
+    /// says about the child its token announced, within
+    /// [`LIST_READ_WINDOW`] (a list never waits longer for one child).
+    pub(crate) async fn link_meta(&self, node: &str) -> LinkMeta {
+        let key = suffixed(node, SUFFIX_META);
+        let read = self
+            .meta_raw_within(&key, &key, LIST_READ_WINDOW, LIST_READ_WINDOW)
+            .await
+            .and_then(|r| decode::<NodeMeta>(&r.payload));
+        match read {
             Ok(m) => LinkMeta::Read(m),
             // its token is gone (or the session): a `Delete` follows
             Err(e) if e.is(Status::Disconnected) => LinkMeta::Gone,
@@ -630,16 +645,17 @@ impl WyrmClient {
             }
         }
         names.sort();
-        let mut out = Vec::with_capacity(names.len());
-        let mut silent = Vec::new();
-        for name in names {
-            match self.link_meta(&format!("{root}/{name}")).await {
-                LinkMeta::Read(meta) => out.push(Child { name, meta }),
-                LinkMeta::Gone => {}
-                LinkMeta::Silent => silent.push(name),
-            }
-        }
-        Ok((out, silent))
+        Ok(read_links(names, self.link_reader(root)).await)
+    }
+
+    /// Reads the root `~meta` of the links under `root`, one name at a time
+    /// (`link_meta`, bounded by [`LIST_READ_WINDOW`]).
+    pub(crate) fn link_reader(&self, root: &str) -> ReadLink {
+        let (me, root) = (self.clone(), root.to_owned());
+        Arc::new(move |name: String| {
+            let (me, node) = (me.clone(), format!("{root}/{name}"));
+            Box::pin(async move { me.link_meta(&node).await })
+        })
     }
 
     /// Reactive `list`: first event is `Refreshed` with the snapshot, then
@@ -795,6 +811,51 @@ impl WyrmClient {
         let mut s = self.invoke(node, action, args).await?;
         s.next().await.unwrap_or(Ok(None))
     }
+}
+
+/// How long a list waits for one link's root `~meta` before it goes on
+/// without that link: it covers the route gap with a wide margin. The gap is
+/// one routing-tree computation, which Zenoh 1.10.1 runs 100 ms after the
+/// last change (`TREES_COMPUTATION_DELAY_MS`), so a read in the gap answers
+/// within about 100–200 ms. A link that has given no reply in this window is
+/// read again in the background ([`ListEvent::Added`] when it answers); it
+/// never holds up its siblings or the first `Refreshed`. A direct
+/// [`WyrmClient::meta`] keeps the full timeout (spec 05).
+pub const LIST_READ_WINDOW: Duration = Duration::from_millis(1500);
+
+/// Reads one link's root `~meta` by its name (see [`WyrmClient::link_reader`]).
+pub(crate) type ReadLink = Arc<
+    dyn Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = LinkMeta> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// The children `names` (sorted) read all at once with `read`; the names
+/// of those that kept silent come second. One silent link costs the whole
+/// snapshot at most one [`LIST_READ_WINDOW`], whatever their number.
+pub(crate) async fn read_links(names: Vec<String>, read: ReadLink) -> (Vec<Child>, Vec<String>) {
+    let mut reads = tokio::task::JoinSet::new();
+    for (i, name) in names.into_iter().enumerate() {
+        let read = read.clone();
+        reads.spawn(async move { (i, read(name.clone()).await, name) });
+    }
+    let mut done = Vec::new();
+    while let Some(r) = reads.join_next().await {
+        match r {
+            Ok(x) => done.push(x),
+            Err(e) => tracing::debug!("link meta read: {e}"),
+        }
+    }
+    done.sort_by_key(|(i, ..)| *i);
+    let (mut out, mut silent) = (Vec::new(), Vec::new());
+    for (_, r, name) in done {
+        match r {
+            LinkMeta::Read(meta) => out.push(Child { name, meta }),
+            LinkMeta::Gone => {}
+            LinkMeta::Silent => silent.push(name),
+        }
+    }
+    (out, silent)
 }
 
 /// The first pause between two reads in the route gap; it doubles up to

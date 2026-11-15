@@ -22,7 +22,9 @@
 //!   with `resource_exhausted` after the replies it still holds.
 
 use crate::intake::Intake;
-use crate::{decode, is_links_root, owner_key, Child, ClientError, LinkMeta, Result, WyrmClient};
+use crate::{
+    decode, is_links_root, owner_key, Child, ClientError, LinkMeta, ReadLink, Result, WyrmClient,
+};
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -276,27 +278,22 @@ pub(crate) async fn list(client: WyrmClient, node: String) -> Result<EventStream
         .await
         .map_err(|_| ClientError::new(wyrm_core::Status::Closed, "stream dropped"))?;
     let links_root = is_links_root(&node);
-    let mut silent = SilentLinks::default();
-    silent.read_again(&client, &node, unread);
+    let mut pending = PendingLinks::new(client.link_reader(&node));
+    for name in unread {
+        pending.start(name, true);
+    }
 
     tokio::spawn(async move {
         let _subs = (meta_sub, live_sub, owner_sub);
         loop {
             let step = tokio::select! {
                 step = intake.next(list_step) => step,
-                Some(done) = silent.reads.join_next_with_id(), if !silent.reads.is_empty() => {
-                    match done {
-                        Ok((id, (name, LinkMeta::Read(meta)))) if silent.take(&name, id) => {
-                            // a link that kept silent has answered at last
-                            known.insert(name.clone(), meta.rev.unwrap_or(0));
-                            if tx.send(ListEvent::Added(Child { name, meta })).await.is_err() {
-                                return;
-                            }
+                done = pending.next(), if !pending.reads.is_empty() => {
+                    let ev = done.and_then(|(name, r)| on_read(&mut known, name, r));
+                    if let Some(ev) = ev {
+                        if tx.send(ev).await.is_err() {
+                            return;
                         }
-                        Ok((id, (name, _))) => {
-                            silent.take(&name, id);
-                        }
-                        Err(_) => {} // aborted: its child is gone or listed again
                     }
                     continue;
                 }
@@ -304,17 +301,18 @@ pub(crate) async fn list(client: WyrmClient, node: String) -> Result<EventStream
             };
             let ev = match step {
                 Step::Closed => return,
-                Step::Raw(Raw::Meta(smp)) => on_meta(&node, &smp, &mut known, &mut silent),
+                Step::Raw(Raw::Meta(smp)) => on_meta(&node, &smp, &mut known, &mut pending),
                 Step::Raw(Raw::Child(smp)) => {
-                    on_child_liveliness(&client, &node, links_root, &smp, &mut known, &mut silent)
-                        .await
+                    on_child_liveliness(&node, links_root, &smp, &mut known, &mut pending)
                 }
                 Step::Raw(Raw::Owner(SampleKind::Delete)) => Some(ListEvent::Disconnected(None)),
                 Step::Raw(Raw::Owner(SampleKind::Put)) => match client.snapshot(&node).await {
                     Ok((snap, unread)) => {
                         known = known_of(&snap);
-                        silent.reset();
-                        silent.read_again(&client, &node, unread);
+                        pending.reset();
+                        for name in unread {
+                            pending.start(name, true);
+                        }
                         Some(ListEvent::Refreshed(snap))
                     }
                     Err(e) => {
@@ -325,8 +323,10 @@ pub(crate) async fn list(client: WyrmClient, node: String) -> Result<EventStream
                 Step::Resync => match client.snapshot(&node).await {
                     Ok((snap, unread)) => {
                         known = known_of(&snap);
-                        silent.reset();
-                        silent.read_again(&client, &node, unread);
+                        pending.reset();
+                        for name in unread {
+                            pending.start(name, true);
+                        }
                         Some(ListEvent::Refreshed(snap))
                     }
                     // the owner is gone: its next `Put` lists again
@@ -365,36 +365,52 @@ fn known_of(kids: &[Child]) -> HashMap<String, u32> {
 const SILENT_PAUSE_FIRST: Duration = Duration::from_secs(1);
 const SILENT_PAUSE_MAX: Duration = Duration::from_secs(30);
 
-/// Links of a links-root list whose token is there but whose `~meta` gave
-/// no reply in a whole read: each is read again on its own task (a pause,
-/// doubled up to [`SILENT_PAUSE_MAX`], between reads) until it answers or
-/// its token is gone. It is listed only once it has answered.
-#[derive(Default)]
-struct SilentLinks {
+/// Links of a links-root list whose token is there but which are not listed
+/// yet: each `~meta` read runs on its own task, so the list goes on with
+/// every other event meanwhile and no link waits for another. A read is
+/// bounded by [`LIST_READ_WINDOW`](crate::LIST_READ_WINDOW); a link that
+/// kept silent through it is read again after a pause (1 s, doubled up to
+/// [`SILENT_PAUSE_MAX`]) until it answers or its token is gone. A link is
+/// listed only once it has answered.
+struct PendingLinks {
+    read: ReadLink,
     reads: JoinSet<(String, LinkMeta)>,
     ids: HashMap<String, AbortHandle>,
 }
 
-impl SilentLinks {
-    fn read_again(&mut self, client: &WyrmClient, node: &str, names: Vec<String>) {
-        for name in names {
-            if self.ids.contains_key(&name) {
-                continue;
-            }
-            let (client, key) = (client.clone(), format!("{node}/{name}"));
-            let task_name = name.clone();
-            let handle = self.reads.spawn(async move {
-                let mut pause = SILENT_PAUSE_FIRST;
-                loop {
-                    tokio::time::sleep(pause).await;
-                    match client.link_meta(&key).await {
-                        LinkMeta::Silent => pause = (pause * 2).min(SILENT_PAUSE_MAX),
-                        r => return (task_name, r),
-                    }
-                }
-            });
-            self.ids.insert(name, handle);
+impl PendingLinks {
+    fn new(read: ReadLink) -> Self {
+        Self {
+            read,
+            reads: JoinSet::new(),
+            ids: HashMap::new(),
         }
+    }
+
+    /// Read `name` (at once, or after the first pause when it has just kept
+    /// silent in a snapshot) and again until it answers.
+    fn start(&mut self, name: String, silent_already: bool) {
+        if self.ids.contains_key(&name) {
+            return;
+        }
+        let (read, task_name) = (self.read.clone(), name.clone());
+        let handle = self.reads.spawn(async move {
+            let mut pause = SILENT_PAUSE_FIRST;
+            if silent_already {
+                tokio::time::sleep(pause).await;
+                pause = (pause * 2).min(SILENT_PAUSE_MAX);
+            }
+            loop {
+                match read(task_name.clone()).await {
+                    LinkMeta::Silent => {
+                        tokio::time::sleep(pause).await;
+                        pause = (pause * 2).min(SILENT_PAUSE_MAX);
+                    }
+                    r => return (task_name, r),
+                }
+            }
+        });
+        self.ids.insert(name, handle);
     }
 
     /// The child is listed, or gone: no more reads of it (the set reports
@@ -415,9 +431,30 @@ impl SilentLinks {
         }
     }
 
+    /// The next read that ended: `Some((name, what it read))` for a current
+    /// one, `None` for an aborted or replaced one.
+    async fn next(&mut self) -> Option<(String, LinkMeta)> {
+        match self.reads.join_next_with_id().await? {
+            Ok((id, (name, r))) if self.take(&name, id) => Some((name, r)),
+            _ => None,
+        }
+    }
+
     fn reset(&mut self) {
         self.reads.abort_all();
         self.ids.clear();
+    }
+}
+
+/// A pending link's read has ended: `Added` with the meta it answered.
+fn on_read(known: &mut HashMap<String, u32>, name: String, r: LinkMeta) -> Option<ListEvent> {
+    match r {
+        LinkMeta::Read(meta) if !known.contains_key(&name) => {
+            known.insert(name.clone(), meta.rev.unwrap_or(0));
+            Some(ListEvent::Added(Child { name, meta }))
+        }
+        // listed meanwhile (its `~meta` came), or its token is gone
+        _ => None,
     }
 }
 
@@ -425,15 +462,15 @@ fn on_meta(
     node: &str,
     smp: &ZSample,
     known: &mut HashMap<String, u32>,
-    silent: &mut SilentLinks,
+    pending: &mut PendingLinks,
 ) -> Option<ListEvent> {
     let name = child_name(smp.key_expr().as_str(), node, SUFFIX_META)?.to_owned();
     match smp.kind() {
         SampleKind::Delete => known.remove(&name).map(|_| ListEvent::Removed(name)),
         SampleKind::Put => {
             let meta: NodeMeta = decode(&smp.payload().to_bytes()).ok()?;
-            // its own meta came: a silent link needs no read any more
-            silent.forget(&name);
+            // its own meta came: a pending link needs no read any more
+            pending.forget(&name);
             let rev = meta.rev.unwrap_or(0);
             match known.insert(name.clone(), rev) {
                 None => Some(ListEvent::Added(Child { name, meta })),
@@ -447,37 +484,26 @@ fn on_meta(
     }
 }
 
-async fn on_child_liveliness(
-    client: &WyrmClient,
+fn on_child_liveliness(
     node: &str,
     links_root: bool,
     smp: &ZSample,
     known: &mut HashMap<String, u32>,
-    silent: &mut SilentLinks,
+    pending: &mut PendingLinks,
 ) -> Option<ListEvent> {
     let name = child_name(smp.key_expr().as_str(), node, "")?.to_owned();
     match (smp.kind(), links_root) {
         (SampleKind::Put, true) => {
-            if known.contains_key(&name) || silent.ids.contains_key(&name) {
-                return None;
+            // Its token is the proof that it exists; its read (on a task of
+            // its own) waits out the route gap (`read_through_gap`) and is
+            // `Added` when the link answers, never with an empty default.
+            if !known.contains_key(&name) {
+                pending.start(name, false);
             }
-            // Its token is the proof that it exists; the read waits out the
-            // route gap (`read_through_gap`). A child is added only with
-            // the meta its link answered, never with an empty default.
-            match client.link_meta(&format!("{node}/{name}")).await {
-                LinkMeta::Read(meta) => {
-                    known.insert(name.clone(), meta.rev.unwrap_or(0));
-                    Some(ListEvent::Added(Child { name, meta }))
-                }
-                LinkMeta::Gone => None,
-                LinkMeta::Silent => {
-                    silent.read_again(client, node, vec![name]);
-                    None
-                }
-            }
+            None
         }
         (SampleKind::Delete, true) => {
-            silent.forget(&name);
+            pending.forget(&name);
             known.remove(&name).map(|_| ListEvent::Removed(name))
         }
         (SampleKind::Put, false) => Some(ListEvent::Connected(name)),
@@ -1067,6 +1093,88 @@ mod tests {
         assert_eq!(got.len(), RELIABLE_BUFFER);
         assert_eq!(got[0], smp("a", 2));
         assert_eq!(v.dropped.load(Ordering::Relaxed), 2);
+    }
+
+    /// Children `a`, `b`, `c` answer in 300 ms; `silent` gives no reply
+    /// (each read waits the whole window) until 5 s after the start.
+    fn reader(start: tokio::time::Instant) -> ReadLink {
+        Arc::new(move |name: String| {
+            Box::pin(async move {
+                if name == "silent" && start.elapsed() < Duration::from_secs(5) {
+                    tokio::time::sleep(crate::LIST_READ_WINDOW).await;
+                    return LinkMeta::Silent;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                LinkMeta::Read(NodeMeta::folder().display(name))
+            })
+        })
+    }
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// One silent link costs a snapshot one window, not one per link, and
+    /// the others are in it.
+    #[tokio::test(start_paused = true)]
+    async fn a_snapshot_reads_all_links_at_once() {
+        let start = tokio::time::Instant::now();
+        let kids = names(&["a", "b", "c", "silent"]);
+        let (out, silent) = crate::read_links(kids, reader(start)).await;
+        assert!(
+            start.elapsed() <= crate::LIST_READ_WINDOW + Duration::from_millis(5),
+            "{:?}",
+            start.elapsed()
+        );
+        let got: Vec<&str> = out.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(got, ["a", "b", "c"]);
+        assert_eq!(silent, ["silent"]);
+    }
+
+    /// The list's pending reads: the others come within the window, each
+    /// at once; the silent one comes later, when it answers.
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_link_never_holds_up_the_others() {
+        let start = tokio::time::Instant::now();
+        let mut p = PendingLinks::new(reader(start));
+        for n in ["silent", "a", "b", "c"] {
+            p.start(n.into(), false);
+        }
+        let mut got = Vec::new();
+        while got.len() < 4 {
+            if let Some((name, r)) = p.next().await {
+                assert!(matches!(r, LinkMeta::Read(_)), "{name}: {r:?}");
+                got.push((name, start.elapsed()));
+            }
+        }
+        for (name, at) in &got[..3] {
+            assert_ne!(name, "silent");
+            assert!(*at < crate::LIST_READ_WINDOW, "{name} at {at:?}");
+        }
+        let (name, at) = &got[3];
+        assert_eq!(name, "silent");
+        assert!(*at >= Duration::from_secs(5), "{at:?}");
+        // silent through 1.5 s reads with 1, 2, 4 s pauses between them
+        assert!(*at < Duration::from_secs(13), "{at:?}");
+        assert!(p.reads.is_empty() && p.ids.is_empty());
+    }
+
+    /// A pending link whose token goes is forgotten: its read is aborted
+    /// and never reported.
+    #[tokio::test(start_paused = true)]
+    async fn a_forgotten_link_is_never_reported() {
+        let start = tokio::time::Instant::now();
+        let mut p = PendingLinks::new(reader(start));
+        p.start("silent".into(), false);
+        p.start("a".into(), false);
+        p.forget("silent");
+        let mut got = Vec::new();
+        while !p.reads.is_empty() {
+            if let Some((name, _)) = p.next().await {
+                got.push(name);
+            }
+        }
+        assert_eq!(got, ["a"]);
     }
 
     #[test]

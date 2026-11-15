@@ -261,16 +261,21 @@ to that gap early.
 - Zenoh's own `"Timeout"` error reply (a query that timed out) is now no
   reply (`timeout` or `disconnected`, spec 05), not `internal_error`.
 - A list of the links root lists a link only with the meta the link
-  answered. A link that keeps silent through a whole read is left out and
-  read again (1 s, doubled up to 30 s) until it answers or its token goes;
-  a link that refuses the read is listed with an empty meta
+  answered. It reads every link on a task of its own, at once, each read
+  bounded by `LIST_READ_WINDOW` (1.5 s; the gap is one tree computation
+  with a 100 ms debounce), so a silent link never holds up the first
+  `Refreshed` or another link. A link silent through its window is left out
+  and read again (1 s, doubled up to 30 s) until it answers or its token
+  goes; a link that refuses the read is listed with an empty meta
   (`docs/links.md`, "A link that has just appeared").
 - `downstream/<d>/connected` and `upstream/<u>/connected` mean that queries
   reach the peer: the token is there and a probe of the peer's
   `sys/signing_keys` has an answer (`wyrm_admin::peers::follow`).
 Tests: `crates/wyrm-client/tests/route_gap.rs` (a fake link that drops or
-holds its first queries; all four fail on the old code),
-`wyrm-client` `gap_tests` and `wyrm-admin` `peers::tests` on paused time,
+holds its first queries; the first four fail on the old code, the sibling
+test waits 10 s for the snapshot on the first version of this fix),
+`wyrm-client` `gap_tests` and the list's pending-read tests and `wyrm-admin`
+`peers::tests` on paused time,
 e2e `a_live_list_from_above_never_lists_an_empty_link`. Other places that
 see a token before a route: the process link `hello` and the standby's polls
 retry anyway; `follow_signers` loses one 10 s round; the flow `liveliness`
