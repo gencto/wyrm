@@ -15,7 +15,7 @@ use tracing::{info, warn};
 use wyrm_core::meta::{ActionResult, ParamMeta, Writable, GROUP_EDIT, GROUP_NEW};
 use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, Status, TypeCode, Value};
 use wyrm_history::time::{iso_us, parse_interval, parse_range, US_PER_DAY};
-use wyrm_history::{GroupCfg, HistoryQuery, Logging, Rollup, WatchCfg};
+use wyrm_history::{GroupCfg, HistoryRead, Logging, Rollup, WatchCfg};
 use wyrm_link_sdk::{now_us, LinkCtx, LinkError};
 
 mod sinks;
@@ -951,7 +951,7 @@ pub(crate) async fn query(
     rollup: Rollup,
     limit: usize,
 ) -> Result<Vec<Value>> {
-    let q = HistoryQuery {
+    let q = HistoryRead {
         from,
         to,
         interval,

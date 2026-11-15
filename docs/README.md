@@ -42,6 +42,6 @@ Every protocol link has a simulator. The guides show how to run it. No link has 
 ## Rules and decisions
 
 - [`spec/`](../spec/README.md) is the normative protocol: keys, metadata, values, tokens, methods, flows.
-- [`adr/`](adr/) holds one file per decision. [ADR 0029](adr/0029-delegated-decisions.md) collects the decisions the owner delegated on 2026-10-31. [ADR 0031](adr/0031-security-review-2026-10-31.md) says what happens to each finding of the security review of 2026-10-31 (`security/review-2026-10-31.md`).
+- [`adr/`](adr/) holds one file per decision. [ADR 0029](adr/0029-delegated-decisions.md) collects the decisions the owner delegated on 2026-10-31. [ADR 0031](adr/0031-security-review-2026-10-31.md) says what happens to each finding of the security review of 2026-10-31 (`security/review-2026-10-31.md`). `security/review-2026-11-15-typing.md` is the typing audit of 2026-11-15, with the status and order of work of each finding.
 - [`security/threats.md`](security/threats.md) lists the threats and what answers each one.
 - [`backlog.md`](backlog.md) lists the work that is known and not done.

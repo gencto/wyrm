@@ -8,11 +8,13 @@
 pub mod attachment;
 pub mod codec;
 pub mod display;
+pub mod history;
 pub mod keyspace;
 pub mod meta;
 pub mod profile;
 pub mod ptok;
 pub mod status;
+pub mod time;
 pub mod value;
 pub mod wire;
 

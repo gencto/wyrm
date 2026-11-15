@@ -42,7 +42,9 @@ repositories, and setups that turn off protection on purpose (`insecure_plaintex
 ## What already protects users
 
 - Threat model and controls: [`docs/security/threats.md`](docs/security/threats.md); findings of the
-  security review and what happened to each: [ADR 0031](docs/adr/0031-security-review-2026-10-31.md).
+  security review and what happened to each: [ADR 0031](docs/adr/0031-security-review-2026-10-31.md);
+  the typing audit of 2026-11-15 with the status of each finding:
+  [`docs/security/review-2026-11-15-typing.md`](docs/security/review-2026-11-15-typing.md).
 - Accepted dependency advisories, each with its reason: [`.cargo/audit.toml`](.cargo/audit.toml).
   `cargo audit` runs on every push and every day.
 - Official link packages carry SHA-256 sums in the index the broker checks, and build provenance
