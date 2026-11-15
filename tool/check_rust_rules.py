@@ -208,13 +208,29 @@ def c1(s: Source) -> list[int]:
     return s.hits("C1", hits)
 
 
+OWN_LOOKUP = {"from_name", "parse", "from_str", "by_name"}
+
+
 def c2(s: Source) -> list[int]:
-    """A name looked up by hand in `ALL` (`.name() ==`); `Self::ALL` in the
-    type's own `from_name` is its one definition."""
-    hits = [
-        m.start()
-        for m in re.finditer(r"(?<!Self::)\bALL\b[^;{}]{0,240}?(?:\.name\(\)\s*==|==\s*[\w.*&]+\.name\(\))", s.masked)
+    """A name looked up by hand: `ALL…name() ==`, or any `.find(|x| x.name() == s)` /
+    `name(*x) == s` search. The type's own `from_name` (or `parse`, `from_str`) is the one
+    definition of its set and is not counted."""
+    hits = []
+    pats = [
+        r"\bALL\b[^;{}]{0,240}?(?:\.name\(\)\s*==|==\s*[\w.*&]+\.name\(\))",
+        r"\.find\(\s*\|[^|]*\|[^;{}]{0,160}?(?:\.name\(\)\s*==|==\s*[\w.*&]+\.name\(\)|\bname\(\s*\*?\w+\s*\)\s*==)",
     ]
+    seen = set()
+    for pat in pats:
+        for m in re.finditer(pat, s.masked):
+            ln = s.line_of(m.end())
+            if ln in seen:
+                continue
+            fns = re.findall(r"\bfn\s+(\w+)", s.masked[: m.start()])
+            if fns and fns[-1] in OWN_LOOKUP:
+                continue
+            seen.add(ln)
+            hits.append(m.end())
     return s.hits("C2", hits)
 
 
@@ -249,8 +265,18 @@ def c4(s: Source) -> list[int]:
 PUB_FN = re.compile(r"\bpub(?:\([^)]*\))?\s+(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+\"C\"\s+)?fn\s+\w+")
 
 
+STRING_RESULT = r"(?:(?:std|core)::result::)?Result<.*,String>"
+
+
 def c5(s: Source) -> list[int]:
-    """A `pub fn` that returns `Result<_, String>`."""
+    """A `pub fn` that returns `Result<_, String>`, also through an alias of this file
+    (`type Out = Result<Json, String>`, `type Result<T> = …Result<T, String>`)."""
+    aliases = [
+        a
+        for a, body in re.findall(r"\btype\s+(\w+)\s*(?:<[^=]*>)?\s*=\s*([^;]+);", s.masked)
+        if re.fullmatch(STRING_RESULT, re.sub(r"\s+", "", body))
+    ]
+    ret = STRING_RESULT + "".join(f"|{a}(?:<.*>)?" for a in aliases)
     hits = []
     text = s.masked
     for m in PUB_FN.finditer(text):
@@ -265,7 +291,7 @@ def c5(s: Source) -> list[int]:
                 break
             j += 1
         sig = re.sub(r"\s+", "", text[m.end() : j])
-        if re.search(r"->(?:(?:std|core)::result::)?Result<.*,String>$", sig):
+        if re.search(rf"->(?:{ret})$", sig):
             hits.append(m.start())
     return s.hits("C5", hits)
 
@@ -295,17 +321,25 @@ def c7(s: Source) -> list[int]:
 
 
 def c8(s: Source) -> list[int]:
-    """A dropped security or persistence result (`let _ = getrandom::…`,
-    `let _ = store.apply(…)`, `.save(`, `.persist(`, `.sync_all(`, `.flush(`)."""
-    pat = r"\blet\s+_\s*=[^;]*?(?:getrandom::|\.fill\(|\.apply\(|\.save\(|\.persist\(|\.sync_all\(|\.flush\()"
-    return s.hits("C8", [m.start() for m in re.finditer(pat, s.masked)])
+    """A dropped security or persistence result: `let _ =` / `_ =` of
+    `getrandom::…`, `.fill(`, `store.apply(…)`, `.save(`, `.persist(`, `.sync_all(`,
+    `.flush(`, or such a call ended with `.ok();`."""
+    calls = r"(?:getrandom::|\.fill\(|\.apply\(|\.save\(|\.persist\(|\.sync_all\(|\.flush\()"
+    pats = [
+        rf"(?:\blet\s+_\s*=|(?<![\w.=!<>])_\s*=(?![=>]))[^;]*?{calls}",
+        rf"(?<![=\w])\s(?:\w+::)*\w+(?:\.\w+)*{calls}[^;]*?\)\s*\.ok\(\)\s*;",
+    ]
+    hits = sorted({m.start() for p in pats for m in re.finditer(p, s.masked)})
+    return s.hits("C8", hits)
 
 
 def c9(s: Source) -> list[int]:
-    """A clock or hex helper defined outside `wyrm-core`."""
+    """A clock or hex/digest helper defined outside `wyrm-core`: a `fn` whose name starts
+    with `now_` or contains `hex` or `sha256` (`now_us`, `hex`, `wyrm_core_hex`,
+    `sha256_hex`, …)."""
     if s.path.startswith("crates/wyrm-core/"):
         return []
-    pat = r"\bfn\s+(?:now_us|now_s|now_ms|hex|unhex|hex_encode|hex_decode|to_hex|from_hex|sha256_hex)\b"
+    pat = r"\bfn\s+(?:now_\w*|\w*hex\w*|\w*sha256\w*)\b"
     return s.hits("C9", [m.start() for m in re.finditer(pat, s.masked)])
 
 
@@ -342,19 +376,33 @@ def members() -> list[str]:
         return tomllib.load(f)["workspace"]["members"]
 
 
+def test_module_files(path: Path, text: str) -> set[Path]:
+    """Files of the `#[cfg(test)] mod x;` declarations in `path`: test code."""
+    out = set()
+    stem = path.parent if path.name in ("lib.rs", "main.rs", "mod.rs") else path.with_suffix("")
+    for m in re.finditer(r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;", mask(text)):
+        out |= {stem / f"{m.group(1)}.rs", stem / m.group(1) / "mod.rs"}
+    return out
+
+
 def sources():
+    files = []
     for m in members():
         base = ROOT / m
-        for dirpath, dirnames, files in os.walk(base):
+        for dirpath, dirnames, names in os.walk(base):
             rel = Path(dirpath).relative_to(base).parts
             # test, bench and example code, and nested crates (fixtures)
             if rel and rel[0] in ("tests", "benches", "examples", "target"):
                 dirnames[:] = []
                 continue
-            for name in sorted(files):
-                if name.endswith(".rs"):
-                    p = Path(dirpath) / name
-                    yield p.relative_to(ROOT).as_posix(), p.read_text(encoding="utf-8")
+            files += [Path(dirpath) / n for n in sorted(names) if n.endswith(".rs")]
+    texts = {p: p.read_text(encoding="utf-8") for p in files}
+    tests = set()
+    for p, text in texts.items():
+        tests |= test_module_files(p, text)
+    for p in files:
+        if p not in tests:
+            yield p.relative_to(ROOT).as_posix(), texts[p]
 
 
 def measure_patterns(show: str | None = None) -> dict[str, dict[str, int]]:
