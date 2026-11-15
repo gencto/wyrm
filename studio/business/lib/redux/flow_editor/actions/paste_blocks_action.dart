@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/flow_draft.dart';
 
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
@@ -15,6 +17,23 @@ import 'validate_flow_action.dart';
 /// Duplicate is a paste of the selection's own text beside it.
 class PasteBlocksAction extends Action {
   PasteBlocksAction(this.text, this.x, this.y);
+
+  /// Duplicate: the blocks [ids] of [d] pasted beside the originals, one
+  /// grid step down and to the right. Nothing to paste when none is in [d].
+  factory PasteBlocksAction.duplicate(FlowDraft d, Set<String> ids) {
+    final picked = [
+      for (final b in d.blocks.values)
+        if (ids.contains(b.id)) b,
+    ];
+    if (picked.isEmpty) {
+      return PasteBlocksAction(null, 0, 0);
+    }
+    return PasteBlocksAction(
+      clipTextOf(d, ids),
+      picked.map((b) => b.x).reduce(math.min) + 20,
+      picked.map((b) => b.y).reduce(math.min) + 20,
+    );
+  }
 
   final String? text;
   final double x;

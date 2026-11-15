@@ -2284,6 +2284,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "fmNothingToUndo": MessageLookupByLibrary.simpleMessage(
       "Нема чого скасовувати",
     ),
+    "fmTidy": MessageLookupByLibrary.simpleMessage("Упорядкувати"),
     "fmUnpin": MessageLookupByLibrary.simpleMessage("Відкріпити від блока"),
     "fmUnpinField": m158,
     "followNeeds": MessageLookupByLibrary.simpleMessage(

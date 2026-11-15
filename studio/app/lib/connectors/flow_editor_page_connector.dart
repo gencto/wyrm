@@ -38,6 +38,7 @@ import 'package:business/redux/flow_editor/actions/set_scope_prompt_action.dart'
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
 import 'package:business/redux/flow_editor/actions/set_tree_query_action.dart';
 import 'package:business/redux/flow_editor/actions/set_viewed_field_action.dart';
+import 'package:business/redux/flow_editor/actions/tidy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
 import 'package:business/redux/flow_editor/actions/undo_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/update_block_from_library_action.dart';
@@ -967,20 +968,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       case .paste:
         unawaited(_paste(at));
       case .duplicate:
-        final picked = [
-          for (final b in d.blocks.values)
-            if (ids.contains(b.id)) b,
-        ];
-        if (picked.isNotEmpty) {
-          // Beside the originals, one grid step down and to the right.
-          dispatchSync(
-            PasteBlocksAction(
-              clipTextOf(d, ids),
-              picked.map((b) => b.x).reduce((a, b) => a < b ? a : b) + 20,
-              picked.map((b) => b.y).reduce((a, b) => a < b ? a : b) + 20,
-            ),
-          );
-        }
+        dispatchSync(PasteBlocksAction.duplicate(d, ids));
       case .delete:
         dispatchSync(RemoveBlocksAction(ids));
       case .undo:
@@ -994,6 +982,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         } else {
           dispatchSync(SetSelectedBlockAction(null));
         }
+      case .tidy:
+        dispatchSync(TidyFlowAction());
       case .editCustomBlock:
         final one = ids.length == 1 ? d.blocks[ids.single] : null;
         if (blockNameOf(one?.type ?? '') case final name?) {
@@ -1125,6 +1115,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             .redo,
             disabledReason: ed.redo.isEmpty ? S.current.fmNothingToRedo : null,
           ),
+          const FlowMenuItemVm(.tidy, divider: true),
         ],
         if (one) ...[
           const FlowMenuItemVm(.fields, divider: true),

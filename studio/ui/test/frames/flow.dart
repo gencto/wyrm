@@ -1,6 +1,9 @@
 // Canvas data, kept as the boards write it.
 // ignore_for_file: lines_longer_than_80_chars
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/flows/block_palette.dart';
@@ -2777,3 +2780,99 @@ FlowEditorPage flowCsvLines() => _bind(
     ),
   ],
 );
+
+/// The flow the agent deployed on the demo's `central` (62 blocks, no
+/// saved layout) as the editor lays it out (flow-editor.md §25): the
+/// places come from `business`'s layout (`flow_large.json`, written by
+/// `business/test/flow_layout_test.dart`).
+FlowEditorPage flowLarge() {
+  final json = jsonDecode(
+    File('test/frames/flow_large.json').readAsStringSync(),
+  ) as Map<String, Object?>;
+  final wires = [
+    for (final w in json['wires']! as List<Object?>)
+      if (w case [
+        final String from,
+        final String fromPort,
+        final String to,
+        final String toPort,
+      ])
+        FlowWireVm(
+          from,
+          fromPort,
+          to,
+          toPort,
+          writes: toPort == 'trigger' || toPort.startsWith('arg.'),
+        ),
+  ];
+  bool bound(String block, String? port, {required bool output}) =>
+      port != null &&
+      wires.any(
+        (w) => output
+            ? w.from == block && w.fromPort == port
+            : w.to == block && w.toPort == port,
+      );
+  final blocks = [
+    for (final b in json['blocks']! as List<Object?>)
+      if (b case {
+        'id': final String id,
+        'type': final String type,
+        'role': final String role,
+        'x': final num x,
+        'y': final num y,
+        'width': final num width,
+        'rows': final List<Object?> rows,
+      })
+        FlowBlockVm(
+          id: id,
+          title: id,
+          type: type,
+          kind: switch (role) {
+            'node' => BlockKindVm.node,
+            'action' => BlockKindVm.action,
+            'sink' => BlockKindVm.sink,
+            _ => BlockKindVm.logic,
+          },
+          x: x.toDouble(),
+          y: y.toDouble(),
+          width: width.toDouble(),
+          rows: [
+            for (final r in rows)
+              if (r case {
+                'id': final String rid,
+                'label': final String label,
+                'in': final String? inPort,
+                'out': final String? outPort,
+              })
+                FieldRowVm(
+                  id: rid,
+                  label: label,
+                  name: rid,
+                  inPort: inPort,
+                  outPort: outPort,
+                  inMark: inPort == null
+                      ? PortMark.none
+                      : (bound(id, inPort, output: false)
+                            ? PortMark.bound
+                            : PortMark.free),
+                  outMark: outPort == null
+                      ? PortMark.none
+                      : (bound(id, outPort, output: true)
+                            ? PortMark.bound
+                            : PortMark.free),
+                ),
+          ],
+        ),
+  ];
+  return _bind(
+    selected: null,
+    flow: 'dvpsm-bot',
+    blocks: blocks,
+    wires: wires,
+    summary: const FlowSummaryVm(
+      label: 'FLOW',
+      title: 'dvpsm-bot',
+      facts: [('Version', '2'), ('Blocks', '62')],
+    ),
+  );
+}
