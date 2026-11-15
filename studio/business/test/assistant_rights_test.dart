@@ -70,6 +70,37 @@ void main() {
     await s.dispatchAndWait(RetrieveAgentAction());
   }
 
+  test(
+    'settings that do not read: who approves is not known, never write',
+    () async {
+      await logIn();
+      api.metas[agent] = NodeMeta(
+        cfg: {
+          // a mode the link does not have
+          'require_approval': const VStr('always'),
+          'allowed_prefixes': Value.from(['wy/central/downstream/modbus']),
+        },
+      );
+      await s.dispatchAndWait(RetrieveAgentAction());
+
+      final r = _Reader(s.state);
+      expect(s.state.assistant.configInvalid, isTrue);
+      expect(s.state.assistant.config, isNull);
+      expect(r.assistant.mode, isNull);
+      expect(r.assistant.modeUnknown, isTrue);
+      expect(r.agentParams.mode, isNull);
+
+      // read again and well: known again
+      api.metas[agent] = NodeMeta(
+        cfg: {'require_approval': const VStr('config')},
+      );
+      await s.dispatchAndWait(RetrieveAgentAction());
+      expect(_Reader(s.state).assistant.mode, ApprovalMode.config);
+      expect(_Reader(s.state).unattended, ApprovalMode.config);
+      expect(_Reader(s.state).assistant.modeUnknown, isFalse);
+    },
+  );
+
   test('the prefixes are kept as a list', () async {
     await logIn();
     expect(s.state.assistant.config?.prefixes, [

@@ -337,7 +337,10 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
             ),
       reads: rights || t == null ? const [] : readsOf(t),
       rights: rights ? _rights() : null,
-      onMode: (m) => dispatch(StageAgentParamAction.mode(m.domain)),
+      onMode: (m) => switch (m.domain) {
+        final mode? => dispatch(StageAgentParamAction.mode(mode)),
+        null => null,
+      },
       onRemovePrefix: (p) => dispatch(StageAgentParamAction.removePrefix(p)),
       onAddAgent: () => dispatch(GoAction.push(const LinkInstallRoute())),
       onShow: () => dispatch(
@@ -414,7 +417,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
                     for (final f in t.fixesOf(s.n))
                       f.tile(
                         note: .fix,
-                        unattended: unattended,
+                        unattended: _unattended,
                         hold: followHold(t),
                       ),
                   ]
@@ -475,7 +478,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
                   ),
               ],
               blocked: moreHold(t, s)?.blocked,
-              unattended: unattended?.view,
+              unattended: _unattended,
             ),
         ];
 
@@ -494,7 +497,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       // a suggestion with rows needs its ticks: the Result card has them
       ways: [for (final s in t.waysOut) s.tile(hold: followHold(t))],
       offered: t.suggestions.isNotEmpty,
-      unattended: unattended?.view,
+      unattended: _unattended,
     );
   }
 
@@ -556,31 +559,22 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
   }
 
   /// The card of a plan that waits: what Approve signs, Reject, Approve.
-  TaskCardVm _approval(AgentTask t, List<StepChoice> choices) {
-    final refusal = assistant.refusals[t.id];
-    return TaskCardVm(
-      badge: t.state.badge,
-      note: !assistant.docs
-          // a gateway older than `doc` cannot show the plan
-          ? const TaskNoteNoRecord()
-          : otherSite != null
-          ? TaskNoteOtherSite(otherSite!)
-          // the task keeps waiting: what was refused, and the way on
-          : refusal != null
-          ? TaskNoteRefused(refusal)
-          : !t.recorded
-          ? const TaskNoteWaiting()
-          : TaskNoteSigns(role: site.role ?? '', byAgent: choices.byAgentCount),
-      buttons: [
-        TaskButtonVm(.reject, blocked: writeHold?.blocked),
-        TaskButtonVm(
-          .approve,
-          count: choices.tickedCount == 0 ? 0 : choices.runCount,
-          blocked: approveHold(t, choices)?.blocked,
-        ),
-      ],
-    );
-  }
+  TaskCardVm _approval(AgentTask t, List<StepChoice> choices) => TaskCardVm(
+    badge: t.state.badge,
+    note: approvalNote(t, choices).note,
+    buttons: [
+      TaskButtonVm(.reject, blocked: writeHold?.blocked),
+      TaskButtonVm(
+        .approve,
+        count: choices.tickedCount == 0 ? 0 : choices.runCount,
+        blocked: approveHold(t, choices)?.blocked,
+      ),
+    ],
+  );
+
+  /// The mode under which a pick's plan may write without a person.
+  AgentModeVm? get _unattended =>
+      unattendedView(unattended, unknown: assistant.modeUnknown);
 
   /// The drawer's second button as the model's tile (spec §5): while the
   /// plan waits a draft to copy (an ask would replace a plan the person
@@ -595,7 +589,11 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     }
     return waits
         ? s.tile(note: .draft)
-        : s.tile(note: .followUp, unattended: unattended, hold: followHold(t));
+        : s.tile(
+            note: .followUp,
+            unattended: _unattended,
+            hold: followHold(t),
+          );
   }
 
   /// The ask box for the task on screen (spec `assistant.md` §4).
@@ -641,6 +639,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       sentTo: config?.sentTo,
       blocked: editHold?.blocked,
       staged: params.staged,
+      modeUnknown: params.mode == null,
     );
   }
 

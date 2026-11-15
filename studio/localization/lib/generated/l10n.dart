@@ -17081,6 +17081,41 @@ class S {
       args: [key],
     );
   }
+
+  /// `Not known`
+  String get modeUnknown {
+    return Intl.message('Not known', name: 'modeUnknown', desc: '', args: []);
+  }
+
+  /// `The agent's settings could not be read, so who approves is not known.`
+  String get modeUnknownDetail {
+    return Intl.message(
+      'The agent\'s settings could not be read, so who approves is not known.',
+      name: 'modeUnknownDetail',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Who approves is not known (the agent's settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.`
+  String get modeUnknownCaution {
+    return Intl.message(
+      'Who approves is not known (the agent\'s settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant\'s guess, not a check. Read a tile before you pick it.',
+      name: 'modeUnknownCaution',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `replaces this plan; who approves is not known, so the new plan's write steps may run without a person`
+  String get fixReplacesModeUnknown {
+    return Intl.message(
+      'replaces this plan; who approves is not known, so the new plan\'s write steps may run without a person',
+      name: 'fixReplacesModeUnknown',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

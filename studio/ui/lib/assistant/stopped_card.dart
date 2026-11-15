@@ -69,10 +69,7 @@ final class StoppedCardVm extends Equatable {
   String get waysLabel => S.current.waysOut;
 
   /// The caution of a mode that lets a pick's plan write at once.
-  String? get caution => switch (unattended) {
-    final m? => S.current.waysCaution(m.word),
-    null => null,
-  };
+  String? get caution => unattended?.caution;
 
   String? get note => offered ? S.current.waysNote : null;
 

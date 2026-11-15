@@ -2106,5 +2106,9 @@
     "foundRefusedInvalid": "{n} not noted: not a node key.",
     "@foundRefusedInvalid": {"placeholders": {"n": {"type": "String"}}},
     "pickKeyOutside": "{key} is outside what the agent may read",
-    "@pickKeyOutside": {"placeholders": {"key": {"type": "String"}}}
+    "@pickKeyOutside": {"placeholders": {"key": {"type": "String"}}},
+    "modeUnknown": "Not known",
+    "modeUnknownDetail": "The agent's settings could not be read, so who approves is not known.",
+    "modeUnknownCaution": "Who approves is not known (the agent's settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.",
+    "fixReplacesModeUnknown": "replaces this plan; who approves is not known, so the new plan's write steps may run without a person"
 }

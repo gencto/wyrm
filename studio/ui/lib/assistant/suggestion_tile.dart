@@ -49,14 +49,8 @@ final class SuggestionTileVm extends Equatable {
   /// `replaces this plan`, `a draft to copy · sends nothing`.
   String? get noteText => switch (note) {
     null => null,
-    TileNote.fix => switch (unattended) {
-      final m? => S.current.fixReplacesNoPerson(m.word),
-      null => S.current.fixReplaces,
-    },
-    TileNote.followUp => switch (unattended) {
-      final m? => S.current.waysCaution(m.word),
-      null => S.current.followUpTileNote,
-    },
+    TileNote.fix => unattended?.fixNote ?? S.current.fixReplaces,
+    TileNote.followUp => unattended?.caution ?? S.current.followUpTileNote,
     TileNote.draft => S.current.draftTileNote,
   };
 

@@ -16,6 +16,11 @@ abstract class AssistantState with _$AssistantState {
     /// What the agent may do, from its root `cfg`; null until it is read
     /// (or when its meta is not readable).
     AgentConfig? config,
+
+    /// The agent's `cfg` was read and is not one Studio reads (a setting of
+    /// another type, a mode the link does not have): what it may do, and
+    /// so who approves, is not known.
+    @Default(false) bool configInvalid,
     @Default(true) bool docs,
     @Default(IMapConst({})) IMap<String, ISet<int>> unticked,
     @Default(IMapConst({})) IMap<String, String> refusals,

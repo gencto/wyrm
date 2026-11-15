@@ -2237,6 +2237,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Чернетка не проходить перевірку.",
     ),
     "fixReplaces": MessageLookupByLibrary.simpleMessage("замінює цей план"),
+    "fixReplacesModeUnknown": MessageLookupByLibrary.simpleMessage(
+      "замінює цей план; невідомо, хто схвалює, тому кроки запису нового плану можуть виконатися без людини",
+    ),
     "fixReplacesNoPerson": m151,
     "flowBack": MessageLookupByLibrary.simpleMessage("Назад"),
     "flowDeployed": m152,
@@ -2573,6 +2576,13 @@ class MessageLookup extends MessageLookupByLibrary {
     "modeProcess": MessageLookupByLibrary.simpleMessage("Процес"),
     "modeProcessNote": MessageLookupByLibrary.simpleMessage(
       "Окремий процес на цьому хості; брокер стежить і перезапускає.",
+    ),
+    "modeUnknown": MessageLookupByLibrary.simpleMessage("Невідомо"),
+    "modeUnknownCaution": MessageLookupByLibrary.simpleMessage(
+      "Невідомо, хто схвалює (налаштування агента не вдалося прочитати): план вибраного варіанта може виконати кроки запису без людини. Мітка — здогад асистента, а не перевірка. Прочитайте плитку, перш ніж вибрати її.",
+    ),
+    "modeUnknownDetail": MessageLookupByLibrary.simpleMessage(
+      "Налаштування агента не вдалося прочитати, тому невідомо, хто схвалює.",
     ),
     "modeWasmNote": MessageLookupByLibrary.simpleMessage(
       "Усередині брокера в пісочниці: без файлів, лише дозволена мережа, обмеження пам’яті й часу. Визначається типом пакета.",

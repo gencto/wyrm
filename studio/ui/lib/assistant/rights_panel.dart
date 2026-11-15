@@ -49,6 +49,7 @@ final class RightsPanelVm extends Equatable {
     this.sentTo,
     this.blocked,
     this.staged = false,
+    this.modeUnknown = false,
   });
 
   final List<ModeVm> modes;
@@ -78,6 +79,12 @@ final class RightsPanelVm extends Equatable {
 
   /// A change of its params is staged.
   final bool staged;
+
+  /// Who approves is not known (the agent's settings did not read): no
+  /// mode is marked, and the panel says so with its caution.
+  final bool modeUnknown;
+
+  String? get unknownNote => modeUnknown ? AgentModeVm.unknown.caution : null;
 
   String get modesLabel => S.current.mayDoModes;
   String get prefixesLabel => S.current.prefixesLabel;
@@ -139,6 +146,7 @@ final class RightsPanelVm extends Equatable {
     sentTo,
     blocked,
     staged,
+    modeUnknown,
   ];
 }
 
@@ -232,6 +240,16 @@ class RightsPanel extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        if (vm.unknownNote case final u?)
+          Container(
+            padding: Insets.band,
+            decoration: BoxDecoration(
+              color: c.warnTint,
+              border: Border.all(color: c.warnLine),
+              borderRadius: Radii.control,
+            ),
+            child: Text(u, style: small.copyWith(color: c.warn)),
           ),
         const SizedBox(height: 10),
         SectionLabel(vm.prefixesLabel),

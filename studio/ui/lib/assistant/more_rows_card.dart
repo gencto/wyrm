@@ -63,10 +63,7 @@ final class MoreRowsCardVm extends Equatable {
   String? get disabledReason => blocked?.text;
 
   /// What the rows are, or the caution of the agent's mode.
-  String get note => switch (unattended) {
-    final m? => S.current.waysCaution(m.word),
-    null => S.current.moreNote,
-  };
+  String get note => unattended?.caution ?? S.current.moreNote;
 
   @override
   List<Object?> get props => [id, title, detail, rows, blocked, unattended];

@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/agent_config.dart';
+import 'package:models/agent_params.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/approval_mode.dart';
 import 'package:models/assistant_panel.dart';
@@ -66,6 +67,7 @@ import 'package:wyrm_client/wyrm_client.dart'
 
 import '../wyrm/approval.dart';
 import '../wyrm/context_keys.dart';
+import '../wyrm/decode/agent_params.dart';
 import '../wyrm/device_keys.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/holds.dart';
@@ -305,6 +307,26 @@ extension AssistantScreen on Selectors {
         : _lacks(site.needs('write', '$agent/tasks/${t.id}'));
   }
 
+  /// What the card of the plan of [t] that waits says beside Approve,
+  /// with [choices]: the other half of the decision [approveHold] makes,
+  /// in the same order (no record, another site, a refusal, then the
+  /// record not read yet, else what Approve signs).
+  ApprovalNote approvalNote(AgentTask t, List<StepChoice> choices) {
+    if (!assistant.docs) {
+      return const ApprovalNoRecord();
+    }
+    if (otherSite case final s?) {
+      return ApprovalOtherSite(s);
+    }
+    if (assistant.refusals[t.id] case final why?) {
+      return ApprovalRefused(why);
+    }
+    if (!t.recorded) {
+      return const ApprovalWaiting();
+    }
+    return ApprovalSigns(role: site.role ?? '', byAgent: choices.byAgentCount);
+  }
+
   /// Why a task cannot be rejected, cancelled or answered: no `write` on
   /// the agent.
   Hold? get writeHold => switch (assistant.agent) {
@@ -382,8 +404,12 @@ extension AssistantScreen on Selectors {
   /// The agent's mode when it lets a plan's `write` steps run without a
   /// person (`config`, `never`): a picked suggestion's plan may then write
   /// at once (docs/agent.md, AI-4). Null for `write`.
-  ApprovalMode? get unattended =>
-      assistant.mode.unattended ? assistant.mode : null;
+  /// Null for `write`, and when the mode is not known (`modeUnknown` says
+  /// so: the screen then keeps the caution).
+  ApprovalMode? get unattended => switch (assistant.mode) {
+    final m? when m.unattended => m,
+    _ => null,
+  };
 
   /// The task a message in the box follows: the task on screen when the
   /// user may follow it and nothing replaced it. A plan that waits is then
@@ -534,47 +560,37 @@ extension AssistantScreen on Selectors {
 /// applied (`sys/links/<id>` ▸ `update {params}`, keyed by the link's full
 /// key, so another site's link of the same id is not it).
 extension StagedParams on Selectors {
-  /// The update staged for the link [key] and the params it was made from;
-  /// null when none is staged.
-  ({StagedChange change, Map<String, Object?> base})? stagedParamsOf(
-    String key,
-  ) {
+  /// The update staged for the agent link [key]: the params it sends and
+  /// those it was made from; null when none is staged. Studio writes both
+  /// itself (`agentParamsJson`); one that does not read back is logged
+  /// and is no base for a new edit.
+  ({StagedChange change, AgentParams params, AgentParams base})?
+  stagedAgentParamsOf(String key) {
     for (final c in changes.table.values) {
-      if (c.key == key &&
-          c.action == 'update' &&
-          c.args['params'] is Map<String, Object?>) {
-        return (
-          change: c,
-          base: switch (c.value) {
-            final Map<String, Object?> m => m,
-            _ => const <String, Object?>{},
-          },
-        );
+      if (c.key == key && c.action == 'update') {
+        final params = agentParamsOf(c.args['params']).orWarn(key);
+        final base = agentParamsOf(c.value).orWarn(key);
+        return params == null || base == null
+            ? null
+            : (change: c, params: params, base: base);
       }
     }
     return null;
   }
 
   /// The agent link's `require_approval` and `allowed_prefixes` as they will
-  /// be: from the update staged for it on this site, else as read.
-  ({ApprovalMode mode, List<String> prefixes, bool staged}) get agentParams {
+  /// be: from the update staged for it on this site, else as read. The mode
+  /// is null when it is not known (the agent's settings did not read).
+  ({ApprovalMode? mode, List<String> prefixes, bool staged}) get agentParams {
     final agent = assistant.agent;
     final staged = agent == null
         ? null
-        : stagedParamsOf('${site.root}/sys/links/${agent.split('/').last}');
-    final params = switch (staged?.change.args['params']) {
-      final Map<String, Object?> p => p,
-      _ => const <String, Object?>{},
-    };
+        : stagedAgentParamsOf(
+            '${site.root}/sys/links/${agent.split('/').last}',
+          );
     return (
-      mode: switch (params['require_approval']) {
-        final String m => ApprovalMode.fromWire(m) ?? assistant.mode,
-        _ => assistant.mode,
-      },
-      prefixes: switch (params['allowed_prefixes']) {
-        final List<Object?> l => [for (final e in l) ?(e is String ? e : null)],
-        _ => assistant.prefixes.toList(),
-      },
+      mode: staged?.params.requireApproval ?? assistant.mode,
+      prefixes: (staged?.params.allowedPrefixes ?? assistant.prefixes).toList(),
       staged: staged != null,
     );
   }
@@ -1385,8 +1401,15 @@ extension type SelectAssistant(AppState _state) {
   /// What the agent may do; null until its meta is read.
   AgentConfig? get config => _state.assistant.config;
 
-  /// Who approves the agent's plans, as read (`write` when not set).
-  ApprovalMode get mode => _state.assistant.config?.approval ?? .write;
+  /// Who approves the agent's plans, as read (`write`, the link's own
+  /// default, when the setting is absent); null when it is not known: the
+  /// agent's settings did not read.
+  ApprovalMode? get mode => _state.assistant.configInvalid
+      ? null
+      : (_state.assistant.config?.approval ?? .write);
+
+  /// Who approves is not known: the agent's settings did not read.
+  bool get modeUnknown => _state.assistant.configInvalid;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveAgentAction>();

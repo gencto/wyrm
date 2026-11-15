@@ -71,3 +71,44 @@ final class HoldChipsFull extends Hold {
 
   final int max;
 }
+
+/// What the card of a plan that waits says beside Approve, as `business`
+/// decides it, in this order: the gateway cannot read the record, the
+/// site is another one, the last approval was refused, the record is not
+/// read yet, else what Approve signs. The screen words it.
+sealed class ApprovalNote {
+  const ApprovalNote();
+}
+
+/// The gateway is older than `doc`: the plan cannot be shown.
+final class ApprovalNoRecord extends ApprovalNote {
+  const ApprovalNoRecord();
+}
+
+/// The task is on [site]: this gateway does not sign for it.
+final class ApprovalOtherSite extends ApprovalNote {
+  const ApprovalOtherSite(this.site);
+
+  final String site;
+}
+
+/// The last approval was refused ([why]); the task still waits.
+final class ApprovalRefused extends ApprovalNote {
+  const ApprovalRefused(this.why);
+
+  final String why;
+}
+
+/// The task waits; its record is not read yet.
+final class ApprovalWaiting extends ApprovalNote {
+  const ApprovalWaiting();
+}
+
+/// Approve signs one token per ticked step with the user's [role];
+/// [byAgent] changes run with the agent's own key.
+final class ApprovalSigns extends ApprovalNote {
+  const ApprovalSigns({required this.role, required this.byAgent});
+
+  final String role;
+  final int byAgent;
+}

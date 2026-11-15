@@ -32,7 +32,11 @@ enum TaskBadge {
 enum AgentModeVm {
   write('write'),
   config('config'),
-  never('never');
+  never('never'),
+
+  /// Not known: the agent's settings did not read. Treated as a mode that
+  /// may write without a person, so every caution stays.
+  unknown('');
 
   const AgentModeVm(this.word);
 
@@ -43,13 +47,27 @@ enum AgentModeVm {
     write => S.current.modeWrite,
     config => S.current.modeConfig,
     never => S.current.modeNever,
+    unknown => S.current.modeUnknown,
   };
 
   String get detail => switch (this) {
     write => S.current.modeWriteDetail,
     config => S.current.modeConfigDetail,
     never => S.current.modeNeverDetail,
+    unknown => S.current.modeUnknownDetail,
   };
+
+  /// The caution of a pick under this mode: its plan may write without a
+  /// person.
+  String get caution => this == unknown
+      ? S.current.modeUnknownCaution
+      : S.current.waysCaution(word);
+
+  /// The note of a fix under this mode: it replaces the plan, whose write
+  /// steps may run without a person.
+  String get fixNote => this == unknown
+      ? S.current.fixReplacesModeUnknown
+      : S.current.fixReplacesNoPerson(word);
 }
 
 /// What a plan step does, as its chip says it.

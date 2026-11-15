@@ -1,6 +1,8 @@
+import 'package:models/agent_config.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/agent_config.dart';
+import '../../../wyrm/decode/decoded.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -23,20 +25,22 @@ class RetrieveAgentAction extends Action with WaitingAction {
       return state.copyWith.assistant(
         agent: null,
         config: null,
+        configInvalid: false,
         secrets: null,
       );
     }
     final key = '$root/downstream/$id';
-    final config = switch (await _meta(key)) {
-      // a cfg Studio cannot read is logged with its field: what the agent
-      // may do is then not known, as without the rights to read it
-      final NodeMeta m => agentConfigOf(m.cfg ?? const {}).orWarn(key),
+    final read = switch (await _meta(key)) {
+      final NodeMeta m => agentConfigOf(m.cfg ?? const {}),
       null => null,
     };
     deps.agentTasks.follow(key);
     return state.copyWith.assistant(
       agent: key,
-      config: config,
+      // a cfg Studio cannot read is logged with its field, and said: who
+      // approves is then not known (never taken as `write`)
+      config: read?.orWarn(key),
+      configInvalid: read is Invalid<AgentConfig>,
       // the names were of the agent read before (maybe another site's):
       // not known until they are read for this one
       secrets: key == assistant.agent ? assistant.secrets : null,

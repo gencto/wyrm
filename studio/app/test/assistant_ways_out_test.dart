@@ -8,6 +8,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
+import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/buttons/button.dart';
@@ -236,6 +237,38 @@ void main() {
       tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.noteText,
       contains('run without a person'),
     );
+  });
+
+  testWidgets('settings that do not read: who approves is not known, and '
+      'every caution stays', (tester) async {
+    final app = AssistantApp()..task('t-1', _failed());
+    app.api.metas[_agent] = NodeMeta(
+      cfg: {'require_approval': const VStr('always')},
+    );
+    await app.pump(tester, selected: 't-1');
+
+    final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
+    expect(card.caution, S.current.modeUnknownCaution);
+
+    // a fix on a plan that waits says it too
+    app.task('t-2', planRecord()..['suggestions'] = [_fix]);
+    app.store.dispatchSync(SetSelectedTaskAction('t-2'));
+    await tester.runAsync(
+      () => app.store.dispatchAndWait(RetrieveTaskRecordAction('t-2')),
+    );
+    await app.settle(tester);
+    expect(
+      tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.noteText,
+      S.current.fixReplacesModeUnknown,
+    );
+
+    // What it may do marks no mode and says why
+    await tester.tap(find.text('What it may do'));
+    await app.settle(tester);
+    final rights = tester.widget<RightsPanel>(find.byType(RightsPanel)).vm;
+    expect(rights.modes.where((m) => m.selected), isEmpty);
+    expect(rights.modeUnknown, isTrue);
+    expect(find.text(S.current.modeUnknownCaution), findsOneWidget);
   });
 
   testWidgets('a stranger to the task cannot pick its ways out', (

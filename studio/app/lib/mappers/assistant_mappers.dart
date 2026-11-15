@@ -28,6 +28,7 @@ import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/run_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
+import 'package:ui/assistant/task_card.dart';
 import 'package:ui/assistant/task_list.dart';
 import 'package:ui/pages/assistant_page.dart';
 
@@ -55,11 +56,21 @@ extension ApprovalModeView on ApprovalMode {
   };
 }
 
+/// The mode under which a pick's plan may write without a person, as the
+/// cautions say it: [unknown] (the agent's settings did not read) keeps
+/// every caution; else the [mode] that lets it (`config`, `never`), or
+/// null for `write`.
+AgentModeVm? unattendedView(ApprovalMode? mode, {required bool unknown}) =>
+    unknown ? .unknown : mode?.view;
+
 extension AgentModeDomain on AgentModeVm {
-  ApprovalMode get domain => switch (this) {
+  /// The mode a pick on *What it may do* stages; null for [unknown],
+  /// which is never offered as a pick.
+  ApprovalMode? get domain => switch (this) {
     AgentModeVm.write => .write,
     AgentModeVm.config => .config,
     AgentModeVm.never => .never,
+    AgentModeVm.unknown => null,
   };
 }
 
@@ -146,6 +157,19 @@ extension HoldBlocked on Hold {
   };
 }
 
+extension ApprovalNoteView on ApprovalNote {
+  TaskNoteVm get note => switch (this) {
+    ApprovalNoRecord() => const TaskNoteNoRecord(),
+    ApprovalOtherSite(:final site) => TaskNoteOtherSite(site),
+    ApprovalRefused(:final why) => TaskNoteRefused(why),
+    ApprovalWaiting() => const TaskNoteWaiting(),
+    ApprovalSigns(:final role, :final byAgent) => TaskNoteSigns(
+      role: role,
+      byAgent: byAgent,
+    ),
+  };
+}
+
 extension TaskEventLine on TaskEvent {
   ConversationEventVm get line => switch (kind) {
     TaskEventKind.ask => ConversationEventVm(kind: .ask, text: text),
@@ -180,7 +204,7 @@ extension TaskSuggestionTile on TaskSuggestion {
   /// The model's offer as a tile.
   SuggestionTileVm tile({
     TileNote? note,
-    ApprovalMode? unattended,
+    AgentModeVm? unattended,
     Hold? hold,
   }) => SuggestionTileVm(
     id: id,
@@ -188,7 +212,7 @@ extension TaskSuggestionTile on TaskSuggestion {
     detail: detail,
     changes: changes,
     note: note,
-    unattended: unattended?.view,
+    unattended: unattended,
     blocked: hold?.blocked,
   );
 }
