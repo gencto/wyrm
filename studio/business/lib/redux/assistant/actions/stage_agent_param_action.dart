@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/approval_mode.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
 
@@ -21,10 +22,10 @@ import '../../links/actions/retrieve_link_history_action.dart';
 /// before, so a second edit keeps the first. An edit that brings every
 /// param back to the revision unstages the update. The review card names
 /// each param that changes, with what it was and what it will be.
-class StageAgentParamAction extends Action {
+class StageAgentParamAction extends Action with WaitingAction {
   /// `require_approval` becomes [mode].
-  StageAgentParamAction.mode(String mode)
-    : _edit = ((p) => p['require_approval'] = mode);
+  StageAgentParamAction.mode(ApprovalMode mode)
+    : _edit = ((p) => p['require_approval'] = mode.wire);
 
   /// [prefix] joins `allowed_prefixes` (once).
   StageAgentParamAction.addPrefix(String prefix)
@@ -86,7 +87,7 @@ class StageAgentParamAction extends Action {
       rev = 'rev ${newest!.rev}';
     }
     final next = <String, Object?>{
-      ...?(staged?.change.args['params'] as Map<String, Object?>?),
+      if (staged?.change.args['params'] case final Map<String, Object?> p) ...p,
     };
     if (staged == null) {
       next.addAll(revision);

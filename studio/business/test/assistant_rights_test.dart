@@ -15,6 +15,7 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/approval_mode.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -71,11 +72,14 @@ void main() {
 
   test('the prefixes are kept as a list', () async {
     await logIn();
-    expect(s.state.assistant.prefixes, [
+    expect(s.state.assistant.config?.prefixes, [
       'wy/central/downstream/modbus',
       'wy/central/storage',
     ]);
-    expect(s.state.assistant.cfg['api_base'], 'https://api.anthropic.com');
+    expect(
+      s.state.assistant.config?.apiBase,
+      'https://api.anthropic.com',
+    );
   });
 
   void history(String key, Map<String, Object?> params, {int rev = 3}) =>
@@ -96,7 +100,7 @@ void main() {
       'allowed_prefixes': ['wy/central/downstream/modbus'],
     });
 
-    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
+    await s.dispatchAndWait(StageAgentParamAction.mode(ApprovalMode.config));
     await s.dispatchAndWait(
       StageAgentParamAction.addPrefix('wy/central/storage'),
     );
@@ -139,12 +143,12 @@ void main() {
     await logIn();
     history(links, {'require_approval': 'write', 'model': 'm'});
 
-    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
-    expect(_Reader(s.state).agentParams.mode, 'config');
-    await s.dispatchAndWait(StageAgentParamAction.mode('write'));
+    await s.dispatchAndWait(StageAgentParamAction.mode(ApprovalMode.config));
+    expect(_Reader(s.state).agentParams.mode, ApprovalMode.config);
+    await s.dispatchAndWait(StageAgentParamAction.mode(ApprovalMode.write));
 
     expect(s.state.changes.table, isEmpty);
-    expect(_Reader(s.state).agentParams.mode, 'write');
+    expect(_Reader(s.state).agentParams.mode, ApprovalMode.write);
   });
 
   test('the same link id on another site is never the base (review item '
@@ -154,7 +158,7 @@ void main() {
       'api_base': 'https://central.example',
       'allowed_prefixes': ['wy/central/downstream/modbus'],
     });
-    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
+    await s.dispatchAndWait(StageAgentParamAction.mode(ApprovalMode.config));
 
     // plant has an agent link of the same id
     const plantLinks = 'wy/plant/sys/links/agent';
@@ -171,7 +175,7 @@ void main() {
     s.dispatchSync(ViewSiteAction('plant'));
     await s.dispatchAndWait(RetrieveLinksAction());
     await s.dispatchAndWait(RetrieveAgentAction());
-    await s.dispatchAndWait(StageAgentParamAction.mode('never'));
+    await s.dispatchAndWait(StageAgentParamAction.mode(ApprovalMode.never));
 
     final plant = s.state.changes.table['params:$plantLinks']!;
     expect(plant.key, plantLinks);
@@ -197,7 +201,7 @@ void main() {
       'allowed_prefixes': ['A', 'B'],
     }, rev: 4);
 
-    await s.dispatchAndWait(StageAgentParamAction.mode('config'));
+    await s.dispatchAndWait(StageAgentParamAction.mode(ApprovalMode.config));
     await s.dispatchAndWait(StageAgentParamAction.removePrefix('A'));
 
     final c = staged();
@@ -226,7 +230,7 @@ void main() {
       );
 
       final failed = await s.dispatchAndWait(
-        StageAgentParamAction.mode('config'),
+        StageAgentParamAction.mode(ApprovalMode.config),
       );
       expect(failed.originalError, isA<UserException>());
       expect(s.state.changes.table, isEmpty);
@@ -236,7 +240,7 @@ void main() {
         ..errors.remove('$links ▸ history')
         ..invokes['$links ▸ history'] = [Value.from(<Object?>[])];
       final empty = await s.dispatchAndWait(
-        StageAgentParamAction.mode('config'),
+        StageAgentParamAction.mode(ApprovalMode.config),
       );
       expect(empty.originalError, isA<UserException>());
       expect(s.state.changes.table, isEmpty);

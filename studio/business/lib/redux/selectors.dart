@@ -1,6 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/agent_config.dart';
 import 'package:models/agent_task.dart';
+import 'package:models/approval_mode.dart';
+import 'package:models/assistant_panel.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
@@ -35,6 +38,7 @@ import 'package:models/package_info.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
+import 'package:models/plan_step.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/restore_check.dart';
@@ -47,6 +51,10 @@ import 'package:models/step_up_request.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/studio_notice.dart';
 import 'package:models/task_event.dart';
+import 'package:models/task_event_kind.dart';
+import 'package:models/task_finding.dart';
+import 'package:models/task_state.dart';
+import 'package:models/task_suggestion.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
@@ -57,12 +65,16 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/context_keys.dart';
 import '../wyrm/device_keys.dart';
 import '../wyrm/gateway_label.dart';
+import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
+import '../wyrm/mappers/agent_task_mapper.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
+import '../wyrm/task_facts.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -211,6 +223,313 @@ extension TaskApproval on Selectors {
       site.viewed != null && site.viewed != site.name ? site.viewed : null;
 }
 
+/// What the Assistant shows of its tasks, computed from state once
+/// (studio-rules §3): the connectors read these and map them.
+extension AssistantScreen on Selectors {
+  /// The task on screen.
+  AgentTask? get shownTask => switch (tasks.selectedTask) {
+    final id? => tasks.table[id],
+    null => null,
+  };
+
+  /// The tasks of the list, newest first: those under way, and those that
+  /// ended.
+  ({List<AgentTask> now, List<AgentTask> earlier}) get taskGroups {
+    final now = <AgentTask>[];
+    final earlier = <AgentTask>[];
+    for (final id in tasks.view.reversed) {
+      if (tasks.table[id] case final t?) {
+        (t.state.finished ? earlier : now).add(t);
+      }
+    }
+    return (now: now, earlier: earlier);
+  }
+
+  /// The lines of [t]'s conversation in this session.
+  IList<TaskEvent> sessionOf(AgentTask t) =>
+      tasks.events[t.id] ?? const IListConst([]);
+
+  /// The conversation of [t]: this session's lines, or the record's when
+  /// there are none; its questions are on the choices card.
+  List<TaskEvent> conversationOf(AgentTask t) {
+    final session = sessionOf(t);
+    return [
+      for (final e in session.isEmpty ? t.told : session)
+        if (e.kind != TaskEventKind.question) e,
+    ];
+  }
+
+  /// What the model read in this session, by tool, with how often.
+  List<(String, int)> readsOf(AgentTask t) {
+    final reads = <String, int>{};
+    for (final e in sessionOf(t)) {
+      if (e.kind == TaskEventKind.tool) {
+        reads[e.text] = (reads[e.text] ?? 0) + 1;
+      }
+    }
+    return [for (final MapEntry(:key, :value) in reads.entries) (key, value)];
+  }
+
+  /// The ticks of the plan of [t]: only for a plan that waits, that no
+  /// task replaced (its approve is refused), on the gateway's own site.
+  List<StepChoice>? choicesShown(AgentTask t) =>
+      t.state == TaskState.awaitingApproval &&
+          t.replacedBy == null &&
+          otherSite == null
+      ? choicesOf(t)
+      : null;
+
+  /// Why Approve cannot be pressed for [t] with [choices], in this order:
+  /// no record, another site, an approval on its way, nothing ticked, a
+  /// masked argument not looked at, no `write` on the task. The approve
+  /// action refuses the same way.
+  Hold? approveHold(AgentTask t, List<StepChoice> choices) {
+    final agent = assistant.agent;
+    if (!assistant.docs) {
+      return const HoldNoRecord();
+    }
+    if (otherSite case final s?) {
+      return HoldOtherSite(s);
+    }
+    if (assistant.isApproving) {
+      return const HoldBusy();
+    }
+    if (!choices.any((c) => c.ticked ?? false)) {
+      return const HoldNoneTicked();
+    }
+    if (unseenArgs(t, choices) case final n?) {
+      return HoldReveal(n);
+    }
+    return agent == null
+        ? null
+        : _lacks(site.needs('write', '$agent/tasks/${t.id}'));
+  }
+
+  /// Why a task cannot be rejected, cancelled or answered: no `write` on
+  /// the agent.
+  Hold? get writeHold => switch (assistant.agent) {
+    final agent? => _lacks(site.needs('write', agent)),
+    null => null,
+  };
+
+  /// Why nothing can be asked: no agent, no `write` on it, an ask or an
+  /// answer on its way.
+  Hold? get askHold => assistant.agent == null
+      ? const HoldNoAgent()
+      : writeHold ??
+            (assistant.isAsking || tasks.isAnswering ? const HoldBusy() : null);
+
+  /// Why a suggestion of [t] cannot be picked: no agent, no `write` on it,
+  /// an ask on its way, or the user may not follow the task up.
+  Hold? followHold(AgentTask t) => assistant.agent == null
+      ? const HoldNoAgent()
+      : writeHold ??
+            (assistant.isAsking ? const HoldBusy() : null) ??
+            (mayFollow(t) ? null : const HoldFollow());
+
+  /// Why the steps a run left out cannot be asked for.
+  Hold? get followUpHold =>
+      writeHold ?? (assistant.isAsking ? const HoldBusy() : null);
+
+  /// Why *Write the plan* cannot be pressed for [t]: no `write`, an answer
+  /// on its way, or nothing picked.
+  Hold? answerHold(AgentTask t) =>
+      writeHold ??
+      (tasks.isAnswering
+          ? const HoldBusy()
+          : (t.questions.every(
+                  (q) => q.answered || picksOf(t.id, q.id).isEmpty,
+                )
+                ? const HoldPickOne()
+                : null));
+
+  /// Why *+ from Explorer* cannot add a chip.
+  Hold? get chipHold => site.root == null
+      ? const HoldNoSite()
+      : assistant.chips.length >= maxContextKeys
+      ? const HoldChipsFull(maxContextKeys)
+      : null;
+
+  /// Why *Make a plan for n units* cannot be pressed for suggestion [s] of
+  /// [t]: as any follow-up, or no row ticked.
+  Hold? moreHold(AgentTask t, TaskSuggestion s) {
+    final picked = rowPicksOf(t.id, s.id);
+    return followHold(t) ??
+        (s.rows.any((r) => picked.contains(r.key)) ? null : const HoldNoRows());
+  }
+
+  /// Whether the secret the agent's `api_key_ref` names is set; null when
+  /// that is not known (no `config` to read the names, or no ref).
+  bool? get apiKeySet =>
+      switch ((assistant.secrets, assistant.config?.apiKeyRef)) {
+        (final names?, final ref?) => names.contains(ref),
+        _ => null,
+      };
+
+  /// Why the agent's modes and prefixes cannot be edited.
+  Hold? get editHold => switch (assistant.agent) {
+    null => const HoldNoAgent(),
+    final agent => _lacks(
+      site.needs(
+        'config',
+        '${site.root}/sys/links/${agent.split('/').last}/~act/update',
+      ),
+    ),
+  };
+
+  static Hold? _lacks(String? needs) => needs == null ? null : HoldLacks(needs);
+
+  /// The agent's mode when it lets a plan's `write` steps run without a
+  /// person (`config`, `never`): a picked suggestion's plan may then write
+  /// at once (docs/agent.md, AI-4). Null for `write`.
+  ApprovalMode? get unattended =>
+      assistant.mode.unattended ? assistant.mode : null;
+
+  /// The task a message in the box follows: the task on screen when the
+  /// user may follow it and nothing replaced it. A plan that waits is then
+  /// replaced by the new one ([replacesPlan] says so before).
+  String? askParent(AgentTask? t) =>
+      t != null && t.replacedBy == null && mayFollow(t) ? t.id : null;
+
+  /// Sending from the box replaces the plan of [t] that waits.
+  bool replacesPlan(AgentTask t) =>
+      t.state == TaskState.awaitingApproval && askParent(t) != null;
+
+  /// The picks of question [question] of task [task] on the card.
+  ISet<String> picksOf(String task, String question) =>
+      assistant.picks['$task/$question'] ?? const ISetConst({});
+
+  /// The rows ticked of suggestion [suggestion] of task [task].
+  ISet<String> rowPicksOf(String task, String suggestion) =>
+      assistant.rowPicks['$task/$suggestion'] ?? const ISetConst({});
+
+  /// The rows ticked in every *Same for more units?* of [t].
+  ISet<({String suggestion, String key})> pickedRowsOf(AgentTask t) => {
+    for (final s in t.withRows)
+      for (final k in rowPicksOf(t.id, s.id)) (suggestion: s.id, key: k),
+  }.lock;
+
+  /// The masked arguments of step [n] of [task] are shown.
+  bool revealedOf(String task, int n) =>
+      assistant.revealed[task]?.contains(n) ?? false;
+
+  /// The arguments of [s] of [t] as the plan card shows them: each with its
+  /// value as it is sent, or null when it is masked (a secret, or a schema
+  /// not known and not looked at). A masked value never leaves here.
+  List<({String name, String? text})> argsOf(AgentTask t, PlanStep s) {
+    final hidden = withheld(s);
+    final shown = !s.argsKnown && revealedOf(t.id, s.n);
+    return [
+      for (final e in s.args.entries)
+        (
+          name: e.key,
+          text: s.secret.contains(e.key) || (hidden.contains(e.key) && !shown)
+              ? null
+              : argText(e.value),
+        ),
+    ];
+  }
+
+  /// The findings of [t] Studio shows: those whose key is a plain node key
+  /// of the site on screen. The agent link checks this; a record of an
+  /// older or a foreign link is not trusted to (a pattern key would be
+  /// subscribed).
+  List<TaskFinding> findingsShown(AgentTask t) => [
+    for (final f in t.findings)
+      if (contextKey(site.root, f.key) == f.key) f,
+  ];
+
+  /// The nodes the drawer watches for the marks of *What I found*.
+  List<String> get drawerFindingKeys => switch (shownTask) {
+    final t? when assistant.drawer => [
+      for (final f in findingsShown(t)) f.key,
+    ],
+    _ => const [],
+  };
+
+  /// The point the drawer's mini timeline shows: the one selected in
+  /// Explorer's points, on the site on screen.
+  String? get timelinePoint {
+    final p = nodes.point;
+    return p != null && site.root != null && p.startsWith('${site.root}/')
+        ? p
+        : null;
+  }
+
+  /// The keys the tab watches while it is shown: those the Result card
+  /// shows, and *Today* of What it may do while that panel is shown.
+  List<String> get assistantWatch {
+    final agent = assistant.agent;
+    return [
+      ...?shownTask?.touched,
+      if (agent != null && assistant.panel == AssistantPanel.rights)
+        '$agent/budget_used_today',
+    ];
+  }
+
+  /// The LLM tokens the agent used today, from its live value.
+  num? get budgetUsed =>
+      switch (live.values['${assistant.agent}/budget_used_today']?.value) {
+        final num n => n,
+        _ => null,
+      };
+
+  /// The node selected in Explorer, offered as an `@` chip of this site.
+  String? get offeredChip {
+    final selected = nodes.selectedNode;
+    return selected != null &&
+            site.root != null &&
+            selected.startsWith('${site.root}/') &&
+            !assistant.chips.contains(selected)
+        ? selected
+        : null;
+  }
+
+  /// The agent reads [key]: one it does not refuses the whole ask. Before
+  /// its settings are read every key is offered.
+  bool agentReadsKey(String key) =>
+      !assistant.readsKnown ||
+      agentReads(site.root ?? '', assistant.agent, assistant.prefixes, key);
+
+  /// The keys *+ from Explorer* offers: the selection and the point
+  /// first, then the nodes Explorer read on the site on screen; only plain
+  /// node keys of this site the agent reads, none twice, none a chip.
+  ({List<String> first, List<String> rest}) get chipChoices {
+    final root = site.root;
+    if (root == null) {
+      return (first: const [], rest: const []);
+    }
+    final chips = assistant.chips.toSet();
+    final selected = offeredChip;
+    final point = nodes.point;
+    bool fits(String k) =>
+        !chips.contains(k) && contextKey(root, k) == k && agentReadsKey(k);
+    final first = [
+      ?selected,
+      if (point != null && point != selected) point,
+    ].where(fits).toList();
+    return (
+      first: first,
+      rest: [
+        for (final k in nodes.view.take(400))
+          if (!first.contains(k) && fits(k)) k,
+      ],
+    );
+  }
+
+  /// A key typed in the picker, in full or below the site: the plain node
+  /// key it names, and whether the agent reads it; null when it names none
+  /// or is a chip already.
+  ({String key, bool reads})? typedChip(String text) {
+    final root = site.root;
+    final k = text.contains('/') ? contextKey(root, text) : null;
+    if (root == null || k == null || assistant.chips.contains(k)) {
+      return null;
+    }
+    return (key: k, reads: agentReadsKey(k));
+  }
+}
+
 /// The params of a link as they will be once the staged update of it is
 /// applied (`sys/links/<id>` ▸ `update {params}`, keyed by the link's full
 /// key, so another site's link of the same id is not it).
@@ -238,18 +557,21 @@ extension StagedParams on Selectors {
 
   /// The agent link's `require_approval` and `allowed_prefixes` as they will
   /// be: from the update staged for it on this site, else as read.
-  ({String mode, List<String> prefixes, bool staged}) get agentParams {
+  ({ApprovalMode mode, List<String> prefixes, bool staged}) get agentParams {
     final agent = assistant.agent;
     final staged = agent == null
         ? null
         : stagedParamsOf('${site.root}/sys/links/${agent.split('/').last}');
-    final params = staged?.change.args['params'] as Map<String, Object?>?;
+    final params = switch (staged?.change.args['params']) {
+      final Map<String, Object?> p => p,
+      _ => const <String, Object?>{},
+    };
     return (
-      mode: switch (params?['require_approval']) {
-        final String m => m,
-        _ => assistant.cfg['require_approval'] ?? 'write',
+      mode: switch (params['require_approval']) {
+        final String m => ApprovalMode.fromWire(m) ?? assistant.mode,
+        _ => assistant.mode,
       },
-      prefixes: switch (params?['allowed_prefixes']) {
+      prefixes: switch (params['allowed_prefixes']) {
         final List<Object?> l => [for (final e in l) ?(e is String ? e : null)],
         _ => assistant.prefixes.toList(),
       },
@@ -1052,13 +1374,19 @@ extension type SelectAssistant(AppState _state) {
   String? get draft => _state.assistant.draft;
 
   /// Returns panel
-  String get panel => _state.assistant.panel;
+  AssistantPanel get panel => _state.assistant.panel;
 
   /// Returns agent
   String? get agent => _state.assistant.agent;
 
-  /// Returns cfg
-  IMap<String, String> get cfg => _state.assistant.cfg;
+  /// The agent link's id (`agent` of `wy/<site>/downstream/agent`).
+  String? get agentId => _state.assistant.agent?.split('/').last;
+
+  /// What the agent may do; null until its meta is read.
+  AgentConfig? get config => _state.assistant.config;
+
+  /// Who approves the agent's plans, as read (`write` when not set).
+  ApprovalMode get mode => _state.assistant.config?.approval ?? .write;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveAgentAction>();
@@ -1099,8 +1427,21 @@ extension type SelectAssistant(AppState _state) {
   /// Returns drawer
   bool get drawer => _state.assistant.drawer;
 
-  /// Returns prefixes
-  IList<String> get prefixes => _state.assistant.prefixes;
+  /// Where the agent may propose changes, as read.
+  IList<String> get prefixes =>
+      _state.assistant.config?.prefixes ?? const IListConst([]);
+
+  /// Which keys the agent reads is known: its settings were read. Before
+  /// that every key is offered as context.
+  bool get readsKnown =>
+      _state.assistant.config != null &&
+      _state.assistant.config != const AgentConfig();
+
+  /// Returns drawerWatched
+  IList<String> get drawerWatched => _state.assistant.drawerWatched;
+
+  /// Returns drawerShown
+  bool get drawerShown => _state.assistant.drawerShown;
 
   /// Returns secrets
   ISet<String>? get secrets => _state.assistant.secrets;

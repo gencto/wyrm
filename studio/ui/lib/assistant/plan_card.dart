@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
@@ -16,6 +17,125 @@ import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'model_words.dart';
 import 'suggestion_tile.dart';
+import 'task_badge.dart';
+
+/// What a secret argument of a plan step is shown as.
+const secretMask = '••••••';
+
+/// One argument row of a step: its name and the value as it is sent, or
+/// the mask. A masked value never reaches this model: only that it is
+/// masked.
+final class StepArgVm extends Equatable {
+  /// An argument shown whole, as it is sent.
+  const StepArgVm.shown(this.name, String this.value)
+    : masked = false,
+      timeout = null;
+
+  /// An argument that is not shown (a secret, or a schema not known).
+  const StepArgVm.masked(this.name)
+    : masked = true,
+      value = null,
+      timeout = null;
+
+  /// The step's timeout (`wait`, `expect`), in seconds.
+  const StepArgVm.timeout(double this.timeout)
+    : name = 'timeout',
+      masked = false,
+      value = null;
+
+  final String name;
+  final String? value;
+  final bool masked;
+  final double? timeout;
+
+  /// What the row shows.
+  String get text => masked
+      ? secretMask
+      : switch (timeout) {
+          final t? => S.current.planSleep(plainNumber(t)),
+          null => value ?? '',
+        };
+
+  @override
+  List<Object?> get props => [name, value, masked, timeout];
+}
+
+/// When a step that changes something was checked.
+enum StepCheckVm {
+  now,
+  atRun;
+
+  String get label => switch (this) {
+    now => S.current.checkNow,
+    atRun => S.current.checkAtRun,
+  };
+}
+
+/// Why a step's arguments carry a note.
+enum ArgsNote {
+  /// Its schema is not known: every argument is masked.
+  masked,
+
+  /// A secret argument is not shown.
+  secret;
+
+  String get label => switch (this) {
+    masked => S.current.argsMasked,
+    secret => S.current.planSecretNote,
+  };
+}
+
+/// The line under a step that says how the approval treats it.
+sealed class StepNoteVm extends Equatable {
+  const StepNoteVm();
+
+  String get text;
+
+  @override
+  List<Object?> get props => [];
+}
+
+/// It is skipped: a step it needs is left out.
+final class StepNeeds extends StepNoteVm {
+  const StepNeeds(this.step);
+
+  final int step;
+
+  @override
+  String get text => S.current.stepSkippedNeeds(step);
+
+  @override
+  List<Object?> get props => [step];
+}
+
+/// The person unticked it.
+final class StepLeftOut extends StepNoteVm {
+  const StepLeftOut();
+
+  @override
+  String get text => S.current.stepLeftOut;
+}
+
+/// It runs with the agent's own key; it cannot be left out.
+final class StepByAgent extends StepNoteVm {
+  const StepByAgent();
+
+  @override
+  String get text => S.current.stepByAgent;
+}
+
+/// It runs after the steps [steps].
+final class StepAfter extends StepNoteVm {
+  const StepAfter(this.steps);
+
+  final List<int> steps;
+
+  @override
+  String get text => steps.map(S.current.planNeedsStep).join(' · ');
+
+  @override
+  List<Object?> get props => [steps];
+}
 
 /// One step of a plan, as the person reads it before approving: what is
 /// sent (the verb, the action, the full key, every argument), the level it
@@ -24,156 +144,245 @@ final class PlanStepVm extends Equatable {
   const PlanStepVm({
     required this.n,
     required this.verb,
-    required this.target,
     required this.level,
+    this.node = '',
+    this.sleep,
     this.action,
     this.args = const [],
-    this.changes = false,
     this.check,
-    this.checked = true,
     this.argsNote,
+    this.revealed,
     this.why,
     this.warn,
     this.modelWarn,
     this.fixes = const [],
-    this.revealLabel,
     this.ticked,
-    this.tickReason,
+    this.lacks,
     this.note,
-    this.result,
-    this.resultTone = Tone.neutral,
+    this.outcome,
+    this.message = '',
   });
 
   /// Its number in the plan, from 1.
   final int n;
+  final StepVerb verb;
 
-  /// `SET`, `INVOKE`, `WAIT`, `EXPECT`, `SLEEP`.
-  final String verb;
+  /// `invoke`: the action.
   final String? action;
 
-  /// The full node key (or the length of a sleep).
-  final String target;
+  /// The node's full key; empty for a sleep.
+  final String node;
 
-  /// `read`, `write`, `config`.
+  /// A sleep: how long, in seconds.
+  final double? sleep;
+
+  /// `read`, `write` or `config`.
   final String level;
 
-  /// `name` and its value, each shown whole.
-  final List<(String, String)> args;
+  /// Every argument, as it is sent, or masked.
+  final List<StepArgVm> args;
 
-  /// The step changes the site (its number is drawn in ember).
-  final bool changes;
+  /// How far it was checked; null when it changes nothing.
+  final StepCheckVm? check;
 
-  /// The check line (`checked against the live tree`).
-  final String? check;
+  /// What the arguments' note says; null: none.
+  final ArgsNote? argsNote;
 
-  /// The check was made now (a tick); else it is made when the step runs.
-  final bool checked;
-
-  /// A line under the arguments (some are secret and not shown).
-  final String? argsNote;
+  /// Masked arguments the person may look at: shown now (true) or masked
+  /// (false); null when none can be shown.
+  final bool? revealed;
 
   /// The model's reason.
   final String? why;
 
-  /// What the link found about the step (a checked conclusion): on the
-  /// warning tint.
+  /// The link's own finding about the step.
   final String? warn;
 
-  /// What the model says about the step (`model_warn`): drawn as the
-  /// model's words, never as a check of the link.
-  final ModelWordsVm? modelWarn;
+  /// The model's words about a risk of the step.
+  final String? modelWarn;
 
-  /// The fixes the model offers for this step: each a follow-up ask that
-  /// replaces the plan (the tile says so).
+  /// The fixes the model offers for this step.
   final List<SuggestionTileVm> fixes;
 
-  /// `Show arguments` / `Hide arguments`: some arguments are masked because
-  /// their schema is not known; null: nothing to reveal.
-  final String? revealLabel;
-
-  /// The step's tick: null when the step has none (it needs no approval, or
-  /// the plan is only shown).
+  /// Its tick; null when the person signs nothing for it.
   final bool? ticked;
 
-  /// Why the tick cannot be changed (the level the user lacks).
-  final String? tickReason;
+  /// Why the tick cannot be set: the level the user lacks.
+  final String? lacks;
 
-  /// `skipped: needs step 2`.
-  final String? note;
+  /// How the approval treats it.
+  final StepNoteVm? note;
 
-  /// What the run did with it (`ok`, `failed`, `skipped`, its message).
-  final String? result;
-  final Tone resultTone;
+  /// How it ended in the run; null before.
+  final StepOutcome? outcome;
+
+  /// The responder's answer when it ended.
+  final String message;
+
+  /// The step changes the plant.
+  bool get changes => verb.changes;
+
+  /// `INVOKE`.
+  String get verbLabel => verb.label;
+
+  /// The full key, or the length of a sleep.
+  String get target => switch (sleep) {
+    final s? => S.current.planSleep(plainNumber(s)),
+    null => node,
+  };
+
+  bool get checked => check != StepCheckVm.atRun;
+
+  String? get revealLabel => switch (revealed) {
+    true => S.current.hideArgs,
+    false => S.current.showArgs,
+    null => null,
+  };
+
+  ModelWordsVm? get modelWords => switch (modelWarn) {
+    final w? when w.isNotEmpty => ModelWordsVm(
+      kind: ModelWordsKind.says,
+      text: w,
+    ),
+    _ => null,
+  };
+
+  /// Why the tick is locked: the level lacked, or the step it needs.
+  String? get tickReason =>
+      lacks ??
+      switch (note) {
+        StepNeeds(:final step) when ticked != null =>
+          S.current.stepSkippedNeeds(step),
+        _ => null,
+      };
+
+  /// `ok · added ahu2`.
+  String? get result => switch (outcome) {
+    final o? => '${o.word} · $message',
+    null => null,
+  };
+
+  Tone get resultTone => outcome?.tone ?? Tone.neutral;
 
   @override
   List<Object?> get props => [
     n,
     verb,
     action,
-    target,
+    node,
+    sleep,
     level,
     args,
-    changes,
     check,
-    checked,
     argsNote,
+    revealed,
     why,
     warn,
     modelWarn,
     fixes,
-    revealLabel,
     ticked,
-    tickReason,
+    lacks,
     note,
-    result,
-    resultTone,
+    outcome,
+    message,
   ];
+}
+
+/// The state line of a plan.
+sealed class PlanLineVm extends Equatable {
+  const PlanLineVm();
+
+  String get text;
+
+  @override
+  List<Object?> get props => [];
+}
+
+/// It waits for approval: how many changes were checked now, and how many
+/// only when they run.
+final class PlanChecked extends PlanLineVm {
+  const PlanChecked({required this.now, required this.atRun});
+
+  final int now;
+  final int atRun;
+
+  @override
+  String get text => atRun == 0
+      ? S.current.planChecked
+      : S.current.planCheckedPartly(now, atRun);
+
+  @override
+  List<Object?> get props => [now, atRun];
+}
+
+/// Another task took its place.
+final class PlanReplaced extends PlanLineVm {
+  const PlanReplaced(this.by);
+
+  /// The task that replaced it.
+  final String by;
+
+  @override
+  String get text => S.current.taskReplaced('tasks/$by');
+
+  @override
+  List<Object?> get props => [by];
+}
+
+/// Who approved it: the record's own line.
+final class PlanApproved extends PlanLineVm {
+  const PlanApproved(this.line);
+
+  final String line;
+
+  @override
+  String get text => line;
+
+  @override
+  List<Object?> get props => [line];
+}
+
+/// Where the task stands, when nobody approved it.
+final class PlanState extends PlanLineVm {
+  const PlanState(this.badge);
+
+  final TaskBadge badge;
+
+  @override
+  String get text => badge.label;
+
+  @override
+  List<Object?> get props => [badge];
 }
 
 /// What [PlanCard] draws.
 final class PlanCardVm extends Equatable {
   const PlanCardVm({
-    required this.title,
-    required this.state,
+    required this.line,
+    required this.badge,
     required this.steps,
-    this.stateTone = Tone.warn,
-    this.note,
     this.open = true,
-    this.showLabel,
-    this.hideLabel,
   });
 
-  /// `Plan · 5 steps`.
-  final String title;
+  final PlanLineVm line;
 
-  /// `awaiting approval · checked`, `approved by olena`.
-  final String state;
-  final Tone stateTone;
+  /// The task's state: the colour of [line].
+  final TaskBadge badge;
   final List<PlanStepVm> steps;
 
-  /// The line under the steps (the model's reasons are in grey: read the
-  /// keys and the arguments).
-  final String? note;
-
-  /// The steps are shown at first (a plan that waits); else only the
-  /// header, with [showLabel] to open it.
+  /// The steps are shown at first.
   final bool open;
 
-  /// `Show steps` / `Hide steps`; with neither the steps are always shown.
-  final String? showLabel;
-  final String? hideLabel;
+  /// `Plan · 3 steps`.
+  String get title => S.current.planSteps(steps.length);
+  String get state => line.text;
+  Tone get stateTone => badge.tone;
+  String get note => S.current.planWhyNote;
+  String get showLabel => S.current.showSteps;
+  String get hideLabel => S.current.hideSteps;
 
   @override
-  List<Object?> get props => [
-    title,
-    state,
-    stateTone,
-    steps,
-    note,
-    open,
-    showLabel,
-    hideLabel,
-  ];
+  List<Object?> get props => [line, badge, steps, open];
 }
 
 /// Board *Assistant*: the plan of a task, one [PlanStepVm] per step. With
@@ -222,7 +431,7 @@ class _PlanCardState extends State<PlanCard> {
     final vm = widget.vm;
     final onTick = widget.onTick;
     final toggle = _open ? vm.hideLabel : vm.showLabel;
-    final open = _open || vm.showLabel == null;
+    final open = _open;
     return Container(
       margin: Insets.assistantCard,
       clipBehavior: .antiAlias,
@@ -235,12 +444,7 @@ class _PlanCardState extends State<PlanCard> {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              12,
-              14,
-              10,
-            ),
+            padding: Insets.cardHead,
             // a long state line (how far it was checked) wraps beside the
             // toggle instead of pushing it out
             child: LayoutBuilder(
@@ -268,17 +472,16 @@ class _PlanCardState extends State<PlanCard> {
                       ),
                     ),
                   ),
-                  if (toggle != null)
-                    InkWell(
-                      onTap: () => setState(() => _open = !_open),
-                      child: Text(
-                        toggle,
-                        style: TextStyle(
-                          fontSize: FontSizes.sm,
-                          color: c.text2,
-                        ),
+                  InkWell(
+                    onTap: () => setState(() => _open = !_open),
+                    child: Text(
+                      toggle,
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text2,
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -291,19 +494,14 @@ class _PlanCardState extends State<PlanCard> {
                 onFix: widget.onFix,
                 onReveal: widget.onReveal,
               ),
-          if (vm.note case final n? when open)
+          if (open)
             Container(
-              padding: const EdgeInsets.fromLTRB(
-                14,
-                10,
-                14,
-                12,
-              ),
+              padding: Insets.cardFoot,
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
-                n,
+                vm.note,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
                   height: 1.45,
@@ -340,12 +538,7 @@ class _Step extends StatelessWidget {
     );
     final can = onTick != null && vm.tickReason == null;
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        14,
-        10,
-        14,
-        10,
-      ),
+      padding: Insets.cardRow,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -378,7 +571,7 @@ class _Step extends StatelessWidget {
                   children: [
                     TagChip(
                       vm: TagChipVm(
-                        label: vm.verb,
+                        label: vm.verbLabel,
                         tone: vm.changes ? .ember : .neutral,
                         monospace: true,
                       ),
@@ -394,7 +587,7 @@ class _Step extends StatelessWidget {
                   vm.target,
                   style: mono(size: 12, color: c.text1),
                 ),
-                for (final (name, value) in vm.args)
+                for (final StepArgVm(:name, :text) in vm.args)
                   Row(
                     crossAxisAlignment: .start,
                     spacing: 10,
@@ -408,19 +601,19 @@ class _Step extends StatelessWidget {
                       ),
                       Expanded(
                         child: SelectableText(
-                          value,
+                          text,
                           style: mono(size: 12, color: c.text1),
                         ),
                       ),
                     ],
                   ),
-                if (vm.argsNote case final n?) Text(n, style: small),
+                if (vm.argsNote case final n?) Text(n.label, style: small),
                 if (vm.revealLabel case final r?)
                   InkWell(
                     onTap: onReveal == null ? null : () => onReveal!(vm.n),
                     child: Text(r, style: small.copyWith(color: c.text2)),
                   ),
-                if (vm.check case final k?)
+                if (vm.check?.label case final k?)
                   Row(
                     spacing: 6,
                     children: [
@@ -442,10 +635,7 @@ class _Step extends StatelessWidget {
                   ),
                 if (vm.warn case final w?)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
+                    padding: Insets.band,
                     decoration: BoxDecoration(
                       color: c.warnTint,
                       border: Border.all(color: c.warnLine),
@@ -453,14 +643,14 @@ class _Step extends StatelessWidget {
                     ),
                     child: Text(w, style: small.copyWith(color: c.warn)),
                   ),
-                if (vm.modelWarn case final m?) ModelWords(vm: m),
+                if (vm.modelWords case final m?) ModelWords(vm: m),
                 for (final f in vm.fixes)
                   SuggestionTile(
                     vm: f,
                     onTap: onFix == null ? null : () => onFix!(f.id),
                   ),
                 if (vm.why case final w?) Text('why: $w', style: small),
-                if (vm.note case final n?) Text(n, style: small),
+                if (vm.note case final n?) Text(n.text, style: small),
                 if (vm.result case final r?)
                   SelectableText(
                     r,

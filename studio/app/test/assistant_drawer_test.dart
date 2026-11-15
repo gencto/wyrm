@@ -473,7 +473,10 @@ void main() {
       ),
     );
     await _drawer(tester, app);
-    expect(app.store.state.assistant.prefixes, ['downstream/modbus/tcp/plc1']);
+    expect(
+      app.store.state.assistant.config?.prefixes,
+      ['downstream/modbus/tcp/plc1'],
+    );
 
     await tester.tap(find.text('+ from Explorer'));
     await tester.pumpAndSettle();

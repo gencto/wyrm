@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/step_kind.dart';
 
 /// What the person decides for one step of a plan that waits (ADR 0049
 /// §2–4).
@@ -42,8 +43,9 @@ final class StepChoice {
 
 /// The key a step's token is good for: `<node>/~set` or
 /// `<node>/~act/<action>` (the gateway signs one token per request key).
-String requestKey(PlanStep s) =>
-    s.op == 'set' ? '${s.key}/~set' : '${s.key}/~act/${s.action ?? ''}';
+String requestKey(PlanStep s) => s.kind == StepKind.set
+    ? '${s.key}/~set'
+    : '${s.key}/~act/${s.action ?? ''}';
 
 /// The choices of [plan], in its order.
 ///
@@ -62,9 +64,9 @@ List<StepChoice> approvalOf(
   final out = <StepChoice>[];
   final skipped = <int>{};
   for (final s in plan) {
-    final changes = s.op == 'set' || s.op == 'invoke';
+    final changes = s.kind.changes;
     final signs = changes && (s.approval || !decides);
-    final locked = signs ? lacks(s.level, requestKey(s)) : null;
+    final locked = signs ? lacks(s.level.wire, requestKey(s)) : null;
     final needs = s.after.where(skipped.contains).firstOrNull;
     final choice = StepChoice(
       n: s.n,
@@ -81,4 +83,14 @@ List<StepChoice> approvalOf(
     out.add(choice);
   }
   return out;
+}
+
+/// The ticks of a plan's choices.
+extension TickedSteps on Iterable<StepChoice> {
+  /// The numbers of the ticked steps, in the plan's order: what an
+  /// approval names.
+  List<int> get tickedSteps => [
+    for (final c in this)
+      if (c.ticked ?? false) c.n,
+  ];
 }

@@ -1,25 +1,12 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/agent_config.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
-/// The settings of the agent link that say what it may do, in this order
-/// (docs/studio.md §7.8). `api_key_ref` is the name of the secret; whether
-/// the secret is set is not readable (§10 item 12).
-const shownCfg = [
-  'model',
-  'require_approval',
-  'allowed_prefixes',
-  'budget_tokens_day',
-  'api_key_ref',
-  'api_base',
-];
-
 /// Finds the agent link of the site on screen (a link of driver `agent`),
-/// reads what it may do (its root `cfg`, the keys of [shownCfg]) and follows
-/// its tasks' states.
+/// reads what it may do (its root `cfg`, decoded by [agentConfigOf]) and
+/// follows its tasks' states.
 class RetrieveAgentAction extends Action with WaitingAction {
   @override
   Future<AppState?> reduce() async {
@@ -35,41 +22,33 @@ class RetrieveAgentAction extends Action with WaitingAction {
       deps.agentTasks.follow(null);
       return state.copyWith.assistant(
         agent: null,
-        cfg: const IMapConst({}),
-        prefixes: const IListConst([]),
+        config: null,
         secrets: null,
       );
     }
     final key = '$root/downstream/$id';
-    var cfg = const <String, String>{};
-    var prefixes = const <String>[];
-    try {
-      final m = await deps.wyrm.meta(key);
-      cfg = {
-        for (final e in (m.cfg ?? const <String, Value>{}).entries)
-          if (shownCfg.contains(e.key)) e.key: _shown(e.value),
-      };
-      prefixes = switch (m.cfg?['allowed_prefixes']) {
-        VArray(:final v) => [for (final p in v) ?str(p)],
-        _ => const [],
-      };
-    } on WyrmException {
-      // The agent's meta needs list rights on it.
-    }
+    final config = switch (await _meta(key)) {
+      // a cfg Studio cannot read is logged with its field: what the agent
+      // may do is then not known, as without the rights to read it
+      final NodeMeta m => agentConfigOf(m.cfg ?? const {}).orWarn(key),
+      null => null,
+    };
     deps.agentTasks.follow(key);
     return state.copyWith.assistant(
       agent: key,
-      cfg: cfg.lock,
-      prefixes: prefixes.lock,
+      config: config,
       // the names were of the agent read before (maybe another site's):
       // not known until they are read for this one
       secrets: key == assistant.agent ? assistant.secrets : null,
     );
   }
 
-  static String _shown(Value v) => switch (toDart(v)) {
-    final List<Object?> l => l.isEmpty ? '-' : l.join(', '),
-    null => '-',
-    final Object o => '$o',
-  };
+  /// The agent's meta; null when it cannot be read (it needs list rights).
+  Future<NodeMeta?> _meta(String key) async {
+    try {
+      return await deps.wyrm.meta(key);
+    } on WyrmException {
+      return null;
+    }
+  }
 }

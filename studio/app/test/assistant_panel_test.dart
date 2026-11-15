@@ -11,6 +11,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
+import 'package:ui/assistant/task_badge.dart';
 import 'package:ui/buttons/button.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/theme/common.dart';
@@ -114,7 +115,7 @@ void main() {
 
     final vm = tester.widget<RightsPanel>(find.byType(RightsPanel)).vm;
     expect(
-      [for (final m in vm.modes) (m.id, m.selected)],
+      [for (final m in vm.modes) (m.mode.word, m.selected)],
       [
         ('write', true),
         ('config', false),
@@ -125,7 +126,7 @@ void main() {
       vm.modes.last.label,
       'Never — write steps run at once; config steps still wait for a person',
     );
-    expect(vm.prefixes, [
+    expect(vm.prefixRows, [
       ('wy/central/downstream/modbus', 'downstream/modbus'),
       ('wy/central/storage', 'storage'),
     ]);
@@ -348,11 +349,8 @@ void main() {
     await tester.tap(find.text('What it may do'));
     await app.settle(tester);
 
-    List<String> chips() => [
-      for (final (k, _)
-          in tester.widget<RightsPanel>(find.byType(RightsPanel)).vm.prefixes)
-        k,
-    ];
+    List<String> chips() =>
+        tester.widget<RightsPanel>(find.byType(RightsPanel)).vm.prefixes;
     final panel = tester.widget<RightsPanel>(find.byType(RightsPanel));
     panel.onRemovePrefix!('wy/central/storage');
     await app.settle(tester);
@@ -364,7 +362,9 @@ void main() {
     expect(chips(), isEmpty);
 
     // picked back, the mode is unstaged; the prefixes stay staged
-    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!('config');
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!(
+      AgentModeVm.config,
+    );
     await app.settle(tester);
     expect(
       tester
@@ -372,10 +372,12 @@ void main() {
           .vm
           .modes
           .firstWhere((m) => m.selected)
-          .id,
-      'config',
+          .mode,
+      AgentModeVm.config,
     );
-    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!('write');
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!(
+      AgentModeVm.write,
+    );
     await app.settle(tester);
     final c = app.store.state.changes.table['params:$_links']!;
     expect(c.args['params'], {
@@ -391,7 +393,9 @@ void main() {
     await app.pump(tester);
     await tester.tap(find.text('What it may do'));
     await app.settle(tester);
-    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!('config');
+    tester.widget<RightsPanel>(find.byType(RightsPanel)).onMode!(
+      AgentModeVm.config,
+    );
     await app.settle(tester);
 
     final card = changeCards(_Reader(app.store.state)).single;
@@ -410,7 +414,7 @@ void main() {
     final tile = tester.widget<SuggestionTile>(find.byType(SuggestionTile));
     expect(tile.vm.label, 'Ask ivan first');
     expect(tile.vm.tag, 'nothing · its guess');
-    expect(tile.vm.note, 'a draft to copy · sends nothing');
+    expect(tile.vm.noteText, 'a draft to copy · sends nothing');
     expect(find.text('The assistant suggests'), findsOneWidget);
     expect(
       find.byWidgetPredicate((w) => w is Button && w.label == 'Ask ivan first'),

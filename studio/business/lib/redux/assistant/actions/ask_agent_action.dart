@@ -1,17 +1,12 @@
-// Calls deprecated wyrm_client shims until this file moves to the typed API
-// (dart/ PR "typed wire"; list in its body).
-// ignore_for_file: deprecated_member_use
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/task_event.dart';
+import 'package:models/task_event_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../tasks/actions/add_task_event_action.dart';
@@ -56,19 +51,21 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
     String? id;
     try {
       final keys = context ?? (text == null ? assistant.chips.toList() : []);
-      await for (final r in deps.wyrm.askAgent(
+      await for (final r in deps.wyrm.agentAsk(
         agent,
         ask,
         parent: parent,
         context: keys,
       )) {
-        final task = str(r['task']);
+        final task = r.taskId;
         // another site was viewed meanwhile: its table is not this agent's
-        if (task == null || assistant.agent != agent) {
+        if (assistant.agent != agent) {
           continue;
         }
         if (id == null) {
           id = task;
+          // the task, its first line and its selection are one change on
+          // screen: the first two do not notify, the third does
           dispatchSync(
             AddTasksAction(
               [
@@ -80,27 +77,35 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
                 ),
               ].lock,
             ),
+            notify: false,
           );
           dispatchSync(
             AddTaskEventAction(
               task,
-              TaskEvent(kind: 'ask', text: ask, time: DateTime.now()),
+              TaskEvent(
+                kind: TaskEventKind.ask,
+                text: ask,
+                time: DateTime.now(),
+              ),
             ),
+            notify: false,
           );
-          dispatchSync(_Select(task));
           // The ask is taken: the box is free for the next one.
-          if (text == null) {
-            dispatchSync(_ClearDraft());
-          }
+          dispatchSync(_Taken(task, clear: text == null));
         }
         takeTaskRow(task, r);
       }
+      await rowReads();
     } on WyrmException catch (e) {
       if (id != null) {
         dispatchSync(
           AddTaskEventAction(
             id,
-            TaskEvent(kind: 'error', text: e.message, time: DateTime.now()),
+            TaskEvent(
+              kind: TaskEventKind.error,
+              text: e.message,
+              time: DateTime.now(),
+            ),
           ),
         );
       }
@@ -131,17 +136,22 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
   }
 }
 
-class _ClearDraft extends Action {
-  @override
-  AppState reduce() =>
-      state.copyWith.assistant(draft: null, chips: const IListConst([]));
-}
-
-class _Select extends Action {
-  _Select(this.id);
+/// The task [id] the ask started is selected; with [clear] the draft and
+/// the `@` chips that went with it are cleared, in the same state.
+class _Taken extends Action {
+  _Taken(this.id, {required this.clear});
 
   final String id;
+  final bool clear;
 
   @override
-  AppState reduce() => state.copyWith.tasks(selectedTask: id);
+  AppState reduce() {
+    final selected = state.copyWith.tasks(selectedTask: id);
+    return clear
+        ? selected.copyWith.assistant(
+            draft: null,
+            chips: const IListConst([]),
+          )
+        : selected;
+  }
 }

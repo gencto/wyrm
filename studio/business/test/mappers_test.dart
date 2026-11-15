@@ -1,4 +1,5 @@
-import 'package:business/wyrm/mappers/agent_task_mapper.dart';
+import 'package:business/wyrm/decode/agent_task.dart';
+import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/mappers/link_info_mapper.dart';
 import 'package:business/wyrm/mappers/live_value_mapper.dart';
 import 'package:business/wyrm/mappers/node_info_mapper.dart';
@@ -9,11 +10,14 @@ import 'package:business/wyrm/mappers/quarantine_entry_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/agent_task.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quality.dart' as m;
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
+
+import 'support/agent_records.dart';
 
 /// Every meta goes through CBOR once, as it arrives from a gateway.
 NodeMeta wire(NodeMeta meta) {
@@ -243,16 +247,15 @@ void main() {
   });
 
   test('agentTaskOf: a plan waiting for approval', () {
-    final t = agentTaskOf(
-      't1',
-      Value.from({
+    final t = taskOf(
+      taskRecord({
         'state': 'awaiting_approval',
         'ask': 'add a modbus device',
         'owner': 'user:admin',
         'plan': [
           {
-            'op': 'invoke',
-            'key': 'wy/edge/downstream/modbus',
+            'n': 1,
+            'invoke': 'wy/edge/downstream/modbus',
             'action': 'add_ip_connection',
             'args': {'host': '127.0.0.1', 'port': 502},
             'level': 'config',
@@ -263,6 +266,7 @@ void main() {
         'log': ['read wy/edge/downstream'],
         'tokens': 1200,
       }),
+      't1',
     );
 
     expect(t.state, TaskState.awaitingApproval);
@@ -271,6 +275,41 @@ void main() {
     expect(t.plan.single.approval, isTrue);
     expect(t.log.single, 'read wy/edge/downstream');
     expect(t.tokens, 1200);
+  });
+
+  // A step of an agent link older than ADR 0049 (`{op, key, args}`) is no
+  // step of the record Studio reads: such a link has no `doc` to read it
+  // through (ADR 0049 §1), and a record that holds one names the field.
+  test('agentTaskOf: a record that is not one names its field', () {
+    expect(
+      agentTaskOf(
+        't1',
+        taskRecord({
+          'state': 'awaiting_approval',
+          'plan': [
+            {'op': 'invoke', 'key': 'wy/edge/downstream/modbus', 'n': 1},
+          ],
+        }),
+      ),
+      isA<Invalid<AgentTask>>().having(
+        (i) => i.field,
+        'field',
+        'AgentTaskRecord.plan[0]',
+      ),
+    );
+    expect(
+      agentTaskOf('t1', Value.from({'state': 'done'})),
+      isA<Invalid<AgentTask>>(),
+      reason: 'the owner, the ask and the plan are required',
+    );
+    expect(
+      agentTaskOf('t1', taskRecord({'state': 'thinking'})),
+      isA<Invalid<AgentTask>>().having(
+        (i) => i.field,
+        'field',
+        'AgentTaskRecord.state',
+      ),
+    );
   });
 
   group('values', () {

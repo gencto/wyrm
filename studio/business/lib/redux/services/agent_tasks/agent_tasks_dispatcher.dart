@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
@@ -23,8 +21,10 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
   /// new (a review ends with the state still `failed`).
   final _seen = <String, (int, int, int, int, bool, String?)>{};
 
+  /// Its own reads are awaited here: the service that calls it does not
+  /// wait, the dispatcher owns them.
   @override
-  void onTaskState(
+  Future<void> onTaskState(
     String id,
     TaskState state, {
     int step = 0,
@@ -33,7 +33,7 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     int findings = 0,
     bool reviewing = false,
     String? replacedBy,
-  }) {
+  }) async {
     final known = _store.state.tasks.table[id];
     final now = (step, finished, suggestions, findings, reviewing, replacedBy);
     final moved = _seen[id] != now;
@@ -52,7 +52,7 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     // The record moved with the state and with each step: the task on
     // screen is read again.
     if (_store.state.tasks.selectedTask == id) {
-      unawaited(_store.dispatchAndWait(RetrieveTaskRecordAction(id)));
+      await _store.dispatchAndWait(RetrieveTaskRecordAction(id));
     }
   }
 }

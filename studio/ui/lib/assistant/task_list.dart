@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
@@ -9,15 +10,19 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'blocked.dart';
+import 'task_badge.dart';
 
 /// One task in the left list.
 final class TaskItemVm extends Equatable {
   const TaskItemVm({
     required this.id,
     required this.title,
-    required this.state,
-    required this.tone,
-    this.detail,
+    required this.badge,
+    this.by,
+    this.replacedBy,
+    this.failedAt,
+    this.noChanges = false,
     this.selected = false,
   });
 
@@ -25,58 +30,113 @@ final class TaskItemVm extends Equatable {
 
   /// The ask, cut to two lines.
   final String title;
+  final TaskBadge badge;
 
-  /// `awaiting approval`, `done`, `failed`.
-  final String state;
-  final Tone tone;
+  /// Who asked, when it was not the user.
+  final String? by;
 
-  /// Who asked and how it ended (`by olena · failed at step 3`).
-  final String? detail;
+  /// The task that took its place.
+  final String? replacedBy;
+
+  /// The step its run failed at.
+  final int? failedAt;
+
+  /// It ended without a plan: nothing changed.
+  final bool noChanges;
   final bool selected;
 
+  /// `awaiting approval`, `done`, `failed`.
+  String get state => badge.label;
+  Tone get tone => badge.tone;
+
+  /// Who asked and how it ended (`by olena · failed at step 3`).
+  String? get detail {
+    final parts = [
+      if (by case final b?) S.current.taskBy(b),
+      if (replacedBy case final next?)
+        S.current.taskReplaced(next)
+      else if (failedAt case final n?)
+        S.current.taskFailedAt(n)
+      else if (noChanges)
+        S.current.taskNoChanges,
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
   @override
-  List<Object?> get props => [id, title, state, tone, detail, selected];
+  List<Object?> get props => [
+    id,
+    title,
+    badge,
+    by,
+    replacedBy,
+    failedAt,
+    noChanges,
+    selected,
+  ];
+}
+
+/// The groups of the task list.
+enum TaskSection {
+  /// Tasks still under way.
+  now,
+
+  /// Tasks that ended.
+  earlier;
+
+  String get label => switch (this) {
+    now => S.current.sectionNow,
+    earlier => S.current.sectionEarlier,
+  };
 }
 
 /// A titled group of tasks (`NOW`, `EARLIER`).
 final class TaskSectionVm extends Equatable {
-  const TaskSectionVm({required this.label, required this.tasks});
+  const TaskSectionVm({required this.section, required this.tasks});
 
-  final String label;
+  final TaskSection section;
   final List<TaskItemVm> tasks;
 
+  String get label => section.label;
+
   @override
-  List<Object?> get props => [label, tasks];
+  List<Object?> get props => [section, tasks];
 }
 
 /// Board *Assistant*, left: New task, a note, the tasks by section, the
 /// selected one with an ember bar.
 class TaskList extends StatelessWidget {
   const TaskList({
-    required this.newLabel,
-    required this.note,
     required this.sections,
     required this.onNew,
     required this.onTask,
-    this.newReason,
+    this.agent,
+    this.noAgent = false,
     super.key,
   });
 
-  final String newLabel;
-  final String note;
   final List<TaskSectionVm> sections;
   final VoidCallback onNew;
   final ValueChanged<String> onTask;
-  final String? newReason;
+
+  /// The agent link's key, for the note; null when there is none.
+  final String? agent;
+
+  /// The site has no agent link: New task is disabled.
+  final bool noAgent;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final newReason = noAgent ? const BlockedNoAgent().text : null;
+    final note = S.current.taskListNote(
+      agent?.split('/').skip(2).join('/') ?? 'agent',
+    );
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         Button.secondary(
-          label: newLabel,
+          label: S.current.newTask,
           icon: 'ui_add',
           expand: true,
           disabledReason: newReason,

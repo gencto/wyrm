@@ -24,14 +24,17 @@ import 'package:business/redux/tasks/actions/retrieve_tasks_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/approval.dart';
 import 'package:business/wyrm/mappers/agent_task_mapper.dart';
-import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/grant.dart';
+import 'package:models/step_check.dart';
+import 'package:models/step_kind.dart';
+import 'package:models/step_status.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart' hide Grant;
 
+import 'support/agent_records.dart';
 import 'support/fake_wyrm.dart';
 
 void main() {
@@ -79,12 +82,12 @@ void main() {
     await withAgent();
 
     expect(s.state.assistant.agent, agent);
-    expect(s.state.assistant.cfg['model'], 'claude-opus-5-5');
+    expect(s.state.assistant.config?.model, 'claude-opus-5-5');
     expect(
-      s.state.assistant.cfg['allowed_prefixes'],
-      'wy/central/downstream/modbus',
+      s.state.assistant.config?.prefixes,
+      ['wy/central/downstream/modbus'],
     );
-    expect(s.state.assistant.cfg['api_key_ref'], 'anthropic_api_key');
+    expect(s.state.assistant.config?.apiKeyRef, 'anthropic_api_key');
   });
 
   test('no agent link: no agent, asking refuses', () async {
@@ -123,7 +126,10 @@ void main() {
     expect(s.state.tasks.selectedTask, 't-1');
     expect(s.state.assistant.draft, isNull);
     expect(
-      [for (final e in s.state.tasks.events['t-1']!) '${e.kind}:${e.text}'],
+      [
+        for (final e in s.state.tasks.events['t-1']!)
+          '${e.kind.name}:${e.text}',
+      ],
       [
         'ask:add ahu2',
         'text:I look at line 2.',
@@ -169,7 +175,7 @@ void main() {
     );
   });
 
-  Value record(String state) => Value.from({
+  Map<String, Object?> recordFields(String state) => {
     'state': state,
     'owner': 'user:olena',
     'ask': 'add ahu2',
@@ -209,7 +215,9 @@ void main() {
     'plan_hash': 'the link says so',
     'log': ['asked by user:olena', 'model: I looked at line 2.'],
     'tokens': 12,
-  });
+  };
+
+  Value record(String state) => taskRecord(recordFields(state));
 
   test('the record of a task is read through doc', () async {
     await withAgent();
@@ -225,9 +233,9 @@ void main() {
     expect(t.plan, hasLength(3));
     final [a, b, c] = t.plan.toList();
     expect(
-      (a.op, a.key, a.action),
+      (a.kind, a.key, a.action),
       (
-        'invoke',
+        StepKind.invoke,
         'wy/central/downstream/modbus/tcp',
         'add_device',
       ),
@@ -236,17 +244,20 @@ void main() {
     expect(
       (a.level, a.approval, a.reason),
       (
-        'config',
+        Perm.config,
         true,
         'the device the operator asked for',
       ),
     );
-    expect((b.op, b.check, b.warn), ('set', 'at_run', 'at the limit'));
+    expect(
+      (b.kind, b.check, b.warn),
+      (StepKind.set, StepCheck.atRun, 'at the limit'),
+    );
     expect(b.args.unlock, {'value': 21.5});
     expect(b.after, [1]);
-    expect((c.op, c.seconds), ('expect', 10.0));
+    expect((c.kind, c.seconds), (StepKind.expect, 10.0));
     expect(c.args.unlock, {'equals': 21.5});
-    expect(c.result?.status, 'skipped');
+    expect(c.result?.status, StepStatus.skipped);
     // the hash is made from the plan as read, not taken from the record
     expect(t.planHash, hasLength(64));
     expect(t.planHash, planHash(record('done')['plan']));
@@ -332,7 +343,7 @@ void main() {
   test('a secret argument of a step is named from the action meta', () async {
     await withAgent();
     api
-      ..docs['$agent/tasks/t-1 ~state'] = Value.from({
+      ..docs['$agent/tasks/t-1 ~state'] = taskRecord({
         'state': 'awaiting_approval',
         'plan': [
           {
@@ -377,7 +388,7 @@ void main() {
   test('an argument whose schema is not known is masked and never saved '
       '(spec assistant.md §3)', () async {
     await withAgent();
-    api.docs['$agent/tasks/t-1 ~state'] = Value.from({
+    api.docs['$agent/tasks/t-1 ~state'] = taskRecord({
       'state': 'done',
       'plan': [
         {
@@ -450,7 +461,7 @@ void main() {
   });
 
   test('how far a plan was checked counts the steps that change something', () {
-    final plan = agentTaskOf('t', record('awaiting_approval')).plan;
+    final plan = taskOf(record('awaiting_approval')).plan;
     // step 1 now, step 2 when it runs, step 3 only reads
     expect(planChecks(plan), (now: 1, atRun: 1));
     expect(planChecks(plan.take(1)), (now: 1, atRun: 0));
@@ -490,7 +501,7 @@ void main() {
         '(review, ADR 0029)', () async {
       await withAgent();
       api
-        ..docs['$task ~state'] = Value.from({
+        ..docs['$task ~state'] = taskRecord({
           'state': 'awaiting_approval',
           'owner': 'user:olena',
           'plan': [
@@ -666,7 +677,7 @@ void main() {
         api.docs['$task ~state'] = record('awaiting_approval');
         s.dispatchSync(
           AddTasksAction(
-            [agentTaskOf('t-1', record('awaiting_approval'))].lock,
+            [taskOf(record('awaiting_approval'), 't-1')].lock,
           ),
         );
 
@@ -678,7 +689,7 @@ void main() {
   });
 
   group('who signs what (approvalOf)', () {
-    final plan = agentTaskOf('t', record('awaiting_approval')).plan;
+    final plan = taskOf(record('awaiting_approval')).plan;
 
     List<(bool?, String?, int?)> choices({
       Set<int> unticked = const {},
@@ -842,7 +853,7 @@ void main() {
       expect(capped.decidesFor(t('user:olena')), isFalse);
       expect(capped.mayFollow(t('user:olena')), isFalse);
       final steps = approvalOf(
-        agentTaskOf('t-1', record('awaiting_approval')).plan,
+        taskOf(record('awaiting_approval'), 't-1').plan,
         unticked: const ISetConst({}),
         decides: true,
         lacks: (level, key) => capped.site.needs(level, key),
@@ -924,7 +935,7 @@ void main() {
   });
 
   test('the plan as a file is the wyrm-agent run format', () {
-    final file = planFile(agentTaskOf('t-1', record('done')));
+    final file = planFile(taskOf(record('done'), 't-1'));
     expect(file['about'], 'add ahu2');
     expect(file['steps'], [
       {
@@ -942,9 +953,8 @@ void main() {
   });
 
   test('the questions of a record: options, kinds and answers', () {
-    final t = agentTaskOf(
-      't-1',
-      Value.from({
+    final t = taskOf(
+      taskRecord({
         'state': 'awaiting_answer',
         'questions': [
           {
@@ -969,6 +979,7 @@ void main() {
           {'id': 'q4', 'text': 'Left open', 'answer': <Object?>[]},
         ],
       }),
+      't-1',
     );
     expect(t.state, TaskState.awaitingAnswer);
     final [a, b, c, d] = t.questions.toList();
@@ -1007,8 +1018,8 @@ void main() {
     Value withSuggestions(
       String state, {
       Map<String, Object?> more = const {},
-    }) => Value.from({
-      ...(toDart(record(state))! as Map<String, Object?>),
+    }) => taskRecord({
+      ...recordFields(state),
       'suggestions': [
         {
           'id': 's1',
@@ -1168,6 +1179,7 @@ void main() {
       await val({
         'state': 'failed',
         'step': 2,
+        'of': 3,
         'last': last,
         'reviewing': true,
       });
@@ -1178,7 +1190,13 @@ void main() {
         'failed',
         more: {'review': 'unit 3 does not answer'},
       );
-      await val({'state': 'failed', 'step': 2, 'last': last, 'suggestions': 2});
+      await val({
+        'state': 'failed',
+        'step': 2,
+        'of': 3,
+        'last': last,
+        'suggestions': 2,
+      });
       expect(reads(), 2);
       expect(s.state.tasks.table['t-1']!.reviewing, isFalse);
       expect(s.state.tasks.table['t-1']!.suggestions, hasLength(2));
@@ -1188,6 +1206,7 @@ void main() {
       await val({
         'state': 'failed',
         'step': 2,
+        'of': 3,
         'last': last,
         'suggestions': 2,
         'replaced_by': 't-9',

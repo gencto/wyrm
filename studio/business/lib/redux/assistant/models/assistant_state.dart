@@ -1,5 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/agent_config.dart';
+import 'package:models/assistant_panel.dart';
 import 'package:models/audit_entry.dart';
 
 part 'assistant_state.freezed.dart';
@@ -8,9 +10,12 @@ part 'assistant_state.freezed.dart';
 abstract class AssistantState with _$AssistantState {
   const factory AssistantState({
     String? draft,
-    @Default('task') String panel,
+    @Default(AssistantPanel.task) AssistantPanel panel,
     String? agent,
-    @Default(IMapConst({})) IMap<String, String> cfg,
+
+    /// What the agent may do, from its root `cfg`; null until it is read
+    /// (or when its meta is not readable).
+    AgentConfig? config,
     @Default(true) bool docs,
     @Default(IMapConst({})) IMap<String, ISet<int>> unticked,
     @Default(IMapConst({})) IMap<String, String> refusals,
@@ -21,7 +26,13 @@ abstract class AssistantState with _$AssistantState {
     @Default(IListConst([])) IList<String> chips,
     @Default(IMapConst({})) IMap<String, ISet<int>> revealed,
     @Default(false) bool drawer,
-    @Default(IListConst([])) IList<String> prefixes,
+
+    /// The finding nodes the drawer watches while it is shown (its own
+    /// readers, apart from [watched]); empty while it is hidden.
+    @Default(IListConst([])) IList<String> drawerWatched,
+
+    /// The drawer is on screen (Explorer's tab active, the drawer open).
+    @Default(false) bool drawerShown,
     ISet<String>? secrets,
     String? timelineKey,
     @Default(IListConst([])) IList<AuditEntry> timelineAudit,

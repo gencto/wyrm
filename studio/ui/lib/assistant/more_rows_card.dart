@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
@@ -7,6 +8,8 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'blocked.dart';
+import 'task_badge.dart';
 
 /// One row of [MoreRowsCardVm]: a node the same change may be made for.
 final class MoreRowVm extends Equatable {
@@ -35,39 +38,38 @@ final class MoreRowsCardVm extends Equatable {
     required this.id,
     required this.title,
     required this.rows,
-    required this.button,
     this.detail = '',
-    this.disabledReason,
-    this.note,
+    this.blocked,
+    this.unattended,
   });
 
-  /// The suggestion's id in its task.
+  /// The suggestion's id.
   final String id;
 
-  /// The suggestion's label (`Same for more units?`), as the model wrote it.
+  /// The model's words.
   final String title;
   final String detail;
   final List<MoreRowVm> rows;
 
+  /// Why *Make a plan* cannot be pressed; null: it can.
+  final Blocked? blocked;
+
+  /// The agent's mode when a pick's plan may write without a person.
+  final AgentModeVm? unattended;
+
   /// `Make a plan for 2 units`.
-  final String button;
+  String get button => S.current.moreButton(rows.where((r) => r.ticked).length);
 
-  /// Why the button is off (no row ticked, rights, an ask in flight).
-  final String? disabledReason;
+  String? get disabledReason => blocked?.text;
 
-  /// The line under the button.
-  final String? note;
+  /// What the rows are, or the caution of the agent's mode.
+  String get note => switch (unattended) {
+    final m? => S.current.waysCaution(m.word),
+    null => S.current.moreNote,
+  };
 
   @override
-  List<Object?> get props => [
-    id,
-    title,
-    detail,
-    rows,
-    button,
-    disabledReason,
-    note,
-  ];
+  List<Object?> get props => [id, title, detail, rows, blocked, unattended];
 }
 
 /// Board *AssistantDone*, *Same for more units?*: the nodes the model says
@@ -110,12 +112,7 @@ class MoreRowsCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              10,
-              14,
-              10,
-            ),
+            padding: Insets.cardRow,
             child: Column(
               crossAxisAlignment: .start,
               spacing: 3,
@@ -172,23 +169,14 @@ class MoreRowsCard extends StatelessWidget {
               ),
             ),
           Container(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              10,
-              14,
-              12,
-            ),
+            padding: Insets.cardFoot,
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
             ),
             child: Row(
               spacing: 12,
               children: [
-                Expanded(
-                  child: vm.note == null
-                      ? const SizedBox.shrink()
-                      : Text(vm.note!, style: small),
-                ),
+                Expanded(child: Text(vm.note, style: small)),
                 Button.primary(
                   label: vm.button,
                   disabledReason: vm.disabledReason,

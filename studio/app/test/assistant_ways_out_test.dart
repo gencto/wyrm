@@ -148,7 +148,7 @@ void main() {
     // only the fix of step 1 is on the plan, and it says what it does
     final tile = tester.widget<SuggestionTile>(find.byType(SuggestionTile));
     expect(tile.vm.label, 'Try Slave ID 4');
-    expect(tile.vm.note, 'replaces this plan');
+    expect(tile.vm.noteText, 'replaces this plan');
     expect(tile.vm.tag, '1 change · its guess');
 
     await tester.tap(find.text('Try Slave ID 4'));
@@ -173,13 +173,16 @@ void main() {
 
     final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
     expect(card.title, 'Stopped at step 2 · timeout');
-    expect(card.review?.text, 'Unit 3 does not answer behind this gateway.');
-    expect(card.review?.label, 'what the assistant read about it');
-    expect(card.reviewing, isNull);
+    expect(
+      card.reviewWords?.text,
+      'Unit 3 does not answer behind this gateway.',
+    );
+    expect(card.reviewWords?.label, 'what the assistant read about it');
+    expect(card.reviewingNote, isNull);
     // every suggestion of a failed task, the fix of step 1 too; the tag is
     // the model's guess, also at 0
     expect(
-      [for (final w in card.ways) (w.label, w.tag, w.note)],
+      [for (final w in card.ways) (w.label, w.tag, w.noteText)],
       [
         ('Try Slave ID 4', '1 change · its guess', null),
         ('Leave it as it is', 'nothing · its guess', null),
@@ -204,7 +207,7 @@ void main() {
     await app.pump(tester, selected: 't-1');
 
     final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
-    expect(card.reviewing, 'The assistant reads why it stopped…');
+    expect(card.reviewingNote, 'The assistant reads why it stopped…');
     expect(card.review, isNull);
     expect(find.byType(ArcSpinner), findsOneWidget);
     expect(_button(tester, 'Cancel task').onPressed, isNotNull);
@@ -230,7 +233,7 @@ void main() {
     );
     await app.settle(tester);
     expect(
-      tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.note,
+      tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.noteText,
       contains('run without a person'),
     );
   });
