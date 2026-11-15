@@ -13,6 +13,9 @@ dependencies:
   freezed_annotation: ^3.1.0
   intl: ^0.20.3
   json_annotation: ^4.12.0
+  # The gateway's closed sets a found gateway carries (`GatewayRole`).
+  wyrm_client:
+    path: ../../dart/wyrm_client
   # `StatusCode` of a refused call, kept as data in `StudioError`
   # (docs/design/specs/errors.md §1). Pure Dart, outside this workspace.
   wyrm_core:

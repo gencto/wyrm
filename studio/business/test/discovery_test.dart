@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
+import 'package:models/trust_refusal.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -115,7 +116,7 @@ void main() {
         site: 'plant',
         hosts: IListConst(['10.0.7.11:8446']),
         url: 'https://10.0.7.11:8446',
-        role: 'standby',
+        role: GatewayRole.standby,
         seen: 1,
       );
       const active = FoundGateway(
@@ -567,6 +568,49 @@ void main() {
     });
   });
 
+  group('a reply that is not /api/info', () {
+    late HttpServer server;
+
+    setUp(() async {
+      server = await HttpServer.bind('127.0.0.1', 0)
+        ..listen((r) {
+          r.response
+            ..headers.contentType = ContentType('application', 'cbor')
+            // No `role`, `up` or `devices`: an older or a foreign server.
+            ..add(
+              const VMap({
+                'site': VStr('lab'),
+                'version': VStr('0.1.0'),
+                'tls': VBool(false),
+                'min_studio': VStr('1.0.0'),
+              }).toCbor(),
+            );
+          unawaited(r.response.close());
+        });
+    });
+
+    tearDown(() => server.close(force: true));
+
+    test('is refused naming its field, never read as defaults', () async {
+      const reader = HttpInfoReader();
+      await expectLater(
+        reader.readUnverified(Uri.parse('http://127.0.0.1:${server.port}')),
+        throwsA(
+          isA<InfoFailure>()
+              .having((f) => f.fault, 'fault', InfoFault.missing)
+              .having((f) => f.reason, 'reason', contains('GatewayInfo.')),
+        ),
+      );
+    });
+
+    test('gives the log-in page no policy', () async {
+      final info = await const GatewayLogin().info(
+        Uri.parse('http://127.0.0.1:${server.port}'),
+      );
+      expect(info, isNull);
+    });
+  });
+
   group('over TLS', () {
     late HttpServer server;
     late Uri byName;
@@ -591,6 +635,18 @@ void main() {
                   'ca_fp': VStr(caCode(caDer)),
                   'names': const VArray([VStr('gw.test'), VStr('127.0.0.1')]),
                   'min_studio': const VStr('1.0.0'),
+                  // Required since ADR 0050 decision 10, as the gateway
+                  // sends them (`crates/wyrm-gateway/src/lib.rs`).
+                  'role': const VStr('active'),
+                  'up': const VArray([]),
+                  'devices': const VMap({
+                    'enabled': VBool(false),
+                    'max_per_user': VInt(5),
+                    'password_every_days': VInt(30),
+                    'idle_lock_max_min': VInt(30),
+                    'step_up': VStr('none'),
+                    'allow_device_credential': VBool(false),
+                  }),
                 }).toCbor(),
               );
           } else {

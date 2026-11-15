@@ -13,7 +13,6 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/approval_mode.dart';
 import 'package:models/staged_change.dart';
@@ -35,7 +34,7 @@ void main() {
   }) async {
     final login = FakeLogin(
       session: FakeSession(
-        who: WhoAmI(
+        who: identityOf(
           subject: 'user:olena',
           site: 'central',
           roles: const ['engineer'],

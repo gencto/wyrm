@@ -1971,6 +1971,7 @@
     "stepUpConfirm": "Confirm",
     "stepUpStopped": "{name} did not confirm. Try again or use the password.",
     "stepUpRefused": "{site} did not take the confirmation: {reason}",
+    "stepUpKeyGone": "{site} did not take the confirmation: the key no longer opens",
     "securityMenu": "Security",
     "securityTitle": "Security",
     "securityOn": "On {device}",

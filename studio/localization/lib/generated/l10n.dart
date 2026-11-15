@@ -15969,6 +15969,16 @@ class S {
     );
   }
 
+  /// `{site} did not take the confirmation: the key no longer opens`
+  String stepUpKeyGone(Object site) {
+    return Intl.message(
+      '$site did not take the confirmation: the key no longer opens',
+      name: 'stepUpKeyGone',
+      desc: '',
+      args: [site],
+    );
+  }
+
   /// `Security`
   String get securityMenu {
     return Intl.message('Security', name: 'securityMenu', desc: '', args: []);

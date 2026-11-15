@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:app/connectors/lock_overlay_connector.dart';
 import 'package:app/connectors/log_in_page_connector.dart';
 import 'package:app/connectors/step_up_dialog_connector.dart';
+import 'package:app/run_env.dart' show devicePrompts;
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
@@ -109,7 +110,7 @@ class LogInApp {
            (FakeLogin(
              answer: answer,
              session: FakeSession(
-               who: const WhoAmI(
+               who: identityOf(
                  subject: 'user:olena',
                  site: 'plant',
                  roles: ['engineer'],
@@ -134,6 +135,7 @@ class LogInApp {
         gatewayInfo: this.net,
         browser: browser,
         browseDuration: Duration.zero,
+        prompts: devicePrompts,
       ),
     );
   }
@@ -164,13 +166,7 @@ class LogInApp {
     await fill();
     await store.dispatchAndWait(LoadDeviceAction());
     await store.dispatchAndWait(LogInAction());
-    await store.dispatchAndWait(
-      OfferDeviceAction(
-        enable: () => store.dispatchAndWait(
-          EnableDeviceAction(reason: 'setup'),
-        ),
-      ),
-    );
+    await store.dispatchAndWait(OfferDeviceAction());
     if (store.state.device.deviceId == null) {
       await store.dispatchAndWait(EnableDeviceAction(reason: 'setup'));
     }

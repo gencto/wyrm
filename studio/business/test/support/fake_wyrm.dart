@@ -236,18 +236,38 @@ class FakeWyrmApi implements WyrmApi {
   Future<void> close() async => closed = true;
 }
 
+/// `/api/me` of a test, its levels written by name as the tests write
+/// them; a name that is not a level fails the test at once.
+GatewayIdentity identityOf({
+  required String subject,
+  required String site,
+  required List<String> roles,
+  required String max,
+  List<(String, String)> grants = const [],
+}) => GatewayIdentity(
+  sub: subject,
+  site: site,
+  roles: roles,
+  max: Perm.fromName(max)!,
+  exp: 0,
+  grants: [for (final (k, p) in grants) Grant(k, Perm.fromName(p)!)],
+);
+
 /// A session over a [FakeWyrmApi].
 class FakeSession implements WyrmSession {
   FakeSession({
     FakeWyrmApi? api,
-    this.who = const WhoAmI(
-      subject: 'user:admin',
-      site: 'central',
-      roles: ['admin'],
-      max: 'config',
-    ),
+    GatewayIdentity? who,
     FakeDevices? devices,
   }) : api = api ?? FakeWyrmApi(),
+       who =
+           who ??
+           identityOf(
+             subject: 'user:admin',
+             site: 'central',
+             roles: const ['admin'],
+             max: 'config',
+           ),
        gateway = devices ?? FakeDevices();
 
   @override
@@ -257,9 +277,9 @@ class FakeSession implements WyrmSession {
   final FakeDevices gateway;
 
   /// The user of this session (`who.subject` without `user:`).
-  String get userName => who.subject.replaceFirst('user:', '');
+  String get userName => who.sub.replaceFirst('user:', '');
 
-  final WhoAmI who;
+  final GatewayIdentity who;
   // ignore: close_sinks, a test's session lives as long as the test.
   final connected = StreamController<bool>.broadcast();
   var closed = false;
@@ -271,7 +291,7 @@ class FakeSession implements WyrmSession {
   Uri get base => Uri.parse('http://127.0.0.1:8445');
 
   @override
-  Future<WhoAmI> me() async => who;
+  Future<GatewayIdentity> identity() async => who;
 
   /// The users `/api/users` answers, by name.
   final userTable = <String, GatewayUser>{};
@@ -309,12 +329,12 @@ class FakeSession implements WyrmSession {
       );
 
   @override
-  Future<String> registerDevice({
+  Future<String> addDevice({
     required String site,
     required String user,
     required String name,
-    required String platform,
-    required String alg,
+    required DevicePlatform platform,
+    required DeviceAlg alg,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
   }) => gateway.register(
@@ -448,7 +468,7 @@ class FakeDevices {
     required String site,
     required String user,
     required String name,
-    required String platform,
+    required DevicePlatform platform,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
   }) async {

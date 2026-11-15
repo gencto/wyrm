@@ -51,13 +51,6 @@ void main() {
                 ),
               ),
               theme: darkTheme(),
-              // The app's builder puts no Material above the router, and
-              // the lock card's password field asks for one in a debug
-              // build: given here until the card has its own.
-              builder: (context, child) => Material(
-                type: MaterialType.transparency,
-                child: child,
-              ),
               localizationsDelegates: const [
                 S.delegate,
                 ...GlobalMaterialLocalizations.delegates,

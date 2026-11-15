@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:app/common/app_store.dart';
 import 'package:app/common/forms.dart';
-import 'package:app/connectors/log_in_page_connector.dart' show studioVersion;
+import 'package:app/common/studio_version.dart';
 import 'package:app/dialogs/error_dialogs.dart';
 import 'package:app/dialogs/exception_dialog.dart';
 import 'package:app/errors.dart';

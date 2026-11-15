@@ -9,12 +9,15 @@ import 'package:device_key/testing.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_info.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/step_up_error.dart';
 import 'package:models/step_up_line.dart';
 import 'package:models/step_up_request.dart';
+import 'package:models/trust_refusal.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:ui/inputs/range_probe.dart';
@@ -251,7 +254,10 @@ void main() {
           if (!shown) {
             return s;
           }
-          final u = s.copyWith.device(stage: UnlockStage.unlock, reason: null);
+          final u = s.copyWith.device(
+            stage: UnlockStage.unlock,
+            fallback: null,
+          );
           return after == null ? u : after(u);
         },
       );
@@ -535,7 +541,12 @@ void main() {
         variant: mac,
       );
     }
-    for (final why in ['no_answer', 'changed', 'mismatch', 'chain']) {
+    for (final (why, refusal) in [
+      ('no_answer', TrustRefusal.noAnswer),
+      ('changed', TrustRefusal.changed),
+      ('mismatch', TrustRefusal.mismatch),
+      ('chain', TrustRefusal.chain),
+    ]) {
       testWidgets('the trust refused: $why', (t) async {
         final app = network();
         await openFind(
@@ -545,7 +556,7 @@ void main() {
           then: (t) async {
             await t.tap(find.text('lab'));
             await app.settle(t);
-            app.put((a) => a.copyWith.discovery(trustRefused: why));
+            app.put((a) => a.copyWith.discovery(trustRefused: refusal));
           },
         );
       }, variant: mac);
@@ -614,7 +625,9 @@ void main() {
         t,
         'lock wrong',
         app: LogInApp(),
-        put: (a) => a.copyWith.device(lockError: 'bad_password'),
+        put: (a) => a.copyWith.device(
+          lockError: const LockError.wrongPassword(),
+        ),
       ),
       variant: mac,
     );
@@ -624,7 +637,9 @@ void main() {
         t,
         'lock other',
         app: LogInApp(),
-        put: (a) => a.copyWith.device(lockError: 'too many tries'),
+        put: (a) => a.copyWith.device(
+          lockError: const LockError.refused('too many tries'),
+        ),
       ),
       variant: mac,
     );
@@ -637,8 +652,8 @@ void main() {
 
   group('the step-up', () {
     const lines = [
-      StepUpLine(level: 'config', text: 'set value', key: 'wy/plant/sys/x'),
-      StepUpLine(level: 'write', text: 'add user ivan'),
+      StepUpLine(level: Perm.config, text: 'set value', key: 'wy/plant/sys/x'),
+      StepUpLine(level: Perm.write, text: 'add user ivan'),
     ];
 
     Future<void> stepUp(
@@ -671,10 +686,10 @@ void main() {
       variant: mac,
     );
     for (final (name, error) in [
-      ('step-up wrong', 'bad_password'),
-      ('step-up cancelled', const SignStopped(SignCancelled()).toString()),
-      ('step-up locked', const SignStopped(SignLockout()).toString()),
-      ('step-up refused', 'device_removed'),
+      ('step-up wrong', const StepUpError.wrongPassword()),
+      ('step-up cancelled', stepUpErrorOf(const SignCancelled())),
+      ('step-up locked', stepUpErrorOf(const SignLockout())),
+      ('step-up refused', const StepUpError.refused('device_removed')),
     ]) {
       testWidgets(
         'an error: $name',

@@ -199,11 +199,16 @@ class _LockOverlayState extends State<LockOverlay> {
               ),
               Positioned.fill(
                 child: Center(
-                  child: _LockCard(
-                    vm: card,
-                    onUnlock: widget.onUnlock,
-                    onPassword: widget.onPassword,
-                    onLogOut: widget.onLogOut,
+                  // The card's own Material: the shell above it has none,
+                  // and the password field needs one.
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: _LockCard(
+                      vm: card,
+                      onUnlock: widget.onUnlock,
+                      onPassword: widget.onPassword,
+                      onLogOut: widget.onLogOut,
+                    ),
                   ),
                 ),
               ),

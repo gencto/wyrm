@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:models/device_tag.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
+import 'package:models/step_up_error.dart';
+import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -129,19 +131,81 @@ DeviceRow deviceRowOf(GatewayDevice d, String? thisDeviceId, DateTime now) {
 IList<GatewayDevice> newestFirst(List<GatewayDevice> ds) =>
     ([...ds]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed))).lock;
 
-/// Why the gateway refused a device login, from its `code`; null for a
-/// failure that is not a refusal of the key.
-UnlockRefusal? unlockRefusalOf(WyrmException e) => switch (e.code) {
-  'device_removed' => UnlockRefusal.removed,
-  'password_changed' => UnlockRefusal.passwordChanged,
-  'password_due' => UnlockRefusal.passwordDue,
-  'devices_off' => UnlockRefusal.devicesOff,
+/// Why the gateway refused a device login, from its refusal code; null
+/// for a failure that is not a refusal of the key.
+UnlockRefusal? unlockRefusalOf(WyrmException e) => switch (e.refusal) {
+  GatewayRefusal.deviceRemoved => UnlockRefusal.removed,
+  GatewayRefusal.passwordChanged => UnlockRefusal.passwordChanged,
+  GatewayRefusal.passwordDue => UnlockRefusal.passwordDue,
+  GatewayRefusal.devicesOff => UnlockRefusal.devicesOff,
+  GatewayRefusal.confirmRequired ||
+  GatewayRefusal.passwordRequired ||
+  GatewayRefusal.tooManyDevices ||
+  GatewayRefusal.badPassword => null,
   // A bare 401 (unknown device, bad signature, a nonce out of time) has no
-  // code: the gateway does not take this key (decision 1 of ADR 0050).
-  null when e.status == StatusCode.of(Status.permissionDenied) =>
-    UnlockRefusal.unknown,
-  _ => null,
+  // code: the gateway does not take this key (decision 1 of ADR 0050). A
+  // code this client does not know is not about the key.
+  null =>
+    e.code == null && e.status == StatusCode.of(Status.permissionDenied)
+        ? UnlockRefusal.unknown
+        : null,
 };
+
+/// Why the page falls back to the password when the prompt gave [r]
+/// instead of a signature (the key kept).
+UnlockFallback fallbackOf(SignResult r) => switch (r) {
+  SignLockout() => UnlockFallback.lockedOut,
+  SignCancelled() ||
+  SignUnavailable() ||
+  SignFailed() ||
+  SignInvalidated() ||
+  Signed() => UnlockFallback.notOpened,
+};
+
+/// What the step-up dialog says when the prompt gave [r] instead of a
+/// signature.
+StepUpError stepUpErrorOf(SignResult r) => switch (r) {
+  SignCancelled() || SignLockout() || SignUnavailable() => const .stopped(),
+  SignInvalidated() => const .keyGone(),
+  SignFailed(:final message) => .refused(message),
+  Signed() => const .refused('signed'),
+};
+
+/// The gateway's own words for a refusal: its code, else its message.
+String saidBy(WyrmException e) => e.code ?? e.message;
+
+/// The words of the OS prompts of the device key (unlock-discover.md §2):
+/// `ui`'s, handed to `AppDependencies` by `app`, so that `business` writes
+/// none (studio-rules §5). Each is called with the site and the user at
+/// the moment the prompt opens.
+final class DevicePrompts {
+  const DevicePrompts({
+    required this.unlock,
+    required this.enable,
+    required this.confirm,
+  });
+
+  /// No words: the site and the user as they are, for a store no words
+  /// were given to (tests).
+  static const plain = DevicePrompts(
+    unlock: _siteAndUser,
+    enable: _siteAndUser,
+    confirm: _site,
+  );
+
+  /// A device login or an idle unlock.
+  final String Function(String site, String user) unlock;
+
+  /// Making and registering a new key.
+  final String Function(String site, String user) enable;
+
+  /// A step-up of a refused request.
+  final String Function(String site) confirm;
+}
+
+String _siteAndUser(String site, String user) => '$site · $user';
+
+String _site(String site) => site;
 
 /// The OS prompt gave no signature: what it gave instead.
 final class SignStopped implements Exception {

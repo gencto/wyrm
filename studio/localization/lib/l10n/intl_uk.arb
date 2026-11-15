@@ -1970,6 +1970,7 @@
     "stepUpConfirm": "Підтвердити",
     "stepUpStopped": "{name} не підтвердив. Спробуйте ще раз або введіть пароль.",
     "stepUpRefused": "{site} не прийняв підтвердження: {reason}",
+    "stepUpKeyGone": "{site} не прийняв підтвердження: ключ більше не відкривається",
     "securityMenu": "Безпека",
     "securityTitle": "Безпека",
     "securityOn": "На {device}",

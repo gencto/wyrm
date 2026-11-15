@@ -99,9 +99,7 @@ void main() {
     await s.dispatchAndWait(SetPasswordAction('admin password'));
     final login = await s.dispatchAndWait(LogInAction());
     expect(login.isCompletedOk, isTrue, reason: '${login.originalError}');
-    Future<void> enable() =>
-        s.dispatchAndWait(EnableDeviceAction(reason: 'turn on'));
-    await s.dispatchAndWait(OfferDeviceAction(enable: enable));
+    await s.dispatchAndWait(OfferDeviceAction());
     expect(s.state.device.stage, UnlockStage.offer);
     final on = await s.dispatchAndWait(EnableDeviceAction(reason: 'turn on'));
     expect(on.isCompletedOk, isTrue, reason: '${on.originalError}');

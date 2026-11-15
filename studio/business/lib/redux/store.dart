@@ -8,6 +8,7 @@ import 'package:storage/storage.dart';
 import '../dependencies.dart';
 import '../environment.dart';
 import '../persistor.dart';
+import '../wyrm/device_keys.dart';
 import '../wyrm/failures.dart';
 import 'app_state.dart';
 import 'problems/actions/add_problem_action.dart';
@@ -20,13 +21,15 @@ Store<AppState> newStore({
   required BaseKeyValueStorage settings,
   Persistor<AppState>? persistor,
   ErrorWording? wording,
+  DevicePrompts prompts = DevicePrompts.plain,
 }) {
   WaitAction.reducer = _waitReducer;
 
   _store = Store<AppState>(
     initialState: initialState,
     environment: environment,
-    dependencies: (store) => AppDependencies(store, settings, wording: wording),
+    dependencies: (store) =>
+        AppDependencies(store, settings, wording: wording, prompts: prompts),
     persistor: persistor,
     globalErrorObserver: (store) => _MyErrorObserver(wording ?? plainWording),
     actionObservers: [_ReduxActionLogger()],
@@ -89,13 +92,15 @@ Future<String> setAsideSettings(String path) async {
 /// [wording] gives an error its title and, for a fault in Studio, its
 /// sentence. It is the app's to supply, because words are the app's job:
 /// `business` never names `S`, so the arrow between the two packages keeps
-/// pointing one way.
+/// pointing one way. [prompts] are the words of the device key's OS
+/// prompts, the app's (`ui`'s) for the same reason.
 ///
 /// Throws a [StorageFault] when the settings do not open or do not read;
 /// `run_env.dart` then shows the start screen instead of the app.
 Future<Store<AppState>> createStore(
   Environment environment, {
   ErrorWording? wording,
+  DevicePrompts prompts = DevicePrompts.plain,
   String? directory,
 }) async {
   final settings = await openSettings(directory: directory);
@@ -114,6 +119,7 @@ Future<Store<AppState>> createStore(
     settings: settings,
     persistor: persistor,
     wording: wording,
+    prompts: prompts,
   );
 }
 

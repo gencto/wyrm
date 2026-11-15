@@ -6,10 +6,12 @@ import 'package:business/dependencies.dart';
 import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/store.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:pro_pretty_logging/pro_pretty_logging.dart';
+import 'package:ui/models/unlock_prompts.dart';
 
 import 'app.dart';
 import 'common/app_store.dart';
@@ -26,6 +28,13 @@ bool get isDesktop =>
       TargetPlatform.linux,
     ].contains(defaultTargetPlatform) &&
     !kIsWeb;
+
+/// The words of the device key's OS prompts: `ui`'s, for `business`.
+const devicePrompts = DevicePrompts(
+  unlock: promptUnlock,
+  enable: promptEnable,
+  confirm: promptConfirm,
+);
 
 Future<void> runEnv(Environment env) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +53,11 @@ Future<void> runEnv(Environment env) async {
   // again from here.
   final Store<AppState> store;
   try {
-    store = await createStore(env, wording: wordError);
+    store = await createStore(
+      env,
+      wording: wordError,
+      prompts: devicePrompts,
+    );
   } on StorageFault catch (fault) {
     debugPrint('settings did not open: $fault');
     if (isDesktop) {

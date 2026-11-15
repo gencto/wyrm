@@ -254,10 +254,8 @@ void main() {
         await t.tap(find.text('lab'));
         await app.settle(t);
         expect(app.store.state.discovery.trustPending, 'lab');
-        // Today the pick probes the gateway at once, before its CA is
-        // trusted: the view-model it was built with had no trust pending.
-        expect(app.login.probed, [Uri.parse('https://10.0.7.20:8446')]);
-        app.login.probed.clear();
+        // Not reached before its CA is trusted.
+        expect(app.login.probed, isEmpty, reason: 'nothing before the trust');
         // The code is computed here from the CA's bytes, not taken from
         // what the gateway claims.
         for (final g in codeGroups(code)) {
@@ -271,9 +269,8 @@ void main() {
         expect(pin?.code, code);
         expect(pin?.ca, base64Encode(testCaDer));
         expect(app.store.state.discovery.trustPending, isNull);
-        // Today the trust does not probe after it: the view-model it was
-        // built with still had the trust pending.
-        expect(app.login.probed, isEmpty);
+        // Probed under the new pin once it is trusted.
+        expect(app.login.probed, [Uri.parse('https://10.0.7.20:8446')]);
         await app.leave(t);
       },
       variant: mac,

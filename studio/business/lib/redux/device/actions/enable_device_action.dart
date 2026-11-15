@@ -12,7 +12,8 @@ import '../../common/action.dart';
 /// and the switch in Account › Security: makes a key in the OS store
 /// and registers it (`POST /api/devices`; the new key signs the register
 /// nonce, which on Apple platforms and Android is the first prompt, with
-/// [reason]). The record keeps the device id and the key's alias.
+/// [reason], else `deps.prompts.enable` of the site and the user). The
+/// record keeps the device id and the key's alias.
 ///
 /// The gateway needs a password check in the last 5 minutes: after a
 /// password login it has one. From Account › Security it may not:
@@ -22,10 +23,10 @@ import '../../common/action.dart';
 /// Any other failure deletes the key, leaves the form and fails quietly:
 /// a toast `<name> could not be turned on: <reason>` (spec §2).
 class EnableDeviceAction extends Action with WaitingAction {
-  EnableDeviceAction({required this.reason, this.password})
-    : super(quiet: true);
+  EnableDeviceAction({this.reason, this.password}) : super(quiet: true);
 
-  final String reason;
+  /// The prompt's line; null for the words of `deps.prompts`.
+  final String? reason;
 
   /// The password of a fresh check before the registration.
   final String? password;
@@ -62,16 +63,25 @@ class EnableDeviceAction extends Action with WaitingAction {
         alias,
         allowDeviceCredential: device.policy?.allowDeviceCredential ?? false,
       );
+      final alg = DeviceAlg.fromWire(pub.alg);
+      if (alg == null) {
+        await keys.delete(alias);
+        throw DeviceKeyException(
+          DeviceKeyErrorCode.failed,
+          'a key of an unknown algorithm: ${pub.alg}',
+        );
+      }
+      final prompt = reason ?? deps.prompts.enable(site, account.user);
       final String id;
       try {
-        id = await session.registerDevice(
+        id = await session.addDevice(
           site: site,
           user: account.user,
           name: deviceName(),
-          platform: platform.wire,
-          alg: pub.alg,
+          platform: platform,
+          alg: alg,
           publicKey: pub.publicKey,
-          sign: signer(keys, alias, reason),
+          sign: signer(keys, alias, prompt),
         );
       } on Object {
         await keys.delete(alias);

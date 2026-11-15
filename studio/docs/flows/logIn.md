@@ -4,7 +4,7 @@
 
 `app/lib/connectors/log_in_page_connector.dart`
 
-## gateway.onChanged
+## screen.onChanged
 
 ```mermaid
 sequenceDiagram
@@ -12,16 +12,37 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as SetGatewayAction
+    participant A1 as SetMainGatewayAction
+    participant A2 as SetStandbyGatewayAction
+    participant A3 as SetUserAction
+    participant A4 as SetPasswordAction
+    participant A5 as SetRememberAction
+    participant A6 as SetReEnableAction
+    participant A7 as SetRangeAction
+    participant A8 as SetRangePortAction
     participant ST as AppState
 
-    User->>UI: gateway.onChanged
-    UI->>VM: gateway()
+    User->>UI: screen.onChanged
+    UI->>VM: screen()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(login.gateway)
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(login.gateway)
+    VM->>A3: dispatchSync
+    A3->>ST: copyWith(login.user)
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(login.password)
+    VM->>A5: dispatchSync
+    A5->>ST: copyWith(login.remember)
+    VM->>A6: dispatchSync
+    A6->>ST: copyWith(device.reEnable)
+    VM->>A7: dispatchSync
+    A7->>ST: copyWith(discovery.range)
+    VM->>A8: dispatchSync
+    A8->>ST: copyWith(discovery.rangePort)
 ```
 
-## standby.onChanged
+## onLogIn
 
 ```mermaid
 sequenceDiagram
@@ -29,47 +50,16 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as SetGatewayAction
+    participant A1 as EnterStudioAction
     participant ST as AppState
 
-    User->>UI: standby.onChanged
-    UI->>VM: standby()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.gateway)
-```
-
-## user.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as SetUserAction
-    participant ST as AppState
-
-    User->>UI: user.onChanged
-    UI->>VM: user()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.user)
-```
-
-## password.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as SetPasswordAction
-    participant ST as AppState
-
-    User->>UI: password.onChanged
-    UI->>VM: password()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.password)
+    User->>UI: onLogIn
+    UI->>VM: onLogIn()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
 ```
 
 ## onGatewayLeave
@@ -85,10 +75,9 @@ sequenceDiagram
 
     User->>UI: onGatewayLeave
     UI->>VM: onGatewayLeave()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: WaitingAction · async
     A1->>ST: copyWith(login.probes)
-    A1-->>-VM: ActionStatus
 ```
 
 ## onRecent
@@ -99,40 +88,16 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as SetGatewayAction
-    participant A2 as ProbeGatewayAction
-    participant A3 as LoadDeviceAction
+    participant A1 as PickRecentGatewayAction
     participant ST as AppState
 
     User->>UI: onRecent
     UI->>VM: onRecent()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.gateway)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(login.probes)
-    A2-->>-VM: ActionStatus
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: copyWith(device.available, device.kind, device.name, device.noticed)
-    A3-->>-VM: ActionStatus
-```
-
-## remember.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as SetRememberAction
-    participant ST as AppState
-
-    User->>UI: remember.onChanged
-    UI->>VM: remember()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.remember)
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(SetGatewayAction)
+    A1->>ST: dispatchAndWait(ProbeGatewayAction)
+    A1->>ST: dispatchAndWait(LoadDeviceAction)
 ```
 
 ## onUseStandby
@@ -143,123 +108,16 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as SetGatewayAction
+    participant A1 as EnterStudioAction
     participant ST as AppState
 
     User->>UI: onUseStandby
     UI->>VM: onUseStandby()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(login.gateway)
-```
-
-## onOfferUse
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as DeclineOfferAction
-    participant ST as AppState
-
-    User->>UI: onOfferUse
-    UI->>VM: onOfferUse()
-    alt currentState().device.available
-        VM->>+A1: dispatchAndWait
-        Note over A1: async
-        A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
-        A1-->>-VM: ActionStatus
-    end
-```
-
-## onOfferNotNow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as DeclineOfferAction
-    participant ST as AppState
-
-    User->>UI: onOfferNotNow
-    UI->>VM: onOfferNotNow()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: async
-    A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
-    A1-->>-VM: ActionStatus
-```
-
-## onOfferDontAsk
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as DeclineOfferAction
-    participant ST as AppState
-
-    User->>UI: onOfferDontAsk
-    UI->>VM: onOfferDontAsk()
-    VM->>+A1: dispatchAndWait
-    Note over A1: async
-    A1->>ST: copyWith(device.stage, device.offered, device.dontAsk)
-    A1-->>-VM: ActionStatus
-```
-
-## reEnable.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as SetReEnableAction
-    participant ST as AppState
-
-    User->>UI: reEnable.onChanged
-    UI->>VM: reEnable()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(device.reEnable)
-```
-
-## onUsePassword
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as UsePasswordAction
-    participant ST as AppState
-
-    User->>UI: onUsePassword
-    UI->>VM: onUsePassword()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(device.stage, device.reason, device.autoPrompted)
-```
-
-## onAnotherAccount
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as ForgetAccountAction
-    participant ST as AppState
-
-    User->>UI: onAnotherAccount
-    UI->>VM: onAnotherAccount()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(device, login)
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
 ```
 
 ## onFind
@@ -270,39 +128,15 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as CloseDiscoveryAction
-    participant A2 as FindGatewaysAction
+    participant A1 as ToggleDiscoveryAction
     participant ST as AppState
 
     User->>UI: onFind
     UI->>VM: onFind()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(discovery.open, discovery.scanning, discovery.scan, discovery.trustPending, discovery.trustRefused)
-    VM->>+A2: dispatchAndWait
-    Note over A2: async
-    A2->>ST: copyWith(discovery.scanning, discovery.ended)
-    A2->>ST: dispatchSync(BeginFindAction)
-    A2-->>-VM: ActionStatus
-```
-
-## discover.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LogInPage
-    participant VM as LogInPageConnector
-    participant A1 as SetRangeAction
-    participant A2 as SetRangePortAction
-    participant ST as AppState
-
-    User->>UI: discover.onChanged
-    UI->>VM: discover()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(discovery.range)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(discovery.rangePort)
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(CloseDiscoveryAction)
+    A1->>ST: dispatchAndWait(FindGatewaysAction)
 ```
 
 ## onLookAgain
@@ -318,11 +152,10 @@ sequenceDiagram
 
     User->>UI: onLookAgain
     UI->>VM: onLookAgain()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: async
     A1->>ST: copyWith(discovery.scanning, discovery.ended)
     A1->>ST: dispatchSync(BeginFindAction)
-    A1-->>-VM: ActionStatus
 ```
 
 ## onPick
@@ -333,23 +166,15 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as PickFoundGatewayAction
-    participant A2 as ProbeGatewayAction
+    participant A1 as ChooseFoundGatewayAction
     participant ST as AppState
 
     User->>UI: onPick
     UI->>VM: onPick()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: async
-    A1->>ST: copyWith(login, discovery)
-    A1->>ST: dispatchAndWait(TrustGatewayAction)
-    A1-->>-VM: ActionStatus
-    alt status.isCompletedOk && discovery.trustPending == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction · async
-        A2->>ST: copyWith(login.probes)
-        A2-->>-VM: ActionStatus
-    end
+    A1->>ST: dispatchAndWait(PickFoundGatewayAction)
+    A1->>ST: dispatchAndWait(ProbeGatewayAction)
 ```
 
 ## onProbe
@@ -360,19 +185,30 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as ProbeRangeAction
+    participant A1 as ProbeTypedRangeAction
     participant ST as AppState
 
     User->>UI: onProbe
     UI->>VM: onProbe()
-    alt _rangeError(range) == null && _portError(port) == null
-        VM->>+A1: dispatchAndWait
-        Note over A1: async
-        A1->>ST: copyWith(discovery.scanning, discovery.ended)
-        A1->>ST: dispatchSync(BeginFindAction)
-        A1->>ST: dispatchAndWait(CheckFoundGatewayAction)
-        A1-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(ProbeRangeAction)
+```
+
+## onOpenSettings
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as OpenNetworkSettingsAction
+
+    User->>UI: onOpenSettings
+    UI->>VM: onOpenSettings()
+    VM->>A1: dispatch
+    Note over A1: async
 ```
 
 ## onTrust
@@ -383,22 +219,15 @@ sequenceDiagram
     actor User
     participant UI as LogInPage
     participant VM as LogInPageConnector
-    participant A1 as TrustGatewayAction
-    participant A2 as ProbeGatewayAction
+    participant A1 as ConfirmTrustAction
     participant ST as AppState
 
     User->>UI: onTrust
     UI->>VM: onTrust()
-    VM->>+A1: dispatchAndWait
-    Note over A1: NonReentrant · WaitingAction · async
-    A1->>ST: copyWith(discovery.pins, discovery.found, discovery.trustPending, discovery.trustRefused)
-    A1-->>-VM: ActionStatus
-    alt status.isCompletedOk && discovery.trustPending == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction · async
-        A2->>ST: copyWith(login.probes)
-        A2-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(TrustGatewayAction)
+    A1->>ST: dispatchAndWait(ProbeGatewayAction)
 ```
 
 ## onCancelTrust
@@ -418,33 +247,165 @@ sequenceDiagram
     A1->>ST: copyWith(discovery.trustPending)
 ```
 
+## onOfferUse
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as EnterStudioAction
+    participant ST as AppState
+
+    User->>UI: onOfferUse
+    UI->>VM: onOfferUse()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
+```
+
+## onOfferNotNow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as EnterStudioAction
+    participant ST as AppState
+
+    User->>UI: onOfferNotNow
+    UI->>VM: onOfferNotNow()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
+```
+
+## onOfferDontAsk
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as EnterStudioAction
+    participant ST as AppState
+
+    User->>UI: onOfferDontAsk
+    UI->>VM: onOfferDontAsk()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
+```
+
+## onUnlock
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as EnterStudioAction
+    participant ST as AppState
+
+    User->>UI: onUnlock
+    UI->>VM: onUnlock()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
+```
+
+## onAutoUnlock
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as EnterStudioAction
+    participant ST as AppState
+
+    User->>UI: onAutoUnlock
+    UI->>VM: onAutoUnlock()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchAndWait(OpenTreeAction)
+    A1->>ST: dispatchSync(GoAction.replace)
+```
+
+## onUsePassword
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as UsePasswordAction
+    participant ST as AppState
+
+    User->>UI: onUsePassword
+    UI->>VM: onUsePassword()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(device.stage, device.fallback, device.autoPrompted)
+```
+
+## onAnotherAccount
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LogInPage
+    participant VM as LogInPageConnector
+    participant A1 as ForgetAccountAction
+    participant ST as AppState
+
+    User->>UI: onAnotherAccount
+    UI->>VM: onAnotherAccount()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(device, login)
+```
+
 _Not drawn — these files dispatch outside any interaction:_
 
-- `LogInPageConnector` — 9 dispatches
+- `LogInPageConnector` — 1 dispatch
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `gateway.onChanged` | `SetGatewayAction` | `login.gateway` |
-| `standby.onChanged` | `SetGatewayAction` | `login.gateway` |
-| `user.onChanged` | `SetUserAction` | `login.user` |
-| `password.onChanged` | `SetPasswordAction` | `login.password` |
+| `screen.onChanged` | `SetMainGatewayAction`, `SetStandbyGatewayAction`, `SetUserAction`, `SetPasswordAction`, `SetRememberAction`, `SetReEnableAction`, `SetRangeAction`, `SetRangePortAction` | `login.gateway`, `login.user`, `login.password`, `login.remember`, `device.reEnable`, `discovery.range`, `discovery.rangePort` |
+| `onLogIn` | `EnterStudioAction` | — |
 | `onGatewayLeave` | `ProbeGatewayAction` | `login.probes` |
-| `onRecent` | `SetGatewayAction`, `ProbeGatewayAction`, `LoadDeviceAction` | `login.gateway`, `login.probes`, `device.available, device.kind, device.name, device.noticed` |
-| `remember.onChanged` | `SetRememberAction` | `login.remember` |
-| `onUseStandby` | `SetGatewayAction` | `login.gateway` |
-| `onOfferUse` | `DeclineOfferAction` ? | `device.stage, device.offered, device.dontAsk` |
-| `onOfferNotNow` | `DeclineOfferAction` | `device.stage, device.offered, device.dontAsk` |
-| `onOfferDontAsk` | `DeclineOfferAction` | `device.stage, device.offered, device.dontAsk` |
-| `reEnable.onChanged` | `SetReEnableAction` | `device.reEnable` |
-| `onUsePassword` | `UsePasswordAction` | `device.stage, device.reason, device.autoPrompted` |
-| `onAnotherAccount` | `ForgetAccountAction` | `device, login` |
-| `onFind` | `CloseDiscoveryAction`, `FindGatewaysAction` | `discovery.open, discovery.scanning, discovery.scan, discovery.trustPending, discovery.trustRefused`, `discovery.scanning, discovery.ended` |
-| `discover.onChanged` | `SetRangeAction`, `SetRangePortAction` | `discovery.range`, `discovery.rangePort` |
+| `onRecent` | `PickRecentGatewayAction` | — |
+| `onUseStandby` | `EnterStudioAction` | — |
+| `onFind` | `ToggleDiscoveryAction` | — |
 | `onLookAgain` | `FindGatewaysAction` | `discovery.scanning, discovery.ended` |
-| `onPick` | `PickFoundGatewayAction`, `ProbeGatewayAction` ? | `login, discovery`, `login.probes` |
-| `onProbe` | `ProbeRangeAction` ? | `discovery.scanning, discovery.ended` |
-| `onTrust` | `TrustGatewayAction`, `ProbeGatewayAction` ? | `discovery.pins, discovery.found, discovery.trustPending, discovery.trustRefused`, `login.probes` |
+| `onPick` | `ChooseFoundGatewayAction` | — |
+| `onProbe` | `ProbeTypedRangeAction` | — |
+| `onOpenSettings` | `OpenNetworkSettingsAction` | — |
+| `onTrust` | `ConfirmTrustAction` | — |
 | `onCancelTrust` | `SetTrustPendingAction` | `discovery.trustPending` |
+| `onOfferUse` | `EnterStudioAction` | — |
+| `onOfferNotNow` | `EnterStudioAction` | — |
+| `onOfferDontAsk` | `EnterStudioAction` | — |
+| `onUnlock` | `EnterStudioAction` | — |
+| `onAutoUnlock` | `EnterStudioAction` | — |
+| `onUsePassword` | `UsePasswordAction` | `device.stage, device.fallback, device.autoPrompted` |
+| `onAnotherAccount` | `ForgetAccountAction` | `device, login` |
 
 `?` marks a dispatch that only runs under a condition.
 

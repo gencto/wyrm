@@ -13,7 +13,6 @@ import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_selected_node_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/context_keys.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/finding_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -187,7 +186,7 @@ void main() {
 
   FakeLogin engineer() => FakeLogin(
     session: FakeSession(
-      who: const WhoAmI(
+      who: identityOf(
         subject: 'user:olena',
         site: 'central',
         roles: ['engineer'],
@@ -253,7 +252,7 @@ void main() {
       await logIn(
         FakeLogin(
           session: FakeSession(
-            who: const WhoAmI(
+            who: identityOf(
               subject: 'user:op',
               site: 'central',
               roles: ['operator'],

@@ -61,10 +61,11 @@ class OpenTreeAction extends Action {
       final left = atMost - clock.elapsed;
       if (left <= Duration.zero) {
         // The deadline: what has not started loads in the background.
-        for (var j = i; j < steps; j++) {
-          unawaited(_start(j, root));
-          late.add(j);
-        }
+        // Started, not waited for: each read notifies when it lands.
+        dispatchAll([
+          for (var j = i; j < steps; j++) ?_action(j, root),
+        ]);
+        late.addAll([for (var j = i; j < steps; j++) j]);
         dispatchSync(SetPreloadAction(steps, late: late));
         break;
       }
@@ -80,38 +81,41 @@ class OpenTreeAction extends Action {
     return null;
   }
 
-  /// Starts step [i]; completes with whether it finished well.
+  /// The read of step [i]; null for the block catalogue already read this
+  /// session.
+  ReduxAction<AppState>? _action(int i, String root) => switch (i) {
+    0 => RetrieveNodesAction(preload: sections.sublist(1), quiet: true),
+    1 => RetrieveFlowsAction(quiet: true),
+    2 when flows.blockTypes.isNotEmpty => null,
+    2 => RetrieveBlockTypesAction(quiet: true),
+    3 => RetrieveLinksAction(quiet: true),
+    _ => RetrieveSitesAction(quiet: true),
+  };
+
+  /// Starts step [i]; completes with whether it finished well. The tree
+  /// (step 0) is done when each section has answered its list, which comes
+  /// after its read returns.
   Future<bool> _start(int i, String root) async {
-    switch (i) {
-      case 0:
-        unawaited(
-          dispatchAndWait(
-            RetrieveNodesAction(preload: sections.sublist(1), quiet: true),
-          ),
-        );
-        final keys = [for (final s in sections) '$root/$s'];
-        try {
-          await store.waitCondition(
-            (_) => keys.every(nodes.listed.contains),
-            timeoutMillis: math.max(1, atMost.inMilliseconds),
-          );
-          return true;
-        } on TimeoutException {
-          return false;
-        } on StoreException {
-          return false;
-        }
-      case 1:
-        return _ok(dispatchAndWait(RetrieveFlowsAction(quiet: true)));
-      case 2:
-        return flows.blockTypes.isNotEmpty ||
-            await _ok(
-              dispatchAndWait(RetrieveBlockTypesAction(quiet: true)),
-            );
-      case 3:
-        return _ok(dispatchAndWait(RetrieveLinksAction(quiet: true)));
-      default:
-        return _ok(dispatchAndWait(RetrieveSitesAction(quiet: true)));
+    final action = _action(i, root);
+    if (action == null) {
+      return true;
+    }
+    if (i != 0) {
+      return _ok(dispatchAndWait(action));
+    }
+    // It opens the live lists and returns; the lists answer later.
+    await dispatchAndWait(action);
+    final keys = [for (final s in sections) '$root/$s'];
+    try {
+      await store.waitCondition(
+        (_) => keys.every(nodes.listed.contains),
+        timeoutMillis: math.max(1, atMost.inMilliseconds),
+      );
+      return true;
+    } on TimeoutException {
+      return false;
+    } on StoreException {
+      return false;
     }
   }
 

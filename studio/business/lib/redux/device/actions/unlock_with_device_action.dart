@@ -1,7 +1,9 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:device_key/device_key.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
+import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -23,8 +25,10 @@ import 'load_device_action.dart';
 ///
 /// 1. The gateway is probed first: one that does not answer is the log-in
 ///    page's unreachable state, and the key is not tried.
-/// 2. A challenge, the OS prompt with [reason], then the gateway checks the
-///    signature (`device.stage` is `checking` from the prompt on).
+/// 2. A challenge, the OS prompt with [reason] (else the words of
+///    `deps.prompts.unlock`: the key's site on the log-in page, the site
+///    logged into on the lock), then the gateway checks the signature
+///    (`device.stage` is `checking` from the prompt on).
 /// 3. What comes back picks the form (spec §2, *When it does not work*):
 ///    - cancelled, missed, locked out, no biometric now → `fallback`, the
 ///      key kept;
@@ -37,10 +41,11 @@ import 'load_device_action.dart';
 /// [auto] is the one prompt the page opens by itself when its window gets
 /// the focus: it runs once per start, never again after a cancel.
 class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
-  UnlockWithDeviceAction({required this.reason, this.auto = false});
+  UnlockWithDeviceAction({this.reason, this.auto = false});
 
-  /// The prompt's line: `sign in to plant as olena`.
-  final String reason;
+  /// The prompt's line: `sign in to plant as olena`; null for the words of
+  /// `deps.prompts`.
+  final String? reason;
 
   /// The page's own prompt on focus, not a press.
   final bool auto;
@@ -65,10 +70,16 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
     dispatchSync(_Stage(UnlockStage.unlock, autoPrompted: true));
     final locked = d.locked && deps.session != null;
     final watch = Stopwatch()..start();
+    final prompt =
+        reason ??
+        deps.prompts.unlock(
+          locked ? this.site.name ?? '' : site,
+          account.user,
+        );
     final sign = signer(
       deps.deviceKey,
       alias,
-      reason,
+      prompt,
       onSigned: () => dispatchSync(_Stage(UnlockStage.checking)),
     );
     try {
@@ -108,7 +119,7 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
         device: opened.device.copyWith(
           stage: UnlockStage.none,
           refusal: null,
-          reason: null,
+          fallback: null,
           lastUsed: nowS(),
         ),
       );
@@ -122,8 +133,8 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
         // challenge): the password, the key kept.
         return state.copyWith.device(
           stage: locked ? UnlockStage.none : UnlockStage.fallback,
-          lockError: locked ? e.message : null,
-          reason: e.message,
+          lockError: locked ? LockError.refused(e.message) : null,
+          fallback: UnlockFallback.notOpened,
         );
       }
       return _refused(refusal, account.origin, account.user, locked);
@@ -201,11 +212,13 @@ class UnlockWithDeviceAction extends Action with NonReentrant, WaitingAction {
       );
     }
     // Cancelled, missed, locked out, unavailable, failed: the key stays.
-    final why = SignStopped(r).toString();
     if (locked) {
       return state.copyWith.device(stage: UnlockStage.none, lockError: null);
     }
-    return state.copyWith.device(stage: UnlockStage.fallback, reason: why);
+    return state.copyWith.device(
+      stage: UnlockStage.fallback,
+      fallback: fallbackOf(r),
+    );
   }
 
   Future<AppState?> _refused(

@@ -26,7 +26,7 @@ mixin _$FoundGateway {
  String? get connectTo;/// The wyrmd version, when it said.
  String? get version;/// The gateway serves TLS.
  bool get tls;/// `active` or `standby` (ADR 0036), as `/api/info` said.
- String get role;/// The upstream sites of this broker (`up`).
+ GatewayRole get role;/// The upstream sites of this broker (`up`).
  IList<String> get up;/// The CA code: the first 16 bytes of the SHA-256 of [ca], in hex,
 /// computed here from the certificate that would be pinned.
  String? get code;/// The CA certificate (DER, base64), as `/api/info` sent it.
@@ -74,7 +74,7 @@ abstract mixin class $FoundGatewayCopyWith<$Res>  {
   factory $FoundGatewayCopyWith(FoundGateway value, $Res Function(FoundGateway) _then) = _$FoundGatewayCopyWithImpl;
 @useResult
 $Res call({
- String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, String role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, bool probed, int seen
+ String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, GatewayRole role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, bool probed, int seen
 });
 
 
@@ -101,7 +101,7 @@ as String?,connectTo: freezed == connectTo ? _self.connectTo : connectTo // igno
 as String?,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String?,tls: null == tls ? _self.tls : tls // ignore: cast_nullable_to_non_nullable
 as bool,role: null == role ? _self.role : role // ignore: cast_nullable_to_non_nullable
-as String,up: null == up ? _self.up : up // ignore: cast_nullable_to_non_nullable
+as GatewayRole,up: null == up ? _self.up : up // ignore: cast_nullable_to_non_nullable
 as IList<String>,code: freezed == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
 as String?,ca: freezed == ca ? _self.ca : ca // ignore: cast_nullable_to_non_nullable
 as String?,known: null == known ? _self.known : known // ignore: cast_nullable_to_non_nullable
@@ -122,7 +122,7 @@ as int,
 
 
 class _FoundGateway implements FoundGateway {
-  const _FoundGateway({required this.site, this.hosts = const IListConst([]), this.url, this.standby, this.connectTo, this.version, this.tls = true, this.role = 'active', this.up = const IListConst([]), this.code, this.ca, this.known = false, this.knownAs, this.problem, this.detail, this.probed = false, this.seen = 0});
+  const _FoundGateway({required this.site, this.hosts = const IListConst([]), this.url, this.standby, this.connectTo, this.version, this.tls = true, this.role = GatewayRole.active, this.up = const IListConst([]), this.code, this.ca, this.known = false, this.knownAs, this.problem, this.detail, this.probed = false, this.seen = 0});
   
 
 /// The site (`/api/info` `site`, else the TXT `site`).
@@ -143,7 +143,7 @@ class _FoundGateway implements FoundGateway {
 /// The gateway serves TLS.
 @override@JsonKey() final  bool tls;
 /// `active` or `standby` (ADR 0036), as `/api/info` said.
-@override@JsonKey() final  String role;
+@override@JsonKey() final  GatewayRole role;
 /// The upstream sites of this broker (`up`).
 @override@JsonKey() final  IList<String> up;
 /// The CA code: the first 16 bytes of the SHA-256 of [ca], in hex,
@@ -198,7 +198,7 @@ abstract mixin class _$FoundGatewayCopyWith<$Res> implements $FoundGatewayCopyWi
   factory _$FoundGatewayCopyWith(_FoundGateway value, $Res Function(_FoundGateway) _then) = __$FoundGatewayCopyWithImpl;
 @override @useResult
 $Res call({
- String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, String role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, bool probed, int seen
+ String site, IList<String> hosts, String? url, String? standby, String? connectTo, String? version, bool tls, GatewayRole role, IList<String> up, String? code, String? ca, bool known, String? knownAs, FoundProblem? problem, String? detail, bool probed, int seen
 });
 
 
@@ -225,7 +225,7 @@ as String?,connectTo: freezed == connectTo ? _self.connectTo : connectTo // igno
 as String?,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String?,tls: null == tls ? _self.tls : tls // ignore: cast_nullable_to_non_nullable
 as bool,role: null == role ? _self.role : role // ignore: cast_nullable_to_non_nullable
-as String,up: null == up ? _self.up : up // ignore: cast_nullable_to_non_nullable
+as GatewayRole,up: null == up ? _self.up : up // ignore: cast_nullable_to_non_nullable
 as IList<String>,code: freezed == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
 as String?,ca: freezed == ca ? _self.ca : ca // ignore: cast_nullable_to_non_nullable
 as String?,known: null == known ? _self.known : known // ignore: cast_nullable_to_non_nullable

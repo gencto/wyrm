@@ -34,6 +34,7 @@ import 'redux/services/tree_watch/tree_watch_dispatcher.dart';
 import 'redux/services/wyrm_connection/wyrm_connection.dart';
 import 'redux/services/wyrm_connection/wyrm_connection_dispatcher.dart';
 import 'redux/site/actions/reload_shown_action.dart';
+import 'wyrm/device_keys.dart';
 import 'wyrm/discovery.dart';
 import 'wyrm/failures.dart';
 import 'wyrm/session.dart';
@@ -57,6 +58,7 @@ class AppDependencies {
     GatewayInfoReader? gatewayInfo,
     this._browser,
     this.browseDuration = browseFor,
+    this.prompts = DevicePrompts.plain,
   }) : login =
            login ??
            GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
@@ -68,6 +70,9 @@ class AppDependencies {
 
   /// How long one browse lasts.
   final Duration browseDuration;
+
+  /// The words of the OS prompts of the device key: `ui`'s, from `app`.
+  final DevicePrompts prompts;
 
   /// How a found gateway's `/api/info` is read (ADR 0050). Tests pass a
   /// fake.
@@ -198,7 +203,9 @@ class AppDependencies {
         if (s.changes.table[id] case final c?)
           if (s.site.grants.isEmpty || site.can(c.level, c.key))
             StepUpLine(
-              level: c.level,
+              // A staged change keeps its level as text (`write`,
+              // `config`); one Studio does not know is shown as `write`.
+              level: Perm.fromName(c.level) ?? Perm.write,
               text: c.action ?? '${c.op.toLowerCase()} ${c.field} = ${c.to}',
               key: c.key,
             ),

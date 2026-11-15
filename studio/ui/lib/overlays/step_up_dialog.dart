@@ -11,6 +11,26 @@ import '../theme/shades.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
+/// The level a step-up change needs, its badge's word (the access levels
+/// keep their names in every language): coral for `config`, grey below.
+enum StepUpLevel {
+  none('none'),
+  list('list'),
+  read('read'),
+  write('write'),
+  config('config');
+
+  const StepUpLevel(this.word);
+
+  final String word;
+
+  /// The badge is coral.
+  bool get strong => switch (this) {
+    config => true,
+    none || list || read || write => false,
+  };
+}
+
 /// One change the step-up confirms: its level badge, what it does, its key.
 final class StepUpLineVm extends Equatable {
   const StepUpLineVm({
@@ -20,7 +40,7 @@ final class StepUpLineVm extends Equatable {
   });
 
   /// `config` (coral badge) or `write` (grey).
-  final String level;
+  final StepUpLevel level;
   final String text;
   final String key;
 
@@ -344,7 +364,7 @@ class _Line extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final config = vm.level == 'config';
+    final config = vm.level.strong;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: 14,
@@ -368,7 +388,7 @@ class _Line extends StatelessWidget {
               ),
             ),
             child: Text(
-              vm.level,
+              vm.level.word,
               style: TextStyle(
                 fontSize: FontSizes.xs,
                 color: config ? c.badText : c.text3,

@@ -15,8 +15,8 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$StepUpLine {
 
-/// `config` or `write`.
- String get level; String get text; String get key;
+/// The level the change needs: its badge (`config` coral, else grey).
+ Perm get level; String get text; String get key;
 /// Create a copy of StepUpLine
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -52,7 +52,7 @@ abstract mixin class $StepUpLineCopyWith<$Res>  {
   factory $StepUpLineCopyWith(StepUpLine value, $Res Function(StepUpLine) _then) = _$StepUpLineCopyWithImpl;
 @useResult
 $Res call({
- String level, String text, String key
+ Perm level, String text, String key
 });
 
 
@@ -72,7 +72,7 @@ class _$StepUpLineCopyWithImpl<$Res>
 @pragma('vm:prefer-inline') @override $Res call({Object? level = null,Object? text = null,Object? key = null,}) {
   return _then(StepUpLine(
 level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
+as Perm,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,
   ));
@@ -89,8 +89,8 @@ class _StepUpLine implements StepUpLine {
   const _StepUpLine({required this.level, required this.text, this.key = ''});
   
 
-/// `config` or `write`.
-@override final  String level;
+/// The level the change needs: its badge (`config` coral, else grey).
+@override final  Perm level;
 @override final  String text;
 @override@JsonKey() final  String key;
 
@@ -126,7 +126,7 @@ abstract mixin class _$StepUpLineCopyWith<$Res> implements $StepUpLineCopyWith<$
   factory _$StepUpLineCopyWith(_StepUpLine value, $Res Function(_StepUpLine) _then) = __$StepUpLineCopyWithImpl;
 @override @useResult
 $Res call({
- String level, String text, String key
+ Perm level, String text, String key
 });
 
 
@@ -146,7 +146,7 @@ class __$StepUpLineCopyWithImpl<$Res>
 @override @pragma('vm:prefer-inline') $Res call({Object? level = null,Object? text = null,Object? key = null,}) {
   return _then(_StepUpLine(
 level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
+as Perm,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String,key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,
   ));

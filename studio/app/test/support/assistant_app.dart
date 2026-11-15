@@ -6,7 +6,6 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -30,7 +29,7 @@ class AssistantApp {
     String max = 'config',
   }) : login = FakeLogin(
          session: FakeSession(
-           who: WhoAmI(
+           who: identityOf(
              subject: user,
              site: 'central',
              roles: roles,
