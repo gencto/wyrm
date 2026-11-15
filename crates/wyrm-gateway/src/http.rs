@@ -24,9 +24,12 @@ use zeroize::Zeroizing;
 /// Largest HTTP body.
 const MAX_BODY: usize = 64 * 1024;
 /// Largest `POST /api/invoke` body: a link package zip or a WASM component
-/// (ADR 0011). WebSocket frames stay at 64 KiB. One value with the Rust
-/// client, which refuses a larger one before it sends it.
-const MAX_INVOKE_BODY: usize = wyrm_gateway_client::MAX_INVOKE_BODY;
+/// (ADR 0011). WebSocket frames stay at 64 KiB. The same value as the Rust
+/// client's, which refuses a larger one before it sends it (tested).
+const MAX_INVOKE_BODY: usize = (64 << 20) + (64 << 10);
+/// Largest invoke arguments the clients send in a frame (the Rust client's
+/// `MAX_FRAME_ARGS`, Dart's `maxFrameArgs`).
+const MAX_FRAME_ARGS: usize = 60 * 1024;
 /// Longest wait for an invoke over HTTP: install actions fetch and unpack.
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Longest upload of a `POST /api/invoke` body: a slow sender cannot hold
@@ -713,7 +716,7 @@ async fn check_invoke(
         return Err(ApiError::bad(format!(
             "{action} takes no file: invoke it over the WebSocket, with arguments under {} KiB; \
              only a parameter with `editor: file` takes more",
-            wyrm_gateway_client::MAX_FRAME_ARGS >> 10
+            MAX_FRAME_ARGS >> 10
         )));
     }
     // The action's own level, before 64 MiB arrive (the link checks again).
@@ -1092,4 +1095,15 @@ async fn remove_device(
     }
     st.gw.remove_device(&p, &id)?;
     Ok(ok())
+}
+
+#[cfg(all(test, feature = "mcp"))]
+mod limits {
+    /// The limits are the Rust client's, so it refuses what the gateway would.
+    #[test]
+    fn the_client_has_the_same_limits() {
+        assert_eq!(super::MAX_INVOKE_BODY, wyrm_gateway_client::MAX_INVOKE_BODY);
+        assert_eq!(super::MAX_FRAME_ARGS, wyrm_gateway_client::MAX_FRAME_ARGS);
+        assert_eq!(crate::ws::MAX_FRAME, wyrm_gateway_client::MAX_FRAME);
+    }
 }

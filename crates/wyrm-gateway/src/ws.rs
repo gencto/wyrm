@@ -64,9 +64,9 @@ use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::{Perm, Status, Value};
 use zenoh::key_expr::keyexpr;
 
-/// Largest client frame (one value with the Rust client, which refuses a
-/// larger one before it sends it).
-pub const MAX_FRAME: usize = wyrm_gateway_client::MAX_FRAME;
+/// Largest client frame (the same value as the Rust client's, which refuses
+/// a larger one before it sends it).
+pub const MAX_FRAME: usize = 64 * 1024;
 /// Open `list`/`subscribe` streams per connection.
 pub const MAX_STREAMS: usize = 64;
 /// One-shot requests in flight per connection.
