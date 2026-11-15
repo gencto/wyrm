@@ -89,12 +89,8 @@ pub struct Store<S: State> {
 }
 
 /// A new HMAC-SHA-256 with `key`.
-#[allow(
-    clippy::expect_used,
-    reason = "HMAC takes a key of any length (RFC 2104): `new_from_slice` cannot fail"
-)]
 fn hmac(key: &[u8]) -> HmacSha256 {
-    HmacSha256::new_from_slice(key).expect("HMAC takes any key length")
+    wyrm_core::mac::hmac_sha256(key)
 }
 
 /// The `N` bytes at `at`, or `None` past the end of `b`.

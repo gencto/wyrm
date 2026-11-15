@@ -1826,7 +1826,7 @@ mod guard_tests {
         m.insert("serial_port".into(), "/dev/ttyUSB0".into());
         match Conn::from_kind_value("serial_connection", &Value::Map(m)).unwrap() {
             Conn::Serial(c) => c,
-            _ => unreachable!(),
+            _ => panic!("a serial connection"),
         }
     }
 

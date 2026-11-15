@@ -103,8 +103,9 @@ pub async fn serve(addr: &str, h: Handler) -> std::io::Result<(SocketAddr, JoinH
                             body,
                         };
                         let Some(resp) = h(r) else {
-                            std::future::pending::<()>().await;
-                            unreachable!()
+                            // no answer, ever: a future that cannot complete
+                            let never: std::convert::Infallible = std::future::pending().await;
+                            match never {}
                         };
                         let mut b = hyper::Response::builder().status(resp.status);
                         for (k, v) in &resp.headers {

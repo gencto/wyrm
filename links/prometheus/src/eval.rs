@@ -36,13 +36,12 @@ pub enum Function {
 
 /// Aggregate `values` (one per matching series).
 pub fn aggregate(a: Aggregate, values: &[f64]) -> Result<f64, String> {
-    if a == Aggregate::Count {
-        return Ok(values.len() as f64);
-    }
-    if values.is_empty() {
+    // a count of none is 0; every other aggregate needs a series
+    if values.is_empty() && a != Aggregate::Count {
         return Err("no series matches the selector".into());
     }
     Ok(match a {
+        Aggregate::Count => values.len() as f64,
         Aggregate::None => {
             if values.len() > 1 {
                 return Err(format!(
@@ -56,7 +55,6 @@ pub fn aggregate(a: Aggregate, values: &[f64]) -> Result<f64, String> {
         Aggregate::Max => values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         Aggregate::Min => values.iter().copied().fold(f64::INFINITY, f64::min),
         Aggregate::Avg => values.iter().sum::<f64>() / values.len() as f64,
-        Aggregate::Count => unreachable!("handled above"),
     })
 }
 

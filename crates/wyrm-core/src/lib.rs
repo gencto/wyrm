@@ -9,6 +9,7 @@ pub mod attachment;
 pub mod codec;
 pub mod display;
 pub mod keyspace;
+pub mod mac;
 pub mod meta;
 pub mod profile;
 pub mod ptok;

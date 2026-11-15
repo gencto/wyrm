@@ -472,7 +472,7 @@ impl Recipient {
         })
     }
 
-    pub fn to_value(&self) -> Value {
+    pub fn to_map(&self) -> Map {
         let mut m = Map::new();
         m.insert("name".into(), Value::Str(self.name.clone()));
         m.insert("chat".into(), Value::Str(self.chat.clone()));
@@ -481,7 +481,11 @@ impl Recipient {
         }
         m.insert("commands".into(), Value::Bool(self.commands));
         m.insert("silent".into(), Value::Bool(self.silent));
-        Value::Map(m)
+        m
+    }
+
+    pub fn to_value(&self) -> Value {
+        Value::Map(self.to_map())
     }
 
     pub fn from_value(v: &Value, kind: Kind) -> Result<Self, String> {
@@ -730,7 +734,7 @@ impl Template {
         Ok(out)
     }
 
-    pub fn to_value(&self) -> Value {
+    pub fn to_map(&self) -> Map {
         let mut m = Map::new();
         let s = |v: &str| Value::Str(v.to_owned());
         m.insert("name".into(), s(&self.name));
@@ -774,7 +778,11 @@ impl Template {
         m.insert("silent".into(), Value::Bool(self.silent));
         m.insert("protect".into(), Value::Bool(self.protect));
         m.insert("preview".into(), Value::Bool(self.preview));
-        Value::Map(m)
+        m
+    }
+
+    pub fn to_value(&self) -> Value {
+        Value::Map(self.to_map())
     }
 
     pub fn from_value(v: &Value, kind: Kind) -> Result<Self, String> {

@@ -1,16 +1,10 @@
 //! AWS Signature Version 4 for one request (DynamoDB and other AWS JSON APIs): the canonical
 //! request, the string to sign, the signing key chain, the `Authorization` header.
 
-use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
-type HmacSha256 = Hmac<Sha256>;
-
 fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
-    // HMAC takes a key of any length
-    let mut m = HmacSha256::new_from_slice(key).unwrap_or_else(|_| unreachable!());
-    m.update(data);
-    m.finalize().into_bytes().into()
+    wyrm_core::mac::hmac_sha256_of(key, data)
 }
 
 fn hex(b: &[u8]) -> String {

@@ -9,6 +9,7 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
+    clippy::unreachable,
     reason = "test support (feature `testkit`): a failed step fails the calling test"
 )]
 

@@ -486,16 +486,13 @@ fn numbers(items: &[Value]) -> Vec<N> {
 }
 
 pub(super) fn stat(s: Stat, items: &[Value]) -> Value {
-    if s == Stat::Mode {
-        return mode(items);
-    }
     let xs: Vec<f64> = numbers(items).into_iter().map(N::f).collect();
     let n = xs.len();
-    if n == 0 {
-        return Value::Null;
-    }
     let mean = xs.iter().sum::<f64>() / n as f64;
     match s {
+        // the mode of any values, numbers or not
+        Stat::Mode => mode(items),
+        _ if n == 0 => Value::Null,
         Stat::Average => fl(mean),
         Stat::Median => {
             let mut ns = numbers(items);
@@ -511,7 +508,6 @@ pub(super) fn stat(s: Stat, items: &[Value]) -> Value {
             let var = xs.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / n as f64;
             fl(if s == Stat::Variance { var } else { var.sqrt() })
         }
-        Stat::Mode => unreachable!("handled above"),
     }
 }
 

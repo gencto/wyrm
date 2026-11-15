@@ -17,6 +17,7 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
+    clippy::unreachable,
     clippy::print_stdout,
     reason = "a benchmark run by hand: a failed step ends it, figures go to stdout"
 )]

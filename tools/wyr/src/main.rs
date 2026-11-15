@@ -437,7 +437,13 @@ async fn run(cli: Cli) -> Result<(), Error> {
         | Cmd::Repo { .. }
         | Cmd::Replay { .. }
         | Cmd::Sim { .. } => {
-            unreachable!("handled above")
+            #[allow(
+                clippy::unreachable,
+                reason = "the first `match cli.cmd` of this function returns for each of these"
+            )]
+            {
+                unreachable!("handled above")
+            }
         }
     }
 }

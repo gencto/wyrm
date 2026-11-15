@@ -12,6 +12,9 @@ authors.workspace = true
 minicbor.workspace = true
 half = "2"
 thiserror.workspace = true
+# `mac`: HMAC-SHA-256 with an infallible constructor (pure Rust, builds for wasm32)
+hmac.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 serde.workspace = true

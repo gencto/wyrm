@@ -15,6 +15,7 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
+    clippy::unreachable,
     clippy::print_stdout,
     reason = "an example run by hand: a failed step ends it, output goes to stdout"
 )]

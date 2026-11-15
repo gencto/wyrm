@@ -436,13 +436,8 @@ impl Nonces {
 
 impl Nonces {
     /// HMAC-SHA256 under this gateway's nonce key.
-    #[allow(
-        clippy::expect_used,
-        reason = "HMAC takes a key of any length (RFC 2104): `new_from_slice` cannot fail"
-    )]
     fn keyed(&self) -> hmac::Hmac<Sha256> {
-        use hmac::Mac;
-        hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key")
+        wyrm_core::mac::hmac_sha256(self.key.as_ref())
     }
 
     fn mac(&self, purpose: &Purpose, head: &[u8]) -> hmac::Hmac<Sha256> {

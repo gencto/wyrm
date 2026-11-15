@@ -115,6 +115,12 @@ pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Option<String>
                 .or_insert_with(|| Json::Object(Map::new()))
             {
                 Json::Object(m) => m,
+                #[allow(
+                    clippy::unreachable,
+                    reason = "a node's own keys start with `$`, `@` or `?`, which \
+                              `keyspace::validate_segment` refuses in every child name, so \
+                              the entry of a child is always the object made for it"
+                )]
                 _ => unreachable!("children are objects"),
             };
         }

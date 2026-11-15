@@ -3,16 +3,10 @@
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
-use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
-type HmacSha256 = Hmac<Sha256>;
-
 fn hmac(key: &[u8], data: &[u8]) -> [u8; 32] {
-    // HMAC takes a key of any length
-    let mut m = HmacSha256::new_from_slice(key).unwrap_or_else(|_| unreachable!());
-    m.update(data);
-    m.finalize().into_bytes().into()
+    wyrm_core::mac::hmac_sha256_of(key, data)
 }
 
 /// `Hi()` of RFC 5802: PBKDF2-HMAC-SHA-256, one block.

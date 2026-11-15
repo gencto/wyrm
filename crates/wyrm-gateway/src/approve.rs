@@ -571,7 +571,7 @@ mod tests {
         );
         // other arguments under the old hash
         let Value::Map(mut m) = honest else {
-            unreachable!()
+            panic!("the plan is a map")
         };
         let other = with(set(1, A, "write", true), "value", Value::Float(9999.0));
         m.insert("plan".into(), Value::Array(vec![other]));
@@ -652,7 +652,7 @@ mod tests {
         // task to approve, even if the record still said it waits
         let Value::Map(mut rec) = record("awaiting_approval", vec![set(1, A, "write", true)])
         else {
-            unreachable!()
+            panic!("the record is a map")
         };
         rec.insert("replaced_by".into(), Value::from("t2-2"));
         let replaced = Plan::parse(&Value::Map(rec), "s").unwrap();
