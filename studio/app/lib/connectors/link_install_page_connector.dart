@@ -3,9 +3,7 @@ import 'dart:async';
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/link_install/actions/back_install_step_action.dart';
 import 'package:business/redux/link_install/actions/change_install_answers_action.dart';
-import 'package:business/redux/link_install/actions/choose_install_source_action.dart';
 import 'package:business/redux/link_install/actions/continue_install_action.dart';
 import 'package:business/redux/link_install/actions/open_link_install_action.dart';
 import 'package:business/redux/link_install/actions/set_accept_rights_action.dart';
@@ -18,7 +16,6 @@ import 'package:business/redux/link_install/actions/set_mode_action.dart';
 import 'package:business/redux/link_install/actions/set_name_action.dart';
 import 'package:business/redux/link_install/actions/set_package_url_action.dart';
 import 'package:business/redux/link_install/actions/set_query_action.dart';
-import 'package:business/redux/link_install/actions/set_step_action.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
@@ -98,7 +95,6 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
   _Vm fromStore() {
     final li = linkInstall;
     final step = installStep;
-    final first = step == installSteps.first;
     final last = step == InstallStep.result;
     final item = installItem;
     return _Vm(
@@ -147,7 +143,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         canPickStep: !last,
       ),
       onClose: () => dispatch(GoAction.pop()),
-      onFrom: (f) => dispatch(ChooseInstallSourceAction(f.domain)),
+      onFrom: (f) => dispatch(StartInstallOverAction(_held, f.domain)),
       onCategory: (c) => dispatch(SetCategoryAction(c)),
       onQuery: (q) => dispatch(SetQueryAction(q)),
       onItem: (id) => dispatch(SetItemAction(id)),
@@ -167,22 +163,23 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
           installedLinkKey,
         ),
         InstallResultAction.links => GoAction.pop(),
-        InstallResultAction.again => ChooseInstallSourceAction(
+        InstallResultAction.again => StartInstallOverAction(
+          _held,
           InstallPath.official,
         ),
         InstallResultAction.back => ChangeInstallAnswersAction(),
       }),
-      onStep: last ? null : (s) => dispatch(SetStepAction(s.domain)),
-      onBack: first
-          ? () => dispatch(GoAction.pop())
-          : (last && li.phase == InstallPhase.done
-                ? null
-                : () => dispatch(BackInstallStepAction())),
+      onStep: last
+          ? null
+          : (s) => dispatch(InstallBackAction(_held, to: s.domain)),
+      onBack: last && li.phase == InstallPhase.done
+          ? null
+          : () => dispatch(InstallBackAction(_held)),
       onNext: last
           ? null
           : () => dispatch(
               ContinueInstallAction(
-                passphrase: _held.passphrase,
+                passphrase: _held.takePassphrase(),
                 file: _held.file,
               ),
             ),

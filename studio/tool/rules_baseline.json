@@ -100,7 +100,7 @@
     "app/lib/connectors/flows_page_connector.dart": 186,
     "app/lib/connectors/gallery_page_connector.dart": 31,
     "app/lib/connectors/history_page_connector.dart": 478,
-    "app/lib/connectors/link_install_page_connector.dart": 238,
+    "app/lib/connectors/link_install_page_connector.dart": 235,
     "app/lib/connectors/links_page_connector.dart": 268,
     "app/lib/connectors/lock_overlay_connector.dart": 86,
     "app/lib/connectors/log_in_page_connector.dart": 330,

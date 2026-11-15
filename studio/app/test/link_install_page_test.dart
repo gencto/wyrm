@@ -299,6 +299,53 @@ void main() {
       await app.leave(t);
     });
 
+    testWidgets('the passphrase and the consent go to one install only', (
+      t,
+    ) async {
+      final app = await shown(t);
+      Future<void> toWhere() async {
+        await app.tap(t, S.current.fromBackup);
+        await app.tap(t, S.current.chooseBackupFile);
+        await app.press(t, S.current.continueLabel);
+        await app.press(t, S.current.continueLabel);
+      }
+
+      Value? lastArgs() => app.calls('install_backup').last.args;
+
+      await toWhere();
+      await app.type(t, 'first secret');
+      await app.tap(t, S.current.acceptRequestedRights);
+      await app.press(t, S.current.install);
+      expect(lastArgs()?['passphrase'], const VStr('first secret'));
+      expect(lastArgs()?['accept'], const VBool(true));
+
+      // Add another: nothing of the first install is sent with the next
+      await app.press(t, S.current.addAnother);
+      await toWhere();
+      await app.press(t, S.current.install);
+      expect(app.calls('install_backup'), hasLength(2));
+      expect(lastArgs()?['passphrase'], isNull);
+      expect(lastArgs()?['accept'], isNull);
+
+      // Back from the step forgets what was typed on it; a new file takes
+      // back the consent given for the one before
+      await app.press(t, S.current.addAnother);
+      await toWhere();
+      await app.type(t, 'typed then left');
+      await app.tap(t, S.current.acceptRequestedRights);
+      await app.press(t, S.current.back);
+      await app.press(t, S.current.back);
+      // the file box shows the file held; a tap picks one again
+      await app.tap(t, 'meter.wyrm-link');
+      await app.press(t, S.current.continueLabel);
+      await app.press(t, S.current.continueLabel);
+      await app.press(t, S.current.install);
+      expect(app.calls('install_backup'), hasLength(3));
+      expect(lastArgs()?['passphrase'], isNull);
+      expect(lastArgs()?['accept'], isNull);
+      await app.leave(t);
+    });
+
     testWidgets('uk: a backup checked', (t) async {
       final app = await shown(t, locale: const Locale('uk'));
       await app.tap(t, S.current.fromBackup);
