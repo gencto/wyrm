@@ -70,6 +70,8 @@ class AnswerTaskAction extends Action
       await rowReads();
       _said(task, said, words);
     } on WyrmException catch (e) {
+      // the reads the rows started end before the refusal is said
+      await rowReads();
       // the task may have moved on (answered elsewhere, a restart): the
       // record says where it is
       await dispatchAndWait(RetrieveTaskRecordAction(id));

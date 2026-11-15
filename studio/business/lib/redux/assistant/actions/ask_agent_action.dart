@@ -97,6 +97,8 @@ class AskAgentAction extends Action with TaskRows, NonReentrant, WaitingAction {
       }
       await rowReads();
     } on WyrmException catch (e) {
+      // the reads the rows started end before the refusal is said
+      await rowReads();
       if (id != null) {
         dispatchSync(
           AddTaskEventAction(

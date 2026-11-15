@@ -324,6 +324,38 @@ void main() {
     expect(s.state.tasks.table['t-1']!.state, TaskState.running);
   });
 
+  test('a stream that fails after a state: the read it started ends before '
+      'the ask does', () async {
+    await withAgent();
+    api.streamed.add('$agent ▸ ask');
+    s.dispatchSync(SetDraftAction('add ahu2'));
+    final asked = s.dispatchAndWait(AskAgentAction());
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final stream = api.opened['$agent ▸ ask']!.single
+      ..add(Value.from({'task': 't-1', 'state': 'planning'}));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    // the record's read is slow; the stream breaks while it runs
+    api
+      ..docs['$agent/tasks/t-1 ~state'] = record('awaiting_approval')
+      ..delays['$agent/tasks/t-1 ~state'] = const Duration(milliseconds: 80);
+    stream
+      ..add(
+        Value.from({
+          'task': 't-1',
+          'event': 'state',
+          'text': 'awaiting_approval',
+        }),
+      )
+      ..addError(WyrmException.of(Status.disconnected, 'socket closed'));
+    await stream.close();
+    final status = await asked;
+
+    expect(status.originalError, isNotNull);
+    // the ask ended after the read it started, not before it
+    expect(s.state.tasks.table['t-1']!.recorded, isTrue);
+  });
+
   test('reads of one record answer in the order they were sent', () async {
     await withAgent();
     // the read sent while the task ran answers after the one sent once it
