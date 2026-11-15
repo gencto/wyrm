@@ -39,8 +39,8 @@ void main() {
       grants: [('$plant/downstream/**', 'write'), ('$plant/**', 'read')],
     );
     await app.logIn(t);
-    app.ignoreOverflow();
     app
+      ..ignoreOverflow()
       ..api.invokes['$plant/downstream/plc1/t1 ▸ reset'] = const [VNull()]
       ..put(
         (s) => s.copyWith(

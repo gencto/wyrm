@@ -685,8 +685,8 @@ class ComponentKit extends StatelessWidget {
                   ),
                   onTap: none,
                 ),
-                const ActionRow(
-                  vm: ActionRowVm(
+                ActionRow(
+                  vm: const ActionRowVm(
                     id: 'upgrade',
                     title: 'Upgrade',
                     icon: 'action_up',

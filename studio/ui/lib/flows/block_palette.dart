@@ -158,7 +158,7 @@ class BlockPalette extends StatefulWidget {
   /// Said in place of the list when there is nothing to list.
   final String empty;
 
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final ValueChanged<String> onTab;
   final List<PaletteEntryVm> entries;

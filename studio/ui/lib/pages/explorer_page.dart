@@ -65,7 +65,7 @@ final class ResultVm extends Equatable {
 
   /// A table when the rows are records…
   final List<ColumnVm> columns;
-  final List<RowVm> rows;
+  final List<RowVm<String>> rows;
 
   /// …else the answer as JSON lines.
   final List<String> lines;
@@ -402,7 +402,7 @@ class ExplorerPage extends StatelessWidget {
 
   /// Shown when nothing is selected.
   final String empty;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final ValueChanged<String> onTab;
 
@@ -424,7 +424,7 @@ class ExplorerPage extends StatelessWidget {
   /// The `children` tab of a node that is not a device (a link, a
   /// connection, a folder, a broker, storage): its children as rows.
   final List<ColumnVm> childColumns;
-  final List<RowVm> children;
+  final List<RowVm<String>> children;
   final String? childrenEmpty;
   final String? childrenNote;
 
@@ -442,7 +442,7 @@ class ExplorerPage extends StatelessWidget {
   final ValueChanged<String>? onAction;
   final ResultVm? result;
 
-  final List<TabItemVm> ranges;
+  final List<TabItemVm<String>> ranges;
   final String range;
   final ValueChanged<String>? onHistoryRange;
 
@@ -453,7 +453,7 @@ class ExplorerPage extends StatelessWidget {
   final RangeChanged<int>? onTrendWindow;
   final VoidCallback? onTrendReset;
   final List<ColumnVm> historyColumns;
-  final List<RowVm> historyRows;
+  final List<RowVm<String>> historyRows;
 
   /// Why there is no history here (a node, not a point).
   final String? historyNote;
@@ -463,7 +463,7 @@ class ExplorerPage extends StatelessWidget {
   final FailChipVm? historyFail;
 
   final List<ColumnVm> auditColumns;
-  final List<RowVm> auditRows;
+  final List<RowVm<String>> auditRows;
 
   /// Why the audit is empty or cannot be read.
   final String? auditNote;

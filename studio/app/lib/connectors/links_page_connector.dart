@@ -408,7 +408,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     _ => (Tone.neutral, S.current.stateInstalled),
   };
 
-  RowVm _localRow(LinkInfo l) {
+  RowVm<String> _localRow(LinkInfo l) {
     final pkg = l.driver.startsWith('pkg:')
         ? packages.table[l.driver.substring(4)]
         : null;
@@ -436,7 +436,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
-  RowVm _updateRow(LinkInfo l) {
+  RowVm<String> _updateRow(LinkInfo l) {
     final p = _pkg(_packageOf(l))!;
     final official = _isOfficial(p);
     final checking = p.lastUpdate?.result == 'checking';
@@ -469,7 +469,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
-  RowVm _remoteRow(LinkInfo l) {
+  RowVm<String> _remoteRow(LinkInfo l) {
     final s = _state(l);
     final on = s == 'connected';
     return RowVm(
@@ -491,7 +491,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
-  RowVm _quarantineRow(QuarantineEntry q) {
+  RowVm<String> _quarantineRow(QuarantineEntry q) {
     final broker = q.kind == .broker;
     return RowVm(
       id: q.node,
@@ -528,7 +528,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
-  DetailInspectorVm? _inspector(LinksTab tab) {
+  DetailInspectorVm<String>? _inspector(LinksTab tab) {
     if (tab == LinksTab.quarantine) {
       final sel = quarantine.selectedEntry;
       final q = sel == null ? null : quarantine.table[sel];
@@ -546,7 +546,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     return _external(l) ? _remoteInspector(l) : _localInspector(l);
   }
 
-  DetailInspectorVm _localInspector(LinkInfo l) {
+  DetailInspectorVm<String> _localInspector(LinkInfo l) {
     final key = '$_root/sys/links/${l.id}';
     final reason = site.needs('config', key);
     final state = _state(l);
@@ -554,7 +554,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     final running = state == 'connected' || state == 'starting';
     final pkg = _pkg(_packageOf(l));
     final points = _points(l.id);
-    ActionRowVm row(
+    ActionRowVm<String> row(
       String id,
       String icon,
       String title,
@@ -735,7 +735,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
-  DetailInspectorVm _remoteInspector(LinkInfo l) {
+  DetailInspectorVm<String> _remoteInspector(LinkInfo l) {
     final key = '$_root/sys/links/${l.id}';
     final reason = site.needs('config', key);
     final on = _state(l) == 'connected';
@@ -813,7 +813,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
     );
   }
 
-  DetailInspectorVm _quarantineInspector(QuarantineEntry q) {
+  DetailInspectorVm<String> _quarantineInspector(QuarantineEntry q) {
     final key = '$_root/sys/quarantine/${q.node}';
     final reason = site.needs('config', key);
     final broker = q.kind == .broker;
@@ -1057,13 +1057,13 @@ class _Vm extends Vm {
   final String site;
   final String? addReason;
   final String tab;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String description;
   final List<SettingCardVm> settings;
   final List<ColumnVm> columns;
-  final List<RowVm> rows;
+  final List<RowVm<String>> rows;
   final String? empty;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
 
   /// `Update all official…` is offered.
   final bool updateAll;

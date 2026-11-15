@@ -38,39 +38,40 @@ void main() {
     }) async {
       final app = ScreenApp();
       await app.logIn(t);
-      app.ignoreOverflow();
-      app.put(
-        (s) => s.copyWith.problems(
-          open: open,
-          items: IList([
-            StudioError(
-              kind: ErrorKind.reach,
-              id: 3,
-              title: 'Studio couldn’t read t1',
-              message: 'timeout',
-              key: '$plant/downstream/plc1/t1',
-              call: 'history',
-              at: DateTime(2026, 11, 12, 2, 1),
-              quiet: true,
-              retry: () => SetShownAction(true),
-            ),
-            StudioError(
-              kind: ErrorKind.broker,
-              id: 5,
-              title: 'The broker refused the list of sys',
-              message: 'permission denied',
-              key: '$plant/sys',
-              call: 'list',
-              at: DateTime(2026, 11, 12, 2, 2),
-              quiet: true,
-            ),
-          ]),
-          toasts: [3, 5].lock,
-          notices: IList(const [
-            StudioNotice(id: 4, title: 'Copied', detail: 'wy/plant'),
-          ]),
-        ),
-      );
+      app
+        ..ignoreOverflow()
+        ..put(
+          (s) => s.copyWith.problems(
+            open: open,
+            items: IList([
+              StudioError(
+                kind: ErrorKind.reach,
+                id: 3,
+                title: 'Studio couldn’t read t1',
+                message: 'timeout',
+                key: '$plant/downstream/plc1/t1',
+                call: 'history',
+                at: DateTime(2026, 11, 12, 2, 1),
+                quiet: true,
+                retry: () => SetShownAction(true),
+              ),
+              StudioError(
+                kind: ErrorKind.broker,
+                id: 5,
+                title: 'The broker refused the list of sys',
+                message: 'permission denied',
+                key: '$plant/sys',
+                call: 'list',
+                at: DateTime(2026, 11, 12, 2, 2),
+                quiet: true,
+              ),
+            ]),
+            toasts: [3, 5].lock,
+            notices: IList(const [
+              StudioNotice(id: 4, title: 'Copied', detail: 'wy/plant'),
+            ]),
+          ),
+        );
       await app.pump(t, const ToastStackConnector(), locale: locale);
       return app;
     }

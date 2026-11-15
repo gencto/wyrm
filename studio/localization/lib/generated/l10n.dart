@@ -17128,6 +17128,41 @@ class S {
       args: [],
     );
   }
+
+  /// `needs {level} on {path}`
+  String needsLevelOn(String level, String path) {
+    return Intl.message(
+      'needs $level on $path',
+      name: 'needsLevelOn',
+      desc: '',
+      args: [level, path],
+    );
+  }
+
+  /// `none`
+  String get levelNone {
+    return Intl.message('none', name: 'levelNone', desc: '', args: []);
+  }
+
+  /// `list`
+  String get levelList {
+    return Intl.message('list', name: 'levelList', desc: '', args: []);
+  }
+
+  /// `read`
+  String get levelRead {
+    return Intl.message('read', name: 'levelRead', desc: '', args: []);
+  }
+
+  /// `write`
+  String get levelWrite {
+    return Intl.message('write', name: 'levelWrite', desc: '', args: []);
+  }
+
+  /// `config`
+  String get levelConfig {
+    return Intl.message('config', name: 'levelConfig', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

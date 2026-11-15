@@ -48,10 +48,10 @@ final class CellVm extends Equatable {
 }
 
 /// One row of a [RowTable].
-final class RowVm extends Equatable {
+final class RowVm<T> extends Equatable {
   const RowVm({required this.id, required this.cells, this.selected = false});
 
-  final String id;
+  final T id;
   final List<CellVm> cells;
   final bool selected;
 
@@ -73,22 +73,28 @@ final class ColumnVm extends Equatable {
 /// Board *Studio · Links* table: a card (radius 10) with a header row and
 /// 58 px rows; the selected row has an ember bar on the left on the ember
 /// fill.
-class RowTable extends StatelessWidget {
-  const RowTable({
+class RowTable<T> extends StatelessWidget {
+  /// [onTap] gets the id of the row tapped; null leaves the rows inert.
+  RowTable({
     required this.columns,
     required this.rows,
-    this.onTap,
+    ValueChanged<T>? onTap,
     this.empty,
     this.rowHeight = 58,
     super.key,
-  });
+  }) : _onTap = onTap == null
+           ? null
+           : [for (final r in rows) () => onTap(r.id)];
 
   /// 58 for two-line rows, 40 for one line (points, history).
   final double rowHeight;
 
   final List<ColumnVm> columns;
-  final List<RowVm> rows;
-  final ValueChanged<String>? onTap;
+  final List<RowVm<T>> rows;
+
+  // The callback is applied to each id here, in the constructor: a field
+  // of type `ValueChanged<T>` would hold `T` against its variance.
+  final List<VoidCallback>? _onTap;
 
   /// Shown as the only row when there are none.
   final String? empty;
@@ -138,9 +144,9 @@ class RowTable extends StatelessWidget {
                 style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
             ),
-          for (final r in rows)
+          for (final (i, r) in rows.indexed)
             InkWell(
-              onTap: onTap == null ? null : () => onTap!(r.id),
+              onTap: _onTap?[i],
               hoverColor: c.ground3,
               child: Container(
                 constraints: BoxConstraints(minHeight: rowHeight),

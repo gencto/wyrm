@@ -459,9 +459,9 @@ class _Vm extends Vm {
   final void Function(int start, int end) onTrendWindow;
   final ValueChanged<String> onTrendToggle;
   final VoidCallback onTrendReset;
-  final List<RowVm> points;
+  final List<RowVm<String>> points;
   final String footer;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final VoidCallback onShow;
   final VoidCallback onHide;
   final ValueChanged<String> onGroup;

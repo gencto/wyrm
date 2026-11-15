@@ -1099,7 +1099,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
   /// The tabs of [kind]'s frame (docs/design/specs/explorer.md "Frames by
   /// node kind"): a device has its points, a flow its state and actions,
   /// any other node its children.
-  static List<TabItemVm> _tabs(
+  static List<TabItemVm<String>> _tabs(
     NodeKind kind,
     int points,
     List<NodeInfo> kids,
@@ -1128,7 +1128,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
 
   /// One row of the Contents tab: the name in mono with the display name
   /// under it, the kind (a value's type), the value.
-  RowVm _childRow(NodeInfo k) {
+  RowVm<String> _childRow(NodeInfo k) {
     final value = k.type != null;
     final v = live.values[k.key];
     return RowVm(
@@ -2108,7 +2108,7 @@ class _Vm extends Vm {
 
   /// A flow's Edit dataflow; its id is the flow's.
   final ToolButtonVm? openButton;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final List<ToolButtonVm> toolbar;
   final SelectionBarVm? selectionBar;
@@ -2120,7 +2120,7 @@ class _Vm extends Vm {
   final List<ToolButtonVm> emptyButtons;
 
   /// The Contents tab of a node that is not a device or a flow.
-  final List<RowVm> children;
+  final List<RowVm<String>> children;
   final List<InspectorSectionVm> params;
   final List<ActionCardGroupVm> actionGroups;
   final ResultVm? result;
@@ -2128,13 +2128,13 @@ class _Vm extends Vm {
   final TrendVm? trend;
   final void Function(int start, int end) onTrendWindow;
   final VoidCallback onTrendReset;
-  final List<RowVm> historyRows;
+  final List<RowVm<String>> historyRows;
   final String? historyNote;
   final FailChipVm? historyFail;
 
   /// The node whose audit the Audit tab reads; null without the rights.
   final String? auditKey;
-  final List<RowVm> auditRows;
+  final List<RowVm<String>> auditRows;
   final String? auditNote;
   final ExplorerInspectorVm? inspector;
 

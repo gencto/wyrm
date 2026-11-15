@@ -235,13 +235,13 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
     return n == 0 ? S.current.downstream : S.current.relaysSites(n);
   }
 
-  DetailInspectorVm? _inspector(String sel, List<Peer> all) {
+  DetailInspectorVm<String>? _inspector(String sel, List<Peer> all) {
     final (kind, name) = (
       sel.substring(0, sel.indexOf(':')),
       sel.substring(sel.indexOf(':') + 1),
     );
     final reason = site.needs('config', '$_root/sys');
-    ActionRowVm row(
+    ActionRowVm<String> row(
       String id,
       String icon,
       String t,
@@ -675,7 +675,7 @@ class _Vm extends Vm {
   final String? configReason;
   final List<SiteNodeVm> nodes;
   final String? waiting;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final bool busy;
   final VoidCallback onShow;
   final VoidCallback onHide;

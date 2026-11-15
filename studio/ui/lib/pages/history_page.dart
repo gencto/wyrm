@@ -77,7 +77,7 @@ class HistoryPage extends StatelessWidget {
   final String? title;
   final String? subtitle;
   final String empty;
-  final List<TabItemVm> ranges;
+  final List<TabItemVm<String>> ranges;
   final String range;
   final ValueChanged<String> onRange;
 
@@ -93,7 +93,7 @@ class HistoryPage extends StatelessWidget {
   final VoidCallback? onTrendReset;
   final String pointsLabel;
   final List<ColumnVm> columns;
-  final List<RowVm> points;
+  final List<RowVm<String>> points;
   final String? pointsEmpty;
 
   /// How to pick points for the trend, under the points label.
@@ -107,7 +107,7 @@ class HistoryPage extends StatelessWidget {
 
   /// The historian's size, under the groups.
   final String? footer;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
 
   /// The groups and inspector widths the viewer chose.

@@ -2112,5 +2112,12 @@
     "modeUnknown": "Not known",
     "modeUnknownDetail": "The agent's settings could not be read, so who approves is not known.",
     "modeUnknownCaution": "Who approves is not known (the agent's settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.",
-    "fixReplacesModeUnknown": "replaces this plan; who approves is not known, so the new plan's write steps may run without a person"
+    "fixReplacesModeUnknown": "replaces this plan; who approves is not known, so the new plan's write steps may run without a person",
+    "needsLevelOn": "needs {level} on {path}",
+    "@needsLevelOn": {"placeholders": {"level": {"type": "String"}, "path": {"type": "String"}}},
+    "levelNone": "none",
+    "levelList": "list",
+    "levelRead": "read",
+    "levelWrite": "write",
+    "levelConfig": "config"
 }

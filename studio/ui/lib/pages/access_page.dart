@@ -32,11 +32,11 @@ class AccessPage extends StatelessWidget {
 
   final String title;
   final String subtitle;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final ValueChanged<String> onTab;
   final List<ColumnVm> columns;
-  final List<RowVm> rows;
+  final List<RowVm<String>> rows;
   final ValueChanged<String> onRow;
   final String? empty;
 
@@ -45,7 +45,7 @@ class AccessPage extends StatelessWidget {
   final String addLabel;
   final VoidCallback onAdd;
   final String? addReason;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
 
   @override

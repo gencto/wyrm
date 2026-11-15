@@ -31,10 +31,10 @@ class FlowsPage extends StatelessWidget {
   /// Opens the editor on a new flow.
   final VoidCallback? onTapFlowEditor;
   final List<ColumnVm> columns;
-  final List<RowVm> rows;
+  final List<RowVm<String>> rows;
   final String? empty;
   final ValueChanged<String> onRow;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
 
   @override

@@ -61,7 +61,7 @@ final class BringPartVm extends Equatable {
     this.fileHint,
   });
 
-  final List<TabItemVm> methods;
+  final List<TabItemVm<String>> methods;
   final String method;
 
   /// URL, Git URL and ref.

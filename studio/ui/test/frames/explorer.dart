@@ -300,7 +300,7 @@ List<PointRowVm> _points({bool select = true, bool stale = false}) => [
   _p('alarm', 'Alarm word', 'HR 19', 'bits16', '—', '0x0000', stale: stale),
 ];
 
-const _tabs = [
+const List<TabItemVm<String>> _tabs = [
   TabItemVm(id: 'points', label: 'Points', count: '9'),
   TabItemVm(id: 'params', label: 'Parameters'),
   TabItemVm(id: 'actions', label: 'Actions', count: '7'),
@@ -762,13 +762,13 @@ ExplorerPage _edgePage({
   required List<TreeRowVm> tree,
   required String title,
   required String subtitle,
-  required List<TabItemVm> tabs,
+  required List<TabItemVm<String>> tabs,
   required String tab,
   StatusPillVm? pill,
   ToolButtonVm? openButton,
   List<ToolButtonVm> headerButtons = const [],
   List<InspectorSectionVm> params = const [],
-  List<RowVm> children = const [],
+  List<RowVm<String>> children = const [],
   List<PointRowVm> points = const [],
   ExplorerInspectorVm? inspector,
 }) => ExplorerPage(

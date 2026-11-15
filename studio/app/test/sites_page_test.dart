@@ -28,7 +28,8 @@ void main() {
     await app.logIn(t);
     app.put((s) => withSites(s, selected: selected));
     await app.pump(t, const SitesPageConnector(), locale: locale);
-    // the upstream's values are collected for 1.2 s, after a value read for up to 2 s
+    // the upstream's values are collected for 1.2 s, after a value read
+    // for up to 2 s
     await app.settle(t, rounds: 50);
     return app;
   }

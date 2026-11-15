@@ -9,7 +9,7 @@ import '../theme/typography.dart';
 
 /// One action of an inspector: icon, title, one line of what it does, the
 /// action's code name.
-final class ActionRowVm extends Equatable {
+final class ActionRowVm<T> extends Equatable {
   const ActionRowVm({
     required this.id,
     required this.title,
@@ -20,8 +20,9 @@ final class ActionRowVm extends Equatable {
     this.disabledReason,
   });
 
-  /// What the composer gets back on a tap.
-  final String id;
+  /// What the composer gets back on a tap: one of a closed set (an enum)
+  /// or the thing's own name.
+  final T id;
   final String title;
   final String? icon;
   final String? description;
@@ -53,16 +54,18 @@ final class ActionRowVm extends Equatable {
 /// radius 10) with the icon in a square, the title, one line, the code name;
 /// a danger row is coral on the bad tint; a disabled row keeps its place,
 /// dimmed, with the reason as its line.
-class ActionRow extends StatelessWidget {
-  const ActionRow({required this.vm, this.onTap, super.key});
+class ActionRow<T> extends StatelessWidget {
+  /// [onTap] gets the row's id; null leaves the row inert.
+  ActionRow({required this.vm, ValueChanged<T>? onTap, super.key})
+    : _onTap = onTap == null ? null : (() => onTap(vm.id));
 
-  final ActionRowVm vm;
-  final ValueChanged<String>? onTap;
+  final ActionRowVm<T> vm;
+  final VoidCallback? _onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final enabled = vm.enabled && onTap != null;
+    final enabled = vm.enabled && _onTap != null;
     final danger = vm.tone == .bad;
     final warn = vm.tone == .warn;
     final title = switch (vm.tone) {
@@ -84,7 +87,7 @@ class ActionRow extends StatelessWidget {
         side: BorderSide(color: line),
       ),
       child: InkWell(
-        onTap: enabled ? () => onTap!(vm.id) : null,
+        onTap: enabled ? _onTap : null,
         borderRadius: Radii.card,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
