@@ -140,8 +140,9 @@ pub fn responder_root(key: &str) -> Option<String> {
 }
 
 /// The responder's own check of an action (spec 05 0.2.33, `~act/<a>?check`): `ok`, its
-/// refusal, or `null` when the responder does not say it checks (an older link, which would run
-/// the action: never asked then).
+/// refusal, a text when the arguments are too large to ask (a check goes in one frame), or `null`
+/// when the responder does not say it checks (an older link, which would run the action: never
+/// asked then).
 pub async fn link_check(c: &Conn, key: &str, action: &str, args: Value) -> Json {
     let Some(root) = responder_root(key) else {
         return Json::Null;
@@ -157,6 +158,11 @@ pub async fn link_check(c: &Conn, key: &str, action: &str, args: Value) -> Json 
     }
     match c.check(key, action, args).await {
         Ok(()) => json!("ok"),
+        // a check goes in one frame; the call itself goes by `POST /api/invoke`
+        Err(e) if e.is_too_large() => json!(format!(
+            "not asked: the arguments are larger than a gateway frame, which a check needs ({e}); \
+             checked against ~meta only"
+        )),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
