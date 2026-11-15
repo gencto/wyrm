@@ -370,13 +370,13 @@ async fn run(cli: Cli) -> Result<(), Error> {
             window,
             limit,
         } => {
-            let q = wyrm_client::HistoryQuery {
-                from,
-                to,
-                agg,
-                window,
+            let q = wyrm_client::HistoryQuery::from_text(
+                &from,
+                &to,
+                agg.as_deref(),
+                window.as_deref(),
                 limit,
-            };
+            )?;
             for r in client.history(&node, &q).await? {
                 let q = r.q.map_or("", |q| q.name());
                 out!(

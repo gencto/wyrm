@@ -93,9 +93,9 @@ fn history_query(
         crate::blocks::date::range(if range.is_empty() { "today" } else { &range }, now, &tz, 0)
             .ok_or_else(|| format!("time_range: {range} is no range"))?;
     let at = |us: i64| {
-        jiff::Timestamp::from_microsecond(us)
-            .map(|t| t.to_string())
-            .map_err(|e| e.to_string())
+        u64::try_from(us)
+            .map(wyrm_client::TimeUs)
+            .map_err(|_| format!("time_range: {us} is before 1970"))
     };
     let rollup = text("rollup");
     let window = text("window");
@@ -109,10 +109,11 @@ fn history_query(
         .map_or(MAX_HISTORY_ROWS, |x| x as usize);
     Ok(wyrm_client::HistoryQuery {
         from: at(r.start)?,
-        to: at(r.end)?,
-        agg: (!rollup.is_empty() && rollup != "none").then_some(rollup),
-        window: (!window.is_empty()).then_some(window),
-        limit: Some(limit),
+        to: Some(at(r.end)?),
+        rollup: wyrm_client::Rollup::parse(&rollup)
+            .ok_or_else(|| format!("rollup: {rollup} is no rollup"))?,
+        window: wyrm_client::Window::parse(&window).map_err(|e| e.to_string())?,
+        limit: std::num::NonZeroUsize::new(limit),
     })
 }
 
@@ -310,7 +311,9 @@ async fn history(
     full: &str,
     q: wyrm_client::HistoryQuery,
 ) -> Result<Msg, (Status, String)> {
-    let limit = q.limit.unwrap_or(MAX_HISTORY_ROWS);
+    let limit = q
+        .limit
+        .map_or(MAX_HISTORY_ROWS, std::num::NonZeroUsize::get);
     let rows = io.client.history(full, &q).await.map_err(|e| {
         let status = match e.status {
             wyrm_core::status::StatusCode::Known(s) => s,
@@ -761,14 +764,22 @@ mod tests {
 
     #[test]
     fn history_queries() {
+        let us = |s: &str| wyrm_client::TimeUs::parse(s).unwrap();
         let q = history_query(&params(&[]), T).unwrap();
         assert_eq!(
-            (q.from.as_str(), q.to.as_str()),
-            ("2026-10-29T00:00:00Z", "2026-10-29T23:59:59.999999Z")
+            (q.from, q.to),
+            (
+                us("2026-10-29T00:00:00Z"),
+                Some(us("2026-10-29T23:59:59.999999Z"))
+            )
         );
         assert_eq!(
-            (q.agg, q.window, q.limit),
-            (None, None, Some(MAX_HISTORY_ROWS))
+            (q.rollup, q.window, q.limit),
+            (
+                wyrm_client::Rollup::None,
+                None,
+                std::num::NonZeroUsize::new(MAX_HISTORY_ROWS)
+            )
         );
         let q = history_query(
             &params(&[
@@ -781,10 +792,10 @@ mod tests {
             T,
         )
         .unwrap();
-        assert_eq!(q.from, "2026-10-27T22:00:00Z");
+        assert_eq!(q.from, us("2026-10-27T22:00:00Z"));
         assert_eq!(
             q.params(),
-            "history=2026-10-27T22:00:00Z..2026-10-28T21:59:59.999999Z&agg=max&window=1h&limit=24"
+            "history=2026-10-27T22:00:00.000000Z..2026-10-28T21:59:59.999999Z&agg=max&window=3600s&limit=24"
         );
         // a range from date_range's this_range, in the zone
         let q = history_query(
@@ -795,7 +806,7 @@ mod tests {
             T,
         )
         .unwrap();
-        assert_eq!(q.to, "2026-10-31T23:59:59.999999Z");
+        assert_eq!(q.to, Some(us("2026-10-31T23:59:59.999999Z")));
         for bad in [
             ("time_range", Value::from("soon")),
             ("window", Value::from("5x")),

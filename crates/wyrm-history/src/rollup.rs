@@ -4,62 +4,9 @@
 use crate::store::Row;
 use wyrm_core::{Quality, Value};
 
-/// How the samples of one interval become one value (names as DSA and
-/// spec 01 `agg`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Rollup {
-    None,
-    And,
-    Or,
-    Avg,
-    Min,
-    Max,
-    Sum,
-    First,
-    Last,
-    Count,
-    Delta,
-}
-
-impl Rollup {
-    pub const ALL: [Rollup; 11] = [
-        Rollup::None,
-        Rollup::And,
-        Rollup::Or,
-        Rollup::Avg,
-        Rollup::Min,
-        Rollup::Max,
-        Rollup::Sum,
-        Rollup::First,
-        Rollup::Last,
-        Rollup::Count,
-        Rollup::Delta,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Rollup::None => "none",
-            Rollup::And => "and",
-            Rollup::Or => "or",
-            Rollup::Avg => "avg",
-            Rollup::Min => "min",
-            Rollup::Max => "max",
-            Rollup::Sum => "sum",
-            Rollup::First => "first",
-            Rollup::Last => "last",
-            Rollup::Count => "count",
-            Rollup::Delta => "delta",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        let s = s.trim();
-        if s.is_empty() {
-            return Some(Rollup::None);
-        }
-        Self::ALL.into_iter().find(|r| r.name() == s)
-    }
-}
+/// How the samples of one interval become one value: one type with the
+/// selector parser (spec 01 `agg`).
+pub use wyrm_core::history::Rollup;
 
 fn number(v: &Value) -> Option<f64> {
     match v {
