@@ -45,7 +45,7 @@ class AccessPage extends StatelessWidget {
   final String addLabel;
   final VoidCallback onAdd;
   final String? addReason;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
 
   @override

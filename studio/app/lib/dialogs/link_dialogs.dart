@@ -17,15 +17,32 @@ import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/log_view.dart';
 import 'package:ui/overlays/panel_dialog.dart';
+import 'package:ui/pages/links_data.dart';
 import 'package:ui/theme/sizes.dart';
 
 import '../common/app_store.dart';
 import '../common/forms.dart';
+import 'backup_dialogs.dart';
 
-/// View log: the last lines of the link's own log.
+/// The dialog [ask] names, of its link, opened over Links with its
+/// [context]; [root] is the site's (`wy/<site>`).
+Future<void> showLinkDialog(
+  BuildContext context,
+  LinkDialogAsk ask,
+  String root,
+) => switch (ask.dialog) {
+  LinkDialog.log => showLinkLog(context, ask.link),
+  LinkDialog.params => showLinkParams(context, ask.link),
+  LinkDialog.history => showLinkHistory(context, ask.link),
+  LinkDialog.secrets => showLinkSecrets(context, '$root/sys/links/${ask.link}'),
+  LinkDialog.grant => showLinkGrant(context, ask.link, root),
+  LinkDialog.backup => showBackupDialog(context, link: ask.link),
+};
+
+/// View log: the last lines of the link's own log (read as it opens, and
+/// again by Refresh; each read has its own wait state).
 Future<void> showLinkLog(BuildContext context, String id) {
   final store = AppStore.of(context);
-  unawaited(store.dispatchAndWait(GetLinkLogAction(id)));
   return showDialog<void>(
     context: context,
     builder: (_) => PanelDialog(
@@ -34,11 +51,11 @@ Future<void> showLinkLog(BuildContext context, String id) {
       actions: [
         Button.quiet(
           label: S.current.refresh,
-          onPressed: () =>
-              unawaited(store.dispatchAndWait(GetLinkLogAction(id))),
+          onPressed: () => store.dispatch(GetLinkLogAction(id)),
         ),
       ],
       child: StoreConnector<AppState, (List<String>, bool)>(
+        onInit: (s) => s.dispatch(GetLinkLogAction(id)),
         converter: (s) => (
           s.state.links.log.unlock,
           SelectLinks(s.state).isReadingLog,
@@ -122,13 +139,13 @@ Future<void> showLinkParams(BuildContext context, String id) async {
 /// Params history: each revision, newest first, with Roll back.
 Future<void> showLinkHistory(BuildContext context, String id) {
   final store = AppStore.of(context);
-  unawaited(store.dispatchAndWait(RetrieveLinkHistoryAction(id)));
   return showDialog<void>(
     context: context,
     builder: (_) => PanelDialog(
       title: S.current.historyOf(id),
       width: 820,
       child: StoreConnector<AppState, (List<LinkRevision>, bool)>(
+        onInit: (s) => s.dispatch(RetrieveLinkHistoryAction(id)),
         converter: (s) => (
           s.state.links.revisions.unlock,
           SelectLinks(s.state).isReadingHistory,

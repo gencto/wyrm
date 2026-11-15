@@ -107,7 +107,7 @@ class HistoryPage extends StatelessWidget {
 
   /// The historian's size, under the groups.
   final String? footer;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
 
   /// The groups and inspector widths the viewer chose.

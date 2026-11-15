@@ -14,9 +14,13 @@ import 'package:business/redux/updates/actions/set_accept_new_action.dart';
 import 'package:business/redux/updates/actions/set_auto_rollback_action.dart';
 import 'package:business/redux/updates/actions/set_take_point_action.dart';
 import 'package:business/redux/updates/actions/update_package_action.dart';
-import 'package:business/wyrm/mappers/package_info_mapper.dart';
+import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/package_info.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/package_info.dart';
+import 'package:models/restore_point.dart';
+import 'package:models/update_result.dart';
+import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -58,7 +62,7 @@ void main() {
   Call lastInvoke() => api.calls.lastWhere((c) => c.op == 'invoke');
 
   test('the values of a package overlay its meta', () {
-    final p = packageLive(
+    final p = packageLiveOf(
       const PackageInfo(name: 'modbus', version: '0.4.2'),
       (leaf) => switch (leaf) {
         'latest' => '0.5.0',
@@ -80,7 +84,7 @@ void main() {
         },
         _ => null,
       },
-    );
+    ).orWarn('test')!;
     expect(p.version, '0.4.2');
     expect(p.latest, '0.5.0');
     expect(p.updateAvailable, isTrue);
@@ -88,18 +92,18 @@ void main() {
     expect(p.state, 3);
     expect(p.previous, '0.4.1');
     expect(p.keepUntil, 1700000000);
-    expect(p.lastUpdate!.result, 'checking');
+    expect(p.lastUpdate!.result, UpdateResult.checking);
     expect(p.lastUpdate!.added, 2);
     expect(p.lastUpdate!.goneKeys, ['modbus/a']);
   });
 
   test('an empty previous and last_update read as none', () {
-    final p = packageLive(
+    final p = packageLiveOf(
       const PackageInfo(name: 'x'),
       (leaf) => leaf == 'previous' || leaf == 'last_update'
           ? <String, Object?>{}
           : null,
-    );
+    ).orWarn('test')!;
     expect(p.previous, isNull);
     expect(p.lastUpdate, isNull);
   });
@@ -108,9 +112,46 @@ void main() {
     final points = restorePointsOf([
       {'at': 20, 'version': '0.4.2', 'size': 3000},
       {'at': 10, 'version': '', 'size': 10},
-    ]);
+    ]).orWarn('test')!;
     expect(points.map((p) => p.at), [20, 10]);
     expect(points.last.version, '');
+  });
+
+  test('a leaf of another type names its field', () {
+    expect(
+      packageLiveOf(
+        const PackageInfo(name: 'x'),
+        (leaf) => switch (leaf) {
+          'update_available' => 'yes',
+          _ => null,
+        },
+      ),
+      const Invalid<PackageInfo>('package', 'update_available', 'not a bool'),
+    );
+    expect(
+      packageLiveOf(
+        const PackageInfo(name: 'x'),
+        (leaf) => switch (leaf) {
+          'last_update' => {'result': 'exploded'},
+          _ => null,
+        },
+      ),
+      const Invalid<PackageInfo>(
+        'package',
+        'last_update.result',
+        'not a known result',
+      ),
+    );
+    expect(
+      restorePointsOf([
+        {'at': 'yesterday'},
+      ]),
+      const Invalid<List<RestorePoint>>(
+        'restore points',
+        'at',
+        'not a whole number',
+      ),
+    );
   });
 
   test('sys/links gives updates_available as an attribute', () async {
@@ -158,7 +199,7 @@ void main() {
     expect(call.args!['restore_point'], const VBool(true));
     expect(call.args!['auto_rollback_s'], const VInt(0));
     expect(call.args!['accept'], isNull);
-    expect(s.state.updates.view, 'follow');
+    expect(s.state.updates.view, UpdateView.follow);
     // The report that was there before is the one to wait past.
     expect(s.state.updates.seenAt, 50);
     expect(s.state.updates.message, contains('being checked'));
@@ -177,7 +218,7 @@ void main() {
 
       await s.dispatchAndWait(UpdatePackageAction());
 
-      expect(s.state.updates.view, 'review');
+      expect(s.state.updates.view, UpdateView.review);
       expect(s.state.updates.asks, contains('10.0.5.0/24'));
 
       // Accepted, the next call carries `accept`.
@@ -188,7 +229,7 @@ void main() {
       await s.dispatchAndWait(UpdatePackageAction());
 
       expect(lastInvoke().args!['accept'], const VBool(true));
-      expect(s.state.updates.view, 'follow');
+      expect(s.state.updates.view, UpdateView.follow);
       expect(s.state.updates.asks, isNull);
     },
   );
@@ -200,7 +241,7 @@ void main() {
     final status = await s.dispatchAndWait(UpdatePackageAction());
 
     expect(status.isCompletedFailed, isTrue);
-    expect(s.state.updates.view, 'review');
+    expect(s.state.updates.view, UpdateView.review);
   });
 
   test('a queue updates one package after another', () async {
@@ -392,7 +433,7 @@ void main() {
     expect(status.isCompletedOk, isTrue);
     expect(lastInvoke().action, 'rollback');
     expect(s.state.updates.seenAt, 9);
-    expect(s.state.updates.view, 'follow');
+    expect(s.state.updates.view, UpdateView.follow);
   });
 
   test('a refused rollback fails and says why', () async {

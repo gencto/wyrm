@@ -1,11 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_info.dart';
-
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/link_info_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/broker_text.dart';
+import '../../../wyrm/decode/link_info.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -31,22 +30,25 @@ class RetrieveLinksAction extends Action with WaitingAction {
     final ids = await listOf(api, base);
     final links = await Future.wait([
       for (final c in ids)
-        metaOf(api, '$base/${c.name}').then((m) => linkInfoOf(c.name, m)),
+        metaOf(api, '$base/${c.name}').then(
+          // a link whose meta this client cannot read is listed by its id,
+          // and the field at fault is logged
+          (m) =>
+              linkInfoOf(c.name, m).orWarn('$base/${c.name}') ??
+              LinkInfo(id: c.name),
+        ),
     ]);
     final version = await readValue(api, '$root/sys/version');
     // A broker before ADR 0048, or a reader without the meta: no count.
     var updatesAvailable = 0;
     try {
       updatesAvailable =
-          integer(attrOf(await api.meta(base), 'updates_available')) ?? 0;
+          updatesAvailableOf(await api.meta(base)).orWarn(base) ?? 0;
     } on WyrmException {
       updatesAvailable = 0;
     }
     return state.copyWith.links(
-      version: switch (version) {
-        VStr(:final v) => v,
-        _ => null,
-      },
+      version: brokerTextOf(version, 'sys', 'version').orWarn(root),
       table: IMap<String, LinkInfo>.fromValues(
         values: links,
         keyMapper: (l) => l.id,

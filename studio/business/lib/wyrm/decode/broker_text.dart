@@ -20,3 +20,12 @@ String? hostOf(String? distribution) =>
         RegExp('^(linux|macos|windows)-').hasMatch(distribution)
     ? distribution
     : null;
+
+/// A bool value of a broker read once ([field] of [shape]); none when the
+/// broker sent none; [Invalid] when it is not a bool.
+Decoded<bool?> brokerBoolOf(Value? v, String shape, String field) =>
+    switch (v) {
+      null || VNull() => const Valid(null),
+      VBool(:final v) => Valid(v),
+      _ => Invalid(shape, field, 'not a bool'),
+    };

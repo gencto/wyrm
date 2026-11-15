@@ -35,7 +35,9 @@ import 'package:models/install_target.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_origin.dart';
 import 'package:models/link_revision.dart';
+import 'package:models/link_state.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_set.dart';
 import 'package:models/live_value.dart';
@@ -60,6 +62,7 @@ import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
+import 'package:models/restore_point.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
 import 'package:models/site_choice.dart';
@@ -80,6 +83,7 @@ import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
+import 'package:models/update_view.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
@@ -92,6 +96,8 @@ import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
 import '../wyrm/decode/backup_job.dart';
 import '../wyrm/decode/broker_self_update.dart';
+import '../wyrm/decode/live_values.dart';
+import '../wyrm/decode/package_info.dart';
 import '../wyrm/decode/sys_status.dart';
 import '../wyrm/device_keys.dart';
 import '../wyrm/explorer.dart';
@@ -99,9 +105,9 @@ import '../wyrm/features.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
+import '../wyrm/link_update.dart';
 import '../wyrm/mappers/agent_task_mapper.dart';
 import '../wyrm/mappers/flow_blocks.dart';
-import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
 import '../wyrm/task_facts.dart';
@@ -896,6 +902,209 @@ extension LinkInstallScreen on Selectors {
   }
 }
 
+/// The package a link runs (`pkg:<name>`), or null for a built-in driver.
+String? packageOfLink(LinkInfo l) =>
+    l.driver.startsWith('pkg:') ? l.driver.substring(4) : null;
+
+final _linkStates = LastResult<Map<String, LinkState>>();
+final _livePackages = LastResult<Map<String, PackageInfo>>();
+final _restorePoints = LastResult<Map<String, List<RestorePoint>>>();
+
+/// What Links shows, computed from state once (studio-rules §3): the live
+/// values of its links and packages are decoded once per change of their
+/// own keys (a value of another type is logged, and the table's stays).
+extension LinksTables on Selectors {
+  String get _linksRoot => site.root ?? '';
+
+  /// The keys Links watches while shown: each link's state and restore
+  /// points, the admission options, and what moves while a package is
+  /// updated (ADR 0048 §1).
+  List<String> get linksKeys => [
+    '$_linksRoot/sys/links/*/state',
+    '$_linksRoot/sys/enable_quarantine',
+    '$_linksRoot/sys/allow_all_links',
+    '$_linksRoot/sys/packages/*/*',
+    '$_linksRoot/sys/links/*/restore_points',
+  ];
+
+  Object? _live(String key) => live.values['$_linksRoot/sys/$key']?.value;
+
+  /// The state of each link: its live `sys/links/<id>/state` when watched.
+  Map<String, LinkState> get _states => _linkStates.of(
+    [
+      site.root,
+      links.view,
+      for (final id in links.view)
+        live.values['$_linksRoot/sys/links/$id/state'],
+    ],
+    () => {
+      for (final id in links.view)
+        if (_live('links/$id/state') case final v?)
+          id: ?linkStateSampleOf(v).orWarn('sys/links/$id/state'),
+    },
+  );
+
+  /// The state of [link]: its live `sys/links/<id>/state` when watched,
+  /// else what was read with the list.
+  LinkState stateOfLink(LinkInfo link) => _states[link.id] ?? link.state;
+
+  /// The link [id] was connected when the list was read.
+  bool linkListedConnected(String id) =>
+      links.table[id]?.state == LinkState.connected;
+
+  /// The installed packages with their live values.
+  Map<String, PackageInfo> get _packages => _livePackages.of(
+    [
+      site.root,
+      packages.table,
+      for (final name in packages.table.keys)
+        for (final leaf in packageLeaves)
+          live.values['$_linksRoot/sys/packages/$name/$leaf'],
+    ],
+    () => {
+      for (final MapEntry(:key, :value) in packages.table.entries)
+        key:
+            packageLiveOf(
+              value,
+              (leaf) => _live('packages/$key/$leaf'),
+            ).orWarn('sys/packages/$key') ??
+            value,
+    },
+  );
+
+  /// The package [name] with its live values; null when not installed.
+  PackageInfo? livePackage(String? name) =>
+      name == null ? null : _packages[name];
+
+  /// The package [l] runs, with its live values; null for a built-in
+  /// driver.
+  PackageInfo? packageRunBy(LinkInfo l) => livePackage(packageOfLink(l));
+
+  /// The repository lists [p]: `latest` is empty for a custom package.
+  bool isOfficialPackage(PackageInfo p) => p.latest.isNotEmpty;
+
+  /// The links that run the package [name], by id, in list order.
+  List<String> linksOfPackage(String name) => [
+    for (final id in links.view)
+      if (links.table[id]?.driver == 'pkg:$name') id,
+  ];
+
+  /// The restore points of [link] (`sys/links/<id>/restore_points`).
+  List<RestorePoint> restorePointsOfLink(String link) =>
+      _restorePoints.of(
+        [
+          site.root,
+          links.view,
+          for (final id in links.view)
+            live.values['$_linksRoot/sys/links/$id/restore_points'],
+        ],
+        () => {
+          for (final id in links.view)
+            id:
+                restorePointsOf(
+                  _live('links/$id/restore_points'),
+                ).orWarn('sys/links/$id/restore_points') ??
+                const [],
+        },
+      )[link] ??
+      const [];
+
+  /// The links of the site in list order: those that run here, and those
+  /// on other devices.
+  List<LinkInfo> get _allLinks => [
+    for (final id in links.view) ?links.table[id],
+  ];
+  List<LinkInfo> get localLinks => [
+    for (final l in _allLinks)
+      if (l.mode != LinkMode.external) l,
+  ];
+  List<LinkInfo> get remoteLinks => [
+    for (final l in _allLinks)
+      if (l.mode == LinkMode.external) l,
+  ];
+
+  /// The entries of `sys/quarantine`, in list order.
+  List<QuarantineEntry> get quarantined => [
+    for (final n in quarantine.view) ?quarantine.table[n],
+  ];
+
+  /// The rows of Updates: the links of a package with a newer version, and
+  /// the links of a custom package (updated from a file).
+  List<LinkInfo> get linksToUpdate => [
+    for (final l in localLinks)
+      if (packageRunBy(l) case final p?
+          when p.updateAvailable || !isOfficialPackage(p))
+        l,
+  ];
+
+  /// The official packages with a newer version, in the order of the
+  /// links.
+  List<String> get updatablePackages => {
+    for (final l in _allLinks)
+      if (packageRunBy(l) case final p? when p.updateAvailable) p.name,
+  }.toList();
+
+  /// How many links of Updates have a newer version: the live values of
+  /// the packages once read, the attribute of `sys/links` until then.
+  int get updateCount => packages.view.isEmpty
+      ? links.updatesAvailable
+      : linksToUpdate.where((l) => packageRunBy(l)!.updateAvailable).length;
+
+  /// The Updates tab is shown: hidden at 0 (spec §1), and while it is the
+  /// tab on screen.
+  bool get showsUpdates => updateCount > 0 || links.tab == LinksTab.updates;
+
+  /// Why the user may not install or update links; null when they may.
+  String? get linksConfigReason =>
+      site.needs('config', '$_linksRoot/sys/links');
+
+  /// Why the user may not change the link [id]; null when they may.
+  String? linkConfigReason(String id) =>
+      site.needs('config', '$_linksRoot/sys/links/$id');
+
+  /// Why the user may not change the admission options on `sys`.
+  String? get admissionReason => site.needs('config', '$_linksRoot/sys');
+
+  /// `sys/enable_quarantine` and `sys/allow_all_links` as the broker says
+  /// them (false when it says nothing).
+  bool get holdsUnknown => _live('enable_quarantine') == true;
+  bool get allowsAllLinks => _live('allow_all_links') == true;
+
+  /// The update sheet open, or null.
+  LinkUpdate? get linkUpdate {
+    final p = livePackage(updates.package);
+    if (p == null) {
+      return null;
+    }
+    final ids = linksOfPackage(p.name);
+    final row = linkInstall.catalog
+        .where((c) => c.id == 'package:${p.name}')
+        .firstOrNull;
+    return LinkUpdate(
+      package: p,
+      links: ids,
+      follow: updates.view != UpdateView.review,
+      official: isOfficialPackage(p),
+      title: row?.name,
+      summary: row?.description,
+      takePoint: updates.takePoint,
+      autoRollback: updates.autoRollback,
+      acceptNew: updates.acceptNew,
+      asks: updates.asks,
+      said: updates.message,
+      busy: updates.isWaiting,
+      rollingBack: updates.isRollingBack,
+      seenAt: updates.seenAt,
+      points: [
+        for (final id in ids)
+          for (final point in restorePointsOfLink(id)) LinkPoint(id, point),
+      ]..sort((a, b) => b.point.at.compareTo(a.point.at)),
+      queue: updates.queue.unlock,
+      reason: linksConfigReason,
+    );
+  }
+}
+
 /// What System says about the broker on screen, from the values it serves
 /// under `sys` (specs/system.md). They read `live`, `links`, `quarantine`
 /// and `system` at once, so they sit on the facade.
@@ -936,14 +1145,6 @@ extension SelectBrokerHealth on Selectors {
   /// they may.
   String? get sysConfigReason => site.needs('config', _sysKey);
 
-  /// The state of [link]: its live `sys/links/<id>/state` when watched,
-  /// else what was read with the list.
-  String linkStateOf_(LinkInfo link) =>
-      switch (live.values['$_sysKey/links/${link.id}/state']) {
-        final v? => linkStateOf(v.value),
-        null => link.state,
-      };
-
   /// The links `sys ▸ clear_conns` would remove, by the broker's own rule
   /// (wyrm-admin `clear_conns`): mode external, admitted at runtime, not
   /// connected now.
@@ -951,15 +1152,16 @@ extension SelectBrokerHealth on Selectors {
     for (final id in links.view)
       if (links.table[id] case final l?)
         if (l.mode == LinkMode.external &&
-            l.origin == 'runtime' &&
-            linkStateOf_(l) != 'connected')
+            l.origin == LinkOrigin.runtime &&
+            stateOfLink(l) != LinkState.connected)
           l,
   ];
 
   /// The links whose state is failed, in list order.
   List<LinkInfo> get failedLinks => [
     for (final id in links.view)
-      if (links.table[id] case final l? when linkStateOf_(l) == 'failed') l,
+      if (links.table[id] case final l? when stateOfLink(l) == LinkState.failed)
+        l,
   ];
 
   /// The entries of `sys/quarantine` that wait (not held back by
@@ -2110,7 +2312,7 @@ extension type SelectUpdates(AppState _state) {
   String? get package => _state.updates.package;
 
   /// Returns view
-  String get view => _state.updates.view;
+  UpdateView get view => _state.updates.view;
 
   /// Returns takePoint
   bool get takePoint => _state.updates.takePoint;

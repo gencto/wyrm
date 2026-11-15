@@ -6,6 +6,7 @@ import '../forms/action_form.dart';
 import '../forms/param_form.dart';
 import '../indicators/key_text.dart';
 import '../indicators/status_pill.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -14,11 +15,11 @@ import 'fact_grid.dart';
 import 'section_label.dart';
 
 /// A labelled group of actions.
-final class ActionGroupVm extends Equatable {
+final class ActionGroupVm<T> extends Equatable {
   const ActionGroupVm({required this.label, required this.actions});
 
   final String label;
-  final List<ActionRowVm> actions;
+  final List<ActionRowVm<T>> actions;
 
   @override
   List<Object?> get props => [label, actions];
@@ -60,7 +61,7 @@ final class InspectorFormVm extends Equatable {
 }
 
 /// What the right panel shows for one selection.
-final class DetailInspectorVm extends Equatable {
+final class DetailInspectorVm<T> extends Equatable {
   const DetailInspectorVm({
     required this.title,
     this.eyebrow,
@@ -81,7 +82,7 @@ final class DetailInspectorVm extends Equatable {
   final List<FactVm> facts;
 
   /// Groups of actions, in order.
-  final List<ActionGroupVm> groups;
+  final List<ActionGroupVm<T>> groups;
   final InspectorFormVm? form;
 
   /// A boxed note at the bottom.
@@ -102,19 +103,21 @@ final class DetailInspectorVm extends Equatable {
 
 /// The inspector of the canvas boards (Links, Sites): header with a status
 /// pill, facts, groups of action cards, an optional form.
-class DetailInspector extends StatelessWidget {
-  const DetailInspector({
+class DetailInspector<T> extends StatelessWidget {
+  DetailInspector({
     required this.vm,
-    required this.onAction,
+    required ValueChanged<T> onAction,
     this.onSubmit,
     this.onSecondary,
     this.busy = false,
     this.width = 340,
     super.key,
-  });
+  }) : _onAction = PickVm(onAction);
 
-  final DetailInspectorVm vm;
-  final ValueChanged<String> onAction;
+  final DetailInspectorVm<T> vm;
+
+  /// An action card tapped, by its id.
+  final PickVm<T> _onAction;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
@@ -189,7 +192,8 @@ class DetailInspector extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 6),
                     child: SectionLabel(g.label),
                   ),
-                  for (final a in g.actions) ActionRow(vm: a, onTap: onAction),
+                  for (final a in g.actions)
+                    ActionRow(vm: a, onTap: () => _onAction.onPick(a.id)),
                 ],
                 if (vm.form case final f?) ...[
                   Padding(

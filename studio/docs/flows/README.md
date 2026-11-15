@@ -30,7 +30,7 @@ flowchart LR
     studio ==>|"onUnlock (replace) [currentState().session.token == null]"| logIn
     explorer -->|"onTapFlowEditor"| flowEditor
     explorer -->|"onAddAgent"| linkInstall
-    links -->|"onTapLinkInstall"| linkInstall
+    links -->|"onAdd"| linkInstall
     flows -->|"onTapFlowEditor"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
     linkInstall -.->|"onClose"| frxBack
@@ -51,7 +51,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
 | `StudioPage` | `/studio` | no | 17 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 58 | [explorer](explorer.md) |
-| `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
+| `LinksPage` | `/studio/links` | no | 21 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 4 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 11 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 6 | [access](access.md) |

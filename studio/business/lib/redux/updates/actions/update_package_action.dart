@@ -3,11 +3,15 @@ import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/sys_verdict.dart';
+import 'package:models/update_result.dart';
+import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/package_info_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/broker_text.dart';
+import '../../../wyrm/decode/package_info.dart';
+import '../../../wyrm/decode/sys_verdict.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../packages/actions/retrieve_packages_action.dart';
@@ -53,14 +57,19 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
     for (final (i, name) in names.indexed) {
       final key = '$root/sys/packages/$name';
       final before = updateReportOf(
-        toDart(await readValue(deps.wyrm, '$key/last_update')),
-      );
+        await readValue(deps.wyrm, '$key/last_update'),
+      ).orWarn('$key/last_update');
       final seen = before?.at ?? 0;
       // The restore point is decided for each package: one that changes
       // the store format always takes it (the broker refuses it without).
       final changes =
           zip == null &&
-          (boolean(await readValue(deps.wyrm, '$key/changes_state')) ?? false);
+          (brokerBoolOf(
+                await readValue(deps.wyrm, '$key/changes_state'),
+                'package',
+                'changes_state',
+              ).orWarn(key) ??
+              false);
       final args = <String, Object?>{
         if (accept) 'accept': true,
         'restore_point': takePoint || changes,
@@ -90,17 +99,21 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
         dispatchSync(_Review(name));
         rethrow;
       }
-      message = str(answer['message']);
-      if (boolean(answer['success']) == false) {
+      final verdict =
+          sysRunOf(answer).orWarn('$key ▸ update') ??
+          const SysVerdict(success: true);
+      message = verdict.message;
+      if (!verdict.success) {
         if (updates.package != name) {
           // The sheet was closed: the queue stops here, and the broker's
           // words are said as an error instead of in a review nobody sees.
           requireSuccess(answer, key, 'update', thing: name);
         }
         // Nothing was installed: the broker's words stay in the review.
-        return state.copyWith.updates(view: 'review', asks: message);
+        return state.copyWith.updates(view: UpdateView.review, asks: message);
       }
-      unawaited(dispatchAndWait(RetrievePackagesAction()));
+      // the Updates tab shows the package's new values with the answer
+      await dispatchAndWait(RetrievePackagesAction());
       if (i + 1 < names.length) {
         await _settled('$key/last_update', seen);
       }
@@ -115,8 +128,8 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
   Future<void> _settled(String key, int seen) async {
     final until = DateTime.now().add(const Duration(seconds: 700));
     while (DateTime.now().isBefore(until)) {
-      final r = updateReportOf(toDart(await readValue(deps.wyrm, key)));
-      if (r != null && r.result != 'checking' && r.at != seen) {
+      final r = updateReportOf(await readValue(deps.wyrm, key)).orWarn(key);
+      if (r != null && r.result != UpdateResult.checking && r.at != seen) {
         return;
       }
       await Future<void>.delayed(settle);
@@ -143,7 +156,7 @@ class _Show extends Action {
       : state.copyWith.updates(
           package: package,
           queue: queue.lock,
-          view: 'follow',
+          view: UpdateView.follow,
           seenAt: seenAt,
           asks: null,
           message: null,
@@ -160,5 +173,5 @@ class _Review extends Action {
   @override
   AppState? reduce() => updates.package != package
       ? null
-      : state.copyWith.updates(view: 'review', asks: null);
+      : state.copyWith.updates(view: UpdateView.review, asks: null);
 }

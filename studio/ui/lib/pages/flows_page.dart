@@ -34,7 +34,7 @@ class FlowsPage extends StatelessWidget {
   final List<RowVm> rows;
   final String? empty;
   final ValueChanged<String> onRow;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
 
   @override

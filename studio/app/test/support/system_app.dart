@@ -19,6 +19,8 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_origin.dart';
+import 'package:models/link_state.dart';
 import 'package:models/live_value.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
@@ -329,15 +331,21 @@ class SystemApp {
   );
 
   List<LinkInfo> get _links => [
-    const LinkInfo(id: 'modbus', state: 'connected'),
+    const LinkInfo(id: 'modbus', state: LinkState.connected),
     const LinkInfo(id: 'bacnet', mode: LinkMode.wasm),
-    const LinkInfo(id: 'mqtt', mode: LinkMode.external, state: 'connected'),
+    const LinkInfo(
+      id: 'mqtt',
+      mode: LinkMode.external,
+      state: LinkState.connected,
+    ),
     for (var i = 0; i < fixture.stale; i++)
       LinkInfo(
         id: i == 0 ? 'field-x' : 'field-x$i',
         mode: LinkMode.external,
-        state: 'disconnected',
-        origin: 'runtime',
+        // not connected: the broker's `disconnected` is no state of
+        // `sys/links/<id>/state`; a runtime link that is not up is stopped
+        state: LinkState.stopped,
+        origin: LinkOrigin.runtime,
         certificateCn: i == 0 ? 'link:field-x' : null,
       ),
   ];

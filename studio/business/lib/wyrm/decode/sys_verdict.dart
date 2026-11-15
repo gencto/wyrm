@@ -35,3 +35,11 @@ Decoded<SysVerdict> _fromMap(Map<String, Value> m) {
     _ => const Invalid(_shape, 'message', 'not a text'),
   };
 }
+
+/// The one answer of a `sys` action that runs at once (`update`,
+/// `rollback`): `{success, message}`; no answer, or a null one, is a run
+/// that said nothing.
+Decoded<SysVerdict> sysRunOf(Value answer) => switch (answer) {
+  VNull() => const Valid(SysVerdict(success: true)),
+  _ => sysVerdictOf([answer]),
+};

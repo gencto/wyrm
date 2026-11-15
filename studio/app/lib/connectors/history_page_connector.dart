@@ -461,7 +461,7 @@ class _Vm extends Vm {
   final VoidCallback onTrendReset;
   final List<RowVm> points;
   final String footer;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final VoidCallback onShow;
   final VoidCallback onHide;
   final ValueChanged<String> onGroup;

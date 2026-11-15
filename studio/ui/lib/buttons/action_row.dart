@@ -9,7 +9,7 @@ import '../theme/typography.dart';
 
 /// One action of an inspector: icon, title, one line of what it does, the
 /// action's code name.
-final class ActionRowVm extends Equatable {
+final class ActionRowVm<T> extends Equatable {
   const ActionRowVm({
     required this.id,
     required this.title,
@@ -20,8 +20,8 @@ final class ActionRowVm extends Equatable {
     this.disabledReason,
   });
 
-  /// What the composer gets back on a tap.
-  final String id;
+  /// What the composer gets back on a tap (a domain id or a `ui` enum).
+  final T id;
   final String title;
   final String? icon;
   final String? description;
@@ -53,11 +53,13 @@ final class ActionRowVm extends Equatable {
 /// radius 10) with the icon in a square, the title, one line, the code name;
 /// a danger row is coral on the bad tint; a disabled row keeps its place,
 /// dimmed, with the reason as its line.
-class ActionRow extends StatelessWidget {
+class ActionRow<T> extends StatelessWidget {
   const ActionRow({required this.vm, this.onTap, super.key});
 
-  final ActionRowVm vm;
-  final ValueChanged<String>? onTap;
+  final ActionRowVm<T> vm;
+
+  /// A tap on the row; null when no row of its inspector reacts.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +86,7 @@ class ActionRow extends StatelessWidget {
         side: BorderSide(color: line),
       ),
       child: InkWell(
-        onTap: enabled ? () => onTap!(vm.id) : null,
+        onTap: enabled ? onTap : null,
         borderRadius: Radii.card,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),

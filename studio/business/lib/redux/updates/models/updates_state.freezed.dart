@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$UpdatesState {
 
- String? get package; String get view; bool get takePoint; bool get autoRollback; bool get acceptNew; String? get asks; String? get message; int get seenAt; IList<String> get queue;
+ String? get package; UpdateView get view; bool get takePoint; bool get autoRollback; bool get acceptNew; String? get asks; String? get message; int get seenAt; IList<String> get queue;
 /// Create a copy of UpdatesState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,7 +51,7 @@ abstract mixin class $UpdatesStateCopyWith<$Res>  {
   factory $UpdatesStateCopyWith(UpdatesState value, $Res Function(UpdatesState) _then) = _$UpdatesStateCopyWithImpl;
 @useResult
 $Res call({
- String? package, String view, bool takePoint, bool autoRollback, bool acceptNew, String? asks, String? message, int seenAt, IList<String> queue
+ String? package, UpdateView view, bool takePoint, bool autoRollback, bool acceptNew, String? asks, String? message, int seenAt, IList<String> queue
 });
 
 
@@ -72,7 +72,7 @@ class _$UpdatesStateCopyWithImpl<$Res>
   return _then(UpdatesState(
 package: freezed == package ? _self.package : package // ignore: cast_nullable_to_non_nullable
 as String?,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
-as String,takePoint: null == takePoint ? _self.takePoint : takePoint // ignore: cast_nullable_to_non_nullable
+as UpdateView,takePoint: null == takePoint ? _self.takePoint : takePoint // ignore: cast_nullable_to_non_nullable
 as bool,autoRollback: null == autoRollback ? _self.autoRollback : autoRollback // ignore: cast_nullable_to_non_nullable
 as bool,acceptNew: null == acceptNew ? _self.acceptNew : acceptNew // ignore: cast_nullable_to_non_nullable
 as bool,asks: freezed == asks ? _self.asks : asks // ignore: cast_nullable_to_non_nullable
@@ -91,11 +91,11 @@ as IList<String>,
 
 
 class _UpdatesState implements UpdatesState {
-  const _UpdatesState({this.package, this.view = 'review', this.takePoint = true, this.autoRollback = true, this.acceptNew = false, this.asks, this.message, this.seenAt = 0, this.queue = const IListConst([])});
+  const _UpdatesState({this.package, this.view = UpdateView.review, this.takePoint = true, this.autoRollback = true, this.acceptNew = false, this.asks, this.message, this.seenAt = 0, this.queue = const IListConst([])});
   
 
 @override final  String? package;
-@override@JsonKey() final  String view;
+@override@JsonKey() final  UpdateView view;
 @override@JsonKey() final  bool takePoint;
 @override@JsonKey() final  bool autoRollback;
 @override@JsonKey() final  bool acceptNew;
@@ -136,7 +136,7 @@ abstract mixin class _$UpdatesStateCopyWith<$Res> implements $UpdatesStateCopyWi
   factory _$UpdatesStateCopyWith(_UpdatesState value, $Res Function(_UpdatesState) _then) = __$UpdatesStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? package, String view, bool takePoint, bool autoRollback, bool acceptNew, String? asks, String? message, int seenAt, IList<String> queue
+ String? package, UpdateView view, bool takePoint, bool autoRollback, bool acceptNew, String? asks, String? message, int seenAt, IList<String> queue
 });
 
 
@@ -157,7 +157,7 @@ class __$UpdatesStateCopyWithImpl<$Res>
   return _then(_UpdatesState(
 package: freezed == package ? _self.package : package // ignore: cast_nullable_to_non_nullable
 as String?,view: null == view ? _self.view : view // ignore: cast_nullable_to_non_nullable
-as String,takePoint: null == takePoint ? _self.takePoint : takePoint // ignore: cast_nullable_to_non_nullable
+as UpdateView,takePoint: null == takePoint ? _self.takePoint : takePoint // ignore: cast_nullable_to_non_nullable
 as bool,autoRollback: null == autoRollback ? _self.autoRollback : autoRollback // ignore: cast_nullable_to_non_nullable
 as bool,acceptNew: null == acceptNew ? _self.acceptNew : acceptNew // ignore: cast_nullable_to_non_nullable
 as bool,asks: freezed == asks ? _self.asks : asks // ignore: cast_nullable_to_non_nullable

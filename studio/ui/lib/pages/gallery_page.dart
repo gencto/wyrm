@@ -672,7 +672,7 @@ class ComponentKit extends StatelessWidget {
                     description: 'Run the link again',
                     code: 'start',
                   ),
-                  onTap: none,
+                  onTap: () {},
                 ),
                 ActionRow(
                   vm: const ActionRowVm(
@@ -683,7 +683,7 @@ class ComponentKit extends StatelessWidget {
                     code: 'remove',
                     tone: .bad,
                   ),
-                  onTap: none,
+                  onTap: () {},
                 ),
                 const ActionRow(
                   vm: ActionRowVm(

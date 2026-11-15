@@ -14,6 +14,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'links_data.dart';
 
 /// A setting shown as a card above the Quarantine table.
 final class SettingCardVm extends Equatable {
@@ -84,17 +85,17 @@ class LinksPage extends StatelessWidget {
   /// Opens Add a link; null when the user may not install.
   final VoidCallback? onTapLinkInstall;
   final String? addReason;
-  final List<TabItemVm<String>> tabs;
-  final String tab;
+  final List<TabItemVm<LinksTabKey>> tabs;
+  final LinksTabKey tab;
   final String description;
   final List<SettingCardVm> settings;
   final List<ColumnVm> columns;
   final List<RowVm> rows;
   final String? empty;
-  final DetailInspectorVm? inspector;
-  final ValueChanged<String> onTab;
+  final DetailInspectorVm<LinkAct>? inspector;
+  final ValueChanged<LinksTabKey> onTab;
   final ValueChanged<String> onRow;
-  final ValueChanged<String> onAction;
+  final ValueChanged<LinkAct> onAction;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;

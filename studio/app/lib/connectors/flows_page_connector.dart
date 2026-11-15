@@ -178,7 +178,7 @@ class _Vm extends Vm {
   final String site;
   final String? newReason;
   final List<RowVm> rows;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final VoidCallback onShow;
   final VoidCallback onHide;
   final ValueChanged<String> onRow;

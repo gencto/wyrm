@@ -54,7 +54,7 @@ class SitesPage extends StatelessWidget {
   final String? waiting;
   final String reviewLabel;
   final VoidCallback? onReview;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
   final ValueChanged<String> onAction;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;

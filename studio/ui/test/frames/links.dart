@@ -9,6 +9,7 @@ import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
+import 'package:ui/pages/links_data.dart';
 import 'package:ui/pages/links_page.dart';
 import 'package:ui/tables/row_table.dart';
 
@@ -17,11 +18,11 @@ import 'package:ui/tables/row_table.dart';
 
 void _none(Object? _) {}
 
-List<TabItemVm<String>> tabs() => const [
-  TabItemVm(id: 'local', label: 'On this broker', count: '5'),
-  TabItemVm(id: 'remote', label: 'On other devices', count: '3'),
+List<TabItemVm<LinksTabKey>> tabs() => const [
+  TabItemVm(id: LinksTabKey.local, label: 'On this broker', count: '5'),
+  TabItemVm(id: LinksTabKey.remote, label: 'On other devices', count: '3'),
   TabItemVm(
-    id: 'quarantine',
+    id: LinksTabKey.quarantine,
     label: 'Quarantine',
     count: '3',
     countTone: Tone.warn,
@@ -34,7 +35,7 @@ LinksPage linksLocal() => LinksPage(
   addLabel: 'Add a link',
   onTapLinkInstall: () {},
   tabs: tabs(),
-  tab: 'local',
+  tab: LinksTabKey.local,
   description: 'Started and watched by plant: built-in drivers and installed packages. You can stop, change, upgrade and remove them.',
   columns: const [
     ColumnVm('Link', flex: 3),
@@ -124,7 +125,7 @@ LinksPage linksLocal() => LinksPage(
         label: 'Run',
         actions: [
           ActionRowVm(
-            id: 'stop',
+            id: LinkAct.stop,
             icon: 'action_stop',
             title: 'Stop',
             description:
@@ -132,7 +133,7 @@ LinksPage linksLocal() => LinksPage(
             code: 'stop',
           ),
           ActionRowVm(
-            id: 'log',
+            id: LinkAct.log,
             icon: 'action_log',
             title: 'View log',
             description: 'Its last lines and its own log level.',
@@ -144,7 +145,7 @@ LinksPage linksLocal() => LinksPage(
         label: 'Version',
         actions: [
           ActionRowVm(
-            id: 'builtin',
+            id: LinkAct.builtIn,
             icon: 'action_lock',
             title: 'Comes with wyrmd',
             disabledReason: 'A built-in driver updates with the broker.',
@@ -155,7 +156,7 @@ LinksPage linksLocal() => LinksPage(
         label: 'Remove',
         actions: [
           ActionRowVm(
-            id: 'remove',
+            id: LinkAct.remove,
             icon: 'action_trash',
             title: 'Remove link',
             description: 'Stops it and deletes its tree.',
@@ -174,7 +175,7 @@ LinksPage linksQuarantine() => LinksPage(
   addLabel: 'Add a link',
   onTapLinkInstall: () {},
   tabs: tabs(),
-  tab: 'quarantine',
+  tab: LinksTabKey.quarantine,
   description: 'Connections with a certificate from this site that no link is set up for. They can read and write nothing until you approve them.',
   settings: const [
     SettingCardVm(

@@ -501,7 +501,7 @@ class _Vm extends Vm {
   final String empty;
   final List<String> audit;
   final String? addReason;
-  final DetailInspectorVm? inspector;
+  final DetailInspectorVm<String>? inspector;
 
   /// The tab is shown: Access reads again every 10 s.
   final bool polling;
