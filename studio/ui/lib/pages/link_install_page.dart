@@ -725,7 +725,8 @@ class _Center extends StatelessWidget {
             message: done
                 ? S.current.installedOn(vm.name ?? '', vm.broker)
                 : S.current.notInstalled,
-            detail: vm.message,
+            // A refusal with no words of the broker still says so.
+            detail: vm.message ?? (done ? null : S.current.installNoWords),
           ),
         ),
         Gaps.md,

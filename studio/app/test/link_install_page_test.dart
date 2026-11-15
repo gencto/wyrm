@@ -233,6 +233,24 @@ void main() {
       await app.leave(t);
     });
 
+    testWidgets('a refusal without words says the broker gave none', (
+      t,
+    ) async {
+      final app = await shown(t);
+      app.api.invokes['$sys/links ▸ install_wasm'] = [
+        Value.from({'success': false}),
+      ];
+      await app.tap(t, S.current.customPackage);
+      await app.tap(t, '.wasm');
+      await app.tap(t, S.current.chooseWasm);
+      await app.press(t, S.current.continueLabel);
+      await app.press(t, S.current.continueLabel);
+      await app.press(t, S.current.install);
+      expect(find.text(S.current.notInstalled), findsOneWidget);
+      expect(find.text(S.current.installNoWords), findsOneWidget);
+      await app.leave(t);
+    });
+
     testWidgets('a method change drops what was brought', (t) async {
       final app = await shown(t);
       await app.tap(t, S.current.customPackage);
