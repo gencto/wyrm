@@ -49,34 +49,18 @@ String unlockDevice(String platform) => switch (platform) {
 };
 
 /// `3 Nov` for seconds since the Unix epoch; empty for 0.
-String shortDate(int seconds) {
-  if (seconds <= 0) {
-    return '';
-  }
-  final d = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-  final months = S.current.monthsShort.split(',');
-  return '${d.day} ${months[(d.month - 1) % months.length]}';
-}
+String shortDate(int seconds) => seconds <= 0
+    ? ''
+    : Formats.shortDate(DateTime.fromMillisecondsSinceEpoch(seconds * 1000));
 
 /// `now`, `5 min ago`, `2 h ago`, `3 d ago`.
-String agoOf(int seconds, {DateTime? now}) {
-  if (seconds <= 0) {
-    return '';
-  }
-  final d = (now ?? DateTime.now()).difference(
-    DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
-  );
-  if (d.inMinutes < 1) {
-    return S.current.unlockAgoNow;
-  }
-  if (d.inHours < 1) {
-    return S.current.agoMinutes(d.inMinutes);
-  }
-  if (d.inDays < 1) {
-    return S.current.agoHours(d.inHours);
-  }
-  return S.current.agoDays(d.inDays);
-}
+String agoOf(int seconds, {DateTime? now}) => seconds <= 0
+    ? ''
+    : Formats.ago(
+        DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+        now: now,
+        nowWord: S.current.unlockAgoNow,
+      );
 
 /// Two letters of a user: `olena` → `OL`.
 String initialsOf(String user) {
