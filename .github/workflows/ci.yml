@@ -38,18 +38,40 @@ jobs:
       - run: pip install cbor2
       - run: python spec/fixtures/gen.py --check
   dart-fixtures:
-    # spec rule: every SDK must pass the CBOR fixture test
+    # spec rule: every SDK must pass the CBOR fixture test; and the Dart
+    # packages, the typed decode boundary of every Dart client (Studio too).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b # v1.8.2
+        # the Dart of Studio's Flutter (studio/pubspec.yaml): the committed
+        # `*.freezed.dart` files are formatted by it
+        with: { sdk: 3.14.0 }
       - run: dart pub get
         working-directory: dart/wyrm_core
       - run: dart analyze
         working-directory: dart/wyrm_core
       - run: dart test
         working-directory: dart/wyrm_core
+      - run: dart pub get --enforce-lockfile
+        working-directory: dart/wyrm_client
+      - name: Generated models are current
+        working-directory: dart/wyrm_client
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          git diff --exit-code -- . || { echo "run: dart run build_runner build (dart/wyrm_client) and commit"; exit 1; }
+      - run: dart analyze
+        working-directory: dart/wyrm_client
+      # `e2e` tests build crates with cargo (a gateway, the FFI library)
+      - run: dart test -x e2e
+        working-directory: dart/wyrm_client
+      - run: dart pub get
+        working-directory: dart/wyrm_ffi
+      - run: dart analyze
+        working-directory: dart/wyrm_ffi
+      - run: dart test -x e2e
+        working-directory: dart/wyrm_ffi
   studio:
     # WYRM Studio (ADR 0037, docs/studio.md §9).
     runs-on: ubuntu-latest

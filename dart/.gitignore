@@ -5,3 +5,5 @@ pubspec_overrides.yaml
 .flutter-plugins
 .flutter-plugins-dependencies
 pubspec.lock
+# pins freezed and its formatter: the generated files must not change in CI
+!wyrm_client/pubspec.lock
