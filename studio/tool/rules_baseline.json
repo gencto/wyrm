@@ -133,7 +133,7 @@
     "app/lib/connectors/sites_page_connector.dart": 89,
     "app/lib/connectors/splash_page_connector.dart": 15,
     "app/lib/connectors/step_up_dialog_connector.dart": 129,
-    "app/lib/connectors/studio_page_connector.dart": 187,
+    "app/lib/connectors/studio_page_connector.dart": 176,
     "app/lib/connectors/system_page_connector.dart": 293,
     "app/lib/connectors/toast_stack_connector.dart": 69,
     "app/lib/connectors/top_level_page_connector.dart": 52,

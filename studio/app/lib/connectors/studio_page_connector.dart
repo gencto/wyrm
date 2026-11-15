@@ -17,6 +17,7 @@ import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/theme/actions/set_theme_mode_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/workspace.dart';
 import 'package:ui/shell/studio_frame.dart';
 
 import '../common/window.dart';
@@ -24,23 +25,11 @@ import '../dialogs/error_dialogs.dart';
 import '../dialogs/security_dialogs.dart';
 import '../errors.dart';
 import '../mappers/shell_mappers.dart';
-import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import '../navigation/leave_on_log_out_action.dart';
 import '../navigation/search_go_action.dart';
+import '../navigation/workspace_routes.dart';
 import 'lock_overlay_connector.dart';
-
-/// The eight workspaces, in rail order (docs/studio.md §7.1).
-const List<PageRouteInfo> _tabs = [
-  ExplorerRoute(),
-  LinksRoute(),
-  FlowsRoute(),
-  HistoryRoute(),
-  AccessRoute(),
-  SitesRoute(),
-  AssistantRoute(),
-  SystemRoute(),
-];
 
 /// The Studio shell: top bar, rail and the workspace tabs, with the review
 /// panel of staged changes on the right when it is open. The connector
@@ -53,14 +42,14 @@ class StudioPageConnector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AutoTabsRouter(
-    routes: _tabs,
+    routes: workspaceRoutes,
     builder: (context, child) => StoreConnector<AppState, _Vm>(
       debug: this,
       vm: () => _Factory(this),
       onInit: (store) => store.dispatch(RetrieveSitesAction()),
       builder: (context, vm) => StudioFrame(
         vm: vm.frame,
-        active: WorkspaceTab.values[AutoTabsRouter.of(context).activeIndex],
+        active: Workspace.values[AutoTabsRouter.of(context).activeIndex].tab,
         // The idle lock covers the whole shell (ADR 0050 §1.4).
         lock: (context, shell) =>
             LockOverlayConnector(onLogOut: vm.onLogOut, child: shell!),

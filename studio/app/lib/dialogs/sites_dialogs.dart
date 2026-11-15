@@ -8,6 +8,7 @@ import 'package:business/redux/peers/actions/issue_site_token_action.dart';
 import 'package:business/redux/quarantine/actions/reject_quarantine_action.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/site_node.dart';
 import 'package:ui/forms/action_form.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
@@ -172,7 +173,12 @@ Future<FieldRefusal?> approveBroker(
   Map<String, Object?> values,
 ) {
   final store = AppStore.of(context);
-  final node = _Sel(store.state).peers.sitePicked.name;
+  final picked = _Sel(store.state).peers.sitePicked;
+  // Only a connection waiting in quarantine has this form.
+  if (picked.node != SiteNode.waiting) {
+    return Future.value();
+  }
+  final node = picked.name;
   return sendForm(
     store.dispatchAndWait(AuthorizeBrokerAction(node, plainArgs(values))),
   );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/services.dart';
@@ -459,14 +461,17 @@ class StudioFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.current;
     final blocked = vm.cards.where((c) => !c.allowed).length;
-    void search() => _search(context).ignore();
+    void search() => unawaited(_search(context));
+    // The rail is made of WorkspaceTab.values, in order: a rail index is
+    // the tab at it.
+    const tabs = WorkspaceTab.values;
     final shell = StudioShell(
-      selected: active.index,
-      onSelect: (i) => onTab(WorkspaceTab.values[i]),
+      selected: tabs.indexOf(active),
+      onSelect: (i) => onTab(tabs[i]),
       more: s.more,
       offline: vm.connected ? null : s.offline,
       rail: [
-        for (final t in WorkspaceTab.values)
+        for (final t in tabs)
           RailItemVm(
             icon: t.icon,
             label: t.label,

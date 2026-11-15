@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/link_state.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
@@ -317,7 +318,10 @@ final class _Sites with Selectors {
       SiteNode.device => DeviceDetail(
         name,
         'sys/links/$name',
-        connected: _peer(PeerKind.device, name)?.connected ?? false,
+        // live: the link's state as the broker publishes it now
+        connected:
+            LinkState.fromWire(links.table[name]?.state ?? '') ==
+            LinkState.connected,
         device: links.table[name]?.device,
         branch: '$root/downstream/$name',
       ),

@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:models/site_node.dart';
 import 'package:models/site_pick.dart';
 import 'package:ui/buttons/button.dart';
+import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/pages/sites_page.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -242,6 +243,32 @@ void main() {
     words.check('reject dialog', dialog(t, app));
     await tap(t, app, inDialog.last);
     expect(app.calls('reject').single.key, '$plant/sys/quarantine/line2');
+    await app.leave(t);
+  });
+
+  testWidgets("a device's pill follows its link's state as it comes", (
+    t,
+  ) async {
+    final app = await shown(
+      t,
+      selected: const SitePick(SiteNode.device, 'field-gw'),
+    );
+    Finder pill(String word) => find.descendant(
+      of: find.byType(StatusPill),
+      matching: find.text(word),
+    );
+    expect(pill('Offline'), findsOneWidget);
+    // the link's state, live (as Links' watch writes it)
+    app.put(
+      (s) => s.copyWith.links(
+        table: s.links.table.update(
+          'field-gw',
+          (l) => l.copyWith(state: 'connected'),
+        ),
+      ),
+    );
+    await app.settle(t);
+    expect(pill('Connected'), findsOneWidget);
     await app.leave(t);
   });
 }
