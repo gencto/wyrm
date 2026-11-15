@@ -13,11 +13,7 @@ NodeDetail nodeDetailOf(String key, NodeMeta m) => NodeDetail(
   profile: m.profileName,
   type: m.ty?.wireName,
   unit: m.unit?.toString(),
-  writable: switch (m.writable) {
-    Writable.write => 'write',
-    Writable.config => 'config',
-    _ => null,
-  },
+  writable: _setLevel(m.writable),
   invokable: m.invokable?.wireName,
   choices: (m.enumValues ?? const <String>[]).lock,
   actions: [
@@ -37,12 +33,20 @@ NodeDetail nodeDetailOf(String key, NodeMeta m) => NodeDetail(
   rev: m.rev,
 );
 
+/// The level a set of a value with `~meta.writable` [w] needs; null when it
+/// cannot be set.
+Perm? _setLevel(Writable? w) => switch (w) {
+  Writable.write => Perm.write,
+  Writable.config => Perm.config,
+  Writable.never || null => null,
+};
+
 /// One action of a node's meta.
 ActionInfo actionInfoOf(String name, ActionMeta a) => ActionInfo(
   name: name,
   display: a.display,
   group: a.group,
-  level: a.level?.wireName ?? 'write',
+  level: a.level ?? Perm.write,
   params: paramSpecsOf(a).lock,
   result: switch (a.result) {
     ResultStream() => 'stream',

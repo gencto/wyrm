@@ -10,6 +10,7 @@ import 'package:ui/alerts/toast_stack.dart';
 
 import '../dialogs/error_dialogs.dart';
 import '../errors.dart';
+import '../mappers/notice_mappers.dart';
 
 /// The toasts of quiet failures and of successes
 /// (docs/design/specs/errors.md §4), over every page. Hidden while the
@@ -54,14 +55,7 @@ class _Factory extends VmFactory<AppState, ToastStackConnector, _Vm>
     final toasts = <ToastVm>[
       for (final id in problems.toasts)
         if (failed[id] case final e?) errorToastVm(e),
-      for (final n in problems.notices)
-        ToastVm(
-          id: n.id,
-          tone: .good,
-          title: n.title,
-          line: n.detail ?? '',
-          seconds: 3,
-        ),
+      for (final n in problems.notices) n.toast,
     ]..sort((a, b) => a.id.compareTo(b.id));
     return _Vm(
       toasts: problems.open ? const [] : toasts,

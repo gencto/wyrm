@@ -1545,7 +1545,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       final acts = [
         for (final a
             in nodes.detail[key]?.actions ?? const IListConst<ActionInfo>([]))
-          if (a.level != 'config') a,
+          if (!a.staged) a,
       ];
       final hits = q.isEmpty || name.toLowerCase().contains(q);
       // A node may hold values, which only its list tells; so it opens

@@ -1,23 +1,27 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/history_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/hist_point.dart';
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/history_steps.dart';
-import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../problems/actions/add_problem_action.dart';
 
-/// Reads the recorded values of the point [key] over `nodes.historyRange`
-/// (`1h`, `24h`, `7d`) into `nodes.history`. A point nobody records answers
-/// no rows (a watch in `sys/history` records it).
+/// Reads the recorded values of the point [key] over [range] (by default
+/// `nodes.historyRange`) into `nodes.history`. A point nobody records
+/// answers no rows (a watch in `sys/history` records it).
 class RetrieveHistoryAction extends Action with WaitingAction {
-  RetrieveHistoryAction(this.key, {this.limit = 2000});
+  RetrieveHistoryAction(this.key, {this.limit = 2000, this.range});
 
   final String key;
   final int limit;
 
-  /// `1h` → one hour, `24h`, `7d`.
+  /// The span read; null: the one on screen.
+  final HistoryRange? range;
+
+  /// History's ranges by name (`historian.range`): `1h` → one hour, `24h`,
+  /// `7d`, `15m`.
   static Duration span(String range) {
     final n = int.tryParse(range.substring(0, range.length - 1)) ?? 1;
     return switch (range[range.length - 1]) {
@@ -29,7 +33,9 @@ class RetrieveHistoryAction extends Action with WaitingAction {
 
   @override
   Future<AppState> reduce() async {
-    final from = DateTime.now().toUtc().subtract(span(nodes.historyRange));
+    final from = DateTime.now().toUtc().subtract(
+      (range ?? nodes.historyRange).span,
+    );
     List<HistRow> rows;
     String? failed;
     try {
@@ -48,7 +54,7 @@ class RetrieveHistoryAction extends Action with WaitingAction {
         AddProblemAction(
           refusalOf(e, key: key, call: 'history').copyWith(
             quiet: true,
-            retry: () => RetrieveHistoryAction(key, limit: limit),
+            retry: () => RetrieveHistoryAction(key, limit: limit, range: range),
           ),
         ),
       );
@@ -59,10 +65,7 @@ class RetrieveHistoryAction extends Action with WaitingAction {
       // Another point starts on its whole range.
       historyWindow: key == nodes.historyKey ? nodes.historyWindow : null,
       historyFailed: failed,
-      history: [
-        for (final r in rows)
-          histPoint(r).copyWith(text: text(r.v) ?? '${toDart(r.v)}'),
-      ].lock,
+      history: [for (final r in rows) histPointOf(r, wholeText: true)].lock,
     );
   }
 }

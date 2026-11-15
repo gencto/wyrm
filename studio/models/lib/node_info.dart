@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
 part 'node_info.freezed.dart';
 
@@ -18,8 +19,9 @@ abstract class NodeInfo with _$NodeInfo {
     String? type,
     String? unit,
 
-    /// `write` or `config` when the value can be set; null when it cannot.
-    String? writable,
+    /// The level a set needs (`write` or `config`); null when the value
+    /// cannot be set.
+    Perm? writable,
 
     /// A child without a type exists: the tree draws a triangle.
     @Default(false) bool hasChildren,

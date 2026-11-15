@@ -12,6 +12,16 @@ import 'generated/l10n.dart';
 abstract final class Formats {
   static String _two(int n) => n.toString().padLeft(2, '0');
 
+  /// A poll rate in seconds: `500 ms`, `1 s`, `2.5 s`.
+  static String pollRate(num seconds) {
+    if (seconds < 1) {
+      return '${(seconds * 1000).round()} ms';
+    }
+    return seconds == seconds.roundToDouble()
+        ? '${seconds.round()} s'
+        : '$seconds s';
+  }
+
   /// `812 B`, `48 KiB`, `3.1 MiB`, `1.2 GiB`.
   static String bytes(int bytes) {
     if (bytes < 1024) {

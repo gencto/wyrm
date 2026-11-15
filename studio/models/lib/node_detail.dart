@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
 import 'action_info.dart';
 
@@ -15,7 +16,8 @@ abstract class NodeDetail with _$NodeDetail {
     String? profile,
     String? type,
     String? unit,
-    String? writable,
+    /// The level a set needs; null when the value cannot be set.
+    Perm? writable,
     String? invokable,
     @Default(IListConst([])) IList<String> choices,
     @Default(IListConst([])) IList<ActionInfo> actions,

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/node_info.dart';
 
@@ -43,7 +41,8 @@ class AddNodesAction extends Action {
           item.key,
     ];
     if (unread.isNotEmpty) {
-      unawaited(dispatchAndWait(RetrieveDetailsAction(unread)));
+      // started, not awaited: the rows show their meta when it comes
+      dispatchAll([RetrieveDetailsAction(unread)]);
     }
     final table = state.nodes.table;
     final view = state.nodes.view;

@@ -16,8 +16,8 @@ T _$identity<T>(T value) => value;
 mixin _$ActionInfo {
 
  String get name; String? get display;/// The menu group (`edit`, `secrets`, `Install Link`).
- String? get group;/// `read`, `write` or `config`.
- String get level; IList<ParamSpec> get params;/// `stream`, `void`, or a type name.
+ String? get group;/// The level a call needs: `read`, `write` or `config`.
+ Perm get level; IList<ParamSpec> get params;/// `stream`, `void`, or a type name.
  String? get result;
 /// Create a copy of ActionInfo
 /// with the given fields replaced by the non-null parameter values.
@@ -54,7 +54,7 @@ abstract mixin class $ActionInfoCopyWith<$Res>  {
   factory $ActionInfoCopyWith(ActionInfo value, $Res Function(ActionInfo) _then) = _$ActionInfoCopyWithImpl;
 @useResult
 $Res call({
- String name, String? display, String? group, String level, IList<ParamSpec> params, String? result
+ String name, String? display, String? group, Perm level, IList<ParamSpec> params, String? result
 });
 
 
@@ -77,7 +77,7 @@ name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,group: freezed == group ? _self.group : group // ignore: cast_nullable_to_non_nullable
 as String?,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
+as Perm,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as IList<ParamSpec>,result: freezed == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
@@ -90,16 +90,16 @@ as String?,
 /// @nodoc
 
 
-class _ActionInfo implements ActionInfo {
-  const _ActionInfo({required this.name, this.display, this.group, this.level = 'write', this.params = const IListConst([]), this.result});
+class _ActionInfo extends ActionInfo {
+  const _ActionInfo({required this.name, this.display, this.group, this.level = Perm.write, this.params = const IListConst([]), this.result}): super._();
   
 
 @override final  String name;
 @override final  String? display;
 /// The menu group (`edit`, `secrets`, `Install Link`).
 @override final  String? group;
-/// `read`, `write` or `config`.
-@override@JsonKey() final  String level;
+/// The level a call needs: `read`, `write` or `config`.
+@override@JsonKey() final  Perm level;
 @override@JsonKey() final  IList<ParamSpec> params;
 /// `stream`, `void`, or a type name.
 @override final  String? result;
@@ -136,7 +136,7 @@ abstract mixin class _$ActionInfoCopyWith<$Res> implements $ActionInfoCopyWith<$
   factory _$ActionInfoCopyWith(_ActionInfo value, $Res Function(_ActionInfo) _then) = __$ActionInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String? display, String? group, String level, IList<ParamSpec> params, String? result
+ String name, String? display, String? group, Perm level, IList<ParamSpec> params, String? result
 });
 
 
@@ -159,7 +159,7 @@ name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,group: freezed == group ? _self.group : group // ignore: cast_nullable_to_non_nullable
 as String?,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
+as Perm,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as IList<ParamSpec>,result: freezed == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
 as String?,
   ));

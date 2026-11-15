@@ -15,6 +15,7 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/explorer_tab.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -303,7 +304,7 @@ void main() {
       'wy/central/downstream/modbus/tcp/ahu2',
     );
     expect(s.state.nodes.point, 'wy/central/downstream/modbus/tcp/ahu2/sp');
-    expect(s.state.nodes.tab, 'history');
+    expect(s.state.nodes.tab, ExplorerTab.history);
   });
 }
 

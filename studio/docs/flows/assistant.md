@@ -583,10 +583,11 @@ sequenceDiagram
         A5->>ST: dispatchSync(SetChipAction)
         A5->>ST: dispatchAndWait(LoadAssistantAction)
         VM->>A6: dispatchSync
+        A6->>ST: copyWith(nodes.tab, nodes.point, nodes.anchor)
         A6->>A9: dispatchSync
         A6->>ST: dispatchSync(SetTabAction)
         A6->>ST: dispatchSync(SelectPointAction)
-        A6->>ST: dispatchAndWait(RetrieveHistoryAction)
+        A6->>ST: dispatchAll([RetrieveHistoryAction(key)])
         VM->>NAV: GoAction.navigate ExplorerRoute
     end
     alt copy
@@ -604,9 +605,7 @@ sequenceDiagram
         VM->>A9: dispatchSync
         A9->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
         A9->>ST: dispatchSync(ToggleNodeAction)
-        A9->>ST: dispatchAndWait(RetrieveNodeDetailAction)
-        A9->>ST: dispatchAndWait(RetrieveDetailsAction)
-        A9->>ST: dispatchAndWait(RetrieveHistoryAction)
+        A9->>ST: dispatchAll([RetrieveNodeDetailAction(node, quiet: true), RetrieveDetailsAction([if (parts.length > 4) parts.sublist(0, parts.length - 1).join('/'), for (final n in state.nodes.table.values) if (n.key.startsWith('$node/') && !n.key.substring(node.length + 1).contains('/') && isPoint(n)) n.key]), if (asPoint) RetrieveHistoryAction(key), if (!same && state.nodes.tab == ExplorerTab.audit && site.can(Perm.config.wire, '${site.root}/sys/audit')) RetrieveAuditAction(node)])
         VM->>NAV: GoAction.navigate ExplorerRoute
     end
     VM->>+A10: dispatchAndWait
@@ -667,7 +666,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onAsk` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction(parent: task != null && task.replacedBy == null && mayFollow(task) ? id : null)` | — |
 | `onPanel` | `SetPanelAction`, `RetrieveAgentSecretsAction` ? | `assistant.panel`, `assistant.secrets` |
 | `onAddAgent` | `GoAction.push` | — |
-| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SetSelectedTaskAction` ?, `RetrieveTaskRecordAction` ?, `SetDrawerAction` ?, `OpenTrendAction` ?, `GoAction.navigate` ?, `ShowNoticeAction` ?, `PickSuggestionAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `tasks.selectedTask`, `assistant.docs`, `assistant.drawer`, `problems.notices`, `assistant.rowPicks`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
+| `onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SetSelectedTaskAction` ?, `RetrieveTaskRecordAction` ?, `SetDrawerAction` ?, `OpenTrendAction` ?, `GoAction.navigate` ?, `ShowNoticeAction` ?, `PickSuggestionAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `tasks.selectedTask`, `assistant.docs`, `assistant.drawer`, `nodes.tab, nodes.point, nodes.anchor`, `problems.notices`, `assistant.rowPicks`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
 
 `?` marks a dispatch that only runs under a condition.
 

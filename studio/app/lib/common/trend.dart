@@ -2,8 +2,13 @@ import 'package:business/wyrm/history_steps.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 import 'package:models/hist_point.dart';
-import 'package:models/hist_window.dart';
+import 'package:models/quality.dart';
 import 'package:ui/charts/trend.dart';
+
+// The trend's range and window, computed in `business`; here for the
+// connectors that build a trend.
+export 'package:business/wyrm/history_steps.dart'
+    show trendRangeEnd, trendWindow;
 
 /// What the three trends of Studio (History, Explorer, System) share on the
 /// connector side (spec trend.md §5): times in the viewer's zone and
@@ -49,10 +54,10 @@ String rollupText(String? step) {
   return s.trendAvg(name);
 }
 
-TrendQuality _quality(String? q) => switch (q) {
-  'bad' => .bad,
-  'uncertain' => .uncertain,
-  _ => .good,
+TrendQuality _quality(Quality? q) => switch (q) {
+  Quality.bad => .bad,
+  Quality.uncertain => .uncertain,
+  Quality.good || null => .good,
 };
 
 /// [rows] as samples, with the bucket's min and max from [low] and [high]
@@ -100,21 +105,6 @@ int trendDecimals(Iterable<HistPoint> rows, {Object? precision}) {
   return 0;
 }
 
-/// The window the user chose on a trend over [rangeStart]…[rangeEnd] (µs),
-/// as the store keeps it: null for the whole range, an open end while it
-/// reaches the range's end (it follows now).
-HistWindow? trendWindow(int start, int end, int rangeStart, int rangeEnd) {
-  const slack = 1000000; // 1 s
-  final toEnd = end >= rangeEnd - slack;
-  if (start <= rangeStart + slack && toEnd) {
-    return null;
-  }
-  return HistWindow(
-    span: Duration(microseconds: end - start),
-    end: toEnd ? null : DateTime.fromMicrosecondsSinceEpoch(end, isUtc: true),
-  );
-}
-
 /// The finer rows read for [from]…[to] (µs) cover the window
 /// [start]…[end]: they start at most a minute after it and, unless the
 /// window [follows] now (its rows grow with new samples), end at most a
@@ -128,18 +118,4 @@ bool detailCovers({
 }) {
   const slack = 60 * 1000000;
   return from <= start + slack && (follows || to >= end - slack);
-}
-
-/// The end of a trend's range (µs): the latest of when it was read
-/// ([readAt], now when never) and the [newest] rows since (the range's last
-/// samples, the window's own read), so the range stays put between
-/// dispatches and still moves with new samples.
-int trendRangeEnd(DateTime? readAt, Iterable<DateTime?> newest) {
-  var end = readAt ?? DateTime.now().toUtc();
-  for (final t in newest) {
-    if (t != null && t.isAfter(end)) {
-      end = t;
-    }
-  }
-  return end.microsecondsSinceEpoch;
 }

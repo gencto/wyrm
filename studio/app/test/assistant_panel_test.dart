@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/explorer_tab.dart';
 import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/buttons/button.dart';
@@ -277,7 +278,7 @@ void main() {
     await tester.tap(find.text('Trend sp'));
     await app.settle(tester);
     expect(app.store.state.nodes.point, _sp);
-    expect(app.store.state.nodes.tab, 'history');
+    expect(app.store.state.nodes.tab, ExplorerTab.history);
     expect(find.byType(FactGrid), findsWidgets);
   });
 

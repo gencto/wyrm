@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../models/disabled.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
@@ -14,7 +15,7 @@ final class NodeMenuItemVm extends Equatable {
     required this.label,
     this.level = '',
     this.danger = false,
-    this.disabledReason,
+    this.disabled,
     this.code,
   });
 
@@ -27,14 +28,14 @@ final class NodeMenuItemVm extends Equatable {
   /// `config`, `write`, `read`: the hint on the right.
   final String level;
   final bool danger;
-  final String? disabledReason;
+  final Disabled? disabled;
 
   /// The action's own name, in the item's tooltip when the label says it
   /// in other words.
   final String? code;
 
   @override
-  List<Object?> get props => [id, label, level, danger, disabledReason, code];
+  List<Object?> get props => [id, label, level, danger, disabled, code];
 }
 
 /// A group of items under its header (the action `group`).
@@ -123,7 +124,8 @@ class NodeMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     Widget item(NodeMenuItemVm i) {
-      final enabled = i.disabledReason == null;
+      final why = i.disabled?.text;
+      final enabled = why == null;
       final row = InkWell(
         onTap: enabled ? () => onPick(i.id) : null,
         child: Container(
@@ -153,7 +155,7 @@ class NodeMenu extends StatelessWidget {
         ),
       );
       if (!enabled) {
-        return Tooltip(message: i.disabledReason, child: row);
+        return Tooltip(message: why, child: row);
       }
       final code = i.code;
       return code == null || i.label.startsWith(code)

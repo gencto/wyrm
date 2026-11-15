@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'package:models/explorer_tab.dart';
 
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -21,10 +21,15 @@ class OpenTrendAction extends Action {
     if (cut <= 0) {
       return null;
     }
-    dispatchSync(SelectNodeAction(key.substring(0, cut)));
-    dispatchSync(SetTabAction('history'));
-    dispatchSync(SelectPointAction(key));
-    unawaited(dispatchAndWait(RetrieveHistoryAction(key)));
-    return null;
+    // One state at the end: the node, the tab and the point together.
+    dispatchSync(SelectNodeAction(key.substring(0, cut)), notify: false);
+    dispatchSync(SetTabAction(ExplorerTab.history), notify: false);
+    dispatchSync(SelectPointAction(key), notify: false);
+    dispatchAll([RetrieveHistoryAction(key)]);
+    return state.copyWith.nodes(
+      tab: ExplorerTab.history,
+      point: key,
+      anchor: key,
+    );
   }
 }

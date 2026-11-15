@@ -609,8 +609,8 @@ class ComponentKit extends StatelessWidget {
                     icon: 'node_link',
                     hasChildren: true,
                     expanded: true,
-                    chip: 'Process',
-                    dot: .good,
+                    mode: .process,
+                    state: .connected,
                   ),
                 ),
                 const TreeRow(
@@ -621,7 +621,7 @@ class ComponentKit extends StatelessWidget {
                     icon: 'node_device',
                     hasChildren: true,
                     selected: true,
-                    meta: '9',
+                    count: 9,
                   ),
                 ),
                 const TreeRow(
@@ -632,7 +632,7 @@ class ComponentKit extends StatelessWidget {
                     icon: 'node_device',
                     hasChildren: true,
                     staged: true,
-                    meta: '14',
+                    count: 14,
                   ),
                 ),
                 TreeRow(
@@ -641,7 +641,7 @@ class ComponentKit extends StatelessWidget {
                     name: 'boiler-guard',
                     depth: 0,
                     icon: 'node_flow',
-                    meta: 'draft',
+                    draft: true,
                   ),
                   onTap: none,
                 ),

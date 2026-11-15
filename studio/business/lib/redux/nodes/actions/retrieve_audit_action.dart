@@ -3,7 +3,7 @@ import 'package:models/audit_entry.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/audit_entry.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -39,32 +39,12 @@ class RetrieveAuditAction extends Action with WaitingAction {
       'tail',
       Value.from({'n': n}),
     );
-    final out = <AuditEntry>[];
-    for (final row in rows) {
-      final records = switch (row) {
-        VArray(:final v) => v,
-        _ => [row],
-      };
-      for (final r in records) {
-        final k = str(r['key']) ?? '';
-        if (k != key && !k.startsWith('$key/')) {
-          continue;
-        }
-        out.add(
-          AuditEntry(
-            time: DateTime.fromMicrosecondsSinceEpoch(
-              integer(r['t']) ?? 0,
-              isUtc: true,
-            ),
-            op: str(r['op']) ?? '',
-            key: k,
-            who: str(r['sub']) ?? '',
-            status: integer(r['status']) ?? 0,
-          ),
-        );
-      }
-    }
-    out.sort((a, b) => b.time.compareTo(a.time));
+    final out = [
+      for (final r in auditEntriesOf(rows))
+        if (r.orWarn('audit of $key') case final e?
+            when e.key == key || e.key.startsWith('$key/'))
+          e,
+    ]..sort((a, b) => b.time.compareTo(a.time));
     return out;
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../dialogs/error_dialog.dart' show errorTone;
@@ -26,6 +27,19 @@ final class ToastVm extends Equatable {
     this.seconds = 8,
     this.stays,
   });
+
+  /// Something was copied (`Key copied`, `3 keys copied`): a toast in
+  /// `good` for 3 s.
+  factory ToastVm.copied(int id, Copied what, {int count = 1}) => ToastVm(
+    id: id,
+    tone: Tone.good,
+    seconds: 3,
+    title: switch (what) {
+      Copied.key => S.current.keyCopied,
+      Copied.keys => S.current.keysCopied(count),
+      Copied.value => S.current.valueCopied,
+    },
+  );
 
   final int id;
   final String title;
@@ -62,6 +76,9 @@ final class ToastVm extends Equatable {
     stays,
   ];
 }
+
+/// What a copy toast says was copied.
+enum Copied { key, keys, value }
 
 /// The words of the toasts, localized by the connector.
 final class ToastLabels {

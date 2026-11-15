@@ -1,4 +1,5 @@
 import 'package:app/connectors/explorer_page_connector.dart';
+import 'package:app/connectors/toast_stack_connector.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
@@ -277,7 +278,7 @@ class ExplorerApp {
       type: 'number',
       unit: 'bar',
       display: 'Mirrored pressure',
-      writable: 'write',
+      writable: Perm.write,
     ),
     const NodeInfo(
       key: dev,
@@ -292,7 +293,7 @@ class ExplorerApp {
       display: 'Boiler temperature',
       type: 'number',
       unit: '°C',
-      writable: 'write',
+      writable: Perm.write,
       hasHistory: true,
     ),
     const NodeInfo(
@@ -336,7 +337,8 @@ class ExplorerApp {
   };
 
   /// Logs in, puts the tree and the values in, and shows Explorer.
-  Future<void> pump(WidgetTester tester) async {
+  /// With [toasts], the toast stack is over the page (the toasts' words).
+  Future<void> pump(WidgetTester tester, {bool toasts = false}) async {
     tester.view.physicalSize = const Size(1800, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -367,7 +369,20 @@ class ExplorerApp {
         child: MaterialApp(
           theme: darkTheme(),
           localizationsDelegates: const [S.delegate],
-          home: const Scaffold(body: ExplorerPageConnector()),
+          home: Scaffold(
+            body: toasts
+                ? const Stack(
+                    children: [
+                      Positioned.fill(child: ExplorerPageConnector()),
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: ToastStackConnector(),
+                      ),
+                    ],
+                  )
+                : const ExplorerPageConnector(),
+          ),
         ),
       ),
     );

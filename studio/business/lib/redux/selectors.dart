@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/action_answer.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
@@ -8,6 +9,7 @@ import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/explorer_tab.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
@@ -16,6 +18,7 @@ import 'package:models/grant.dart';
 import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/history_range.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
 import 'package:models/key_kind.dart';
@@ -58,6 +61,7 @@ import 'package:wyrm_client/wyrm_client.dart'
 
 import '../wyrm/approval.dart';
 import '../wyrm/device_keys.dart';
+import '../wyrm/explorer.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
@@ -91,6 +95,7 @@ import 'links/actions/start_link_action.dart';
 import 'links/actions/stop_link_action.dart';
 import 'login/actions/log_in_action.dart';
 import 'login/actions/probe_gateway_action.dart';
+import 'nodes/actions/open_node_menu_action.dart';
 import 'nodes/actions/retrieve_history_action.dart';
 import 'nodes/actions/retrieve_node_detail_action.dart';
 import 'nodes/actions/retrieve_nodes_action.dart';
@@ -268,6 +273,11 @@ extension StagedParams on Selectors {
 /// the login action writes the token in the same reduce that clears the form,
 /// so "logged in and still waiting on login" is not a state anything can
 /// observe. `frx graph` listed it under "nothing reaches"; now it is gone.
+/// What Explorer shows, computed from the state (`wyrm/explorer.dart`).
+extension ExplorerSelect on Selectors {
+  ExplorerView get explorer => ExplorerView(state);
+}
+
 extension SelectComposites on Selectors {
   /// Whether any foreground operation is in flight — what the modal barrier
   /// covers.
@@ -640,13 +650,13 @@ extension type SelectNodes(AppState _state) {
   IMap<String, IList<String>> get results => _state.nodes.results;
 
   /// Returns tab
-  String get tab => _state.nodes.tab;
+  ExplorerTab get tab => _state.nodes.tab;
 
   /// Returns action
   String? get action => _state.nodes.action;
 
   /// Returns historyRange
-  String get historyRange => _state.nodes.historyRange;
+  HistoryRange get historyRange => _state.nodes.historyRange;
 
   /// Returns detail
   IMap<String, NodeDetail> get detail => _state.nodes.detail;
@@ -702,6 +712,18 @@ extension type SelectNodes(AppState _state) {
   /// Returns historyLoading
   bool get historyLoading =>
       _state.wait.isWaitingForType<RetrieveHistoryAction>();
+
+  /// Returns answers
+  IMap<String, ActionAnswer> get answers => _state.nodes.answers;
+
+  /// Returns watching
+  IList<String>? get watching => _state.nodes.watching;
+
+  /// The node menu: the node whose menu is open.
+  String? get menu => _state.nodes.menu;
+
+  /// A node menu waits for its node's `~meta`.
+  bool get menuOpening => _state.wait.isWaitingForType<OpenNodeMenuAction>();
 }
 
 extension type SelectLive(AppState _state) {

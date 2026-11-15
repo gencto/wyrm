@@ -179,9 +179,7 @@ sequenceDiagram
     VM->>A6: dispatchSync
     A6->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
     A6->>ST: dispatchSync(ToggleNodeAction)
-    A6->>A2: dispatchAndWait
-    A6->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A6->>ST: dispatchAndWait(RetrieveHistoryAction)
+    A6->>ST: dispatchAll([RetrieveNodeDetailAction(node, quiet: true), RetrieveDetailsAction([if (parts.length > 4) parts.sublist(0, parts.length - 1).join('/'), for (final n in state.nodes.table.values) if (n.key.startsWith('$node/') && !n.key.substring(node.length + 1).contains('/') && isPoint(n)) n.key]), if (asPoint) RetrieveHistoryAction(key), if (!same && state.nodes.tab == ExplorerTab.audit && site.can(Perm.config.wire, '${site.root}/sys/audit')) RetrieveAuditAction(node)])
     alt await ConfirmDialog.ask(context, title: S.current.deauthorizeTitle(name), message: S.current.deauthorizeBrokerNote, confirm: S.current.actDeauthorize, cancel: S.current.cancel)
         VM->>+A7: dispatchAndWait
         Note over A7: WaitingAction · async

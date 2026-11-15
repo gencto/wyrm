@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_node_detail_action.dart';
@@ -19,9 +17,8 @@ class RetryReadAction extends Action {
       deps.treeWatch.open(key);
     }
     if (nodes.metaFailed.containsKey(key)) {
-      unawaited(
-        dispatchAndWait(RetrieveNodeDetailAction(key, quiet: true)),
-      );
+      // started, not awaited: the mark goes when the read answers
+      dispatchAll([RetrieveNodeDetailAction(key, quiet: true)]);
     }
     if (live.failed.containsKey(key)) {
       deps.liveValues.retry(key);

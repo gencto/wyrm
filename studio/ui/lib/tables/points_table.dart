@@ -1,27 +1,95 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
+import '../indicators/sample_mark.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
-/// One point of a device as its row shows it; every text already formatted.
+/// A modbus register area, as the table abbreviates it.
+enum RegisterArea {
+  holding,
+  input,
+  coil,
+  discrete;
+
+  String get label => switch (this) {
+    holding => S.current.areaHolding,
+    input => S.current.areaInput,
+    coil => S.current.areaCoil,
+    discrete => S.current.areaDiscrete,
+  };
+}
+
+/// Where a point is read on its device.
+sealed class RegisterVm extends Equatable {
+  const RegisterVm();
+
+  /// `HR 10`, `Coil 1`, `DB1.DBX0.0`, `—`.
+  String get text;
+}
+
+/// A modbus area ([area] when known, else the driver's [table] name) and
+/// the offset [addr].
+final class ModbusRegisterVm extends RegisterVm {
+  const ModbusRegisterVm({required this.addr, this.area, this.table});
+
+  final String addr;
+  final RegisterArea? area;
+  final String? table;
+
+  @override
+  String get text => switch (area?.label ?? table) {
+    final a? when a.isNotEmpty => '$a $addr',
+    _ => addr,
+  };
+
+  @override
+  List<Object?> get props => [addr, area, table];
+}
+
+/// A driver's own address (`cfg.address`).
+final class AddressRegisterVm extends RegisterVm {
+  const AddressRegisterVm(this.address);
+
+  final String address;
+
+  @override
+  String get text => address;
+
+  @override
+  List<Object?> get props => [address];
+}
+
+/// No register known.
+final class NoRegisterVm extends RegisterVm {
+  const NoRegisterVm();
+
+  @override
+  String get text => '—';
+
+  @override
+  List<Object?> get props => [];
+}
+
+/// One point of a device as its row shows it: typed values, worded here.
 final class PointRowVm extends Equatable {
   const PointRowVm({
     required this.id,
     required this.name,
-    required this.quality,
+    required this.mark,
     this.display,
-    this.register = '—',
+    this.register = const NoRegisterVm(),
     this.type = '—',
-    this.unit = '—',
-    this.poll = '—',
+    this.unit,
+    this.poll,
     this.pollWas,
-    this.value = '—',
+    this.value,
     this.writable = false,
     this.checked = false,
     this.selected = false,
@@ -34,21 +102,19 @@ final class PointRowVm extends Equatable {
   final String id;
   final String name;
   final String? display;
-
-  /// `HR 10`, `Coil 1`.
-  final String register;
+  final RegisterVm register;
   final String type;
-  final String unit;
+  final String? unit;
 
-  /// `1 s`; the staged rate when [pollWas] is set.
-  final String poll;
+  /// The poll rate in seconds; the staged one when [pollWas] is set.
+  final num? poll;
 
   /// The rate before the staged edit (`was 1 s` under it, ember above).
-  final String? pollWas;
+  final num? pollWas;
 
-  /// The value without its unit.
-  final String value;
-  final QualityMarkVm quality;
+  /// The value as the user reads it, without its unit; null: `—`.
+  final String? value;
+  final SampleMark mark;
   final bool writable;
   final bool checked;
   final bool selected;
@@ -59,9 +125,9 @@ final class PointRowVm extends Equatable {
   /// Offline: the value is greyed.
   final bool stale;
 
-  /// Reading its value failed: the chip beside the name (`read failed`,
-  /// docs/design/specs/errors.md §4); [value] is then `—`.
-  final FailChipVm? failed;
+  /// Reading its value failed, and why: the chip beside the name
+  /// (`read failed`, docs/design/specs/errors.md §4); the value is `—`.
+  final String? failed;
 
   @override
   List<Object?> get props => [
@@ -74,7 +140,7 @@ final class PointRowVm extends Equatable {
     poll,
     pollWas,
     value,
-    quality,
+    mark,
     writable,
     checked,
     selected,
@@ -82,33 +148,6 @@ final class PointRowVm extends Equatable {
     stale,
     failed,
   ];
-}
-
-/// The headers of a [PointsTable], localized by the connector.
-final class PointsTableLabels {
-  const PointsTableLabels({
-    this.point = 'Point',
-    this.register = 'Register',
-    this.type = 'Type',
-    this.unit = 'Unit',
-    this.poll = 'Poll',
-    this.value = 'Value',
-    this.quality = 'Quality',
-    this.write = 'Write',
-    this.was = 'was',
-  });
-
-  final String point;
-  final String register;
-  final String type;
-  final String unit;
-  final String poll;
-  final String value;
-  final String quality;
-  final String write;
-
-  /// `was` in `was 1 s`.
-  final String was;
 }
 
 /// The points of a device (docs/design/specs/explorer.md §3.5): a card of
@@ -124,7 +163,6 @@ final class PointsTableLabels {
 class PointsTable extends StatelessWidget {
   const PointsTable({
     required this.rows,
-    this.labels = const PointsTableLabels(),
     this.onTap,
     this.onCheck,
     this.onRange,
@@ -135,7 +173,6 @@ class PointsTable extends StatelessWidget {
   });
 
   final List<PointRowVm> rows;
-  final PointsTableLabels labels;
   final ValueChanged<String>? onTap;
   final ValueChanged<String>? onCheck;
   final ValueChanged<String>? onRange;
@@ -214,14 +251,14 @@ class PointsTable extends StatelessWidget {
           value: all ? true : (some ? null : false),
           onTap: onCheckAll,
         ),
-        h(labels.point),
-        h(labels.register),
-        h(labels.type),
-        h(labels.unit),
-        h(labels.poll),
-        h(labels.value),
-        h(labels.quality),
-        h(labels.write),
+        h(S.current.colPoint),
+        h(S.current.colRegister),
+        h(S.current.colType),
+        h(S.current.colUnit),
+        h(S.current.colPoll),
+        h(S.current.colValue),
+        h(S.current.colQuality),
+        h(S.current.colWrite),
       ]),
     );
   }
@@ -317,12 +354,14 @@ class PointsTable extends StatelessWidget {
                 if (r.failed case final f?)
                   Padding(
                     padding: const EdgeInsets.only(right: AppSpacing.sm),
-                    child: FailChip(vm: f),
+                    child: FailChip(
+                      vm: FailChipVm.reads([ReadFailed(.value, f)]),
+                    ),
                   ),
               ],
             ),
             Text(
-              r.register,
+              r.register.text,
               maxLines: 1,
               overflow: .ellipsis,
               style: mono(color: c.text2),
@@ -334,7 +373,7 @@ class PointsTable extends StatelessWidget {
               style: mono(color: c.text3),
             ),
             Text(
-              r.unit,
+              r.unit ?? '—',
               maxLines: 1,
               overflow: .ellipsis,
               style: TextStyle(fontSize: FontSizes.lg, color: c.text2),
@@ -344,7 +383,10 @@ class PointsTable extends StatelessWidget {
               mainAxisSize: .min,
               children: [
                 Text(
-                  r.poll,
+                  switch (r.poll) {
+                    final p? => Formats.pollRate(p),
+                    null => '—',
+                  },
                   style: TextStyle(
                     fontSize: FontSizes.lg,
                     fontWeight: r.pollWas == null ? .w400 : .w600,
@@ -353,20 +395,20 @@ class PointsTable extends StatelessWidget {
                 ),
                 if (r.pollWas case final w?)
                   Text(
-                    '${labels.was} $w',
+                    '${S.current.wasWord} ${Formats.pollRate(w)}',
                     style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                   ),
               ],
             ),
             Text(
-              r.value,
+              r.value ?? '—',
               overflow: .ellipsis,
               maxLines: 1,
               style: mono(color: valueColor),
             ),
-            QualityMark(vm: r.quality),
+            QualityMark(vm: r.mark.vm()),
             Text(
-              r.writable ? 'RW' : 'R',
+              r.writable ? S.current.pointRw : S.current.pointR,
               style: TextStyle(
                 fontSize: FontSizes.md,
                 color: r.writable ? c.text1 : c.text4,

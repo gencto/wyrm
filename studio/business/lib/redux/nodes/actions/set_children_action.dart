@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/node_info.dart';
 
@@ -22,14 +20,13 @@ class SetChildrenAction extends Action {
   @override
   AppState reduce() {
     if (parent == state.nodes.selectedNode) {
-      unawaited(
-        dispatchAndWait(
-          RetrieveDetailsAction([
-            for (final c in children)
-              if (isPoint(c)) c.key,
-          ]),
-        ),
-      );
+      // started, not awaited: the rows show their meta when it comes
+      dispatchAll([
+        RetrieveDetailsAction([
+          for (final c in children)
+            if (isPoint(c)) c.key,
+        ]),
+      ]);
     }
     final keep = {for (final c in children) c.key};
     final prefix = '$parent/';

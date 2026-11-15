@@ -1559,7 +1559,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
 
   /// The range of the history read for [key] in µs (as Explorer's).
   (int, int) _historyRange(String? key) {
-    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final span = nodes.historyRange.span;
     final rows = nodes.historyKey == key && key != null
         ? nodes.history
         : const IListConst<HistPoint>([]);
@@ -1599,7 +1599,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
           ? null
           : S.current.timelineLabel(
               nodes.table[point]?.display ?? point.split('/').last,
-              nodes.historyRange,
+              nodes.historyRange.code,
             ),
       timeline: point == null ? null : _timeline(point, audit),
       auditLabel: S.current.timelineAudit,
@@ -1670,7 +1670,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     final w = nodes.historyWindow;
     final we = w?.end?.microsecondsSinceEpoch ?? re;
     final ws = w == null ? rs : we - w.span.inMicroseconds;
-    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final span = nodes.historyRange.span;
     final read = nodes.historyKey == point;
     final rows = read ? nodes.history : const IListConst<HistPoint>([]);
     final info = nodes.table[point];

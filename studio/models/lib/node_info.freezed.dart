@@ -18,8 +18,9 @@ mixin _$NodeInfo {
 /// Full key, `wy/<site>/downstream/<link>/…`.
  String get key;/// Last key segment.
  String get name; String? get display;/// TypeCode name (`number`, `bool`, `string`, …); null for a node.
- String? get type; String? get unit;/// `write` or `config` when the value can be set; null when it cannot.
- String? get writable;/// A child without a type exists: the tree draws a triangle.
+ String? get type; String? get unit;/// The level a set needs (`write` or `config`); null when the value
+/// cannot be set.
+ Perm? get writable;/// A child without a type exists: the tree draws a triangle.
  bool get hasChildren; bool get hasHistory;/// The node has actions (`~act/*`).
  bool get isAction;/// Profile (`is`), e.g. `wy:node` or `<vendor>:<model>`.
  String? get profile;/// Enum choices of the value, if any.
@@ -59,7 +60,7 @@ abstract mixin class $NodeInfoCopyWith<$Res>  {
   factory $NodeInfoCopyWith(NodeInfo value, $Res Function(NodeInfo) _then) = _$NodeInfoCopyWithImpl;
 @useResult
 $Res call({
- String key, String name, String? display, String? type, String? unit, String? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, IList<String> choices
+ String key, String name, String? display, String? type, String? unit, Perm? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, IList<String> choices
 });
 
 
@@ -84,7 +85,7 @@ as String,display: freezed == display ? _self.display : display // ignore: cast_
 as String?,type: freezed == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String?,unit: freezed == unit ? _self.unit : unit // ignore: cast_nullable_to_non_nullable
 as String?,writable: freezed == writable ? _self.writable : writable // ignore: cast_nullable_to_non_nullable
-as String?,hasChildren: null == hasChildren ? _self.hasChildren : hasChildren // ignore: cast_nullable_to_non_nullable
+as Perm?,hasChildren: null == hasChildren ? _self.hasChildren : hasChildren // ignore: cast_nullable_to_non_nullable
 as bool,hasHistory: null == hasHistory ? _self.hasHistory : hasHistory // ignore: cast_nullable_to_non_nullable
 as bool,isAction: null == isAction ? _self.isAction : isAction // ignore: cast_nullable_to_non_nullable
 as bool,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
@@ -112,8 +113,9 @@ class _NodeInfo implements NodeInfo {
 /// TypeCode name (`number`, `bool`, `string`, …); null for a node.
 @override final  String? type;
 @override final  String? unit;
-/// `write` or `config` when the value can be set; null when it cannot.
-@override final  String? writable;
+/// The level a set needs (`write` or `config`); null when the value
+/// cannot be set.
+@override final  Perm? writable;
 /// A child without a type exists: the tree draws a triangle.
 @override@JsonKey() final  bool hasChildren;
 @override@JsonKey() final  bool hasHistory;
@@ -156,7 +158,7 @@ abstract mixin class _$NodeInfoCopyWith<$Res> implements $NodeInfoCopyWith<$Res>
   factory _$NodeInfoCopyWith(_NodeInfo value, $Res Function(_NodeInfo) _then) = __$NodeInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String key, String name, String? display, String? type, String? unit, String? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, IList<String> choices
+ String key, String name, String? display, String? type, String? unit, Perm? writable, bool hasChildren, bool hasHistory, bool isAction, String? profile, IList<String> choices
 });
 
 
@@ -181,7 +183,7 @@ as String,display: freezed == display ? _self.display : display // ignore: cast_
 as String?,type: freezed == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as String?,unit: freezed == unit ? _self.unit : unit // ignore: cast_nullable_to_non_nullable
 as String?,writable: freezed == writable ? _self.writable : writable // ignore: cast_nullable_to_non_nullable
-as String?,hasChildren: null == hasChildren ? _self.hasChildren : hasChildren // ignore: cast_nullable_to_non_nullable
+as Perm?,hasChildren: null == hasChildren ? _self.hasChildren : hasChildren // ignore: cast_nullable_to_non_nullable
 as bool,hasHistory: null == hasHistory ? _self.hasHistory : hasHistory // ignore: cast_nullable_to_non_nullable
 as bool,isAction: null == isAction ? _self.isAction : isAction // ignore: cast_nullable_to_non_nullable
 as bool,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable

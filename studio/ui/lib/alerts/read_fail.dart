@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
@@ -18,6 +19,14 @@ final class ReadFailVm extends Equatable {
     required this.lines,
     required this.retry,
   });
+
+  /// The reads of the node [id] that failed, with `Read again`.
+  factory ReadFailVm.of(String id, List<ReadFailed> reads) => ReadFailVm(
+    id: id,
+    chip: FailChipVm.reads(reads, tip: false),
+    lines: [for (final r in reads) r.line],
+    retry: S.current.readAgain,
+  );
 
   final String id;
 

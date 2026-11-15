@@ -96,9 +96,7 @@ sequenceDiagram
     VM->>A1: dispatch
     A1->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
     A1->>ST: dispatchSync(ToggleNodeAction)
-    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
-    A1->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
+    A1->>ST: dispatchAll([RetrieveNodeDetailAction(node, quiet: true), RetrieveDetailsAction([if (parts.length > 4) parts.sublist(0, parts.length - 1).join('/'), for (final n in state.nodes.table.values) if (n.key.startsWith('$node/') && !n.key.substring(node.length + 1).contains('/') && isPoint(n)) n.key]), if (asPoint) RetrieveHistoryAction(key), if (!same && state.nodes.tab == ExplorerTab.audit && site.can(Perm.config.wire, '${site.root}/sys/audit')) RetrieveAuditAction(node)])
 ```
 
 ## onReview

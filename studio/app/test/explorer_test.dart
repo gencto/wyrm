@@ -119,10 +119,6 @@ void main() {
     await app.settle(t);
   }
 
-  List<String> notices(ExplorerApp app) => [
-    for (final n in app.store.state.problems.notices) n.title,
-  ];
-
   List<String> staged(ExplorerApp app) => [
     for (final id in app.store.state.changes.view)
       switch (app.store.state.changes.table[id]) {
@@ -390,27 +386,48 @@ void main() {
     testWidgets('copy: the keys, a key, the value', (t) async {
       final app = ExplorerApp();
       final copied = ExplorerApp.watchClipboard(t);
-      await app.pump(t);
+      await app.pump(t, toasts: true);
       await tap(t, app, 'plc1');
-      await tapTip(t, app, 'Copy key');
+
+      /// Runs [copy], then finds [said] in a toast before it hides.
+      Future<void> says(Future<void> Function() copy, String said) async {
+        await copy();
+        await t.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await t.pump();
+        expect(find.text(said), findsOneWidget, reason: said);
+        await app.settle(t);
+      }
+
+      await says(() => t.tap(find.byTooltip('Copy key').first), 'Key copied');
       await t.tap(boxes().at(1));
       await t.tap(boxes().at(2));
       await app.settle(t);
-      await tap(t, app, 'Copy keys');
+      await says(() => t.tap(text('Copy keys').first), '2 keys copied');
       await tap(t, app, 'temp');
-      await keys(t, app, LogicalKeyboardKey.keyC, meta: true);
-      await keys(t, app, LogicalKeyboardKey.keyC, meta: true, shift: true);
+      Future<void> press(LogicalKeyboardKey key, {bool shift = false}) async {
+        await t.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+        if (shift) {
+          await t.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        }
+        await t.sendKeyEvent(key);
+        if (shift) {
+          await t.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        }
+        await t.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      }
+
+      await says(() => press(LogicalKeyboardKey.keyC), 'Value copied');
+      await says(
+        () => press(LogicalKeyboardKey.keyC, shift: true),
+        '2 keys copied',
+      );
       expect(copied, [
         ExplorerApp.dev,
         '${ExplorerApp.temp}\n${ExplorerApp.mode}',
         '21.5',
         '${ExplorerApp.temp}\n${ExplorerApp.mode}',
-      ]);
-      expect(notices(app), [
-        'Key copied',
-        '2 keys copied',
-        'Value copied',
-        '2 keys copied',
       ]);
     });
 

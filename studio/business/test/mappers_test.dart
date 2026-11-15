@@ -86,7 +86,7 @@ void main() {
       );
 
       expect(n.type, 'enum');
-      expect(n.writable, 'config');
+      expect(n.writable, Perm.config);
       expect(n.choices, ['info', 'debug']);
       expect(n.unit, '°C');
       expect(n.hasChildren, isFalse, reason: 'no has_nodes: no triangle');

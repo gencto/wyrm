@@ -6,9 +6,9 @@ import 'package:wyrm_client/wyrm_client.dart';
 NodeInfo nodeInfoOf(String parent, Child child) {
   final m = child.meta;
   final writable = switch (m.writable) {
-    Writable.write => 'write',
-    Writable.config => 'config',
-    _ => null,
+    Writable.write => Perm.write,
+    Writable.config => Perm.config,
+    Writable.never || null => null,
   };
   return NodeInfo(
     key: '$parent/${child.name}',
