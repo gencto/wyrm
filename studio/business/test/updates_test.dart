@@ -14,9 +14,13 @@ import 'package:business/redux/updates/actions/set_accept_new_action.dart';
 import 'package:business/redux/updates/actions/set_auto_rollback_action.dart';
 import 'package:business/redux/updates/actions/set_take_point_action.dart';
 import 'package:business/redux/updates/actions/update_package_action.dart';
-import 'package:business/wyrm/mappers/package_info_mapper.dart';
+import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/package_info.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:models/package_info.dart';
+import 'package:models/update_result.dart';
+import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -58,7 +62,7 @@ void main() {
   Call lastInvoke() => api.calls.lastWhere((c) => c.op == 'invoke');
 
   test('the values of a package overlay its meta', () {
-    final p = packageLive(
+    final p = packageLiveOf(
       const PackageInfo(name: 'modbus', version: '0.4.2'),
       (leaf) => switch (leaf) {
         'latest' => '0.5.0',
@@ -80,6 +84,7 @@ void main() {
         },
         _ => null,
       },
+      where: 'test',
     );
     expect(p.version, '0.4.2');
     expect(p.latest, '0.5.0');
@@ -88,17 +93,18 @@ void main() {
     expect(p.state, 3);
     expect(p.previous, '0.4.1');
     expect(p.keepUntil, 1700000000);
-    expect(p.lastUpdate!.result, 'checking');
+    expect(p.lastUpdate!.result, UpdateResult.checking);
     expect(p.lastUpdate!.added, 2);
     expect(p.lastUpdate!.goneKeys, ['modbus/a']);
   });
 
   test('an empty previous and last_update read as none', () {
-    final p = packageLive(
+    final p = packageLiveOf(
       const PackageInfo(name: 'x'),
       (leaf) => leaf == 'previous' || leaf == 'last_update'
           ? <String, Object?>{}
           : null,
+      where: 'test',
     );
     expect(p.previous, isNull);
     expect(p.lastUpdate, isNull);
@@ -108,9 +114,77 @@ void main() {
     final points = restorePointsOf([
       {'at': 20, 'version': '0.4.2', 'size': 3000},
       {'at': 10, 'version': '', 'size': 10},
-    ]);
+    ], where: 'test').orWarn('test')!;
     expect(points.map((p) => p.at), [20, 10]);
     expect(points.last.version, '');
+  });
+
+  test('a leaf of another type is left out and logged, the others stay', () {
+    final warnings = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    final p = packageLiveOf(
+      const PackageInfo(name: 'x', latest: '0.1.0'),
+      (leaf) => switch (leaf) {
+        'update_available' => 'yes',
+        'latest' => '0.2.0',
+        'last_update' => {'result': 'exploded'},
+        _ => null,
+      },
+      where: 'sys/packages/x',
+    );
+    expect(p.updateAvailable, isFalse);
+    expect(p.latest, '0.2.0');
+    expect(warnings, [
+      'sys/packages/x: package.update_available: not a bool',
+      'sys/packages/x: last update.result: not a known result',
+    ]);
+    // A result this client does not know is kept, typed, with its word.
+    expect(p.lastUpdate!.result, UpdateResult.unknown);
+    expect(p.lastUpdate!.resultWord, 'exploded');
+  });
+
+  test('a field of the report of another type is left at its default and '
+      'logged; the report stays', () {
+    final warnings = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    final r = updateReportOf({
+      'from': '0.4.1',
+      'to': '0.4.2',
+      'at': 'soon',
+      'result': 'ok',
+      'gone_keys': ['modbus/a', 3],
+    }, where: 'sys/packages/modbus/last_update').orWarn('test')!;
+    expect(r.result, UpdateResult.ok);
+    expect(r.to, '0.4.2');
+    expect(r.at, 0);
+    expect(r.goneKeys, ['modbus/a']);
+    const where = 'sys/packages/modbus/last_update';
+    expect(warnings, [
+      '$where: last update.at: not a whole number',
+      '$where: last update.gone_keys: not a text in the list',
+    ]);
+  });
+
+  test('a restore point that is not one is left out and logged; the '
+      'others stay', () {
+    final warnings = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    final points = restorePointsOf([
+      {'at': 'yesterday', 'size': 1},
+      'not a row',
+      {'at': 10, 'version': '0.4.2', 'size': 10},
+    ], where: 'sys/links/modbus/restore_points').orWarn('test')!;
+    expect(points.map((p) => p.at), [10]);
+    expect(warnings, [
+      'sys/links/modbus/restore_points: restore points.at: not a whole number',
+      'sys/links/modbus/restore_points: restore points.: a row is not a map',
+    ]);
   });
 
   test('sys/links gives updates_available as an attribute', () async {
@@ -158,7 +232,7 @@ void main() {
     expect(call.args!['restore_point'], const VBool(true));
     expect(call.args!['auto_rollback_s'], const VInt(0));
     expect(call.args!['accept'], isNull);
-    expect(s.state.updates.view, 'follow');
+    expect(s.state.updates.view, UpdateView.follow);
     // The report that was there before is the one to wait past.
     expect(s.state.updates.seenAt, 50);
     expect(s.state.updates.message, contains('being checked'));
@@ -177,7 +251,7 @@ void main() {
 
       await s.dispatchAndWait(UpdatePackageAction());
 
-      expect(s.state.updates.view, 'review');
+      expect(s.state.updates.view, UpdateView.review);
       expect(s.state.updates.asks, contains('10.0.5.0/24'));
 
       // Accepted, the next call carries `accept`.
@@ -188,10 +262,22 @@ void main() {
       await s.dispatchAndWait(UpdatePackageAction());
 
       expect(lastInvoke().args!['accept'], const VBool(true));
-      expect(s.state.updates.view, 'follow');
+      expect(s.state.updates.view, UpdateView.follow);
       expect(s.state.updates.asks, isNull);
     },
   );
+
+  test('a failed update whose message is no text is still a failure', () async {
+    api.invokes['$_pkg ▸ update'] = [
+      const VMap({'success': VBool(false), 'message': VInt(3)}),
+    ];
+    s.dispatchSync(OpenUpdateAction('modbus'));
+
+    await s.dispatchAndWait(UpdatePackageAction());
+
+    expect(s.state.updates.view, UpdateView.review);
+    expect(s.state.updates.asks, isNull);
+  });
 
   test('a refusal goes back to the review and fails the action', () async {
     api.errors['$_pkg ▸ update'] = WyrmException.of(Status.busy, 'checking');
@@ -200,7 +286,7 @@ void main() {
     final status = await s.dispatchAndWait(UpdatePackageAction());
 
     expect(status.isCompletedFailed, isTrue);
-    expect(s.state.updates.view, 'review');
+    expect(s.state.updates.view, UpdateView.review);
   });
 
   test('a queue updates one package after another', () async {
@@ -392,7 +478,7 @@ void main() {
     expect(status.isCompletedOk, isTrue);
     expect(lastInvoke().action, 'rollback');
     expect(s.state.updates.seenAt, 9);
-    expect(s.state.updates.view, 'follow');
+    expect(s.state.updates.view, UpdateView.follow);
   });
 
   test('a refused rollback fails and says why', () async {

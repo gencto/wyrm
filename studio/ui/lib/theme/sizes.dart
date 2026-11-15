@@ -278,6 +278,10 @@ abstract final class AppSizes {
   /// The × that closes the flow editor, in its top bar.
   static const double flowEditorClose = 18;
 
+  /// The height of a package's manifest under its checks (Add a link ›
+  /// Check).
+  static const double manifestView = 220;
+
   /// The audit tail of Access, as tall as its tables are long.
   static const double auditTail = 560;
 

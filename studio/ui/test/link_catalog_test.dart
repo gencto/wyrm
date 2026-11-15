@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/catalog_card.dart';
-import 'package:ui/indicators/step_rail.dart';
-import 'package:ui/models/value_changed.dart';
+import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_page.dart';
 
 import 'frames/harness.dart';
@@ -12,48 +12,32 @@ import 'frames/harness.dart';
 /// broker gives one for, the official mark only where the broker says so
 /// (ADR 0043 §5), the search field and the chips on one centre line.
 void main() {
-  const labels = InstallLabels(
-    crumb: 'Links',
-    title: 'Add a link',
-    needs: '',
-    railLabel: 'STEPS',
-    railNote: '',
-    stepOf: 'STEP 1 OF 4',
-    question: 'What do you want to connect?',
-    why: '',
-    answersTitle: '',
-    answersNote: '',
-    back: 'Back',
-    next: 'Next',
-    onBroker: '',
-    howItRuns: '',
-    linkName: '',
-    accept: '',
-    checkedHere: '',
-    manifest: '',
-  );
+  setUpAll(() => S.load(const Locale('en')));
 
   CatalogCardVm card(
     String id,
     String description, {
     String? version,
-    String? note,
-    String? official,
+    int existing = 0,
+    bool official = false,
   }) => CatalogCardVm(
     id: id,
     tag: id.toUpperCase(),
     name: id,
     description: description,
-    source: version == null ? 'package' : 'built in',
     builtIn: version != null,
-    modes: 'embedded · process · external',
+    modes: const [
+      LinkRunMode.embedded,
+      LinkRunMode.process,
+      LinkRunMode.external,
+    ],
     version: version,
-    note: note,
+    existing: existing,
     official: official,
   );
 
   final cards = [
-    card('mock', 'Generated points', version: 'wyrmd 0.1.0', note: '1 link'),
+    card('mock', 'Generated points', version: 'wyrmd 0.1.0', existing: 1),
     card(
       'modbus',
       'TCP, RTU over TCP, serial RTU · master and slave, and a description '
@@ -66,8 +50,8 @@ void main() {
     card(
       'alarm',
       'Alarm classes, records and acknowledgement',
-      official: 'official',
-      note: '1 link',
+      official: true,
+      existing: 1,
     ),
   ];
 
@@ -78,25 +62,17 @@ void main() {
     await tester.pumpWidget(
       frame(
         LinkInstallPage(
-          labels: labels,
-          steps: const [StepVm(title: 'Choose', sub: 'now')],
-          step: 0,
-          answers: const [],
-          onClose: () {},
-          catalog: CatalogPartVm(
-            categories: const [
-              'All',
-              'Test',
-              'Equipment',
-              'File stores',
-              'Apps',
-            ],
-            category: 'All',
+          vm: LinkInstallVm(
+            site: 'plant',
+            from: InstallFrom.official,
+            steps: const [InstallStepKey.choose],
+            step: InstallStepKey.choose,
+            broker: 'plant',
+            mode: LinkRunMode.embedded,
+            categories: const ['Test', 'Equipment', 'File stores', 'Apps'],
             cards: cards,
-            note: '',
-            query: FieldVm(value: null, onChanged: (_) {}),
-            searchHint: 'Search the list',
           ),
+          onClose: () {},
           onCategory: (_) {},
           onItem: (_) {},
         ),
@@ -121,7 +97,9 @@ void main() {
         for (final c in cards)
           (tester.getBottomLeft(find.byKey(ValueKey('card:${c.id}'))).dy -
                   tester
-                      .getBottomLeft(find.text(c.modes).at(cards.indexOf(c)))
+                      .getBottomLeft(
+                        find.text(c.modeCodes).at(cards.indexOf(c)),
+                      )
                       .dy)
               .toStringAsFixed(1),
       };
@@ -164,7 +142,7 @@ void main() {
     await pump(tester, 600);
     expect(tester.takeException(), isNull);
     final field = find.byKey(const ValueKey('catalog-search'));
-    final chip = find.byKey(const ValueKey('category:All'));
+    final chip = find.byKey(const ValueKey('category:*'));
     expect(
       tester.getTopLeft(chip).dy,
       greaterThan(tester.getBottomLeft(field).dy),
@@ -184,49 +162,24 @@ void main() {
     await tester.pumpWidget(
       frame(
         LinkInstallPage(
-          labels: labels.copyWithAccept('I accept these rights'),
-          steps: const [StepVm(title: 'Where', sub: 'now')],
-          step: 0,
-          answers: const [],
-          onClose: () {},
-          target: TargetPartVm(
-            brokers: const [],
-            modes: const [],
-            name: FieldVm(value: 'bot', onChanged: (_) {}),
-            keyPreview: ('wy/plant/downstream/', 'bot'),
-            nameRule: '',
-            rightsTitle: 'It asks for',
-            accept: FieldVm(value: false, onChanged: ticks.add),
+          vm: const LinkInstallVm(
+            site: 'plant',
+            from: InstallFrom.official,
+            steps: [InstallStepKey.run],
+            step: InstallStepKey.run,
+            broker: 'plant',
+            mode: LinkRunMode.embedded,
+            name: 'bot',
+            offersAccept: true,
           ),
+          onClose: () {},
+          onAccept: ticks.add,
         ),
       ),
     );
     await tester.pump();
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('I accept these rights'));
+    await tester.tap(find.text(S.current.acceptRequestedRights));
     expect(ticks, [true]);
   });
-}
-
-extension on InstallLabels {
-  InstallLabels copyWithAccept(String accept) => InstallLabels(
-    crumb: crumb,
-    title: title,
-    needs: needs,
-    railLabel: railLabel,
-    railNote: railNote,
-    stepOf: stepOf,
-    question: question,
-    why: why,
-    answersTitle: answersTitle,
-    answersNote: answersNote,
-    back: back,
-    next: next,
-    onBroker: onBroker,
-    howItRuns: howItRuns,
-    linkName: linkName,
-    accept: accept,
-    checkedHere: checkedHere,
-    manifest: manifest,
-  );
 }

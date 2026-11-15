@@ -15,8 +15,9 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$PackageCheck {
 
- String get title; String get detail;/// `ok`, `failed` or `skipped`.
- String get result;
+ String get title; String get detail; PackageCheckResult get result;/// The rights the package asks for, when the check lists them (ui
+/// words them; [detail] is then empty).
+ IList<RequestedRight>? get rights;
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,20 +29,20 @@ $PackageCheckCopyWith<PackageCheck> get copyWith => _$PackageCheckCopyWithImpl<P
 @override
 bool operator ==(Object other) {
   final _this = this as PackageCheck;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is PackageCheck&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&(identical(other.result, _this.result) || other.result == _this.result));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is PackageCheck&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.detail, _this.detail) || other.detail == _this.detail)&&(identical(other.result, _this.result) || other.result == _this.result)&&const DeepCollectionEquality().equals(other.rights, _this.rights));
 }
 
 
 @override
 int get hashCode {
   final _this = this as PackageCheck;
-  return Object.hash(runtimeType,_this.title,_this.detail,_this.result);
+  return Object.hash(runtimeType,_this.title,_this.detail,_this.result,const DeepCollectionEquality().hash(_this.rights));
 }
 
 @override
 String toString() {
   final _this = this as PackageCheck;
-  return 'PackageCheck(title: ${_this.title}, detail: ${_this.detail}, result: ${_this.result})';
+  return 'PackageCheck(title: ${_this.title}, detail: ${_this.detail}, result: ${_this.result}, rights: ${_this.rights})';
 }
 
 
@@ -52,7 +53,7 @@ abstract mixin class $PackageCheckCopyWith<$Res>  {
   factory $PackageCheckCopyWith(PackageCheck value, $Res Function(PackageCheck) _then) = _$PackageCheckCopyWithImpl;
 @useResult
 $Res call({
- String title, String detail, String result
+ String title, String detail, PackageCheckResult result, IList<RequestedRight>? rights
 });
 
 
@@ -69,12 +70,13 @@ class _$PackageCheckCopyWithImpl<$Res>
 
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? title = null,Object? detail = null,Object? result = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? title = null,Object? detail = null,Object? result = null,Object? rights = freezed,}) {
   return _then(PackageCheck(
 title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,detail: null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
 as String,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
-as String,
+as PackageCheckResult,rights: freezed == rights ? _self.rights : rights // ignore: cast_nullable_to_non_nullable
+as IList<RequestedRight>?,
   ));
 }
 
@@ -86,13 +88,15 @@ as String,
 
 
 class _PackageCheck implements PackageCheck {
-  const _PackageCheck({required this.title, this.detail = '', this.result = 'ok'});
+  const _PackageCheck({required this.title, this.detail = '', this.result = PackageCheckResult.ok, this.rights});
   
 
 @override final  String title;
 @override@JsonKey() final  String detail;
-/// `ok`, `failed` or `skipped`.
-@override@JsonKey() final  String result;
+@override@JsonKey() final  PackageCheckResult result;
+/// The rights the package asks for, when the check lists them (ui
+/// words them; [detail] is then empty).
+@override final  IList<RequestedRight>? rights;
 
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
@@ -104,18 +108,18 @@ _$PackageCheckCopyWith<_PackageCheck> get copyWith => __$PackageCheckCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PackageCheck&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.result, result) || other.result == result));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _PackageCheck&&(identical(other.title, title) || other.title == title)&&(identical(other.detail, detail) || other.detail == detail)&&(identical(other.result, result) || other.result == result)&&const DeepCollectionEquality().equals(other.rights, rights));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,title,detail,result);
+    return Object.hash(runtimeType,title,detail,result,const DeepCollectionEquality().hash(rights));
 }
 
 @override
 String toString() {
-    return 'PackageCheck(title: $title, detail: $detail, result: $result)';
+    return 'PackageCheck(title: $title, detail: $detail, result: $result, rights: $rights)';
 }
 
 
@@ -126,7 +130,7 @@ abstract mixin class _$PackageCheckCopyWith<$Res> implements $PackageCheckCopyWi
   factory _$PackageCheckCopyWith(_PackageCheck value, $Res Function(_PackageCheck) _then) = __$PackageCheckCopyWithImpl;
 @override @useResult
 $Res call({
- String title, String detail, String result
+ String title, String detail, PackageCheckResult result, IList<RequestedRight>? rights
 });
 
 
@@ -143,12 +147,13 @@ class __$PackageCheckCopyWithImpl<$Res>
 
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? title = null,Object? detail = null,Object? result = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? title = null,Object? detail = null,Object? result = null,Object? rights = freezed,}) {
   return _then(_PackageCheck(
 title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,detail: null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
 as String,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
-as String,
+as PackageCheckResult,rights: freezed == rights ? _self.rights : rights // ignore: cast_nullable_to_non_nullable
+as IList<RequestedRight>?,
   ));
 }
 

@@ -319,9 +319,7 @@ final class _Sites with Selectors {
         name,
         'sys/links/$name',
         // live: the link's state as the broker publishes it now
-        connected:
-            LinkState.fromWire(links.table[name]?.state ?? '') ==
-            LinkState.connected,
+        connected: links.table[name]?.state == LinkState.connected,
         device: links.table[name]?.device,
         branch: '$root/downstream/$name',
       ),

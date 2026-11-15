@@ -1,17 +1,22 @@
 import 'package:business/wyrm/decode/agent_task.dart';
 import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/link_info.dart';
+import 'package:business/wyrm/decode/live_values.dart';
+import 'package:business/wyrm/decode/package_info.dart';
 import 'package:business/wyrm/decode/param_spec.dart';
-import 'package:business/wyrm/mappers/link_info_mapper.dart';
 import 'package:business/wyrm/mappers/live_value_mapper.dart';
 import 'package:business/wyrm/mappers/node_info_mapper.dart';
-import 'package:business/wyrm/mappers/package_info_mapper.dart';
 import 'package:business/wyrm/mappers/peer_mapper.dart';
 import 'package:business/wyrm/mappers/quarantine_entry_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_origin.dart';
+import 'package:models/link_state.dart';
+import 'package:models/package_kind.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quality.dart' as m;
 import 'package:models/quarantine_kind.dart';
@@ -114,29 +119,53 @@ void main() {
             },
           ),
         ),
-        state: linkStateOf(2),
+        where: 'test',
+        state: linkStateSampleOf(2).orWarn('test'),
       );
 
       expect(l.id, 'modbus');
       expect(l.driver, 'modbus');
       expect(l.mode, LinkMode.process);
-      expect(l.state, 'connected');
+      expect(l.state, LinkState.connected);
+      expect(l.origin, LinkOrigin.config);
     });
 
     test('state codes follow wyrm-admin STATES', () {
       expect(
-        [for (var i = 0; i < 6; i++) linkStateOf(i)],
-        [
-          'installed',
-          'starting',
-          'connected',
-          'stopping',
-          'stopped',
-          'failed',
-        ],
+        [for (var i = 0; i < 6; i++) linkStateSampleOf(i).orWarn('test')],
+        LinkState.values,
       );
-      expect(linkStateOf(99), 'installed');
-      expect(linkStateOf('failed'), 'failed');
+      expect(linkStateSampleOf(99), isA<Invalid<LinkState>>());
+      expect(linkStateSampleOf('failed'), const Valid(LinkState.failed));
+    });
+
+    test('an attribute it cannot read is left at its default and logged, '
+        'the others stay', () {
+      final warnings = <String>[];
+      final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+      addTearDown(sub.cancel);
+      Logger.root.level = Level.ALL;
+      final l = linkInfoOf(
+        'x',
+        NodeMeta(
+          attr: {
+            'mode': const VStr('teleport'),
+            'origin': const VStr('moon'),
+            'driver': const VInt(3),
+            'package': const VStr('acme'),
+          },
+        ),
+        where: 'sys/links/x',
+      );
+      expect(l.mode, LinkMode.embedded);
+      expect(l.origin, LinkOrigin.config);
+      expect(l.driver, '');
+      expect(l.package, 'acme');
+      expect(warnings, [
+        'sys/links/x: link.driver: not a text',
+        'sys/links/x: link.mode: not a known name',
+        'sys/links/x: link.origin: not a known name',
+      ]);
     });
   });
 
@@ -178,10 +207,11 @@ void main() {
           },
         ),
       ),
+      where: 'test',
     );
 
     expect(p.version, '0.1.0');
-    expect(p.kind, 'process');
+    expect(p.kind, PackageKind.process);
     expect(p.source, 'repository');
   });
 

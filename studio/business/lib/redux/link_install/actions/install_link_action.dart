@@ -1,16 +1,24 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
+import 'package:models/catalog_item.dart';
 import 'package:models/error_kind.dart';
+import 'package:models/install_field.dart';
+import 'package:models/install_path.dart';
+import 'package:models/install_phase.dart';
+import 'package:models/install_request.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/install_field.dart';
+import '../../../wyrm/decode/sys_verdict.dart';
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/install_args.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_links_action.dart';
+import 'installing_action.dart';
 
 /// Install: one call on `wy/<broker>/sys/links` (config) by the source:
 /// `install {id, driver, mode}` · `install_repo {name, package}` ·
@@ -31,115 +39,109 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     if (broker == null || name == null || name.isEmpty) {
       return null;
     }
-    if (li.path != 'official' && !_sendable(li.source)) {
+    final accept = li.acceptRights;
+    final request = switch (li.path) {
+      InstallPath.official => switch (installItem) {
+        final item? => _official(name, item, li.mode, accept: accept),
+        null => null,
+      },
+      InstallPath.custom ||
+      InstallPath.backup => _custom(name, li.source, accept: accept),
+    };
+    if (request == null) {
       return null;
     }
-    final accept = <String, Object?>{
-      if (li.acceptRights) 'accept': true,
-    };
-    final (String action, Map<String, Object?> args) = switch (li.path) {
-      'official' => _official(name, li.item ?? '', li.mode, accept),
-      _ => switch (li.source) {
-        InstallSourceZip(:final bytes) => (
-          'install_zip',
-          {'name': name, 'zip': bytes, ...accept},
-        ),
-        InstallSourceWasm(:final bytes) => (
-          'install_wasm',
-          {'name': name, 'wasm': bytes, ...accept},
-        ),
-        InstallSourceUrl(:final url) => (
-          'install_url',
-          {'name': name, 'url': url, ...accept},
-        ),
-        InstallSourceGit(:final url, :final ref) => (
-          'install_git',
-          {'name': name, 'url': url, 'ref': ?ref, ...accept},
-        ),
-        _ => throw StateError('no package to install'),
-      },
-    };
-    dispatchSync(_Phase('installing'));
-    String? message;
-    String? refusedField;
+    final action = request.call.wire;
+    dispatchSync(InstallingAction());
+    SysVerdict answer;
+    InstallField? refusedField;
     String? refusedSaid;
-    var success = false;
     try {
       final rows = await deps.wyrm
-          .invoke('wy/$broker/sys/links', action, Value.from(args))
+          .invoke('wy/$broker/sys/links', action, installArgsOf(request))
           .toList();
-      final last = rows.isEmpty ? const VNull() : rows.last;
-      success = boolean(last['success']) ?? last is! VNull;
-      message = str(last['message']) ?? (success ? null : text(last));
+      answer = sysVerdictOf(rows, where: '$action on $broker');
     } on WyrmException catch (e) {
-      success = false;
-      message = '${e.status.name}: ${e.message}';
+      answer = SysVerdict(
+        success: false,
+        message: '${e.status.name}: ${e.message}',
+      );
       // The parameter the broker named, as the field of the wizard that
       // holds it: *Change answers* goes back to it with the broker's words
       // under it (docs/design/specs/errors.md §3, *Back to the form*).
       final named = kindOf(e.status) == ErrorKind.input
           ? fieldOf(e.message)
           : null;
-      refusedField = switch (named) {
-        'id' || 'name' => 'name',
-        'url' => li.source is InstallSourceGit ? 'git' : 'url',
-        'ref' => 'ref',
-        _ => null,
-      };
+      refusedField = named == null
+          ? null
+          : installFieldOf(named, git: li.source is InstallSourceGit);
       if (refusedField != null) {
         refusedSaid = saidOf(e.message, named!);
       }
     }
-    if (success) {
-      unawaited(dispatchAndWait(RetrieveLinksAction()));
+    if (answer.success) {
+      // the new link is in the tables when the result is shown
+      await dispatchAndWait(RetrieveLinksAction());
     }
     return state.copyWith.linkInstall(
-      phase: success ? 'done' : 'failed',
-      message: message,
+      phase: answer.success ? InstallPhase.done : InstallPhase.failed,
+      message: answer.message,
       refusedField: refusedField,
       refusedSaid: refusedSaid,
-      step: li.path == 'official' ? 3 : 4,
+      step: InstallStep.result,
     );
   }
 
-  static bool _sendable(InstallSource? source) => switch (source) {
-    InstallSourceZip() ||
-    InstallSourceWasm() ||
-    InstallSourceUrl() ||
-    InstallSourceGit() => true,
-    _ => false,
+  /// The install of a package the user brought; null when nothing that
+  /// can be sent was brought.
+  static InstallRequest? _custom(
+    String name,
+    InstallSource? source, {
+    required bool accept,
+  }) => switch (source) {
+    InstallSourceZip(:final bytes) => InstallRequest.zip(
+      name: name,
+      zip: bytes,
+      accept: accept,
+    ),
+    InstallSourceWasm(:final bytes) => InstallRequest.wasm(
+      name: name,
+      wasm: bytes,
+      accept: accept,
+    ),
+    InstallSourceUrl(:final url) => InstallRequest.url(
+      name: name,
+      url: url,
+      accept: accept,
+    ),
+    InstallSourceGit(:final url, :final ref) => InstallRequest.git(
+      name: name,
+      url: url,
+      ref: ref,
+      accept: accept,
+    ),
+    InstallSourceBuiltIn() ||
+    InstallSourceRepository() ||
+    InstallSourceBackup() ||
+    null => null,
   };
 
-  static (String, Map<String, Object?>) _official(
+  /// A driver built into the broker (`install`) or a package of its
+  /// repository (`install_repo`).
+  static InstallRequest _official(
     String name,
-    String item,
-    LinkMode? mode,
-    Map<String, Object?> accept,
-  ) {
-    final (kind, code) = (
-      item.substring(0, item.indexOf(':').clamp(0, item.length)),
-      item.substring(item.indexOf(':') + 1),
-    );
-    if (kind == 'package') {
-      return ('install_repo', {'name': name, 'package': code, ...accept});
-    }
-    return (
-      'install',
-      {'id': name, 'driver': code, 'mode': (mode ?? LinkMode.embedded).name},
-    );
-  }
-}
-
-class _Phase extends Action {
-  _Phase(this.phase);
-
-  final String phase;
-
-  @override
-  AppState reduce() => state.copyWith.linkInstall(
-    phase: phase,
-    message: null,
-    refusedField: null,
-    refusedSaid: null,
-  );
+    CatalogItem item,
+    LinkMode? mode, {
+    required bool accept,
+  }) => item.builtIn
+      ? InstallRequest.builtIn(
+          id: name,
+          driver: item.code,
+          mode: mode ?? LinkMode.embedded,
+        )
+      : InstallRequest.repository(
+          name: name,
+          package: item.code,
+          accept: accept,
+        );
 }

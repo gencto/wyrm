@@ -15,11 +15,8 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$LinkInfo {
 
- String get id; String get driver; LinkMode get mode;/// installed, starting, connected, stopping, stopped, failed.
- String get state; String? get package; String? get version; String? get source; String? get sha256;/// External links: the device address.
- String? get device; String? get certificateCn; String? get note;/// `config` (from `wyrmd.json5`) or `runtime` (installed or admitted
-/// while the broker runs).
- String get origin;
+ String get id; String get driver; LinkMode get mode; LinkState get state; String? get package; String? get version; String? get source; String? get sha256;/// External links: the device address.
+ String? get device; String? get certificateCn; String? get note; LinkOrigin get origin;
 /// Create a copy of LinkInfo
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -55,7 +52,7 @@ abstract mixin class $LinkInfoCopyWith<$Res>  {
   factory $LinkInfoCopyWith(LinkInfo value, $Res Function(LinkInfo) _then) = _$LinkInfoCopyWithImpl;
 @useResult
 $Res call({
- String id, String driver, LinkMode mode, String state, String? package, String? version, String? source, String? sha256, String? device, String? certificateCn, String? note, String origin
+ String id, String driver, LinkMode mode, LinkState state, String? package, String? version, String? source, String? sha256, String? device, String? certificateCn, String? note, LinkOrigin origin
 });
 
 
@@ -78,7 +75,7 @@ id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,driver: null == driver ? _self.driver : driver // ignore: cast_nullable_to_non_nullable
 as String,mode: null == mode ? _self.mode : mode // ignore: cast_nullable_to_non_nullable
 as LinkMode,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
-as String,package: freezed == package ? _self.package : package // ignore: cast_nullable_to_non_nullable
+as LinkState,package: freezed == package ? _self.package : package // ignore: cast_nullable_to_non_nullable
 as String?,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String?,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as String?,sha256: freezed == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
@@ -86,7 +83,7 @@ as String?,device: freezed == device ? _self.device : device // ignore: cast_nul
 as String?,certificateCn: freezed == certificateCn ? _self.certificateCn : certificateCn // ignore: cast_nullable_to_non_nullable
 as String?,note: freezed == note ? _self.note : note // ignore: cast_nullable_to_non_nullable
 as String?,origin: null == origin ? _self.origin : origin // ignore: cast_nullable_to_non_nullable
-as String,
+as LinkOrigin,
   ));
 }
 
@@ -98,14 +95,13 @@ as String,
 
 
 class _LinkInfo implements LinkInfo {
-  const _LinkInfo({required this.id, this.driver = '', this.mode = LinkMode.embedded, this.state = 'installed', this.package, this.version, this.source, this.sha256, this.device, this.certificateCn, this.note, this.origin = 'config'});
+  const _LinkInfo({required this.id, this.driver = '', this.mode = LinkMode.embedded, this.state = LinkState.installed, this.package, this.version, this.source, this.sha256, this.device, this.certificateCn, this.note, this.origin = LinkOrigin.config});
   
 
 @override final  String id;
 @override@JsonKey() final  String driver;
 @override@JsonKey() final  LinkMode mode;
-/// installed, starting, connected, stopping, stopped, failed.
-@override@JsonKey() final  String state;
+@override@JsonKey() final  LinkState state;
 @override final  String? package;
 @override final  String? version;
 @override final  String? source;
@@ -114,9 +110,7 @@ class _LinkInfo implements LinkInfo {
 @override final  String? device;
 @override final  String? certificateCn;
 @override final  String? note;
-/// `config` (from `wyrmd.json5`) or `runtime` (installed or admitted
-/// while the broker runs).
-@override@JsonKey() final  String origin;
+@override@JsonKey() final  LinkOrigin origin;
 
 /// Create a copy of LinkInfo
 /// with the given fields replaced by the non-null parameter values.
@@ -150,7 +144,7 @@ abstract mixin class _$LinkInfoCopyWith<$Res> implements $LinkInfoCopyWith<$Res>
   factory _$LinkInfoCopyWith(_LinkInfo value, $Res Function(_LinkInfo) _then) = __$LinkInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String driver, LinkMode mode, String state, String? package, String? version, String? source, String? sha256, String? device, String? certificateCn, String? note, String origin
+ String id, String driver, LinkMode mode, LinkState state, String? package, String? version, String? source, String? sha256, String? device, String? certificateCn, String? note, LinkOrigin origin
 });
 
 
@@ -173,7 +167,7 @@ id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,driver: null == driver ? _self.driver : driver // ignore: cast_nullable_to_non_nullable
 as String,mode: null == mode ? _self.mode : mode // ignore: cast_nullable_to_non_nullable
 as LinkMode,state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
-as String,package: freezed == package ? _self.package : package // ignore: cast_nullable_to_non_nullable
+as LinkState,package: freezed == package ? _self.package : package // ignore: cast_nullable_to_non_nullable
 as String?,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String?,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as String?,sha256: freezed == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
@@ -181,7 +175,7 @@ as String?,device: freezed == device ? _self.device : device // ignore: cast_nul
 as String?,certificateCn: freezed == certificateCn ? _self.certificateCn : certificateCn // ignore: cast_nullable_to_non_nullable
 as String?,note: freezed == note ? _self.note : note // ignore: cast_nullable_to_non_nullable
 as String?,origin: null == origin ? _self.origin : origin // ignore: cast_nullable_to_non_nullable
-as String,
+as LinkOrigin,
   ));
 }
 

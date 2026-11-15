@@ -1,6 +1,5 @@
 import 'dart:io';
 
-
 import 'package:async_redux/async_redux.dart';
 import 'package:business/environment.dart';
 import 'package:business/redux/app_state.dart';

@@ -1,13 +1,15 @@
+import 'package:models/install_path.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../models/link_install_state.dart';
 
-/// Starts Add a link over on [path] (`official` or `custom`): the step,
-/// the choice and every answer are cleared; the catalog stays.
+/// Starts Add a link over on [path]: the step, the choice and every answer
+/// are cleared; the catalog and the brokers stay.
 class ChooseInstallSourceAction extends Action {
   ChooseInstallSourceAction(this.path);
 
-  final String path;
+  final InstallPath path;
 
   @override
   AppState reduce() => state.copyWith(

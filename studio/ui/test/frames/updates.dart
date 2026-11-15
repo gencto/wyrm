@@ -4,6 +4,7 @@
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/task_sheet.dart';
+import 'package:ui/pages/links_data.dart';
 import 'package:ui/pages/links_page.dart';
 import 'package:ui/tables/row_table.dart';
 
@@ -46,17 +47,17 @@ LinksPage _links(TaskSheetVm sheet) => LinksPage(
   secondLabel: 'Update all official…',
   onSecond: () {},
   tabs: const [
-    TabItemVm(id: 'local', label: 'On this broker', count: '9'),
+    TabItemVm(id: LinksTabKey.local, label: 'On this broker', count: '9'),
     TabItemVm(
-      id: 'updates',
+      id: LinksTabKey.updates,
       label: 'Updates',
       count: '3',
       countTone: Tone.ember,
     ),
-    TabItemVm(id: 'remote', label: 'On other devices', count: '2'),
-    TabItemVm(id: 'quarantine', label: 'Quarantine', count: '0'),
+    TabItemVm(id: LinksTabKey.remote, label: 'On other devices', count: '2'),
+    TabItemVm(id: LinksTabKey.quarantine, label: 'Quarantine', count: '0'),
   ],
-  tab: 'updates',
+  tab: LinksTabKey.updates,
   description: 'Links whose package has a newer version. Every link of a package is updated together, and the broker keeps what it needs to go back.',
   columns: const [
     ColumnVm('Link', flex: 3),

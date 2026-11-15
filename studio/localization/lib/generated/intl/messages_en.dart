@@ -617,532 +617,540 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m259(rev) => "Revision ${rev} · in use";
 
-  static String m260(site, user, role, level) =>
+  static String m260(n) => "${n} MiB";
+
+  static String m261(n) => "${n} ms";
+
+  static String m262(path) => "on ${path}";
+
+  static String m263(site, user, role, level) =>
       "Site ${site} · applied with your rights: ${user}, ${role} (${level})";
 
-  static String m261(role, site) => "${role} on ${site}";
+  static String m264(role, site) => "${role} on ${site}";
 
-  static String m262(rev) => "Roll back to revision ${rev}?";
+  static String m265(rev) => "Roll back to revision ${rev}?";
 
-  static String m263(n) =>
+  static String m266(n) =>
       "${Intl.plural(n, one: '1 row', other: '${n} rows')}";
 
-  static String m264(site, broker) => "From ${site} · wyrmd ${broker}";
+  static String m267(site, broker) => "From ${site} · wyrmd ${broker}";
 
-  static String m265(when, n, sealed) =>
+  static String m268(when, n, sealed) =>
       "Made ${when} · sections: ${n} · secrets: ${sealed}";
 
-  static String m266(fresh, exists) =>
+  static String m269(fresh, exists) =>
       "Links: ${fresh} new, ${exists} exist here";
 
-  static String m267(site) => "A backup of another site: ${site}";
+  static String m270(site) => "A backup of another site: ${site}";
 
-  static String m268(files) => "Replace the site\'s keys: ${files}";
+  static String m271(files) => "Replace the site\'s keys: ${files}";
 
-  static String m269(site) => "${site} restarts and applies the backup";
+  static String m272(site) => "${site} restarts and applies the backup";
 
-  static String m270(site) => "Restore ${site} from a backup";
+  static String m273(site) => "Restore ${site} from a backup";
 
-  static String m271(done, size) => "Uploading: ${done} of ${size}";
+  static String m274(done, size) => "Uploading: ${done} of ${size}";
 
-  static String m272(user) =>
+  static String m275(user) =>
       "Runs as ${user}. Nothing else in the tree changes unless the result is used.";
 
-  static String m273(s) => "all steps passed · ${s} s";
+  static String m276(s) => "all steps passed · ${s} s";
 
-  static String m274(steps) => "done · steps left out: ${steps}";
+  static String m277(steps) => "done · steps left out: ${steps}";
 
-  static String m275(steps) =>
+  static String m278(steps) =>
       "stopped · steps ${steps} changed something and stay done";
 
-  static String m276(n) =>
+  static String m279(n) =>
       "stopped · step ${n} changed something and stays done";
 
-  static String m277(n, of) => "Run · step ${n} of ${of}";
+  static String m280(n, of) => "Run · step ${n} of ${of}";
 
-  static String m278(of) => "Run · ${of} steps";
+  static String m281(of) => "Run · ${of} steps";
 
-  static String m279(site) => "Runs on ${site}";
+  static String m282(site) => "Runs on ${site}";
 
-  static String m280(task) => "Save the plan of ${task}";
+  static String m283(task) => "Save the plan of ${task}";
 
-  static String m281(name) => "${name}";
+  static String m284(name) => "${name}";
 
-  static String m282(date) => "added ${date}";
+  static String m285(date) => "added ${date}";
 
-  static String m283(site) =>
+  static String m286(site) =>
       "Set by ${site} (gateway.devices.step_up: config); you cannot turn it off here.";
 
-  static String m284(site) =>
+  static String m287(site) =>
       "${site} does not ask for it (gateway.devices.step_up: none); only the gateway can turn it on.";
 
-  static String m285(site) => "Your devices on ${site}";
+  static String m288(site) => "Your devices on ${site}";
 
-  static String m286(n) =>
+  static String m289(n) =>
       "${Intl.plural(n, zero: 'password due today', one: 'password due in 1 day', other: 'password due in ${n} days')}";
 
-  static String m287(site, max) =>
+  static String m290(site, max) =>
       "Hides the tree and values; the session and Review and apply are kept. ${site} allows at most ${max} min.";
 
-  static String m288(n) => "${n} min";
+  static String m291(n) => "${n} min";
 
-  static String m289(device) => "On ${device}";
+  static String m292(device) => "On ${device}";
 
-  static String m290(site) =>
+  static String m293(site) =>
       "${site} asks for your password before a new key.";
 
-  static String m291(site, state, max, days, confirm) =>
+  static String m294(site, state, max, days, confirm) =>
       "${site}’s policy: devices ${state} · up to ${max} · password every ${days} days${confirm}. An administrator sees and removes devices in Access › Users.";
 
-  static String m292(admin) => "removed by ${admin}";
+  static String m295(admin) => "removed by ${admin}";
 
-  static String m293(user) =>
+  static String m296(user) =>
       "Every session and every device of ${user} ends, this one too.";
 
-  static String m294(store, date, device) =>
+  static String m297(store, date, device) =>
       "A key in ${store}, added ${date}. Off removes the key here and ${device} from your devices.";
 
-  static String m295(store) =>
+  static String m298(store) =>
       "Off: Studio asks for the password here. On makes a key in ${store}.";
 
-  static String m296(s) => "${s} s";
+  static String m299(s) => "${s} s";
 
-  static String m297(level) => "Log level ${level}";
+  static String m300(level) => "Log level ${level}";
 
-  static String m298(site) => "Sites around ${site}";
+  static String m301(site) => "Sites around ${site}";
 
-  static String m299(site) =>
+  static String m302(site) =>
       "What ${site} connects to and what connects to it: brokers above and below, platforms it sends to, and devices whose links run outside any broker.";
 
-  static String m300(count) =>
+  static String m303(count) =>
       "${Intl.plural(count, one: '1 byte', other: '${count} bytes')}";
 
-  static String m301(count) =>
+  static String m304(count) =>
       "${Intl.plural(count, one: '1 char', other: '${count} chars')}";
 
-  static String m302(count) =>
+  static String m305(count) =>
       "${Intl.plural(count, one: '1 column', other: '${count} columns')}";
 
-  static String m303(count) =>
+  static String m306(count) =>
       "${Intl.plural(count, one: '1 item', other: '${count} items')}";
 
-  static String m304(count) =>
+  static String m307(count) =>
       "${Intl.plural(count, one: '1 key', other: '${count} keys')}";
 
-  static String m305(count) =>
+  static String m308(count) =>
       "${Intl.plural(count, one: '1 line', other: '${count} lines')}";
 
-  static String m306(count) =>
+  static String m309(count) =>
       "${Intl.plural(count, one: '1 row', other: '${count} rows')}";
 
-  static String m307(count) =>
+  static String m310(count) =>
       "${Intl.plural(count, zero: 'No staged changes', one: '1 staged change', other: '${count} staged changes')}";
 
-  static String m308(was) => "staged · was ${was}";
+  static String m311(was) => "staged · was ${was}";
 
-  static String m309(host) => "Standby: ${host}";
+  static String m312(host) => "Standby: ${host}";
 
-  static String m310(n, total) => "Step ${n} of ${total}";
+  static String m313(n, total) => "Step ${n} of ${total}";
 
-  static String m311(host) => "Reaching ${host}";
+  static String m314(host) => "Reaching ${host}";
 
-  static String m312(n) => "skipped: needs step ${n}";
+  static String m315(n) => "skipped: needs step ${n}";
 
-  static String m313(name) => "Confirm with ${name}";
+  static String m316(name) => "Confirm with ${name}";
 
-  static String m314(name, site, device) =>
+  static String m317(name, site, device) =>
       "${name} signs this one request: ${site} gets a proof bound to these changes, and stays confirmed on ${device} for 5 minutes.";
 
-  static String m315(site) =>
+  static String m318(site) =>
       "${site} did not take the confirmation: the key no longer opens";
 
-  static String m316(n, site) =>
+  static String m319(n, site) =>
       "${Intl.plural(n, one: 'Apply 1 change on ${site}.', other: 'Apply ${n} changes on ${site}.')} ${site} asks for a fresh confirmation before config changes.";
 
-  static String m317(site) =>
+  static String m320(site) =>
       "Enter your password: ${site} stays confirmed for 5 minutes.";
 
-  static String m318(site, reason) =>
+  static String m321(site, reason) =>
       "${site} did not take the confirmation: ${reason}";
 
-  static String m319(name) =>
+  static String m322(name) =>
       "${name} did not confirm. Try again or use the password.";
 
-  static String m320(name) => "Waiting for ${name}…";
+  static String m323(name) => "Waiting for ${name}…";
 
-  static String m321(n) => "Stopped at step ${n}";
+  static String m324(n) => "Stopped at step ${n}";
 
-  static String m322(n, code) => "Stopped at step ${n} · ${code}";
+  static String m325(n, code) => "Stopped at step ${n} · ${code}";
 
-  static String m323(why) =>
+  static String m326(why) =>
       "${why}\nWhat was done before it stays done; nothing is reversed by itself.";
 
-  static String m324(version, os) => "${version} (${os})";
+  static String m327(version, os) => "${version} (${os})";
 
-  static String m325(version, language) => "Studio ${version} · ${language}";
+  static String m328(version, language) => "Studio ${version} · ${language}";
 
-  static String m326(n) => "ACL denials grew by ${n}";
+  static String m329(n) => "ACL denials grew by ${n}";
 
-  static String m327(from) =>
+  static String m330(from) =>
       "acl_denied was ${from} when this screen was last shown";
 
-  static String m328(n) => "Standby is ${n} records behind";
+  static String m331(n) => "Standby is ${n} records behind";
 
-  static String m329(n) => "Forks moved aside after a split: ${n}";
+  static String m332(n) => "Forks moved aside after a split: ${n}";
 
-  static String m330(site) => "${site} waits for Authorize";
+  static String m333(site) => "${site} waits for Authorize";
 
-  static String m331(n) => "A downstream broker that relays sites: ${n}";
+  static String m334(n) => "A downstream broker that relays sites: ${n}";
 
-  static String m332(id) => "sys/links/${id}/state is failed; its log says why";
+  static String m335(id) => "sys/links/${id}/state is failed; its log says why";
 
-  static String m333(id) => "${id} failed";
+  static String m336(id) => "${id} failed";
 
-  static String m334(cn) => "${cn} waits in quarantine";
+  static String m337(cn) => "${cn} waits in quarantine";
 
-  static String m335(cn) => "Unknown certificate CN ${cn}";
+  static String m338(cn) => "Unknown certificate CN ${cn}";
 
-  static String m336(cn, t) => "Unknown certificate CN ${cn} since ${t}";
+  static String m339(cn, t) => "Unknown certificate CN ${cn} since ${t}";
 
-  static String m337(size) =>
+  static String m340(size) =>
       "Everything the broker owns is in its `data_dir` (here ${size}). Studio does not take backups: they hold the site\'s keys and are made on the host. The steps, ready to copy:";
 
-  static String m338(n) =>
+  static String m341(n) =>
       "Sets of records moved aside after both brokers were active (a healed split): ${n}. The audit record `standby_forked` says which.";
 
-  static String m339(n) =>
+  static String m342(n) =>
       "${n} registry records are not on the standby yet: a takeover now would lose them.";
 
-  static String m340(n) => "Clear disconnected links (${n})…";
+  static String m343(n) => "Clear disconnected links (${n})…";
 
-  static String m341(ids) =>
+  static String m344(ids) =>
       "${ids}\n\nTheir ids are retired and cannot be used again.";
 
-  static String m342(n) => "Clear ${n} disconnected links…";
+  static String m345(n) => "Clear ${n} disconnected links…";
 
-  static String m343(ids) => "Removed: ${ids}";
+  static String m346(ids) => "Removed: ${ids}";
 
-  static String m344(title) => "Copy: ${title}";
+  static String m347(title) => "Copy: ${title}";
 
-  static String m345(url) => "Link to the guide copied: ${url}";
+  static String m348(url) => "Link to the guide copied: ${url}";
 
-  static String m346(id) => "link: ${id}";
+  static String m349(id) => "link: ${id}";
 
-  static String m347(n) => "Lines copied: ${n}";
+  static String m350(n) => "Lines copied: ${n}";
 
-  static String m348(detail) => "The answer is not a log (${detail}).";
+  static String m351(detail) => "The answer is not a log (${detail}).";
 
-  static String m349(path) => "Saved ${path}";
+  static String m352(path) => "Saved ${path}";
 
-  static String m350(n) =>
+  static String m353(n) =>
       "${n} lines from the broker\'s ring · newest first · `sys/~act/get_log`";
 
-  static String m351(n, m, time) =>
+  static String m354(n, m, time) =>
       "${n} of ${m} lines within 2 min of ${time} UTC · newest first · `sys/~act/get_log`";
 
-  static String m352(t) => "started ${t}";
+  static String m355(t) => "started ${t}";
 
-  static String m353(n) => "Needs a look · ${n}";
+  static String m356(n) => "Needs a look · ${n}";
 
-  static String m354(m, time) =>
+  static String m357(m, time) =>
       "None of the newest ${m} lines is within 2 min of ${time} UTC. Ask for more lines, or clear the time.";
 
-  static String m355(standby) =>
+  static String m358(standby) =>
       "2. In `wyrmd.json5` on both hosts: `${standby}` and `peers.listen`; a lease `arbiter` on a third host is recommended.";
 
-  static String m356(t) => "${t} · now";
+  static String m359(t) => "${t} · now";
 
-  static String m357(n) => "of ${n}";
+  static String m360(n) => "of ${n}";
 
-  static String m358(name) =>
+  static String m361(name) =>
       "File ${name}. A .cbor file is sent as it is; a JSON file is encoded first.";
 
-  static String m359(name) => "Profile ${name} put";
+  static String m362(name) => "Profile ${name} put";
 
-  static String m360(name) => "Profile ${name} removed";
+  static String m363(name) => "Profile ${name} removed";
 
-  static String m361(reason) =>
+  static String m364(reason) =>
       "This broker does not list its profiles through the gateway (${reason}). You can still put one; it is then served at pub/<name>.";
 
-  static String m362(name) => "Remove profile ${name}";
+  static String m365(name) => "Remove profile ${name}";
 
-  static String m363(name) =>
+  static String m366(name) =>
       "The broker stops serving pub/${name} and records it in the audit journal (profile_remove).";
 
-  static String m364(cn) => "external · CN ${cn}";
+  static String m367(cn) => "external · CN ${cn}";
 
-  static String m365(size) => "history ${size} · open History";
+  static String m368(size) => "history ${size} · open History";
 
-  static String m366(id) => "${id} failed · open Links";
+  static String m369(id) => "${id} failed · open Links";
 
-  static String m367(site) => "${site} · open Sites";
+  static String m370(site) => "${site} · open Sites";
 
-  static String m368(cn) => "${cn} waits · open Quarantine";
+  static String m371(cn) => "${cn} waits · open Quarantine";
 
-  static String m369(measure, from, to) =>
+  static String m372(measure, from, to) =>
       "${measure} in and out per second from ${from} to ${to}";
 
-  static String m370(shown, total) => "${shown} of ${total} rows";
+  static String m373(shown, total) => "${shown} of ${total} rows";
 
-  static String m371(up) => "downstream of ${up}";
+  static String m374(up) => "downstream of ${up}";
 
-  static String m372(level) => "needs ${level}";
+  static String m375(level) => "needs ${level}";
 
-  static String m373(who) => "by ${who}";
+  static String m376(who) => "by ${who}";
 
-  static String m374(n) => "failed at step ${n}";
+  static String m377(n) => "failed at step ${n}";
 
-  static String m375(agent) => "Each task is a node: ${agent}/tasks/<id>";
+  static String m378(agent) => "Each task is a node: ${agent}/tasks/<id>";
 
-  static String m376(id) => "replaced by ${id}";
+  static String m379(id) => "replaced by ${id}";
 
-  static String m377(who, op, key) => "${who} · ${op} ${key}";
+  static String m380(who, op, key) => "${who} · ${op} ${key}";
 
-  static String m378(point, range) => "${point} · last ${range}";
+  static String m381(point, range) => "${point} · last ${range}";
 
-  static String m379(site) => "TLS · certificate of the ${site} CA";
+  static String m382(site) => "TLS · certificate of the ${site} CA";
 
-  static String m380(site) => "TLS · ${site} CA, not trusted yet";
+  static String m383(site) => "TLS · ${site} CA, not trusted yet";
 
-  static String m381(site) => "TLS · ${site} CA, pinned on this computer";
+  static String m384(site) => "TLS · ${site} CA, pinned on this computer";
 
-  static String m382(seconds) => "hides in ${seconds} s";
+  static String m385(seconds) => "hides in ${seconds} s";
 
-  static String m383(site) => "stays until ${site} is back";
+  static String m386(site) => "stays until ${site} is back";
 
-  static String m384(used, budget) => "${used} of ${budget} tokens";
+  static String m387(used, budget) => "${used} of ${budget} tokens";
 
-  static String m385(site) => "Tree · ${site}";
+  static String m388(site) => "Tree · ${site}";
 
-  static String m386(step) => "${step} avg";
+  static String m389(step) => "${step} avg";
 
-  static String m387(rollup, from, to) => "${rollup} · ${from}–${to}";
+  static String m390(rollup, from, to) => "${rollup} · ${from}–${to}";
 
-  static String m388(at, delta, key, over) =>
+  static String m391(at, delta, key, over) =>
       "Δ from A (${at}): ${delta} ${key} over ${over}";
 
-  static String m389(what, range) =>
+  static String m392(what, range) =>
       "${what}, ${range}. Use the window below to choose the range.";
 
-  static String m390(h, m) => "${h} h ${m} min";
+  static String m393(h, m) => "${h} h ${m} min";
 
-  static String m391(key) => "You may not read ${key}";
+  static String m394(key) => "You may not read ${key}";
 
-  static String m392(t) => "A · ${t}";
+  static String m395(t) => "A · ${t}";
 
-  static String m393(min, max) => "min ${min} · max ${max}";
+  static String m396(min, max) => "min ${min} · max ${max}";
 
-  static String m394(m) => "${m} min";
+  static String m397(m) => "${m} min";
 
-  static String m395(point) => "Trend ${point}";
+  static String m398(point) => "Trend ${point}";
 
-  static String m396(t) => "raw · ${t}";
+  static String m399(t) => "raw · ${t}";
 
-  static String m397(s) => "${s} s";
+  static String m400(s) => "${s} s";
 
-  static String m398(name) => "Show or hide ${name}";
+  static String m401(name) => "Show or hide ${name}";
 
-  static String m399(n) => "${n} d";
+  static String m402(n) => "${n} d";
 
-  static String m400(n) => "${n} h";
+  static String m403(n) => "${n} h";
 
-  static String m401(n) => "${n} min";
+  static String m404(n) => "${n} min";
 
-  static String m402(site) => "It matches · trust ${site}";
+  static String m405(site) => "It matches · trust ${site}";
 
-  static String m403(host) =>
+  static String m406(host) =>
       "The gateway’s certificate is not signed by this CA, or does not name ${host}. Nothing was trusted.";
 
-  static String m404(site) => "First time on ${site} · check its certificate";
+  static String m407(site) => "First time on ${site} · check its certificate";
 
-  static String m405(command) =>
+  static String m408(command) =>
       "On the broker: System › Gateway › Certificate code, or ${command} on its host.";
 
-  static String m406(site) =>
+  static String m409(site) =>
       "${site}’s gateway uses its own CA, which this computer does not know. Compare the code with the one on the broker before you trust it; anyone on this network can announce a name.";
 
-  static String m407(unit) => "unit ${unit}";
+  static String m410(unit) => "unit ${unit}";
 
-  static String m408(name) => "${name} did not open the key";
+  static String m411(name) => "${name} did not open the key";
 
-  static String m409(device) =>
+  static String m412(device) =>
       "The faces on ${device} changed, so the key Studio kept no longer opens. Someone with the new face cannot sign in as you.";
 
-  static String m410(device) =>
+  static String m413(device) =>
       "The fingerprints on ${device} changed, so the key Studio kept no longer opens. Someone with the new finger cannot sign in as you.";
 
-  static String m411(name) => "${name} was turned off for this account";
+  static String m414(name) => "${name} was turned off for this account";
 
-  static String m412(site) => "Checking the key with ${site}…";
+  static String m415(site) => "Checking the key with ${site}…";
 
-  static String m413(site) => "confirm changes on ${site}";
+  static String m416(site) => "confirm changes on ${site}";
 
-  static String m414(days, name) =>
+  static String m417(days, name) =>
       "It was ${days} days since the last password here. ${name} works again after this login.";
 
-  static String m415(site, days) =>
+  static String m418(site, days) =>
       "${site} asks for the password every ${days} days";
 
-  static String m416(site, user) => "turn on unlocking ${site} as ${user}";
+  static String m419(site, user) => "turn on unlocking ${site} as ${user}";
 
-  static String m417(site, days) =>
+  static String m420(site, days) =>
       "${site} asks for the password once every ${days} days.";
 
-  static String m418(site) =>
+  static String m421(site) =>
       "Works with ${site}. Other gateways ask for their own.";
 
-  static String m419(site, standby) =>
+  static String m422(site, standby) =>
       "Works with ${site} and its standby ${standby}. Other gateways ask for their own.";
 
-  static String m420(user, site, store) =>
+  static String m423(user, site, store) =>
       "One key for ${user} on ${site}, made inside ${store}. It never leaves it; Studio never keeps your password.";
 
-  static String m421(name) =>
+  static String m424(name) =>
       "Log in with the password. ${name} stays on for the next time.";
 
-  static String m422(store, date) => "Key in ${store} · added ${date}";
+  static String m425(store, date) => "Key in ${store} · added ${date}";
 
-  static String m423(name, when) => "${name} · ${when}";
+  static String m426(name, when) => "${name} · ${when}";
 
-  static String m424(name) => "${name} did not match 3 times";
+  static String m427(name) => "${name} did not match 3 times";
 
-  static String m425(site) => "to ${site}’s gateway.";
+  static String m428(site) => "to ${site}’s gateway.";
 
-  static String m426(site) =>
+  static String m429(site) =>
       "${site} no longer allows unlocking with biometrics";
 
-  static String m427(name) => "${name} could not be turned on";
+  static String m430(name) => "${name} could not be turned on";
 
-  static String m428(site, user, role) =>
+  static String m431(site, user, role) =>
       "Logged in to ${site} as ${user} · ${role}";
 
-  static String m429(name, site, device) =>
+  static String m432(name, site, device) =>
       "Instead of the password, ${name} opens a key that proves to ${site} it is you on ${device}.";
 
-  static String m430(name) => "Unlock with ${name} next time?";
+  static String m433(name) => "Unlock with ${name} next time?";
 
-  static String m431(user) => "Password for ${user}";
+  static String m434(user) => "Password for ${user}";
 
-  static String m432(host) => "${host} + standby";
+  static String m435(host) => "${host} + standby";
 
-  static String m433(site, max) =>
+  static String m436(site, max) =>
       "${site} allows it: biometric devices on, up to ${max} per user (gateway.devices). You can turn it off in the account menu › Security.";
 
-  static String m434(site, user) => "sign in to ${site} as ${user}";
+  static String m437(site, user) => "sign in to ${site} as ${user}";
 
-  static String m435(name) => "Turn ${name} on again after I log in";
-
-  static String m436(device, name) =>
-      "An administrator removed ${device} from your devices. Log in with the password; you can turn ${name} on again after.";
-
-  static String m437(role, site) => "· ${role} on ${site}";
-
-  static String m438(site) => "Unlock to open the tree of ${site}.";
+  static String m438(name) => "Turn ${name} on again after I log in";
 
   static String m439(device, name) =>
+      "An administrator removed ${device} from your devices. Log in with the password; you can turn ${name} on again after.";
+
+  static String m440(role, site) => "· ${role} on ${site}";
+
+  static String m441(site) => "Unlock to open the tree of ${site}.";
+
+  static String m442(device, name) =>
       "The gateway has no record of ${device} any more. Log in with the password; you can turn ${name} on again after.";
 
-  static String m440(site) => "${site} does not know this key";
+  static String m443(site) => "${site} does not know this key";
 
-  static String m441(name) => "Use ${name}";
+  static String m444(name) => "Use ${name}";
 
-  static String m442(name) => "Unlock with ${name}";
+  static String m445(name) => "Unlock with ${name}";
 
-  static String m443(d) => "up ${d}";
+  static String m446(d) => "up ${d}";
 
-  static String m444(n) => "Update links: ${n}";
+  static String m447(n) => "Update links: ${n}";
 
-  static String m445(version) => "${version} stays, a link did not answer";
+  static String m448(version) => "${version} stays, a link did not answer";
 
-  static String m446(package) =>
+  static String m449(package) =>
       "Bring a zip of the package ${package} with a higher version. The broker checks it as any install and updates every link of the package.";
 
-  static String m447(links) => "Hot start, no restart: ${links}";
+  static String m450(links) => "Hot start, no restart: ${links}";
 
-  static String m448(version, when) =>
+  static String m451(version, when) =>
       "${version} stays installed until ${when}. A restore point is sealed for this broker and stays on it.";
 
-  static String m449(n) => "links: ${n}";
+  static String m452(n) => "links: ${n}";
 
-  static String m450(n, links) => "Links that restart (${n}): ${links}";
+  static String m453(n, links) => "Links that restart (${n}): ${links}";
 
-  static String m451(link) => "Open ${link}";
+  static String m454(link) => "Open ${link}";
 
-  static String m452(link) => "${link} · before a restore from a backup";
+  static String m455(link) => "${link} · before a restore from a backup";
 
-  static String m453(link, version) => "${link} · ${version} · before update";
+  static String m456(link, version) => "${link} · ${version} · before update";
 
-  static String m454(version, links) =>
+  static String m457(version, links) =>
       "These links stop and start on ${version}: ${links}. The broker puts their private data back to the restore point of the update when the update changed the store format or did not end well; after an update that ended well they keep the data they have. After it no version is kept: there is no second rollback.";
 
-  static String m455(package, version) => "Roll back ${package} to ${version}?";
+  static String m458(package, version) => "Roll back ${package} to ${version}?";
 
-  static String m456(version) => "Roll back to ${version}…";
+  static String m459(version) => "Roll back to ${version}…";
 
-  static String m457(version) => "Rolled back to ${version}";
+  static String m460(version) => "Rolled back to ${version}";
 
-  static String m458(version) => "The links run ${version}";
+  static String m461(version) => "The links run ${version}";
 
-  static String m459(links) => "${links}: back with all their nodes.";
+  static String m462(links) => "${links}: back with all their nodes.";
 
-  static String m460(state) =>
+  static String m463(state) =>
       "It changes the store format (from state ${state})";
 
-  static String m461(state) => "Store format: same (state ${state})";
+  static String m464(state) => "Store format: same (state ${state})";
 
-  static String m462(back, gone) =>
+  static String m465(back, gone) =>
       "declared again: ${back} · not back yet or gone: ${gone}";
 
-  static String m463(n) => "Custom package · links that run it: ${n}";
+  static String m466(n) => "Custom package · links that run it: ${n}";
 
-  static String m464(n) =>
+  static String m467(n) =>
       "Package of the repository · links that run it: ${n}";
 
-  static String m465(package, from, to) => "Update ${package} ${from} → ${to}";
+  static String m468(package, from, to) => "Update ${package} ${from} → ${to}";
 
-  static String m466(package, from) => "Update ${package} ${from} from a file";
+  static String m469(package, from) => "Update ${package} ${from} from a file";
 
-  static String m467(package) => "${package} updated";
+  static String m470(package) => "${package} updated";
 
-  static String m468(package) => "${package} update rolled back";
+  static String m471(package) => "${package} update rolled back";
 
-  static String m469(package) => "Updating ${package}";
+  static String m472(result) => "The broker ended it as “${result}”";
 
-  static String m470(package) => "Versions of ${package}";
+  static String m473(package) => "Updating ${package}";
 
-  static String m471(version) => "What is new in ${version}";
+  static String m474(package) => "Versions of ${package}";
 
-  static String m472(v) => "Version ${v} · deployed";
+  static String m475(version) => "What is new in ${version}";
 
-  static String m473(site) => "via ${site}";
+  static String m476(v) => "Version ${v} · deployed";
 
-  static String m474(delimiter, header) =>
+  static String m477(site) => "via ${site}";
+
+  static String m478(delimiter, header) =>
       "Read as the block reads it: delimiter ${delimiter}, ${header}";
 
-  static String m475(keys) => "${keys} saves · Esc cancels";
+  static String m479(keys) => "${keys} saves · Esc cancels";
 
-  static String m476(keys) => "${keys} saves · Esc discards the changes";
+  static String m480(keys) => "${keys} saves · Esc discards the changes";
 
-  static String m477(n, who) => "${n} waiting to be let in: ${who}";
+  static String m481(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m478(value) => "was ${value}";
+  static String m482(value) => "was ${value}";
 
-  static String m479(n) => "Watch groups · ${n}";
+  static String m483(n) => "Watch groups · ${n}";
 
-  static String m480(mode) =>
+  static String m484(mode) =>
       "With require_approval “${mode}”, the plan of a pick runs its write steps without a person. The tag is the assistant\'s guess, not a check. Read a tile before you pick it.";
 
-  static String m481(user) => "Welcome, ${user}";
+  static String m485(user) => "Welcome, ${user}";
 
-  static String m482(value) => "would run on ${value}";
+  static String m486(value) => "would run on ${value}";
 
-  static String m483(value) => "would send ${value}";
+  static String m487(value) => "would send ${value}";
 
-  static String m484(value) => "would write ${value}";
+  static String m488(value) => "would write ${value}";
 
-  static String m485(level) => "Turning this on needs ${level} level";
+  static String m489(level) => "Turning this on needs ${level} level";
 
-  static String m486(site) => "wyrmd on ${site}";
+  static String m490(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -1712,6 +1720,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "cantReachGateway": MessageLookupByLibrary.simpleMessage(
       "Can’t reach this gateway",
     ),
+    "catalogAll": MessageLookupByLibrary.simpleMessage("All"),
     "catalogNote": MessageLookupByLibrary.simpleMessage(
       "Built in: in wyrmd, nothing to download. Package: from the index in packages.repository, SHA-256 checked; a broker lists only packages it can install.",
     ),
@@ -2421,6 +2430,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "insPoint": MessageLookupByLibrary.simpleMessage("Point"),
     "insStorage": MessageLookupByLibrary.simpleMessage("Storage"),
     "install": MessageLookupByLibrary.simpleMessage("Install"),
+    "installNoWords": MessageLookupByLibrary.simpleMessage(
+      "The broker gave no reason.",
+    ),
     "installRailNote": MessageLookupByLibrary.simpleMessage(
       "Installing needs config on sys (the admin role). Nothing is installed before you press Install.",
     ),
@@ -3098,21 +3110,29 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "revision": m258,
     "revisionNow": m259,
-    "rightsLine": m260,
+    "rightCall": MessageLookupByLibrary.simpleMessage("call"),
+    "rightMemory": MessageLookupByLibrary.simpleMessage("memory"),
+    "rightMib": m260,
+    "rightMs": m261,
+    "rightNetwork": MessageLookupByLibrary.simpleMessage("network"),
+    "rightOn": m262,
+    "rightStore": MessageLookupByLibrary.simpleMessage("store"),
+    "rightsLine": m263,
+    "rightsNone": MessageLookupByLibrary.simpleMessage("none"),
     "rightsNote": MessageLookupByLibrary.simpleMessage(
       "Without this the broker installs nothing. Grants change later with Grant access; other values with the link\'s params.",
     ),
     "rightsTitle": MessageLookupByLibrary.simpleMessage(
       "The package asks for these rights",
     ),
-    "roleOnSite": m261,
+    "roleOnSite": m264,
     "rollBack": MessageLookupByLibrary.simpleMessage("Roll back"),
     "rollBackNote": MessageLookupByLibrary.simpleMessage(
       "Its parameters become a new revision and the link restarts with them.",
     ),
-    "rollBackTo": m262,
+    "rollBackTo": m265,
     "rowsAdd": MessageLookupByLibrary.simpleMessage("Add a row"),
-    "rowsAnswered": m263,
+    "rowsAnswered": m266,
     "rowsEmpty": MessageLookupByLibrary.simpleMessage("No rows yet"),
     "rowsRemove": MessageLookupByLibrary.simpleMessage("Remove this row"),
     "rstAcceptLinks": MessageLookupByLibrary.simpleMessage(
@@ -3149,8 +3169,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstDoAdd": MessageLookupByLibrary.simpleMessage("Add"),
     "rstDoReplace": MessageLookupByLibrary.simpleMessage("Restore and restart"),
     "rstFactSections": MessageLookupByLibrary.simpleMessage("Sections"),
-    "rstFile": m264,
-    "rstFileNote": m265,
+    "rstFile": m267,
+    "rstFileNote": m268,
     "rstHow": MessageLookupByLibrary.simpleMessage("How"),
     "rstInTheFile": MessageLookupByLibrary.simpleMessage("In the file"),
     "rstKeysDiffer": MessageLookupByLibrary.simpleMessage(
@@ -3171,7 +3191,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstKeysSameNote": MessageLookupByLibrary.simpleMessage(
       "Every key file of the backup is this broker\'s; tokens and certificates stay valid.",
     ),
-    "rstLinks": m266,
+    "rstLinks": m269,
     "rstLogIn": MessageLookupByLibrary.simpleMessage("Log in again"),
     "rstLost": MessageLookupByLibrary.simpleMessage(
       "The broker did not come back for this session",
@@ -3191,7 +3211,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstNothingTicked": MessageLookupByLibrary.simpleMessage(
       "Tick a section this mode takes",
     ),
-    "rstOtherSite": m267,
+    "rstOtherSite": m270,
     "rstOtherSiteNote": MessageLookupByLibrary.simpleMessage(
       "The broker refuses a backup of another site name. Set site in wyrmd.json5 to the backup\'s first.",
     ),
@@ -3213,7 +3233,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstReplace": MessageLookupByLibrary.simpleMessage(
       "Replace what is ticked and restart the broker once (a backup of what it replaces is made first)",
     ),
-    "rstReplaceKeys": m268,
+    "rstReplaceKeys": m271,
     "rstReplaceKeysOther": MessageLookupByLibrary.simpleMessage(
       "Replace the site\'s keys with another CA: links, operators and peer brokers enrol again",
     ),
@@ -3226,7 +3246,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstReplaceUpstream": MessageLookupByLibrary.simpleMessage(
       "This session reaches the site through an upstream broker: the broker refuses a replace from above. Add is open.",
     ),
-    "rstRestarting": m269,
+    "rstRestarting": m272,
     "rstRestartingMore": MessageLookupByLibrary.simpleMessage(
       "A backup of what is replaced was made first (pre-restore, in Backups). The broker stops, and its next start applies the staged sections before any store opens.",
     ),
@@ -3237,7 +3257,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Store formats differ (backup → here)",
     ),
     "rstTick": MessageLookupByLibrary.simpleMessage("tick what to bring back"),
-    "rstTitle": m270,
+    "rstTitle": m273,
     "rstUnknown": MessageLookupByLibrary.simpleMessage("The broker is back"),
     "rstUnknownNote": MessageLookupByLibrary.simpleMessage(
       "Its audit shows neither restore_applied nor restore_failed yet. Look at System › Log before you rely on the restore.",
@@ -3248,7 +3268,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "rstUploadedNote": MessageLookupByLibrary.simpleMessage(
       "Nothing was changed yet. The check reads its manifest and compares it with this broker.",
     ),
-    "rstUploading": m271,
+    "rstUploading": m274,
     "rstUploadingButton": MessageLookupByLibrary.simpleMessage("Uploading…"),
     "runBlock": MessageLookupByLibrary.simpleMessage("Run"),
     "runDraft": MessageLookupByLibrary.simpleMessage(
@@ -3265,31 +3285,31 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "runNotRun": MessageLookupByLibrary.simpleMessage("not run"),
     "runNow": MessageLookupByLibrary.simpleMessage("Run now"),
-    "runNowNote": m272,
+    "runNowNote": m275,
     "runOff": MessageLookupByLibrary.simpleMessage("The block is disabled"),
     "runOnStartTitle": MessageLookupByLibrary.simpleMessage(
       "Run on every start?",
     ),
     "runPassed": MessageLookupByLibrary.simpleMessage("all steps passed"),
-    "runPassedIn": m273,
-    "runPassedLeftOut": m274,
+    "runPassedIn": m276,
+    "runPassedLeftOut": m277,
     "runRunning": MessageLookupByLibrary.simpleMessage("running…"),
-    "runStopped": m275,
+    "runStopped": m278,
     "runStoppedFirst": MessageLookupByLibrary.simpleMessage(
       "stopped · nothing was changed",
     ),
-    "runStoppedOne": m276,
+    "runStoppedOne": m279,
     "runStopsNote": MessageLookupByLibrary.simpleMessage(
       "stops at the first step that fails",
     ),
-    "runTitle": m277,
-    "runTitleEnded": m278,
+    "runTitle": m280,
+    "runTitleEnded": m281,
     "runWaiting": MessageLookupByLibrary.simpleMessage("waiting"),
     "running": MessageLookupByLibrary.simpleMessage("Running"),
     "runningNote": MessageLookupByLibrary.simpleMessage(
       "The agent works on it. Cancel stops it; what was done stays done.",
     ),
-    "runsOn": m279,
+    "runsOn": m282,
     "runsOnAnotherDevice": MessageLookupByLibrary.simpleMessage(
       "Runs on another device",
     ),
@@ -3297,7 +3317,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Same call from the CLI",
     ),
     "saveAsPlan": MessageLookupByLibrary.simpleMessage("Save as a plan"),
-    "savePlanTitle": m280,
+    "savePlanTitle": m283,
     "scAddToSelection": MessageLookupByLibrary.simpleMessage(
       "Add to or take from the selection",
     ),
@@ -3368,7 +3388,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "scopeTitle": MessageLookupByLibrary.simpleMessage(
       "This block may read keys under",
     ),
-    "screenOf": m281,
+    "screenOf": m284,
     "searchHint": MessageLookupByLibrary.simpleMessage(
       "Go to a node, action or link",
     ),
@@ -3393,31 +3413,31 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "sectionEarlier": MessageLookupByLibrary.simpleMessage("Earlier"),
     "sectionNow": MessageLookupByLibrary.simpleMessage("Now"),
-    "securityAdded": m282,
+    "securityAdded": m285,
     "securityConfirm": MessageLookupByLibrary.simpleMessage(
       "Confirm before config changes",
     ),
-    "securityConfirmForced": m283,
-    "securityConfirmNone": m284,
-    "securityDevicesOn": m285,
-    "securityDue": m286,
+    "securityConfirmForced": m286,
+    "securityConfirmNone": m287,
+    "securityDevicesOn": m288,
+    "securityDue": m289,
     "securityForget": MessageLookupByLibrary.simpleMessage("Forget"),
     "securityLockAfter": MessageLookupByLibrary.simpleMessage(
       "Lock Studio after",
     ),
-    "securityLockDesc": m287,
+    "securityLockDesc": m290,
     "securityLockOff": MessageLookupByLibrary.simpleMessage("Off"),
     "securityMenu": MessageLookupByLibrary.simpleMessage("Security"),
-    "securityMinutes": m288,
+    "securityMinutes": m291,
     "securityNoBio": MessageLookupByLibrary.simpleMessage(
       "No biometric unlock on this computer: it asks for the password.",
     ),
     "securityNoDevices": MessageLookupByLibrary.simpleMessage(
       "No devices yet.",
     ),
-    "securityOn": m289,
-    "securityPasswordNeeded": m290,
-    "securityPolicy": m291,
+    "securityOn": m292,
+    "securityPasswordNeeded": m293,
+    "securityPolicy": m294,
     "securityPolicyConfirm": MessageLookupByLibrary.simpleMessage(
       " · confirm config changes",
     ),
@@ -3427,27 +3447,27 @@ class MessageLookup extends MessageLookupByLibrary {
     "securityRemoved": MessageLookupByLibrary.simpleMessage(
       "removed · signs in with the password only",
     ),
-    "securityRemovedBy": m292,
+    "securityRemovedBy": m295,
     "securitySignOutAll": MessageLookupByLibrary.simpleMessage(
       "Sign out everywhere",
     ),
-    "securitySignOutAllNote": m293,
+    "securitySignOutAllNote": m296,
     "securitySignedOut": MessageLookupByLibrary.simpleMessage("signed out"),
     "securityThisDevice": MessageLookupByLibrary.simpleMessage("this device"),
     "securityTitle": MessageLookupByLibrary.simpleMessage("Security"),
     "securityTurnOff": MessageLookupByLibrary.simpleMessage("Turn off"),
     "securityTurnOn": MessageLookupByLibrary.simpleMessage("Turn on"),
-    "securityUnlockDesc": m294,
-    "securityUnlockOffDesc": m295,
+    "securityUnlockDesc": m297,
+    "securityUnlockOffDesc": m298,
     "securityUsedNow": MessageLookupByLibrary.simpleMessage("used now"),
     "seeLinks": MessageLookupByLibrary.simpleMessage("see Links"),
-    "seenAgo": m296,
+    "seenAgo": m299,
     "seenNow": MessageLookupByLibrary.simpleMessage("now"),
     "selectANode": MessageLookupByLibrary.simpleMessage(
       "Select a node in the tree.",
     ),
     "sessionExpired": MessageLookupByLibrary.simpleMessage("Session expired"),
-    "setLogLevel": m297,
+    "setLogLevel": m300,
     "setLogLevelNote": MessageLookupByLibrary.simpleMessage(
       "Takes effect at once, no restart. Staged with your other edits.",
     ),
@@ -3469,30 +3489,30 @@ class MessageLookup extends MessageLookupByLibrary {
     "siteRelayedBelow": MessageLookupByLibrary.simpleMessage(
       "Site relayed below",
     ),
-    "sitesAround": m298,
-    "sitesSubtitle": m299,
-    "sizeBytes": m300,
-    "sizeChars": m301,
-    "sizeColumns": m302,
-    "sizeItems": m303,
-    "sizeKeys": m304,
-    "sizeLines": m305,
-    "sizeRows": m306,
+    "sitesAround": m301,
+    "sitesSubtitle": m302,
+    "sizeBytes": m303,
+    "sizeChars": m304,
+    "sizeColumns": m305,
+    "sizeItems": m306,
+    "sizeKeys": m307,
+    "sizeLines": m308,
+    "sizeRows": m309,
     "stage": MessageLookupByLibrary.simpleMessage("Stage"),
     "stagedActionNote": MessageLookupByLibrary.simpleMessage(
       "Stage puts it into Review and apply with your other edits.",
     ),
-    "stagedChanges": m307,
+    "stagedChanges": m310,
     "stagedNote": MessageLookupByLibrary.simpleMessage(
       "Nothing is written until you apply. Each change runs with your own rights.",
     ),
-    "stagedWas": m308,
+    "stagedWas": m311,
     "stale": MessageLookupByLibrary.simpleMessage("stale"),
     "standbyAnswersAt": MessageLookupByLibrary.simpleMessage(
       "Its standby answers at",
     ),
     "standbyGateway": MessageLookupByLibrary.simpleMessage("Standby gateway"),
-    "standbyIs": m309,
+    "standbyIs": m312,
     "stateConnected": MessageLookupByLibrary.simpleMessage("Connected"),
     "stateFailed": MessageLookupByLibrary.simpleMessage("Failed"),
     "stateInstalled": MessageLookupByLibrary.simpleMessage("Installed"),
@@ -3514,32 +3534,32 @@ class MessageLookup extends MessageLookupByLibrary {
     "stepLeftOut": MessageLookupByLibrary.simpleMessage(
       "left out: it will not run",
     ),
-    "stepOf": m310,
-    "stepReaching": m311,
+    "stepOf": m313,
+    "stepReaching": m314,
     "stepReading": MessageLookupByLibrary.simpleMessage(
       "Reading your role and sites",
     ),
-    "stepSkippedNeeds": m312,
+    "stepSkippedNeeds": m315,
     "stepUpConfirm": MessageLookupByLibrary.simpleMessage("Confirm"),
-    "stepUpConfirmWith": m313,
-    "stepUpDevice": m314,
-    "stepUpKeyGone": m315,
-    "stepUpLead": m316,
-    "stepUpPasswordOnly": m317,
-    "stepUpRefused": m318,
-    "stepUpStopped": m319,
+    "stepUpConfirmWith": m316,
+    "stepUpDevice": m317,
+    "stepUpKeyGone": m318,
+    "stepUpLead": m319,
+    "stepUpPasswordOnly": m320,
+    "stepUpRefused": m321,
+    "stepUpStopped": m322,
     "stepUpTitle": MessageLookupByLibrary.simpleMessage("Confirm it is you"),
-    "stepUpWaiting": m320,
+    "stepUpWaiting": m323,
     "stepWhere": MessageLookupByLibrary.simpleMessage("Where it runs"),
     "stopRecording": MessageLookupByLibrary.simpleMessage("Stop recording"),
-    "stoppedAt": m321,
-    "stoppedAtCode": m322,
-    "stoppedNote": m323,
-    "studioAbout": m324,
+    "stoppedAt": m324,
+    "stoppedAtCode": m325,
+    "stoppedNote": m326,
+    "studioAbout": m327,
     "studioSignedInHere": MessageLookupByLibrary.simpleMessage(
       "Studio is signed in here",
     ),
-    "studioVersion": m325,
+    "studioVersion": m328,
     "suggestPick": MessageLookupByLibrary.simpleMessage("Choose a value"),
     "sysActiveNote": MessageLookupByLibrary.simpleMessage(
       "Serves links, flows, the gateway and peers. Answers `sys/replication/**` for its standby.",
@@ -3552,23 +3572,23 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "sysAroundClear": MessageLookupByLibrary.simpleMessage("Show every time"),
     "sysAroundHint": MessageLookupByLibrary.simpleMessage("hh:mm:ss"),
-    "sysAttnAcl": m326,
-    "sysAttnAclDetail": m327,
-    "sysAttnBehind": m328,
-    "sysAttnBehindDetail": m329,
+    "sysAttnAcl": m329,
+    "sysAttnAclDetail": m330,
+    "sysAttnBehind": m331,
+    "sysAttnBehindDetail": m332,
     "sysAttnBehindPlain": MessageLookupByLibrary.simpleMessage(
       "standby_lag is above 0: a takeover now loses records",
     ),
-    "sysAttnBroker": m330,
+    "sysAttnBroker": m333,
     "sysAttnBrokerPlain": MessageLookupByLibrary.simpleMessage(
       "A downstream broker",
     ),
-    "sysAttnBrokerRelays": m331,
+    "sysAttnBrokerRelays": m334,
     "sysAttnFork": MessageLookupByLibrary.simpleMessage(
       "The standby moved a fork aside",
     ),
-    "sysAttnLinkDetail": m332,
-    "sysAttnLinkFailed": m333,
+    "sysAttnLinkDetail": m335,
+    "sysAttnLinkFailed": m336,
     "sysAttnNoStandby": MessageLookupByLibrary.simpleMessage(
       "No standby follows this broker",
     ),
@@ -3584,11 +3604,11 @@ class MessageLookup extends MessageLookupByLibrary {
       "Open Quarantine ›",
     ),
     "sysAttnOpenSites": MessageLookupByLibrary.simpleMessage("Open in Sites ›"),
-    "sysAttnQuarantine": m334,
-    "sysAttnQuarantineDetail": m335,
-    "sysAttnQuarantineSince": m336,
+    "sysAttnQuarantine": m337,
+    "sysAttnQuarantineDetail": m338,
+    "sysAttnQuarantineSince": m339,
     "sysBackup": MessageLookupByLibrary.simpleMessage("Back up and restore"),
-    "sysBackupNote": m337,
+    "sysBackupNote": m340,
     "sysBackupNoteNoSize": MessageLookupByLibrary.simpleMessage(
       "Everything the broker owns is in its `data_dir`. Studio does not take backups: they hold the site\'s keys and are made on the host. The steps, ready to copy:",
     ),
@@ -3604,19 +3624,19 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysBannerFork": MessageLookupByLibrary.simpleMessage(
       "The standby moved a fork aside",
     ),
-    "sysBannerForks": m338,
-    "sysBannerLag": m339,
+    "sysBannerForks": m341,
+    "sysBannerLag": m342,
     "sysBrokerAll": MessageLookupByLibrary.simpleMessage("broker (all)"),
     "sysBrokerLogLevel": MessageLookupByLibrary.simpleMessage(
       "Broker log level",
     ),
     "sysBytes": MessageLookupByLibrary.simpleMessage("Bytes"),
-    "sysClear": m340,
+    "sysClear": m343,
     "sysClearAsk": MessageLookupByLibrary.simpleMessage(
       "Clear these disconnected links?",
     ),
-    "sysClearAskBody": m341,
-    "sysClearBoard": m342,
+    "sysClearAskBody": m344,
+    "sysClearBoard": m345,
     "sysClearConfirm": MessageLookupByLibrary.simpleMessage("Clear"),
     "sysClearFooter": MessageLookupByLibrary.simpleMessage(
       "`sys/~act/clear_conns` · config · asks before it runs",
@@ -3627,7 +3647,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysClearOne": MessageLookupByLibrary.simpleMessage(
       "Clear 1 disconnected link…",
     ),
-    "sysCleared": m343,
+    "sysCleared": m346,
     "sysClearedNone": MessageLookupByLibrary.simpleMessage(
       "The broker removed no link.",
     ),
@@ -3650,7 +3670,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysCollecting": MessageLookupByLibrary.simpleMessage("Collecting…"),
     "sysCommandCopied": MessageLookupByLibrary.simpleMessage("Commands copied"),
     "sysCopy": MessageLookupByLibrary.simpleMessage("Copy"),
-    "sysCopyCommand": m344,
+    "sysCopyCommand": m347,
     "sysDownstream": MessageLookupByLibrary.simpleMessage("Downstream"),
     "sysElsewhere": MessageLookupByLibrary.simpleMessage(
       "Also broker settings, kept where they are used:",
@@ -3682,7 +3702,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysGetLog": MessageLookupByLibrary.simpleMessage("Get log"),
     "sysGroupLinks": MessageLookupByLibrary.simpleMessage("Links and sites"),
     "sysGroupProcess": MessageLookupByLibrary.simpleMessage("Process and disk"),
-    "sysGuideCopied": m345,
+    "sysGuideCopied": m348,
     "sysGuideLink": MessageLookupByLibrary.simpleMessage(
       "Guide: docs/operations.md › Warm standby ›",
     ),
@@ -3711,9 +3731,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Level and more severe",
     ),
     "sysLines": MessageLookupByLibrary.simpleMessage("Lines"),
-    "sysLinkSource": m346,
-    "sysLogCopied": m347,
-    "sysLogInvalid": m348,
+    "sysLinkSource": m349,
+    "sysLogCopied": m350,
+    "sysLogInvalid": m351,
     "sysLogLevelNote": MessageLookupByLibrary.simpleMessage(
       "Staged in Review and apply; once applied it takes effect at once, no restart, and replaces `RUST_LOG`. Zenoh stays at warn below trace. Values and tokens are never logged below trace. A link\'s own level: Links › the link › Log.",
     ),
@@ -3723,22 +3743,22 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysLogNotSaved": MessageLookupByLibrary.simpleMessage(
       "Cannot save the log",
     ),
-    "sysLogSaved": m349,
-    "sysLogSummary": m350,
-    "sysLogSummaryAround": m351,
+    "sysLogSaved": m352,
+    "sysLogSummary": m353,
+    "sysLogSummaryAround": m354,
     "sysLogSummaryNone": MessageLookupByLibrary.simpleMessage(
       "`sys/~act/get_log` · config",
     ),
     "sysMessages": MessageLookupByLibrary.simpleMessage("Messages"),
-    "sysMetaStarted": m352,
-    "sysNeedsLook": m353,
+    "sysMetaStarted": m355,
+    "sysNeedsLook": m356,
     "sysNeedsLookNote": MessageLookupByLibrary.simpleMessage(
       "From the broker\'s own values. Each opens the screen where it is fixed.",
     ),
     "sysNoLines": MessageLookupByLibrary.simpleMessage(
       "No lines at this level.",
     ),
-    "sysNoLinesAround": m354,
+    "sysNoLinesAround": m357,
     "sysNoProfiles": MessageLookupByLibrary.simpleMessage("No profiles."),
     "sysNoStale": MessageLookupByLibrary.simpleMessage(
       "No disconnected links.",
@@ -3749,7 +3769,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysNoStandbyStep1": MessageLookupByLibrary.simpleMessage(
       "1. Copy the keys to the second host: `wyrmd keys export` here, `wyrmd keys import` there.",
     ),
-    "sysNoStandbyStep2": m355,
+    "sysNoStandbyStep2": m358,
     "sysNoStandbyStep3": MessageLookupByLibrary.simpleMessage(
       "3. Start the second host; this tab shows it within a second.",
     ),
@@ -3764,20 +3784,20 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysNothingToClear": MessageLookupByLibrary.simpleMessage(
       "No disconnected links to clear",
     ),
-    "sysNow": m356,
-    "sysOfTotal": m357,
+    "sysNow": m359,
+    "sysOfTotal": m360,
     "sysOpenAuditRecord": MessageLookupByLibrary.simpleMessage(
       "Open the audit record ›",
     ),
     "sysOut": MessageLookupByLibrary.simpleMessage("out"),
     "sysPackages": MessageLookupByLibrary.simpleMessage("Packages"),
-    "sysProfileFile": m358,
+    "sysProfileFile": m361,
     "sysProfileName": MessageLookupByLibrary.simpleMessage("Name"),
     "sysProfileNameHint": MessageLookupByLibrary.simpleMessage(
       "<vendor>:<model>",
     ),
-    "sysProfilePut": m359,
-    "sysProfileRemoved": m360,
+    "sysProfilePut": m362,
+    "sysProfileRemoved": m363,
     "sysProfiles": MessageLookupByLibrary.simpleMessage("Device profiles"),
     "sysProfilesFooter": MessageLookupByLibrary.simpleMessage(
       "`sys/profiles` › Put Profile, Remove Profile · config",
@@ -3785,14 +3805,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysProfilesNote": MessageLookupByLibrary.simpleMessage(
       "Models served as `pub/<vendor>:<model>`: points, units and ranges that links and the assistant inherit.",
     ),
-    "sysProfilesUnlisted": m361,
+    "sysProfilesUnlisted": m364,
     "sysPulled": MessageLookupByLibrary.simpleMessage("pulled every 1 s"),
     "sysPut": MessageLookupByLibrary.simpleMessage("Put profile"),
     "sysPutProfile": MessageLookupByLibrary.simpleMessage("Put profile…"),
     "sysRecords": MessageLookupByLibrary.simpleMessage("records"),
     "sysRemove": MessageLookupByLibrary.simpleMessage("Remove"),
-    "sysRemoveProfile": m362,
-    "sysRemoveProfileAsk": m363,
+    "sysRemoveProfile": m365,
+    "sysRemoveProfileAsk": m366,
     "sysRunningActive": MessageLookupByLibrary.simpleMessage(
       "Running · active",
     ),
@@ -3804,7 +3824,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysStaleNote": MessageLookupByLibrary.simpleMessage(
       "Links admitted at runtime that run on other machines and are not connected now. Clearing removes them from the registry; their ids are retired and cannot be used again.",
     ),
-    "sysStaleRow": m364,
+    "sysStaleRow": m367,
     "sysStandbyBehind": MessageLookupByLibrary.simpleMessage(
       "Standby · behind",
     ),
@@ -3824,7 +3844,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "who did what · open Audit",
     ),
     "sysSubCpu": MessageLookupByLibrary.simpleMessage("100 = one core"),
-    "sysSubData": m365,
+    "sysSubData": m368,
     "sysSubDisk": MessageLookupByLibrary.simpleMessage(
       "on the data_dir file system",
     ),
@@ -3849,7 +3869,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysSubLeaseLate": MessageLookupByLibrary.simpleMessage(
       "renewing late: check the arbiter host",
     ),
-    "sysSubLinkFailed": m366,
+    "sysSubLinkFailed": m369,
     "sysSubMemory": MessageLookupByLibrary.simpleMessage("resident"),
     "sysSubNoArbiter": MessageLookupByLibrary.simpleMessage(
       "no arbiter configured",
@@ -3863,11 +3883,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "sysSubPackages": MessageLookupByLibrary.simpleMessage(
       "installed link packages",
     ),
-    "sysSubPeer": m367,
+    "sysSubPeer": m370,
     "sysSubSessions": MessageLookupByLibrary.simpleMessage(
       "network sessions; gateway users not counted",
     ),
-    "sysSubWaits": m368,
+    "sysSubWaits": m371,
     "sysTabAvailability": MessageLookupByLibrary.simpleMessage("Availability"),
     "sysTabLog": MessageLookupByLibrary.simpleMessage("Log"),
     "sysTabMaintenance": MessageLookupByLibrary.simpleMessage("Maintenance"),
@@ -3878,7 +3898,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "sysThisBroker": MessageLookupByLibrary.simpleMessage("This broker"),
     "sysTraffic": MessageLookupByLibrary.simpleMessage("Router traffic"),
-    "sysTrafficDescribe": m369,
+    "sysTrafficDescribe": m372,
     "sysTrafficNote": MessageLookupByLibrary.simpleMessage(
       "Sampled from the `sys` rates while Studio is open (the broker keeps no history of them). Network sessions only: embedded links and gateway users talk in-process and are not counted.",
     ),
@@ -3899,7 +3919,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "tableAddColumn": MessageLookupByLibrary.simpleMessage("Add column"),
     "tableAddRow": MessageLookupByLibrary.simpleMessage("Add row"),
     "tableFilter": MessageLookupByLibrary.simpleMessage("Filter rows"),
-    "tableFiltered": m370,
+    "tableFiltered": m373,
     "tableMore": MessageLookupByLibrary.simpleMessage("More"),
     "tableNoColumns": MessageLookupByLibrary.simpleMessage(
       "a table with no columns",
@@ -3929,8 +3949,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "tagActiveStandby": MessageLookupByLibrary.simpleMessage(
       "active + standby",
     ),
-    "tagDownstreamOf": m371,
-    "tagNeeds": m372,
+    "tagDownstreamOf": m374,
+    "tagNeeds": m375,
     "tagNew": MessageLookupByLibrary.simpleMessage("new"),
     "tagPlainHttp": MessageLookupByLibrary.simpleMessage("plain http"),
     "tagRunsNow": MessageLookupByLibrary.simpleMessage("runs now"),
@@ -3940,35 +3960,35 @@ class MessageLookup extends MessageLookupByLibrary {
     "taskAwaitingAnswer": MessageLookupByLibrary.simpleMessage(
       "awaiting your answer",
     ),
-    "taskBy": m373,
+    "taskBy": m376,
     "taskDone": MessageLookupByLibrary.simpleMessage("done"),
     "taskFailed": MessageLookupByLibrary.simpleMessage("failed or stopped"),
-    "taskFailedAt": m374,
-    "taskListNote": m375,
+    "taskFailedAt": m377,
+    "taskListNote": m378,
     "taskNoChanges": MessageLookupByLibrary.simpleMessage("nothing changed"),
     "taskPlanning": MessageLookupByLibrary.simpleMessage("planning"),
-    "taskReplaced": m376,
+    "taskReplaced": m379,
     "taskRunning": MessageLookupByLibrary.simpleMessage("running"),
     "thisBroker": MessageLookupByLibrary.simpleMessage("this broker"),
     "thisNetwork": MessageLookupByLibrary.simpleMessage("this network"),
     "timelineAudit": MessageLookupByLibrary.simpleMessage("From sys/audit"),
-    "timelineAuditLine": m377,
+    "timelineAuditLine": m380,
     "timelineAuditNone": MessageLookupByLibrary.simpleMessage(
       "No changes of this point in the last 500 records of sys/audit.",
     ),
-    "timelineLabel": m378,
-    "tlsCertificateOf": m379,
-    "tlsNotTrusted": m380,
-    "tlsPinned": m381,
+    "timelineLabel": m381,
+    "tlsCertificateOf": m382,
+    "tlsNotTrusted": m383,
+    "tlsPinned": m384,
     "toAccept": MessageLookupByLibrary.simpleMessage("to accept"),
     "toastDismiss": MessageLookupByLibrary.simpleMessage("Dismiss"),
-    "toastHidesIn": m382,
+    "toastHidesIn": m385,
     "toastNotifications": MessageLookupByLibrary.simpleMessage("Notifications"),
-    "toastStays": m383,
+    "toastStays": m386,
     "toastStream": MessageLookupByLibrary.simpleMessage(
       "Studio reopens the streams when it is back.",
     ),
-    "todayUsed": m384,
+    "todayUsed": m387,
     "tokenForBelow": MessageLookupByLibrary.simpleMessage(
       "Token for a site below",
     ),
@@ -3991,7 +4011,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "The tree shows data only.",
     ),
     "treeNoteMiddle": MessageLookupByLibrary.simpleMessage("is edited in"),
-    "treeOf": m385,
+    "treeOf": m388,
     "treePoint": MessageLookupByLibrary.simpleMessage("Point"),
     "treePointNote": MessageLookupByLibrary.simpleMessage(
       "on a block: adds it as a field. On the canvas: a new block of that node.",
@@ -4003,25 +4023,25 @@ class MessageLookup extends MessageLookupByLibrary {
     "trendAllHidden": MessageLookupByLibrary.simpleMessage(
       "All series are hidden.",
     ),
-    "trendAvg": m386,
+    "trendAvg": m389,
     "trendBadRecorded": MessageLookupByLibrary.simpleMessage(
       "bad quality recorded",
     ),
-    "trendBucket": m387,
+    "trendBucket": m390,
     "trendClearMarker": MessageLookupByLibrary.simpleMessage(
       "Click A again to clear it",
     ),
-    "trendDelta": m388,
-    "trendDescribe": m389,
+    "trendDelta": m391,
+    "trendDescribe": m392,
     "trendFollowNow": MessageLookupByLibrary.simpleMessage("Follow now"),
     "trendHint": MessageLookupByLibrary.simpleMessage(
       "Hover for values · drag on the chart to zoom · click to set marker A · drag or resize the window below · double-click resets · ← → move the focused handle",
     ),
-    "trendHoursMinutes": m390,
-    "trendLocked": m391,
-    "trendMarker": m392,
-    "trendMinMax": m393,
-    "trendMinutes": m394,
+    "trendHoursMinutes": m393,
+    "trendLocked": m394,
+    "trendMarker": m395,
+    "trendMinMax": m396,
+    "trendMinutes": m397,
     "trendMonths": MessageLookupByLibrary.simpleMessage(
       "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec",
     ),
@@ -4036,18 +4056,18 @@ class MessageLookup extends MessageLookupByLibrary {
       "No values recorded in this range.",
     ),
     "trendNow": MessageLookupByLibrary.simpleMessage("now"),
-    "trendPoint": m395,
+    "trendPoint": m398,
     "trendRaw": MessageLookupByLibrary.simpleMessage("raw"),
-    "trendRawAt": m396,
+    "trendRawAt": m399,
     "trendResetZoom": MessageLookupByLibrary.simpleMessage("Reset zoom"),
-    "trendSeconds": m397,
+    "trendSeconds": m400,
     "trendSetMarker": MessageLookupByLibrary.simpleMessage(
       "Click to set marker A",
     ),
-    "trendShowHide": m398,
-    "trendStepDays": m399,
-    "trendStepHours": m400,
-    "trendStepMinutes": m401,
+    "trendShowHide": m401,
+    "trendStepDays": m402,
+    "trendStepHours": m403,
+    "trendStepMinutes": m404,
     "trendUncertain": MessageLookupByLibrary.simpleMessage(
       "uncertain · stale reads in this bucket",
     ),
@@ -4059,8 +4079,8 @@ class MessageLookup extends MessageLookupByLibrary {
       "Start of the window",
     ),
     "trustCode": MessageLookupByLibrary.simpleMessage("CA code"),
-    "trustMatches": m402,
-    "trustRefusedChain": m403,
+    "trustMatches": m405,
+    "trustRefusedChain": m406,
     "trustRefusedChanged": MessageLookupByLibrary.simpleMessage(
       "The gateway now sends another CA than the one shown. Nothing was trusted.",
     ),
@@ -4070,26 +4090,26 @@ class MessageLookup extends MessageLookupByLibrary {
     "trustRefusedNoAnswer": MessageLookupByLibrary.simpleMessage(
       "The gateway did not answer again. Nothing was trusted.",
     ),
-    "trustTitle": m404,
-    "trustWhere": m405,
-    "trustWhy": m406,
+    "trustTitle": m407,
+    "trustWhere": m408,
+    "trustWhy": m409,
     "tryAgain": MessageLookupByLibrary.simpleMessage("Try again"),
     "turnOn": MessageLookupByLibrary.simpleMessage("Turn on"),
     "typeOrFind": MessageLookupByLibrary.simpleMessage(
       "Type the address, or find one on this network.",
     ),
     "unbind": MessageLookupByLibrary.simpleMessage("Unbind"),
-    "unitNumber": m407,
+    "unitNumber": m410,
     "unlockAgoNow": MessageLookupByLibrary.simpleMessage("now"),
     "unlockAnother": MessageLookupByLibrary.simpleMessage(
       "Another account or gateway",
     ),
-    "unlockCancelTitle": m408,
-    "unlockChangedFaces": m409,
-    "unlockChangedFingers": m410,
-    "unlockChangedTitle": m411,
-    "unlockChecking": m412,
-    "unlockConfirmPrompt": m413,
+    "unlockCancelTitle": m411,
+    "unlockChangedFaces": m412,
+    "unlockChangedFingers": m413,
+    "unlockChangedTitle": m414,
+    "unlockChecking": m415,
+    "unlockConfirmPrompt": m416,
     "unlockDeviceComputer": MessageLookupByLibrary.simpleMessage(
       "this computer",
     ),
@@ -4100,25 +4120,25 @@ class MessageLookup extends MessageLookupByLibrary {
     "unlockDontAsk": MessageLookupByLibrary.simpleMessage(
       "Don’t ask on this computer",
     ),
-    "unlockDueText": m414,
-    "unlockDueTitle": m415,
-    "unlockEnablePrompt": m416,
+    "unlockDueText": m417,
+    "unlockDueTitle": m418,
+    "unlockEnablePrompt": m419,
     "unlockFactEndsFaces": MessageLookupByLibrary.simpleMessage(
       "It ends when the faces here change, when your password changes, or when an administrator removes this device.",
     ),
     "unlockFactEndsFingers": MessageLookupByLibrary.simpleMessage(
       "It ends when the fingerprints here change, when your password changes, or when an administrator removes this device.",
     ),
-    "unlockFactPassword": m417,
-    "unlockFactSite": m418,
-    "unlockFactStandby": m419,
-    "unlockFactStore": m420,
-    "unlockFallbackText": m421,
-    "unlockKeyIn": m422,
+    "unlockFactPassword": m420,
+    "unlockFactSite": m421,
+    "unlockFactStandby": m422,
+    "unlockFactStore": m423,
+    "unlockFallbackText": m424,
+    "unlockKeyIn": m425,
     "unlockLastPassword": MessageLookupByLibrary.simpleMessage("password"),
-    "unlockLastUsed": m423,
-    "unlockLockoutTitle": m424,
-    "unlockLogInTo": m425,
+    "unlockLastUsed": m426,
+    "unlockLockoutTitle": m427,
+    "unlockLogInTo": m428,
     "unlockNameBiometric": MessageLookupByLibrary.simpleMessage("biometrics"),
     "unlockNameFace": MessageLookupByLibrary.simpleMessage("face unlock"),
     "unlockNameFingerprint": MessageLookupByLibrary.simpleMessage(
@@ -4150,11 +4170,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "unlockOffText": MessageLookupByLibrary.simpleMessage(
       "An administrator turned devices off on this gateway. Studio removed its key; log in with the password.",
     ),
-    "unlockOffTitle": m426,
-    "unlockOffToast": m427,
-    "unlockOfferChecked": m428,
-    "unlockOfferText": m429,
-    "unlockOfferTitle": m430,
+    "unlockOffTitle": m429,
+    "unlockOffToast": m430,
+    "unlockOfferChecked": m431,
+    "unlockOfferText": m432,
+    "unlockOfferTitle": m433,
     "unlockOpenStudio": MessageLookupByLibrary.simpleMessage("Open Studio"),
     "unlockOrEnter": MessageLookupByLibrary.simpleMessage("Or press Enter"),
     "unlockPasswordChangedText": MessageLookupByLibrary.simpleMessage(
@@ -4163,16 +4183,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "unlockPasswordChangedTitle": MessageLookupByLibrary.simpleMessage(
       "Your password changed",
     ),
-    "unlockPasswordFor": m431,
-    "unlockPlusStandby": m432,
-    "unlockPolicyLine": m433,
-    "unlockPrompt": m434,
-    "unlockReEnable": m435,
-    "unlockRemovedText": m436,
+    "unlockPasswordFor": m434,
+    "unlockPlusStandby": m435,
+    "unlockPolicyLine": m436,
+    "unlockPrompt": m437,
+    "unlockReEnable": m438,
+    "unlockRemovedText": m439,
     "unlockRemovedTitle": MessageLookupByLibrary.simpleMessage(
       "Removed by an administrator",
     ),
-    "unlockRoleOn": m437,
+    "unlockRoleOn": m440,
     "unlockStoreAndroid": MessageLookupByLibrary.simpleMessage(
       "this phone’s hardware keystore",
     ),
@@ -4183,15 +4203,15 @@ class MessageLookup extends MessageLookupByLibrary {
       "this Mac’s Secure Enclave",
     ),
     "unlockStoreWindows": MessageLookupByLibrary.simpleMessage("this PC’s TPM"),
-    "unlockToOpen": m438,
-    "unlockUnknownText": m439,
-    "unlockUnknownTitle": m440,
-    "unlockUse": m441,
+    "unlockToOpen": m441,
+    "unlockUnknownText": m442,
+    "unlockUnknownTitle": m443,
+    "unlockUse": m444,
     "unlockUsePassword": MessageLookupByLibrary.simpleMessage(
       "Use the password",
     ),
     "unlockWelcomeBack": MessageLookupByLibrary.simpleMessage("Welcome back"),
-    "unlockWith": m442,
+    "unlockWith": m445,
     "unpinField": MessageLookupByLibrary.simpleMessage("Unpin from block"),
     "unreachableAdvice": MessageLookupByLibrary.simpleMessage(
       "The broker may be restarting or this computer is on another network.",
@@ -4199,7 +4219,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "unsubscribeNote": MessageLookupByLibrary.simpleMessage(
       "The point stops being recorded; its rows stay.",
     ),
-    "upFor": m443,
+    "upFor": m446,
     "updAllOfficial": MessageLookupByLibrary.simpleMessage(
       "Update all official…",
     ),
@@ -4221,16 +4241,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "updColPackage": MessageLookupByLibrary.simpleMessage("Package"),
     "updColVersion": MessageLookupByLibrary.simpleMessage("Version"),
     "updCustom": MessageLookupByLibrary.simpleMessage("custom"),
-    "updDo": m444,
-    "updFailed": m445,
+    "updDo": m447,
+    "updFailed": m448,
     "updFailedNote": MessageLookupByLibrary.simpleMessage(
       "The health check ended without an answer from every link.",
     ),
     "updFromFile": MessageLookupByLibrary.simpleMessage("A newer archive"),
-    "updFromFileNote": m446,
+    "updFromFileNote": m449,
     "updFromFileRow": MessageLookupByLibrary.simpleMessage("Update from file…"),
     "updGoneTile": MessageLookupByLibrary.simpleMessage("gone"),
-    "updHotStart": m447,
+    "updHotStart": m450,
     "updHotStartNote": MessageLookupByLibrary.simpleMessage(
       "The running app gets the new code in place.",
     ),
@@ -4241,12 +4261,12 @@ class MessageLookup extends MessageLookupByLibrary {
       "Each link keeps its private data; the new version reads it.",
     ),
     "updKeptTile": MessageLookupByLibrary.simpleMessage("kept"),
-    "updKeptUntil": m448,
+    "updKeptUntil": m451,
     "updLeave": MessageLookupByLibrary.simpleMessage(
       "You can leave this screen; it goes on.",
     ),
-    "updLinksCount": m449,
-    "updLinksRestart": m450,
+    "updLinksCount": m452,
+    "updLinksRestart": m453,
     "updLinksRestartNote": MessageLookupByLibrary.simpleMessage(
       "Their values pause while each restarts; their nodes are declared again from the settings they keep.",
     ),
@@ -4268,7 +4288,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Every package is up to date.",
     ),
     "updOfficial": MessageLookupByLibrary.simpleMessage("official"),
-    "updOpenLink": m451,
+    "updOpenLink": m454,
     "updOpenLog": MessageLookupByLibrary.simpleMessage("Open the log"),
     "updOptAccept": MessageLookupByLibrary.simpleMessage(
       "Accept the new rights it asks for",
@@ -4285,25 +4305,26 @@ class MessageLookup extends MessageLookupByLibrary {
     "updPillDone": MessageLookupByLibrary.simpleMessage("done"),
     "updPillFailed": MessageLookupByLibrary.simpleMessage("failed"),
     "updPillRolledBack": MessageLookupByLibrary.simpleMessage("rolled back"),
-    "updPointBeforeRestore": m452,
-    "updPointBeforeUpdate": m453,
+    "updPillUnknown": MessageLookupByLibrary.simpleMessage("unknown"),
+    "updPointBeforeRestore": m455,
+    "updPointBeforeUpdate": m456,
     "updPoints": MessageLookupByLibrary.simpleMessage("Restore points"),
     "updRights": MessageLookupByLibrary.simpleMessage("Rights and network"),
     "updRightsNote": MessageLookupByLibrary.simpleMessage(
       "If the new version asks for more than the links have, the broker installs nothing and lists them here for you to accept.",
     ),
     "updRollBack": MessageLookupByLibrary.simpleMessage("Roll back"),
-    "updRollBackNote": m454,
-    "updRollBackTitle": m455,
-    "updRollBackTo": m456,
+    "updRollBackNote": m457,
+    "updRollBackTitle": m458,
+    "updRollBackTo": m459,
     "updRolledBackNote": MessageLookupByLibrary.simpleMessage(
       "The links run the kept version again.",
     ),
-    "updRolledBackTo": m457,
+    "updRolledBackTo": m460,
     "updRowChecking": MessageLookupByLibrary.simpleMessage("being checked"),
-    "updRuns": m458,
-    "updRunsNote": m459,
-    "updStateChanges": m460,
+    "updRuns": m461,
+    "updRunsNote": m462,
+    "updStateChanges": m463,
     "updStateChangesNote": MessageLookupByLibrary.simpleMessage(
       "The old version cannot read the new store: a rollback restores the store of the restore point.",
     ),
@@ -4313,14 +4334,14 @@ class MessageLookup extends MessageLookupByLibrary {
     "updStateCustomNote": MessageLookupByLibrary.simpleMessage(
       "If the archive does not read the installed store format, the broker refuses an update without a restore point.",
     ),
-    "updStateSame": m461,
+    "updStateSame": m464,
     "updStateSameNote": MessageLookupByLibrary.simpleMessage(
       "The new version reads the store of the installed one.",
     ),
     "updStepNodes": MessageLookupByLibrary.simpleMessage(
       "Health: every link back with its nodes",
     ),
-    "updStepNodesCount": m462,
+    "updStepNodesCount": m465,
     "updStepPackage": MessageLookupByLibrary.simpleMessage(
       "Package fetched, checked and unpacked beside the old version",
     ),
@@ -4334,28 +4355,32 @@ class MessageLookup extends MessageLookupByLibrary {
     "updStopAndRollBack": MessageLookupByLibrary.simpleMessage(
       "Stop and roll back",
     ),
-    "updSubCustom": m463,
-    "updSubOfficial": m464,
+    "updSubCustom": m466,
+    "updSubOfficial": m467,
     "updTab": MessageLookupByLibrary.simpleMessage("Updates"),
     "updTabNote": MessageLookupByLibrary.simpleMessage(
       "Links whose package has a newer version. Every link of a package is updated together, and the broker keeps what it needs to go back.",
     ),
     "updThen": MessageLookupByLibrary.simpleMessage("Then"),
-    "updTitle": m465,
-    "updTitleCustom": m466,
-    "updTitleDone": m467,
-    "updTitleRolledBack": m468,
+    "updTitle": m468,
+    "updTitleCustom": m469,
+    "updTitleDone": m470,
+    "updTitleRolledBack": m471,
     "updTogether": MessageLookupByLibrary.simpleMessage("updated together"),
-    "updUpdating": m469,
+    "updUnknownResult": m472,
+    "updUnknownResultNote": MessageLookupByLibrary.simpleMessage(
+      "Studio does not know this result. The broker\'s log says more.",
+    ),
+    "updUpdating": m473,
     "updUpdatingButton": MessageLookupByLibrary.simpleMessage("Updating…"),
     "updUpdatingSub": MessageLookupByLibrary.simpleMessage(
       "Values of its links pause while each restarts.",
     ),
-    "updVersionsOf": m470,
+    "updVersionsOf": m474,
     "updWhatChanges": MessageLookupByLibrary.simpleMessage(
       "What changes for the broker",
     ),
-    "updWhatIsNew": m471,
+    "updWhatIsNew": m475,
     "updWorking": MessageLookupByLibrary.simpleMessage("installing"),
     "updating": MessageLookupByLibrary.simpleMessage("Updating…"),
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
@@ -4375,8 +4400,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "a preview of the draft; nothing is written",
     ),
-    "versionDeployed": m472,
-    "viaSite": m473,
+    "versionDeployed": m476,
+    "viaSite": m477,
     "viewValue": MessageLookupByLibrary.simpleMessage("View value"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true or false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -4392,7 +4417,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerCsvRefused": MessageLookupByLibrary.simpleMessage(
       "The block refuses this text (parse_error): it has no row, or it passes a bound of a table.",
     ),
-    "viewerCsvRules": m474,
+    "viewerCsvRules": m478,
     "viewerCsvWired": MessageLookupByLibrary.simpleMessage(
       "A wire feeds the delimiter or the header: the table uses the values they hold now.",
     ),
@@ -4412,24 +4437,24 @@ class MessageLookup extends MessageLookupByLibrary {
       "Read only: the block computes this output.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Save"),
-    "viewerSaveHint": m475,
+    "viewerSaveHint": m479,
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("As table"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Text"),
-    "viewerTableHint": m476,
+    "viewerTableHint": m480,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m477,
-    "wasValue": m478,
+    "waitingToBeLetIn": m481,
+    "wasValue": m482,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m479,
-    "waysCaution": m480,
+    "watchGroups": m483,
+    "waysCaution": m484,
     "waysNote": MessageLookupByLibrary.simpleMessage(
       "A pick is a new ask. Its plan is checked and waits for your approval, step by step.",
     ),
     "waysOut": MessageLookupByLibrary.simpleMessage("Ways out"),
-    "welcomeUser": m481,
+    "welcomeUser": m485,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyAnnounce": MessageLookupByLibrary.simpleMessage(
       "The broker may have gateway.announce off (hardened sites), or its gateway listens on loopback only.",
@@ -4489,10 +4514,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "wouldRun": m482,
-    "wouldSend": m483,
-    "wouldWrite": m484,
-    "writableNeeds": m485,
+    "wouldRun": m486,
+    "wouldSend": m487,
+    "wouldWrite": m488,
+    "writableNeeds": m489,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.",
     ),
@@ -4504,7 +4529,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m486,
+    "wyrmdOn": m490,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

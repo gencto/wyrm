@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_state.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/site_relation.dart';
@@ -91,7 +92,7 @@ class RetrievePeersAction extends Action with WaitingAction {
             site: l.id,
             kind: PeerKind.device,
             parent: viewed,
-            connected: l.state == 'connected',
+            connected: l.state == LinkState.connected,
             url: l.device,
           ),
         );
