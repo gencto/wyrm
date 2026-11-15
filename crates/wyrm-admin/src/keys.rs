@@ -78,7 +78,7 @@ pub fn export(data_dir: &Path, passphrase: &[u8]) -> Result<Vec<u8>, Error> {
     let mut out = Vec::with_capacity(MAGIC.len() + SALT_LEN + plain.len() + 28);
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&salt);
-    out.extend(wyrm_link_sdk::seal::seal(&key, &plain));
+    out.extend(wyrm_link_sdk::seal::seal(&key, &plain)?);
     Ok(out)
 }
 

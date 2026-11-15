@@ -1604,11 +1604,7 @@ impl<D: Driver> Framework<D> {
                     .in_current_span(),
                 );
                 let (tickers, tick_stop) = self.start_tickers(&devs, &tx, &view, 0, server).await;
-                // `name` was found above; nothing between removes it
-                let Some(c) = self.conns.get_mut(name) else {
-                    return;
-                };
-                c.run = Some(ConnRun {
+                let run = ConnRun {
                     tx,
                     acting,
                     note,
@@ -1620,7 +1616,13 @@ impl<D: Driver> Framework<D> {
                     tick_stop,
                     book,
                     flusher,
-                });
+                };
+                // `name` was found above, and `&mut self` keeps anyone from removing it;
+                // were it gone, its run must not outlive it
+                match self.conns.get_mut(name) {
+                    Some(c) => c.run = Some(run),
+                    None => stop_run(run).await,
+                }
             }
         }
     }
@@ -1785,15 +1787,17 @@ impl<D: Driver> Framework<D> {
             // the new plan before its next request.
             let _ = run.tx.try_send(Req::Serve);
         }
-        let Some(c) = self.conns.get_mut(conn) else {
-            return;
-        };
-        c.run = Some(ConnRun {
+        let run = ConnRun {
             tickers,
             tick_stop,
             gen,
             ..run
-        });
+        };
+        // as in `bring_up`: the entry is there, and a run never outlives it
+        match self.conns.get_mut(conn) {
+            Some(c) => c.run = Some(run),
+            None => stop_run(run).await,
+        }
     }
 
     fn export(&self) -> Value {

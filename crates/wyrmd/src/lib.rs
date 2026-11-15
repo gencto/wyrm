@@ -950,12 +950,8 @@ pub fn json_to_value(j: &serde_json::Value) -> Value {
     }
 }
 
-#[allow(
-    clippy::expect_used,
-    reason = "only called with plain config structs: string keys, no failing Serialize impl"
-)]
-fn json<T: serde::Serialize>(v: &T) -> String {
-    serde_json::to_string(v).expect("plain data serializes")
+fn json<T: serde::Serialize>(v: &T) -> Result<String, serde_json::Error> {
+    serde_json::to_string(v)
 }
 
 impl Config {
@@ -1148,8 +1144,8 @@ impl Config {
         }
         let listen: Vec<String> = listen.iter().map(|e| single_stream(e)).collect();
         let connect: Vec<String> = connect.iter().map(|e| single_stream(e)).collect();
-        c.insert_json5("listen/endpoints", &json(&listen))?;
-        c.insert_json5("connect/endpoints", &json(&connect))?;
+        c.insert_json5("listen/endpoints", &json(&listen)?)?;
+        c.insert_json5("connect/endpoints", &json(&connect)?)?;
         if let Some(hz) = self.peers.upstream_val_hz {
             let links: Vec<String> = ctl.registry().links.into_keys().collect();
             if let Some(d) = upstream_downsampling(&self.site, &links, hz) {
@@ -1158,7 +1154,7 @@ impl Config {
         }
         c.insert_json5(
             "scouting/multicast/enabled",
-            &json(&self.multicast_scouting),
+            &json(&self.multicast_scouting)?,
         )?;
         // Storages require timestamps.
         c.insert_json5(

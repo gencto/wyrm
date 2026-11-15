@@ -519,8 +519,10 @@ impl State {
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
-        // `id` was found at the start and nothing between removes it
+        // `id` was found at the start, and `&mut self` keeps anyone from removing it
         let Some(f) = self.flows.get_mut(id) else {
+            // dropping `run` aborts its node tasks (`impl Drop for Running`)
+            tracing::error!(flow = id, "removed while it started: its run is stopped");
             return;
         };
         match run {

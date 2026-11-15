@@ -247,6 +247,7 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
         .build()?;
     // on a thread with known stack bounds (musl: see `run_on_big_stack`)
     wyrm_link_sdk::process::run_on_big_stack(move || rt.block_on(run(args)))
+        .map_err(|e| format!("cannot start the runtime thread: {e}"))?
 }
 
 #[allow(

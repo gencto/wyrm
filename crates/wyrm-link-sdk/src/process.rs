@@ -399,9 +399,13 @@ where
         }
     };
     match run_on_big_stack(move || rt.block_on(run::<L>())) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(e) => {
+        Ok(Ok(())) => std::process::ExitCode::SUCCESS,
+        Ok(Err(e)) => {
             tracing::error!("link: {e}");
+            std::process::ExitCode::FAILURE
+        }
+        Err(e) => {
+            tracing::error!("link: cannot start the runtime thread: {e}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -415,18 +419,16 @@ pub const MAIN_STACK_BYTES: usize = 8 << 20;
 /// (the static container builds, deploy/docker) `stacker` cannot tell the main thread's stack
 /// bounds, and the JSON5 parser of the Zenoh config (pest) then refuses every input with "stack
 /// limit reached". A thread the program made has known bounds on every libc.
-#[allow(
-    clippy::panic,
-    reason = "at start-up, before any work: without the thread the binary cannot run"
-)]
-pub fn run_on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+/// `Err` when the thread cannot be started (the binary then ends with that error).
+pub fn run_on_big_stack<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+) -> std::io::Result<T> {
     let h = std::thread::Builder::new()
         .name("main-rt".into())
         .stack_size(MAIN_STACK_BYTES)
-        .spawn(f)
-        .unwrap_or_else(|e| panic!("cannot start the runtime thread: {e}"));
+        .spawn(f)?;
     match h.join() {
-        Ok(t) => t,
+        Ok(t) => Ok(t),
         Err(p) => std::panic::resume_unwind(p),
     }
 }
