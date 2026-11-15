@@ -283,7 +283,7 @@ class _LogToolbarState extends State<LogToolbar> {
     final vm = widget.vm;
     final enabled = vm.disabledReason == null;
     return Container(
-      padding: Insets.panel,
+      padding: Insets.systemPanel,
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),

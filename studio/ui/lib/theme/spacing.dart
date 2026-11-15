@@ -60,7 +60,7 @@ abstract final class Insets {
 
   /// Inside a bordered panel of System: a value's tile, the Log toolbar
   /// (board `System`).
-  static const panel = EdgeInsets.symmetric(
+  static const systemPanel = EdgeInsets.symmetric(
     horizontal: AppSpacing.md,
     vertical: 14,
   );

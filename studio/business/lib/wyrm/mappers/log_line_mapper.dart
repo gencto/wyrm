@@ -6,7 +6,7 @@ String logText(Iterable<LogLine> lines) => [
   for (final l in lines)
     [
       l.time,
-      l.level.toUpperCase(),
+      ?l.level?.wire.toUpperCase(),
       l.target,
       l.message,
     ].where((s) => s.isNotEmpty).join(' '),

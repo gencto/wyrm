@@ -125,7 +125,7 @@
     "app/lib/connectors/splash_page_connector.dart": 15,
     "app/lib/connectors/step_up_dialog_connector.dart": 129,
     "app/lib/connectors/studio_page_connector.dart": 508,
-    "app/lib/connectors/system_page_connector.dart": 299,
+    "app/lib/connectors/system_page_connector.dart": 293,
     "app/lib/connectors/toast_stack_connector.dart": 80,
     "app/lib/connectors/top_level_page_connector.dart": 52,
     "app/lib/connectors/window_controls_connector.dart": 82

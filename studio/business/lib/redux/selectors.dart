@@ -28,6 +28,7 @@ import 'package:models/live_set.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
+import 'package:models/log_read_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
@@ -367,10 +368,18 @@ extension SelectComposites on Selectors {
 extension SelectBrokerHealth on Selectors {
   String get _sysKey => '${site.root}/sys';
 
-  /// The values of `sys`, decoded once per change of the live values (a
-  /// value of another type is left out and logged).
+  /// What a decode of [keys] below `sys` reads: the site, and the live
+  /// value of each key (the same object while it does not change).
+  List<Object?> _sysInputs(Iterable<String> keys) => [
+    site.viewed,
+    for (final k in keys) live.values['$_sysKey/$k'],
+  ];
+
+  /// The values of `sys`, decoded once per change of their own live
+  /// values, not on a tick of another point (a value of another type is
+  /// left out and logged).
   SysStatus get sysStatus => _sysStatus.of(
-    [live.values, site.viewed],
+    _sysInputs(sysStatusKeys),
     () => sysStatusOf(
       (k) => live.values['$_sysKey/$k']?.value,
       'sys of ${site.viewed}',
@@ -383,6 +392,11 @@ extension SelectBrokerHealth on Selectors {
 
   /// The unit the node of [v] names, if any.
   String? sysUnit(SysValue v) => system.units['$_sysKey/${v.key}'];
+
+  /// The Log tab reads the log again every 5 s: `every 5 s` is on, the
+  /// tab is shown and the user may read it.
+  bool get systemLogPolls =>
+      system.auto && system.tab == SystemTab.log && sysConfigReason == null;
 
   /// Why the user may not change `sys` (`needs config on sys`); null when
   /// they may.
@@ -559,7 +573,14 @@ extension SelectBrokerHealth on Selectors {
   /// The kept backups with their live values, newest first (the ids are in
   /// the order the broker made them).
   List<BackupJob> get backupRows => _backupRows.of(
-    [live.values, site.viewed, backups.table, backups.view],
+    [
+      backups.table,
+      backups.view,
+      ..._sysInputs([
+        for (final id in backups.view)
+          for (final leaf in backupLeaves) 'backups/$id/$leaf',
+      ]),
+    ],
     () => [for (final id in backups.view.reversed) ?backupJob(id)],
   );
 
@@ -573,7 +594,7 @@ extension SelectBrokerHealth on Selectors {
 
   /// What the broker says of its own update (ADR 0048 §2.4).
   BrokerSelfUpdate get selfUpdate => _selfUpdate.of(
-    [live.values, site.viewed],
+    _sysInputs(selfUpdateKeys),
     () => brokerSelfUpdateOf(
       (k) => live.values['$_sysKey/$k']?.value,
       'update of ${site.viewed}',
@@ -1431,7 +1452,7 @@ extension type SelectSystem(AppState _state) {
   bool get shown => _state.system.shown;
 
   /// Returns logError
-  String? get logError => _state.system.logError;
+  LogReadError? get logError => _state.system.logError;
 
   /// Returns samples
   IList<TrafficSample> get samples => _state.system.samples;

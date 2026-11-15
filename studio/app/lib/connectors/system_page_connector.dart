@@ -24,16 +24,13 @@ import 'package:business/redux/system/actions/set_traffic_window_action.dart';
 import 'package:business/redux/system/actions/show_system_action.dart';
 import 'package:business/redux/system/actions/stage_log_level_action.dart';
 import 'package:business/redux/system/actions/zoom_traffic_action.dart';
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/sys_status.dart';
 import 'package:models/sys_value.dart';
 import 'package:models/system_notice.dart';
-import 'package:models/system_tab.dart';
 import 'package:models/traffic_measure.dart';
-import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/system_data.dart';
 import 'package:ui/pages/system_screen.dart';
 
@@ -72,7 +69,7 @@ class SystemPageConnector extends StatelessWidget {
           onTile: vm.onTile,
           onAttention: vm.onAttention,
           onMeasure: vm.onMeasure,
-          onTrafficWindow: vm.onTrafficWindow,
+          onTrafficWindow: (start, end) => vm.onTrafficWindow((start, end)),
           onTrafficFollow: vm.onTrafficFollow,
           onTrafficReset: vm.onTrafficReset,
           onBanner: vm.onBanner,
@@ -131,14 +128,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       broker: status.broker,
       tab: system.tab.sys,
       standby: standby.sys,
-      readings: {
-        for (final t in SysTileKey.values)
-          t: SysReading(
-            value: status[t.value],
-            unit: sysUnit(t.value),
-            about: sysAbout(t.value),
-          ),
-      }.lock,
+      readings: status.readings(unit: sysUnit, about: sysAbout),
       linksTotal: status[SysValue.linksTotal],
       failedLink: failedLinks.firstOrNull?.id,
       waitingLink: oldestWaitingLink?.cn,
@@ -147,10 +137,12 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       historySize: status[SysValue.historySize],
       traffic: SysTrafficData(
         measure: measure.sys,
+        inKey: measure.inward.key,
+        outKey: measure.outward.key,
         inNow: status[measure.inward],
         outNow: status[measure.outward],
         unit: sysUnit(measure.inward),
-        samples: [for (final s in system.samples) s.rateOf(measure)],
+        samples: sysRatesOf(system.samples, measure),
         window: trafficTrend?.sys,
       ),
       log: SysLogData(
@@ -158,7 +150,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
         lines: [for (final l in shownLog) l.sys],
         held: system.log.length,
         around: system.around,
-        error: system.logError,
+        error: system.logError?.sys,
         reading: system.isWaiting,
         sources: [for (final l in logSourceLinks) l.id],
         source: system.source,
@@ -191,7 +183,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
       attention: [for (final a in attention) a.sys],
     ),
     updateRuns: selfUpdate.state.runs,
-    polling: system.auto && system.tab == SystemTab.log && reason == null,
+    polling: systemLogPolls,
     onShow: () => dispatch(ShowSystemAction()),
     onHide: () => dispatch(HideSystemAction()),
     onPoll: () => dispatch(PollSystemLogAction()),
@@ -203,7 +195,7 @@ class _Factory extends VmFactory<AppState, SystemPageConnector, _Vm>
     },
     onAttention: (i) => dispatch(OpenAttentionAction(attention[i])),
     onMeasure: (m) => dispatch(SetMeasureAction(m.domain)),
-    onTrafficWindow: (a, b) => dispatch(ZoomTrafficAction(a, b)),
+    onTrafficWindow: (w) => dispatch(ZoomTrafficAction(w.$1, w.$2)),
     onTrafficFollow: () => dispatch(FollowTrafficAction()),
     onTrafficReset: () => dispatch(SetTrafficWindowAction(null)),
     onBanner: () => dispatch(GoSystemPlaceAction(SystemPlace.audit)),
@@ -277,7 +269,9 @@ class _Vm extends Vm {
   final ValueChanged<SysTileKey> onTile;
   final ValueChanged<int> onAttention;
   final ValueChanged<SysMeasure> onMeasure;
-  final RangeChanged<int> onTrafficWindow;
+
+  /// The traffic trend's window, its start and end (µs).
+  final ValueChanged<(int, int)> onTrafficWindow;
   final VoidCallback onTrafficFollow;
   final VoidCallback onTrafficReset;
   final VoidCallback onBanner;

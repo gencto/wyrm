@@ -1,4 +1,6 @@
 import 'package:business/redux/app_state.dart' show TrafficTrendView;
+import 'package:business/redux/last_result.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/backup_job.dart';
@@ -7,6 +9,7 @@ import 'package:models/backup_status.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
+import 'package:models/log_read_error.dart';
 import 'package:models/self_update_state.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/sys_status.dart';
@@ -164,7 +167,7 @@ extension LogLineSys on LogLine {
   SysLogLine get sys => SysLogLine(
     time: time,
     at: at,
-    level: level,
+    level: level?.sys,
     target: target,
     message: message,
   );
@@ -178,6 +181,19 @@ extension TrafficSampleSys on TrafficSample {
     rate(measure, inward: false),
   );
 }
+
+/// The ring of [samples] as rates of [measure]: mapped again only when the
+/// ring or the measure is another (up to one hour of samples, not on every
+/// dispatch).
+List<SysRate> sysRatesOf(
+  IList<TrafficSample> samples,
+  TrafficMeasure measure,
+) => _rates.of(
+  [samples, measure],
+  () => [for (final s in samples) s.rateOf(measure)],
+);
+
+final _rates = LastResult<List<SysRate>>();
 
 extension BackupKindSys on BackupKind {
   SysBackupKind get sys => switch (this) {
@@ -279,6 +295,21 @@ extension SystemNoticeToast on SystemNotice {
 }
 
 extension SysStatusBroker on SysStatus {
+  /// Every tile's reading: its key, its value, the node's [unit] and
+  /// description ([about]).
+  IMap<SysTileKey, SysReading> readings({
+    required String? Function(SysValue v) unit,
+    required String Function(SysValue v) about,
+  }) => {
+    for (final t in SysTileKey.values)
+      t: SysReading(
+        key: t.value.key,
+        value: this[t.value],
+        unit: unit(t.value),
+        about: about(t.value),
+      ),
+  }.lock;
+
   /// The broker's build and when it started.
   SysBroker get broker => SysBroker(
     version: version,
@@ -298,4 +329,17 @@ extension TrafficTrendSys on TrafficTrendView {
     minWindow: minWindow,
     following: following,
   );
+}
+
+extension LogReadErrorSys on LogReadError {
+  SysLogError get sys => switch (this) {
+    LogRefused(:final status, :final message) => SysLogError.refused(
+      status,
+      message,
+    ),
+    LogInvalid(:final field, :final reason) => SysLogError.invalid(
+      field,
+      reason,
+    ),
+  };
 }

@@ -17,8 +17,8 @@ mixin _$LogLine {
 
 /// As the broker wrote it (ISO 8601, UTC): what Copy and Save write.
  String get time;/// [time] read; null when it is not a time.
- DateTime? get at;/// `error`, `warn`, `info`, `debug`, `trace`.
- String get level;/// The module (or the `link{id=…}` span) that logged it.
+ DateTime? get at;/// None when the record names none.
+ LogLevel? get level;/// The module (or the `link{id=…}` span) that logged it.
  String get target; String get message;
 /// Create a copy of LogLine
 /// with the given fields replaced by the non-null parameter values.
@@ -55,7 +55,7 @@ abstract mixin class $LogLineCopyWith<$Res>  {
   factory $LogLineCopyWith(LogLine value, $Res Function(LogLine) _then) = _$LogLineCopyWithImpl;
 @useResult
 $Res call({
- String time, DateTime? at, String level, String target, String message
+ String time, DateTime? at, LogLevel? level, String target, String message
 });
 
 
@@ -72,12 +72,12 @@ class _$LogLineCopyWithImpl<$Res>
 
 /// Create a copy of LogLine
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? time = null,Object? at = freezed,Object? level = null,Object? target = null,Object? message = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? time = null,Object? at = freezed,Object? level = freezed,Object? target = null,Object? message = null,}) {
   return _then(LogLine(
 time: null == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as String,at: freezed == at ? _self.at : at // ignore: cast_nullable_to_non_nullable
-as DateTime?,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,target: null == target ? _self.target : target // ignore: cast_nullable_to_non_nullable
+as DateTime?,level: freezed == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
+as LogLevel?,target: null == target ? _self.target : target // ignore: cast_nullable_to_non_nullable
 as String,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String,
   ));
@@ -91,15 +91,15 @@ as String,
 
 
 class _LogLine implements LogLine {
-  const _LogLine({this.time = '', this.at, this.level = '', this.target = '', this.message = ''});
+  const _LogLine({this.time = '', this.at, this.level, this.target = '', this.message = ''});
   
 
 /// As the broker wrote it (ISO 8601, UTC): what Copy and Save write.
 @override@JsonKey() final  String time;
 /// [time] read; null when it is not a time.
 @override final  DateTime? at;
-/// `error`, `warn`, `info`, `debug`, `trace`.
-@override@JsonKey() final  String level;
+/// None when the record names none.
+@override final  LogLevel? level;
 /// The module (or the `link{id=…}` span) that logged it.
 @override@JsonKey() final  String target;
 @override@JsonKey() final  String message;
@@ -136,7 +136,7 @@ abstract mixin class _$LogLineCopyWith<$Res> implements $LogLineCopyWith<$Res> {
   factory _$LogLineCopyWith(_LogLine value, $Res Function(_LogLine) _then) = __$LogLineCopyWithImpl;
 @override @useResult
 $Res call({
- String time, DateTime? at, String level, String target, String message
+ String time, DateTime? at, LogLevel? level, String target, String message
 });
 
 
@@ -153,12 +153,12 @@ class __$LogLineCopyWithImpl<$Res>
 
 /// Create a copy of LogLine
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? time = null,Object? at = freezed,Object? level = null,Object? target = null,Object? message = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? time = null,Object? at = freezed,Object? level = freezed,Object? target = null,Object? message = null,}) {
   return _then(_LogLine(
 time: null == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as String,at: freezed == at ? _self.at : at // ignore: cast_nullable_to_non_nullable
-as DateTime?,level: null == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
-as String,target: null == target ? _self.target : target // ignore: cast_nullable_to_non_nullable
+as DateTime?,level: freezed == level ? _self.level : level // ignore: cast_nullable_to_non_nullable
+as LogLevel?,target: null == target ? _self.target : target // ignore: cast_nullable_to_non_nullable
 as String,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String,
   ));

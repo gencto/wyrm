@@ -28,7 +28,6 @@ void main() {
     }
     for (final m in TrafficMeasure.values) {
       expect(m.sys.domain, m);
-      expect(m.sys.key, m.key, reason: 'one key in both');
     }
     for (final l in LogLevel.values) {
       expect(l.sys.domain, l);
@@ -38,9 +37,9 @@ void main() {
 
   test('a tile shows the sys value of its key, and leads where it fixes', () {
     for (final t in SysTileKey.values) {
-      expect(t.value.key, t.key);
       expect(t.place != null, t.opens, reason: '$t');
     }
+    expect(SysTileKey.arbiterLease.value.key, 'arbiter_lease_s');
     expect(SysTileKey.aclDenied.place, SystemPlace.audit);
     expect(SysTileKey.quarantined.place, SystemPlace.quarantine);
     expect(SysValue.values.map((v) => v.key).toSet(), hasLength(25));

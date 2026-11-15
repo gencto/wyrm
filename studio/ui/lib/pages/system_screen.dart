@@ -157,18 +157,26 @@ class SystemScreen extends StatelessWidget {
     attention: _attention(),
     onAttention: (id) => onAttention(int.parse(id)),
     onTile: (key) {
-      if (SysTileKey.ofKey(key) case final t?) {
+      if (vm.tileOf(key) case final t?) {
         onTile(t);
       }
     },
-    onMeasure: (id) => onMeasure(SysMeasure.values.byName(id)),
+    onMeasure: (id) {
+      if (SysMeasure.values.asNameMap()[id] case final m?) {
+        onMeasure(m);
+      }
+    },
     onTrafficWindow: onTrafficWindow,
     onTrafficFollow: onTrafficFollow,
     onTrafficReset: onTrafficReset,
     onBanner: onBanner,
     onGuide: () => onGuide(guideUrl),
     onSource: (s) => onSource(s.isEmpty ? null : s),
-    onLevel: (l) => onLevel(SysLevel.values.byName(l)),
+    onLevel: (id) {
+      if (SysLevel.values.asNameMap()[id] case final l?) {
+        onLevel(l);
+      }
+    },
     onFilter: (f) => onFilter(f.isEmpty ? null : f),
     onLines: onLines,
     onAround: (t) => onAround(t.isEmpty ? null : t),
@@ -176,7 +184,11 @@ class SystemScreen extends StatelessWidget {
     onGetLog: onGetLog,
     onCopyLog: onCopyLog,
     onSaveLog: onSaveLog,
-    onLogLevel: (l) => onLogLevel(SysLevel.values.byName(l)),
+    onLogLevel: (id) {
+      if (SysLevel.values.asNameMap()[id] case final l?) {
+        onLogLevel(l);
+      }
+    },
     onClear: () => _clear(context),
     onPutProfile: onPutProfile,
     onRemoveProfile: (name) => _removeProfile(context, name),
@@ -189,7 +201,11 @@ class SystemScreen extends StatelessWidget {
     onBackUp: onBackUp,
     onRestore: onRestore,
     onOpenBackup: onOpenBackup,
-    onElsewhere: (id) => onElsewhere(SysElsewhere.values.byName(id)),
+    onElsewhere: (id) {
+      if (SysElsewhere.values.asNameMap()[id] case final e?) {
+        onElsewhere(e);
+      }
+    },
   );
 
   /// The [SysTab] of a tab id of [SystemPage].
@@ -263,7 +279,7 @@ class SystemScreen extends StatelessWidget {
       bool outlined = false,
     }) => SysTileVm(
       label: t.label,
-      keyName: t.key,
+      keyName: vm.reading(t).key,
       value: value,
       unit: unit,
       sub: sub,
@@ -393,8 +409,8 @@ class SystemScreen extends StatelessWidget {
       measure: m.name,
       inLabel: S.current.sysIn,
       outLabel: S.current.sysOut,
-      inKey: '${m.key}_in_per_second',
-      outKey: '${m.key}_out_per_second',
+      inKey: t.inKey,
+      outKey: t.outKey,
       inNow: now(t.inNow),
       outNow: now(t.outNow),
       unit: unit,
@@ -430,7 +446,7 @@ class SystemScreen extends StatelessWidget {
       series: [
         TrendSeriesVm(
           id: 'in',
-          name: '${m.key}_in_per_second',
+          name: t.inKey,
           label: S.current.sysIn,
           color: .good,
           unit: unit,
@@ -440,7 +456,7 @@ class SystemScreen extends StatelessWidget {
         ),
         TrendSeriesVm(
           id: 'out',
-          name: '${m.key}_out_per_second',
+          name: t.outKey,
           label: S.current.sysOut,
           color: .text4,
           unit: unit,
@@ -503,7 +519,7 @@ class SystemScreen extends StatelessWidget {
       bool outlined = false,
     }) => SysTileVm(
       label: t.label,
-      keyName: t.key,
+      keyName: vm.reading(t).key,
       value: value,
       unit: unit,
       sub: sub,
@@ -620,13 +636,13 @@ class SystemScreen extends StatelessWidget {
                   final t? => Formats.utcClockSeconds(t),
                   null => line.time,
                 },
-                level: line.level.toUpperCase(),
+                level: line.level?.label.toUpperCase() ?? '',
                 target: line.target,
                 message: line.message,
               ),
           ]
         : const <LogRowVm>[];
-    final error = reason == null ? l.error : null;
+    final error = reason == null ? l.error?.text : null;
     return SystemLogVm(
       toolbar: LogToolbarVm(
         sourceLabel: S.current.sysSource,

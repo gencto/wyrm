@@ -38,6 +38,7 @@ import 'package:models/link_mode.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
+import 'package:models/log_read_error.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
 import 'package:models/standby_state.dart';
@@ -128,7 +129,7 @@ void main() {
       });
       // Newest first, with the four columns kept apart.
       expect(s.state.system.log.first.message, 'upstream edge connected');
-      expect(s.state.system.log.last.level, 'warn');
+      expect(s.state.system.log.last.level, LogLevel.warn);
       expect(s.state.system.log.last.target, 'admin::peers');
       expect(s.state.system.logError, isNull);
     });
@@ -156,7 +157,10 @@ void main() {
       final status = await s.dispatchAndWait(RetrieveSystemLogAction());
 
       expect(status.isCompletedOk, isTrue);
-      expect(s.state.system.logError, contains('config needed'));
+      expect(
+        s.state.system.logError,
+        const LogReadError.refused('permission_denied', 'config needed'),
+      );
       expect(s.state.system.log.single.message, 'up');
 
       api.errors.clear();
@@ -214,13 +218,13 @@ void main() {
       const lines = [
         LogLine(
           time: '2026-11-10T02:01:44Z',
-          level: 'info',
+          level: LogLevel.info,
           target: 'gateway',
           message: 'olena: set ok',
         ),
         LogLine(
           time: '2026-11-10T01:56:31Z',
-          level: 'error',
+          level: LogLevel.error,
           target: 'link{id=bacnet}',
           message: 'wasm component stopped',
         ),

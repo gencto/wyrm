@@ -1,3 +1,4 @@
+import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -39,16 +40,22 @@ Decoded<LogLine> _line(Value e) {
         VStr(:final v) => v,
         _ => (bad ??= name, '').$2,
       };
+      final level = field('level');
       final line = LogLine(
         time: field('time'),
-        level: field('level'),
         target: field('target'),
         message: field('message'),
       );
       if (bad case final f?) {
         return Invalid(_shape, f, 'not a text');
       }
-      return Valid(line.copyWith(at: DateTime.tryParse(line.time)));
+      final named = level.isEmpty ? null : LogLevel.fromWire(level);
+      if (level.isNotEmpty && named == null) {
+        return const Invalid(_shape, 'level', 'not a level name');
+      }
+      return Valid(
+        line.copyWith(at: DateTime.tryParse(line.time), level: named),
+      );
     default:
       return const Invalid(_shape, '', 'not a record');
   }

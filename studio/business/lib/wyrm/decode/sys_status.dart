@@ -25,6 +25,17 @@ Decoded<LogLevel?> logLevelOf(Object? v) => switch (v) {
   _ => const Invalid(_shape, 'log_level', 'not a code or a name'),
 };
 
+/// The keys below `sys` [sysStatusOf] reads: every [SysValue] and the
+/// broker's texts.
+final List<String> sysStatusKeys = [
+  for (final v in SysValue.values) v.key,
+  'version',
+  'zenoh_version',
+  'distribution',
+  'start_time',
+  'log_level',
+];
+
 /// What `sys` serves about the broker, from [value] (the live value of a
 /// key below `sys`, as plain Dart; null when none arrived). Each value is
 /// decoded on its own: one that is not of its type is left out **and

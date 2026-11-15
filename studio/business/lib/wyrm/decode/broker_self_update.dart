@@ -6,6 +6,15 @@ import 'live_fields.dart';
 
 const _shape = 'sys';
 
+/// The keys below `sys` [brokerSelfUpdateOf] reads.
+const selfUpdateKeys = [
+  'version',
+  'latest',
+  'update_state',
+  'update_mode',
+  'update_last',
+];
+
 /// What the broker says of its own update (ADR 0048 §2.4), from [value]
 /// (the live value of a key below `sys`, as plain Dart): `version`,
 /// `latest` (empty text: none), `update_state` (default `none`),

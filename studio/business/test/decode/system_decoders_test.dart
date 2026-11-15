@@ -66,7 +66,16 @@ void main() {
         state = state.copyWith.system(lines: 100 + i);
       }
       expect(warned, ['sys of plant: sys.links_connected: not a number']);
-      // a new value is decoded again
+      // a tick of a point that is not of sys decodes nothing again
+      state = state.copyWith.live(
+        values: state.live.values.add(
+          'wy/plant/downstream/modbus/plc1/t1/~val',
+          LiveValue(time: DateTime.utc(2026), value: 21.5),
+        ),
+      );
+      expect(_Sel(state).sysStatus[SysValue.sessions], 7);
+      expect(warned, hasLength(1));
+      // a new value of sys is decoded again
       state = state.copyWith.live(
         values: values.add(
           'wy/plant/sys/sessions',
@@ -310,12 +319,30 @@ void main() {
           LogLine(
             time: '2026-11-12T02:01:40Z',
             at: DateTime.utc(2026, 11, 12, 2, 1, 40),
-            level: 'warn',
+            level: LogLevel.warn,
             target: 'wyrm_admin',
             message: 'link bacnet stopped',
           ),
           const LogLine(message: 'a plain line'),
         ],
+      );
+    });
+
+    test('a level by name; none when the record names none', () {
+      expect(
+        valid(
+          logLinesOf([
+            Value.from({'level': 'debug', 'message': 'a'}),
+            Value.from({'message': 'b'}),
+          ]),
+        ).map((l) => l.level),
+        [LogLevel.debug, null],
+      );
+      expect(
+        logLinesOf([
+          Value.from({'level': 'loud', 'message': 'x'}),
+        ]),
+        const Invalid<List<LogLine>>('log line', 'level', 'not a level name'),
       );
     });
 

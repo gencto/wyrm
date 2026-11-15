@@ -73,6 +73,22 @@ final class _Bad implements Exception {
   final String reason;
 }
 
+/// The leaves of `sys/backups/<id>` [backupLiveOf] reads.
+const backupLeaves = [
+  'status',
+  'progress',
+  'step',
+  'size',
+  'sha256',
+  'created',
+  'expires',
+  'error',
+  'sent_to',
+  'send_status',
+  'send_progress',
+  'send_error',
+];
+
 /// [j] with the live values of `sys/backups/<id>` laid over it: `status`,
 /// `progress`, `step`, `size`, `sha256`, `created`, `expires`, `error`,
 /// `sent_to`, `send_status`, `send_progress`, `send_error`. [value] gives

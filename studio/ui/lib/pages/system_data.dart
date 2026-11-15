@@ -41,37 +41,25 @@ enum SysStandby {
   };
 }
 
-/// A value of `sys` drawn as a tile: its key below `sys` (shown on the
-/// tile) and its label.
+/// A value of `sys` drawn as a tile, with its label (its key below `sys`
+/// comes with its [SysReading]).
 enum SysTileKey {
-  linksConnected('links_connected'),
-  quarantined('quarantined'),
-  packagesTotal('packages_total'),
-  upstreamConnected('upstream_connected'),
-  downstreamConnected('downstream_connected'),
-  sessions('sessions'),
-  cpu('cpu'),
-  memory('memory'),
-  diskFree('disk_free'),
-  dataSize('data_size'),
-  aclDenied('acl_denied'),
-  auditRecords('audit_records'),
-  standbyConnected('standby_connected'),
-  standbyLag('standby_lag'),
-  arbiterLease('arbiter_lease_s'),
-  standbyForks('standby_forks');
-
-  const SysTileKey(this.key);
-
-  /// The key below `sys`, as the tile shows it.
-  final String key;
-
-  /// The tile [key] names, as a tile reports it when tapped.
-  static SysTileKey? ofKey(String key) => _byKey[key];
-
-  static final Map<String, SysTileKey> _byKey = {
-    for (final t in values) t.key: t,
-  };
+  linksConnected,
+  quarantined,
+  packagesTotal,
+  upstreamConnected,
+  downstreamConnected,
+  sessions,
+  cpu,
+  memory,
+  diskFree,
+  dataSize,
+  aclDenied,
+  auditRecords,
+  standbyConnected,
+  standbyLag,
+  arbiterLease,
+  standbyForks;
 
   String get label => switch (this) {
     linksConnected => S.current.mLinksConnected,
@@ -113,29 +101,26 @@ enum SysTileKey {
   };
 }
 
-/// One value of `sys`: the number (none before it arrived), the node's own
-/// unit, and its description (the tile's tooltip).
+/// One value of `sys`: its key below `sys` (the tile shows it), the number
+/// (none before it arrived), the node's own unit, and its description (the
+/// tile's tooltip).
 final class SysReading extends Equatable {
-  const SysReading({this.value, this.unit, this.about = ''});
+  const SysReading({required this.key, this.value, this.unit, this.about = ''});
 
+  final String key;
   final num? value;
   final String? unit;
   final String about;
 
   @override
-  List<Object?> get props => [value, unit, about];
+  List<Object?> get props => [key, value, unit, about];
 }
 
 /// What *Router traffic* draws: the messages, frames or bytes per second.
 enum SysMeasure {
-  messages('messages'),
-  frames('frames'),
-  bytes('data');
-
-  const SysMeasure(this.key);
-
-  /// The middle of its `sys` keys (`data_in_per_second`).
-  final String key;
+  messages,
+  frames,
+  bytes;
 
   String get label => switch (this) {
     messages => S.current.sysMessages,
@@ -200,11 +185,14 @@ final class SysTrendWindow extends Equatable {
   ];
 }
 
-/// *Router traffic*: the measure, the rates now, the node's unit, the ring
-/// of samples and the window on it (null before two samples).
+/// *Router traffic*: the measure and its two keys below `sys`, the rates
+/// now, the node's unit, the ring of samples and the window on it (null
+/// before two samples).
 final class SysTrafficData extends Equatable {
   const SysTrafficData({
     this.measure = SysMeasure.messages,
+    this.inKey = '',
+    this.outKey = '',
     this.inNow,
     this.outNow,
     this.unit,
@@ -213,6 +201,8 @@ final class SysTrafficData extends Equatable {
   });
 
   final SysMeasure measure;
+  final String inKey;
+  final String outKey;
   final num? inNow;
   final num? outNow;
   final String? unit;
@@ -220,7 +210,16 @@ final class SysTrafficData extends Equatable {
   final SysTrendWindow? window;
 
   @override
-  List<Object?> get props => [measure, inNow, outNow, unit, samples, window];
+  List<Object?> get props => [
+    measure,
+    inKey,
+    outKey,
+    inNow,
+    outNow,
+    unit,
+    samples,
+    window,
+  ];
 }
 
 /// A level of the broker's log.
@@ -235,25 +234,52 @@ enum SysLevel {
   String get label => name;
 }
 
-/// One line of the broker's log: its time as written and as read, level,
-/// target and message.
+/// One line of the broker's log: its time as written and as read, level
+/// (none when the record names none), target and message.
 final class SysLogLine extends Equatable {
   const SysLogLine({
     this.time = '',
     this.at,
-    this.level = '',
+    this.level,
     this.target = '',
     this.message = '',
   });
 
   final String time;
   final DateTime? at;
-  final String level;
+  final SysLevel? level;
   final String target;
   final String message;
 
   @override
   List<Object?> get props => [time, at, level, target, message];
+}
+
+/// Why the last read of the log gave no lines: the broker refused (its
+/// status name and message), or the answer is not a log (the field and
+/// why).
+final class SysLogError extends Equatable {
+  const SysLogError.refused(this.status, this.message) : invalid = false;
+  const SysLogError.invalid(String field, String reason)
+    : status = field,
+      message = reason,
+      invalid = true;
+
+  final bool invalid;
+
+  /// The status name; for an [invalid] answer, the field at fault.
+  final String status;
+
+  /// The broker's message; for an [invalid] answer, why.
+  final String message;
+
+  /// As the log box says it.
+  String get text => invalid
+      ? S.current.sysLogInvalid('$status: $message')
+      : '$status: $message';
+
+  @override
+  List<Object?> get props => [invalid, status, message];
 }
 
 /// The Log tab: the toolbar's arguments, the lines shown and the broker's
@@ -287,8 +313,8 @@ final class SysLogData extends Equatable {
   /// The toolbar's time, `hh:mm:ss` (UTC).
   final String? around;
 
-  /// The broker's refusal of the last read.
-  final String? error;
+  /// Why the last read gave no lines.
+  final SysLogError? error;
 
   /// A read is in flight.
   final bool reading;
@@ -650,8 +676,16 @@ final class SystemScreenVm extends Equatable {
   final SysMaintData maintenance;
   final List<SysAttentionData> attention;
 
-  /// The reading of [tile]; empty before its value arrived.
-  SysReading reading(SysTileKey tile) => readings[tile] ?? const SysReading();
+  /// The reading of [tile]; empty before the connector gave one.
+  SysReading reading(SysTileKey tile) =>
+      readings[tile] ?? const SysReading(key: '');
+
+  /// The tile whose reading has [key] (a tile reports its key when
+  /// tapped); null for none.
+  SysTileKey? tileOf(String key) => readings.entries
+      .where((e) => e.value.key == key)
+      .map((e) => e.key)
+      .firstOrNull;
 
   @override
   List<Object?> get props => [

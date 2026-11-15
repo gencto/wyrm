@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/log_line.dart';
+import 'package:models/log_read_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/decoded.dart';
@@ -48,13 +49,14 @@ Future<AppState?> readSystemLog(Action a) async {
         log: lines.reversed.toList().lock,
         logError: null,
       ),
-      // shown in the log box as a refusal is (`<status>: <message>`, the
-      // status `invalid`): the lines held stay
+      // shown in the log box as a refusal is: the lines held stay
       final Invalid<List<LogLine>> i => a.state.copyWith.system(
-        logError: 'invalid: ${i.shape}.${i.field}: ${i.reason}',
+        logError: LogReadError.invalid(i.field, i.reason),
       ),
     };
   } on WyrmException catch (e) {
-    return a.state.copyWith.system(logError: '${e.status.name}: ${e.message}');
+    return a.state.copyWith.system(
+      logError: LogReadError.refused(e.status.name, e.message),
+    );
   }
 }
