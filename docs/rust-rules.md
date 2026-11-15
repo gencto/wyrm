@@ -269,8 +269,8 @@ if job.status != JobStatus::Done { … }
 "one of …", "a, b or c"). C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
-tuples). The `name_enum!` macro (`wyrm-core/src/named.rs`) is exempt from
-C6: its `NAMES` is the one declaration of a set.
+tuples). The `name_enum!` and `wire_enum!` macros (`wyrm-core/src/named.rs`,
+`wire.rs`) are exempt from C6: their `NAMES` is the one declaration of a set.
 
 ## 7. One typed decoder per `Value` shape
 

@@ -69,6 +69,9 @@ macro_rules! wire_enum {
             /// Every variant, in declaration order.
             pub const ALL: &'static [Self] = &[$(Self::$variant),+];
 
+            /// Every spec name, in declaration order.
+            pub const NAMES: &'static [&'static str] = &[$($name),+];
+
             /// Wire code.
             pub const fn code(self) -> u8 {
                 self as u8
@@ -92,6 +95,7 @@ macro_rules! wire_enum {
 
         impl $crate::named::Named for $ty {
             const SET: &'static str = stringify!($ty);
+            const NAMES: &'static [&'static str] = $ty::NAMES;
             fn name(self) -> &'static str {
                 $ty::name(self)
             }

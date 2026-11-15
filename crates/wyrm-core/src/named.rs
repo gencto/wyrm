@@ -49,6 +49,8 @@ use core::fmt;
 pub trait Named: Copy + Sized + 'static {
     /// What the set is, for errors (`backup status`).
     const SET: &'static str;
+    /// Every name of the set, for errors.
+    const NAMES: &'static [&'static str];
     fn name(self) -> &'static str;
     fn from_name(name: &str) -> Option<Self>;
 }
@@ -63,10 +65,12 @@ pub struct UnknownValue {
     pub set: &'static str,
     /// The text, cut at 64 bytes (on a character boundary).
     pub name: String,
+    /// [`Named::NAMES`].
+    pub known: &'static [&'static str],
 }
 
 impl UnknownValue {
-    pub fn new(set: &'static str, name: &str) -> Self {
+    pub fn new(set: &'static str, known: &'static [&'static str], name: &str) -> Self {
         let mut end = name.len().min(SHOWN);
         while !name.is_char_boundary(end) {
             end -= 1;
@@ -74,13 +78,20 @@ impl UnknownValue {
         Self {
             set,
             name: name.get(..end).unwrap_or_default().to_owned(),
+            known,
         }
     }
 }
 
 impl fmt::Display for UnknownValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: unknown name {:?}", self.set, self.name)
+        write!(
+            f,
+            "{}: unknown name {:?} (one of {})",
+            self.set,
+            self.name,
+            self.known.join(", ")
+        )
     }
 }
 
@@ -88,7 +99,7 @@ impl std::error::Error for UnknownValue {}
 
 /// `name` as a value of `T`, or the typed error.
 pub fn parse<T: Named>(name: &str) -> Result<T, UnknownValue> {
-    T::from_name(name).ok_or_else(|| UnknownValue::new(T::SET, name))
+    T::from_name(name).ok_or_else(|| UnknownValue::new(T::SET, T::NAMES, name))
 }
 
 /// `#[cbor(with = "wyrm_core::named::cbor")]`: a [`Named`] value as its name (a
@@ -148,6 +159,29 @@ pub mod serde_or_empty {
         super::parse::<T>(&s)
             .map(Some)
             .map_err(<D::Error as de::Error>::custom)
+    }
+}
+
+/// `#[serde(default, with = "wyrm_core::named::serde_opt")]`: an `Option<T>` kept as a
+/// name when it is there (a config field that may be left out).
+pub mod serde_opt {
+    use super::Named;
+    use ::serde::{de, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<T: Named, S: Serializer>(v: &Option<T>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            Some(v) => s.serialize_some(v.name()),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, T: Named, D: Deserializer<'de>>(d: D) -> Result<Option<T>, D::Error> {
+        match Option::<String>::deserialize(d)? {
+            None => Ok(None),
+            Some(s) => super::parse::<T>(&s)
+                .map(Some)
+                .map_err(<D::Error as de::Error>::custom),
+        }
     }
 }
 
@@ -354,11 +388,14 @@ mod tests {
         }
         assert_eq!(Job::default(), Job::Running);
         let e = "Done".parse::<Job>().unwrap_err();
-        assert_eq!(e.to_string(), "job status: unknown name \"Done\"");
+        assert_eq!(
+            e.to_string(),
+            "job status: unknown name \"Done\" (one of running, done, failed)"
+        );
         assert!(Job::from_name("").is_none());
         // a long unknown name is cut, on a character boundary
         let long = "é".repeat(100);
-        assert_eq!(UnknownValue::new("x", &long).name.len(), 64);
+        assert_eq!(UnknownValue::new("x", &[], &long).name.len(), 64);
     }
 
     /// The enum writes the bytes the `String` wrote, in each codec, and an
