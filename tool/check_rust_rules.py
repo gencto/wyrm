@@ -2,7 +2,9 @@
 """Count what docs/rust-rules.md forbids, per file, against a baseline.
 
 A count may only go down, and a file that is not in the baseline starts at
-zero. Two kinds of rules:
+zero. A count that went down must be written down at once (`--lower`): the
+check fails on a count above and on a count below its baseline, so a fixed
+hit cannot be spent again by the next change. Two kinds of rules:
 
 * patterns C1..C10, read from the source (non-test code: `tests/`,
   `benches/`, `examples/` and `#[cfg(test)]` items are left out);
@@ -113,15 +115,24 @@ def mask(text: str, strings: bool = True) -> str:
     return "".join(out)
 
 
+TEST_CFG = re.compile(r"#\[cfg\((?:test|all\((?:[^()]|\([^()]*\))*\btest\b(?:[^()]|\([^()]*\))*\))\)\]")
+ITEM_KW = re.compile(
+    r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?"
+    r"(?:fn|mod|impl|struct|enum|trait|use|const|static|type|async|unsafe|extern|macro_rules!)\b"
+)
+
+
 def test_spans(masked: str) -> list[tuple[int, int]]:
-    """Offsets of `#[cfg(test)]` items (their attribute to their closing
-    brace or semicolon)."""
+    """Offsets of `#[cfg(test)]` (and `#[cfg(all(test, …))]`) items: from the
+    attribute to the item's closing brace or semicolon. An item (`fn`, `mod`,
+    `impl`, …) runs to its own end whatever commas its signature holds; a
+    field, arm or statement ends at the `,`/`;` that ends it, never past the
+    enclosing `}`."""
     spans = []
-    for m in re.finditer(r"#\[cfg\(test\)\]", masked):
+    for m in TEST_CFG.finditer(masked):
         j = m.end()
+        item = ITEM_KW.match(masked, j) is not None
         depth = 0
-        # to the item's closing brace, or to the `;`/`,` that ends a
-        # statement, field or arm; never past the enclosing `}`
         while j < len(masked):
             ch = masked[j]
             if ch in "([{":
@@ -133,7 +144,7 @@ def test_spans(masked: str) -> list[tuple[int, int]]:
                 if depth == 0 and ch == "}":
                     j += 1
                     break
-            elif ch in ";," and depth == 0:
+            elif depth == 0 and (ch == ";" or (ch == "," and not item)):
                 j += 1
                 break
             j += 1
@@ -150,6 +161,11 @@ def blank_spans(text: str, spans: list[tuple[int, int]]) -> str:
     return "".join(out)
 
 
+# A marker's reason must say something: at least this many characters.
+MIN_REASON = 12
+MARKER = re.compile(r"//\s*rust-rules:\s*allow\(([^)]*)\)\s*(.*)$")
+
+
 class Source:
     def __init__(self, path: str, text: str):
         self.path = path
@@ -160,6 +176,7 @@ class Source:
         self.code = blank_spans(mask(text, strings=False), spans)  # strings kept
         self.lines = text.split("\n")
         self.masked_lines = self.masked.split("\n")
+        self.code_lines = self.code.split("\n")
         self.starts = [0]
         for line in self.lines:
             self.starts.append(self.starts[-1] + len(line) + 1)
@@ -175,184 +192,346 @@ class Source:
         return lo + 1
 
     def allowed(self, line: int, rule: str) -> bool:
-        tag = re.compile(r"//\s*rust-rules:\s*allow\(([^)]*)\)\s*\S")
         for ln in (line, line - 1):
             if 1 <= ln <= len(self.lines):
-                m = tag.search(self.lines[ln - 1])
-                if m and rule in [r.strip() for r in m.group(1).split(",")]:
+                m = MARKER.search(self.lines[ln - 1])
+                if (
+                    m
+                    and rule in [r.strip() for r in m.group(1).split(",")]
+                    and len(m.group(2).strip()) >= MIN_REASON
+                ):
                     return True
         return False
 
     def hits(self, rule: str, offsets) -> list[int]:
         """The lines of `offsets`, without the ones a marker allows."""
-        lines = (self.line_of(o) for o in offsets)
+        lines = (self.line_of(o) for o in sorted(set(offsets)))
         return [ln for ln in lines if not self.allowed(ln, rule)]
 
 
 # ---------- the pattern rules ----------
 
 INT = r"(?:u8|u16|u32|u64|u128|usize|i8|i16|i32|i64|i128|isize)"
+NARROW = {"u8", "u16", "u32", "i8", "i16", "i32"}
+FLOATY = re.compile(r"as_f64|as_f32|\bf64\b|\bf32\b|Float\(|\.round\(\)|\.floor\(\)|\.ceil\(\)|\.trunc\(\)")
 
 
 def c1(s: Source) -> list[int]:
-    """`as u8|u16|u32` outside the code tables, and any `as <int>` within
-    three lines after an `as_f64` read."""
+    """An integer cast that can lose or widen silently: `as u8/u16/u32/i8/i16/i32`, `as _`
+    (the target is whatever the compiler infers), and any `as <int>` within six lines after
+    a float (`as_f64`, `f64`, `Float(`, `.round()`…). The code tables are exempt."""
     if s.path == "crates/wyrm-core/src/wire.rs":
         return []
     hits = []
-    f64_lines = [i + 1 for i, l in enumerate(s.masked_lines) if "as_f64" in l]
-    for m in re.finditer(rf"\bas\s+({INT})\b", s.masked):
+    floaty = [i + 1 for i, line in enumerate(s.masked_lines) if FLOATY.search(line)]
+    for m in re.finditer(rf"\bas\s+({INT}|_)(?![\w:])", s.masked):
         ln = s.line_of(m.start())
-        if m.group(1) in ("u8", "u16", "u32") or any(0 <= ln - f <= 3 for f in f64_lines):
+        if m.group(1) in NARROW or m.group(1) == "_" or any(0 <= ln - f <= 6 for f in floaty):
             hits.append(m.start())
     return s.hits("C1", hits)
 
 
-OWN_LOOKUP = {"from_name", "parse", "from_str", "by_name"}
+NAME_CMP = r"\.name\(\)\s*(?:==|!=|\.eq\()|(?:==|!=)\s*[\w.*&()]+\.name\(\)|\bname\(\s*\*?\w+\s*\)\s*(?:==|!=)"
+NAME_ARM = re.compile(r'"[\w.:-]+"\s*(?:\|\s*"[\w.:-]+"\s*)*=>\s*(?:Some\(|Ok\()?\s*(?:Self|[A-Z]\w*)::[A-Z]\w*\b(?!\s*\()')
 
 
 def c2(s: Source) -> list[int]:
-    """A name looked up by hand: `ALL…name() ==`, or any `.find(|x| x.name() == s)` /
-    `name(*x) == s` search. The type's own `from_name` (or `parse`, `from_str`) is the one
-    definition of its set and is not counted."""
-    hits = []
-    pats = [
-        r"\bALL\b[^;{}]{0,240}?(?:\.name\(\)\s*==|==\s*[\w.*&]+\.name\(\))",
-        r"\.find\(\s*\|[^|]*\|[^;{}]{0,160}?(?:\.name\(\)\s*==|==\s*[\w.*&]+\.name\(\)|\bname\(\s*\*?\w+\s*\)\s*==)",
-    ]
-    seen = set()
-    for pat in pats:
-        for m in re.finditer(pat, s.masked):
-            ln = s.line_of(m.end())
-            if ln in seen:
-                continue
-            fns = re.findall(r"\bfn\s+(\w+)", s.masked[: m.start()])
-            if fns and fns[-1] in OWN_LOOKUP:
-                continue
-            seen.add(ln)
-            hits.append(m.end())
+    """A name looked up by hand: any `.name() == s` / `.name().eq(s)` / `name(*x) == s`
+    comparison (in `find`, `position`, `filter`, `any`, …), and a `match` whose string arms
+    give enum variants (`"read" => Perm::Read`), counted once per `match`. A type's own
+    lookup counts too: a set is named once, by `wire_enum!`. The macro itself is exempt."""
+    if s.path == "crates/wyrm-core/src/wire.rs":
+        return []
+    hits = [m.start() for m in re.finditer(NAME_CMP, s.masked)]
+    seen_match = set()
+    for m in NAME_ARM.finditer(s.code):
+        # the arm's `match`: the last `match` keyword before it
+        k = s.masked.rfind("match ", 0, m.start())
+        if k not in seen_match:
+            seen_match.add(k)
+            hits.append(m.start())
     return s.hits("C2", hits)
 
 
-FIELD = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?[a-z_][a-z0-9_]*\s*:\s*(?:Option<\s*String\s*>|String)\s*,")
-ALTS = re.compile(r"`[\w.-]+`\s*(?:,|\||/|\bor\b)\s*`[\w.-]+`|`[\w-]+(?:\s*\|\s*[\w-]+)+`")
+STRINGY = (
+    r"(?:Option<\s*)?(?:std::string::String|String|Box<\s*str\s*>|&\s*(?:'\w+\s+)?str|"
+    r"(?:std::borrow::)?Cow<[^>]*str\s*>)(?:\s*>)?"
+)
+FIELD = re.compile(rf"^\s*(?:pub(?:\([^)]*\))?\s+)?([a-z_][a-z0-9_]*)\s*:\s*{STRINGY}\s*(?:,|$)")
+ALTS = re.compile(
+    r"`[\w.-]+`\s*(?:,|\||/|\bor\b)\s*`[\w.-]+`"
+    r"|`[\w-]+(?:\s*\|\s*[\w-]+)+`"
+    r'|"[\w.-]+"\s*(?:,|\||/|\bor\b)\s*"[\w.-]+"'
+    r"|\b(?:one of|either)\b"
+    r"|\b[a-z_]+, [a-z_]+(?:, [a-z_]+)*,? or [a-z_]+\b"
+)
+
+
+def doc_above(s: Source, i: int) -> str:
+    doc, j = [], i - 1
+    while j >= 0 and (s.lines[j].strip().startswith("///") or s.lines[j].strip().startswith("#[")):
+        if s.lines[j].strip().startswith("///"):
+            doc.append(s.lines[j])
+        j -= 1
+    return " ".join(doc)
 
 
 def c3(s: Source) -> list[int]:
-    """A `String` field whose doc comment lists its values: a closed set."""
+    """A text field or `fn` argument whose doc lists its values: a closed set carried as
+    text (`String`, `&str`, `Box<str>`, `Cow<str>`, also inside `Option`)."""
     hits = []
     for i, line in enumerate(s.lines):
-        if not FIELD.match(line) or not s.masked_lines[i].strip():
+        if not s.masked_lines[i].strip():
             continue
-        doc, j = [], i - 1
-        while j >= 0 and (s.lines[j].strip().startswith("///") or s.lines[j].strip().startswith("#[")):
-            if s.lines[j].strip().startswith("///"):
-                doc.append(s.lines[j])
-            j -= 1
-        if ALTS.search(" ".join(doc)):
+        if FIELD.match(line) and ALTS.search(doc_above(s, i)):
             hits.append(s.starts[i])
+            continue
+        fm = re.match(r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+\w+", line)
+        if fm:
+            doc = doc_above(s, i)
+            sig = s.masked[s.starts[i] : s.masked.find("{", s.starts[i]) + 1 or s.starts[i] + 400]
+            for arg in re.findall(rf"\b([a-z_][a-z0-9_]*)\s*:\s*{STRINGY}", sig):
+                if re.search(rf"`{arg}`[^\n]*?(?:{ALTS.pattern})", doc):
+                    hits.append(s.starts[i])
+                    break
     return s.hits("C3", hits)
 
 
+ARG_HELPERS = r"\b(?:arg|arg_str|opt_str|req_str|get_str|get_u64|get_bool|get_f64|enum_arg|text_arg|choice|uint_arg|bool_arg)\(\s*[^;)]*?\""
+C4_PATTERNS = [
+    r"\bSome\(\s*&?\s*Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes|Null)\b",
+    r"\bif\s+let\s+(?:Some\(\s*)?&?Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes)\(",
+    r"\blet\s+(?:Some\(\s*)?&?Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes)\([^)]*\)\s*\)?\s*=",
+    r'\.(?:get|get_mut|remove|contains_key)\(\s*&?\s*(?:"[^"\n]*"(?:\.to_\w+\(\))?|[A-Z][A-Z0-9_]+)\s*\)',
+    r'\[\s*"[^"\n]*"\s*\]',
+    r"\bValue::as_\w+\b",
+    ARG_HELPERS,
+]
+
+
 def c4(s: Source) -> list[int]:
-    """A field of a `Value` map read by hand outside a decoder."""
+    """A field of a `Value` map read by hand outside a decoder: `Some(Value::…`, `if let
+    Value::…(`, `let Value::…(..) =`, `.get/get_mut/remove/contains_key("x" | CONST)`,
+    `m["x"]`, `Value::as_*`, and the argument helpers (`arg_str(&args, "x")`, …)."""
     if s.path.endswith("/decode.rs") or "/decode/" in s.path or s.path == "crates/wyrm-core/src/value.rs":
         return []
-    pat = r'Some\(\s*Value::(?:Str|UInt|Int|Bool|Float|Map|Array|Bytes)\(|\.get\(\s*"[^"\n]*"\s*\)'
-    return s.hits("C4", [m.start() for m in re.finditer(pat, s.code)])
+    hits = [m.start() for p in C4_PATTERNS for m in re.finditer(p, s.code)]
+    return s.hits("C4", hits)
 
 
-PUB_FN = re.compile(r"\bpub(?:\([^)]*\))?\s+(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+\"C\"\s+)?fn\s+\w+")
+PUB_FN = re.compile(
+    r"\bpub(?:\([^)]*\))?\s+(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+\"C\"\s+)?fn\s+\w+"
+)
+TEXT_ERR = r"(?:std::string::String|String|&(?:'\w+)?str|Box<str>|(?:std::borrow::)?Cow<[^>]*str>)"
+STRING_RESULT = rf"(?:(?:std|core)::result::)?Result<.*,{TEXT_ERR}>"
 
 
-STRING_RESULT = r"(?:(?:std|core)::result::)?Result<.*,String>"
+def signature_end(text: str, j: int) -> int:
+    depth = 0
+    while j < len(text):
+        ch = text[j]
+        if ch in "(<[":
+            depth += 1
+        elif ch in ")>]" and not (ch == ">" and text[j - 1] == "-"):
+            depth -= 1
+        elif depth <= 0 and (ch in "{;" or re.match(r"\bwhere\b", text[j:]) and not text[j - 1].isalnum()):
+            break
+        j += 1
+    return j
+
+
+# Per crate (its directory): names of type aliases that are a text error
+# (`pub type Error = String;`), filled by `measure_patterns` before the rules run.
+CRATE_TEXT_ERRORS: dict[str, set[str]] = {}
+
+
+def crate_of(path: str) -> str:
+    return path.split("/src/")[0] if "/src/" in path else path
+
+
+def text_error_aliases(path: str, text: str) -> set[str]:
+    out = set()
+    for name, body in re.findall(r"\btype\s+(\w+)\s*=\s*([^;<]+);", mask(text)):
+        if re.fullmatch(TEXT_ERR, re.sub(r"\s+", "", body)):
+            out.add(name)
+    return out
 
 
 def c5(s: Source) -> list[int]:
-    """A `pub fn` that returns `Result<_, String>`, also through an alias of this file
-    (`type Out = Result<Json, String>`, `type Result<T> = …Result<T, String>`)."""
+    """A public `fn` (also a method of a `pub trait`) that returns `Result<_, String>` or
+    another text error (`&str`, `Box<str>`, `Cow<str>`), also through an alias of this file
+    (`type Out = Result<Json, String>`)."""
     aliases = [
         a
         for a, body in re.findall(r"\btype\s+(\w+)\s*(?:<[^=]*>)?\s*=\s*([^;]+);", s.masked)
         if re.fullmatch(STRING_RESULT, re.sub(r"\s+", "", body))
     ]
-    ret = STRING_RESULT + "".join(f"|{a}(?:<.*>)?" for a in aliases)
-    hits = []
+    # an error type of the crate that is text (`pub type Error = String;` in another file)
+    errs = CRATE_TEXT_ERRORS.get(crate_of(s.path), set())
+    err_alt = "".join(f"|(?:crate::|super::|\\w+::)*{e}" for e in sorted(errs))
+    ret = (
+        rf"(?:(?:std|core)::result::)?Result<.*,(?:{TEXT_ERR}{err_alt})>"
+        + "".join(f"|{a}(?:<.*>)?" for a in aliases)
+    )
     text = s.masked
+    hits = []
+    seen = set()
     for m in PUB_FN.finditer(text):
-        j, depth = m.end(), 0
-        while j < len(text):
-            ch = text[j]
-            if ch in "(<[":
-                depth += 1
-            elif ch in ")>]":
-                depth -= 1
-            elif depth <= 0 and (ch in "{;" or text.startswith("where", j)):
-                break
-            j += 1
-        sig = re.sub(r"\s+", "", text[m.end() : j])
+        seen.add(m.start())
+        sig = re.sub(r"\s+", "", text[m.end() : signature_end(text, m.end())])
         if re.search(rf"->(?:{ret})$", sig):
             hits.append(m.start())
+    for tm in re.finditer(r"\bpub(?:\([^)]*\))?\s+trait\s+\w+[^{]*\{", text):
+        depth, j = 1, tm.end()
+        while j < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[j], 0)
+            j += 1
+        for fm in re.finditer(r"\bfn\s+\w+", text[tm.end() : j]):
+            at = tm.end() + fm.start()
+            if at in seen:
+                continue
+            e = tm.end() + fm.end()
+            sig = re.sub(r"\s+", "", text[e : signature_end(text, e)])
+            if re.search(rf"->(?:{ret})$", sig):
+                hits.append(at)
     return s.hits("C5", hits)
 
 
+ONLY_BEFORE = re.compile(r"\bonly\(\s*$")
+
+
 def c6(s: Source) -> list[int]:
-    """A closed set written as strings: an inline `&["a", "b", …]` (but the
-    key list of `Fields::only(&[…])`), or a `const`/`static` array of `&str`."""
-    inline = r'&\[\s*"[^"\n]*"(?:\s*,\s*"[^"\n]*")+\s*,?\s*\]'
-    consts = r"\b(?:const|static)\s+[A-Z_][A-Z0-9_]*\s*:\s*(?:&\s*(?:'static\s+)?)?\[\s*&\s*(?:'static\s+)?str\b"
-    hits = [
-        m.start()
-        for m in re.finditer(inline, s.code)
-        if not re.search(r"\bonly\(\s*$", s.code[max(0, m.start() - 40) : m.start()])
-    ]
+    """A closed set written as strings: an inline `["a", "b", …]` (with or without `&`,
+    also `vec![…]`; but the key list of `Fields::only(&[…])`), `matches!(x, "a" | "b")`,
+    `x == "a" || x == "b"`, and a `const`/`static` table of `&str` (also of tuples)."""
+    hits = []
+    inline = r'(?:vec!)?&?\[\s*"[^"\n]*"(?:\s*,\s*"[^"\n]*")+\s*,?\s*\]'
+    for m in re.finditer(inline, s.code):
+        if not ONLY_BEFORE.search(s.code[max(0, m.start() - 40) : m.start()]):
+            hits.append(m.start())
+    hits += [m.start() for m in re.finditer(r'matches!\([^,]*,\s*"[^"\n]*"\s*\|\s*"', s.code)]
+    hits += [m.start() for m in re.finditer(r'==\s*"[^"\n]*"\s*\|\|\s*[\w.]+\s*==\s*"', s.code)]
+    consts = (
+        r"\b(?:const|static)\s+[A-Z_][A-Z0-9_]*\s*:\s*(?:&\s*(?:'static\s+)?)?\[\s*"
+        r"(?:&\s*(?:'static\s+)?str\b|\(\s*&\s*(?:'static\s+)?str\b)"
+    )
     hits += [m.start() for m in re.finditer(consts, s.masked)]
     return s.hits("C6", hits)
 
 
 def c7(s: Source) -> list[int]:
-    """A selector or key parameter built with `format!` from a value
-    (`?x={}`, `&x={}`, `history={}`)."""
+    """A selector, key or URL query written from values: a `format!`/`write!`/`writeln!`
+    string (also raw) with `?x={…}`, `&x={…}`, `;x={…}`, `?{p}={…}` or `history={…}`, and a
+    text piece that ends a parameter for a value to follow (`"&x="`, `"?x="` in a
+    `push_str`, a `concat`, …)."""
     hits = []
-    for m in re.finditer(r'format!\(\s*"((?:[^"\\]|\\.)*)"', s.code):
-        if re.search(r"(?:[?&][\w.]+=|\bhistory=)[^\"]*\{", m.group(1)):
+    fmt = r'\b(?:format|write|writeln|format_args)!\(\s*(?:[\w.&*]+\s*,\s*)?r?#*"((?:[^"\\]|\\.)*)"'
+    for m in re.finditer(fmt, s.code):
+        if re.search(r"(?:[?&;][\w.{}]*=|\bhistory=)[^\"]*\{", m.group(1)):
             hits.append(m.start())
+    hits += [m.start() for m in re.finditer(r'"[^"\n]*[?&;][\w.]+="', s.code)]
     return s.hits("C7", hits)
 
 
+PERSIST = (
+    r"(?:getrandom::\w+|\.fill\(|\.apply\(|\.save\(|\.persist\(|\.sync_all\(|\.sync_data\("
+    r"|\.flush\(|\brename\(|\.write_all\(|\bfs::write\(|\.commit\()"
+)
+
+
 def c8(s: Source) -> list[int]:
-    """A dropped security or persistence result: `let _ =` / `_ =` of
-    `getrandom::…`, `.fill(`, `store.apply(…)`, `.save(`, `.persist(`, `.sync_all(`,
-    `.flush(`, or such a call ended with `.ok();`."""
-    calls = r"(?:getrandom::|\.fill\(|\.apply\(|\.save\(|\.persist\(|\.sync_all\(|\.flush\()"
+    """A dropped security or persistence result (RNG fill, store `apply`, `save`, `persist`,
+    `sync_all`, `flush`, `rename`, `write_all`, …): `let _ =`, `let _x =`, `let _: T =`,
+    `_ =`, `drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}`, and
+    `.unwrap_or_default()` on it; and an encode that turns its error into empty bytes
+    (`to_vec(..).unwrap_or_default()` / `.ok()`: use `codec::encode_to_vec`)."""
+    m_ = s.masked
     pats = [
-        rf"(?:\blet\s+_\s*=|(?<![\w.=!<>])_\s*=(?![=>]))[^;]*?{calls}",
-        rf"(?<![=\w])\s(?:\w+::)*\w+(?:\.\w+)*{calls}[^;]*?\)\s*\.ok\(\)\s*;",
+        rf"\blet\s+_\w*\s*(?::[^=;]*)?=[^;]*?{PERSIST}",
+        # `_ = …;` (not a `select!` arm `_ = fut => …`)
+        rf"(?<![\w.=!<>])_\s*=(?![=>])(?:(?!=>)[^;])*?{PERSIST}",
+        rf"(?<!fn )\bdrop\([^;]*?{PERSIST}",
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.ok\(\)\s*;",
+        rf"\bif\s+[^{{;]*?{PERSIST}[^{{;]*\.is_err\(\)\s*\{{\s*\}}",
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_default\(\)",
+        r"\bto_vec\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\.\s*(?:unwrap_or_default\(\)|ok\(\))",
     ]
-    hits = sorted({m.start() for p in pats for m in re.finditer(p, s.masked)})
+    hits = [m.start() for p in pats for m in re.finditer(p, m_)]
     return s.hits("C8", hits)
 
 
+CLOCK_HEX = r"(?:now\w*|\w*_now|unix_\w+|timestamp\w*|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
+
+
 def c9(s: Source) -> list[int]:
-    """A clock or hex/digest helper defined outside `wyrm-core`: a `fn` whose name starts
-    with `now_` or contains `hex` or `sha256` (`now_us`, `hex`, `wyrm_core_hex`,
-    `sha256_hex`, …)."""
+    """A clock or hex/digest helper defined outside `wyrm-core`: a `fn` or a closure
+    (`let now = || …`) named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding `hex`,
+    `sha256` or `digest`."""
     if s.path.startswith("crates/wyrm-core/"):
         return []
-    pat = r"\bfn\s+(?:now_\w*|\w*hex\w*|\w*sha256\w*)\b"
-    return s.hits("C9", [m.start() for m in re.finditer(pat, s.masked)])
+    pats = [rf"\bfn\s+{CLOCK_HEX}\b", rf"\blet\s+{CLOCK_HEX}\s*=\s*(?:move\s*)?\|"]
+    return s.hits("C9", [m.start() for p in pats for m in re.finditer(p, s.masked)])
 
 
 def c10(s: Source) -> list[int]:
-    """A `#[param(secret)]` field whose type is not a `Secret`."""
+    """A `#[param(secret)]` field whose type is not a `Secret` (a type alias of this file is
+    followed to its type)."""
+    aliases = dict(re.findall(r"\btype\s+(\w+)\s*=\s*([^;]+);", s.masked))
     hits = []
     for m in re.finditer(r"#\[param\(([^\]]*)\)\]", s.masked):
         if not re.search(r"\bsecret\b", m.group(1)):
             continue
         f = re.compile(r"\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?\w+\s*:\s*([^,}]+)").match(s.masked, m.end())
-        if f and "Secret" not in f.group(1):
+        if not f:
+            continue
+        ty = f.group(1).strip()
+        for _ in range(4):
+            ty = re.sub(r"\b\w+\b", lambda w: aliases.get(w.group(0), w.group(0)), ty)
+        if "Secret" not in ty:
             hits.append(m.start())
     return s.hits("C10", hits)
+
+
+REASON = re.compile(r'\breason\s*=\s*"((?:[^"\\]|\\.)*)"', re.S)
+
+
+def allow_attrs(s: Source):
+    """`#[allow(…)]`, `#![allow(…)]` and `#[expect(…)]` attributes of this file, with their
+    text (the `cfg_attr` form too), outside test code."""
+    for m in re.finditer(r"#!?\[(?:cfg_attr\([^\[]*?,\s*)?(?:allow|expect)\(", s.masked):
+        depth, j = 0, m.start()
+        while j < len(s.masked):
+            if s.masked[j] == "[":
+                depth += 1
+            elif s.masked[j] == "]":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        yield m.start(), s.text[m.start() : j + 1]
+
+
+def a1(s: Source) -> list[int]:
+    """Every exception, counted so none is invisible: each `#[allow(…)]`/`#[expect(…)]` and
+    each `// rust-rules: allow(Cn)` marker."""
+    hits = [o for o, _ in allow_attrs(s)]
+    hits += [s.starts[i] for i, line in enumerate(s.lines) if MARKER.search(line)]
+    return s.hits("A1", hits)
+
+
+def a2(s: Source) -> list[int]:
+    """An exception without a real reason: an `allow`/`expect` with no `reason`, or one
+    shorter than 12 characters, and a `rust-rules` marker whose reason is that short."""
+    hits = []
+    for o, attr in allow_attrs(s):
+        r = REASON.search(attr)
+        if not r or len(r.group(1).strip()) < MIN_REASON:
+            hits.append(o)
+    for i, line in enumerate(s.lines):
+        mm = MARKER.search(line)
+        if mm and len(mm.group(2).strip()) < MIN_REASON:
+            hits.append(s.starts[i])
+    return s.hits("A2", hits)
 
 
 PATTERNS = {
@@ -366,6 +545,8 @@ PATTERNS = {
     "C8-dropped-result": c8,
     "C9-duplicate-helper": c9,
     "C10-plain-secret": c10,
+    "A1-allow": a1,
+    "A2-short-reason": a2,
 }
 
 # ---------- measuring ----------
@@ -407,7 +588,11 @@ def sources():
 
 def measure_patterns(show: str | None = None) -> dict[str, dict[str, int]]:
     out: dict[str, dict[str, int]] = {r: {} for r in PATTERNS}
-    for path, text in sources():
+    files = list(sources())
+    CRATE_TEXT_ERRORS.clear()
+    for path, text in files:
+        CRATE_TEXT_ERRORS.setdefault(crate_of(path), set()).update(text_error_aliases(path, text))
+    for path, text in files:
         s = Source(path, text)
         for name, rule in PATTERNS.items():
             lines = rule(s)
@@ -496,12 +681,15 @@ def main(argv: list[str]) -> int:
         print(f"baseline written: {BASELINE.relative_to(ROOT)}")
         return 0
 
-    over, lowered = [], {}
+    over, under, lowered = [], [], {}
     for r in rules:
         b, n = base.get(r, {}), now.get(r, {})
-        for f, c in sorted(n.items()):
-            if c > b.get(f, 0):
-                over.append(f"{r}  {f}: {c} (baseline {b.get(f, 0)})")
+        for f in sorted(set(b) | set(n)):
+            c, was = n.get(f, 0), b.get(f, 0)
+            if c > was:
+                over.append(f"{r}  {f}: {c} (baseline {was})")
+            elif c < was:
+                under.append(f"{r}  {f}: {c} (baseline {was})")
         lowered[r] = {f: min(c, n[f]) for f, c in b.items() if n.get(f, 0) > 0}
     for r in set(list(PATTERNS) + CLIPPY) - set(rules):
         lowered[r] = base.get(r, {})
@@ -513,13 +701,22 @@ def main(argv: list[str]) -> int:
             write(lowered)
             print(f"baseline lowered: {BASELINE.relative_to(ROOT)}")
             return 0
-    if not over:
+    if not over and not under:
         totals = ", ".join(f"{r.split('-')[0]} {sum(now.get(r, {}).values())}" for r in rules)
-        print(f"rust rules: no count above the baseline ({totals})")
+        print(f"rust rules: every count is its baseline ({totals})")
         return 0
-    sys.stderr.write("rust rules: counts above the baseline (see docs/rust-rules.md)\n")
-    for o in over:
-        sys.stderr.write(f"  {o}\n")
+    if over:
+        sys.stderr.write("rust rules: counts above the baseline (see docs/rust-rules.md)\n")
+        for o in over:
+            sys.stderr.write(f"  {o}\n")
+    if under:
+        # a fixed hit must not stay in the baseline, or the next change could spend it again
+        sys.stderr.write(
+            "rust rules: counts below the baseline: run `python3 tool/check_rust_rules.py --lower`"
+            " and commit the baseline\n"
+        )
+        for u in under:
+            sys.stderr.write(f"  {u}\n")
     return 1
 
 
