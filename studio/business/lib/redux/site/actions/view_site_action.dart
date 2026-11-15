@@ -32,6 +32,10 @@ class ViewSiteAction extends Action {
   /// card): unwatched, not moved, since its tasks go with that site.
   IList<String> _assistantWatched = const IListConst([]);
 
+  /// The finding nodes the Assistant drawer watched on the site that was
+  /// left: unwatched too (the drawer closes with the old site's state).
+  IList<String> _drawerWatched = const IListConst([]);
+
   @override
   AppState? reduce() {
     if (target == site.viewed) {
@@ -43,6 +47,7 @@ class ViewSiteAction extends Action {
     deps.agentTasks.follow(null);
     _from = site.viewed;
     _assistantWatched = state.assistant.watched;
+    _drawerWatched = state.assistant.drawerWatched;
     return state.copyWith(
       site: state.site.copyWith(current: target == site.name ? null : target),
       nodes: const NodesState(),
@@ -93,6 +98,9 @@ class ViewSiteAction extends Action {
     super.after();
     if (_assistantWatched.isNotEmpty) {
       dispatchSync(UnwatchKeysAction(_assistantWatched));
+    }
+    if (_drawerWatched.isNotEmpty) {
+      dispatchSync(UnwatchKeysAction(_drawerWatched));
     }
     for (final reload in deps.reloads) {
       reload(store);

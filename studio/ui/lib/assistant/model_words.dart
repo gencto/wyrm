@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
@@ -9,16 +10,31 @@ import '../theme/typography.dart';
 /// What [ModelWords] draws: text the model wrote about a step or a run,
 /// under a label that says so.
 final class ModelWordsVm extends Equatable {
-  const ModelWordsVm({required this.label, required this.text});
+  const ModelWordsVm({required this.kind, required this.text});
 
-  /// `the assistant says`, `the assistant read why it stopped`.
-  final String label;
+  /// What the words are about: a step, or a run that stopped.
+  final ModelWordsKind kind;
 
   /// The model's words, shown as plain text: no marks read, no links.
   final String text;
 
+  /// `the assistant says`, `what the assistant read about it`.
+  String get label => switch (kind) {
+    ModelWordsKind.says => S.current.modelSays,
+    ModelWordsKind.reviewed => S.current.modelReviewed,
+  };
+
   @override
-  List<Object?> get props => [label, text];
+  List<Object?> get props => [kind, text];
+}
+
+/// What the model's words are about.
+enum ModelWordsKind {
+  /// A risk of a plan step (`model_warn`).
+  says,
+
+  /// Why a run stopped (`review`).
+  reviewed,
 }
 
 /// The model's words in a card (a step's `model_warn`, the review after a

@@ -15,8 +15,8 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$StepResult {
 
-/// `ok`, `failed` or `skipped`.
- String get status; String get message; DateTime? get time;
+ StepStatus get status; String get message;/// The fixed word a refusal starts with (`out_of_range: …`), if any.
+ String? get code; DateTime? get time;
 /// Create a copy of StepResult
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,20 +28,20 @@ $StepResultCopyWith<StepResult> get copyWith => _$StepResultCopyWithImpl<StepRes
 @override
 bool operator ==(Object other) {
   final _this = this as StepResult;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is StepResult&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.time, _this.time) || other.time == _this.time));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is StepResult&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.code, _this.code) || other.code == _this.code)&&(identical(other.time, _this.time) || other.time == _this.time));
 }
 
 
 @override
 int get hashCode {
   final _this = this as StepResult;
-  return Object.hash(runtimeType,_this.status,_this.message,_this.time);
+  return Object.hash(runtimeType,_this.status,_this.message,_this.code,_this.time);
 }
 
 @override
 String toString() {
   final _this = this as StepResult;
-  return 'StepResult(status: ${_this.status}, message: ${_this.message}, time: ${_this.time})';
+  return 'StepResult(status: ${_this.status}, message: ${_this.message}, code: ${_this.code}, time: ${_this.time})';
 }
 
 
@@ -52,7 +52,7 @@ abstract mixin class $StepResultCopyWith<$Res>  {
   factory $StepResultCopyWith(StepResult value, $Res Function(StepResult) _then) = _$StepResultCopyWithImpl;
 @useResult
 $Res call({
- String status, String message, DateTime? time
+ StepStatus status, String message, String? code, DateTime? time
 });
 
 
@@ -69,11 +69,12 @@ class _$StepResultCopyWithImpl<$Res>
 
 /// Create a copy of StepResult
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? message = null,Object? time = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? message = null,Object? code = freezed,Object? time = freezed,}) {
   return _then(StepResult(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
-as String,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String,time: freezed == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
+as StepStatus,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
+as String,code: freezed == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
+as String?,time: freezed == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as DateTime?,
   ));
 }
@@ -86,12 +87,13 @@ as DateTime?,
 
 
 class _StepResult implements StepResult {
-  const _StepResult({required this.status, this.message = '', this.time});
+  const _StepResult({required this.status, this.message = '', this.code, this.time});
   
 
-/// `ok`, `failed` or `skipped`.
-@override final  String status;
+@override final  StepStatus status;
 @override@JsonKey() final  String message;
+/// The fixed word a refusal starts with (`out_of_range: …`), if any.
+@override final  String? code;
 @override final  DateTime? time;
 
 /// Create a copy of StepResult
@@ -104,18 +106,18 @@ _$StepResultCopyWith<_StepResult> get copyWith => __$StepResultCopyWithImpl<_Ste
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StepResult&&(identical(other.status, status) || other.status == status)&&(identical(other.message, message) || other.message == message)&&(identical(other.time, time) || other.time == time));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _StepResult&&(identical(other.status, status) || other.status == status)&&(identical(other.message, message) || other.message == message)&&(identical(other.code, code) || other.code == code)&&(identical(other.time, time) || other.time == time));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,message,time);
+    return Object.hash(runtimeType,status,message,code,time);
 }
 
 @override
 String toString() {
-    return 'StepResult(status: $status, message: $message, time: $time)';
+    return 'StepResult(status: $status, message: $message, code: $code, time: $time)';
 }
 
 
@@ -126,7 +128,7 @@ abstract mixin class _$StepResultCopyWith<$Res> implements $StepResultCopyWith<$
   factory _$StepResultCopyWith(_StepResult value, $Res Function(_StepResult) _then) = __$StepResultCopyWithImpl;
 @override @useResult
 $Res call({
- String status, String message, DateTime? time
+ StepStatus status, String message, String? code, DateTime? time
 });
 
 
@@ -143,11 +145,12 @@ class __$StepResultCopyWithImpl<$Res>
 
 /// Create a copy of StepResult
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? message = null,Object? time = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? message = null,Object? code = freezed,Object? time = freezed,}) {
   return _then(_StepResult(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
-as String,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String,time: freezed == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
+as StepStatus,message: null == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
+as String,code: freezed == code ? _self.code : code // ignore: cast_nullable_to_non_nullable
+as String?,time: freezed == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as DateTime?,
   ));
 }

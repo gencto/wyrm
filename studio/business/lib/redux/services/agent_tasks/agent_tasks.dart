@@ -1,14 +1,10 @@
-// Calls deprecated wyrm_client shims until this file moves to the typed API
-// (dart/ PR "typed wire"; list in its body).
-// ignore_for_file: deprecated_member_use
 import 'dart:async';
 
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../common/services/interface.dart';
-import '../../../wyrm/mappers/agent_task_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/agent_task.dart';
 
 /// What [AgentTasksService] tells its listener.
 abstract class AgentTasksServiceListener {
@@ -74,16 +70,20 @@ class AgentTasksService extends DisposableServiceInterface {
             )
             when key.startsWith(prefix)) {
           final id = key.substring(prefix.length);
-          _listener.onTaskState(
-            id,
-            taskStateOf(str(sample.v['state'])),
-            step: integer(sample.v['step']) ?? 0,
-            finished: integer(sample.v['last']?['n']) ?? 0,
-            suggestions: suggestionCount(sample.v),
-            findings: findingCount(sample.v),
-            reviewing: isReviewing(sample.v),
-            replacedBy: replacedBy(sample.v),
-          );
+          // a value that does not decode is logged with its field, and
+          // the task keeps what was known of it
+          if (agentTaskValueOf(sample.v).orWarn('task $id') case final v?) {
+            _listener.onTaskState(
+              id,
+              taskStateOf(v.state),
+              step: v.step,
+              finished: v.last?.n ?? 0,
+              suggestions: v.suggestions,
+              findings: v.findings,
+              reviewing: v.reviewing,
+              replacedBy: v.replacedBy,
+            );
+          }
         }
       },
       onError: (Object e) => logger.fine('tasks of $agent: $e'),

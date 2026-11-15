@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../charts/trend.dart';
@@ -8,10 +9,28 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'task_badge.dart';
 
 /// How a row of [FoundCard] is marked: from the node's live value as the
 /// viewer reads it, never from the model's words.
-enum FoundMark { good, bad, none }
+enum FoundMark {
+  good,
+  bad,
+
+  /// A value of uncertain quality: drawn as [none].
+  uncertain,
+
+  /// No value read.
+  none;
+
+  /// The mark's tooltip.
+  String get label => switch (this) {
+    good => S.current.foundGood,
+    bad => S.current.foundBad,
+    uncertain => S.current.foundUncertain,
+    none => S.current.foundNoValue,
+  };
+}
 
 /// One row of *What I found*: a node the model read and what it says about
 /// it.
@@ -21,101 +40,176 @@ final class FoundRowVm extends Equatable {
     required this.detail,
     required this.node,
     required this.mark,
-    required this.markLabel,
   });
 
-  /// The model's words (`plc1`, `4 of 5 points good`): plain text.
+  /// The model's words, as plain text.
   final String label;
   final String detail;
 
-  /// The node's key as shown (below the site, without `downstream/`).
+  /// The node's full key.
   final String node;
-
   final FoundMark mark;
 
-  /// What the mark says, for a screen reader and the tooltip (`good now`,
-  /// `bad now`, `no value read`).
-  final String markLabel;
+  String get markLabel => mark.label;
 
   @override
-  List<Object?> get props => [label, detail, node, mark, markLabel];
+  List<Object?> get props => [label, detail, node, mark];
 }
 
-/// One audit record under the timeline: `03:05` and `ivan · invoke
-/// …/valve/~act/edit`.
+/// Why the agent link did not note findings.
+enum FoundRefusal {
+  rightsExpired,
+  rightsUnknown,
+  outsideRights,
+  limit,
+  invalid,
+}
+
+/// [count] findings the agent link did not note, for [why].
+final class FoundMissingVm extends Equatable {
+  const FoundMissingVm(this.why, this.count);
+
+  final FoundRefusal why;
+  final int count;
+
+  String get text => switch (why) {
+    FoundRefusal.rightsExpired => S.current.foundRefusedExpired('$count'),
+    FoundRefusal.rightsUnknown => S.current.foundRefusedUnknown('$count'),
+    FoundRefusal.outsideRights => S.current.foundRefusedOutside('$count'),
+    FoundRefusal.limit => S.current.foundRefusedLimit('$count'),
+    FoundRefusal.invalid => S.current.foundRefusedInvalid('$count'),
+  };
+
+  @override
+  List<Object?> get props => [why, count];
+}
+
+/// One `sys/audit` record on the point: who did what, when.
 final class FoundAuditVm extends Equatable {
   const FoundAuditVm({
     required this.time,
-    required this.text,
+    required this.who,
+    required this.op,
+    required this.key,
     this.bad = false,
   });
 
-  final String time;
-  final String text;
+  final DateTime time;
+  final String who;
+  final String op;
 
-  /// The record is a refusal.
+  /// The request key's full key.
+  final String key;
+
+  /// The call was refused.
   final bool bad;
 
+  /// `user:ivan · invoke modbus/tcp/plc1/valve/~act/edit`.
+  String get text => S.current.timelineAuditLine(who, op, shortKey(key));
+
   @override
-  List<Object?> get props => [time, text, bad];
+  List<Object?> get props => [time, who, op, key, bad];
 }
 
-/// What [FoundCard] draws: the rows of *What I found* (none before the
-/// model noted any) and the mini timeline of the selected point with the
-/// audit records on it (none without a point).
+/// What the audit tail says beside its lines.
+enum AuditNote {
+  /// It needs `config` on `sys/audit`: nothing was read.
+  needsConfig,
+
+  /// It was read and holds nothing about the point.
+  none;
+
+  String get text => switch (this) {
+    needsConfig => S.current.auditNeeds,
+    none => S.current.timelineAuditNone,
+  };
+}
+
+/// What [FoundCard] draws.
 final class FoundCardVm extends Equatable {
   const FoundCardVm({
-    required this.title,
-    required this.note,
     this.rows = const [],
     this.missing = const [],
-    this.timelineLabel,
+    this.point,
+    this.range = '',
     this.timeline,
-    this.auditLabel = '',
     this.audit = const [],
     this.auditNote,
   });
 
-  /// `What I found · read only`.
-  final String title;
-
-  /// Under the rows: the marks are live values, the words the model's.
-  final String note;
   final List<FoundRowVm> rows;
 
-  /// Why findings of the model are missing, one line per reason the agent
-  /// link gave (its fixed words, said by Studio): *2 not noted: your rights
-  /// had expired…*.
-  final List<String> missing;
+  /// The findings not noted, by why.
+  final List<FoundMissingVm> missing;
 
-  /// `valve · last 1h`; null: no timeline.
-  final String? timelineLabel;
+  /// The name of the point of the timeline.
+  final String? point;
 
-  /// The point's compact trend, the audit records as its marks.
+  /// The range of its history (`1h`).
+  final String range;
+
+  /// The point's compact trend, without its marks: the card adds the audit
+  /// records as marks.
   final TrendVm? timeline;
 
-  /// `From sys/audit`.
-  final String auditLabel;
+  /// The newest audit records first.
   final List<FoundAuditVm> audit;
+  final AuditNote? auditNote;
 
-  /// Why there are no audit records (no `config` on `sys/audit`, none).
-  final String? auditNote;
+  String get title => S.current.foundTitle;
+  String get note => S.current.foundNote;
+  String? get timelineLabel => switch (point) {
+    final p? => S.current.timelineLabel(p, range),
+    null => null,
+  };
+  String get auditLabel => S.current.timelineAudit;
+
+  /// The newest five records, as lines.
+  Iterable<FoundAuditVm> get auditLines => audit.take(5);
 
   bool get isEmpty => rows.isEmpty && missing.isEmpty && timeline == null;
 
   @override
   List<Object?> get props => [
-    title,
-    note,
     rows,
     missing,
-    timelineLabel,
+    point,
+    range,
     timeline,
-    auditLabel,
     audit,
     auditNote,
   ];
 }
+
+/// [t] with each audit record as a mark, the oldest first, and the words
+/// of an empty history.
+TrendVm _marked(TrendVm t, List<FoundAuditVm> audit) => TrendVm(
+  series: t.series,
+  rangeStart: t.rangeStart,
+  rangeEnd: t.rangeEnd,
+  windowStart: t.windowStart,
+  windowEnd: t.windowEnd,
+  rollup: t.rollup,
+  format: t.format,
+  title: t.title,
+  step: t.step,
+  minWindow: t.minWindow,
+  endsNow: t.endsNow,
+  live: t.live,
+  following: t.following,
+  loading: t.loading,
+  refining: t.refining,
+  card: t.card,
+  legend: t.legend,
+  hint: t.hint,
+  plotHeight: t.plotHeight,
+  brush: t.brush,
+  marks: [
+    for (final a in audit.reversed)
+      TrendMark(a.time.microsecondsSinceEpoch, a.text),
+  ],
+  empty: S.current.noHistory,
+);
 
 /// Board *AssistantDrawer*, section *What I found*: the nodes the model read,
 /// each with its words as plain text and a mark from the node's live value,
@@ -201,7 +295,7 @@ class FoundCard extends StatelessWidget {
                   children: [
                     for (final m in vm.missing)
                       Text(
-                        m,
+                        m.text,
                         style: TextStyle(
                           fontSize: FontSizes.xs,
                           color: c.warn,
@@ -240,7 +334,11 @@ class FoundCard extends StatelessWidget {
                 12,
                 AppSpacing.sm,
               ),
-              child: Trend(vm: t, onWindow: onWindow, onReset: onReset),
+              child: Trend(
+                vm: _marked(t, vm.audit),
+                onWindow: onWindow,
+                onReset: onReset,
+              ),
             ),
             Container(
               padding: const EdgeInsets.fromLTRB(
@@ -258,12 +356,16 @@ class FoundCard extends StatelessWidget {
                 spacing: 4,
                 children: [
                   Text(vm.auditLabel, style: small),
-                  for (final a in vm.audit)
+                  for (final a in vm.auditLines)
                     Row(
                       crossAxisAlignment: .start,
                       spacing: 8,
                       children: [
-                        Text(a.time, style: mono(size: 12, color: c.text2)),
+                        Text(
+                          // as the timeline says its times
+                          t.format.clock(a.time),
+                          style: mono(size: 12, color: c.text2),
+                        ),
                         Expanded(
                           child: Text(
                             a.text,
@@ -275,7 +377,7 @@ class FoundCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                  if (vm.auditNote case final n?) Text(n, style: small),
+                  if (vm.auditNote case final n?) Text(n.text, style: small),
                 ],
               ),
             ),
@@ -289,7 +391,7 @@ class FoundCard extends StatelessWidget {
     final color = switch (r.mark) {
       .good => c.good,
       .bad => c.bad,
-      .none => c.text4,
+      .uncertain || .none => c.text4,
     };
     return Row(
       crossAxisAlignment: .start,
@@ -306,7 +408,7 @@ class FoundCard extends StatelessWidget {
                 child: switch (r.mark) {
                   .good => AppIcon('ui_check', size: 12, color: color),
                   .bad => AppIcon('ui_close', size: 11, color: color),
-                  .none => Container(
+                  .uncertain || .none => Container(
                     width: 4,
                     height: 4,
                     decoration: BoxDecoration(
@@ -341,7 +443,7 @@ class FoundCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(r.node, style: mono(size: 11, color: c.text4)),
+              Text(shortKey(r.node), style: mono(size: 11, color: c.text4)),
             ],
           ),
         ),

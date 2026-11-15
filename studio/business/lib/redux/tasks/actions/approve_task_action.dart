@@ -1,12 +1,8 @@
-// Calls deprecated wyrm_client shims until this file moves to the typed API
-// (dart/ PR "typed wire"; list in its body).
-// ignore_for_file: deprecated_member_use
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/approval.dart';
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -59,10 +55,7 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
     if (agent == null || task == null || plan == null || otherSite != null) {
       return null;
     }
-    final steps = [
-      for (final c in choicesOf(task))
-        if (c.ticked ?? false) c.n,
-    ];
+    final steps = choicesOf(task).tickedSteps;
     if (steps.isEmpty) {
       return null;
     }
@@ -80,7 +73,7 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
     }
     final key = '$agent/tasks/$id';
     try {
-      await deps.wyrm.approveTask(key, steps: steps, plan: plan);
+      await deps.wyrm.agentApprove(key, steps: steps, plan: plan);
     } on WyrmException catch (e) {
       final known = e.status.known;
       if (known != Status.invalidParameter &&
@@ -93,10 +86,10 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
           write: true,
         );
       }
-      unawaited(dispatchAndWait(RetrieveTaskRecordAction(id)));
-      return state.copyWith.assistant(
-        refusals: assistant.refusals.add(id, e.message),
-      );
+      // the refusal is shown at once; the record is read again after it
+      dispatchSync(_Refused(id, e.message));
+      await dispatchAndWait(RetrieveTaskRecordAction(id));
+      return null;
     }
     await dispatchAndWait(RetrieveTaskRecordAction(id));
     return state.copyWith.assistant(
@@ -104,4 +97,16 @@ class ApproveTaskAction extends Action with NonReentrant, WaitingAction {
       unticked: assistant.unticked.remove(id),
     );
   }
+}
+
+/// The refusal [message] of an approval of task [id], kept for its card.
+class _Refused extends Action {
+  _Refused(this.id, this.message);
+
+  final String id;
+  final String message;
+
+  @override
+  AppState reduce() =>
+      state.copyWith.assistant(refusals: assistant.refusals.add(id, message));
 }

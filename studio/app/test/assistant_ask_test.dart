@@ -94,7 +94,7 @@ void main() {
     await tester.tap(find.text('Supply temperature'));
     await tester.pump();
     // the record after the answer
-    app.api.docs['$task ~state'] = Value.from(
+    app.api.docs['$task ~state'] = taskRecord(
       askRecord(
         state: 'awaiting_approval',
         answers: const {
@@ -138,7 +138,7 @@ void main() {
       Value.from({'task': 't-1', 'state': 'planning'}),
     ];
     await app.pump(tester, selected: 't-1');
-    app.api.docs['$task ~state'] = Value.from(
+    app.api.docs['$task ~state'] = taskRecord(
       askRecord(
         state: 'planning',
         answers: const {'q1': 'unit 4, I checked', 'q2': 'unit 4, I checked'},
@@ -172,7 +172,7 @@ void main() {
       'task is failed, not awaiting_answer',
     );
     await app.pump(tester, selected: 't-1');
-    app.api.docs['$task ~state'] = Value.from(
+    app.api.docs['$task ~state'] = taskRecord(
       askRecord(state: 'failed')..['error'] = 'interrupted by restart',
     );
 
@@ -201,7 +201,7 @@ void main() {
 
     await tester.tap(find.text('Slave ID 4'));
     await tester.pump();
-    app.api.docs['$task ~state'] = Value.from(
+    app.api.docs['$task ~state'] = taskRecord(
       askRecord(
           state: 'planning',
           answers: const {

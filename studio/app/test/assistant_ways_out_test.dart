@@ -8,6 +8,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/model_words.dart';
 import 'package:ui/assistant/more_rows_card.dart';
+import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/buttons/button.dart';
@@ -148,7 +149,7 @@ void main() {
     // only the fix of step 1 is on the plan, and it says what it does
     final tile = tester.widget<SuggestionTile>(find.byType(SuggestionTile));
     expect(tile.vm.label, 'Try Slave ID 4');
-    expect(tile.vm.note, 'replaces this plan');
+    expect(tile.vm.noteText, 'replaces this plan');
     expect(tile.vm.tag, '1 change · its guess');
 
     await tester.tap(find.text('Try Slave ID 4'));
@@ -173,13 +174,16 @@ void main() {
 
     final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
     expect(card.title, 'Stopped at step 2 · timeout');
-    expect(card.review?.text, 'Unit 3 does not answer behind this gateway.');
-    expect(card.review?.label, 'what the assistant read about it');
-    expect(card.reviewing, isNull);
+    expect(
+      card.reviewWords?.text,
+      'Unit 3 does not answer behind this gateway.',
+    );
+    expect(card.reviewWords?.label, 'what the assistant read about it');
+    expect(card.reviewingNote, isNull);
     // every suggestion of a failed task, the fix of step 1 too; the tag is
     // the model's guess, also at 0
     expect(
-      [for (final w in card.ways) (w.label, w.tag, w.note)],
+      [for (final w in card.ways) (w.label, w.tag, w.noteText)],
       [
         ('Try Slave ID 4', '1 change · its guess', null),
         ('Leave it as it is', 'nothing · its guess', null),
@@ -199,13 +203,20 @@ void main() {
   testWidgets('while the model reviews the run: a spinner, and Cancel', (
     tester,
   ) async {
+    // a review of an earlier run is still in the record while the model
+    // reads this one: it is not shown
     final app = AssistantApp()
-      ..task('t-1', _failed(suggestions: const [], reviewing: true));
+      ..task(
+        't-1',
+        _failed(suggestions: const [], reviewing: true)
+          ..['review'] = 'Unit 3 did not answer last time.',
+      );
     await app.pump(tester, selected: 't-1');
 
     final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
-    expect(card.reviewing, 'The assistant reads why it stopped…');
-    expect(card.review, isNull);
+    expect(card.reviewingNote, 'The assistant reads why it stopped…');
+    expect(card.reviewWords, isNull);
+    expect(find.text('Unit 3 did not answer last time.'), findsNothing);
     expect(find.byType(ArcSpinner), findsOneWidget);
     expect(_button(tester, 'Cancel task').onPressed, isNotNull);
   });
@@ -230,9 +241,41 @@ void main() {
     );
     await app.settle(tester);
     expect(
-      tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.note,
+      tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.noteText,
       contains('run without a person'),
     );
+  });
+
+  testWidgets('settings that do not read: who approves is not known, and '
+      'every caution stays', (tester) async {
+    final app = AssistantApp()..task('t-1', _failed());
+    app.api.metas[_agent] = NodeMeta(
+      cfg: {'require_approval': const VStr('always')},
+    );
+    await app.pump(tester, selected: 't-1');
+
+    final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
+    expect(card.caution, S.current.modeUnknownCaution);
+
+    // a fix on a plan that waits says it too
+    app.task('t-2', planRecord()..['suggestions'] = [_fix]);
+    app.store.dispatchSync(SetSelectedTaskAction('t-2'));
+    await tester.runAsync(
+      () => app.store.dispatchAndWait(RetrieveTaskRecordAction('t-2')),
+    );
+    await app.settle(tester);
+    expect(
+      tester.widget<SuggestionTile>(find.byType(SuggestionTile)).vm.noteText,
+      S.current.fixReplacesModeUnknown,
+    );
+
+    // What it may do marks no mode and says why
+    await tester.tap(find.text('What it may do'));
+    await app.settle(tester);
+    final rights = tester.widget<RightsPanel>(find.byType(RightsPanel)).vm;
+    expect(rights.modes.where((m) => m.selected), isEmpty);
+    expect(rights.modeUnknown, isTrue);
+    expect(find.text(S.current.modeUnknownCaution), findsOneWidget);
   });
 
   testWidgets('a stranger to the task cannot pick its ways out', (

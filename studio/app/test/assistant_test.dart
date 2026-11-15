@@ -261,7 +261,7 @@ void main() {
       )
       ..metas[plant] = NodeMeta()
       ..children_['$plant/tasks'] = [Child('t-9', NodeMeta())]
-      ..docs['$plant/tasks/t-9 ~state'] = Value.from(
+      ..docs['$plant/tasks/t-9 ~state'] = taskRecord(
         planRecord()..['ask'] = 'tune ahu7',
       );
     await app.pump(tester, selected: 't-1');

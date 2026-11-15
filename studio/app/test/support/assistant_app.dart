@@ -13,8 +13,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../business/test/support/agent_records.dart';
 import '../../../business/test/support/fake_wyrm.dart';
 
+export '../../../business/test/support/agent_records.dart';
 export '../../../business/test/support/fake_wyrm.dart';
 
 /// The Assistant tab over a fake gateway: a site `central` with the agent
@@ -62,13 +64,14 @@ class AssistantApp {
 
   FakeWyrmApi get api => login.session.api;
 
-  /// Puts the task [id] with its record on the fake broker.
+  /// Puts the task [id] with its record on the fake broker, as the agent
+  /// link writes it ([taskRecord]: the fields it always writes are there).
   void task(String id, Map<String, Object?> record) {
     api.children_['$agent/tasks'] = [
       ...?api.children_['$agent/tasks'],
       Child(id, NodeMeta()),
     ];
-    api.docs['$agent/tasks/$id ~state'] = Value.from(record);
+    api.docs['$agent/tasks/$id ~state'] = taskRecord(record);
   }
 
   /// The calls of [action] (for a document: its suffix) made so far.

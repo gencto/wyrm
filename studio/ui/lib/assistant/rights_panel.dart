@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../containers/fact_grid.dart';
@@ -8,79 +9,144 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'blocked.dart';
+import 'task_badge.dart';
 
 /// One mode of *Who approves*.
 final class ModeVm extends Equatable {
-  const ModeVm({
-    required this.id,
-    required this.label,
-    required this.detail,
-    this.selected = false,
-  });
+  const ModeVm(this.mode, {this.selected = false});
 
-  /// `write`, `config`, `never` (the agent's `require_approval`).
-  final String id;
-  final String label;
-  final String detail;
+  final AgentModeVm mode;
   final bool selected;
 
+  String get label => mode.label;
+  String get detail => mode.detail;
+
   @override
-  List<Object?> get props => [id, label, detail, selected];
+  List<Object?> get props => [mode, selected];
+}
+
+/// Whether the secret the agent's `api_key_ref` names is set.
+enum ApiKeyState {
+  set,
+  notSet,
+
+  /// Not known: the names need `config` on the link.
+  unknown,
 }
 
 /// What [RightsPanel] draws.
 final class RightsPanelVm extends Equatable {
   const RightsPanelVm({
-    required this.modesLabel,
     required this.modes,
-    required this.prefixesLabel,
     required this.prefixes,
-    required this.prefixesNote,
-    required this.facts,
-    required this.note,
-    this.editReason,
-    this.addPrefix,
-    this.staged,
+    this.agent,
+    this.model,
+    this.used,
+    this.budget,
+    this.apiKeyRef,
+    this.apiKey = ApiKeyState.unknown,
+    this.sentTo,
+    this.blocked,
+    this.staged = false,
+    this.modeUnknown = false,
   });
 
-  /// `Who approves`.
-  final String modesLabel;
   final List<ModeVm> modes;
 
-  /// `Where it may propose changes`.
-  final String prefixesLabel;
+  /// Where it may propose changes: full key prefixes.
+  final List<String> prefixes;
 
-  /// The agent's `allowed_prefixes`: the full key and what is shown (below
-  /// the site).
-  final List<(String, String)> prefixes;
-  final String prefixesNote;
+  /// The agent link's id; null when the site has none.
+  final String? agent;
 
-  /// `+ prefix`; null: not offered.
-  final String? addPrefix;
+  /// The model it asks.
+  final String? model;
 
-  /// Model, Today, API key, Sent to.
-  final List<FactVm> facts;
-  final String note;
+  /// LLM tokens used today, and its daily budget.
+  final num? used;
+  final num? budget;
 
-  /// Why the modes and prefixes cannot be changed (no config on the
-  /// agent link); null: a pick stages an update of its params.
-  final String? editReason;
+  /// The name of the secret of its API key, and whether it is set.
+  final String? apiKeyRef;
+  final ApiKeyState apiKey;
 
-  /// A change of the params is staged: it runs when Review applies it.
-  final String? staged;
+  /// Where its requests go.
+  final String? sentTo;
+
+  /// Why the modes and prefixes cannot be edited; null: they can.
+  final Blocked? blocked;
+
+  /// A change of its params is staged.
+  final bool staged;
+
+  /// Who approves is not known (the agent's settings did not read): no
+  /// mode is marked, and the panel says so with its caution.
+  final bool modeUnknown;
+
+  String? get unknownNote => modeUnknown ? AgentModeVm.unknown.caution : null;
+
+  String get modesLabel => S.current.mayDoModes;
+  String get prefixesLabel => S.current.prefixesLabel;
+  String get prefixesNote => S.current.prefixesNote;
+
+  /// `+ prefix`; null without an agent.
+  String? get addPrefix => agent == null ? null : S.current.addPrefix;
+
+  String get note => S.current.mayDoEditNote;
+  String? get editReason => blocked?.text;
+  String? get stagedNote => staged ? S.current.paramsStaged : null;
+
+  /// A prefix and its chip's words (below the site).
+  List<(String, String)> get prefixRows => [
+    for (final p in prefixes)
+      (p, p.split('/').length > 2 ? p.split('/').skip(2).join('/') : p),
+  ];
+
+  /// The model, today's budget, the API key and where it is sent.
+  List<FactVm> get facts => [
+    if (model case final m?)
+      FactVm(label: S.current.cfgModel, value: m, mono: true),
+    FactVm(
+      label: S.current.factToday,
+      value: S.current.todayUsed(_tokens(used), _tokens(budget)),
+    ),
+    if (apiKeyRef case final ref?)
+      FactVm(
+        label: S.current.cfgApiKey,
+        value: switch (apiKey) {
+          ApiKeyState.set => S.current.apiKeySet,
+          ApiKeyState.notSet => S.current.apiKeyNotSet,
+          ApiKeyState.unknown => S.current.apiKeyUnknown(agent ?? 'agent'),
+        },
+        code: ref,
+      ),
+    if (sentTo case final h?)
+      FactVm(label: S.current.factSentTo, value: h, mono: true),
+  ];
+
+  /// `182 k`, `1 M`, `950`, `—`: tokens as the board writes them.
+  static String _tokens(num? n) => switch (n) {
+    null => '—',
+    >= 1000000 => '${plainNumber((n / 100000).round() / 10)} M',
+    >= 1000 => '${(n / 1000).round()} k',
+    final n => '${n.round()}',
+  };
 
   @override
   List<Object?> get props => [
-    modesLabel,
     modes,
-    prefixesLabel,
     prefixes,
-    prefixesNote,
-    addPrefix,
-    facts,
-    note,
-    editReason,
+    agent,
+    model,
+    used,
+    budget,
+    apiKeyRef,
+    apiKey,
+    sentTo,
+    blocked,
     staged,
+    modeUnknown,
   ];
 }
 
@@ -98,7 +164,7 @@ class RightsPanel extends StatelessWidget {
   });
 
   final RightsPanelVm vm;
-  final ValueChanged<String>? onMode;
+  final ValueChanged<AgentModeVm>? onMode;
   final ValueChanged<String>? onRemovePrefix;
   final VoidCallback? onAddPrefix;
 
@@ -130,7 +196,7 @@ class RightsPanel extends StatelessWidget {
               ),
               child: InkWell(
                 onTap: can && !m.selected && onMode != null
-                    ? () => onMode!(m.id)
+                    ? () => onMode!(m.mode)
                     : null,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -175,6 +241,16 @@ class RightsPanel extends StatelessWidget {
               ),
             ),
           ),
+        if (vm.unknownNote case final u?)
+          Container(
+            padding: Insets.band,
+            decoration: BoxDecoration(
+              color: c.warnTint,
+              border: Border.all(color: c.warnLine),
+              borderRadius: Radii.control,
+            ),
+            child: Text(u, style: small.copyWith(color: c.warn)),
+          ),
         const SizedBox(height: 10),
         SectionLabel(vm.prefixesLabel),
         Wrap(
@@ -182,14 +258,11 @@ class RightsPanel extends StatelessWidget {
           runSpacing: 6,
           crossAxisAlignment: .center,
           children: [
-            for (final (p, label) in vm.prefixes)
+            for (final (p, label) in vm.prefixRows)
               Container(
                 height: 24,
                 constraints: const BoxConstraints(maxWidth: 260),
-                padding: const EdgeInsets.only(
-                  left: AppSpacing.sm,
-                  right: 2,
-                ),
+                padding: Insets.chip,
                 decoration: BoxDecoration(
                   color: c.ground3,
                   border: Border.all(color: c.line2),
@@ -233,10 +306,7 @@ class RightsPanel extends StatelessWidget {
                 child: InkWell(
                   onTap: can ? onAddPrefix : null,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 3,
-                    ),
+                    padding: Insets.textLink,
                     child: Text(
                       a,
                       style: TextStyle(
@@ -250,12 +320,9 @@ class RightsPanel extends StatelessWidget {
           ],
         ),
         Text(vm.prefixesNote, style: small),
-        if (vm.staged case final s?)
+        if (vm.stagedNote case final s?)
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 6,
-            ),
+            padding: Insets.band,
             decoration: BoxDecoration(
               color: c.warnTint,
               border: Border.all(color: c.warnLine),

@@ -23,8 +23,9 @@ class SetWatchedAction extends Action {
     if (was.length == watched.length && was.every(watched.contains)) {
       return null;
     }
-    dispatchSync(WatchKeysAction(watched));
-    dispatchSync(UnwatchKeysAction(was));
+    // the watches and the list are one change on screen
+    dispatchSync(WatchKeysAction(watched), notify: false);
+    dispatchSync(UnwatchKeysAction(was), notify: false);
     return state.copyWith.assistant(watched: watched);
   }
 }

@@ -80,7 +80,9 @@ class ReloadSiteAction extends Action with WaitingAction {
 A service that must not block (a stream listener, a timer) dispatches with
 `dispatch(…)`; it never wraps it.
 
-**Check.** `unawaited-dispatch` in `app/lib`, `business/lib`, `ui/lib`.
+**Check.** `unawaited-dispatch` in `app/lib`, `business/lib`, `ui/lib`: also
+`dispatchAll([x])` of one action (a `dispatch` whose Future
+`discarded_futures` cannot see) and dispatch calls with type arguments.
 
 ## 2. Enums, not strings
 
@@ -114,7 +116,9 @@ enum DevicePlatform {
 ```
 
 **Check.** `string-case` in `app/lib`, `business/lib`, `ui/lib` (decode
-boundary excepted, rule 8).
+boundary excepted, rule 8), and `string-id`: an id written as text
+(`id: 'git'`) and a record of strings (`(String, String)`) — a closed set
+or a typed pair carried as text (owner, 2026-11-15).
 
 ## 3. Each package owns its types; a connector maps, it does not compute
 
@@ -286,7 +290,7 @@ final class ToggleVm<T> extends Equatable {
 // the view-model: final ToggleVm<String> points;
 ```
 
-**Check.** `ad-hoc-callback`: `Function(` fields in `app/lib/connectors` and
+**Check.** `ad-hoc-callback`: `Function(` fields anywhere in `app/lib` and
 `ui/lib` (except `ui/lib/models/`).
 
 ## 8. One typed decode boundary
@@ -328,7 +332,9 @@ final class FlowPermissions {
 ```
 
 **Check.** `untyped-wire` in `app/lib` and `business/lib` outside
-`business/lib/wyrm/decode/` and `business/lib/wyrm/mappers/values.dart`.
+`business/lib/wyrm/decode/` and `business/lib/wyrm/mappers/values.dart`; a
+cast written as a pattern (`case final Map<String, Object?> m`) counts as the
+cast it is.
 
 ## 9. One intent, one dispatch; rebuilds are decided, not accepted
 

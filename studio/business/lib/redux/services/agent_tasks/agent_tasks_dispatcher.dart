@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
@@ -23,6 +21,9 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
   /// new (a review ends with the state still `failed`).
   final _seen = <String, (int, int, int, int, bool, String?)>{};
 
+  /// A stream listener must not block: the record's read is started with
+  /// `dispatch` and shows its own wait (`RetrieveTaskRecordAction` is a
+  /// `WaitingAction`).
   @override
   void onTaskState(
     String id,
@@ -52,7 +53,13 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     // The record moved with the state and with each step: the task on
     // screen is read again.
     if (_store.state.tasks.selectedTask == id) {
-      unawaited(_store.dispatchAndWait(RetrieveTaskRecordAction(id)));
+      _read(id);
     }
   }
+
+  /// Starts the read of task [id]'s record: a listener does not wait for
+  /// it; the read shows its own wait (`RetrieveTaskRecordAction` is a
+  /// `WaitingAction`) and runs in turn with the other reads of the task
+  /// (`Sequential`).
+  void _read(String id) => _store.dispatch(RetrieveTaskRecordAction(id));
 }

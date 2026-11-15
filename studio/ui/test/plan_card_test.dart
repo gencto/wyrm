@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/indicators/app_icon.dart';
@@ -9,7 +10,11 @@ Widget _card(List<PlanStepVm> steps) => MaterialApp(
   home: Scaffold(
     body: SingleChildScrollView(
       child: PlanCard(
-        vm: PlanCardVm(title: 'Plan', state: 'awaiting approval', steps: steps),
+        vm: PlanCardVm(
+          line: const PlanChecked(now: 1, atRun: 1),
+          badge: .awaitingApproval,
+          steps: steps,
+        ),
       ),
     ),
   ),
@@ -17,6 +22,8 @@ Widget _card(List<PlanStepVm> steps) => MaterialApp(
 
 /// Board *Assistant*: a step of a plan as the person reads it.
 void main() {
+  setUpAll(() => S.load(const Locale('en')));
+
   testWidgets('the check line has an icon of the set, not a glyph', (
     tester,
   ) async {
@@ -24,18 +31,17 @@ void main() {
       _card(const [
         PlanStepVm(
           n: 1,
-          verb: 'INVOKE',
-          target: 'wy/plant/downstream/modbus/tcp',
+          verb: .invoke,
+          node: 'wy/plant/downstream/modbus/tcp',
           level: 'config',
-          check: 'checked against the live tree',
+          check: .now,
         ),
         PlanStepVm(
           n: 2,
-          verb: 'SET',
-          target: 'wy/plant/downstream/modbus/tcp/a',
+          verb: .set,
+          node: 'wy/plant/downstream/modbus/tcp/a',
           level: 'write',
-          check: 'checked when it runs',
-          checked: false,
+          check: .atRun,
         ),
       ]),
     );
@@ -49,7 +55,10 @@ void main() {
     );
     // the words alone, no mark typed into the text
     expect(find.text('checked against the live tree'), findsOneWidget);
-    expect(find.text('checked when it runs'), findsOneWidget);
+    expect(
+      find.text('checked when it runs: an earlier step makes this node'),
+      findsOneWidget,
+    );
     expect(find.textContaining('◷'), findsNothing);
     expect(find.textContaining('✓'), findsNothing);
   });
@@ -61,16 +70,19 @@ void main() {
       _card(const [
         PlanStepVm(
           n: 1,
-          verb: 'INVOKE',
-          target: 'wy/plant/downstream/http',
+          verb: .invoke,
+          node: 'wy/plant/downstream/http',
           level: 'config',
-          args: [('name', 'erp'), ('password', '••••••')],
-          argsNote: 'A secret argument is not shown.',
+          args: [StepArgVm.shown('name', 'erp'), StepArgVm.masked('password')],
+          argsNote: .secret,
         ),
       ]),
     );
 
     expect(find.text('••••••'), findsOneWidget);
-    expect(find.text('A secret argument is not shown.'), findsOneWidget);
+    expect(
+      find.textContaining('A secret argument is not shown.'),
+      findsOneWidget,
+    );
   });
 }
