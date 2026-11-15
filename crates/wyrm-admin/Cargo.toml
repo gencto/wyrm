@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# `release::testkit`: archives of any shape for the update tests of `wyrmd`
+testkit = []
+
 [dependencies]
 wyrm-core.workspace = true
 wyrm-state.workspace = true

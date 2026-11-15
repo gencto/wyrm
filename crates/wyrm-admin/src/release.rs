@@ -2011,7 +2011,9 @@ pub fn pack(
     })
 }
 
-/// Test helpers: archives of any shape, also for the e2e tests of `wyrmd`.
+/// Test helpers: archives of any shape, also for the e2e tests of `wyrmd`
+/// (feature `testkit`; never in a production build).
+#[cfg(any(test, feature = "testkit"))]
 #[allow(
     clippy::expect_used,
     reason = "test support: gzip into memory cannot fail, and a failed step fails the test"
