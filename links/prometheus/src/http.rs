@@ -375,7 +375,10 @@ impl Drop for AbortOnDrop {
 }
 
 impl Client {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per setting of the connection; built in one place"
+    )]
     pub fn new(
         url: Url,
         tls: Option<rustls::ClientConfig>,

@@ -46,3 +46,6 @@ description = "Alarms: watches on points that raise, keep and export alarm recor
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 16 }
+
+[lints]
+workspace = true

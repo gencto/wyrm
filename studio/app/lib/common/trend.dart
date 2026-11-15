@@ -5,39 +5,14 @@ import 'package:models/hist_point.dart';
 import 'package:models/quality.dart';
 import 'package:ui/charts/trend.dart';
 
-// The trend's range and window, computed in `business`; here for the
-// connectors that build a trend.
-export 'package:business/wyrm/history_steps.dart'
+// Moved to where they belong; the connectors still find them here.
+export 'package:business/wyrm/trend_window.dart'
     show trendRangeEnd, trendWindow;
+export 'package:ui/charts/trend_format.dart' show trendFormat;
 
 /// What the three trends of Studio (History, Explorer, System) share on the
 /// connector side (spec trend.md §5): times in the viewer's zone and
 /// language, rows as samples, and the words for what a plot draws.
-
-String _two(int n) => n.toString().padLeft(2, '0');
-
-/// Times in local time, weekday and month names from the locale's words.
-TrendFormat trendFormat() {
-  final days = S.current.trendWeekdays.split(',');
-  final months = S.current.trendMonths.split(',');
-  String wd(DateTime t) => days[(t.weekday - 1) % days.length];
-  return TrendFormat(
-    locale: '${S.current.trendWeekdays} ${DateTime.now().timeZoneOffset}',
-    clock: (t) {
-      final l = t.toLocal();
-      return '${_two(l.hour)}:${_two(l.minute)}';
-    },
-    clockSeconds: (t) {
-      final l = t.toLocal();
-      return '${_two(l.hour)}:${_two(l.minute)}:${_two(l.second)}';
-    },
-    day: (t) {
-      final l = t.toLocal();
-      return '${wd(l)} ${l.day} ${months[(l.month - 1) % months.length]}';
-    },
-    weekday: (t) => wd(t.toLocal()),
-  );
-}
 
 /// `15 min avg`, `1 h avg`, `raw`.
 String rollupText(String? step) {

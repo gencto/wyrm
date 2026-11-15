@@ -34,15 +34,26 @@ pub const TREE_FILE: &str = FILE;
 /// link restored from a backup under another id (ADR 0048 §3.5) needs its
 /// tree bound to the new one. `None` when `file` does not open with `key`
 /// as the tree of `from`.
-pub fn rebind(file: &[u8], key: &[u8; 32], from: &str, to: &str) -> Option<Vec<u8>> {
-    let plain = zeroize::Zeroizing::new(open_aad(
-        key,
-        format!("wyrm-tree:{from}").as_bytes(),
-        file.strip_prefix(MAGIC.as_slice())?,
-    )?);
+pub fn rebind(file: &[u8], key: &[u8; 32], from: &str, to: &str) -> Result<Vec<u8>, RebindError> {
+    let plain = zeroize::Zeroizing::new(
+        file.strip_prefix(MAGIC.as_slice())
+            .and_then(|f| open_aad(key, format!("wyrm-tree:{from}").as_bytes(), f))
+            .ok_or(RebindError::Open)?,
+    );
     let mut out = MAGIC.to_vec();
-    out.extend(seal_aad(key, format!("wyrm-tree:{to}").as_bytes(), &plain));
-    Some(out)
+    out.extend(seal_aad(key, format!("wyrm-tree:{to}").as_bytes(), &plain)?);
+    Ok(out)
+}
+
+/// Why [`rebind`] failed.
+#[derive(Debug, thiserror::Error)]
+pub enum RebindError {
+    /// The file is not the tree of `from` under `key`.
+    #[error("does not open with its store key")]
+    Open,
+    /// Sealing for `to` failed.
+    #[error(transparent)]
+    Seal(#[from] crate::seal::SealError),
 }
 
 pub(crate) struct Persist {
@@ -73,7 +84,7 @@ impl Persist {
             );
             return None;
         };
-        let boot = Sha256::digest(wyrm_core::codec::to_vec(bootstrap).unwrap_or_default()).into();
+        let boot = Sha256::digest(wyrm_core::codec::value_to_vec(bootstrap)).into();
         Some(Self {
             path: dir.join(FILE),
             key,
@@ -124,7 +135,7 @@ impl Persist {
         let plain = zeroize::Zeroizing::new(
             wyrm_core::codec::to_vec(&Value::Map(m)).map_err(|e| e.to_string())?,
         );
-        let sealed = seal_aad(&self.key, self.aad.as_bytes(), &plain);
+        let sealed = seal_aad(&self.key, self.aad.as_bytes(), &plain).map_err(|e| e.to_string())?;
         let tmp = self.path.with_extension("tmp");
         {
             let mut o = std::fs::OpenOptions::new();
@@ -137,10 +148,13 @@ impl Persist {
             f.sync_all().map_err(|e| e.to_string())?;
         }
         std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())?;
+        // the rename is durable only with its directory (a directory handle syncs on
+        // unix; Windows opens none and needs none)
+        #[cfg(unix)]
         if let Some(dir) = self.path.parent() {
-            if let Ok(d) = std::fs::File::open(dir) {
-                let _ = d.sync_all();
-            }
+            std::fs::File::open(dir)
+                .and_then(|d| d.sync_all())
+                .map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         Ok(())
     }

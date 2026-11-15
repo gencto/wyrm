@@ -1,6 +1,15 @@
 //! Profiles in the responder (spec 02): `view=full&expand=true` folds the
 //! node's profile chain in; `view=list` flags children that deviate.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::time::Duration;
 use wyrm_core::meta::{Profile, TextOrCode, TypeCode};
 use wyrm_core::profile::ProfileDef;

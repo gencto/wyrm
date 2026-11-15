@@ -164,11 +164,9 @@ fn uint(v: &Value, path: &str) -> Result<u64> {
 
 fn perm(v: &Value, path: &str) -> Result<Perm> {
     match v {
-        Value::Str(s) => Perm::ALL
-            .iter()
-            .copied()
-            .find(|p| p.name() == s)
-            .ok_or_else(|| DefError(format!("{path}: unknown permission {s}"))),
+        Value::Str(s) => {
+            Perm::from_name(s).ok_or_else(|| DefError(format!("{path}: unknown permission {s}")))
+        }
         v => Perm::try_from(u8::try_from(uint(v, path)?).unwrap_or(u8::MAX))
             .map_err(|_| DefError(format!("{path}: permission out of range"))),
     }
@@ -798,7 +796,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
         .into_iter()
         .map(|(nid, (ty, cfg))| {
             let mut bytes = ty.as_bytes().to_vec();
-            bytes.extend(wyrm_core::codec::to_vec(&Value::Map(cfg.clone())).unwrap_or_default());
+            bytes.extend(wyrm_core::codec::value_to_vec(&Value::Map(cfg.clone())));
             let hash = crc32c::crc32c(&bytes);
             (nid, NodeDef { ty, cfg, hash })
         })

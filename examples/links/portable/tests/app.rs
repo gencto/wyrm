@@ -3,6 +3,15 @@
 //! same app runs embedded in `wyrmd`, as a process and as a WASM component with the same
 //! behaviour (`crates/wyrmd/tests/e2e.rs` `one_app_three_modes`).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};

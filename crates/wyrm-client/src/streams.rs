@@ -213,8 +213,10 @@ impl ListIntake {
     }
 }
 
-// moved once per event; boxing would cost an allocation each
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "moved once per event; boxing would cost an allocation each"
+)]
 enum Step {
     Raw(Raw),
     /// Read the children again; everything before this point is covered.
@@ -531,7 +533,13 @@ enum Policy {
     },
     /// Arrival order, the oldest beyond the bound dropped
     /// (`subscribe_reliable`).
-    #[cfg_attr(not(feature = "advanced"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "advanced"),
+        allow(
+            dead_code,
+            reason = "made only by `subscribe_reliable` (feature `advanced`)"
+        )
+    )]
     Queue(VecDeque<ValEvent>),
 }
 
@@ -673,9 +681,14 @@ impl Vals {
                     pending,
                     order,
                 } => queue.pop_front().or_else(|| {
-                    order
-                        .pop_front()
-                        .map(|k| pending.remove(&k).expect("ordered key is pending"))
+                    // every ordered key is pending; a stray one is a bug, said and skipped
+                    std::iter::from_fn(|| order.pop_front()).find_map(|k| {
+                        let v = pending.remove(&k);
+                        if v.is_none() {
+                            tracing::error!(key = %k, "stream: an ordered key without a pending value");
+                        }
+                        v
+                    })
                 }),
                 Policy::Queue(q) => q.pop_front(),
             };

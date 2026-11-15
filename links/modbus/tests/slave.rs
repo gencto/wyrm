@@ -1,6 +1,15 @@
 //! Slave (server) mode (ruling 15, ADR 0024): a `tokio-modbus` master
 //! against the link's `ip_slave` connection.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio_modbus::client::{tcp, Client, Context};

@@ -1065,7 +1065,7 @@ fn event_frame<'a>(id: u64, ty: &str, fields: impl IntoIterator<Item = (&'a str,
 }
 
 fn meta_bytes(m: &wyrm_core::NodeMeta) -> Value {
-    Value::Bytes(to_vec(m).unwrap_or_default())
+    Value::Bytes(wyrm_core::codec::encode_to_vec(m))
 }
 
 fn child_fields(c: &Child) -> [(&'static str, Value); 2] {
@@ -1165,6 +1165,7 @@ mod tests {
         let gw = Gateway::open(cfg, b"test state key").unwrap();
         // nobody logs in: the principals are made from claims, so any password will do
         let pw: String = session::new_jti()
+            .unwrap()
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
@@ -1202,7 +1203,7 @@ mod tests {
                 roles: vec!["admin".into()],
                 exp: now + 60,
                 iat: now,
-                jti: session::new_jti(),
+                jti: session::new_jti().unwrap(),
                 gen,
                 amr,
                 auth_at: now,

@@ -12,54 +12,16 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetShownAction
-    participant A2 as WatchKeysAction
-    participant A3 as RetrieveSysAboutAction
-    participant A4 as RetrieveProfilesAction
-    participant A5 as RetrieveBackupsAction
-    participant A6 as RetrieveQuarantineAction
-    participant A7 as RetrieveSystemLogAction
-    participant A8 as RetrieveLinksAction
-    participant A9 as RetrievePeersAction
+    participant A1 as ShowSystemAction
     participant ST as AppState
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.shown)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(live.watched)
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: copyWith(system.about, system.units)
-    A3-->>-VM: ActionStatus
-    VM->>+A4: dispatchAndWait
-    Note over A4: WaitingAction · async
-    A4->>ST: copyWith(system.profiles, system.profilesNote)
-    A4-->>-VM: ActionStatus
-    VM->>+A5: dispatchAndWait
-    Note over A5: WaitingAction · async
-    A5->>ST: copyWith(backups.table, backups.view, backups.sections)
-    A5-->>-VM: ActionStatus
-    VM->>+A6: dispatchAndWait
-    Note over A6: WaitingAction · async
-    A6->>ST: copyWith(quarantine.table, quarantine.view, quarantine.forms)
-    A6-->>-VM: ActionStatus
-    alt site.needs('config', _sys) == null
-        VM->>+A7: dispatchAndWait
-        Note over A7: WaitingAction
-        A7-->>-VM: ActionStatus
-    end
-    VM->>+A8: dispatchAndWait
-    Note over A8: WaitingAction · async
-    A8->>ST: copyWith(links.version, links.table, links.view, links.updatesAvailable)
-    A8-->>-VM: ActionStatus
-    alt state.peers.table.isEmpty
-        VM->>+A9: dispatchAndWait
-        Note over A9: WaitingAction · async
-        A9->>ST: copyWith(peers.table, peers.view)
-        A9-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(SetShownAction)
+    A1->>ST: dispatchSync(WatchKeysAction)
+    A1->>ST: dispatchAndWait(RetrievePeersAction)
 ```
 
 ## onHide
@@ -70,21 +32,14 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetShownAction
-    participant A2 as UnwatchKeysAction
-    participant A3 as SetAclSeenAction
+    participant A1 as HideSystemAction
     participant ST as AppState
 
     User->>UI: onHide
     UI->>VM: onHide()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.shown)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(live.watched)
-    alt acl != null
-        VM->>A3: dispatchSync
-        A3->>ST: copyWith(system.aclSeen)
-    end
+    VM->>A1: dispatch
+    A1->>ST: copyWith(system.shown, system.aclSeen)
+    A1->>ST: dispatchSync(UnwatchKeysAction)
 ```
 
 ## onPoll
@@ -99,9 +54,8 @@ sequenceDiagram
 
     User->>UI: onPoll
     UI->>VM: onPoll()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: async
-    A1-->>-VM: ActionStatus
 ```
 
 ## onTab
@@ -112,19 +66,47 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetTabAction
-    participant A2 as RetrieveSystemLogAction
+    participant A1 as OpenSystemTabAction
     participant ST as AppState
 
     User->>UI: onTab
     UI->>VM: onTab()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.tab)
-    alt site.needs('config', _sys) == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction
-        A2-->>-VM: ActionStatus
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(SetTabAction)
+    A1->>ST: dispatchAndWait(RetrieveSystemLogAction)
+```
+
+## onTile
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as GoSystemPlaceAction
+
+    User->>UI: onTile
+    UI->>VM: onTile()
+    alt t.place
+        VM->>A1: dispatchSync
     end
+```
+
+## onAttention
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as OpenAttentionAction
+
+    User->>UI: onAttention
+    UI->>VM: onAttention()
+    VM->>A1: dispatch
 ```
 
 ## onMeasure
@@ -140,7 +122,7 @@ sequenceDiagram
 
     User->>UI: onMeasure
     UI->>VM: onMeasure()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
     A1->>ST: copyWith(system.measure)
 ```
 
@@ -152,12 +134,12 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetTrafficWindowAction
+    participant A1 as ZoomTrafficAction
     participant ST as AppState
 
     User->>UI: onTrafficWindow
     UI->>VM: onTrafficWindow()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
     A1->>ST: copyWith(system.trafficWindow)
 ```
 
@@ -169,12 +151,12 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetTrafficWindowAction
+    participant A1 as FollowTrafficAction
     participant ST as AppState
 
     User->>UI: onTrafficFollow
     UI->>VM: onTrafficFollow()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
     A1->>ST: copyWith(system.trafficWindow)
 ```
 
@@ -191,8 +173,41 @@ sequenceDiagram
 
     User->>UI: onTrafficReset
     UI->>VM: onTrafficReset()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
     A1->>ST: copyWith(system.trafficWindow)
+```
+
+## onBanner
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as GoSystemPlaceAction
+
+    User->>UI: onBanner
+    UI->>VM: onBanner()
+    VM->>A1: dispatch
+```
+
+## onGuide
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as SystemPage
+    participant VM as SystemPageConnector
+    participant A1 as CopyTextAction
+    participant ST as AppState
+
+    User->>UI: onGuide
+    UI->>VM: onGuide()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```
 
 ## onSource
@@ -203,19 +218,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetSourceAction
-    participant A2 as RetrieveSystemLogAction
+    participant A1 as ChangeLogQueryAction
     participant ST as AppState
 
     User->>UI: onSource
     UI->>VM: onSource()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.source)
-    alt site.needs('config', _sys) == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction
-        A2-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(change)
+    A1->>ST: dispatchAndWait(RetrieveSystemLogAction)
 ```
 
 ## onLevel
@@ -226,19 +237,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetLogLevelAction
-    participant A2 as RetrieveSystemLogAction
+    participant A1 as ChangeLogQueryAction
     participant ST as AppState
 
     User->>UI: onLevel
     UI->>VM: onLevel()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.logLevel)
-    alt site.needs('config', _sys) == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction
-        A2-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(change)
+    A1->>ST: dispatchAndWait(RetrieveSystemLogAction)
 ```
 
 ## onFilter
@@ -249,19 +256,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetFilterAction
-    participant A2 as RetrieveSystemLogAction
+    participant A1 as ChangeLogQueryAction
     participant ST as AppState
 
     User->>UI: onFilter
     UI->>VM: onFilter()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.filter)
-    alt site.needs('config', _sys) == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction
-        A2-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(change)
+    A1->>ST: dispatchAndWait(RetrieveSystemLogAction)
 ```
 
 ## onAround
@@ -277,7 +280,7 @@ sequenceDiagram
 
     User->>UI: onAround
     UI->>VM: onAround()
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
     A1->>ST: copyWith(system.around)
 ```
 
@@ -289,19 +292,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetLinesAction
-    participant A2 as RetrieveSystemLogAction
+    participant A1 as ChangeLogQueryAction
     participant ST as AppState
 
     User->>UI: onLines
     UI->>VM: onLines()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.lines)
-    alt site.needs('config', _sys) == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction
-        A2-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(change)
+    A1->>ST: dispatchAndWait(RetrieveSystemLogAction)
 ```
 
 ## onAuto
@@ -312,19 +311,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as SetAutoAction
-    participant A2 as RetrieveSystemLogAction
+    participant A1 as ChangeLogQueryAction
     participant ST as AppState
 
     User->>UI: onAuto
     UI->>VM: onAuto()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.auto)
-    alt site.needs('config', _sys) == null
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction
-        A2-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(change)
+    A1->>ST: dispatchAndWait(RetrieveSystemLogAction)
 ```
 
 ## onGetLog
@@ -339,11 +334,8 @@ sequenceDiagram
 
     User->>UI: onGetLog
     UI->>VM: onGetLog()
-    alt site.needs('config', _sys) == null
-        VM->>+A1: dispatchAndWait
-        Note over A1: WaitingAction
-        A1-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: WaitingAction
 ```
 
 ## onCopyLog
@@ -354,13 +346,14 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as ShowNoticeAction
+    participant A1 as CopyLogAction
     participant ST as AppState
 
     User->>UI: onCopyLog
     UI->>VM: onCopyLog()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.notices)
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(CopyTextAction)
 ```
 
 ## onSaveLog
@@ -371,13 +364,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as ShowNoticeAction
+    participant A1 as SaveLogAction
     participant ST as AppState
 
     User->>UI: onSaveLog
     UI->>VM: onSaveLog()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.notices)
+    VM->>A1: dispatch
+    Note over A1: Selectors · async
+    A1->>ST: dispatchAndWait(ShowNoticeAction.system)
+    A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```
 
 ## onLogLevel
@@ -388,18 +383,14 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as RemoveChangeAction
-    participant A2 as AddChangesAction
+    participant A1 as StageLogLevelAction
     participant ST as AppState
 
     User->>UI: onLogLevel
     UI->>VM: onLogLevel()
-    alt staged != null
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(changes.table, changes.view, changes.open)
-    end
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(changes.table, changes.view, changes.message)
+    VM->>A1: dispatch
+    A1->>ST: dispatchSync(RemoveChangeAction)
+    A1->>ST: dispatchSync(AddChangesAction)
 ```
 
 ## onClear
@@ -410,33 +401,15 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as action
-    participant A2 as ShowNoticeAction
+    participant A1 as ClearConnsAction
     participant ST as AppState
 
     User->>UI: onClear
     UI->>VM: onClear()
-    VM->>+A1: dispatchAndWait
-    A1-->>-VM: ActionStatus
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(problems.notices)
-```
-
-## onPutProfile
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as SystemPage
-    participant VM as SystemPageConnector
-    participant A1 as ShowNoticeAction
-    participant ST as AppState
-
-    User->>UI: onPutProfile
-    UI->>VM: onPutProfile()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.notices)
+    VM->>A1: dispatch
+    Note over A1: NonReentrant · WaitingAction · async
+    A1->>ST: dispatchAndWait(RetrieveLinksAction)
+    A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```
 
 ## onRemoveProfile
@@ -448,17 +421,14 @@ sequenceDiagram
     participant UI as SystemPage
     participant VM as SystemPageConnector
     participant A1 as RemoveProfileAction
-    participant A2 as ShowNoticeAction
     participant ST as AppState
 
     User->>UI: onRemoveProfile
     UI->>VM: onRemoveProfile()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: NonReentrant · WaitingAction · async
     A1->>ST: dispatchAndWait(RetrieveProfilesAction)
-    A1-->>-VM: ActionStatus
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(problems.notices)
+    A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```
 
 ## onCopyCommand
@@ -469,67 +439,14 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as ShowNoticeAction
+    participant A1 as CopyTextAction
     participant ST as AppState
 
     User->>UI: onCopyCommand
     UI->>VM: onCopyCommand()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.notices)
-```
-
-## onTile
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as SystemPage
-    participant VM as SystemPageConnector
-    participant A1 as links_slice.SetTabAction
-    participant A2 as access_slice.SetTabAction
-    participant NAV as Router
-
-    User->>UI: onTile
-    UI->>VM: onTile()
-    VM->>A1: dispatchSync
-    VM->>A1: dispatchSync
-    VM->>A2: dispatchSync
-    VM->>NAV: GoAction.push GalleryRoute
-```
-
-## onAttention
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as SystemPage
-    participant VM as SystemPageConnector
-    participant A1 as SetTabAction
-    participant A2 as links_slice.SetTabAction
-    participant A3 as SetSelectedLinkAction
-    participant A4 as SetSelectedEntryAction
-    participant A5 as SetSelectedPeerAction
-    participant A6 as access_slice.SetTabAction
-    participant ST as AppState
-    participant NAV as Router
-
-    User->>UI: onAttention
-    UI->>VM: onAttention()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(system.tab)
-    VM->>A2: dispatchSync
-    VM->>A3: dispatchSync
-    A3->>ST: copyWith(links.selectedLink)
-    VM->>A2: dispatchSync
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(quarantine.selectedEntry)
-    VM->>A5: dispatchSync
-    A5->>ST: copyWith(peers.selectedPeer)
-    VM->>A2: dispatchSync
-    VM->>A6: dispatchSync
-    VM->>NAV: GoAction.push GalleryRoute
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(ShowNoticeAction.system)
 ```
 
 ## onElsewhere
@@ -540,62 +457,41 @@ sequenceDiagram
     actor User
     participant UI as SystemPage
     participant VM as SystemPageConnector
-    participant A1 as links_slice.SetTabAction
-    participant A2 as access_slice.SetTabAction
-    participant NAV as Router
+    participant A1 as GoSystemPlaceAction
 
     User->>UI: onElsewhere
     UI->>VM: onElsewhere()
-    VM->>A1: dispatchSync
-    VM->>A2: dispatchSync
-    VM->>NAV: GoAction.push GalleryRoute
-```
-
-## onGuide
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as SystemPage
-    participant VM as SystemPageConnector
-    participant A1 as ShowNoticeAction
-    participant ST as AppState
-
-    User->>UI: onGuide
-    UI->>VM: onGuide()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.notices)
+    VM->>A1: dispatch
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `SetShownAction`, `WatchKeysAction`, `RetrieveSysAboutAction`, `RetrieveProfilesAction`, `RetrieveBackupsAction`, `RetrieveQuarantineAction`, `RetrieveSystemLogAction` ?, `RetrieveLinksAction`, `RetrievePeersAction` ? | `system.shown`, `live.watched`, `system.about, system.units`, `system.profiles, system.profilesNote`, `backups.table, backups.view, backups.sections`, `quarantine.table, quarantine.view, quarantine.forms`, `links.version, links.table, links.view, links.updatesAvailable`, `peers.table, peers.view` |
-| `onHide` | `SetShownAction`, `UnwatchKeysAction`, `SetAclSeenAction` ? | `system.shown`, `live.watched`, `system.aclSeen` |
+| `onShow` | `ShowSystemAction` | — |
+| `onHide` | `HideSystemAction` | `system.shown, system.aclSeen` |
 | `onPoll` | `PollSystemLogAction` | — |
-| `onTab` | `SetTabAction`, `RetrieveSystemLogAction` ? | `system.tab` |
+| `onTab` | `OpenSystemTabAction` | — |
+| `onTile` | `GoSystemPlaceAction` ? | — |
+| `onAttention` | `OpenAttentionAction` | — |
 | `onMeasure` | `SetMeasureAction` | `system.measure` |
-| `onTrafficWindow` | `SetTrafficWindowAction` | `system.trafficWindow` |
-| `onTrafficFollow` | `SetTrafficWindowAction` | `system.trafficWindow` |
+| `onTrafficWindow` | `ZoomTrafficAction` | `system.trafficWindow` |
+| `onTrafficFollow` | `FollowTrafficAction` | `system.trafficWindow` |
 | `onTrafficReset` | `SetTrafficWindowAction` | `system.trafficWindow` |
-| `onSource` | `SetSourceAction`, `RetrieveSystemLogAction` ? | `system.source` |
-| `onLevel` | `SetLogLevelAction`, `RetrieveSystemLogAction` ? | `system.logLevel` |
-| `onFilter` | `SetFilterAction`, `RetrieveSystemLogAction` ? | `system.filter` |
+| `onBanner` | `GoSystemPlaceAction` | — |
+| `onGuide` | `CopyTextAction` | — |
+| `onSource` | `ChangeLogQueryAction` | — |
+| `onLevel` | `ChangeLogQueryAction` | — |
+| `onFilter` | `ChangeLogQueryAction` | — |
 | `onAround` | `SetAroundAction` | `system.around` |
-| `onLines` | `SetLinesAction`, `RetrieveSystemLogAction` ? | `system.lines` |
-| `onAuto` | `SetAutoAction`, `RetrieveSystemLogAction` ? | `system.auto` |
-| `onGetLog` | `RetrieveSystemLogAction` ? | — |
-| `onCopyLog` | `ShowNoticeAction` | `problems.notices` |
-| `onSaveLog` | `ShowNoticeAction` | `problems.notices` |
-| `onLogLevel` | `RemoveChangeAction` ?, `AddChangesAction` | `changes.table, changes.view, changes.open`, `changes.table, changes.view, changes.message` |
-| `onClear` | `action`, `ShowNoticeAction` | `problems.notices` |
-| `onPutProfile` | `ShowNoticeAction` | `problems.notices` |
-| `onRemoveProfile` | `RemoveProfileAction`, `ShowNoticeAction` | `problems.notices` |
-| `onCopyCommand` | `ShowNoticeAction` | `problems.notices` |
-| `onTile` | `links_slice.SetTabAction`, `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | — |
-| `onAttention` | `SetTabAction`, `links_slice.SetTabAction`, `SetSelectedLinkAction`, `links_slice.SetTabAction`, `SetSelectedEntryAction`, `SetSelectedPeerAction`, `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | `system.tab`, `links.selectedLink`, `quarantine.selectedEntry`, `peers.selectedPeer` |
-| `onElsewhere` | `links_slice.SetTabAction`, `access_slice.SetTabAction`, `GoAction.push` | — |
-| `onGuide` | `ShowNoticeAction` | `problems.notices` |
+| `onLines` | `ChangeLogQueryAction` | — |
+| `onAuto` | `ChangeLogQueryAction` | — |
+| `onGetLog` | `RetrieveSystemLogAction` | — |
+| `onCopyLog` | `CopyLogAction` | — |
+| `onSaveLog` | `SaveLogAction` | — |
+| `onLogLevel` | `StageLogLevelAction` | — |
+| `onClear` | `ClearConnsAction` | — |
+| `onRemoveProfile` | `RemoveProfileAction` | — |
+| `onCopyCommand` | `CopyTextAction` | — |
+| `onElsewhere` | `GoSystemPlaceAction` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

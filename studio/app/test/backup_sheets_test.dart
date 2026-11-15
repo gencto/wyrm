@@ -8,6 +8,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_sealed.dart';
+import 'package:models/backup_status.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/send_link.dart';
 import 'package:ui/models/tone.dart';
@@ -61,15 +63,15 @@ BackupJob _job({
   id: 'b1',
   name: 'plant-2026-11-13-1540.wyrm-backup',
   sections: sections.lock,
-  sealed: sealed,
-  status: status,
+  sealed: BackupSealed.fromWire(sealed)!,
+  status: BackupStatus.fromWire(status)!,
   progress: status == 'done' ? 100 : 46,
   step: 'storage',
   size: 4096,
   sha256: 'ab' * 32,
-  expires: '2026-11-20T15:40:12Z',
+  expires: DateTime.utc(2026, 11, 20, 15, 40, 12),
   error: status == 'failed' ? 'no room on the disk' : '',
-  sendStatus: sendStatus,
+  sendStatus: BackupSendStatus.fromWire(sendStatus)!,
   sendProgress: 40,
   sentTo: 'files/s3/files/backups/x',
   sendError: 'the name exists',

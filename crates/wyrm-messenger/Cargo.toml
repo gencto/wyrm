@@ -23,3 +23,6 @@ wyrm-history-sync.workspace = true
 serde_json.workspace = true
 # Pairing codes are kept as SHA-256 only.
 sha2.workspace = true
+
+[lints]
+workspace = true

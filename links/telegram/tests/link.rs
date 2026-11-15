@@ -2,6 +2,15 @@
 //! recipients, pairing and chat commands within three bounds, rate limits and markup fallbacks,
 //! restarts.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use wyrm_link_telegram::TelegramLink;
 use wyrm_messenger::testkit::{engineer, map, narrow, s, Api, TG_TOKEN};
 

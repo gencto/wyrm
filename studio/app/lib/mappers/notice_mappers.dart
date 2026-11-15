@@ -2,6 +2,8 @@ import 'package:models/notice_kind.dart';
 import 'package:models/studio_notice.dart';
 import 'package:ui/alerts/toast_stack.dart';
 
+import 'system_mappers.dart';
+
 // A notice as the toast stack draws it (studio-rules §3, §5): one
 // exhaustive switch for what `ui` words.
 
@@ -14,11 +16,12 @@ extension NoticeKindCopied on NoticeKind {
 }
 
 extension StudioNoticeToast on StudioNotice {
-  /// A success toast, in `good` for 3 s: `ui` words a [kind], else the
-  /// notice's own [title].
-  ToastVm get toast => switch (kind) {
-    final k? => ToastVm.copied(id, k.copied, count: count),
-    null => ToastVm(
+  /// The toast of a notice, in `good`, gone after 3 s: what was copied or a
+  /// notice of System (`ui` words them), else its own title and line.
+  ToastVm get toast => switch ((kind, system?.toast)) {
+    (final k?, _) => ToastVm.copied(id, k.copied, count: count),
+    (null, final w?) => ToastVm.system(id: id, words: w),
+    (null, null) => ToastVm(
       id: id,
       tone: .good,
       title: title,

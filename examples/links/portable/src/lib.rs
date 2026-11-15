@@ -169,6 +169,10 @@ impl App for Echo {
                 Value::Map(mut m) => m.remove("value").unwrap_or(Value::Null),
                 _ => Value::Null,
             }),
+            #[allow(
+                clippy::panic,
+                reason = "the fault the host's restart tests ask for (`faults: true` only)"
+            )]
             ("", "crash") if self.faults => panic!("asked to crash"),
             _ => Err(AppError::new(Status::NotSupported, action)),
         }

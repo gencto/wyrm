@@ -43,3 +43,6 @@ description = "History sync to InfluxDB 2.x / 3.x (ADR 0026)"
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 1 }
+
+[lints]
+workspace = true

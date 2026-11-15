@@ -1,6 +1,11 @@
 //! Google Drive simulator for demos: the Drive API v3 and a token endpoint
 //! taking one OAuth client and refresh token.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]

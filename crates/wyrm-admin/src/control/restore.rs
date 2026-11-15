@@ -486,7 +486,7 @@ impl Control {
                     .ok_or("the backup holds a framework tree without its store key")?;
                 let sealed = std::fs::read(&tree).map_err(|e| io_err(&tree, e))?;
                 let bound = wyrm_link_sdk::driver::persist::rebind(&sealed, &key, &r.def.id, id)
-                    .ok_or("the framework tree of the backup does not open with its store key")?;
+                    .map_err(|e| format!("the framework tree of the backup: {e}"))?;
                 secret::write_private(&tree, &bound).map_err(|e| io_err(&tree, e))?;
             }
             Ok::<(), String>(())

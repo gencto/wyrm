@@ -49,3 +49,6 @@ name = "s3"
 description = "S3 buckets (AWS, MinIO, R2, Wasabi, B2, GCS interop): the bucket as a tree, folders, uploads, downloads"
 bin = "wyrm-link-s3"
 features = ["process"]
+
+[lints]
+workspace = true

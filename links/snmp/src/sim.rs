@@ -595,8 +595,12 @@ impl Agent {
         let flags = if auth.is_some() { msg::FLAG_AUTH } else { 0 };
         let mut out = msg::encode_v3(msg_id, flags, &usm, &scoped);
         if let Some(u) = auth {
-            let mac = u.auth.sign(&u.auth_key, &out.bytes);
-            out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac);
+            match u.auth.sign(&u.auth_key, &out.bytes) {
+                Some(mac) => out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac),
+                None => {
+                    tracing::error!("snmp sim: the auth key was refused; the report goes unsigned")
+                }
+            }
         }
         out.bytes
     }
@@ -752,7 +756,10 @@ impl Agent {
         };
         let mut out = msg::encode_v3(id, flags, &usm_out, &data);
         if authenticate {
-            let mut mac = auth.sign(&auth_key, &out.bytes);
+            let Some(mut mac) = auth.sign(&auth_key, &out.bytes) else {
+                tracing::error!("snmp sim: the auth key was refused; the answer goes unsigned");
+                return out.bytes;
+            };
             if forge == Some(Forge::CorruptMac) {
                 mac[0] ^= 0x01;
             }

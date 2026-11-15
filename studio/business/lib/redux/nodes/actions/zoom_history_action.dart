@@ -1,5 +1,5 @@
 import '../../../wyrm/explorer.dart';
-import '../../../wyrm/history_steps.dart';
+import '../../../wyrm/trend_window.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'set_history_window_action.dart';

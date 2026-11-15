@@ -6,8 +6,7 @@ use std::collections::BTreeMap;
 use std::net::IpAddr;
 
 use base64::Engine as _;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use hmac::Mac;
 use wyrm_core::{Quality, Sample, TypeCode, Value};
 use wyrm_link_api::net::NetPolicy;
 
@@ -740,7 +739,7 @@ impl Def {
     }
 
     /// What is shown of it: the fields as a map (never a secret, which is not in here).
-    pub fn to_value(&self) -> Value {
+    pub fn to_map(&self) -> Map {
         let mut m = self.extra.clone();
         let s = |v: &str| Value::Str(v.to_owned());
         m.insert("name".into(), s(&self.name));
@@ -764,7 +763,11 @@ impl Def {
             Value::Bool(self.insecure_plaintext),
         );
         m.insert("from_config".into(), Value::Bool(self.from_config));
-        Value::Map(m)
+        m
+    }
+
+    pub fn to_value(&self) -> Value {
+        Value::Map(self.to_map())
     }
 
     /// A stored or configured upstream back: `kind` and `name` are in the map.
@@ -916,7 +919,7 @@ pub fn azure_sas(
         .map_err(|_| "the device key is not base64".to_owned())?;
     let sr = url_encode(&format!("{hub}/devices/{device_id}"));
     let to_sign = format!("{sr}\n{expiry_s}");
-    let mut mac = Hmac::<Sha256>::new_from_slice(&key).map_err(|_| "bad key".to_owned())?;
+    let mut mac = wyrm_core::mac::hmac_sha256(&key);
     mac.update(to_sign.as_bytes());
     let sig = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
     Ok(format!(

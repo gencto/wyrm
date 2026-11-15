@@ -2,6 +2,14 @@
 //! listeners, no scouting) and talk to it over the real wire format.
 //! Feature `harness`; never enable in production builds.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "test support (feature `harness`): a failed step fails the calling test"
+)]
+
 use crate::ctx::LinkCtx;
 use crate::link::Link;
 use crate::runtime::{self, LinkConfig, LinkHandle};

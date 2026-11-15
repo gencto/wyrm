@@ -29,3 +29,6 @@ wit-component.workspace = true
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }
 rcgen.workspace = true
+
+[lints]
+workspace = true

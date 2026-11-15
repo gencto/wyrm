@@ -2,6 +2,15 @@
 //! a device whose polls fail stays `Failed` with its error, whatever its
 //! pings do, until a poll answers.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use wyrm_core::meta::Writable;

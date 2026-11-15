@@ -1,6 +1,15 @@
 //! Folders (`Driver::FOLDERS`, ruling 10): an organisational level between a
 //! device and its points, at most four deep, through a small test driver.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;

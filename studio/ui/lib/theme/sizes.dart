@@ -47,4 +47,7 @@ abstract final class AppSizes {
 
   /// A tile of the gallery page.
   static const double galleryTile = 380;
+
+  /// The plot of System's *Router traffic* (board `System`).
+  static const double trafficPlot = 120;
 }

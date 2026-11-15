@@ -32,6 +32,7 @@ import 'kinds.dart';
 import 'labels.dart';
 import 'mappers/value_text.dart';
 import 'points.dart';
+import 'trend_window.dart';
 
 // What Explorer shows, computed from the state (studio-rules §3): the
 // connector reads these and maps them to `ui`; it filters, sorts and

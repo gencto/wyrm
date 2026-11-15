@@ -490,8 +490,9 @@ impl MasterKey {
         ))
     }
 
-    fn check(&self) -> String {
-        hex::encode(wyrm_link_sdk::seal::seal(&self.key, CHECK_TEXT))
+    fn check(&self) -> Result<String, String> {
+        let sealed = wyrm_link_sdk::seal::seal(&self.key, CHECK_TEXT).map_err(|e| e.to_string())?;
+        Ok(hex::encode(sealed))
     }
 
     fn opens(&self, check: &str) -> bool {
@@ -582,7 +583,7 @@ impl Sealing<'_> {
                 Ok((
                     Sealed {
                         how: "passphrase".into(),
-                        check: key.check(),
+                        check: key.check()?,
                         kdf: Some(kdf),
                         id: hex::encode(&key.id),
                         mac: String::new(),
@@ -596,7 +597,7 @@ impl Sealing<'_> {
                     Sealed {
                         how: "broker".into(),
                         kdf: None,
-                        check: key.check(),
+                        check: key.check()?,
                         id: hex::encode(&key.id),
                         mac: String::new(),
                     },
@@ -666,7 +667,7 @@ pub fn seal_stream(
         plain.extend_from_slice(&index.to_be_bytes());
         plain.push(u8::from(last));
         plain.extend_from_slice(&cur);
-        let sealed = wyrm_link_sdk::seal::seal(&fk, &plain);
+        let sealed = wyrm_link_sdk::seal::seal(&fk, &plain).map_err(std::io::Error::other)?;
         dst.write_all(&(sealed.len() as u32).to_be_bytes())?;
         dst.write_all(&sealed)?;
         total += cur.len() as u64;

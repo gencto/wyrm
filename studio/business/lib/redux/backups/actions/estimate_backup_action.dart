@@ -11,7 +11,8 @@ import 'create_backup_action.dart';
 /// `{sections: {name: bytes}, total}`: the size of every section of the
 /// broker backup as it is chosen now (before compression). Every section is
 /// asked for, so an unticked row shows its size too. A link backup has no
-/// estimate.
+/// estimate. The answer is dropped when the dialog it was asked for is no
+/// longer the one open.
 class EstimateBackupAction extends Action with WaitingAction {
   EstimateBackupAction() : super(quiet: true);
 
@@ -21,6 +22,7 @@ class EstimateBackupAction extends Action with WaitingAction {
     if (root == null || backups.link != null || backups.sections.isEmpty) {
       return null;
     }
+    final opening = backups.opening;
     final answer = await askOne(
       deps.wyrm,
       '$root/sys/backups',
@@ -35,6 +37,10 @@ class EstimateBackupAction extends Action with WaitingAction {
         ),
       ),
     );
+    // The dialog it was read for was closed, or another opened: dropped.
+    if (backups.opening != opening || backups.stage == null) {
+      return null;
+    }
     return state.copyWith.backups(
       estimate: {
         if (answer['sections'] case VMap(:final v))

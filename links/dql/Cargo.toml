@@ -47,3 +47,6 @@ description = "DQL: standing and ad-hoc queries over the tree (list | where | su
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 4 }
+
+[lints]
+workspace = true

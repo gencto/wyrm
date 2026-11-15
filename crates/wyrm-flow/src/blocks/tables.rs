@@ -1668,7 +1668,6 @@ mod tests {
             &View {
                 inv: &inv,
                 params: &cfg,
-                items: Vec::new(),
                 now_us: 0,
                 ins: &insm,
             },

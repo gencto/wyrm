@@ -9,7 +9,7 @@
 //! that file into the archive to make a version that says it moves a
 //! SCHEMA.
 
-fn main() -> Result<(), wyrmd::Error> {
+fn main() -> Result<std::process::ExitCode, wyrmd::Error> {
     let beside = std::env::current_exe()
         .ok()
         .and_then(|exe| Some(exe.parent()?.join("test-build.json")));

@@ -460,9 +460,11 @@ impl LocalStore {
                 write_new(&target, &src, fsync).map_err(|e| io_error(e, &w))?;
             }
             if fsync {
-                // the folder entry too (not possible on every system)
-                if let Ok(d) = fs::File::open(&dir) {
-                    let _ = d.sync_all();
+                // the folder entry too; not every system can sync a folder (Windows
+                // opens none, some network file systems refuse): the file itself is
+                // synced, so this is said and the upload stands
+                if let Err(e) = fs::File::open(&dir).and_then(|d| d.sync_all()) {
+                    tracing::warn!(dir = %dir.display(), "folder entry not synced: {e}");
                 }
             }
             let m = fs::metadata(&target).map_err(|e| io_error(e, &w))?;

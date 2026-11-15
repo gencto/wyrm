@@ -62,3 +62,6 @@ wyrm-flow.workspace = true
 # `gw::parse_plan`: a task's plan is a plan of `wyrm-agent run`
 wyrm-mcp = { workspace = true, features = ["gateway"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true

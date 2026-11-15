@@ -640,7 +640,10 @@ pub fn take_failure(data_dir: &Path) -> Option<Failure> {
     }
     let error = std::fs::read_to_string(failed.join(ERROR)).unwrap_or_default();
     let plan = read_plan(&failed).unwrap_or_default();
-    let _ = std::fs::write(failed.join(REPORTED), b"");
+    // without the mark the failure is reported again at the next start
+    if let Err(e) = std::fs::write(failed.join(REPORTED), b"") {
+        tracing::warn!(dir = %failed.display(), "restore failure not marked as reported: {e}");
+    }
     Some(Failure {
         by: plan.by,
         backup: plan.backup,

@@ -1,6 +1,15 @@
 //! The agent link end to end on one isolated Zenoh session with the mock
 //! link and a scripted fake LLM (no network).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use base64::Engine as _;
 use serde_json::{json, Value as Json};
 use std::collections::{BTreeMap, VecDeque};

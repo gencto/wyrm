@@ -17,6 +17,7 @@ import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/install_source.dart';
+import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -234,7 +235,9 @@ void main() {
   });
 
   group('the Log toolbar time (errors.md §3, Open the log)', () {
-    LogLine at(String time) => LogLine(time: time, level: 'info');
+    // as the decoder of `get_log` gives it: the time as written and read
+    LogLine at(String time) =>
+        LogLine(time: time, at: DateTime.tryParse(time), level: LogLevel.info);
     final lines = [
       at('2026-11-10T11:58:00Z'),
       at('2026-11-10T11:54:04Z'),

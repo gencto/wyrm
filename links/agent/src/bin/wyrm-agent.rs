@@ -2,6 +2,8 @@
 //! Every command prints JSON, one object per line. The password comes from
 //! `WYR_GATEWAY_PASSWORD` (never from the command line).
 
+#![allow(clippy::print_stdout, reason = "a CLI: what it prints is its result")]
+
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value as Json};
 use std::time::Duration;
@@ -104,7 +106,8 @@ fn invoke_args(
     let json = match args_file {
         Some(p) => {
             let b = read_capped(p)?;
-            let text = String::from_utf8(b).map_err(|_| format!("{}: not UTF-8", p.display()))?;
+            let text =
+                String::from_utf8(b).map_err(|e| format!("{}: not UTF-8 ({e})", p.display()))?;
             parse(&text, &p.display().to_string())?
         }
         None => parse(args, "args")?,
@@ -202,14 +205,15 @@ async fn main_r(a: Args) -> Result<bool, String> {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     let a = Args::parse();
+    // returned, not `process::exit`: the runtime shuts down and every `Drop` runs
     match main_r(a).await {
-        Ok(true) => {}
-        Ok(false) => std::process::exit(1),
+        Ok(true) => std::process::ExitCode::SUCCESS,
+        Ok(false) => std::process::ExitCode::from(1),
         Err(e) => {
             line(&json!({ "error": e }));
-            std::process::exit(2);
+            std::process::ExitCode::from(2)
         }
     }
 }

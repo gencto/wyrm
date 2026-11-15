@@ -492,7 +492,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
   }
 
   RowVm _quarantineRow(QuarantineEntry q) {
-    final broker = q.kind == 'broker';
+    final broker = q.kind == .broker;
     return RowVm(
       id: q.node,
       selected: quarantine.selectedEntry == q.node,
@@ -816,7 +816,7 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
   DetailInspectorVm _quarantineInspector(QuarantineEntry q) {
     final key = '$_root/sys/quarantine/${q.node}';
     final reason = site.needs('config', key);
-    final broker = q.kind == 'broker';
+    final broker = q.kind == .broker;
     final specs = quarantine.forms[q.node];
     return DetailInspectorVm(
       eyebrow: S.current.waitingInQuarantine,

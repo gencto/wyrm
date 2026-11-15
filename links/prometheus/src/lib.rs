@@ -1097,7 +1097,8 @@ async fn list_series(t: &mut Transport, args: &Value) -> Result<Value, LinkError
     ])))
 }
 
-#[cfg(all(test, feature = "sim"))]
+#[cfg(test)]
+#[cfg(feature = "sim")]
 mod tests {
     use super::*;
     use wyrm_link_sdk::driver::params::normalize;

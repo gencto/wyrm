@@ -451,10 +451,14 @@ impl Conv {
         let id = if free(&base) {
             base
         } else {
-            (2..)
-                .map(|i| format!("{base}_{i}"))
-                .find(|n| free(n))
-                .expect("a free name")
+            let mut i = 2u64;
+            loop {
+                let n = format!("{base}_{i}");
+                if free(&n) {
+                    break n;
+                }
+                i += 1;
+            }
         };
         if id != name {
             self.renamed

@@ -1,5 +1,8 @@
 import 'package:localization/localization.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_kind.dart';
+import 'package:models/backup_sealed.dart';
+import 'package:models/backup_status.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/send_link.dart';
 import 'package:ui/containers/fact_grid.dart';
@@ -333,17 +336,18 @@ final class BackupJobData {
   /// What the primary button does: `download`, `cancel`, `send`, `show`,
   /// or nothing.
   String get primary {
-    if (job.status == 'failed') {
+    if (job.status == BackupStatus.failed) {
       return 'remove';
     }
-    if (job.status != 'done') {
+    if (job.status != BackupStatus.done) {
       return '';
     }
     if (downloading) {
       return 'cancel';
     }
     if (where == 'store' && !hasKeys && sendLinks.isNotEmpty) {
-      return job.sendStatus == 'sending' || job.sendStatus == 'done'
+      return job.sendStatus == BackupSendStatus.sending ||
+              job.sendStatus == BackupSendStatus.done
           ? 'show'
           : 'send';
     }
@@ -359,8 +363,8 @@ final class BackupJobData {
 TaskSheetVm backupJobSheet(BackupJobData d) {
   final l = S.current;
   final j = d.job;
-  final what = j.kind == 'link' ? j.link : d.site;
-  if (j.status == 'failed') {
+  final what = j.kind == BackupKind.link ? j.link : d.site;
+  if (j.status == BackupStatus.failed) {
     return TaskSheetVm(
       title: l.bakFailedTitle(what),
       sub: j.name,
@@ -372,7 +376,7 @@ TaskSheetVm backupJobSheet(BackupJobData d) {
       primaryQuiet: true,
     );
   }
-  if (j.status != 'done') {
+  if (j.status != BackupStatus.done) {
     final at = j.sections.indexOf(j.step);
     return TaskSheetVm(
       title: l.bakProgressTitle(what),
@@ -407,7 +411,10 @@ TaskSheetVm backupJobSheet(BackupJobData d) {
   final percent = j.size == 0 ? 0 : (d.downloaded * 100 ~/ j.size);
   return TaskSheetVm(
     title: l.bakDoneTitle,
-    sub: l.bakDoneSub(_date(j.expires)),
+    sub: l.bakDoneSub(switch (j.expires) {
+      final t? => Formats.dateTime(t),
+      null => '',
+    }),
     blocks: [
       SheetBanner(
         title: l.bakSaved(j.name),
@@ -424,13 +431,13 @@ TaskSheetVm backupJobSheet(BackupJobData d) {
         FactVm(
           label: l.bakFactSealed,
           value: switch (j.sealed) {
-            'passphrase' => l.bakSealedPassphrase,
-            'broker' => l.bakSealedBroker(d.site),
-            _ => l.bakSealedNone,
+            BackupSealed.passphrase => l.bakSealedPassphrase,
+            BackupSealed.broker => l.bakSealedBroker(d.site),
+            BackupSealed.none => l.bakSealedNone,
           },
         ),
         if (j.by.isNotEmpty) FactVm(label: l.bakFactBy, value: j.by),
-        if (j.sentTo.isNotEmpty && j.sendStatus == 'done')
+        if (j.sentTo.isNotEmpty && j.sendStatus == BackupSendStatus.done)
           FactVm(label: l.bakFactSent, value: j.sentTo, mono: true),
       ]),
       if (d.hasKeys)
@@ -447,11 +454,11 @@ TaskSheetVm backupJobSheet(BackupJobData d) {
         )
       else if (d.savedTo case final p?)
         SheetText(l.bakSavedTo(p), tone: .good),
-      if (j.sendStatus == 'sending')
+      if (j.sendStatus == BackupSendStatus.sending)
         SheetBar(percent: j.sendProgress, text: l.bakSending(j.sentTo))
-      else if (j.sendStatus == 'failed')
+      else if (j.sendStatus == BackupSendStatus.failed)
         SheetText(l.bakSendFailed(j.sendError), tone: .warn),
-      if (!d.downloading && j.sendStatus != 'sending') ...[
+      if (!d.downloading && j.sendStatus != BackupSendStatus.sending) ...[
         SheetChoice(
           id: 'where',
           label: l.bakWhere,
@@ -535,9 +542,6 @@ String _date(String iso) {
   return '${t.year}-${two(t.month)}-${two(t.day)} '
       '${two(t.hour)}:${two(t.minute)}';
 }
-
-/// A backup's time for a list row.
-String backupDate(String iso) => _date(iso);
 
 /// What the *Restore* dialog is built from (board `BackupRestore`).
 final class RestoreData {

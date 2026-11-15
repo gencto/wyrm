@@ -59,7 +59,7 @@ impl Rec {
         if let Some(t) = self.t {
             m.insert("t".to_owned(), Value::UInt(t));
         }
-        codec::to_vec(&Value::Map(m)).expect("a value encodes")
+        codec::value_to_vec(&Value::Map(m))
     }
 
     fn decode(bytes: &[u8]) -> Option<Self> {

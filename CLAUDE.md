@@ -107,6 +107,7 @@ Iteration 1 is done when `wyr bench` prints numbers on ARM64 against targets in 
 
 ## Conventions
 - `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` must pass.
+- Rust rules (denied workspace lints, no `unwrap`/`expect` in product code, `// SAFETY:` per unsafe op, baselined C1–C10, exceptions counted as A1–A2): `docs/rust-rules.md`; `python3 tool/check_rust_rules.py` must pass; counts only go down and a lower count is committed at once (`--lower`).
 - Pin `zenoh` to an exact version in `Cargo.toml`; upgrade quarterly with the fixture suite.
 - Drivers: all I/O with timeouts, no `unwrap` on network paths, honest quality (`uncertain/stale` → `bad/comm_fail`), profiles declared before nodes.
 - QoS: `~set/~act` → Priority InteractiveHigh + Block + express; `~val` → Data + Drop; `~meta` → DataHigh + Block.

@@ -47,3 +47,6 @@ nix = { workspace = true, features = ["resource", "process"] }
 [dev-dependencies]
 wyrm-link-sdk = { path = ".", features = ["harness", "advanced", "process"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true

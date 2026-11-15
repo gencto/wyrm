@@ -750,7 +750,9 @@ impl<W: World> Runner<W> {
         f: impl FnOnce(&W, &mut Store<Ctx>) -> wasmtime::Result<Result<R, String>>,
     ) -> Result<R, Error> {
         self.ensure()?;
-        let live = self.live.as_mut().expect("ensured");
+        let Some(live) = self.live.as_mut() else {
+            return Err(Error::Trap("no instance".into()));
+        };
         Self::arm(&mut live.store, &self.limits)?;
         let r = f(&live.world, &mut live.store);
         self.fuel_used = self
@@ -762,8 +764,10 @@ impl<W: World> Runner<W> {
             Ok(Err(m)) => Err(Error::Guest(m)),
             Err(e) => {
                 // A trapped instance cannot be entered again.
-                let live = self.live.take().expect("live");
-                Err(self.classify(e, live.store.data()))
+                Err(match self.live.take() {
+                    Some(live) => self.classify(e, live.store.data()),
+                    None => Error::Trap(e.to_string()),
+                })
             }
         }
     }
@@ -1430,10 +1434,10 @@ impl AppRunner {
             .saturating_sub(live.store.get_fuel().unwrap_or(0));
         match r {
             Ok(v) => Ok(v),
-            Err(e) => {
-                let live = self.live.take().expect("live");
-                Err(classify(&self.limits, e, live.store.data()))
-            }
+            Err(e) => Err(match self.live.take() {
+                Some(live) => classify(&self.limits, e, live.store.data()),
+                None => Error::Trap(e.to_string()),
+            }),
         }
     }
 }

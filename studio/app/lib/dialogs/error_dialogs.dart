@@ -19,8 +19,8 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/studio_error.dart';
+import 'package:models/system_tab.dart';
 import 'package:ui/dialogs/error_dialog.dart';
-import 'package:ui/pages/system_page.dart';
 
 import '../common/app_store.dart';
 import '../errors.dart';
@@ -119,7 +119,7 @@ Future<void> showProblemDetails(BuildContext context, int id) async {
 /// toolbar's time keeps the lines within two minutes of it, of those read.
 void aimLogAt(Store<AppState> store, StudioError e) => store
   ..dispatchSync(SetAroundAction(e.at == null ? null : logClockOf(e.at!)))
-  ..dispatchSync(system_slice.SetTabAction(SystemPage.logTab));
+  ..dispatchSync(system_slice.SetTabAction(SystemTab.log));
 
 Future<void> _show(
   BuildContext context,
