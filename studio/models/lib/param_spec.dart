@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart';
 
 part 'param_spec.freezed.dart';
 
@@ -10,16 +11,19 @@ abstract class ParamSpec with _$ParamSpec {
     required String name,
     String? display,
 
-    /// TypeCode name (`string`, `number`, `int`, `bool`, `enum`, …).
-    @Default('string') String type,
+    /// Its type (spec 02 `TypeCode`); a parameter with choices is
+    /// [TypeCode.enum_].
+    @Default(TypeCode.string) TypeCode type,
     @Default(false) bool required,
     Object? defaultValue,
     num? min,
     num? max,
     @Default(IListConst([])) IList<String> choices,
 
-    /// `file`, `textarea`, …
-    String? editor,
+    /// How a form edits it (spec 02 `editor`); null for none, for a
+    /// secret (`secret` says it) and for an editor this Studio does not
+    /// know (a UI ignores those, spec 02).
+    ParamEditor? editor,
     @Default(false) bool secret,
     String? description,
 

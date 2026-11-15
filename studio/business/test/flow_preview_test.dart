@@ -9,6 +9,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/flow_preview/flow_preview.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
@@ -21,6 +22,7 @@ import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 // The catalog as the demo's broker answers `dataflows` ▸ `node_types`
@@ -149,14 +151,15 @@ final List<Map<String, Object>> live = [
 ];
 
 Map<String, NodeType> catalog(List<Map<String, Object>> raw) => {
-  for (final t in raw) t['type']! as String: nodeTypeOf(Value.from(t)),
+  for (final t in raw)
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 FlowBlock block(
   String id,
   String type, [
   Map<String, Object?> cfg = const {},
-]) => FlowBlock(id: id, type: type, cfg: cfg.lock);
+]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
 void main() {
   final types = catalog(live);

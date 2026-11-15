@@ -3,7 +3,7 @@ import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/flow_mapper.dart';
+import '../../../wyrm/decode/node_type.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -34,10 +34,10 @@ Future<IList<NodeType>> readBlockTypes(WyrmApi api, String root) async {
   final types =
       [
         if (cat case VArray(:final v))
-          for (final t in v) nodeTypeOf(t),
+          for (final t in v) ?nodeTypeOf(t).orWarn('node_types of $root'),
       ]..sort(
         (a, b) => a.category == b.category
-            ? a.type.compareTo(b.type)
+            ? a.type.wire.compareTo(b.type.wire)
             : a.category.compareTo(b.category),
       );
   return types.lock;

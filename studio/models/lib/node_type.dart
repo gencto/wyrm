@@ -1,7 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'block_type.dart';
 import 'param_spec.dart';
+import 'port_type.dart';
 
 part 'node_type.freezed.dart';
 
@@ -9,7 +11,7 @@ part 'node_type.freezed.dart';
 @freezed
 abstract class NodeType with _$NodeType {
   const factory NodeType({
-    required String type,
+    required BlockType type,
     @Default('') String category,
     @Default('') String description,
     @Default(IListConst([])) IList<String> inputs,
@@ -24,8 +26,8 @@ abstract class NodeType with _$NodeType {
     @Default(IListConst([])) IList<String> dynOutDefaults,
     @Default(IListConst([])) IList<ParamSpec> params,
 
-    /// The type of each port (`number`, `bool`, `any`, …; ADR 0038 §2).
-    @Default(IMapConst({})) IMap<String, String> portTypes,
+    /// The type of each port (ADR 0038 §2), by port name.
+    @Default(IMapConst({})) IMap<String, PortType> portTypes,
 
     /// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
     /// when the catalog does not say.

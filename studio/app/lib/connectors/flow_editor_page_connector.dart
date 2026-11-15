@@ -63,6 +63,7 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/action_info.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -90,28 +91,14 @@ import 'package:ui/shell/window_bar.dart';
 import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/tree_row.dart';
 
+import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
+
 import '../common/side_panels.dart';
 import '../common/value_viewer.dart';
 import '../common/window.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import 'flows_page_connector.dart';
-
-/// Block types that read from the tree (IN, teal) and that write to it
-/// (OUT, ember) in the palette; everything between is logic (FX).
-const _sources = {
-  'subscribe',
-  'liveliness',
-  'load_value',
-  'list_children',
-  'load_history',
-  'get_node',
-  'timer',
-  'history',
-  'dql',
-  'const',
-};
-const _sinks = {'set', 'invoke', 'publish'};
 
 /// A value with no time: what the definition says a field holds.
 final _typedTime = DateTime.fromMicrosecondsSinceEpoch(0, isUtc: true);
@@ -334,7 +321,7 @@ class FlowEditorPageConnector extends StatelessWidget {
     final read = SelectNodes(s).detail;
     return {
       for (final b in d.blocks.values)
-        if (b.type == 'invoke')
+        if (b.type.known == KnownBlock.invoke)
           if (pointOf(b) case final k? when !read.containsKey(_full(root, k)))
             _full(root, k),
     }.toList();
@@ -356,7 +343,7 @@ class FlowEditorPageConnector extends StatelessWidget {
         for (final k in nodes.expanded)
           if (_treeSections.any((s) => k.startsWith('$root/$s'))) '$k/*',
       for (final b in ed.draft?.blocks.values ?? const <FlowBlock>[])
-        if (_pointTypes.contains(b.type))
+        if (isPoint(b.type))
           if (pointOf(b) case final k?) _full(root, k),
       if (id != newFlowId) '$root/dataflows/$id',
       // What the deployed publish blocks last published: their inputs.
@@ -371,15 +358,12 @@ class FlowEditorPageConnector extends StatelessWidget {
 /// write (spec 06 step 9).
 const _treeSections = ['downstream', 'dataflows', 'storage'];
 
-/// The block types that stand for one point of the tree: its value is
-/// theirs.
-const _pointTypes = {'subscribe', 'liveliness', 'set', 'publish'};
-
 /// The value a `publish` block of flow [flow] publishes
 /// (`dataflows/<flow>/nodes/<node>`), null for any other block.
 String? _published(String root, String flow, FlowBlock b) =>
     switch (b.cfg['node']) {
-      final String n when b.type == 'publish' && flow.isNotEmpty =>
+      final String n
+          when b.type.known == KnownBlock.publish && flow.isNotEmpty =>
         '$root/dataflows/$flow/nodes/$n',
       _ => null,
     };
@@ -547,7 +531,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         }
       },
       onOpen: (block) {
-        if (blockNameOf(blocks[block]?.type ?? '') case final name?) {
+        if (blockNameOf(blocks[block]?.type) case final name?) {
           dispatchSync(EnterBlockAction(name, instance: block));
         }
       },
@@ -561,7 +545,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           ? S.current.openInside
           : null,
       onOpenInside: () {
-        if (blockNameOf(b?.type ?? '') case final name?) {
+        if (blockNameOf(b?.type) case final name?) {
           dispatchSync(EnterBlockAction(name, instance: b!.id));
         }
       },
@@ -607,8 +591,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         for (final e in edges)
           () {
             final writes =
-                writingTypes.contains(blocks[e.to]?.type) &&
-                e.to != blockOutputsId;
+                writesTo(blocks[e.to]?.type) && e.to != blockOutputsId;
             // A parameter's echo and a variable's value send at start: into
             // a device they write at every deploy (ADR 0038 §6,
             // `blocks.rs`).
@@ -824,7 +807,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           BindRefusal.output => S.current.refuseOutput,
           BindRefusal.noInput => S.current.refuseNoInput(to.label),
           BindRefusal.self => S.current.refuseSelf,
-          BindRefusal.type => S.current.refuseType(r!.from, r.to),
+          BindRefusal.type => S.current.refuseType(
+            r!.from?.wire ?? '',
+            r.to?.wire ?? '',
+          ),
           BindRefusal.loop => S.current.refuseLoop,
           BindRefusal.needsBroker => S.current.refuseNeedsBroker(to.label),
         };
@@ -836,7 +822,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         }
         dispatchSync(
           AddBlockAction(
-            'subscribe',
+            KnownBlock.subscribe.type,
             (target.x - 260).clamp(0, double.infinity).toDouble(),
             target.y,
             cfg: {'key': relativeKey(entry.substring(4))},
@@ -986,7 +972,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         dispatchSync(TidyFlowAction());
       case .editCustomBlock:
         final one = ids.length == 1 ? d.blocks[ids.single] : null;
-        if (blockNameOf(one?.type ?? '') case final name?) {
+        if (blockNameOf(one?.type) case final name?) {
           dispatchSync(EnterBlockAction(name, instance: one!.id));
         }
       // The canvas and the page answer the rest (the page asks the name
@@ -1094,7 +1080,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                 ? S.current.fmBlocks(ids.length)
                 : (d == null || d.id.isEmpty ? S.current.fmCanvas : d.id)),
       subtitle: one
-          ? b.type
+          ? b.type.wire
           : (ids.length > 1 ? '' : S.current.fmBlocks(d?.blocks.length ?? 0)),
       fields: [for (final f in own) pinOf(f)],
       unpin: onRow == null ? null : pinOf(onRow),
@@ -1191,7 +1177,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 
   void _add(String entry, double x, double y) {
     if (entry.startsWith('type:')) {
-      dispatchSync(AddBlockAction(entry.substring(5), x, y));
+      dispatchSync(
+        AddBlockAction(BlockType.fromWire(entry.substring(5)), x, y),
+      );
       return;
     }
     if (entry.startsWith('lib:')) {
@@ -1213,7 +1201,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final made = blockOfEntry(entry, action: action, caps: flowEditor.caps);
     if (made != null) {
       dispatchSync(
-        AddBlockAction(made.type, x, y, cfg: made.cfg, pins: made.pins),
+        AddBlockAction(made.type.type, x, y, cfg: made.cfg, pins: made.pins),
       );
     }
   }
@@ -1231,7 +1219,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   /// The parameters of the action an `invoke` block runs, from its node's
   /// `~meta` (read once, `nodes.detail`); none while it is not read.
   Iterable<ParamSpec> _actionParams(String root, FlowBlock b) {
-    if (b.type != 'invoke') {
+    if (b.type.known != KnownBlock.invoke) {
       return const [];
     }
     final path = pointOf(b);
@@ -1307,7 +1295,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   ScopePromptVm? _prompt(
     String root,
     IMap<String, FlowBlock> blocks,
-    Map<String, NodeType> types,
+    Map<BlockType, NodeType> types,
     Map<String, List<FlowField>> rows,
   ) {
     final b = blocks[flowEditor.scopePrompt ?? ''];
@@ -1416,7 +1404,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           final lib = library[name];
           final copied = libraryVersionOf(def);
           return PaletteEntryVm(
-            id: 'type:$blockTypePrefix$name',
+            id: 'type:${CustomType(name).wire}',
             title: name,
             tag: 'MY',
             group: S.current.myBlocksThisFlow,
@@ -1619,14 +1607,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   static List<PaletteEntryVm> _catalog(IList<NodeType> types) => [
     for (final t in inPaletteOrder(types))
       PaletteEntryVm(
-        id: 'type:${t.type}',
+        id: 'type:${t.type.wire}',
         // In words; the engine's name is searched too (spec §2).
         title: blockLabel(t.type),
-        tag: _sources.contains(t.type)
-            ? 'IN'
-            : (_sinks.contains(t.type) ? 'OUT' : 'FX'),
+        tag: isSource(t.type) ? 'IN' : (isSink(t.type) ? 'OUT' : 'FX'),
         group: t.category,
-        detail: t.description.isEmpty ? t.type : '${t.type}: ${t.description}',
+        detail: t.description.isEmpty
+            ? t.type.wire
+            : '${t.type.wire}: ${t.description}',
       ),
   ];
 
@@ -1665,7 +1653,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final ports = eid == null
         ? null
         : (previewing ? ed.previewPorts : (same ? ed.ports : null));
-    final point = _pointTypes.contains(b.type) ? pointOf(b) : null;
+    final point = isPoint(b.type) ? pointOf(b) : null;
     final flow = ed.root?.id ?? '';
     final pub = previewing || !same || inside
         ? null
@@ -1707,9 +1695,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         return v;
       }
       if (tree != null &&
-          (k == portKey('out', b.id, 'out') && b.type != 'set' ||
+          (k == portKey('out', b.id, 'out') && b.type.known != KnownBlock.set ||
               k == portKey('in', b.id, 'in') &&
-                  (b.type == 'set' || b.type == 'publish'))) {
+                  (b.type.known == KnownBlock.set ||
+                      b.type.known == KnownBlock.publish))) {
         return tree;
       }
       if (d == null || hops > 6) {
@@ -1797,7 +1786,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     required bool previewing,
   }) {
     final role = roleOf(b.type);
-    final writes = writingTypes.contains(b.type);
+    final writes = writesTo(b.type);
     final root = site.root ?? '';
     final point = pointOf(b);
     final keyed = scopedKeyOf(t);
@@ -1809,7 +1798,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               ? 'in:trigger'
               : rows.firstOrNull?.id);
     // What a sink would write in the preview (nothing is written).
-    final ghost = previewing && _sinks.contains(b.type)
+    final ghost = previewing && isSink(b.type)
         ? flowEditor.previewSinks[_engineId(b.id) ?? b.id]
         : null;
     // The draft no longer runs: the preview's last values, greyed.
@@ -1831,7 +1820,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           if (b.cfg['action'] case final String a when behaves) a,
         ].where((x) => x.isNotEmpty).join(' · '),
         BlockRole.custom => blockNameOf(b.type) ?? '',
-        _ => b.type,
+        _ => b.type.wire,
       },
       kind: switch (role) {
         BlockRole.node => BlockKindVm.node,
@@ -1862,7 +1851,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             );
             final group = groupOf(t, b, f);
             final wouldDo = ghost != null && f.id == ghostRow
-                ? (b.type == 'invoke'
+                ? (b.type.known == KnownBlock.invoke
                       ? (behaves
                             ? S.current.wouldSend(valueText(ghost.value))
                             : S.current.wouldRun(valueText(ghost.value)))
@@ -1999,7 +1988,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final typedTable =
         tabled && (how.edit == FieldEdit.json || how.edit == FieldEdit.any)
         ? switch (fieldEditValue(b, f)) {
-            null || '' when b.type != 'table_from_json' => TableDataVm.empty(),
+            null || '' when b.type.known != KnownBlock.tableFromJson =>
+              TableDataVm.empty(),
             final x => tableDataOf(x, rowsOfMaps: true),
           }
         : null;
@@ -2048,7 +2038,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         FieldLocked.output => S.current.viewerLockedOutput,
         FieldLocked.input => S.current.viewerLockedInput,
       },
-      csv: b.type == 'table_from_csv' && f.name == 'in'
+      csv: b.type.known == KnownBlock.tableFromCsv && f.name == 'in'
           ? _csvRules(b, all, d, live)
           : null,
     );
@@ -2117,7 +2107,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         editor: FieldEditorVm.bound,
         value: fieldValue(b, f, d, live).text,
         sourceBlock: into.from,
-        writes: writingTypes.contains(b.type),
+        writes: writesTo(b.type),
         inPort: f.inPort,
         hint: hint,
       );
@@ -2206,10 +2196,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             ? FieldEditorVm.suggest
             : p.choices.isNotEmpty
             ? FieldEditorVm.choice
-            : p.type == 'bool'
+            : p.type == TypeCode.bool_
             ? FieldEditorVm.toggle
             // `now`'s clock is a period as a command's (spec 06 0.2.30)
-            : (p.name == 'interval_ms' && (behaves || b.type == 'now')
+            : (p.name == 'interval_ms' &&
+                      (behaves || b.type.known == KnownBlock.now)
                   ? FieldEditorVm.duration
                   : FieldEditorVm.text),
         value: switch (v) {
@@ -2234,7 +2225,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         engine: f.name == f.label ? '' : f.name,
         editor: spec != null && spec.choices.isNotEmpty
             ? FieldEditorVm.choice
-            : (spec?.type == 'bool'
+            : (spec?.type == TypeCode.bool_
                   ? FieldEditorVm.toggle
                   : FieldEditorVm.text),
         value: v == null ? '' : (v is String ? v : jsonEncode(v)),

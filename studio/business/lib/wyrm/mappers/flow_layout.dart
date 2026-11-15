@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -43,7 +44,7 @@ const layoutBelowGap = 80.0;
 /// blocks without one are laid out, among themselves, under the saved ones.
 FlowDraft placeFlow(
   FlowDraft d,
-  Map<String, NodeType> types, {
+  Map<BlockType, NodeType> types, {
   required Set<String> placed,
 }) {
   final open = {
@@ -77,7 +78,7 @@ FlowDraft placeFlow(
 }
 
 /// Every block of [d] laid out by the data flow (`Tidy up`, spec §25).
-FlowDraft tidyFlow(FlowDraft d, Map<String, NodeType> types) =>
+FlowDraft tidyFlow(FlowDraft d, Map<BlockType, NodeType> types) =>
     _moved(d, _layout(d, types, d.blocks.keys.toSet()));
 
 FlowDraft _moved(FlowDraft d, Map<String, (double, double)> at) {
@@ -101,7 +102,7 @@ double _snap(double v) => (v / layoutGrid).round() * layoutGrid;
 /// line from its output's port to its input's port. Two wires that share
 /// a port do not count. What the layout makes few; tests compare layouts
 /// with it.
-int wireCrossings(FlowDraft d, Map<String, NodeType> types) {
+int wireCrossings(FlowDraft d, Map<BlockType, NodeType> types) {
   final g = _Geometry(d, types);
   final segs = [
     for (final e in d.edges)
@@ -146,7 +147,7 @@ final class _Geometry {
   _Geometry(this.d, this.types);
 
   final FlowDraft d;
-  final Map<String, NodeType> types;
+  final Map<BlockType, NodeType> types;
   final _rows = <String, List<FlowField>>{};
 
   List<FlowField> rows(FlowBlock b) =>
@@ -187,7 +188,7 @@ typedef _Link = ({String from, String to, double fromDy, double toDy});
 /// themselves from [layoutOrigin].
 Map<String, (double, double)> _layout(
   FlowDraft d,
-  Map<String, NodeType> types,
+  Map<BlockType, NodeType> types,
   Set<String> ids,
 ) {
   if (ids.isEmpty) {

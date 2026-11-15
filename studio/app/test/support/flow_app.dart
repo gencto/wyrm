@@ -379,7 +379,7 @@ class FlowApp {
     }
     return {
       for (final b in d.blocks.values)
-        b.id: {'type': b.type, 'x': b.x, 'y': b.y, ...b.cfg.unlock},
+        b.id: {'type': b.type.wire, 'x': b.x, 'y': b.y, ...b.cfg.unlock},
     };
   }
 

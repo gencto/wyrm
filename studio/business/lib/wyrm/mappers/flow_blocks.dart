@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/action_info.dart';
 import 'package:models/block_info.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -177,7 +178,9 @@ bool scopeAsked(
   if (b == null) {
     return false;
   }
-  final keyed = scopedKeyOf(types.where((t) => t.type == b.type).firstOrNull);
+  final keyed = scopedKeyOf(
+    types.where((t) => t.type == b.type).firstOrNull,
+  );
   return keyed != null &&
       keyed.port == toPort &&
       switch (b.cfg[keyed.scope]) {
@@ -192,7 +195,7 @@ bool scopeAsked(
 final class EntryBlock {
   const EntryBlock(this.type, this.cfg, {this.pins = const {}});
 
-  final String type;
+  final KnownBlock type;
   final Map<String, Object?> cfg;
 
   /// Fields taken off the block at once (an action's optional arguments).
@@ -218,10 +221,14 @@ EntryBlock? blockOfEntry(
   FlowCaps caps = const FlowCaps(),
 }) {
   if (entry.startsWith('key:')) {
-    return EntryBlock('subscribe', {'key': relativeKey(entry.substring(4))});
+    return EntryBlock(KnownBlock.subscribe, {
+      'key': relativeKey(entry.substring(4)),
+    });
   }
   if (entry.startsWith('set:')) {
-    return EntryBlock('set', {'path': relativeKey(entry.substring(4))});
+    return EntryBlock(KnownBlock.set, {
+      'path': relativeKey(entry.substring(4)),
+    });
   }
   if (!entry.startsWith('act:')) {
     return null;
@@ -235,7 +242,7 @@ EntryBlock? blockOfEntry(
   final name = full.substring(i + 1);
   final params = action?.params ?? const IListConst<ParamSpec>([]);
   if (!caps.args) {
-    return EntryBlock('invoke', {
+    return EntryBlock(KnownBlock.invoke, {
       'path': relativeKey(node),
       'action': name,
       'on': 'rising',
@@ -246,7 +253,7 @@ EntryBlock? blockOfEntry(
     });
   }
   return EntryBlock(
-    'invoke',
+    KnownBlock.invoke,
     {
       'path': relativeKey(node),
       'action': name,
@@ -297,9 +304,6 @@ String? lastRunText(Object? micros) => switch (micros) {
 
 // ---------- custom blocks in a definition (ADR 0040 §3) ----------
 
-/// The prefix of an instance's type: `block:<name>`.
-const blockTypePrefix = 'block:';
-
 /// The two blocks the inside of a custom block shows beside its nodes: its
 /// inputs (one right port each) and its outputs (one left port each). They
 /// are the editor's: a wire from `~in.<a>` to an inner input is the `to` of
@@ -307,8 +311,6 @@ const blockTypePrefix = 'block:';
 /// output `x`.
 const blockInputsId = '~in';
 const blockOutputsId = '~out';
-const blockInputsType = 'block~inputs';
-const blockOutputsType = 'block~outputs';
 
 /// Where the inside view keeps the two blocks' positions, and the library
 /// version a block was copied at: editor keys of the block's `layout`
@@ -327,11 +329,13 @@ final _name = RegExp(r'^[A-Za-z0-9_]+$');
 bool blockNameOk(String s) => _name.hasMatch(s);
 
 /// Whether a node of [type] is an instance of a custom block.
-bool isInstance(String type) => type.startsWith(blockTypePrefix);
+bool isInstance(BlockType type) => type is CustomType;
 
 /// The custom block a node of [type] is an instance of.
-String? blockNameOf(String type) =>
-    isInstance(type) ? type.substring(blockTypePrefix.length) : null;
+String? blockNameOf(BlockType? type) => switch (type) {
+  CustomType(:final name) => name,
+  _ => null,
+};
 
 /// Whether [id] is one of the two boundary blocks of an inside view.
 bool isBoundary(String id) => id == blockInputsId || id == blockOutputsId;
@@ -407,7 +411,7 @@ List<BlockPort> blockOutputsOf(Map<String, Object?> def) => [
 /// its inputs are fields with both ports that hold a constant (`values`),
 /// its outputs fields with a right port.
 NodeType customTypeOf(String name, Map<String, Object?> def) => NodeType(
-  type: '$blockTypePrefix$name',
+  type: CustomType(name),
   category: 'My blocks',
   description: def['description'] as String? ?? '',
   inputs: [for (final p in blockInputsOf(def)) p.name].lock,
@@ -421,12 +425,12 @@ NodeType customTypeOf(String name, Map<String, Object?> def) => NodeType(
 /// `outputs`.
 const _boundaryTypes = [
   NodeType(
-    type: blockInputsType,
+    type: BoundaryType.inputs,
     dynOutParam: 'inputs',
     echoInputs: false,
   ),
   NodeType(
-    type: blockOutputsType,
+    type: BoundaryType.outputs,
     dynInParam: 'outputs',
     echoInputs: false,
   ),
@@ -486,10 +490,12 @@ Object? instanceValueOf(FlowDraft d, FlowBlock b, String port) {
 /// How many instances of block [name] the flow [root] has: among its nodes
 /// and inside its other blocks.
 int instancesOf(FlowDraft root, String name) {
-  final type = '$blockTypePrefix$name';
+  final type = CustomType(name);
   var n = root.blocks.values.where((b) => b.type == type).length;
   for (final def in blockDefsOf(root).values) {
-    n += _map(def['nodes']).values.where((x) => _map(x)['type'] == type).length;
+    n += _map(
+      def['nodes'],
+    ).values.where((x) => _map(x)['type'] == type.wire).length;
   }
   return n;
 }
@@ -497,7 +503,8 @@ int instancesOf(FlowDraft root, String name) {
 /// The blocks [def] uses, directly: the types of its instances.
 Set<String> _uses(Map<String, Object?> def) => {
   for (final n in _map(def['nodes']).values)
-    if (_map(n)['type'] case final String t when isInstance(t)) blockNameOf(t)!,
+    if (_map(n)['type'] case final String t)
+      ?blockNameOf(BlockType.fromWire(t)),
 };
 
 /// [names] and every block of [defs] they use, used blocks first: the
@@ -667,7 +674,7 @@ BlockNameProblem? customBlockProblem(FlowDraft d, CustomBlockSpec spec) {
       id,
       FlowBlock(
         id: id,
-        type: '$blockTypePrefix${spec.name}',
+        type: CustomType(spec.name),
         x: left,
         y: top,
       ),
@@ -731,7 +738,7 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
           blockInputsId,
           FlowBlock(
             id: blockInputsId,
-            type: blockInputsType,
+            type: BoundaryType.inputs,
             x: ix,
             y: iy,
             cfg: <String, Object?>{
@@ -751,7 +758,7 @@ FlowDraft? insideDraftOf(FlowDraft outer, String name) {
           blockOutputsId,
           FlowBlock(
             id: blockOutputsId,
-            type: blockOutputsType,
+            type: BoundaryType.outputs,
             x: ox,
             y: oy,
             cfg: <String, Object?>{
@@ -873,7 +880,7 @@ FlowDraft foldInside(FlowDraft outer, String name, FlowDraft inner) {
   final defs = {...blockDefsOf(inner), name: def};
   final ins = {for (final p in blockInputsOf(def)) p.name};
   final outs = {for (final p in blockOutputsOf(def)) p.name};
-  final type = '$blockTypePrefix$name';
+  final type = CustomType(name);
   bool mine(String id) => outer.blocks[id]?.type == type;
   return withBlockDefs(
     outer.copyWith(
@@ -993,14 +1000,14 @@ FlowDraft? renameBlock(FlowDraft root, String from, String to) {
   if (!defs.containsKey(from) || !blockNameOk(to) || defs.containsKey(to)) {
     return null;
   }
-  final was = '$blockTypePrefix$from';
-  final now = '$blockTypePrefix$to';
+  final was = CustomType(from);
+  final now = CustomType(to);
   Map<String, Object?> renamed(Map<String, Object?> def) => {
     ...def,
     'nodes': {
       for (final e in _map(def['nodes']).entries)
         e.key: switch (_map(e.value)) {
-          final m when m['type'] == was => {...m, 'type': now},
+          final m when m['type'] == was.wire => {...m, 'type': now.wire},
           final m => m,
         },
     },

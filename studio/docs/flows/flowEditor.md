@@ -215,7 +215,7 @@ sequenceDiagram
 
     User->>UI: onOpen
     UI->>VM: onOpen()
-    alt blockNameOf(blocks[block]?.type ?? '')
+    alt blockNameOf(blocks[block]?.type)
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
     end
@@ -255,7 +255,7 @@ sequenceDiagram
 
     User->>UI: onOpenInside
     UI->>VM: onOpenInside()
-    alt blockNameOf(b?.type ?? '')
+    alt blockNameOf(b?.type)
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
     end
@@ -581,7 +581,7 @@ sequenceDiagram
     end
     VM->>A9: dispatchSync
     A9->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    alt blockNameOf(one?.type ?? '')
+    alt blockNameOf(one?.type)
         VM->>A10: dispatchSync
         A10->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
     end

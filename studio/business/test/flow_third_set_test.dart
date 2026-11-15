@@ -7,9 +7,9 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/table_value.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
@@ -21,6 +21,7 @@ import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/catalog_0226.dart';
 import 'support/catalog_0229.dart';
 import 'support/fake_wyrm.dart';
@@ -31,11 +32,11 @@ import 'support/fake_wyrm.dart';
 
 final Map<String, NodeType> types = {
   for (final t in catalog0229())
-    t['type']! as String: nodeTypeOf(Value.from(t)),
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 FlowBlock block(String type, [Map<String, Object?> cfg = const {}]) =>
-    FlowBlock(id: 'b', type: type, cfg: cfg.lock);
+    FlowBlock(id: 'b', type: bt(type), cfg: cfg.lock);
 
 /// The labels of the rows a new block of [type] draws, in order.
 List<String> rows(String type, [Map<String, Object?> cfg = const {}]) => [
@@ -80,14 +81,14 @@ void main() {
       'WASM',
     ]);
     final more = inPaletteOrder([
-      const NodeType(type: 'x', category: 'Vision'),
+      NodeType(type: bt('x'), category: 'Vision'),
       ...types.values,
     ]);
-    expect(more.last.type, 'x', reason: 'an unknown section comes last');
+    expect(more.last.type.wire, 'x', reason: 'an unknown section comes last');
     // Within a section the catalog's order stays.
     final sources = [
       for (final t in inPaletteOrder(types.values))
-        if (t.category == 'Sources') t.type,
+        if (t.category == 'Sources') t.type.wire,
     ];
     expect(sources.take(4), ['subscribe', 'timer', 'const', 'liveliness']);
   });
@@ -228,8 +229,8 @@ void main() {
       'Order',
     ]);
     // Block names by the broker's rule (ADR 0042).
-    expect(blockLabel('json_parse'), 'JSON parse');
-    expect(blockLabel('table_to_csv'), 'Table to CSV');
+    expect(blockLabel(bt('json_parse')), 'JSON parse');
+    expect(blockLabel(bt('table_to_csv')), 'Table to CSV');
   });
 
   group('dates', () {
@@ -252,9 +253,9 @@ void main() {
     });
 
     test('the date fields of the date blocks show it', () {
-      expect(isTimeField('now', 'out'), isTrue);
-      expect(isTimeField('date_range', 'start'), isTrue);
-      expect(isTimeField('date_range', 'duration'), isFalse);
+      expect(isTimeField(bt('now'), 'out'), isTrue);
+      expect(isTimeField(bt('date_range'), 'start'), isTrue);
+      expect(isTimeField(bt('date_range'), 'duration'), isFalse);
       final b = block('now');
       final out = field('now', 'out:out');
       final d = FlowDraft(id: 'f', blocks: {'b': b}.lock);
@@ -272,14 +273,14 @@ void main() {
 
     test('a time zone field offers zones, date_format also auto; a range '
         'text its choices', () {
-      expect(isTimeZoneParam('date_format', 'time_zone'), isTrue);
-      expect(isTimeZoneParam('load_history', 'time_zone'), isTrue);
-      expect(isTimeZoneParam('table_rollup', 'time_zone'), isTrue);
-      expect(timeZoneChoicesOf('date_format').first, 'auto');
-      expect(timeZoneChoicesOf('date_time').first, 'UTC');
+      expect(isTimeZoneParam(bt('date_format'), 'time_zone'), isTrue);
+      expect(isTimeZoneParam(bt('load_history'), 'time_zone'), isTrue);
+      expect(isTimeZoneParam(bt('table_rollup'), 'time_zone'), isTrue);
+      expect(timeZoneChoicesOf(bt('date_format')).first, 'auto');
+      expect(timeZoneChoicesOf(bt('date_time')).first, 'UTC');
       expect(timeZoneChoices, containsAll(['Europe/Kyiv', '+02:00']));
-      expect(isRangeText('date_range', 'in'), isTrue);
-      expect(isRangeText('load_history', 'time_range'), isTrue);
+      expect(isRangeText(bt('date_range'), 'in'), isTrue);
+      expect(isRangeText(bt('load_history'), 'time_range'), isTrue);
       expect(
         rangeChoices,
         containsAll(['today', 'lastWeek', 'current24hours']),
@@ -501,7 +502,7 @@ void main() {
   test('an older catalog keeps its shape', () {
     final old = {
       for (final t in catalog0226())
-        t['type']! as String: nodeTypeOf(Value.from(t)),
+        t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
     };
     expect(old['router'], isNull);
     expect(old['load_value']!.params.first.display, isNull);
@@ -534,7 +535,7 @@ void main() {
     expect(typedText('a,b\n1,2', edit!), 'a,b\n1,2');
     // a one-line `5` is the text `5`, not the number JSON makes of it
     expect(typedText('5', edit), '5');
-    expect(isTextOperand('split', 'in'), isTrue);
+    expect(isTextOperand(bt('split'), 'in'), isTrue);
     // an operand of another block still reads JSON
     final add = fieldEditOf(block('add'), field('add', 'in:in.0'), const []);
     expect(add.edit, FieldEdit.any);

@@ -23,6 +23,7 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
@@ -33,6 +34,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 // The canvas tools of the flow editor (flow-editor.md §12–§15, owner
@@ -94,7 +96,8 @@ final List<Map<String, Object>> catalog = [
 ];
 
 final Map<String, NodeType> types = {
-  for (final t in catalog) t['type']! as String: nodeTypeOf(Value.from(t)),
+  for (final t in catalog)
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 /// `level → avg → text → out`, and `avg` also feeds `out2`.
@@ -130,7 +133,7 @@ FlowDraft draft() => flowDraftOf('tank', Value.from(tank));
 
 List<String> rowIds(FlowDraft d, String id) => [
   for (final f in rowsOf(
-    types[d.blocks[id]!.type],
+    types[d.blocks[id]!.type.wire],
     d.blocks[id]!,
     edges: d.edges,
   ))
@@ -138,7 +141,7 @@ List<String> rowIds(FlowDraft d, String id) => [
 ];
 
 FlowField field(FlowDraft d, String block, String id) => fieldsOf(
-  types[d.blocks[block]!.type],
+  types[d.blocks[block]!.type.wire],
   d.blocks[block]!,
   edges: d.edges,
 ).firstWhere((f) => f.id == id);
@@ -547,7 +550,7 @@ void main() {
     test('undo and redo walk every canvas edit', () {
       final start = now();
       s
-        ..dispatchSync(AddBlockAction('window', 60, 300))
+        ..dispatchSync(AddBlockAction(bt('window'), 60, 300))
         ..dispatchSync(
           MoveBlocksAction(const {'avg': (320, 60), 'text': (580, 60)}),
         )

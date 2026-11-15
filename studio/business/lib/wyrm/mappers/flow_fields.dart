@@ -1,18 +1,25 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_type.dart';
 import 'package:models/quality.dart';
+import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
+import '../decode/block_cfg.dart';
 import '../labels.dart';
 import 'flow_blocks.dart';
 import 'flow_mapper.dart';
 import 'value_text.dart';
+
+export 'package:models/field_id.dart' show FieldKind;
 
 export '../labels.dart' show humanize;
 
@@ -28,19 +35,30 @@ export '../labels.dart' show humanize;
 // ports: binding INTO a field is an edge to its input, binding OUT of it an
 // edge from its output.
 
-/// What a field is in the engine.
-enum FieldKind {
-  /// A parameter of the node's config (`cfg.<name>`).
-  param,
+/// The engine's port names the editor treats in its own way: a block's
+/// main value (`in`, `out`), the run trigger and the event and state
+/// outputs of a block with behaviours (ADR 0040 §2). Any other port is a
+/// name of the catalog.
+enum EnginePort {
+  in_('in'),
+  out('out'),
+  trigger('trigger'),
+  sent('sent'),
+  ok('ok'),
+  error('error'),
+  lastRun('last_run');
 
-  /// An input port that is not a parameter's port (`in`, `in.0`, `reset`).
-  input,
+  const EnginePort(this.wire);
 
-  /// An output port (`out`, `remainder`, …).
-  output,
+  /// The port's name in the catalog and the definition.
+  final String wire;
 
-  /// An argument of an `invoke` block's `args` map: shown, not wired.
-  arg,
+  static final Map<String, EnginePort> _byWire = {
+    for (final p in values) p.wire: p,
+  };
+
+  /// The port named [s]; null for any other name.
+  static EnginePort? fromWire(String s) => _byWire[s];
 }
 
 /// The editor's kind of block (spec §3 header chip and colour).
@@ -63,28 +81,71 @@ enum BlockRole {
 }
 
 /// Types that read a point (`key`) and that write one (`path`).
-const _reads = {'subscribe', 'liveliness'};
+const Set<KnownBlock> _reads = {KnownBlock.subscribe, KnownBlock.liveliness};
 
 /// Types whose point is their `key`; the others name it `path`.
-const _keyed = {
-  'subscribe',
-  'liveliness',
-  'load_value',
-  'load_history',
-  'get_node',
+const Set<KnownBlock> _keyed = {
+  KnownBlock.subscribe,
+  KnownBlock.liveliness,
+  KnownBlock.loadValue,
+  KnownBlock.loadHistory,
+  KnownBlock.getNode,
 };
-const _sinks = {'publish', 'set', 'invoke'};
+const Set<KnownBlock> _sinks = {
+  KnownBlock.publish,
+  KnownBlock.set,
+  KnownBlock.invoke,
+};
 
 /// Inputs into these write to a device (ember wires, spec §4).
-const writingTypes = {'set', 'invoke'};
+const Set<KnownBlock> writingTypes = {KnownBlock.set, KnownBlock.invoke};
+
+/// Whether inputs into a block of [type] write to a device.
+bool writesTo(BlockType? type) => writingTypes.contains(type?.known);
+
+/// Block types that read from the tree (IN, teal, in the palette).
+const Set<KnownBlock> sourceTypes = {
+  KnownBlock.subscribe,
+  KnownBlock.liveliness,
+  KnownBlock.loadValue,
+  KnownBlock.listChildren,
+  KnownBlock.loadHistory,
+  KnownBlock.getNode,
+  KnownBlock.timer,
+  KnownBlock.history,
+  KnownBlock.dql,
+  KnownBlock.const_,
+};
+
+/// Whether a block of [type] reads from the tree.
+bool isSource(BlockType type) => sourceTypes.contains(type.known);
+
+/// Whether a block of [type] writes to the tree (OUT, ember, in the
+/// palette): `set`, `invoke`, `publish`. Everything between is logic.
+bool isSink(BlockType type) => _sinks.contains(type.known);
+
+/// The block types that stand for one point of the tree: its value is
+/// theirs.
+const Set<KnownBlock> pointTypes = {
+  KnownBlock.subscribe,
+  KnownBlock.liveliness,
+  KnownBlock.set,
+  KnownBlock.publish,
+};
+
+/// Whether a block of [type] stands for one point of the tree.
+bool isPoint(BlockType type) => pointTypes.contains(type.known);
 
 /// The role of a block of [type].
-BlockRole roleOf(String type) => switch (type) {
-  'subscribe' || 'liveliness' || 'set' => BlockRole.node,
-  'publish' => BlockRole.sink,
-  'invoke' => BlockRole.action,
-  _ when type.startsWith('block') => BlockRole.custom,
-  _ => BlockRole.logic,
+BlockRole roleOf(BlockType type) => switch (type) {
+  CustomType() || BoundaryType() => BlockRole.custom,
+  EngineType(
+    known: KnownBlock.subscribe || KnownBlock.liveliness || KnownBlock.set,
+  ) =>
+    BlockRole.node,
+  EngineType(known: KnownBlock.publish) => BlockRole.sink,
+  EngineType(known: KnownBlock.invoke) => BlockRole.action,
+  EngineType() => BlockRole.logic,
 };
 
 /// The width a block of [role] is drawn at (spec §3: 200–220, 210 for sinks).
@@ -97,7 +158,7 @@ double blockWidthOf(BlockRole role) => switch (role) {
 /// The point a `subscribe`, `liveliness`, `set` or `invoke` block names
 /// (`key` or `path`), relative to the site or full.
 String? pointOf(FlowBlock b) =>
-    switch (b.cfg[_keyed.contains(b.type) ? 'key' : 'path']) {
+    switch (_keyed.contains(b.type.known) ? b.cfgKey : b.cfgPath) {
       final String k when k.isNotEmpty => k,
       _ => null,
     };
@@ -171,6 +232,9 @@ final class FlowField {
   /// `table_page` `first`): a button that a sample on its wire presses,
   /// not a value. It holds no typed value and shows none.
   final bool command;
+
+  /// The engine port this field is, when the editor knows it by name.
+  EnginePort? get port => EnginePort.fromWire(name);
 
   /// Whether an edge out of [port] leaves this field.
   bool sends(String port) => port == outPort || outAliases.contains(port);
@@ -308,14 +372,8 @@ Variadic? variadicOf(NodeType? t, FlowBlock b) {
       t.dynInKeys) {
     return null;
   }
-  final names = switch (b.cfg[param]) {
-    final List<Object?> l => [
-      for (final n in l)
-        if (n is String && n.isNotEmpty) n,
-    ],
-    _ => t.dynInDefaults.toList(),
-  };
-  final step = pairedInputs.contains(b.type) ? 2 : 1;
+  final names = b.namesOf(param) ?? t.dynInDefaults.toList();
+  final step = pairedInputs.contains(b.type.known) ? 2 : 1;
   return Variadic(
     param: param,
     prefix: t.dynInPrefix,
@@ -344,7 +402,7 @@ String caseLabel(String name) => switch (int.tryParse(name)) {
 
 /// Block types whose variable inputs come in pairs: `case` (a case value,
 /// then what it gives; ADR 0038 §8).
-const pairedInputs = {'case'};
+const Set<KnownBlock> pairedInputs = {KnownBlock.case_};
 
 /// What the variable input at [index] of a paired block reads: `Case 1`,
 /// `Then 1`, `Case 2`, … (flow-editor.md §3: labels by position, as the
@@ -354,9 +412,8 @@ String pairLabel(int index) =>
 
 // ---------- labels (flow-editor.md §3, owner decision 2026-11-08) ----------
 
-/// Names whose sentence-case form reads wrong or says too little. A key
-/// `<type>.<name>` names a parameter of that type and wins over `<name>`
-/// (`latch` has an input and a parameter both named `reset`).
+/// Names whose sentence-case form reads wrong or says too little.
+/// [typedFieldLabels] names a parameter of one type and wins over these.
 const fieldLabelOverrides = <String, String>{
   'in': 'Input',
   'out': 'Output',
@@ -377,14 +434,6 @@ const fieldLabelOverrides = <String, String>{
   'max_samples': 'Max samples',
   'memory_mb': 'Memory (MB)',
   'input_out_of_range': 'Input out of range',
-  'latch.reset': 'Reset mode',
-  // A liveliness token belongs to a node, not to a point.
-  'liveliness.key': 'Node',
-  'set.path': 'Point',
-  'set.on': 'Write on',
-  'invoke.path': 'Node',
-  'invoke.on': 'Run on',
-  'stopwatch.interval': 'Interval (s)',
   // ADR 0040: behaviours, scopes, the second set of blocks.
   'trigger': 'Trigger',
   'interval_ms': 'Every',
@@ -392,75 +441,93 @@ const fieldLabelOverrides = <String, String>{
   'run_on_start': 'Run on start',
   'key_scope': 'Scope',
   'path_scope': 'Scope',
-  'list_children.path': 'Node',
-  'throttle.ms': 'Period (ms)',
-  'debounce.ms': 'Quiet time (ms)',
+};
+
+/// The label of a parameter of one type, by the parameter's name: it wins
+/// over [fieldLabelOverrides] (`latch` has an input and a parameter both
+/// named `reset`).
+const typedFieldLabels = <KnownBlock, Map<String, String>>{
+  KnownBlock.latch: {'reset': 'Reset mode'},
+  // A liveliness token belongs to a node, not to a point.
+  KnownBlock.liveliness: {'key': 'Node'},
+  KnownBlock.set: {'path': 'Point', 'on': 'Write on'},
+  KnownBlock.invoke: {'path': 'Node', 'on': 'Run on'},
+  KnownBlock.stopwatch: {'interval': 'Interval (s)'},
+  // ADR 0040: the second set of blocks.
+  KnownBlock.listChildren: {'path': 'Node'},
+  KnownBlock.throttle: {'ms': 'Period (ms)'},
+  KnownBlock.debounce: {'ms': 'Quiet time (ms)'},
   // ADR 0044: the third set (docs/flow-blocks.md, the editor's table).
-  'get_node.key': 'Node',
-  'date_range.range_delimiter': 'Delimiter',
+  KnownBlock.getNode: {'key': 'Node'},
+  KnownBlock.dateRange: {'range_delimiter': 'Delimiter'},
 };
 
 /// Inputs that are commands, not values: a sample on the wire presses them
 /// (docs/flow-blocks.md: `date_range` moves to the next or the previous
 /// range, `table_page` to a page). The editor draws them as buttons.
-const commandInputs = <String, Set<String>>{
-  'date_range': {'next', 'previous'},
-  'table_page': {'next', 'previous', 'first', 'last'},
+const commandInputs = <KnownBlock, Set<String>>{
+  KnownBlock.dateRange: {'next', 'previous'},
+  KnownBlock.tablePage: {'next', 'previous', 'first', 'last'},
 };
 
 /// The fields that hold a date: microseconds since the Unix epoch (ADR 0044
 /// §3). The editor shows such a value as a date and time; the viewer adds
 /// the instant in UTC and the number. `date_range.duration` is a length of
 /// time, not a date.
-const timeFields = <String, Set<String>>{
-  'now': {'out'},
-  'date_time': {'out'},
-  'date_parse': {'in', 'time'},
-  'date_format': {'in'},
-  'date_math': {'in', 'out'},
-  'date_range': {'start', 'end'},
+const timeFields = <KnownBlock, Set<String>>{
+  KnownBlock.now: {'out'},
+  KnownBlock.dateTime: {'out'},
+  KnownBlock.dateParse: {'in', 'time'},
+  KnownBlock.dateFormat: {'in'},
+  KnownBlock.dateMath: {'in', 'out'},
+  KnownBlock.dateRange: {'start', 'end'},
 };
 
 /// Whether field [name] (a port) of a block of [type] holds a date
 /// ([timeFields]).
-bool isTimeField(String type, String name) =>
-    timeFields[type]?.contains(name) ?? false;
+bool isTimeField(BlockType type, String name) =>
+    timeFields[type.known]?.contains(name) ?? false;
 
 /// The time zone parameters of the date blocks (ADR 0044 §3): an IANA name,
 /// `UTC` or `±HH:MM`; `date_format` also takes `auto`.
-bool isTimeZoneParam(String type, String name) =>
+bool isTimeZoneParam(BlockType type, String name) =>
     name == 'time_zone' &&
     const {
-      'date_time',
-      'date_format',
-      'date_parse',
-      'date_math',
-      'date_range',
-      'load_history',
-      'table_rollup',
-    }.contains(type);
+      KnownBlock.dateTime,
+      KnownBlock.dateFormat,
+      KnownBlock.dateParse,
+      KnownBlock.dateMath,
+      KnownBlock.dateRange,
+      KnownBlock.loadHistory,
+      KnownBlock.tableRollup,
+    }.contains(type.known);
 
 /// The fields that hold a range text as `date_range` reads it (`today`,
 /// `lastWeek`, `current24hours`, `2026-10`, `<a>/<b>`): the operand `in`
 /// of `date_range` and the parameter `time_range` of `load_history`.
-bool isRangeText(String type, String name) =>
-    type == 'date_range' && name == 'in' ||
-    type == 'load_history' && name == 'time_range';
+bool isRangeText(BlockType type, String name) =>
+    rangeTexts[type.known]?.contains(name) ?? false;
+
+/// The fields that hold a range text ([isRangeText]), by type.
+const rangeTexts = <KnownBlock, Set<String>>{
+  KnownBlock.dateRange: {'in'},
+  KnownBlock.loadHistory: {'time_range'},
+};
 
 /// Operands that the engine reads as a text only: a typed value stays the
 /// text it is (a CSV `1,2` or `5`, a JSON text), never the number or the
 /// list JSON would make of it. Such a text may hold several lines (the
 /// value viewer's Edit, flow-blocks.md "What calculates at start").
-const textOperands = <String, Set<String>>{
-  'table_from_csv': {'in'},
-  'split': {'in'},
-  'replace': {'in'},
-  'json_parse': {'in'},
+const textOperands = <KnownBlock, Set<String>>{
+  KnownBlock.tableFromCsv: {'in'},
+  KnownBlock.split: {'in'},
+  KnownBlock.replace: {'in'},
+  KnownBlock.jsonParse: {'in'},
 };
 
 /// Whether operand [name] of a block of [type] is a text ([textOperands]).
-bool isTextOperand(String type, String name) =>
-    textOperands[type]?.contains(name) ?? false;
+bool isTextOperand(BlockType type, String name) =>
+    textOperands[type.known]?.contains(name) ?? false;
 
 /// The choices a range text offers (docs/flow-blocks.md, `date_range`); any
 /// other text the engine reads (`2026-10`, `<a>/<b>`) is typed.
@@ -539,8 +606,8 @@ const timeZoneChoices = [
 
 /// The choices of a time zone field of a block of [type]: `auto`
 /// first for `date_format` (the offset written in the input text).
-List<String> timeZoneChoicesOf(String type) => [
-  if (type == 'date_format') 'auto',
+List<String> timeZoneChoicesOf(BlockType type) => [
+  if (type.known == KnownBlock.dateFormat) 'auto',
   ...timeZoneChoices,
 ];
 
@@ -549,10 +616,10 @@ List<String> timeZoneChoicesOf(String type) => [
 /// blocks, the rows a reader gives (`list_children`, `load_history`) and
 /// the actions of `get_node`. A value `{columns, rows}` is a table
 /// anywhere.
-bool holdsTable(NodeType? t, String name) => switch ((t?.type, name)) {
-  ('list_children' || 'load_history', 'out') => true,
-  ('get_node', 'actions') => true,
-  ('table', 'value' || 'out' || 'in') => true,
+bool holdsTable(NodeType? t, String name) => switch ((t?.type.known, name)) {
+  (KnownBlock.listChildren || KnownBlock.loadHistory, 'out') => true,
+  (KnownBlock.getNode, 'actions') => true,
+  (KnownBlock.table, 'value' || 'out' || 'in') => true,
   (_, 'in' || 'right' || 'out') => t?.category == 'Tables',
   _ => false,
 };
@@ -584,10 +651,10 @@ List<({String key, List<String> choices})>? listItemsOf(
   NodeType? t,
   String name,
 ) {
-  switch ((t?.type, name)) {
-    case ('table_map_columns', 'mapping'):
+  switch ((t?.type.known, name)) {
+    case (KnownBlock.tableMapColumns, 'mapping'):
       return const [(key: 'name', choices: []), (key: 'from', choices: [])];
-    case ('table_group_by' || 'table_rollup', 'aggregates'):
+    case (KnownBlock.tableGroupBy || KnownBlock.tableRollup, 'aggregates'):
       final listed = t?.params
           .where((p) => p.name == 'method')
           .firstOrNull
@@ -625,8 +692,8 @@ List<Map<String, String>> listRowsOf(Object? v) => [
 ];
 
 /// Whether input [port] of a block of [type] is a command ([commandInputs]).
-bool isCommandInput(String type, String port) =>
-    commandInputs[type]?.contains(port) ?? false;
+bool isCommandInput(BlockType type, String port) =>
+    commandInputs[type.known]?.contains(port) ?? false;
 
 /// The palette's sections in order (flow-editor.md §2): where a value
 /// comes from, the values, the calculations from the plainest, the logic,
@@ -665,7 +732,7 @@ List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
   }
 
   final all = types.toList();
-  final at = {for (final (i, t) in all.indexed) t.type: i};
+  final at = <BlockType, int>{for (final (i, t) in all.indexed) t.type: i};
   return all..sort((a, b) {
     final r = rank(a.category).compareTo(rank(b.category));
     return r != 0 ? r : at[a.type]!.compareTo(at[b.type]!);
@@ -676,10 +743,11 @@ List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
 /// engine's name in sentence case (`rising_edge` → `Rising edge`,
 /// `list_children` → `List children`); a custom block keeps the name its
 /// author gave it.
-String blockLabel(String type) =>
-    blockNameOf(type) ?? _blockLabels[type] ?? humanize(type);
-
-const _blockLabels = {'wasm': 'WASM'};
+String blockLabel(BlockType type) => switch (type) {
+  CustomType(:final name) => name,
+  EngineType(known: KnownBlock.wasm) => 'WASM',
+  _ => humanize(type.wire),
+};
 
 /// The fields that say when a command or a read runs (ADR 0040 §2).
 const behaviourParams = {'interval_ms', 'auto_run', 'enabled', 'run_on_start'};
@@ -687,7 +755,9 @@ const behaviourParams = {'interval_ms', 'auto_run', 'enabled', 'run_on_start'};
 /// Whether blocks of [t] have behaviours: a `trigger` input and the event
 /// outputs (`invoke`, `set`, `load_value`, `list_children` since ADR 0040).
 bool behavesOf(NodeType? t) =>
-    t != null && t.inputs.contains('trigger') && t.outputs.contains('last_run');
+    t != null &&
+    t.inputs.contains(EnginePort.trigger.wire) &&
+    t.outputs.contains(EnginePort.lastRun.wire);
 
 /// The inspector's groups of a block with behaviours (flow-editor.md §19).
 enum FieldGroup { none, target, arguments, behaviour, events, state }
@@ -717,43 +787,43 @@ FieldGroup groupOf(NodeType? t, FlowBlock b, FlowField f) {
           ? FieldGroup.behaviour
           : FieldGroup.target,
     FieldKind.input =>
-      f.name == 'in' && b.type == 'set'
+      f.port == EnginePort.in_ && b.type.known == KnownBlock.set
           ? FieldGroup.target
           : FieldGroup.behaviour,
-    FieldKind.output =>
-      const {'sent', 'ok', 'error'}.contains(f.name)
-          ? FieldGroup.events
-          : FieldGroup.state,
+    FieldKind.output => switch (f.port) {
+      EnginePort.sent || EnginePort.ok || EnginePort.error => FieldGroup.events,
+      _ => FieldGroup.state,
+    },
   };
 }
 
 /// Outputs that say more under their own name than as `Output`.
-const outputLabelOverrides = <String, String>{
+const outputLabelOverrides = <KnownBlock, Map<String, String>>{
   // A presence, not a value (docs/flow-blocks.md, "A key from a port").
-  'liveliness.out': 'Alive',
-  'invoke.out': 'Result',
-  'stats.avg': 'Average',
-  'alarm.out': 'Active',
-  'timer.out': 'Count',
-  'constant.out': 'Value',
+  KnownBlock.liveliness: {'out': 'Alive'},
+  KnownBlock.invoke: {'out': 'Result'},
+  KnownBlock.stats: {'avg': 'Average'},
+  KnownBlock.alarm: {'out': 'Active'},
+  KnownBlock.timer: {'out': 'Count'},
+  KnownBlock.constant: {'out': 'Value'},
 };
 
 /// Parameters a block of a type lists in the inspector only, though they
 /// have a port or a default (docs/flow-blocks.md, the editor's table): the
 /// rows that crowd the block and that few flows set. A wire or the user's
 /// pin still puts them on the block.
-const inspectorOnly = <String, Set<String>>{
-  'load_history': {'limit', 'time_zone'},
-  'table_filter': {'expr'},
-  'table_remove_rows': {'expr'},
-  'table_edit_rows': {'expr'},
+const inspectorOnly = <KnownBlock, Set<String>>{
+  KnownBlock.loadHistory: {'limit', 'time_zone'},
+  KnownBlock.tableFilter: {'expr'},
+  KnownBlock.tableRemoveRows: {'expr'},
+  KnownBlock.tableEditRows: {'expr'},
 };
 
 /// Parameters of which the engine needs one or the other: both are rows
 /// of the block, though neither has a default.
-const _oneOf = <String, Set<String>>{
-  'deadband': {'abs', 'pct'},
-  'alarm': {'high', 'low'},
+const _oneOf = <KnownBlock, Set<String>>{
+  KnownBlock.deadband: {'abs', 'pct'},
+  KnownBlock.alarm: {'high', 'low'},
 };
 
 /// What a field named [name] of a block of [type] reads in Studio: the
@@ -762,7 +832,7 @@ const _oneOf = <String, Set<String>>{
 /// inputs keep the name the user gave them (an `expression` variable, a
 /// `wasm` port).
 String fieldLabel(
-  String type,
+  BlockType type,
   String name, {
   ParamSpec? spec,
   bool variable = false,
@@ -776,12 +846,21 @@ String fieldLabel(
     final n = int.tryParse(short);
     return n == null ? short : 'Input ${n + 1}';
   }
-  return (spec == null ? null : fieldLabelOverrides['$type.$short']) ??
+  return (spec == null ? null : typedFieldLabels[type.known]?[short]) ??
       fieldLabelOverrides[short] ??
       humanize(short);
 }
 
 // ---------- forms (a block that does one of two things) ----------
+
+/// The forms a block may have (ADR 0032 §7: `scale`).
+enum BlockFormId {
+  /// `k × in + b`.
+  linear,
+
+  /// A map from an input range to an output range.
+  range,
+}
 
 /// One way a block of a type works, with the fields only it uses (ADR 0032
 /// §7: `scale` is `k × in + b`, or a range map). The editor shows one form
@@ -795,7 +874,7 @@ final class BlockForm {
     this.defaults = const {},
   });
 
-  final String id;
+  final BlockFormId id;
 
   /// What the inspector's choice reads.
   final String label;
@@ -815,11 +894,11 @@ final class BlockForm {
   bool owns(String name) => params.contains(name) || outputs.contains(name);
 }
 
-const _forms = <String, List<BlockForm>>{
-  'scale': [
-    BlockForm('linear', 'k × in + b', params: {'k', 'b'}),
+const _forms = <KnownBlock, List<BlockForm>>{
+  KnownBlock.scale: [
+    BlockForm(BlockFormId.linear, 'k × in + b', params: {'k', 'b'}),
     BlockForm(
-      'range',
+      BlockFormId.range,
       'Range',
       params: {'input_min', 'input_max', 'output_min', 'output_max'},
       outputs: {'input_out_of_range'},
@@ -834,7 +913,7 @@ const _forms = <String, List<BlockForm>>{
 };
 
 /// The forms of a block of [type]; empty for a type with one.
-List<BlockForm> formsOf(String type) => _forms[type] ?? const [];
+List<BlockForm> formsOf(BlockType type) => _forms[type.known] ?? const [];
 
 /// The form [b] is in: a later form once one of its parameters is in the
 /// config or an edge feeds one of their ports (the engine switches on
@@ -940,7 +1019,8 @@ List<FlowField> fieldsOf(
   }
   final role = roleOf(b.type);
   final ports = portsOf(t, b);
-  final sink = _sinks.contains(b.type);
+  final sink = _sinks.contains(b.type.known);
+  final known = b.type.known;
   final echoInputs = !sink && (t.echoInputs ?? true);
   final dynParams = {?t.dynInParam, ?t.dynOutParam};
 
@@ -960,7 +1040,7 @@ List<FlowField> fieldsOf(
   final dynIns = t.dynInKeys
       ? const <String>[]
       : ports.inputs.where((p) => !t.inputs.contains(p)).toList();
-  final instance = isInstance(b.type);
+  final instance = b.type is CustomType;
   final behaves = behavesOf(t);
   // The key field that takes a wire inside a scope (ADR 0040 §1).
   final keyed = scopedKeyOf(t);
@@ -980,7 +1060,9 @@ List<FlowField> fieldsOf(
   for (final port in [...fixedIns, if (!routed) ...dynIns]) {
     final allowed =
         echoInputs ||
-        (b.type == 'set' && port == 'in' && (t.echoInputs ?? true));
+        (known == KnownBlock.set &&
+            port == EnginePort.in_.wire &&
+            (t.echoInputs ?? true));
     if (allowed && taken.add(port)) {
       inEcho[port] = port;
     }
@@ -1011,29 +1093,32 @@ List<FlowField> fieldsOf(
           // A scope is read on the block and typed in its prompt: it
           // feeds nothing.
           outPort: p.name == keyed?.scope ? null : paramEcho[p.name],
-          onBlock: switch (p.name) {
+          onBlock: switch ((p.name, BlockCfgKey.fromWire(p.name))) {
             // The key takes a wire: it is a row with a left port.
-            final n when n == keyed?.key => true,
+            (final n, _) when n == keyed?.key => true,
             // Its scope shows once it matters: a wire feeds the key, or
             // a scope is written.
-            final n when n == keyed?.scope => keyBound || b.cfg[n] != null,
+            (final n, _) when n == keyed?.scope => keyBound || b.cfg[n] != null,
             // Behaviours are set in the inspector; one that is set shows.
-            final n when behaves && behaviourParams.contains(n) =>
+            (final n, _) when behaves && behaviourParams.contains(n) =>
               b.cfg[n] != null,
             // The action block names its action in its header.
-            'action' || 'on' when behaves && role == BlockRole.action => false,
-            final n when inspectorOnly[b.type]?.contains(n) ?? false => false,
-            _ =>
+            (_, BlockCfgKey.action || BlockCfgKey.on)
+                when behaves && role == BlockRole.action =>
+              false,
+            (final n, _) when inspectorOnly[known]?.contains(n) ?? false =>
+              false,
+            (_, final k) =>
               !node &&
                   !(role == BlockRole.action &&
                       const {
-                        'path',
-                        'args',
-                        'allow_bad',
-                      }.contains(p.name)) &&
+                        BlockCfgKey.path,
+                        BlockCfgKey.args,
+                        BlockCfgKey.allowBad,
+                      }.contains(k)) &&
                   (portOf.containsKey(p.name) ||
                       (form?.params.contains(p.name) ?? false) ||
-                      (_oneOf[b.type]?.contains(p.name) ?? false) ||
+                      (_oneOf[known]?.contains(p.name) ?? false) ||
                       b.cfg[p.name] != null ||
                       p.defaultValue != null ||
                       p.required),
@@ -1045,16 +1130,17 @@ List<FlowField> fieldsOf(
     final name = port.startsWith(t.dynInPrefix)
         ? port.substring(t.dynInPrefix.length)
         : port;
+    final main = EnginePort.fromWire(port) == EnginePort.in_;
     return FlowField(
       id: 'in:$port',
       name: port,
-      label: switch (b.type) {
-        'publish' when port == 'in' => 'Value',
-        'set' when port == 'in' => pointName ?? 'Input',
-        'invoke' when port == 'in' => 'Run when',
+      label: switch (known) {
+        KnownBlock.publish when main => 'Value',
+        KnownBlock.set when main => pointName ?? 'Input',
+        KnownBlock.invoke when main => 'Run when',
         // A custom block's ports keep the names their author gave them.
         _ when instance => port,
-        _ when variable && pairedInputs.contains(b.type) => pairLabel(index),
+        _ when variable && pairedInputs.contains(known) => pairLabel(index),
         _ when variable && routed => caseLabel(name),
         _ => fieldLabel(b.type, port, variable: variable),
       },
@@ -1073,7 +1159,8 @@ List<FlowField> fieldsOf(
       // the inspector. A `set` is its point; its trigger is set there too.
       onBlock:
           !behaves ||
-          !(port == 'in' && b.type == 'invoke' || port == 'trigger' && node),
+          !(main && known == KnownBlock.invoke ||
+              EnginePort.fromWire(port) == EnginePort.trigger && node),
     );
   }
 
@@ -1086,10 +1173,7 @@ List<FlowField> fieldsOf(
   // parameters of the action that have no key yet (inspector only: typing
   // a value or binding one adds the key).
   final argKeys = <String>[
-    if (b.type == 'invoke')
-      if (b.cfg['args'] case final Map<Object?, Object?> m)
-        for (final k in m.keys)
-          if (k is String) k,
+    if (known == KnownBlock.invoke) ...b.cfgArgs.keys,
   ];
   final argSpecs = {for (final p in actionParams) p.name: p};
   FlowField arg(String k, {required bool has}) => FlowField(
@@ -1103,7 +1187,7 @@ List<FlowField> fieldsOf(
   );
   final args = <FlowField>[
     for (final k in argKeys) arg(k, has: true),
-    if (b.type == 'invoke')
+    if (known == KnownBlock.invoke)
       for (final p in actionParams)
         if (!argKeys.contains(p.name)) arg(p.name, has: false),
   ];
@@ -1121,29 +1205,32 @@ List<FlowField> fieldsOf(
           name: p,
           // A `subscribe` output is its point's value, named after the
           // point; a `liveliness` output is whether its node is there.
-          label: _reads.contains(b.type) && p == 'out'
-              ? (outputLabelOverrides['${b.type}.$p'] ??
+          label:
+              _reads.contains(known) && EnginePort.fromWire(p) == EnginePort.out
+              ? (outputLabelOverrides[known]?[p] ??
                     pointName ??
                     fieldLabel(b.type, p))
               : (instance || t.dynOutParam != null && !t.outputs.contains(p)
                     ? p
-                    : (b.type == 'invoke' && p == 'out' && behaves
+                    : (known == KnownBlock.invoke &&
+                              EnginePort.fromWire(p) == EnginePort.out &&
+                              behaves
                           ? fieldLabel(b.type, p)
-                          : outputLabelOverrides['${b.type}.$p'] ??
+                          : outputLabelOverrides[known]?[p] ??
                                 fieldLabel(b.type, p))),
           kind: .output,
           outPort: p,
-          onBlock: switch (p) {
+          onBlock: switch (EnginePort.fromWire(p)) {
             // A refused key says why on `error`: a row once a wire feeds
             // the key.
-            'error' when keyed != null && !behaves => keyBound,
+            EnginePort.error when keyed != null && !behaves => keyBound,
             _ when !behaves => true,
             // A `set` is its point; its events are wired from the
             // inspector.
             _ when node => false,
-            'error' => true,
-            'ok' => b.type == 'invoke',
-            'out' => b.type != 'invoke',
+            EnginePort.error => true,
+            EnginePort.ok => known == KnownBlock.invoke,
+            EnginePort.out => known != KnownBlock.invoke,
             _ => false,
           },
         ),
@@ -1152,7 +1239,7 @@ List<FlowField> fieldsOf(
   // node, value). Elsewhere the order is: operands, parameters, variable
   // inputs, then the trailing parameters ([tailParams]: `if` then, else;
   // `concat` strict), results.
-  final tail = tailParams[b.type] ?? const <String>{};
+  final tail = tailParams[known] ?? const <String>{};
   final head = [
     for (final f in params)
       if (!tail.contains(f.name)) f,
@@ -1190,14 +1277,19 @@ List<FlowField> fieldsOf(
 /// operands, parameters, variable inputs, then these, results). `if` reads
 /// Operation · Input 1… · Then · Else · Output, `concat` Input 1… · Strict
 /// · Output, `hub` Input 1… · Ignore null · Output · Index · On change.
-const tailParams = <String, Set<String>>{
-  'if': {'then', 'else'},
-  'concat': {'strict'},
-  'hub': {'ignore_null'},
-  'case': {'else'},
+const tailParams = <KnownBlock, Set<String>>{
+  KnownBlock.if_: {'then', 'else'},
+  KnownBlock.concat: {'strict'},
+  KnownBlock.hub: {'ignore_null'},
+  KnownBlock.case_: {'else'},
   // ADR 0044 (docs/flow-blocks.md, the editor's table).
-  'router': {'single_output'},
-  'table_recorder': {'enabled', 'buffer_size', 'time_window_s', 'ignore_null'},
+  KnownBlock.router: {'single_output'},
+  KnownBlock.tableRecorder: {
+    'enabled',
+    'buffer_size',
+    'time_window_s',
+    'ignore_null',
+  },
 };
 
 /// Whether blocks of [t] are variables: one parameter `value`, at most the
@@ -1205,10 +1297,10 @@ const tailParams = <String, Set<String>>{
 bool isVariable(NodeType? t) =>
     t != null &&
     t.params.length == 1 &&
-    t.params.first.name == 'value' &&
+    BlockCfgKey.fromWire(t.params.first.name) == BlockCfgKey.value &&
     t.outputs.length == 1 &&
-    t.outputs.first == 'out' &&
-    t.inputs.every((p) => p == 'in') &&
+    EnginePort.fromWire(t.outputs.first) == EnginePort.out &&
+    t.inputs.every((p) => EnginePort.fromWire(p) == EnginePort.in_) &&
     t.dynInParam == null &&
     t.dynOutParam == null;
 
@@ -1248,7 +1340,7 @@ double blockHeight(
   final rows = rowsOf(t, b, edges: edges).length;
   final tools = variadicOf(t, b) == null ? 0.0 : 38.0;
   // An instance has one more row: `Open inside`.
-  final link = isInstance(b.type) ? 28.0 : 0.0;
+  final link = b.type is CustomType ? 28.0 : 0.0;
   return 32 + 6 + 28.0 * math.max(rows, 1) + link + 8 + tools;
 }
 
@@ -1279,11 +1371,11 @@ enum BindRefusal {
 
 /// A refusal and, for [BindRefusal.type], the two types.
 final class Refused {
-  const Refused(this.reason, {this.from = '', this.to = ''});
+  const Refused(this.reason, {this.from, this.to});
 
   final BindRefusal reason;
-  final String from;
-  final String to;
+  final PortType? from;
+  final PortType? to;
 
   @override
   bool operator ==(Object other) =>
@@ -1302,9 +1394,9 @@ final class Refused {
 /// The type the engine gives output [port] of a block of type [t]
 /// (`number`, `bool`, `map`, `any`): the catalog's `port_types`, else a
 /// parameter's echo by the parameter's type (ADR 0038 §6), else `any`.
-String outputType(NodeType? t, String port) {
+PortType outputType(NodeType? t, String port) {
   if (t == null) {
-    return 'any';
+    return PortType.any;
   }
   final listed = t.portTypes[port];
   if (listed != null) {
@@ -1312,22 +1404,23 @@ String outputType(NodeType? t, String port) {
   }
   final p = t.params.where((p) => p.name == port).firstOrNull;
   return switch (p?.type) {
-    'number' || 'int' => 'number',
-    'bool' => 'bool',
-    'map' => 'map',
-    _ => 'any',
+    TypeCode.number => PortType.number,
+    TypeCode.bool_ => PortType.boolean,
+    TypeCode.map => PortType.map,
+    _ => PortType.any,
   };
 }
 
 /// The type the engine gives input [port] (`port_types`, else `any`).
-String inputType(NodeType? t, String port) => t?.portTypes[port] ?? 'any';
+PortType inputType(NodeType? t, String port) =>
+    t?.portTypes[port] ?? PortType.any;
 
 /// Whether `fromBlock.fromPort` may be bound into the field [to] of
 /// `toBlock` (spec §4); null when it may. [replacing] is an edge being
 /// moved (a wire picked up from its input): it is left out of the loop
 /// check, as is the edge already into [to].
 Refused? bindRefusal(
-  Map<String, NodeType> types,
+  Map<BlockType, NodeType> types,
   FlowDraft d, {
   required String fromBlock,
   required String fromPort,
@@ -1337,18 +1430,21 @@ Refused? bindRefusal(
 }) {
   final inPort = to.inPort;
   if (inPort == null) {
-    final dstType = d.blocks[toBlock]?.type;
+    final dstType = d.blocks[toBlock]?.type.known;
     final later =
         to.kind == FieldKind.arg ||
         to.kind == FieldKind.param &&
-            const {'key', 'path'}.contains(to.name) &&
             const {
-              'subscribe',
-              'liveliness',
-              'load_value',
-              'list_children',
-              'load_history',
-              'get_node',
+              BlockCfgKey.key,
+              BlockCfgKey.path,
+            }.contains(BlockCfgKey.fromWire(to.name)) &&
+            const {
+              KnownBlock.subscribe,
+              KnownBlock.liveliness,
+              KnownBlock.loadValue,
+              KnownBlock.listChildren,
+              KnownBlock.loadHistory,
+              KnownBlock.getNode,
             }.contains(dstType);
     return Refused(
       to.kind == FieldKind.output
@@ -1363,19 +1459,19 @@ Refused? bindRefusal(
   final dst = d.blocks[toBlock];
   final ft = outputType(types[src?.type], fromPort);
   final tt = inputType(types[dst?.type], inPort);
-  if (ft != tt && ft != 'any' && tt != 'any') {
+  if (!ft.fits(tt)) {
     return Refused(BindRefusal.type, from: ft, to: tt);
   }
   // A loop: does the target already reach the source? Edges into a delay
   // do not count (the engine's step 5).
-  if (dst?.type != 'delay') {
+  if (dst?.type.known != KnownBlock.delay) {
     final next = <String, List<String>>{};
     for (final e in d.edges) {
       if ((e.to == toBlock && e.toPort == inPort) ||
           (replacing != null &&
               e.to == replacing.$1 &&
               e.toPort == replacing.$2) ||
-          d.blocks[e.to]?.type == 'delay') {
+          d.blocks[e.to]?.type.known == KnownBlock.delay) {
         continue;
       }
       next.putIfAbsent(e.from, () => []).add(e.to);
@@ -1505,7 +1601,7 @@ FieldValue fieldValue(
           return FieldValue('', bound: bound);
         }
       } else {
-        shown = (b.cfg['args'] as Map?)?[f.name];
+        shown = b.cfgArgs[f.name];
       }
   }
   final point = f.kind == FieldKind.input || f.kind == FieldKind.output;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/param_spec.dart';
@@ -34,7 +35,7 @@ class AddBlockAction extends Action {
   /// (a library block copied into the flow, then its instance).
   final String? tag;
 
-  final String type;
+  final BlockType type;
   final double x;
   final double y;
   final Map<String, Object?> cfg;
@@ -55,7 +56,7 @@ class AddBlockAction extends Action {
     }
     final t = flowEditor.allTypes.where((t) => t.type == type).firstOrNull;
     // An instance is named after its block (`mean1`), not `block_mean1`.
-    final base = (blockNameOf(type) ?? type).replaceAll(
+    final base = (blockNameOf(type) ?? type.wire).replaceAll(
       RegExp('[^A-Za-z0-9_]'),
       '_',
     );

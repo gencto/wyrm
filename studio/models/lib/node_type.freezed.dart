@@ -15,9 +15,9 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$NodeType {
 
- String get type; String get category; String get description; IList<String> get inputs; IList<String> get outputs;/// Ports a parameter adds: `(param, prefix, defaults)`.
- String? get dynInParam; String get dynInPrefix; IList<String> get dynInDefaults; String? get dynOutParam; String get dynOutPrefix; IList<String> get dynOutDefaults; IList<ParamSpec> get params;/// The type of each port (`number`, `bool`, `any`, …; ADR 0038 §2).
- IMap<String, String> get portTypes;/// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
+ BlockType get type; String get category; String get description; IList<String> get inputs; IList<String> get outputs;/// Ports a parameter adds: `(param, prefix, defaults)`.
+ String? get dynInParam; String get dynInPrefix; IList<String> get dynInDefaults; String? get dynOutParam; String get dynOutPrefix; IList<String> get dynOutDefaults; IList<ParamSpec> get params;/// The type of each port (ADR 0038 §2), by port name.
+ IMap<String, PortType> get portTypes;/// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
 /// when the catalog does not say.
  bool? get echoInputs;/// Whether its operand inputs (`in`, the variable inputs) take a typed
 /// constant in the node's config `values` (catalog `values: true`, ADR
@@ -63,7 +63,7 @@ abstract mixin class $NodeTypeCopyWith<$Res>  {
   factory $NodeTypeCopyWith(NodeType value, $Res Function(NodeType) _then) = _$NodeTypeCopyWithImpl;
 @useResult
 $Res call({
- String type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, String> portTypes, bool? echoInputs, bool takesValues, bool dynInKeys, bool trigger
+ BlockType type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, PortType> portTypes, bool? echoInputs, bool takesValues, bool dynInKeys, bool trigger
 });
 
 
@@ -83,7 +83,7 @@ class _$NodeTypeCopyWithImpl<$Res>
 @pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,Object? dynInKeys = null,Object? trigger = null,}) {
   return _then(NodeType(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
+as BlockType,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
 as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String,inputs: null == inputs ? _self.inputs : inputs // ignore: cast_nullable_to_non_nullable
 as IList<String>,outputs: null == outputs ? _self.outputs : outputs // ignore: cast_nullable_to_non_nullable
@@ -95,7 +95,7 @@ as String?,dynOutPrefix: null == dynOutPrefix ? _self.dynOutPrefix : dynOutPrefi
 as String,dynOutDefaults: null == dynOutDefaults ? _self.dynOutDefaults : dynOutDefaults // ignore: cast_nullable_to_non_nullable
 as IList<String>,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as IList<ParamSpec>,portTypes: null == portTypes ? _self.portTypes : portTypes // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,echoInputs: freezed == echoInputs ? _self.echoInputs : echoInputs // ignore: cast_nullable_to_non_nullable
+as IMap<String, PortType>,echoInputs: freezed == echoInputs ? _self.echoInputs : echoInputs // ignore: cast_nullable_to_non_nullable
 as bool?,takesValues: null == takesValues ? _self.takesValues : takesValues // ignore: cast_nullable_to_non_nullable
 as bool,dynInKeys: null == dynInKeys ? _self.dynInKeys : dynInKeys // ignore: cast_nullable_to_non_nullable
 as bool,trigger: null == trigger ? _self.trigger : trigger // ignore: cast_nullable_to_non_nullable
@@ -114,7 +114,7 @@ class _NodeType implements NodeType {
   const _NodeType({required this.type, this.category = '', this.description = '', this.inputs = const IListConst([]), this.outputs = const IListConst([]), this.dynInParam, this.dynInPrefix = '', this.dynInDefaults = const IListConst([]), this.dynOutParam, this.dynOutPrefix = '', this.dynOutDefaults = const IListConst([]), this.params = const IListConst([]), this.portTypes = const IMapConst({}), this.echoInputs, this.takesValues = false, this.dynInKeys = false, this.trigger = false});
   
 
-@override final  String type;
+@override final  BlockType type;
 @override@JsonKey() final  String category;
 @override@JsonKey() final  String description;
 @override@JsonKey() final  IList<String> inputs;
@@ -127,8 +127,8 @@ class _NodeType implements NodeType {
 @override@JsonKey() final  String dynOutPrefix;
 @override@JsonKey() final  IList<String> dynOutDefaults;
 @override@JsonKey() final  IList<ParamSpec> params;
-/// The type of each port (`number`, `bool`, `any`, …; ADR 0038 §2).
-@override@JsonKey() final  IMap<String, String> portTypes;
+/// The type of each port (ADR 0038 §2), by port name.
+@override@JsonKey() final  IMap<String, PortType> portTypes;
 /// Whether inputs repeat as outputs named like them (ADR 0038 §1); null
 /// when the catalog does not say.
 @override final  bool? echoInputs;
@@ -176,7 +176,7 @@ abstract mixin class _$NodeTypeCopyWith<$Res> implements $NodeTypeCopyWith<$Res>
   factory _$NodeTypeCopyWith(_NodeType value, $Res Function(_NodeType) _then) = __$NodeTypeCopyWithImpl;
 @override @useResult
 $Res call({
- String type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, String> portTypes, bool? echoInputs, bool takesValues, bool dynInKeys, bool trigger
+ BlockType type, String category, String description, IList<String> inputs, IList<String> outputs, String? dynInParam, String dynInPrefix, IList<String> dynInDefaults, String? dynOutParam, String dynOutPrefix, IList<String> dynOutDefaults, IList<ParamSpec> params, IMap<String, PortType> portTypes, bool? echoInputs, bool takesValues, bool dynInKeys, bool trigger
 });
 
 
@@ -196,7 +196,7 @@ class __$NodeTypeCopyWithImpl<$Res>
 @override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? category = null,Object? description = null,Object? inputs = null,Object? outputs = null,Object? dynInParam = freezed,Object? dynInPrefix = null,Object? dynInDefaults = null,Object? dynOutParam = freezed,Object? dynOutPrefix = null,Object? dynOutDefaults = null,Object? params = null,Object? portTypes = null,Object? echoInputs = freezed,Object? takesValues = null,Object? dynInKeys = null,Object? trigger = null,}) {
   return _then(_NodeType(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
+as BlockType,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
 as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String,inputs: null == inputs ? _self.inputs : inputs // ignore: cast_nullable_to_non_nullable
 as IList<String>,outputs: null == outputs ? _self.outputs : outputs // ignore: cast_nullable_to_non_nullable
@@ -208,7 +208,7 @@ as String?,dynOutPrefix: null == dynOutPrefix ? _self.dynOutPrefix : dynOutPrefi
 as String,dynOutDefaults: null == dynOutDefaults ? _self.dynOutDefaults : dynOutDefaults // ignore: cast_nullable_to_non_nullable
 as IList<String>,params: null == params ? _self.params : params // ignore: cast_nullable_to_non_nullable
 as IList<ParamSpec>,portTypes: null == portTypes ? _self.portTypes : portTypes // ignore: cast_nullable_to_non_nullable
-as IMap<String, String>,echoInputs: freezed == echoInputs ? _self.echoInputs : echoInputs // ignore: cast_nullable_to_non_nullable
+as IMap<String, PortType>,echoInputs: freezed == echoInputs ? _self.echoInputs : echoInputs // ignore: cast_nullable_to_non_nullable
 as bool?,takesValues: null == takesValues ? _self.takesValues : takesValues // ignore: cast_nullable_to_non_nullable
 as bool,dynInKeys: null == dynInKeys ? _self.dynInKeys : dynInKeys // ignore: cast_nullable_to_non_nullable
 as bool,trigger: null == trigger ? _self.trigger : trigger // ignore: cast_nullable_to_non_nullable

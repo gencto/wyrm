@@ -8,6 +8,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/block_cfg.dart';
 import 'flow_blocks.dart';
 import 'flow_fields.dart';
 import 'flow_mapper.dart';
@@ -420,11 +421,14 @@ enum FieldEditError { number, json, toggle }
       edit: p.choices.isNotEmpty
           ? FieldEdit.choice
           : switch (p.type) {
-              'bool' => FieldEdit.toggle,
-              'number' || 'int' => FieldEdit.number,
-              'map' || 'array' => FieldEdit.json,
-              'dynamic' => FieldEdit.any,
-              _ => FieldEdit.text,
+              TypeCode.bool_ => FieldEdit.toggle,
+              TypeCode.number => FieldEdit.number,
+              TypeCode.map || TypeCode.array => FieldEdit.json,
+              TypeCode.dynamic_ => FieldEdit.any,
+              TypeCode.string ||
+              TypeCode.enum_ ||
+              TypeCode.null_ ||
+              TypeCode.binary => FieldEdit.text,
             },
       locked: null,
     );
@@ -436,11 +440,13 @@ enum FieldEditError { number, json, toggle }
       edit: p.choices.isNotEmpty
           ? FieldEdit.choice
           : switch (p.type) {
-              'bool' => FieldEdit.toggle,
-              'number' || 'int' => FieldEdit.number,
-              'map' || 'array' => FieldEdit.json,
-              'string' || 'enum' => FieldEdit.text,
-              _ => FieldEdit.any,
+              TypeCode.bool_ => FieldEdit.toggle,
+              TypeCode.number => FieldEdit.number,
+              TypeCode.map || TypeCode.array => FieldEdit.json,
+              TypeCode.string || TypeCode.enum_ => FieldEdit.text,
+              TypeCode.null_ ||
+              TypeCode.binary ||
+              TypeCode.dynamic_ => FieldEdit.any,
             },
       locked: null,
     );
@@ -464,7 +470,7 @@ enum FieldEditError { number, json, toggle }
 /// value, else the parameter's default; null when it has none.
 Object? fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
   FlowField(:final spec?) => b.cfg[spec.name] ?? spec.defaultValue,
-  FlowField(kind: FieldKind.arg) => (b.cfg['args'] as Map?)?[f.name],
+  FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name],
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
   _ => null,
 };

@@ -229,9 +229,9 @@ void main() {
       ['name', 'package', 'zip', 'token'],
     );
     expect(specs[0].required, isTrue);
-    expect(specs[1].type, 'enum');
+    expect(specs[1].type, TypeCode.enum_);
     expect(specs[1].choices, ['modbus', 'mqtt']);
-    expect(specs[2].editor, 'file');
+    expect(specs[2].editor, ParamEditor.file);
     expect(specs[3].secret, isTrue);
     expect(specs[3].editor, isNull);
     expect(specs[3].description, 'one-time');

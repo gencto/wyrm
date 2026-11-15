@@ -10,6 +10,7 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
@@ -22,6 +23,7 @@ import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/fake_wyrm.dart';
 
@@ -31,14 +33,14 @@ import 'support/fake_wyrm.dart';
 
 final Map<String, NodeType> types = {
   for (final t in catalog0221())
-    t['type']! as String: nodeTypeOf(Value.from(t)),
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 FlowBlock block(
   String id,
   String type, [
   Map<String, Object?> cfg = const {},
-]) => FlowBlock(id: id, type: type, cfg: cfg.lock);
+]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
 List<String> labels(List<FlowField> f) => [for (final x in f) x.label];
 
@@ -46,7 +48,7 @@ List<String> names(List<FlowField> f) => [for (final x in f) x.name];
 
 FlowField field(FlowBlock b, String name, [List<FlowEdge> edges = const []]) =>
     fieldsOf(
-      types[b.type],
+      types[b.type.wire],
       b,
       edges: edges,
     ).firstWhere((f) => f.name == name);
@@ -279,7 +281,7 @@ void main() {
       );
       expect(
         bindRefusal(
-          types,
+          byType(types),
           d,
           fromBlock: 'n',
           fromPort: 'out',

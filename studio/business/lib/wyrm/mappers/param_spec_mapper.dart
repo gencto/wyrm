@@ -15,11 +15,11 @@ ParamSpec paramSpecOf(String name, ParamMeta p) {
   return ParamSpec(
     name: name,
     display: p.display,
-    type: choices.isNotEmpty ? 'enum' : (p.ty?.wireName ?? 'string'),
+    type: choices.isNotEmpty ? TypeCode.enum_ : (p.ty ?? TypeCode.string),
     required: p.required ?? false,
     defaultValue: toDart(p.defaultValue),
     choices: choices.lock,
-    editor: p.isPassword ? null : p.editor,
+    editor: p.isPassword ? null : p.editorKind,
     secret: p.isPassword,
     description: p.description ?? p.placeholder,
   );

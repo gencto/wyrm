@@ -29,7 +29,7 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
-
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
@@ -38,6 +38,7 @@ import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/action_info.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -46,6 +47,7 @@ import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/catalog_0221.dart';
 import 'support/catalog_0226.dart';
 import 'support/fake_wyrm.dart';
@@ -57,7 +59,7 @@ import 'support/fake_wyrm.dart';
 
 final Map<String, NodeType> types = {
   for (final t in catalog0226())
-    t['type']! as String: nodeTypeOf(Value.from(t)),
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 /// `name → concat → path`, a `subscribe` of a fixed point, and a mean of
@@ -171,7 +173,10 @@ void main() {
     });
 
     test('an older catalog has none of it', () {
-      final old = [for (final t in catalog0221()) nodeTypeOf(Value.from(t))];
+      final old = [
+        for (final t in catalog0221())
+          nodeTypeOf(Value.from(t)).orWarn('test')!,
+      ];
       expect(
         flowCapsOf(old, libraryOff: 'not_found'),
         const FlowCaps(),
@@ -189,7 +194,7 @@ void main() {
             {'name': 'key', 'type': 'string', 'required': true},
           ],
         }),
-      );
+      ).orWarn('test')!;
       final d = draft();
       final key = fieldsOf(
         old,
@@ -198,7 +203,7 @@ void main() {
       expect(key.inPort, isNull);
       expect(
         bindRefusal(
-          {...types, 'subscribe': old},
+          byType({...types, 'subscribe': old}),
           d,
           fromBlock: 'path',
           fromPort: 'out',
@@ -228,7 +233,7 @@ void main() {
       expect(key.label, 'Point');
       expect(
         bindRefusal(
-          types,
+          byType(types),
           d,
           fromBlock: 'path',
           fromPort: 'out',
@@ -301,11 +306,15 @@ void main() {
     final ramp = ActionInfo(
       name: 'ramp',
       params: [
-        const ParamSpec(name: 'target', type: 'number', required: true),
-        const ParamSpec(name: 'ramp_s', type: 'number', defaultValue: 30),
+        const ParamSpec(name: 'target', type: TypeCode.number, required: true),
+        const ParamSpec(
+          name: 'ramp_s',
+          type: TypeCode.number,
+          defaultValue: 30,
+        ),
         const ParamSpec(
           name: 'mode',
-          type: 'enum',
+          type: TypeCode.enum_,
           choices: IListConst(['linear', 'step']),
         ),
       ].lock,
@@ -313,10 +322,10 @@ void main() {
 
     test('a value reads, a writable value may write', () {
       final read = blockOfEntry('key:wy/plant/downstream/plc/level')!;
-      expect(read.type, 'subscribe');
+      expect(read.type.wire, 'subscribe');
       expect(read.cfg, {'key': 'downstream/plc/level'});
       final write = blockOfEntry('set:wy/plant/downstream/plc/fan')!;
-      expect(write.type, 'set');
+      expect(write.type.wire, 'set');
       expect(write.cfg, {'path': 'downstream/plc/fan'});
       expect(blockOfEntry('type:scale'), isNull);
     });
@@ -328,7 +337,7 @@ void main() {
         action: ramp,
         caps: caps,
       )!;
-      expect(e.type, 'invoke');
+      expect(e.type.wire, 'invoke');
       expect(e.cfg, {
         'path': 'downstream/plc/pump',
         'action': 'ramp',
@@ -337,7 +346,7 @@ void main() {
       expect(e.pins, {'arg:ramp_s': false, 'arg:mode': false});
       final b = FlowBlock(
         id: 'ramp1',
-        type: 'invoke',
+        type: bt('invoke'),
         cfg: e.cfg.lock,
         pins: e.pins.lock,
       );
@@ -381,7 +390,7 @@ void main() {
   group('the action block', () {
     final b = FlowBlock(
       id: 'ramp1',
-      type: 'invoke',
+      type: bt('invoke'),
       cfg: <String, Object?>{
         'path': 'downstream/plc/pump',
         'action': 'ramp',
@@ -448,7 +457,7 @@ void main() {
         'they have the fields', () {
       final set = FlowBlock(
         id: 's',
-        type: 'set',
+        type: bt('set'),
         cfg: <String, Object?>{'path': 'downstream/plc/fan'}.lock,
       );
       expect([for (final f in rowsOf(types['set'], set)) f.id], ['in:in']);
@@ -464,7 +473,7 @@ void main() {
           FieldGroup.state,
         },
       );
-      const load = FlowBlock(id: 'l', type: 'load_value');
+      final load = FlowBlock(id: 'l', type: bt('load_value'));
       expect(
         [for (final f in rowsOf(types['load_value'], load)) f.id],
         [
@@ -474,7 +483,7 @@ void main() {
           'out:out',
         ],
       );
-      const list = FlowBlock(id: 'c', type: 'list_children');
+      final list = FlowBlock(id: 'c', type: bt('list_children'));
       final path = fieldsOf(
         types['list_children'],
         list,
@@ -486,7 +495,7 @@ void main() {
         port: 'in.path',
       ));
       // A type without behaviours has no groups.
-      const add = FlowBlock(id: 'x', type: 'add');
+      final add = FlowBlock(id: 'x', type: bt('add'));
       expect(
         {
           for (final f in fieldsOf(types['add'], add))
@@ -523,23 +532,23 @@ void main() {
     });
 
     test('the new blocks read as words', () {
-      expect(blockLabel('load_value'), 'Load value');
-      expect(blockLabel('list_children'), 'List children');
-      expect(blockLabel('rising_edge'), 'Rising edge');
-      expect(blockLabel('make_object'), 'Make object');
-      expect(blockLabel('sample_and_hold'), 'Sample and hold');
-      expect(blockLabel('wasm'), 'WASM');
-      expect(blockLabel('block:mean'), 'mean');
+      expect(blockLabel(bt('load_value')), 'Load value');
+      expect(blockLabel(bt('list_children')), 'List children');
+      expect(blockLabel(bt('rising_edge')), 'Rising edge');
+      expect(blockLabel(bt('make_object')), 'Make object');
+      expect(blockLabel(bt('sample_and_hold')), 'Sample and hold');
+      expect(blockLabel(bt('wasm')), 'WASM');
+      expect(blockLabel(bt('block:mean')), 'mean');
       String out(String type, String port) => fieldsOf(
         types[type],
-        FlowBlock(id: 'x', type: type),
+        FlowBlock(id: 'x', type: bt(type)),
       ).firstWhere((f) => f.id == 'out:$port').label;
       expect(out('rising_edge', 'on_edge'), 'On edge');
       expect(out('stats', 'avg'), 'Average');
       expect(
         fieldsOf(
           types['debounce'],
-          const FlowBlock(id: 'x', type: 'debounce'),
+          FlowBlock(id: 'x', type: bt('debounce')),
         ).firstWhere((f) => f.id == 'p:ms').label,
         'Quiet time (ms)',
       );
@@ -548,7 +557,7 @@ void main() {
         [
           for (final f in rowsOf(
             types['make_object'],
-            const FlowBlock(id: 'x', type: 'make_object'),
+            FlowBlock(id: 'x', type: bt('make_object')),
           ))
             f.label,
         ],
@@ -572,7 +581,7 @@ void main() {
       final (next, id) = createCustomBlock(d, {'sum', 'half'}, spec)!;
       expect(id, 'mean21');
       expect(next.blocks.keys, isNot(contains('sum')));
-      expect(next.blocks[id]!.type, 'block:mean2');
+      expect(next.blocks[id]!.type.wire, 'block:mean2');
       expect(next.blocks[id]!.x, 300);
       expect(
         [
@@ -719,7 +728,7 @@ void main() {
       final (flow, id) = createCustomBlock(draft(), {'sum', 'half'}, spec)!;
       final renamed = renameBlock(flow, 'mean2', 'average')!;
       expect(blockDefsOf(renamed).keys, ['average']);
-      expect(renamed.blocks[id]!.type, 'block:average');
+      expect(renamed.blocks[id]!.type.wire, 'block:average');
       expect(renameBlock(flow, 'mean2', 'not ok'), isNull);
       expect(removeBlock(flow, 'mean2'), isNull, reason: 'in use');
       final unused = withoutBlocks(flow, {id});
@@ -907,7 +916,7 @@ void main() {
         'for the scope too', () {
       s.dispatchSync(
         AddBlockAction(
-          'subscribe',
+          bt('subscribe'),
           40,
           600,
           cfg: {'key': 'storage/names/current'},
@@ -926,14 +935,22 @@ void main() {
         action: ActionInfo(
           name: 'ramp',
           params: [
-            const ParamSpec(name: 'target', type: 'number', required: true),
-            const ParamSpec(name: 'ramp_s', type: 'number', defaultValue: 30),
+            const ParamSpec(
+              name: 'target',
+              type: TypeCode.number,
+              required: true,
+            ),
+            const ParamSpec(
+              name: 'ramp_s',
+              type: TypeCode.number,
+              defaultValue: 30,
+            ),
           ].lock,
         ),
         caps: caps,
       )!;
       s.dispatchSync(
-        AddBlockAction(e.type, 600, 600, cfg: e.cfg, pins: e.pins),
+        AddBlockAction(e.type.type, 600, 600, cfg: e.cfg, pins: e.pins),
       );
       expect(now().blocks.keys.last, 'invoke1');
       expect(rowIds(now(), 'invoke1'), [
@@ -1037,7 +1054,7 @@ void main() {
       expect(ed().undo.length, 1);
       // A second instance, a constant on its input.
       s
-        ..dispatchSync(AddBlockAction('block:mean2', 300, 600))
+        ..dispatchSync(AddBlockAction(bt('block:mean2'), 300, 600))
         ..dispatchSync(SetOperandValueAction('mean22', 'second', 7));
       expect(now().blocks['mean22']!.cfg.unlock, {
         'values': {'second': 7},
@@ -1051,7 +1068,7 @@ void main() {
       expect(ed().undo, isEmpty, reason: 'the inside has its own history');
       // The canvas shows the inside; the flow is still the whole flow.
       expect(ed().root!.blocks.keys, contains('mean21'));
-      expect(ed().allTypes.map((t) => t.type), contains(blockInputsType));
+      expect(ed().allTypes.map((t) => t.type), contains(BoundaryType.inputs));
 
       // Inside: the boundary blocks stay; the divisor changes.
       s
@@ -1118,7 +1135,7 @@ void main() {
           ),
         )
         ..dispatchSync(RenameCustomBlockAction('mean2', 'average'));
-      expect(now().blocks['mean21']!.type, 'block:average');
+      expect(now().blocks['mean21']!.type.wire, 'block:average');
       s.dispatchSync(RemoveCustomBlockAction('average'));
       expect(blockDefsOf(now()).keys, ['average'], reason: 'in use');
       s
@@ -1142,7 +1159,7 @@ void main() {
         'name': 'scaled',
       });
       expect(blockDefsOf(now()).keys, ['mean', 'scaled']);
-      expect(now().blocks['scaled1']!.type, 'block:scaled');
+      expect(now().blocks['scaled1']!.type.wire, 'block:scaled');
       expect(libraryVersionOf(blockDefsOf(now())['scaled']!), 3);
       expect(
         ed().undo.length,

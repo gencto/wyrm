@@ -13,6 +13,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/flow_watch/flow_watch.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
@@ -24,9 +25,11 @@ import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_type.dart';
 import 'package:models/quality.dart' as m;
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 // The catalog as `dataflows` ▸ `node_types` answers today
@@ -148,14 +151,15 @@ final List<Map<String, Object>> today = [
 ];
 
 Map<String, NodeType> catalog(List<Map<String, Object>> raw) => {
-  for (final t in raw) t['type']! as String: nodeTypeOf(Value.from(t)),
+  for (final t in raw)
+    t['type']! as String: nodeTypeOf(Value.from(t)).orWarn('test')!,
 };
 
 FlowBlock block(
   String id,
   String type, [
   Map<String, Object?> cfg = const {},
-]) => FlowBlock(id: id, type: type, cfg: cfg.lock);
+]) => FlowBlock(id: id, type: bt(type), cfg: cfg.lock);
 
 List<String> labels(List<FlowField> f) => [for (final x in f) x.label];
 
@@ -205,7 +209,7 @@ void main() {
       ]);
       final min = rows.firstWhere((f) => f.name == 'input_min');
       expect((min.inPort, min.outPort), ('in.input_min', 'input_min'));
-      expect(formOf(b, const [])!.id, 'range');
+      expect(formOf(b, const [])!.id, BlockFormId.range);
 
       final wired = block('scale2', 'scale');
       const e = FlowEdge(
@@ -214,8 +218,8 @@ void main() {
         to: 'scale2',
         toPort: 'in.output_max',
       );
-      expect(formOf(wired, const [e])!.id, 'range');
-      expect(formOf(wired, const [])!.id, 'linear');
+      expect(formOf(wired, const [e])!.id, BlockFormId.range);
+      expect(formOf(wired, const [])!.id, BlockFormId.linear);
     });
 
     test('scale with both forms in its config shows both', () {
@@ -307,36 +311,36 @@ void main() {
     });
 
     test('overrides, per type first; numbered inputs from 1', () {
-      expect(fieldLabel('scale', 'k'), 'Factor');
+      expect(fieldLabel(bt('scale'), 'k'), 'Factor');
       expect(
-        fieldLabel('subscribe', 'key', spec: const ParamSpec(name: 'key')),
+        fieldLabel(bt('subscribe'), 'key', spec: const ParamSpec(name: 'key')),
         'Point',
       );
       expect(
-        fieldLabel('liveliness', 'key', spec: const ParamSpec(name: 'key')),
+        fieldLabel(bt('liveliness'), 'key', spec: const ParamSpec(name: 'key')),
         'Node',
       );
-      expect(fieldLabel('scale', 'b'), 'Offset');
-      expect(fieldLabel('scale', 'in'), 'Input');
-      expect(fieldLabel('scale', 'out'), 'Output');
+      expect(fieldLabel(bt('scale'), 'b'), 'Offset');
+      expect(fieldLabel(bt('scale'), 'in'), 'Input');
+      expect(fieldLabel(bt('scale'), 'out'), 'Output');
       expect(
-        fieldLabel('latch', 'reset', spec: const ParamSpec(name: 'reset')),
+        fieldLabel(bt('latch'), 'reset', spec: const ParamSpec(name: 'reset')),
         'Reset mode',
       );
-      expect(fieldLabel('stopwatch', 'reset'), 'Reset');
+      expect(fieldLabel(bt('stopwatch'), 'reset'), 'Reset');
       expect(
-        fieldLabel('set', 'on', spec: const ParamSpec(name: 'on')),
+        fieldLabel(bt('set'), 'on', spec: const ParamSpec(name: 'on')),
         'Write on',
       );
       expect(
-        fieldLabel('invoke', 'on', spec: const ParamSpec(name: 'on')),
+        fieldLabel(bt('invoke'), 'on', spec: const ParamSpec(name: 'on')),
         'Run on',
       );
-      expect(fieldLabel('round', 'in.precision'), 'Precision');
-      expect(fieldLabel('add', 'in.0', variable: true), 'Input 1');
-      expect(fieldLabel('add', 'in.1', variable: true), 'Input 2');
+      expect(fieldLabel(bt('round'), 'in.precision'), 'Precision');
+      expect(fieldLabel(bt('add'), 'in.0', variable: true), 'Input 1');
+      expect(fieldLabel(bt('add'), 'in.1', variable: true), 'Input 2');
       expect(
-        fieldLabel('expression', 'in.temp', variable: true),
+        fieldLabel(bt('expression'), 'in.temp', variable: true),
         'temp',
         reason: 'a variable keeps the name the user gave it',
       );
@@ -345,7 +349,7 @@ void main() {
     test("the catalog's own display wins", () {
       expect(
         fieldLabel(
-          'window',
+          bt('window'),
           'size_s',
           spec: const ParamSpec(name: 'size_s', display: 'Window'),
         ),
@@ -370,13 +374,13 @@ void main() {
       ].lock,
     );
     FlowField field(String b, String name) => fieldsOf(
-      types[d.blocks[b]!.type],
+      types[d.blocks[b]!.type.wire],
       d.blocks[b]!,
       edges: d.edges,
     ).firstWhere((f) => f.name == name);
     Refused? refuse(String from, String port, String to, String name) =>
         bindRefusal(
-          types,
+          byType(types),
           d,
           fromBlock: from,
           fromPort: port,
@@ -422,25 +426,33 @@ void main() {
       ).firstWhere((f) => f.name == 'in');
       expect(
         bindRefusal(
-          typed,
+          byType(typed),
           d,
           fromBlock: 'm',
           fromPort: 'quotient',
           toBlock: 'l',
           to: to,
         ),
-        const Refused(BindRefusal.type, from: 'number', to: 'bool'),
+        const Refused(
+          BindRefusal.type,
+          from: PortType.number,
+          to: PortType.boolean,
+        ),
       );
       expect(
         bindRefusal(
-          typed,
+          byType(typed),
           d,
           fromBlock: 'm',
           fromPort: 'modulo',
           toBlock: 'l',
           to: to,
         ),
-        const Refused(BindRefusal.type, from: 'number', to: 'bool'),
+        const Refused(
+          BindRefusal.type,
+          from: PortType.number,
+          to: PortType.boolean,
+        ),
         reason: "a parameter's echo has the parameter's type",
       );
     });
@@ -463,7 +475,7 @@ void main() {
       );
       expect(
         bindRefusal(
-          types,
+          byType(types),
           withDelay,
           fromBlock: 'add',
           fromPort: 'out',
@@ -479,7 +491,7 @@ void main() {
       // only if the edge stayed.
       expect(
         bindRefusal(
-          types,
+          byType(types),
           d,
           fromBlock: 'add',
           fromPort: 'out',
@@ -510,7 +522,7 @@ void main() {
     test('port, echo, typed default and echo_inputs are read', () {
       final t = adr['scale']!;
       expect(t.echoInputs, isFalse);
-      expect(t.portTypes['in'], 'number');
+      expect(t.portTypes['in'], PortType.number);
       final f = fieldsOf(t, block('s', 'scale'));
       final lo = f.firstWhere((x) => x.name == 'lo');
       final k = f.firstWhere((x) => x.name == 'k');
@@ -697,28 +709,31 @@ void main() {
           ConnectPortsAction('c', 'input_out_of_range', 'gate', 'in'),
         )
         ..dispatchSync(ConnectPortsAction('c', 'out', 'sum', 'in.0'))
-        ..dispatchSync(SetBlockFormAction('c', 'linear'));
+        ..dispatchSync(SetBlockFormAction('c', BlockFormId.linear));
       final c = s.state.flowEditor.draft!.blocks['c']!;
       expect(c.cfg.containsKey('input_max'), isFalse);
       expect(edges(), [
         ['c.out', 'sum.in.0'],
       ]);
-      expect(formOf(c, s.state.flowEditor.draft!.edges)!.id, 'linear');
+      expect(
+        formOf(c, s.state.flowEditor.draft!.edges)!.id,
+        BlockFormId.linear,
+      );
     });
 
     test('a scale switched to range writes the range and drops k and b', () {
       s
         ..dispatchSync(SetBlockParamAction('gate', 'k', 2))
-        ..dispatchSync(SetBlockFormAction('gate', 'linear'))
+        ..dispatchSync(SetBlockFormAction('gate', BlockFormId.linear))
         ..dispatchSync(ConnectPortsAction('gate', 'k', 'sum', 'in.0'));
       expect(s.state.flowEditor.draft!.blocks['gate']!.cfg['k'], 2);
-      s.dispatchSync(SetBlockFormAction('gate', 'range'));
+      s.dispatchSync(SetBlockFormAction('gate', BlockFormId.range));
       final g = s.state.flowEditor.draft!.blocks['gate']!;
       expect(g.cfg.containsKey('k'), isFalse);
       expect(edges(), isEmpty, reason: "k's echo goes with it");
       expect(
         formOf(g, const [])!.id,
-        'range',
+        BlockFormId.range,
         reason: 'the definition says it, with no wire',
       );
     });

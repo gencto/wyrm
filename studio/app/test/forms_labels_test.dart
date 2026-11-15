@@ -3,6 +3,7 @@ import 'package:business/wyrm/calls.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/param_spec.dart';
+import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
 /// A form built from an action's parameters reads in words (owner
 /// 2026-11-11): the display, else the name in sentence case; snake_case
@@ -58,7 +59,7 @@ void main() {
     final f = paramField(
       const ParamSpec(
         name: 'mode',
-        type: 'enum',
+        type: TypeCode.enum_,
         choices: IListConst(['read_back', 'holding', 'f32_wbswap']),
       ),
     );

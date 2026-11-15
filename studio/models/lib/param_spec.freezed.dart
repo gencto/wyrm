@@ -15,9 +15,12 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ParamSpec {
 
- String get name; String? get display;/// TypeCode name (`string`, `number`, `int`, `bool`, `enum`, …).
- String get type; bool get required; Object? get defaultValue; num? get min; num? get max; IList<String> get choices;/// `file`, `textarea`, …
- String? get editor; bool get secret; String? get description;/// The input port that feeds it (`in.<name>`, ADR 0038 §2); null when
+ String get name; String? get display;/// Its type (spec 02 `TypeCode`); a parameter with choices is
+/// [TypeCode.enum_].
+ TypeCode get type; bool get required; Object? get defaultValue; num? get min; num? get max; IList<String> get choices;/// How a form edits it (spec 02 `editor`); null for none, for a
+/// secret (`secret` says it) and for an editor this Studio does not
+/// know (a UI ignores those, spec 02).
+ ParamEditor? get editor; bool get secret; String? get description;/// The input port that feeds it (`in.<name>`, ADR 0038 §2); null when
 /// the catalog does not say or it has none.
  String? get port;/// Whether it repeats as an output named like it (ADR 0038 §1); null
 /// when the catalog does not say.
@@ -60,7 +63,7 @@ abstract mixin class $ParamSpecCopyWith<$Res>  {
   factory $ParamSpecCopyWith(ParamSpec value, $Res Function(ParamSpec) _then) = _$ParamSpecCopyWithImpl;
 @useResult
 $Res call({
- String name, String? display, String type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, String? editor, bool secret, String? description, String? port, bool? echo, String? scope
+ String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope
 });
 
 
@@ -82,12 +85,12 @@ class _$ParamSpecCopyWithImpl<$Res>
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,required: null == required ? _self.required : required // ignore: cast_nullable_to_non_nullable
+as TypeCode,required: null == required ? _self.required : required // ignore: cast_nullable_to_non_nullable
 as bool,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,min: freezed == min ? _self.min : min // ignore: cast_nullable_to_non_nullable
 as num?,max: freezed == max ? _self.max : max // ignore: cast_nullable_to_non_nullable
 as num?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<String>,editor: freezed == editor ? _self.editor : editor // ignore: cast_nullable_to_non_nullable
-as String?,secret: null == secret ? _self.secret : secret // ignore: cast_nullable_to_non_nullable
+as ParamEditor?,secret: null == secret ? _self.secret : secret // ignore: cast_nullable_to_non_nullable
 as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,port: freezed == port ? _self.port : port // ignore: cast_nullable_to_non_nullable
 as String?,echo: freezed == echo ? _self.echo : echo // ignore: cast_nullable_to_non_nullable
@@ -104,20 +107,23 @@ as String?,
 
 
 class _ParamSpec implements ParamSpec {
-  const _ParamSpec({required this.name, this.display, this.type = 'string', this.required = false, this.defaultValue, this.min, this.max, this.choices = const IListConst([]), this.editor, this.secret = false, this.description, this.port, this.echo, this.scope});
+  const _ParamSpec({required this.name, this.display, this.type = TypeCode.string, this.required = false, this.defaultValue, this.min, this.max, this.choices = const IListConst([]), this.editor, this.secret = false, this.description, this.port, this.echo, this.scope});
   
 
 @override final  String name;
 @override final  String? display;
-/// TypeCode name (`string`, `number`, `int`, `bool`, `enum`, …).
-@override@JsonKey() final  String type;
+/// Its type (spec 02 `TypeCode`); a parameter with choices is
+/// [TypeCode.enum_].
+@override@JsonKey() final  TypeCode type;
 @override@JsonKey() final  bool required;
 @override final  Object? defaultValue;
 @override final  num? min;
 @override final  num? max;
 @override@JsonKey() final  IList<String> choices;
-/// `file`, `textarea`, …
-@override final  String? editor;
+/// How a form edits it (spec 02 `editor`); null for none, for a
+/// secret (`secret` says it) and for an editor this Studio does not
+/// know (a UI ignores those, spec 02).
+@override final  ParamEditor? editor;
 @override@JsonKey() final  bool secret;
 @override final  String? description;
 /// The input port that feeds it (`in.<name>`, ADR 0038 §2); null when
@@ -163,7 +169,7 @@ abstract mixin class _$ParamSpecCopyWith<$Res> implements $ParamSpecCopyWith<$Re
   factory _$ParamSpecCopyWith(_ParamSpec value, $Res Function(_ParamSpec) _then) = __$ParamSpecCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String? display, String type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, String? editor, bool secret, String? description, String? port, bool? echo, String? scope
+ String name, String? display, TypeCode type, bool required, Object? defaultValue, num? min, num? max, IList<String> choices, ParamEditor? editor, bool secret, String? description, String? port, bool? echo, String? scope
 });
 
 
@@ -185,12 +191,12 @@ class __$ParamSpecCopyWithImpl<$Res>
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String,required: null == required ? _self.required : required // ignore: cast_nullable_to_non_nullable
+as TypeCode,required: null == required ? _self.required : required // ignore: cast_nullable_to_non_nullable
 as bool,defaultValue: freezed == defaultValue ? _self.defaultValue : defaultValue ,min: freezed == min ? _self.min : min // ignore: cast_nullable_to_non_nullable
 as num?,max: freezed == max ? _self.max : max // ignore: cast_nullable_to_non_nullable
 as num?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
 as IList<String>,editor: freezed == editor ? _self.editor : editor // ignore: cast_nullable_to_non_nullable
-as String?,secret: null == secret ? _self.secret : secret // ignore: cast_nullable_to_non_nullable
+as ParamEditor?,secret: null == secret ? _self.secret : secret // ignore: cast_nullable_to_non_nullable
 as bool,description: freezed == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
 as String?,port: freezed == port ? _self.port : port // ignore: cast_nullable_to_non_nullable
 as String?,echo: freezed == echo ? _self.echo : echo // ignore: cast_nullable_to_non_nullable

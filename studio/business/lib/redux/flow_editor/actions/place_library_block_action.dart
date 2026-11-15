@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -63,7 +64,7 @@ class PlaceLibraryBlockAction extends Action {
     // The instance, in the same step of the history as the copy.
     if (blockDefsOf(flowEditor.draft).containsKey(name)) {
       dispatchSync(
-        AddBlockAction('$blockTypePrefix$name', x, y, tag: 'place:$name'),
+        AddBlockAction(CustomType(name), x, y, tag: 'place:$name'),
       );
     }
   }

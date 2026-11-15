@@ -9,11 +9,13 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/block_types.dart';
 import 'support/fake_wyrm.dart';
 
 final def = Value.from({
@@ -109,7 +111,7 @@ void main() {
   });
 
   test('dyn ports come from the parameter, or its defaults', () {
-    final t = nodeTypeOf((types as VArray).v[2]);
+    final t = nodeTypeOf((types as VArray).v[2]).orWarn('test')!;
     final d = flowDraftOf(
       'x',
       Value.from({
@@ -160,12 +162,12 @@ void main() {
       await s.dispatchAndWait(LoadFlowAction('tank'));
       expect(s.state.flowEditor.draft!.blocks.length, 3);
       expect(
-        s.state.flowEditor.types.map((t) => t.type),
+        s.state.flowEditor.types.map((t) => t.type.wire),
         containsAll(['scale', 'subscribe']),
       );
 
       s
-        ..dispatchSync(AddBlockAction('scale', 300, 40))
+        ..dispatchSync(AddBlockAction(bt('scale'), 300, 40))
         ..dispatchSync(ConnectPortsAction('level', 'out', 'scale1', 'in'));
       final d = s.state.flowEditor.draft!;
       expect(

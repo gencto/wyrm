@@ -19,7 +19,7 @@ class SetBlockFormAction extends Action {
   SetBlockFormAction(this.block, this.form);
 
   final String block;
-  final String form;
+  final BlockFormId form;
 
   @override
   AppState? reduce() {

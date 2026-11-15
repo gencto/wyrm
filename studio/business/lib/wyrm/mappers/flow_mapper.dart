@@ -1,13 +1,14 @@
 import 'dart:convert';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
-import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../decode/block_cfg.dart';
 import '../decode/flow_permissions.dart';
 import 'values.dart';
 
@@ -46,7 +47,7 @@ FlowDraft flowDraftOf(String id, Value def) => flowReadOf(id, def).draft;
       final (x, y) = saved ?? (40.0 + 260 * (i % 4), 40.0 + 200 * (i ~/ 4));
       blocks[e.key] = FlowBlock(
         id: e.key,
-        type: type,
+        type: BlockType.fromWire(type),
         cfg: cfg.lock,
         x: x,
         y: y,
@@ -126,7 +127,7 @@ Value previewDefOf(FlowDraft d) {
 Map<String, Object?> _defMap(FlowDraft d, int version) {
   final rest = Map<String, Object?>.of(d.rest.unlock);
   final commands = d.blocks.values.any(
-    (b) => b.type == 'set' || b.type == 'invoke',
+    (b) => b.type.known == KnownBlock.set || b.type.known == KnownBlock.invoke,
   );
   if (commands && rest['permissions'] == null) {
     rest['permissions'] = {'maxperm': 'write'};
@@ -136,7 +137,8 @@ Map<String, Object?> _defMap(FlowDraft d, int version) {
     'id': d.id,
     'version': version,
     'nodes': {
-      for (final b in d.blocks.values) b.id: {'type': b.type, ...b.cfg.unlock},
+      for (final b in d.blocks.values)
+        b.id: {'type': b.type.wire, ...b.cfg.unlock},
     },
     'edges': [
       for (final e in d.edges)
@@ -172,56 +174,6 @@ String pinKey(String node, String field) => '$node$_pinMark$field';
   return i <= 0
       ? null
       : (key.substring(0, i), key.substring(i + _pinMark.length));
-}
-
-/// One entry of `node_types`.
-NodeType nodeTypeOf(Value m) {
-  List<String> texts(Value? v) => switch (v) {
-    VArray(:final v) => [for (final x in v) ?str(x)],
-    _ => const [],
-  };
-  final dynIn = m['dyn_inputs'];
-  final dynOut = m['dyn_outputs'];
-  return NodeType(
-    type: str(m['type']) ?? '',
-    category: str(m['category']) ?? '',
-    description: str(m['description']) ?? '',
-    inputs: texts(m['inputs']).lock,
-    outputs: texts(m['outputs']).lock,
-    dynInParam: str(dynIn?['param']),
-    dynInPrefix: str(dynIn?['prefix']) ?? '',
-    dynInDefaults: texts(dynIn?['default']).lock,
-    dynOutParam: str(dynOut?['param']),
-    dynOutPrefix: str(dynOut?['prefix']) ?? '',
-    dynOutDefaults: texts(dynOut?['default']).lock,
-    params: [
-      if (m['params'] case VArray(:final v))
-        for (final p in v)
-          ParamSpec(
-            name: str(p['name']) ?? '',
-            // The label the engine gives a field where the one derived
-            // from its name would be wrong (spec 06 0.2.29: `atan.x`).
-            display: str(p['display']),
-            type: str(p['type']) ?? 'string',
-            required: boolean(p['required']) ?? false,
-            description: str(p['description']),
-            choices: texts(p['choices']).lock,
-            defaultValue: toDart(p['default']),
-            editor: str(p['editor']),
-            port: str(p['port']),
-            echo: boolean(p['echo']),
-            scope: str(p['scope']),
-          ),
-    ].lock,
-    portTypes: {
-      if (m['port_types'] case VMap(:final v))
-        for (final e in v.entries) e.key: ?str(e.value),
-    }.lock,
-    echoInputs: boolean(m['echo_inputs']),
-    takesValues: boolean(m['values']) ?? false,
-    dynInKeys: boolean(dynIn?['keys']) ?? false,
-    trigger: boolean(m['trigger']) ?? false,
-  );
 }
 
 /// The ports of [b] by its type: fixed ones and the ones a parameter names.
@@ -280,7 +232,7 @@ List<String> operandPortsOf(NodeType? t, FlowBlock b) {
   }
   // An instance of a custom block: each declared input holds a constant
   // (`values.<input>`, spec 06 0.2.24).
-  if (t.type.startsWith('block:')) {
+  if (t.type is CustomType) {
     return t.inputs.toList();
   }
   final paramPorts = {
@@ -336,8 +288,7 @@ IMap<String, Object?> cfgWithoutOperands(
   IMap<String, Object?> cfg,
   Iterable<String> ports,
 ) {
-  final b = FlowBlock(id: '', type: '', cfg: cfg);
-  final m = Map<String, Object?>.of(operandValuesOf(b));
+  final m = Map<String, Object?>.of(operandValuesIn(cfg));
   if (!ports.any(m.containsKey)) {
     return cfg;
   }
@@ -352,10 +303,14 @@ IMap<String, Object?> cfgWithoutOperands(
 ({List<String> reads, List<String> writes}) flowKeysOf(FlowDraft d) => (
   reads: [
     for (final b in d.blocks.values)
-      if (const {'subscribe', 'liveliness', 'load_value'}.contains(b.type))
+      if (const {
+        KnownBlock.subscribe,
+        KnownBlock.liveliness,
+        KnownBlock.loadValue,
+      }.contains(b.type.known))
         if (b.cfg['key'] case final String k) k,
     for (final b in d.blocks.values)
-      if (b.type == 'list_children')
+      if (b.type.known == KnownBlock.listChildren)
         if (b.cfg['path'] case final String k) k,
     // What a key from a port may read (ADR 0040 §1).
     for (final b in d.blocks.values)
@@ -364,7 +319,11 @@ IMap<String, Object?> cfgWithoutOperands(
   ],
   writes: [
     for (final b in d.blocks.values)
-      if (const {'set', 'invoke', 'publish'}.contains(b.type))
+      if (const {
+        KnownBlock.set,
+        KnownBlock.invoke,
+        KnownBlock.publish,
+      }.contains(b.type.known))
         if (b.cfg['path'] ?? b.cfg['key'] ?? b.cfg['target']
             case final String k)
           k,
