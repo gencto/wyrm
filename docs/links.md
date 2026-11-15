@@ -44,6 +44,18 @@ warning in the log. The built-in drivers use these codes:
 | The device does not answer | `timeout` |
 | The connection is broken | `disconnected` |
 
+### A file or a part of one is `editor: file`
+
+A gateway's WebSocket frame is at most 64 KiB. Larger arguments go by the
+gateway's `POST /api/invoke`, and the gateway takes there only an action
+that has a parameter with `editor: "file"` (ADR 0011, ADR 0028 amended
+2026-11-15). So every `binary` parameter that can be larger than a frame
+carries `editor: file`: a whole file (`install_zip`, `upload`, `import`)
+and also a part of one (`restore_part`, a file store's `upload_part`), a
+component (`put_artifact`), a profile (`profiles ▸ put`). In a generic
+action form it is a file picker. A `string` or `map` argument cannot take
+this route: keep it under 60 KiB, or take it as a file.
+
 ### Names people read
 
 Keys are wire names: a node key is a path segment, an action key or a

@@ -1175,7 +1175,14 @@ impl Link for Engine {
             "",
             "put_artifact",
             ActionMeta::new()
-                .param("bytes", ParamMeta::of(TypeCode::Binary).required(true))
+                // a component is larger than a gateway's WebSocket frame:
+                // `editor: file` lets it go by `POST /api/invoke` (ADR 0011)
+                .param(
+                    "bytes",
+                    ParamMeta::of(TypeCode::Binary)
+                        .required(true)
+                        .editor(wyrm_core::meta::EDITOR_FILE),
+                )
                 .result(ActionResult::Type(TypeCode::Map))
                 .level(Perm::Config),
         )

@@ -12114,6 +12114,209 @@ async fn backup_restores_into_a_fresh_data_dir() {
     b.stop().await;
 }
 
+/// ADR 0028 (amended 2026-11-15): uploads in parts through the user gateway,
+/// as Studio sends them. A part is larger than a WebSocket frame (64 KiB), so
+/// it goes by `POST /api/invoke`, which takes only actions with an `editor:
+/// file` parameter: a backup made here is read back through the gateway in
+/// parts, sent to `restore_begin`/`restore_part` and checked; a file goes to
+/// a file store by `upload_begin`/`upload_part`/`upload_commit`.
+#[tokio::test(flavor = "multi_thread")]
+async fn uploads_in_parts_through_the_gateway() {
+    use sha2::Digest;
+    let port = free_port();
+    let dir = temp_dir("gw-parts");
+    let store = temp_dir("gw-parts-store");
+    std::fs::create_dir_all(&store).unwrap();
+    let store = store.canonicalize().unwrap();
+    let password = format!("gw-parts-{:x}", std::process::id());
+    let env_lock = GATEWAY_ENV.lock().await;
+    std::env::set_var(wyrmd::GATEWAY_ADMIN_PASSWORD_ENV, &password);
+    let env = Env::start_in(
+        &dir,
+        &format!(
+            r#"links: {{
+                files: {{ driver: "localfs", params: {{ allowed_roots: "{root}",
+                          connections: {{ c1: {{ root: "{root}" }} }} }} }} }},
+            gateway: {{ listen: "127.0.0.1:{port}", admin_user: "root" }},"#,
+            root = store.display()
+        ),
+    )
+    .await;
+    drop(env_lock);
+    let addr = env.gateway.clone().expect("gateway").local_addr().await;
+    let login = wyrm_core::codec::to_vec(&args_map(&[
+        ("user", "root".into()),
+        ("password", password.as_str().into()),
+    ]))
+    .unwrap();
+    let (st, v) = http_post(addr, "/api/login", "", login).await;
+    assert_eq!(st, 200, "{v:?}");
+    let Value::Map(m) = v else {
+        panic!("login: a map")
+    };
+    let Some(Value::Str(session)) = m.get("session").cloned() else {
+        panic!("login: session")
+    };
+    let gw =
+        wyrm_gateway_client::Gateway::login(&format!("http://127.0.0.1:{port}"), "root", &password)
+            .await
+            .expect("login");
+    let conn = gw.connect().await.expect("socket");
+    // `POST /api/invoke` of `action` on `key`; the status and the answer
+    let bulk = |key: String, action: &'static str, args: Value| {
+        let session = session.clone();
+        async move {
+            let path = format!("/api/invoke?key={key}&action={action}");
+            http_post(
+                addr,
+                &path,
+                &session,
+                wyrm_core::codec::to_vec(&args).unwrap(),
+            )
+            .await
+        }
+    };
+
+    // a backup of several hundred KiB: text that does not compress to nothing
+    let c = slow_client(&env).await;
+    let storage = format!("wy/{SITE}/storage");
+    let mut seed = sha2::Sha256::digest(b"gw-parts").to_vec();
+    for i in 0..40u64 {
+        let mut text = String::with_capacity(30_000);
+        while text.len() < 30_000 {
+            seed = sha2::Sha256::digest(&seed).to_vec();
+            text.push_str(&hex::encode(&seed));
+        }
+        let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
+        c.invoke_one(&storage, "publish", publish).await.unwrap();
+    }
+    let backups = format!("wy/{SITE}/sys/backups");
+    let id = backup_id(
+        conn.invoke(
+            &backups,
+            "create",
+            args_map(&[("sections", names(&["storage"]))]),
+        )
+        .await
+        .unwrap(),
+    );
+    backup_done(&env, &id).await;
+    // read back through the gateway: parts larger than a frame go out
+    let node = format!("{backups}/{id}");
+    let mut file = Vec::new();
+    loop {
+        let args = args_map(&[
+            ("offset", Value::UInt(file.len() as u64)),
+            ("len", Value::UInt(256 << 10)),
+        ]);
+        let Some(Value::Map(m)) = conn.invoke(&node, "download_part", args).await.unwrap() else {
+            panic!("download_part: a map");
+        };
+        let Some(Value::Bytes(data)) = m.get("data") else {
+            panic!("download_part: data");
+        };
+        file.extend_from_slice(data);
+        if m.get("eof") == Some(&Value::Bool(true)) {
+            break;
+        }
+    }
+    assert!(
+        file.len() > 256 << 10,
+        "{} bytes: more than one part",
+        file.len()
+    );
+
+    // the restore of it, in the broker's own part size, as Studio sends it
+    let begin = args_map(&[("size", Value::UInt(file.len() as u64))]);
+    let Some(Value::Map(m)) = conn.invoke(&backups, "restore_begin", begin).await.unwrap() else {
+        panic!("restore_begin: a map");
+    };
+    let Some(Value::Str(upload)) = m.get("upload").cloned() else {
+        panic!("restore_begin: upload");
+    };
+    let part = match m.get("part_size") {
+        Some(Value::UInt(n)) => *n as usize,
+        other => panic!("restore_begin: part_size {other:?}"),
+    };
+    assert!(part > 64 << 10, "a part is larger than a frame: {part}");
+    // one part of 200 KiB first, then the rest in the broker's part size
+    let first = 200 << 10;
+    let mut offset = 0usize;
+    for chunk in std::iter::once(&file[..first]).chain(file[first..].chunks(part)) {
+        let args = args_map(&[
+            ("upload", upload.clone().into()),
+            ("offset", Value::UInt(offset as u64)),
+            ("data", Value::Bytes(chunk.to_vec())),
+        ]);
+        let (st, v) = bulk(backups.clone(), "restore_part", args).await;
+        assert_eq!(st, 200, "restore_part at {offset}: {v:?}");
+        offset += chunk.len();
+    }
+    let check = args_map(&[("upload", upload.clone().into())]);
+    let Some(Value::Map(check)) = conn.invoke(&backups, "restore_check", check).await.unwrap()
+    else {
+        panic!("restore_check: a map");
+    };
+    assert_eq!(
+        check.get("same_site"),
+        Some(&Value::Bool(true)),
+        "{check:?}"
+    );
+    assert_eq!(
+        check.get("problems"),
+        Some(&Value::Array(Vec::new())),
+        "{check:?}"
+    );
+
+    // a file store: parts are at least 64 KiB, always over a frame
+    let folder = format!("wy/{SITE}/downstream/files/c1/files");
+    eventually("the store's folder is in the tree", 30, || async {
+        c.meta(&folder).await.ok()
+    })
+    .await;
+    let mut data = Vec::new();
+    while data.len() < 300 << 10 {
+        seed = sha2::Sha256::digest(&seed).to_vec();
+        data.extend_from_slice(&seed);
+    }
+    let begin = args_map(&[
+        ("name", "big.bin".into()),
+        ("size", Value::UInt(data.len() as u64)),
+        ("part_size", Value::UInt(128 << 10)),
+    ]);
+    let Some(Value::Map(m)) = conn.invoke(&folder, "upload_begin", begin).await.unwrap() else {
+        panic!("upload_begin: a map");
+    };
+    let Some(Value::Str(upload)) = m.get("upload").cloned() else {
+        panic!("upload_begin: upload");
+    };
+    let connection = format!("wy/{SITE}/downstream/files/c1");
+    for (i, chunk) in data.chunks(128 << 10).enumerate() {
+        let args = args_map(&[
+            ("upload", upload.clone().into()),
+            ("index", Value::UInt(i as u64)),
+            ("data", Value::Bytes(chunk.to_vec())),
+        ]);
+        let (st, v) = bulk(connection.clone(), "upload_part", args).await;
+        assert_eq!(st, 200, "upload_part {i}: {v:?}");
+    }
+    conn.invoke(
+        &connection,
+        "upload_commit",
+        args_map(&[("upload", upload.into())]),
+    )
+    .await
+    .unwrap();
+    let got = eventually("the file is in the store", 30, || async {
+        std::fs::read(store.join("big.bin"))
+            .ok()
+            .filter(|b| b.len() == data.len())
+    })
+    .await;
+    assert!(got == data, "the stored file is the one sent");
+    env.stop().await;
+}
+
 // ---- Package updates with a way back (ADR 0048 §1) ----
 
 /// A process package `name` whose entry is the shell script `body` (after

@@ -1081,9 +1081,12 @@ pub(super) async fn declare(ctx: &LinkCtx) -> wyrm_link_sdk::Result<()> {
             )
             .param(
                 "data",
+                // a part of a local file: `editor: file` lets a gateway take
+                // it outside a WebSocket frame (ADR 0028, amended 2026-11-15)
                 ParamMeta::of(TypeCode::Binary)
                     .required(true)
                     .display("Data")
+                    .editor(EDITOR_FILE)
                     .description("The next part, at most 16 MiB"),
             )
             .result(ActionResult::Type(TypeCode::Map))
