@@ -21,10 +21,11 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
   /// new (a review ends with the state still `failed`).
   final _seen = <String, (int, int, int, int, bool, String?)>{};
 
-  /// Its own reads are awaited here: the service that calls it does not
-  /// wait, the dispatcher owns them.
+  /// A stream listener must not block: the record's read is started with
+  /// `dispatch` and shows its own wait (`RetrieveTaskRecordAction` is a
+  /// `WaitingAction`).
   @override
-  Future<void> onTaskState(
+  void onTaskState(
     String id,
     TaskState state, {
     int step = 0,
@@ -33,7 +34,7 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     int findings = 0,
     bool reviewing = false,
     String? replacedBy,
-  }) async {
+  }) {
     final known = _store.state.tasks.table[id];
     final now = (step, finished, suggestions, findings, reviewing, replacedBy);
     final moved = _seen[id] != now;
@@ -52,7 +53,13 @@ class AgentTasksDispatcher implements AgentTasksServiceListener {
     // The record moved with the state and with each step: the task on
     // screen is read again.
     if (_store.state.tasks.selectedTask == id) {
-      await _store.dispatchAndWait(RetrieveTaskRecordAction(id));
+      _read(id);
     }
   }
+
+  /// Starts the read of task [id]'s record: a listener does not wait for
+  /// it; the read shows its own wait (`RetrieveTaskRecordAction` is a
+  /// `WaitingAction`) and runs in turn with the other reads of the task
+  /// (`Sequential`).
+  void _read(String id) => _store.dispatch(RetrieveTaskRecordAction(id));
 }
