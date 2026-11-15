@@ -179,7 +179,7 @@ pub fn parse_interval(s: &str) -> Result<Option<u64>, String> {
     let (n, unit) = s.split_at(split);
     let n: u64 = n
         .parse()
-        .map_err(|_| format!("interval {s:?}: a number and a unit (5m)"))?;
+        .map_err(|e| format!("interval {s:?}: a number and a unit (5m): {e}"))?;
     let unit_s = match unit {
         "s" => 1,
         "m" => 60,
