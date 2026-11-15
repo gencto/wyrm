@@ -145,3 +145,36 @@ TextStyle boardText({
   letterSpacing: tracking,
   color: color,
 );
+
+/// The font sizes of the canvas (board *Design system* §03). The four
+/// body steps are a scale, like `AppSpacing`: [xs] … [lg] say where a size
+/// sits, not what the text is. The titles and the figure are named for what
+/// they set. A size off both lists is a smell: it gets a name here first.
+abstract final class FontSizes {
+  static const double xs = 11;
+  static const double sm = 12;
+  static const double md = 13;
+  static const double lg = 14;
+
+  /// A section's title (`titleMedium`).
+  static const double sectionTitle = 16;
+
+  /// A panel's or a dialog's title (`titleLarge`).
+  static const double panelTitle = 20;
+
+  /// A large figure: a tile's value, a metric.
+  static const double figure = 22;
+
+  /// A page's title (`headlineSmall`).
+  static const double pageTitle = 26;
+}
+
+/// Text styles that set the size only: a widget adds its colour and weight
+/// with `copyWith` (`AppText.sm.copyWith(color: c.text4)`), which is the
+/// same style as `TextStyle(fontSize: FontSizes.sm, color: …)` written out.
+abstract final class AppText {
+  static const xs = TextStyle(fontSize: FontSizes.xs);
+  static const sm = TextStyle(fontSize: FontSizes.sm);
+  static const md = TextStyle(fontSize: FontSizes.md);
+  static const lg = TextStyle(fontSize: FontSizes.lg);
+}

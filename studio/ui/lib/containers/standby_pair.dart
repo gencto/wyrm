@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [StandbyPair] draws: the active broker, its warm standby and what
@@ -103,12 +104,18 @@ class StandbyPair extends StatelessWidget {
                     Text(
                       vm.flow,
                       textAlign: .center,
-                      style: TextStyle(fontSize: 12, color: c.text3),
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text3,
+                      ),
                     ),
                     Text(
                       vm.every,
                       textAlign: .center,
-                      style: TextStyle(fontSize: 12, color: c.text4),
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text4,
+                      ),
                     ),
                   ],
                 ),
@@ -140,7 +147,7 @@ class StandbyPair extends StatelessWidget {
     required String name,
     required String note,
   }) => Container(
-    padding: const EdgeInsets.all(16),
+    padding: const EdgeInsets.all(AppSpacing.md),
     decoration: BoxDecoration(
       color: fill,
       border: .all(color: line),
@@ -153,7 +160,7 @@ class StandbyPair extends StatelessWidget {
         Text(
           label.toUpperCase(),
           style: TextStyle(
-            fontSize: 12,
+            fontSize: FontSizes.sm,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: tone,
@@ -171,7 +178,11 @@ class StandbyPair extends StatelessWidget {
         ),
         CodeText(
           note,
-          style: TextStyle(fontSize: 13, height: 1.5, color: c.text3),
+          style: TextStyle(
+            fontSize: FontSizes.md,
+            height: 1.5,
+            color: c.text3,
+          ),
         ),
       ],
     ),

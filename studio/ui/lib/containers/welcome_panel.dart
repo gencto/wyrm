@@ -77,7 +77,7 @@ class WelcomePanel extends StatelessWidget {
                 vm.title,
                 textAlign: .center,
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
                   color: c.text1,
                 ),
@@ -101,7 +101,7 @@ class WelcomePanel extends StatelessWidget {
                         ],
                 ),
                 textAlign: .center,
-                style: TextStyle(fontSize: 14, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
               ),
             ],
           ),
@@ -129,7 +129,10 @@ class WelcomePanel extends StatelessWidget {
                         child: Text(
                           f,
                           textAlign: .center,
-                          style: TextStyle(fontSize: 13, color: c.text4),
+                          style: TextStyle(
+                            fontSize: FontSizes.md,
+                            color: c.text4,
+                          ),
                         ),
                       ),
                     ],

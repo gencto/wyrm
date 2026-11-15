@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
 import '../theme/typography.dart';
 
 /// What a node of the map is, which decides its row and its look.
@@ -188,7 +189,9 @@ class _Card extends StatelessWidget {
         onTap: () => onTap(vm.id),
         borderRadius: radius,
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: vm.small ? 14 : 12),
+          padding: EdgeInsets.symmetric(
+            horizontal: vm.small ? 14 : 12,
+          ),
           child: Column(
             mainAxisAlignment: .center,
             crossAxisAlignment: .start,
@@ -222,7 +225,7 @@ class _Card extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: self ? c.emberTint : c.ground4,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(AppRadii.chip),
                       ),
                       child: Text(
                         t,
@@ -240,7 +243,7 @@ class _Card extends StatelessWidget {
                   vm.sub,
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
             ],
           ),
@@ -321,7 +324,10 @@ class SiteLegend extends StatelessWidget {
             painter: _Line(color, dashed ? 5 : (dotted ? 2 : 0)),
           ),
         ),
-        Text(t, style: TextStyle(fontSize: 12, color: c.text3)),
+        Text(
+          t,
+          style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
+        ),
       ],
     );
     return Wrap(

@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'assistant_composer.dart';
 import 'choices_card.dart';
@@ -64,10 +66,10 @@ class AssistantDrawer extends StatelessWidget {
 
   final List<ConversationEventVm> events;
   final ChoicesCardVm? choices;
-  final void Function(String question, String option)? onPick;
+  final OptionPicked? onPick;
   final VoidCallback? onAnswer;
   final PlanCardVm? plan;
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
   final ValueChanged<String>? onFix;
   final ValueChanged<int>? onReveal;
   final RunCardVm? run;
@@ -100,7 +102,7 @@ class AssistantDrawer extends StatelessWidget {
   /// *What I found* and the mini timeline of the selected point; null when
   /// there is neither.
   final FoundCardVm? found;
-  final void Function(int start, int end)? onTimelineWindow;
+  final RangeChanged<int>? onTimelineWindow;
   final VoidCallback? onTimelineReset;
 
   @override
@@ -118,7 +120,10 @@ class AssistantDrawer extends StatelessWidget {
           children: [
             Container(
               height: 48,
-              padding: const EdgeInsets.only(left: 16, right: 6),
+              padding: const EdgeInsets.only(
+                left: AppSpacing.md,
+                right: 6,
+              ),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
@@ -129,7 +134,7 @@ class AssistantDrawer extends StatelessWidget {
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: FontSizes.lg,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -161,7 +166,10 @@ class AssistantDrawer extends StatelessWidget {
                       padding: const EdgeInsets.all(20),
                       child: Text(
                         empty!,
-                        style: TextStyle(fontSize: 13, color: c.text2),
+                        style: TextStyle(
+                          fontSize: FontSizes.md,
+                          color: c.text2,
+                        ),
                       ),
                     )
                   : Conversation(
@@ -196,7 +204,10 @@ class AssistantDrawer extends StatelessWidget {
                             TaskCard(vm: k, onButton: onButton),
                           if (second case final t?)
                             Padding(
-                              padding: const EdgeInsets.only(left: 42, top: 12),
+                              padding: const EdgeInsets.only(
+                                left: 42,
+                                top: 12,
+                              ),
                               child: Column(
                                 crossAxisAlignment: .stretch,
                                 spacing: 6,
@@ -205,7 +216,7 @@ class AssistantDrawer extends StatelessWidget {
                                     Text(
                                       l,
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: FontSizes.xs,
                                         color: c.text3,
                                       ),
                                     ),

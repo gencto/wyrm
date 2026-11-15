@@ -5,8 +5,10 @@ import '../indicators/app_icon.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One row of the tree.
@@ -129,7 +131,7 @@ class TreeRow extends StatelessWidget {
   final ValueChanged<String>? onToggle;
 
   /// The `⋯` button of the selected row: the node menu at that point.
-  final void Function(String id, Offset at)? onMore;
+  final ItemAt<String>? onMore;
   final double height;
 
   @override
@@ -147,8 +149,8 @@ class TreeRow extends StatelessWidget {
       child: Container(
         height: height,
         padding: EdgeInsets.only(
-          left: compact ? 6.0 + vm.depth * 12 : 10.0 + vm.depth * 16,
-          right: compact ? 8 : 10,
+          left: compact ? 6 + vm.depth * 12 : 10 + vm.depth * AppSpacing.md,
+          right: compact ? AppSpacing.sm : 10,
         ),
         decoration: BoxDecoration(
           color: sel ? c.emberTint : (vm.marked ? c.ground3 : null),
@@ -233,7 +235,10 @@ class TreeRow extends StatelessWidget {
             if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
             if (vm.chip case final chip?) _Chip(chip),
             if (vm.meta case final m?)
-              Text(m, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                m,
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+              ),
             if (vm.dot case final t?)
               Tooltip(
                 message: vm.dotLabel ?? '',
@@ -271,9 +276,15 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 6,
+        vertical: 2,
+      ),
       decoration: BoxDecoration(color: c.ground4, borderRadius: Radii.chip),
-      child: Text(label, style: TextStyle(fontSize: 11, color: c.text3)),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: FontSizes.xs, color: c.text3),
+      ),
     );
   }
 }

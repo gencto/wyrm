@@ -7,6 +7,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One task in the left list.
@@ -82,12 +83,25 @@ class TaskList extends StatelessWidget {
           onPressed: newReason == null ? onNew : null,
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(2, 10, 2, 8),
-          child: Text(note, style: TextStyle(fontSize: 12, color: c.text3)),
+          padding: const EdgeInsets.fromLTRB(
+            2,
+            10,
+            2,
+            AppSpacing.sm,
+          ),
+          child: Text(
+            note,
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
+          ),
         ),
         for (final s in sections) ...[
           Padding(
-            padding: const EdgeInsets.fromLTRB(2, 10, 2, 6),
+            padding: const EdgeInsets.fromLTRB(
+              2,
+              10,
+              2,
+              6,
+            ),
             child: SectionLabel(s.label),
           ),
           for (final t in s.tasks) _Task(vm: t, onTap: () => onTask(t.id)),
@@ -108,7 +122,7 @@ class _Task extends StatelessWidget {
     final c = context.colors;
     final color = vm.tone == .neutral ? c.text3 : toneColor(c, vm.tone);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: Material(
         color: vm.selected ? c.emberFill : Colors.transparent,
         shape: RoundedRectangleBorder(
@@ -128,7 +142,7 @@ class _Task extends StatelessWidget {
                   vm.title,
                   maxLines: 2,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: 13, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                 ),
                 Row(
                   spacing: 6,
@@ -138,7 +152,10 @@ class _Task extends StatelessWidget {
                       child: Text(
                         vm.state,
                         overflow: .ellipsis,
-                        style: TextStyle(fontSize: 12, color: color),
+                        style: TextStyle(
+                          fontSize: FontSizes.sm,
+                          color: color,
+                        ),
                       ),
                     ),
                     Text(vm.id, style: mono(size: 11, color: c.text4)),
@@ -149,7 +166,7 @@ class _Task extends StatelessWidget {
                     d,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: TextStyle(fontSize: 12, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                   ),
               ],
             ),

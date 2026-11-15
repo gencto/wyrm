@@ -12,6 +12,8 @@ import '../overlays/task_sheet.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// A setting shown as a card above the Quarantine table.
 final class SettingCardVm extends Equatable {
@@ -108,7 +110,7 @@ class LinksPage extends StatelessWidget {
   final TaskSheetVm? sheet;
   final VoidCallback? onSheetPrimary;
   final VoidCallback? onSheetSecondary;
-  final void Function(String id, {required bool value})? onSheetToggle;
+  final Toggled<String>? onSheetToggle;
   final ValueChanged<String>? onSheetAction;
   final VoidCallback? onSheetClose;
 
@@ -116,7 +118,12 @@ class LinksPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+      padding: const EdgeInsets.fromLTRB(
+        28,
+        28,
+        28,
+        40,
+      ),
       children: [
         PageHeader(
           title: title,
@@ -143,8 +150,11 @@ class LinksPage extends StatelessWidget {
         const SizedBox(height: 22),
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
         const SizedBox(height: 18),
-        Text(description, style: TextStyle(fontSize: 13, color: c.text2)),
-        const SizedBox(height: 16),
+        Text(
+          description,
+          style: TextStyle(fontSize: FontSizes.md, color: c.text2),
+        ),
+        Gaps.md,
         if (settings.isNotEmpty) ...[
           LayoutBuilder(
             builder: (context, box) {
@@ -178,7 +188,7 @@ class LinksPage extends StatelessWidget {
                   : Column(spacing: 12, children: cards);
             },
           ),
-          const SizedBox(height: 16),
+          Gaps.md,
         ],
         RowTable(columns: columns, rows: rows, onTap: onRow, empty: empty),
       ],

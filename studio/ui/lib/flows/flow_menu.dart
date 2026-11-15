@@ -3,7 +3,9 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
 import '../theme/typography.dart';
 import 'shortcut_card.dart';
 
@@ -99,7 +101,7 @@ class FlowMenu extends StatefulWidget {
 
   final FlowMenuVm vm;
   final ValueChanged<FlowCommand> onPick;
-  final void Function(String field, {required bool pinned}) onPin;
+  final Toggled<String> onPin;
 
   /// Whether the `Fields ▸` checklist is open at first.
   final bool fieldsOpen;
@@ -114,7 +116,7 @@ class FlowMenu extends StatefulWidget {
     BuildContext context, {
     required Offset at,
     required FlowMenuVm vm,
-    required void Function(String field, {required bool pinned}) onPin,
+    required Toggled<String> onPin,
   }) => showDialog<FlowCommand>(
     context: context,
     barrierColor: Colors.transparent,
@@ -163,7 +165,7 @@ class _FlowMenuState extends State<FlowMenu> {
       elevation: 12,
       shadowColor: Colors.black,
       shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
         side: BorderSide(color: c.line3),
       ),
       clipBehavior: .antiAlias,
@@ -214,7 +216,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: FontSizes.md,
                     color: !enabled
                         ? c.muted
                         : (i.danger ? c.badText : c.text1),
@@ -254,7 +256,7 @@ class _FlowMenuState extends State<FlowMenu> {
             ? null
             : () {
                 setState(() => _pinned[f.id] = !on);
-                widget.onPin(f.id, pinned: !on);
+                widget.onPin(f.id, on: !on);
               },
         child: Container(
           height: 30,
@@ -269,7 +271,9 @@ class _FlowMenuState extends State<FlowMenu> {
                 decoration: BoxDecoration(
                   color: on ? (locked ? c.ground4 : c.emberTint) : null,
                   border: .all(color: on && !locked ? c.ember : c.line3),
-                  borderRadius: const BorderRadius.all(Radius.circular(4)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadii.chip),
+                  ),
                 ),
                 child: on
                     ? AppIcon(
@@ -285,13 +289,16 @@ class _FlowMenuState extends State<FlowMenu> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: FontSizes.md,
                     color: locked ? c.text3 : c.text1,
                   ),
                 ),
               ),
               if (f.lockedReason case final why?)
-                Text(why, style: TextStyle(fontSize: 11, color: c.text4)),
+                Text(
+                  why,
+                  style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
+                ),
             ],
           ),
         ),
@@ -306,7 +313,12 @@ class _FlowMenuState extends State<FlowMenu> {
       children: [
         panel([
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+            padding: const EdgeInsets.fromLTRB(
+              14,
+              6,
+              14,
+              6,
+            ),
             child: Row(
               spacing: 8,
               children: [
@@ -325,7 +337,7 @@ class _FlowMenuState extends State<FlowMenu> {
                     vm.subtitle,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: TextStyle(fontSize: 12, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                   ),
                 ),
               ],
@@ -338,11 +350,16 @@ class _FlowMenuState extends State<FlowMenu> {
             padding: const EdgeInsets.only(top: 40),
             child: panel([
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                padding: const EdgeInsets.fromLTRB(
+                  12,
+                  6,
+                  12,
+                  6,
+                ),
                 child: Text(
                   S.current.fmFieldsTitle.toUpperCase(),
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: FontSizes.xs,
                     fontWeight: .w600,
                     letterSpacing: 0.66,
                     color: c.text4,

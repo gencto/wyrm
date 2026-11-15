@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// What [WarnBanner] says.
 final class WarnBannerVm extends Equatable {
@@ -47,7 +49,7 @@ class WarnBanner extends StatelessWidget {
       container: true,
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: Insets.notice,
         decoration: BoxDecoration(
           color: c.warnTint,
           border: .all(color: c.warnLine),
@@ -74,7 +76,7 @@ class WarnBanner extends StatelessWidget {
                   Text(
                     vm.title,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: FontSizes.md,
                       height: 1.5,
                       fontWeight: .w600,
                       color: c.text1,
@@ -82,7 +84,11 @@ class WarnBanner extends StatelessWidget {
                   ),
                   CodeText(
                     vm.body,
-                    style: TextStyle(fontSize: 13, height: 1.5, color: c.text2),
+                    style: TextStyle(
+                      fontSize: FontSizes.md,
+                      height: 1.5,
+                      color: c.text2,
+                    ),
                   ),
                   if (vm.action case final a?)
                     InkWell(
@@ -90,7 +96,7 @@ class WarnBanner extends StatelessWidget {
                       child: Text(
                         a,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.md,
                           height: 1.5,
                           color: c.emberSoft,
                         ),

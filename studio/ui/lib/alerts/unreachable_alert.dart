@@ -3,6 +3,8 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What the unreachable alert says (docs/design/specs/login.md §5).
@@ -55,10 +57,10 @@ class UnreachableAlert extends StatelessWidget {
     return Semantics(
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: Insets.notice,
         decoration: BoxDecoration(
           color: fill,
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
           border: .all(color: c.badLine),
         ),
         child: Column(
@@ -74,7 +76,7 @@ class UnreachableAlert extends StatelessWidget {
                 ),
                 Text(
                   S.current.cantReachGateway,
-                  style: TextStyle(fontSize: 14, color: c.badText),
+                  style: TextStyle(fontSize: FontSizes.lg, color: c.badText),
                 ),
               ],
             ),
@@ -82,7 +84,7 @@ class UnreachableAlert extends StatelessWidget {
               vm.detail,
               style: TextStyle(
                 fontFamily: AppFonts.mono,
-                fontSize: 12,
+                fontSize: FontSizes.sm,
                 color: c.text2,
               ),
             ),
@@ -98,7 +100,7 @@ class UnreachableAlert extends StatelessWidget {
                 ],
               ),
               style: TextStyle(
-                fontSize: 13,
+                fontSize: FontSizes.md,
                 height: 1.5,
                 leadingDistribution: .even,
                 color: c.text3,
@@ -131,7 +133,7 @@ class UnreachableAlert extends StatelessWidget {
     bool primary = false,
   }) {
     final c = context.colors;
-    const shape = BorderRadius.all(Radius.circular(8));
+    const shape = BorderRadius.all(Radius.circular(AppRadii.control));
     return Material(
       color: primary ? c.ember : Colors.transparent,
       shape: RoundedRectangleBorder(
@@ -149,7 +151,7 @@ class UnreachableAlert extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: FontSizes.md,
                 fontWeight: primary ? .w600 : .w400,
                 color: primary ? c.onEmber : c.text1,
               ),
@@ -189,7 +191,7 @@ class _WifiOff extends CustomPainter {
           ..moveTo(5, 12.5)
           ..arcToPoint(
             const Offset(19, 12.5),
-            radius: const Radius.circular(10),
+            radius: const Radius.circular(AppRadii.card),
           )
           ..moveTo(8.5, 16)
           ..arcToPoint(const Offset(15.5, 16), radius: const Radius.circular(5))

@@ -83,7 +83,11 @@ class _JsonTreeState extends State<JsonTree> {
     if (!n.isContainer) {
       out.add(
         Padding(
-          padding: EdgeInsets.only(left: indent + 18, top: 1, bottom: 1),
+          padding: EdgeInsets.only(
+            left: indent + 18,
+            top: 1,
+            bottom: 1,
+          ),
           child: Text.rich(
             TextSpan(
               children: [
@@ -113,7 +117,11 @@ class _JsonTreeState extends State<JsonTree> {
                 }
               }),
         child: Padding(
-          padding: EdgeInsets.only(left: indent, top: 1, bottom: 1),
+          padding: EdgeInsets.only(
+            left: indent,
+            top: 1,
+            bottom: 1,
+          ),
           child: Row(
             mainAxisSize: .min,
             children: [
@@ -160,7 +168,11 @@ class _JsonTreeState extends State<JsonTree> {
     }
     out.add(
       Padding(
-        padding: EdgeInsets.only(left: indent + 18, top: 1, bottom: 1),
+        padding: EdgeInsets.only(
+          left: indent + 18,
+          top: 1,
+          bottom: 1,
+        ),
         child: Text(end, style: bracket),
       ),
     );

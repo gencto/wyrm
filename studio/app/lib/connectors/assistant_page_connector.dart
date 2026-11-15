@@ -350,8 +350,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       plan: task == null || task.plan.isEmpty ? null : _plan(task, choices),
       onTick: id == null || choices == null
           ? null
-          : (n, {required ticked}) =>
-                dispatchSync(SetStepTickAction(id, n, ticked: ticked)),
+          : (n, {required on}) =>
+                dispatchSync(SetStepTickAction(id, n, ticked: on)),
       choices: task == null || task.questions.isEmpty
           ? null
           : _choices(task, cancelReason),
@@ -1881,7 +1881,7 @@ class _Vm extends Vm {
   final String? taskKey;
   final List<ConversationEventVm> events;
   final PlanCardVm? plan;
-  final void Function(int n, {required bool ticked})? onTick;
+  final void Function(int n, {required bool on})? onTick;
   final RunCardVm? run;
   final ResultCardVm? result;
   final List<MoreRowsCardVm> more;

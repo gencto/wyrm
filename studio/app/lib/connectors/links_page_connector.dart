@@ -306,10 +306,10 @@ class _Factory extends VmFactory<AppState, LinksPageConnector, _Vm>
       inspector: _inspector(tab),
       updateAll: tab == LinksTab.updates && updatable.isNotEmpty,
       sheet: sheet == null ? null : updateSheet(sheet),
-      onSheetToggle: (id, {required value}) => switch (id) {
-        'point' => dispatchSync(SetTakePointAction(value)),
-        'auto' => dispatchSync(SetAutoRollbackAction(value)),
-        _ => dispatchSync(SetAcceptNewAction(value)),
+      onSheetToggle: (id, {required on}) => switch (id) {
+        'point' => dispatchSync(SetTakePointAction(on)),
+        'auto' => dispatchSync(SetAutoRollbackAction(on)),
+        _ => dispatchSync(SetAcceptNewAction(on)),
       },
       busy: links.isActing || quarantine.isWaiting,
       onShow: () {
@@ -1070,7 +1070,7 @@ class _Vm extends Vm {
 
   /// The update of a package, as a drawer.
   final TaskSheetVm? sheet;
-  final void Function(String id, {required bool value}) onSheetToggle;
+  final void Function(String id, {required bool on}) onSheetToggle;
   final bool busy;
   final VoidCallback onShow;
   final VoidCallback onHide;

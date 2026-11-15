@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/typography.dart';
 import 'refresh_frame.dart';
 
 /// A workspace's title (26/600), one line under it, and its one primary
@@ -41,11 +42,14 @@ class PageHeader extends StatelessWidget {
                       if (status case final u?)
                         TextSpan(
                           text: subtitle == null ? u : '  ·  $u',
-                          style: TextStyle(fontSize: 12, color: c.text4),
+                          style: TextStyle(
+                            fontSize: FontSizes.sm,
+                            color: c.text4,
+                          ),
                         ),
                     ],
                   ),
-                  style: TextStyle(fontSize: 14, color: c.text3),
+                  style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
                 ),
             ],
           ),

@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One column of a [RowsEditor]: the key it writes in each row, its label,
@@ -142,7 +144,7 @@ class _RowsEditorState extends State<RowsEditor> {
         return Container(
           height: 32,
           decoration: widget.decoration,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               key: ValueKey('rows-${widget.vm.id}-$row-${col.key}'),
@@ -171,7 +173,7 @@ class _RowsEditorState extends State<RowsEditor> {
       return Container(
         height: 32,
         decoration: widget.decoration,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
         alignment: .centerLeft,
         child: TextField(
           key: ValueKey('rows-${widget.vm.id}-$row-${col.key}'),
@@ -198,7 +200,7 @@ class _RowsEditorState extends State<RowsEditor> {
           if (_rows.isEmpty)
             Text(
               widget.vm.emptyLabel,
-              style: TextStyle(fontSize: 12, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             )
           else
             Row(
@@ -210,10 +212,10 @@ class _RowsEditorState extends State<RowsEditor> {
                       col.label,
                       maxLines: 1,
                       overflow: .ellipsis,
-                      style: TextStyle(fontSize: 11, color: c.text4),
+                      style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
                     ),
                   ),
-                const SizedBox(width: 24),
+                Gaps.hLg,
               ],
             ),
           for (var r = 0; r < _rows.length; r++)
@@ -228,7 +230,9 @@ class _RowsEditorState extends State<RowsEditor> {
                     message: widget.vm.removeLabel,
                     child: InkWell(
                       key: ValueKey('rows-${widget.vm.id}-remove-$r'),
-                      borderRadius: const BorderRadius.all(Radius.circular(4)),
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(AppRadii.chip),
+                      ),
                       onTap: () => _remove(r),
                       child: Center(
                         child: AppIcon('ui_close', size: 14, color: c.text4),
@@ -246,7 +250,7 @@ class _RowsEditorState extends State<RowsEditor> {
               icon: Text('+', style: mono(color: c.ember)),
               label: Text(
                 widget.vm.addLabel,
-                style: TextStyle(fontSize: 12, color: c.ember),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.ember),
               ),
             ),
           ),

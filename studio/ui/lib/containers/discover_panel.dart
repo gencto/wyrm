@@ -8,6 +8,9 @@ import '../inputs/range_probe.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One reason of the empty panel, with its dot and, for the local-network
 /// permission on macOS and iOS, `Open settings`.
@@ -100,14 +103,14 @@ class DiscoverPanel extends StatelessWidget {
         clipBehavior: .antiAlias,
         decoration: BoxDecoration(
           color: c.ground1,
-          borderRadius: const BorderRadius.all(Radius.circular(12)),
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.panel)),
           border: .all(color: c.line1),
         ),
         child: Column(
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: Insets.card,
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.ground3)),
               ),
@@ -126,7 +129,10 @@ class DiscoverPanel extends StatelessWidget {
                       liveRegion: true,
                       child: Text(
                         vm.title,
-                        style: TextStyle(fontSize: 13, color: c.text2),
+                        style: TextStyle(
+                          fontSize: FontSizes.md,
+                          color: c.text2,
+                        ),
                       ),
                     ),
                   ),
@@ -155,7 +161,7 @@ class DiscoverPanel extends StatelessWidget {
   Widget _none(BuildContext context, DiscoverNoneVm none) {
     final c = context.colors;
     final text = TextStyle(
-      fontSize: 13,
+      fontSize: FontSizes.md,
       height: 1.45,
       leadingDistribution: .even,
       color: c.text2,
@@ -166,7 +172,10 @@ class DiscoverPanel extends StatelessWidget {
         crossAxisAlignment: .stretch,
         spacing: 12,
         children: [
-          Text(none.title, style: TextStyle(fontSize: 14, color: c.badText)),
+          Text(
+            none.title,
+            style: TextStyle(fontSize: FontSizes.lg, color: c.badText),
+          ),
           Column(
             crossAxisAlignment: .stretch,
             spacing: 8,

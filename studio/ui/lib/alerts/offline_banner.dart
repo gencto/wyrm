@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// Shown under the top bar while the gateway socket is gone: the client
 /// reconnects by itself; values on screen are the last ones received.
@@ -16,7 +18,10 @@ class OfflineBanner extends StatelessWidget {
     final c = context.colors;
     return Container(
       width: .infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
         color: c.warnTint,
         border: Border(bottom: BorderSide(color: c.warnLine)),
@@ -28,7 +33,7 @@ class OfflineBanner extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: TextStyle(fontSize: 13, color: c.warn),
+              style: TextStyle(fontSize: FontSizes.md, color: c.warn),
             ),
           ),
           SizedBox.square(

@@ -57,12 +57,14 @@ final _rules = <Rule>[
   Rule('context-in-connector', [
     'app/lib/connectors/',
     'app/lib/mappers/',
+    'app/lib/common/',
     'business/lib/',
   ], (t) => _matches(_code(t), RegExp(r'\bBuildContext\b'))),
   // 5. text belongs to localization and ui
   Rule('l10n-in-connector', [
     'app/lib/connectors/',
     'app/lib/mappers/',
+    'app/lib/common/',
     'business/lib/',
   ], (t) => _matches(_code(t), RegExp(r'\bS\.(?:current|of\()'))),
   // 6. tokens, not numbers
@@ -77,7 +79,7 @@ final _rules = <Rule>[
   // 7. callbacks have shared types
   Rule(
     'ad-hoc-callback',
-    ['app/lib/connectors/', 'ui/lib/'],
+    ['app/lib/connectors/', 'app/lib/common/', 'ui/lib/'],
     (t) => _matches(
       _code(t),
       RegExp(r'final\s+[\w<>?, ]+\s+Function\([^)]*\)\??\s+\w+;'),
@@ -119,6 +121,7 @@ final _rules = <Rule>[
     'app/lib/connectors/',
     'app/lib/pages/',
     'app/lib/dialogs/',
+    'app/lib/common/',
   ], _multiDispatch),
 ];
 

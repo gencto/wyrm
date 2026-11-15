@@ -7,9 +7,13 @@ import '../charts/trend.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/section_label.dart';
 import '../containers/side_panels.dart';
+import '../models/panels.dart';
+import '../models/value_changed.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One watch group in the left list.
 final class GroupItemVm extends Equatable {
@@ -47,7 +51,8 @@ class HistoryPage extends StatelessWidget {
     required this.pointsLabel,
     required this.columns,
     required this.points,
-    required this.onPoint,
+    required this.picked,
+    required this.onPick,
     required this.onAction,
     this.addReason,
     this.title,
@@ -83,7 +88,7 @@ class HistoryPage extends StatelessWidget {
   final String trendEmpty;
 
   /// The trend's window (µs), its legend toggles and `Reset zoom`.
-  final void Function(int start, int end) onTrendWindow;
+  final RangeChanged<int> onTrendWindow;
   final ValueChanged<String>? onTrendToggle;
   final VoidCallback? onTrendReset;
   final String pointsLabel;
@@ -94,9 +99,11 @@ class HistoryPage extends StatelessWidget {
   /// How to pick points for the trend, under the points label.
   final String? pointsHint;
 
-  /// A point row was clicked (its id); `add` when ⌘ or Ctrl was held: the
-  /// point joins the trend instead of replacing what it shows.
-  final void Function(String id, bool add) onPoint;
+  /// The points on the trend; a ⌘- or Ctrl-click toggles a point in them.
+  final ToggleVm<String> picked;
+
+  /// A plain click: the trend shows this point alone.
+  final ValueChanged<String> onPick;
 
   /// The historian's size, under the groups.
   final String? footer;
@@ -105,7 +112,7 @@ class HistoryPage extends StatelessWidget {
 
   /// The groups and inspector widths the viewer chose.
   final SidePanelWidths panels;
-  final void Function(PanelSide side, double width)? onPanelWidth;
+  final PanelResized? onPanelWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +127,12 @@ class HistoryPage extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 14, 6, 6),
+            padding: const EdgeInsets.fromLTRB(
+              12,
+              14,
+              6,
+              6,
+            ),
             child: Row(
               children: [
                 Expanded(child: SectionLabel(groupsLabel)),
@@ -136,7 +148,7 @@ class HistoryPage extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
               children: [
                 for (final g in groups)
                   InkWell(
@@ -144,7 +156,7 @@ class HistoryPage extends StatelessWidget {
                     borderRadius: Radii.control,
                     child: Container(
                       padding: const EdgeInsets.all(10),
-                      margin: const EdgeInsets.only(bottom: 4),
+                      margin: const EdgeInsets.only(bottom: AppSpacing.xs),
                       decoration: BoxDecoration(
                         color: g.selected ? c.emberTint : null,
                         borderRadius: Radii.control,
@@ -156,14 +168,17 @@ class HistoryPage extends StatelessWidget {
                           Text(
                             g.title,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: FontSizes.lg,
                               fontWeight: g.selected ? .w600 : .w400,
                               color: c.text1,
                             ),
                           ),
                           Text(
                             g.sub,
-                            style: TextStyle(fontSize: 12, color: c.text4),
+                            style: TextStyle(
+                              fontSize: FontSizes.sm,
+                              color: c.text4,
+                            ),
                           ),
                         ],
                       ),
@@ -180,7 +195,11 @@ class HistoryPage extends StatelessWidget {
               ),
               child: Text(
                 f,
-                style: TextStyle(fontSize: 12, height: 1.5, color: c.text3),
+                style: TextStyle(
+                  fontSize: FontSizes.sm,
+                  height: 1.5,
+                  color: c.text3,
+                ),
               ),
             ),
         ],
@@ -191,7 +210,12 @@ class HistoryPage extends StatelessWidget {
             child: Text(empty, style: TextStyle(color: c.text4)),
           )
         : ListView(
-            padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
+            padding: const EdgeInsets.fromLTRB(
+              28,
+              AppSpacing.lg,
+              28,
+              40,
+            ),
             children: [
               Row(
                 crossAxisAlignment: .start,
@@ -208,7 +232,10 @@ class HistoryPage extends StatelessWidget {
                         if (subtitle case final s?)
                           Text(
                             s,
-                            style: TextStyle(fontSize: 14, color: c.text3),
+                            style: TextStyle(
+                              fontSize: FontSizes.lg,
+                              color: c.text3,
+                            ),
                           ),
                       ],
                     ),
@@ -242,14 +269,17 @@ class HistoryPage extends StatelessWidget {
                   ),
                   child: Text(
                     trendEmpty,
-                    style: TextStyle(fontSize: 13, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                   ),
                 ),
               const SizedBox(height: 22),
               SectionLabel(pointsLabel),
               if (pointsHint case final hint?) ...[
-                const SizedBox(height: 4),
-                Text(hint, style: TextStyle(fontSize: 12, color: c.text4)),
+                Gaps.xs,
+                Text(
+                  hint,
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+                ),
               ],
               const SizedBox(height: 10),
               RowTable(
@@ -257,7 +287,11 @@ class HistoryPage extends StatelessWidget {
                 rows: points,
                 onTap: (id) {
                   final keys = HardwareKeyboard.instance;
-                  onPoint(id, keys.isMetaPressed || keys.isControlPressed);
+                  if (keys.isMetaPressed || keys.isControlPressed) {
+                    picked.toggle(id);
+                  } else {
+                    onPick(id);
+                  }
                 },
                 empty: pointsEmpty,
                 rowHeight: 40,

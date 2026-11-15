@@ -3,6 +3,7 @@ import 'package:business/redux/app_state.dart';
 import 'package:business/redux/historian/actions/load_trend_extremes_action.dart';
 import 'package:business/redux/historian/actions/load_trend_window_action.dart';
 import 'package:business/redux/historian/actions/pick_point_action.dart';
+import 'package:business/redux/historian/actions/pick_trend_point_action.dart';
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
 import 'package:business/redux/historian/actions/set_range_action.dart';
 import 'package:business/redux/historian/actions/set_trend_window_action.dart';
@@ -82,6 +83,15 @@ void main() {
     expect(s.state.historian.series[a]!.length, 2);
     expect(s.state.historian.low[a]!.single.value, 0.5);
     expect(s.state.historian.high[a]!.single.value, 1.5);
+  });
+
+  test('a click on a point is one action: the pick, then its series', () async {
+    await s.dispatchAndWait(PickTrendPointAction(a));
+    expect(s.state.historian.points, [a]);
+    expect(s.state.historian.series[a]!.length, 2);
+    await s.dispatchAndWait(PickTrendPointAction(b, add: true));
+    expect(s.state.historian.points, [a, b]);
+    expect(s.state.historian.series.keys, containsAll([a, b]));
   });
 
   test('a range change forgets the old min and max', () async {

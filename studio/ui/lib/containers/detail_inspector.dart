@@ -7,6 +7,9 @@ import '../forms/param_form.dart';
 import '../indicators/key_text.dart';
 import '../indicators/status_pill.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'fact_grid.dart';
 import 'section_label.dart';
 
@@ -129,7 +132,12 @@ class DetailInspector extends StatelessWidget {
       child: ListView(
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
+            padding: const EdgeInsets.fromLTRB(
+              20,
+              22,
+              20,
+              AppSpacing.md,
+            ),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -166,7 +174,12 @@ class DetailInspector extends StatelessWidget {
               child: FactGrid(facts: vm.facts, labelWidth: 74),
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            padding: const EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              20,
+            ),
             child: Column(
               crossAxisAlignment: .stretch,
               spacing: 8,
@@ -180,7 +193,10 @@ class DetailInspector extends StatelessWidget {
                 ],
                 if (vm.form case final f?) ...[
                   Padding(
-                    padding: const EdgeInsets.only(top: 6, bottom: 6),
+                    padding: const EdgeInsets.only(
+                      top: 6,
+                      bottom: 6,
+                    ),
                     child: SectionLabel(f.label),
                   ),
                   ActionForm(
@@ -195,11 +211,11 @@ class DetailInspector extends StatelessWidget {
                   ),
                   if (f.note case final n?)
                     Padding(
-                      padding: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.only(top: AppSpacing.sm),
                       child: Text(
                         n,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.md,
                           height: 1.5,
                           color: c.text3,
                         ),
@@ -208,17 +224,17 @@ class DetailInspector extends StatelessWidget {
                 ],
                 if (vm.footer case final n?)
                   Container(
-                    margin: const EdgeInsets.only(top: 16),
+                    margin: const EdgeInsets.only(top: AppSpacing.md),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: c.ground2,
                       border: .all(color: c.line1),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(AppRadii.control),
                     ),
                     child: Text(
                       n,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.md,
                         height: 1.5,
                         color: c.text2,
                       ),

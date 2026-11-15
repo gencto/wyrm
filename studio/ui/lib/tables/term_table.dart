@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One row of [TermTable]: a term and what it means.
 final class TermVm extends Equatable {
@@ -41,7 +43,7 @@ class TermTable extends StatelessWidget {
               for (final (i, r) in rows.indexed)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                    horizontal: AppSpacing.md,
                     vertical: 12,
                   ),
                   decoration: BoxDecoration(
@@ -58,7 +60,7 @@ class TermTable extends StatelessWidget {
                         child: Text(
                           r.term,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: FontSizes.md,
                             fontWeight: .w600,
                             color: c.text1,
                           ),
@@ -68,7 +70,7 @@ class TermTable extends StatelessWidget {
                         child: CodeText(
                           r.text,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: FontSizes.md,
                             height: 1.5,
                             color: c.text3,
                           ),

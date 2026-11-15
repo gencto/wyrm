@@ -61,13 +61,16 @@ class CommandCard extends StatelessWidget {
           Text(
             vm.title,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: FontSizes.md,
               fontWeight: .w600,
               color: c.text1,
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             decoration: BoxDecoration(
               color: Color.alphaBlend(
                 Colors.black.withValues(alpha: dark ? 0.2 : 0.03),
@@ -88,7 +91,7 @@ class CommandCard extends StatelessWidget {
                     vm.code.split('').join('\u200B'),
                     style: TextStyle(
                       fontFamily: AppFonts.mono,
-                      fontSize: 12,
+                      fontSize: FontSizes.sm,
                       height: 1.7,
                       color: c.text2,
                     ),
@@ -126,7 +129,11 @@ class CommandCard extends StatelessWidget {
           ),
           Text(
             vm.note,
-            style: TextStyle(fontSize: 12, height: 1.5, color: c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.sm,
+              height: 1.5,
+              color: c.text4,
+            ),
           ),
         ],
       ),

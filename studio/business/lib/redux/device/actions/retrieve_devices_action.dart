@@ -21,7 +21,7 @@ class RetrieveDevicesAction extends Action with WaitingAction {
     }
     try {
       return state.copyWith.device(
-        devices: userDevicesOf(await session.devices()),
+        devices: newestFirst(await session.devices()),
       );
     } on WyrmException catch (e) {
       throw StudioException.refused(e, call: 'devices');

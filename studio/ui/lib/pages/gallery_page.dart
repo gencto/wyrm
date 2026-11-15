@@ -20,6 +20,7 @@ import '../inputs/switch_row.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
 
@@ -125,7 +126,7 @@ class _Panel extends StatelessWidget {
         Text(
           title,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: FontSizes.lg,
             fontWeight: .w600,
             color: context.colors.text2,
           ),
@@ -225,9 +226,15 @@ class _Swatch extends StatelessWidget {
               crossAxisAlignment: .start,
               spacing: 2,
               children: [
-                Text(name, style: TextStyle(fontSize: 12, color: c.text1)),
+                Text(
+                  name,
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text1),
+                ),
                 Text(hex, style: mono(size: 12, color: c.text4)),
-                Text(use, style: TextStyle(fontSize: 12, color: c.text3)),
+                Text(
+                  use,
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
+                ),
               ],
             ),
           ),
@@ -295,7 +302,10 @@ class TypeScale extends StatelessWidget {
         children: [
           for (final (name, sample, spec) in rows)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 14,
+              ),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
@@ -305,11 +315,17 @@ class TypeScale extends StatelessWidget {
                     width: 160,
                     child: Text(
                       name,
-                      style: TextStyle(fontSize: 12, color: c.text4),
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text4,
+                      ),
                     ),
                   ),
                   Expanded(child: sample),
-                  Text(spec, style: TextStyle(fontSize: 12, color: c.text3)),
+                  Text(
+                    spec,
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
+                  ),
                 ],
               ),
             ),
@@ -329,7 +345,7 @@ class StatusLanguage extends StatelessWidget {
     runSpacing: 16,
     children: [
       SizedBox(
-        width: 380,
+        width: AppSizes.galleryTile,
         child: _Panel(
           title: 'Value quality',
           child: Column(
@@ -390,7 +406,7 @@ class StatusLanguage extends StatelessWidget {
         ),
       ),
       SizedBox(
-        width: 380,
+        width: AppSizes.galleryTile,
         child: _Panel(
           title: 'Connection, device and point state',
           child: Column(
@@ -448,7 +464,7 @@ class StatusLanguage extends StatelessWidget {
         ),
       ),
       SizedBox(
-        width: 380,
+        width: AppSizes.galleryTile,
         child: _Panel(
           title: 'Access level',
           child: AccessMeter(level: 'write'),
@@ -470,7 +486,7 @@ class ComponentKit extends StatelessWidget {
       runSpacing: 16,
       children: [
         SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Buttons',
             child: Wrap(
@@ -492,7 +508,7 @@ class ComponentKit extends StatelessWidget {
           ),
         ),
         SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Fields',
             child: ParamForm(
@@ -547,7 +563,7 @@ class ComponentKit extends StatelessWidget {
           ),
         ),
         SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Toggles and choices',
             child: Column(
@@ -579,7 +595,7 @@ class ComponentKit extends StatelessWidget {
           ),
         ),
         SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Tree rows',
             child: Column(
@@ -634,7 +650,7 @@ class ComponentKit extends StatelessWidget {
           ),
         ),
         SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Actions and facts',
             child: Column(
@@ -683,7 +699,7 @@ class ComponentKit extends StatelessWidget {
           ),
         ),
         const SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Change card and notices',
             child: Column(
@@ -710,7 +726,7 @@ class ComponentKit extends StatelessWidget {
           ),
         ),
         const SizedBox(
-          width: 380,
+          width: AppSizes.galleryTile,
           child: _Panel(
             title: 'Steps, progress and checks',
             child: Column(

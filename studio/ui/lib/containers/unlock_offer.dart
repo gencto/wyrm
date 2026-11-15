@@ -5,6 +5,9 @@ import '../buttons/log_in_button.dart';
 import '../indicators/biometric_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/typography.dart';
 import 'rise.dart';
 
 /// One fact of the offer: its words and the colour of its dot.
@@ -113,7 +116,7 @@ class UnlockOffer extends StatelessWidget {
               Flexible(
                 child: Text(
                   vm.checked,
-                  style: TextStyle(fontSize: 13, color: c.good),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.good),
                 ),
               ),
             ],
@@ -140,7 +143,7 @@ class UnlockOffer extends StatelessWidget {
               Text(
                 vm.title,
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
                   letterSpacing: -.26,
                   color: c.text1,
@@ -148,7 +151,11 @@ class UnlockOffer extends StatelessWidget {
               ),
               Text(
                 vm.text,
-                style: TextStyle(fontSize: 14, height: 1.55, color: c.text3),
+                style: TextStyle(
+                  fontSize: FontSizes.lg,
+                  height: 1.55,
+                  color: c.text3,
+                ),
               ),
             ],
           ),
@@ -176,7 +183,7 @@ class UnlockOffer extends StatelessWidget {
                       child: Text(
                         f.text,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.md,
                           height: 1.45,
                           color: c.text2,
                         ),
@@ -222,7 +229,11 @@ class UnlockOffer extends StatelessWidget {
             ),
           Text(
             vm.policy,
-            style: TextStyle(fontSize: 12, height: 1.5, color: c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.sm,
+              height: 1.5,
+              color: c.text4,
+            ),
           ),
         ],
       ),
@@ -251,12 +262,12 @@ class OfferButton extends StatelessWidget {
       color: busy ? LogInButton.busyFill : c.ember,
       clipBehavior: .antiAlias,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(10)),
+        borderRadius: BorderRadius.all(Radius.circular(AppRadii.card)),
       ),
       child: InkWell(
         onTap: busy ? null : onPressed,
         child: SizedBox(
-          height: 50,
+          height: AppSizes.tallButton,
           child: Center(
             child: Text(
               label,
@@ -290,7 +301,7 @@ class _Outlined extends StatelessWidget {
   Widget build(BuildContext context) => Material(
     color: Colors.transparent,
     shape: RoundedRectangleBorder(
-      borderRadius: const BorderRadius.all(Radius.circular(10)),
+      borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
       side: BorderSide(color: border),
     ),
     clipBehavior: .antiAlias,
@@ -299,7 +310,10 @@ class _Outlined extends StatelessWidget {
       child: SizedBox(
         height: 42,
         child: Center(
-          child: Text(label, style: TextStyle(fontSize: 14, color: ink)),
+          child: Text(
+            label,
+            style: TextStyle(fontSize: FontSizes.lg, color: ink),
+          ),
         ),
       ),
     ),

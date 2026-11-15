@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import 'quality_mark.dart';
 
 /// A state as a pill: a mark and a word on the tone's tint.
@@ -36,7 +37,9 @@ class StatusPill extends StatelessWidget {
     final fg = vm.tone == .neutral ? c.text3 : toneColor(c, vm.tone);
     return Container(
       height: dense ? 22 : 28,
-      padding: EdgeInsets.symmetric(horizontal: dense ? 8 : 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: dense ? AppSpacing.sm : 12,
+      ),
       decoration: BoxDecoration(
         color: toneTint(c, vm.tone),
         borderRadius: Radii.pill,

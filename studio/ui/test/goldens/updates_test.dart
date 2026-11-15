@@ -91,7 +91,7 @@ void main() {
               ),
               onPrimary: () => got.add('primary'),
               onSecondary: () => got.add('secondary'),
-              onToggle: (id, {required value}) => got.add('$id=$value'),
+              onToggle: (id, {required on}) => got.add('$id=$on'),
               onAction: got.add,
               onClose: () => got.add('close'),
             ),

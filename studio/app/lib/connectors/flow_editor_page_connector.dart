@@ -761,9 +761,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       menu: (ids, block, row) => _menu(ids, block, row, fields),
       onPin: (block, field, {required pinned}) =>
           dispatchSync(SetFieldPinAction(block, field, pinned: pinned)),
-      onFieldPin: (field, {required pinned}) {
+      onFieldPin: (field, {required on}) {
         if (sel != null) {
-          dispatchSync(SetFieldPinAction(sel, field, pinned: pinned));
+          dispatchSync(SetFieldPinAction(sel, field, pinned: on));
         }
       },
       onViewField: (block, row) =>
@@ -2309,10 +2309,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         : const <String, Object?>{};
     final known = flows.table[id];
     final by = val['deployed_by'] as String? ?? known?.deployedBy;
-    final maxperm = switch (d?.rest['permissions']) {
-      final Map<Object?, Object?> m => maxpermName(m['maxperm']),
-      _ => null,
-    };
+    final maxperm = d?.permissions?.maxperm?.wireName;
     final keys = d == null ? null : flowKeysOf(d);
     final ids = d?.blocks.keys.toList() ?? const <String>[];
     return FlowSummaryVm(
@@ -2576,7 +2573,7 @@ class _Vm extends Vm {
   final void Function(FlowCommand command, {Offset? at}) onCommand;
   final FlowMenuVm Function(Set<String> ids, String? block, String? row) menu;
   final void Function(String block, String field, {required bool pinned}) onPin;
-  final void Function(String field, {required bool pinned}) onFieldPin;
+  final void Function(String field, {required bool on}) onFieldPin;
   final void Function(String block, String row) onViewField;
   final ValueChanged<String> onSaveViewer;
   final String? Function(String text) validateViewer;

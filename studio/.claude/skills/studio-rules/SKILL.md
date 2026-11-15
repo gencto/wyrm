@@ -386,6 +386,49 @@ calls, in `app/lib/connectors`, `app/lib/pages`, `app/lib/dialogs`.
 
 ---
 
+## Where the pieces are
+
+The shared parts the rules point to. Copy the reference connector,
+`app/lib/connectors/security_dialog_connector.dart`, with its widget
+`ui/lib/overlays/security_dialog.dart` and its test
+`app/test/security_dialog_test.dart`.
+
+| Rule | Piece | Where |
+| --- | --- | --- |
+| 1, 9 | one action that awaits its parts (`ReloadShownAction`, `PickTrendPointAction`); a business action, then navigation (`LeaveOnLogOutAction(inner)`) | `business/lib/redux/…/actions/`, `app/lib/navigation/` |
+| 2, 3 | a wire enum from `wyrm_client` (`DevicePlatform`, `GatewayDeviceState`, `StepUp`, `GatewayRefusal`, `Perm`…); a domain enum in `models` (`HostPlatform`, `DeviceTag`); what is computed from state and the clock in `business` (`deviceRowOf`, selector `device.rowsAt(now)`); `ui` enums that carry what drawing needs: words (`DeviceOs`), a glyph and a label (`UnlockMethod`), a tone (`SecurityTag`); one exhaustive mapper per domain enum | `dart/wyrm_client`, `models/lib/`, `business/lib/wyrm/device_keys.dart`, `business/lib/redux/selectors.dart`, `ui/lib/indicators/`, `app/lib/mappers/` |
+| 4 | a dialog opener that takes the context (`showSecurityDialog`) | `app/lib/dialogs/` |
+| 5 | `Formats.bytes/mebibytes/age/ago/shortDate/date/clock/clockSeconds/dateTime/minutesSeconds` | `localization/lib/formats.dart` |
+| 6 | `AppSpacing` and `Gaps` (the rhythm), `Insets` named for what they pad (`control`, `card`, `notice`, `assistantCard`), `AppRadii`/`Radii`, `FontSizes` (the body scale `xs`…`lg`, and `sectionTitle`, `panelTitle`, `pageTitle`, `figure`), `AppText`, `Shades` (`dialogShadow`, `popupShadow`, `drawerShadow`, …, `barrier`), `AppSizes` (by component) | `ui/lib/theme/` |
+| 7 | `FieldEdited`, `FieldBound`, `OptionPicked`, `MenuPicked`, `Renamed`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `PanelResized`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/` |
+| 8 | a gateway or agent record: its `fromValue` in `wyrm_client` (`GatewayDevice`, `GatewayInfo`, …, `DecodeError`); a Studio-only shape: `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)` (`flowPermissionsOf`); `orWarn(where)` logs an `Invalid` with its field, never a silent null | `dart/wyrm_client`, `business/lib/wyrm/decode/` |
+
+Open questions for the owner (observed while building these; not rules):
+- A project typedef (`Toggled<T>`) in a connector's `_Vm` makes `frx doctor`
+  report it as a value left out of equality: it reads only Flutter's own
+  typedefs as callbacks. Should `_Vm` fields use `ValueChanged`/`VoidCallback`
+  or a `ui` model (`ToggleVm`, `FieldVm`) until `frx` learns the project's
+  typedefs?
+- `multi-dispatch` also counts a block that is not a callback: a
+  `fromStore() {` body, an `if (…) {` or `switch (…) {` block, a private
+  method, when two dispatches sit anywhere inside. Should the check count
+  only closures passed as arguments?
+- `context-in-connector` counts the connector's own `build(BuildContext)`.
+  Is 1 per connector the expected floor, or should the connector's widget
+  move out of the scanned file?
+
+To collapse a callback with several dispatches (rule 9):
+1. Name the intent and make one action for it (`frx add-action`). A step
+   that navigates stays in `app` (`LeaveOnLogOutAction`, `GoAction`).
+2. In its `reduce`, run the steps the screen must not show with
+   `notify: false`, and return one `copyWith` that sets every field.
+3. Start a load inside it with `dispatch(...)` when it has its own
+   `WaitingAction`; `await dispatchAndWait(...)` only when the next step
+   needs its result.
+4. Return `null` when nothing changed. A waiting action that no screen
+   draws sets `notifyBefore => false`.
+5. The callback becomes `() => dispatch(TheIntentAction(...))`.
+
 ## Before you call a Studio change done
 
 1. `dart run tool/check_rules.dart` — no count above the baseline.

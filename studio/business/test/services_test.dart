@@ -3,6 +3,7 @@
 
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/common/action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
@@ -11,6 +12,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/set_expanded_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
+import 'package:business/redux/site/actions/reload_shown_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -182,6 +184,24 @@ void main() {
     );
   });
 
+  group('ReloadShownAction', () {
+    test('reads again only what a shown screen holds, in one action', () async {
+      final s = fakeStore(login: login);
+      await logIn(s);
+      s.dispatchSync(_ShowLinks());
+      login.session.api.calls.clear();
+
+      await s.dispatchAndWait(ReloadShownAction());
+
+      // links are shown, so read again; quarantine, packages, backups and
+      // the assistant are not, so left alone
+      expect(login.session.api.calls.map((c) => '${c.op} ${c.key}'), [
+        'children wy/central/sys/links',
+      ]);
+      expect(s.state.wait.isWaitingForType<ReloadShownAction>(), isFalse);
+    });
+  });
+
   group('LogOutAction', () {
     test(
       'closes the session, empties the broker state, keeps the rest',
@@ -207,4 +227,10 @@ void main() {
       },
     );
   });
+}
+
+/// Links shown: `links.view` holds an id, as after a first read.
+class _ShowLinks extends Action {
+  @override
+  AppState reduce() => state.copyWith.links(view: const IListConst(['modbus']));
 }

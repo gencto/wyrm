@@ -9,6 +9,8 @@ import '../indicators/app_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// The tone of an error surface (docs/design/specs/errors.md §1): the
@@ -238,7 +240,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: ConstrainedBox(
               // The board's 520 is the content box: the 1 px line is
               // outside it.
@@ -259,7 +261,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
                         borderRadius: const .all(.circular(14)),
                         boxShadow: const [
                           BoxShadow(
-                            color: Color(0x8C000000),
+                            color: Shades.errorDialogShadow,
                             offset: Offset(0, 24),
                             blurRadius: 64,
                           ),
@@ -286,7 +288,12 @@ class _ErrorDialogState extends State<ErrorDialog> {
   }
 
   Widget _header(AppColors c, ErrorDialogVm vm, Color fg, Color bg) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.lg,
+      22,
+      AppSpacing.lg,
+      AppSpacing.none,
+    ),
     child: Row(
       crossAxisAlignment: .start,
       children: [
@@ -353,7 +360,12 @@ class _ErrorDialogState extends State<ErrorDialog> {
   );
 
   Widget _body(AppColors c, ErrorDialogVm vm, Color fg, Color bg) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.lg,
+      AppSpacing.md,
+      AppSpacing.lg,
+      AppSpacing.none,
+    ),
     child: Column(
       crossAxisAlignment: .stretch,
       spacing: 14,
@@ -364,7 +376,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
           children: [
             Text(vm.saidLabel, style: boardText(size: 12, color: c.text4)),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: Insets.card,
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.ground4),
@@ -413,7 +425,10 @@ class _ErrorDialogState extends State<ErrorDialog> {
           ),
         if (vm.note case final note?)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             decoration: BoxDecoration(
               color: c.warnTint,
               border: .all(color: c.warnLine),
@@ -496,7 +511,12 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 ),
                 if (_open)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 4, 0, 6),
+                    padding: const EdgeInsets.fromLTRB(
+                      22,
+                      AppSpacing.xs,
+                      AppSpacing.none,
+                      6,
+                    ),
                     child: Table(
                       columnWidths: const {
                         0: IntrinsicColumnWidth(),
@@ -508,8 +528,10 @@ class _ErrorDialogState extends State<ErrorDialog> {
                             children: [
                               Padding(
                                 padding: EdgeInsets.only(
-                                  right: 16,
-                                  top: i == 0 ? 0 : 6,
+                                  right: AppSpacing.md,
+                                  top: i == AppSpacing.none
+                                      ? AppSpacing.none
+                                      : 6,
                                 ),
                                 child: Text(
                                   r.label,
@@ -517,7 +539,11 @@ class _ErrorDialogState extends State<ErrorDialog> {
                                 ),
                               ),
                               Padding(
-                                padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
+                                padding: EdgeInsets.only(
+                                  top: i == AppSpacing.none
+                                      ? AppSpacing.none
+                                      : 6,
+                                ),
                                 child: SelectableText(
                                   r.value,
                                   style: boardText(
@@ -541,7 +567,12 @@ class _ErrorDialogState extends State<ErrorDialog> {
   );
 
   Widget _footer(AppColors c, ErrorDialogVm vm, bool counting) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.lg,
+      14,
+      AppSpacing.lg,
+      20,
+    ),
     child: Wrap(
       alignment: .spaceBetween,
       crossAxisAlignment: .center,
@@ -556,7 +587,7 @@ class _ErrorDialogState extends State<ErrorDialog> {
             borderRadius: Radii.button,
             child: Container(
               height: 36,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: Insets.control,
               child: Row(
                 mainAxisSize: .min,
                 spacing: 6,
@@ -592,7 +623,9 @@ class _ErrorDialogState extends State<ErrorDialog> {
                 child: Container(
                   key: const ValueKey('error-primary'),
                   height: 40,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                  ),
                   decoration: BoxDecoration(
                     color: c.ground4,
                     borderRadius: Radii.button,

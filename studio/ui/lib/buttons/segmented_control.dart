@@ -4,6 +4,7 @@ import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 
 /// One choice in a [SegmentedControl].
 class Segment<T> {
@@ -94,7 +95,7 @@ class _Segment<T> extends StatelessWidget {
 
   /// A text segment sets its own width from the label rather than taking
   /// [_width], which is sized for a 14px glyph and would clip two characters.
-  static const _textPadding = EdgeInsets.symmetric(horizontal: 8);
+  static const _textPadding = EdgeInsets.symmetric(horizontal: AppSpacing.sm);
 
   /// The tallest a segment grows before the row starts scrolling instead.
   ///

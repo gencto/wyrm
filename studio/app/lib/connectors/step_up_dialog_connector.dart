@@ -9,7 +9,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/overlays/step_up_dialog.dart';
 
-import '../common/unlock.dart';
+import '../mappers/device_mappers.dart';
 
 /// The step-up over everything (ADR 0050 §1.3, board `UnlockStepUp`): shown
 /// while a request refused with `confirm_required` waits, one at a time.
@@ -62,7 +62,7 @@ class _Factory extends VmFactory<AppState, StepUpDialogConnector, _Vm>
     final pending = state.device.stepUp;
     final s = S.current;
     final siteName = site.name ?? '';
-    final name = unlockName(device.kind);
+    final name = device.kind.method.label;
     final reason = s.unlockConfirmPrompt(siteName);
     String? error(String? e) => switch (e) {
       null => null,
@@ -84,13 +84,13 @@ class _Factory extends VmFactory<AppState, StepUpDialogConnector, _Vm>
                 for (final l in pending.lines)
                   StepUpLineVm(level: l.level, text: l.text, key: l.key),
               ],
-              glyph: unlockGlyph(device.kind),
+              glyph: device.kind.method.glyph,
               device: pending.busy
                   ? s.stepUpWaiting(name)
                   : s.stepUpDevice(
                       name,
                       siteName,
-                      unlockDevice(devicePlatform()),
+                      hostPlatform().os.device,
                     ),
               confirm: s.stepUpConfirmWith(name),
               passwordConfirm: s.stepUpConfirm,

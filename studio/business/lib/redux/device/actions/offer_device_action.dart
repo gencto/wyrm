@@ -62,7 +62,7 @@ class OfferDeviceAction extends Action {
     // The policy of the gateway just logged in to: the page may have read
     // another gateway's before the field changed.
     final info = await deps.login.info(account.gateway);
-    final policy = info == null ? d.policy : policyOf(info.devices);
+    final policy = info == null ? d.policy : info.devices;
     final on = policy?.enabled ?? false;
     final back =
         (d.stage == UnlockStage.changed || d.stage == UnlockStage.signedOut) &&

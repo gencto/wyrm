@@ -5,6 +5,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One segment of [PillTabs].
@@ -101,7 +102,7 @@ class PillTabs extends StatelessWidget {
             height: height,
             alignment: Alignment.center,
             padding: EdgeInsets.symmetric(
-              horizontal: equal ? 4 : (inset ? 10 : 12),
+              horizontal: equal ? AppSpacing.xs : (inset ? 10 : 12),
             ),
             child: Row(
               mainAxisSize: .min,

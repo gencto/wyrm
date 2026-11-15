@@ -106,7 +106,7 @@ LinksPage _links(TaskSheetVm sheet) => LinksPage(
   sheet: sheet,
   onSheetPrimary: () {},
   onSheetSecondary: () {},
-  onSheetToggle: (_, {required value}) {},
+  onSheetToggle: (_, {required on}) {},
   onSheetAction: _none,
   onSheetClose: () {},
 );

@@ -18,6 +18,7 @@ import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/models/value_changed.dart';
 import 'package:ui/overlays/search_palette.dart';
 import 'package:ui/pages/assistant_page.dart';
 
@@ -28,7 +29,7 @@ import 'trend.dart' show trendFormat;
 /// waits.
 Widget assistantPlan({String? refusal}) => _assistant(
   plan: assistantPlanCard(ticks: const [true, true]),
-  onTick: (_, {required ticked}) {},
+  onTick: (_, {required on}) {},
   card: TaskCardVm(
     title: 'Plan',
     note: refusal == null
@@ -236,7 +237,7 @@ Widget assistantFix() {
         ...plan.steps.skip(1),
       ],
     ),
-    onTick: (_, {required ticked}) {},
+    onTick: (_, {required on}) {},
     card: const TaskCardVm(
       title: 'Plan',
       note:
@@ -384,7 +385,7 @@ Widget _assistant({
   String state = 'awaiting approval',
   Tone tone = Tone.warn,
   PlanCardVm? plan,
-  void Function(int n, {required bool ticked})? onTick,
+  Toggled<int>? onTick,
   RunCardVm? run,
   ResultCardVm? result,
 }) => AssistantPage(
@@ -550,7 +551,7 @@ PlanCardVm assistantPlanCard({List<bool>? ticks}) => PlanCardVm(
 /// Board *AssistantRights*: what the agent may do; a mode change is staged.
 Widget assistantRights() => _assistant(
   plan: assistantPlanCard(ticks: const [true, true]),
-  onTick: (_, {required ticked}) {},
+  onTick: (_, {required on}) {},
   card: const TaskCardVm(
     title: 'Plan',
     note:
@@ -661,7 +662,7 @@ Widget assistantDrawer() => Builder(
               ),
             ],
           ),
-          onTick: (_, {required ticked}) {},
+          onTick: (_, {required on}) {},
           card: const TaskCardVm(
             title: 'Plan',
             note:

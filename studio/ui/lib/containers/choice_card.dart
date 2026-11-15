@@ -5,6 +5,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One option of a choice drawn as a card (the source, the broker, the run
@@ -90,7 +91,7 @@ class ChoiceCard extends StatelessWidget {
           onTap: off || onTap == null ? null : () => onTap!(vm.id),
           borderRadius: Radii.card,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.md),
             child: Column(
               crossAxisAlignment: .start,
               spacing: 4,
@@ -112,14 +113,20 @@ class ChoiceCard extends StatelessWidget {
                         style: vm.monoTitle
                             ? mono(size: 15, weight: .w600, color: c.text1)
                             : TextStyle(
-                                fontSize: 16,
+                                fontSize: FontSizes.sectionTitle,
                                 fontWeight: .w600,
                                 color: c.text1,
                               ),
                       ),
                     ),
                     if (vm.badge case final b?)
-                      Text(b, style: TextStyle(fontSize: 12, color: c.text4)),
+                      Text(
+                        b,
+                        style: TextStyle(
+                          fontSize: FontSizes.sm,
+                          color: c.text4,
+                        ),
+                      ),
                   ],
                 ),
                 if (vm.detail case final d?)
@@ -127,13 +134,17 @@ class ChoiceCard extends StatelessWidget {
                     d,
                     style: vm.monoTitle
                         ? mono(size: 12, color: c.text4)
-                        : TextStyle(fontSize: 13, height: 1.45, color: c.text3),
+                        : TextStyle(
+                            fontSize: FontSizes.md,
+                            height: 1.45,
+                            color: c.text3,
+                          ),
                   ),
                 if (vm.refused ?? vm.note case final n?)
                   Text(
                     n,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: FontSizes.sm,
                       color: off ? c.text3 : toneColor(c, vm.noteTone),
                     ),
                   ),

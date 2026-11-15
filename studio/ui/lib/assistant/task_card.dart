@@ -5,6 +5,8 @@ import '../buttons/button.dart';
 import '../containers/section_label.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// A button under the selected task (Approve, Reject, Cancel).
 final class TaskButtonVm extends Equatable {
@@ -72,18 +74,31 @@ class TaskCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+            padding: const EdgeInsets.fromLTRB(
+              14,
+              12,
+              14,
+              AppSpacing.sm,
+            ),
             child: SectionLabel(vm.title),
           ),
           Container(
             color: vm.caution ? c.warnTint : null,
             padding: vm.caution
-                ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
-                : const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                ? const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: AppSpacing.sm,
+                  )
+                : const EdgeInsets.fromLTRB(
+                    14,
+                    AppSpacing.none,
+                    14,
+                    12,
+                  ),
             child: Text(
               vm.note,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: FontSizes.md,
                 height: 1.45,
                 color: vm.caution ? c.warn : c.text3,
               ),

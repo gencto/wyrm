@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/typography.dart';
 
 /// What [GuideCard] says.
 final class GuideCardVm extends Equatable {
@@ -74,7 +75,7 @@ class GuideCard extends StatelessWidget {
                     child: Text(
                       vm.title,
                       style: TextStyle(
-                        fontSize: 20,
+                        fontSize: FontSizes.panelTitle,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -86,7 +87,11 @@ class GuideCard extends StatelessWidget {
                 constraints: const BoxConstraints(maxWidth: 680),
                 child: CodeText(
                   vm.body,
-                  style: TextStyle(fontSize: 14, height: 1.6, color: c.text2),
+                  style: TextStyle(
+                    fontSize: FontSizes.lg,
+                    height: 1.6,
+                    color: c.text2,
+                  ),
                 ),
               ),
               Column(
@@ -96,7 +101,7 @@ class GuideCard extends StatelessWidget {
                   Text(
                     vm.stepsTitle,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: FontSizes.md,
                       height: 1.5,
                       fontWeight: .w600,
                       color: c.text1,
@@ -107,7 +112,7 @@ class GuideCard extends StatelessWidget {
                       s,
                       codeColor: c.text1,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.md,
                         height: 1.5,
                         color: c.text3,
                       ),
@@ -119,7 +124,10 @@ class GuideCard extends StatelessWidget {
                   onTap: onLink,
                   child: Text(
                     l,
-                    style: TextStyle(fontSize: 13, color: c.emberSoft),
+                    style: TextStyle(
+                      fontSize: FontSizes.md,
+                      color: c.emberSoft,
+                    ),
                   ),
                 ),
             ],

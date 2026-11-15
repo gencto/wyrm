@@ -1,82 +1,23 @@
 import 'package:localization/localization.dart';
-import 'package:models/key_kind.dart';
-import 'package:ui/indicators/biometric_icon.dart';
 
-// The words and the glyph of the device unlock by platform and kind
-// (unlock-discover.md §1, board `UnlockPlatforms`).
-
-/// `Touch ID`, `Face ID`, `Windows Hello`, `fingerprint`, … The product
-/// names stay as they are in every language.
-String unlockName(KeyKind kind) => switch (kind) {
-  KeyKind.touchId => 'Touch ID',
-  KeyKind.faceId => 'Face ID',
-  KeyKind.opticId => 'Optic ID',
-  KeyKind.windowsHello => 'Windows Hello',
-  KeyKind.fingerprint => S.current.unlockNameFingerprint,
-  KeyKind.face => S.current.unlockNameFace,
-  KeyKind.iris => S.current.unlockNameIris,
-  KeyKind.biometric || KeyKind.none => S.current.unlockNameBiometric,
-};
-
-/// The glyph of the round button and the prompts: a face for Face ID,
-/// Windows Hello and Android face, a key with no biometric, else a
-/// fingerprint.
-BiometricGlyph unlockGlyph(KeyKind kind) => switch (kind) {
-  KeyKind.none => BiometricGlyph.key,
-  KeyKind.faceId ||
-  KeyKind.windowsHello ||
-  KeyKind.face ||
-  KeyKind.opticId => BiometricGlyph.face,
-  _ => BiometricGlyph.finger,
-};
-
-/// Where the key lives: `this Mac’s Secure Enclave`, `this PC’s TPM`, …
-String unlockStore(String platform) => switch (platform) {
-  'macos' => S.current.unlockStoreMac,
-  'windows' => S.current.unlockStoreWindows,
-  'ios' => S.current.unlockStoreIos,
-  'android' => S.current.unlockStoreAndroid,
-  _ => '',
-};
-
-/// `this Mac`, `this PC`, `this iPhone`, `this phone`, `this computer`.
-String unlockDevice(String platform) => switch (platform) {
-  'macos' => S.current.unlockDeviceMac,
-  'windows' => S.current.unlockDevicePc,
-  'ios' => S.current.unlockDeviceIphone,
-  'android' => S.current.unlockDevicePhone,
-  _ => S.current.unlockDeviceComputer,
-};
+// Times and initials that log-in, security and access still write in `app`
+// (unlock-discover.md §1). The platform's words are `DeviceOs`, the
+// method's `UnlockMethod` (`ui/lib/indicators`), reached through
+// `app/lib/mappers/device_mappers.dart`.
 
 /// `3 Nov` for seconds since the Unix epoch; empty for 0.
-String shortDate(int seconds) {
-  if (seconds <= 0) {
-    return '';
-  }
-  final d = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-  final months = S.current.monthsShort.split(',');
-  return '${d.day} ${months[(d.month - 1) % months.length]}';
-}
+String shortDate(int seconds) => seconds <= 0
+    ? ''
+    : Formats.shortDate(DateTime.fromMillisecondsSinceEpoch(seconds * 1000));
 
 /// `now`, `5 min ago`, `2 h ago`, `3 d ago`.
-String agoOf(int seconds, {DateTime? now}) {
-  if (seconds <= 0) {
-    return '';
-  }
-  final d = (now ?? DateTime.now()).difference(
-    DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
-  );
-  if (d.inMinutes < 1) {
-    return S.current.unlockAgoNow;
-  }
-  if (d.inHours < 1) {
-    return S.current.agoMinutes(d.inMinutes);
-  }
-  if (d.inDays < 1) {
-    return S.current.agoHours(d.inHours);
-  }
-  return S.current.agoDays(d.inDays);
-}
+String agoOf(int seconds, {DateTime? now}) => seconds <= 0
+    ? ''
+    : Formats.ago(
+        DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+        now: now,
+        nowWord: S.current.unlockAgoNow,
+      );
 
 /// Two letters of a user: `olena` → `OL`.
 String initialsOf(String user) {

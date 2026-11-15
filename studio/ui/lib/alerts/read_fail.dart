@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../indicators/fail_chip.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/typography.dart';
 
 /// What [ReadFail] draws: the reads of one node that failed.
 ///
@@ -68,7 +69,11 @@ class ReadFail extends StatelessWidget {
             for (final line in vm.lines)
               Text(
                 line,
-                style: TextStyle(fontSize: 12, height: 1.5, color: c.text2),
+                style: TextStyle(
+                  fontSize: FontSizes.sm,
+                  height: 1.5,
+                  color: c.text2,
+                ),
               ),
             if (onRetry case final retry?)
               Button.secondary(

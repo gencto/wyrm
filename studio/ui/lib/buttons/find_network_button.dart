@@ -2,6 +2,8 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/typography.dart';
 
 /// `Find on this network` beside the gateway field
 /// (docs/design/specs/unlock-discover.md §4): 46 high, radius 10, a radar
@@ -24,7 +26,7 @@ class FindNetworkButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final ink = open ? c.emberNew : c.text1;
-    const shape = BorderRadius.all(Radius.circular(10));
+    const shape = BorderRadius.all(Radius.circular(AppRadii.card));
     return Semantics(
       button: true,
       toggled: open,
@@ -51,7 +53,7 @@ class FindNetworkButton extends StatelessWidget {
                   ),
                   Text(
                     S.current.findOnNetwork,
-                    style: TextStyle(fontSize: 13, color: ink),
+                    style: TextStyle(fontSize: FontSizes.md, color: ink),
                   ),
                 ],
               ),
@@ -83,22 +85,22 @@ class _Radar extends CustomPainter {
           ..moveTo(16.24, 7.76)
           ..arcToPoint(
             const Offset(16.24, 16.25),
-            radius: const Radius.circular(6),
+            radius: const Radius.circular(AppRadii.segment),
           )
           ..moveTo(7.76, 16.24)
           ..arcToPoint(
             const Offset(7.76, 7.75),
-            radius: const Radius.circular(6),
+            radius: const Radius.circular(AppRadii.segment),
           )
           ..moveTo(19.07, 4.93)
           ..arcToPoint(
             const Offset(19.07, 19.07),
-            radius: const Radius.circular(10),
+            radius: const Radius.circular(AppRadii.card),
           )
           ..moveTo(4.93, 19.07)
           ..arcToPoint(
             const Offset(4.93, 4.93),
-            radius: const Radius.circular(10),
+            radius: const Radius.circular(AppRadii.card),
           ),
         Paint()
           ..color = color

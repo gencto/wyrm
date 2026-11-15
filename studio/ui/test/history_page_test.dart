@@ -1,6 +1,8 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
+import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/history_page.dart';
 import 'package:ui/tables/row_table.dart';
 
@@ -42,7 +44,11 @@ void main() {
               cells: [CellVm(title: 'downstream/m/b')],
             ),
           ],
-          onPoint: (id, add) => picks.add((id, add)),
+          picked: ToggleVm(
+            selected: const ISetConst({}),
+            onToggle: (id, {required on}) => picks.add((id, on)),
+          ),
+          onPick: (id) => picks.add((id, false)),
           onAction: actions.add,
         ),
       ),

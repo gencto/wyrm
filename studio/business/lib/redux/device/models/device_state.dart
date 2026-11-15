@@ -1,11 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:models/device_policy_info.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/step_up_request.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
-import 'package:models/user_device.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 part 'device_state.freezed.dart';
 
@@ -25,7 +24,7 @@ abstract class DeviceState with _$DeviceState {
     @Default(false) bool dontAsk,
     @Default(false) bool offered,
     @Default(false) bool noticed,
-    DevicePolicyInfo? policy,
+    DevicePolicy? policy,
     @Default(UnlockStage.none) UnlockStage stage,
     UnlockRefusal? refusal,
     String? reason,
@@ -34,10 +33,10 @@ abstract class DeviceState with _$DeviceState {
     @Default(false) bool locked,
     String? lockError,
     StepUpRequest? stepUp,
-    @Default(IListConst([])) IList<UserDevice> devices,
-    @Default(IMapConst({})) IMap<String, IList<UserDevice>> userDevices,
+    @Default(IListConst([])) IList<GatewayDevice> devices,
+    @Default(IMapConst({})) IMap<String, IList<GatewayDevice>> userDevices,
     @Default(false) bool needPassword,
-    String? securityError,
     String? keyRole,
+    @Default(false) bool passwordRefused,
   }) = _DeviceState;
 }

@@ -6,6 +6,7 @@ import '../containers/detail_inspector.dart';
 import '../containers/page_header.dart';
 import '../overlays/log_view.dart';
 import '../tables/row_table.dart';
+import '../theme/spacing.dart';
 
 /// Board *Studio · Access*: the gateway's users, the grants of roles and
 /// subjects, the audit tail; the inspector of the selected user.
@@ -50,7 +51,12 @@ class AccessPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+      padding: const EdgeInsets.fromLTRB(
+        28,
+        28,
+        28,
+        40,
+      ),
       children: [
         PageHeader(
           title: title,
@@ -66,7 +72,7 @@ class AccessPage extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: 16),
+        Gaps.md,
         if (tab == 'audit')
           SizedBox(
             height: 560,

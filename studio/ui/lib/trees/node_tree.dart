@@ -4,8 +4,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'tree_row.dart';
 
@@ -71,7 +73,7 @@ class NodeTree extends StatefulWidget {
   final ValueChanged<String> onToggle;
 
   /// A right click, a long press or the `⋯` of the selected row: its actions.
-  final void Function(String id, Offset at)? onMenu;
+  final ItemAt<String>? onMenu;
   final ValueChanged<String>? onMark;
   final ValueChanged<String>? onMarkRange;
   final String? filter;
@@ -182,7 +184,12 @@ class _NodeTreeState extends State<NodeTree> {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+            padding: const EdgeInsets.fromLTRB(
+              12,
+              14,
+              12,
+              10,
+            ),
             child: Column(
               crossAxisAlignment: .stretch,
               spacing: 10,
@@ -195,14 +202,21 @@ class _NodeTreeState extends State<NodeTree> {
           Expanded(
             child: loading
                 ? ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                    ),
                     children: [
                       for (var i = 0; i < 8; i++) _skeleton(c, i),
                     ],
                   )
                 : ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.sm,
+                      AppSpacing.none,
+                      AppSpacing.sm,
+                      12,
+                    ),
                     itemCount: rows.length,
                     itemBuilder: (_, i) => Padding(
                       padding: const EdgeInsets.only(bottom: 1),
@@ -225,7 +239,12 @@ class _NodeTreeState extends State<NodeTree> {
           ),
           if (note case final n?)
             Container(
-              margin: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+              margin: const EdgeInsets.fromLTRB(
+                12,
+                AppSpacing.none,
+                12,
+                14,
+              ),
               padding: const EdgeInsets.only(top: 12),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
@@ -239,7 +258,7 @@ class _NodeTreeState extends State<NodeTree> {
 
   Widget _filter(AppColors c) => Container(
     height: 36,
-    padding: const EdgeInsets.symmetric(horizontal: 10),
+    padding: Insets.control,
     decoration: BoxDecoration(
       color: c.ground3,
       border: .all(color: c.line1),
@@ -253,7 +272,7 @@ class _NodeTreeState extends State<NodeTree> {
           child: TextFormField(
             initialValue: filter,
             onChanged: onFilter,
-            style: TextStyle(fontSize: 13, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             decoration: InputDecoration(
               isCollapsed: true,
               contentPadding: EdgeInsets.zero,
@@ -262,7 +281,7 @@ class _NodeTreeState extends State<NodeTree> {
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               hintText: filterHint,
-              hintStyle: TextStyle(fontSize: 13, color: c.text4),
+              hintStyle: TextStyle(fontSize: FontSizes.md, color: c.text4),
             ),
           ),
         ),
@@ -272,7 +291,10 @@ class _NodeTreeState extends State<NodeTree> {
 
   Widget _skeleton(AppColors c, int i) => Container(
     height: 40,
-    padding: EdgeInsets.only(left: 10.0 + (i % 3) * 16, right: 10),
+    padding: EdgeInsets.only(
+      left: 10 + (i % 3) * 16,
+      right: 10,
+    ),
     alignment: .centerLeft,
     child: Container(
       width: 90.0 + (i * 37) % 80,
@@ -282,7 +304,11 @@ class _NodeTreeState extends State<NodeTree> {
   );
 
   Widget _note(AppColors c, TreeNoteVm n) {
-    final base = TextStyle(fontSize: 12, height: 1.5, color: c.text4);
+    final base = TextStyle(
+      fontSize: FontSizes.sm,
+      height: 1.5,
+      color: c.text4,
+    );
     final link = TextStyle(
       color: c.text2,
       decoration: TextDecoration.underline,

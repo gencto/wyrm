@@ -3,6 +3,8 @@ import 'package:ui/alerts/unlock_notice.dart';
 import 'package:ui/containers/unlock_offer.dart';
 import 'package:ui/containers/unlock_panel.dart';
 import 'package:ui/indicators/biometric_icon.dart';
+import 'package:ui/indicators/device_os.dart';
+import 'package:ui/indicators/unlock_method.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/overlays/lock_overlay.dart';
@@ -642,81 +644,63 @@ Widget stepUp() => _over(
 );
 
 /// Board `UnlockApp` (Account › Security).
-Widget security() => _over(
-  SecurityDialog(
-    vm: const SecurityDialogVm(
-      title: 'Security',
-      subtitle: 'olena · plant',
-      onThis: 'On this Mac',
-      unlockTitle: 'Unlock with Touch ID',
-      unlockText:
-          'A key in this Mac’s Secure Enclave, added 3 Nov. Off removes the '
-          'key here and this Mac from your devices.',
-      unlockOn: true,
-      lockTitle: 'Lock Studio after',
-      lockText:
-          'Hides the tree and values; the session and Review and apply are '
-          'kept. plant allows at most 30 min.',
-      lockAfter: 15,
-      lockChoices: [(0, 'Off'), (5, '5 min'), (15, '15 min'), (30, '30 min')],
-      confirmTitle: 'Confirm before config changes',
-      confirmText:
-          'Set by plant (gateway.devices.step_up: config); you cannot turn it '
-          'off here.',
-      confirmOn: true,
-      devicesTitle: 'Your devices on plant',
-      devices: [
-        SecurityDeviceVm(
-          id: 'd1',
-          os: 'mac',
-          name: 'MacBook Pro · Studio',
-          tag: 'this device',
-          tagTone: Tone.good,
-          detail: 'Touch ID · used now · added 3 Nov',
-          action: 'Turn off',
-          own: true,
-        ),
-        SecurityDeviceVm(
-          id: 'd2',
-          os: 'iOS',
-          name: 'iPhone 15 · Studio',
-          detail: 'Face ID · 2 days ago · added 28 Oct',
-          action: 'Remove',
-        ),
-        SecurityDeviceVm(
-          id: 'd3',
-          os: 'win',
-          name: 'ENG-LAPTOP-07 · Studio',
-          tag: 'password due in 4 days',
-          tagTone: Tone.warn,
-          detail: 'Windows Hello · 26 days ago',
-          action: 'Remove',
-        ),
-        SecurityDeviceVm(
-          id: 'd4',
-          os: 'and',
-          name: 'Pixel 8 · Studio',
-          tag: 'removed by ivan',
-          tagTone: Tone.bad,
-          detail:
-              'fingerprint · removed 12 Nov · signs in with the password only',
-          action: 'Forget',
-        ),
-      ],
-      policy:
-          'plant’s policy: devices on · up to 5 · password every 30 days · '
-          'confirm config changes. An administrator sees and removes devices '
-          'in Access › Users.',
-      signOut: 'Sign out everywhere',
+Widget security() {
+  final now = DateTime.now();
+  return _over(
+    SecurityDialog(
+      vm: SecurityDialogVm(
+        user: 'olena',
+        site: 'plant',
+        os: DeviceOs.mac,
+        method: UnlockMethod.touchId,
+        unlockOn: true,
+        keyAdded: DateTime(2026, 11, 3, 10),
+        lockAfter: 15,
+        confirmOn: true,
+        policyOn: true,
+        devices: [
+          SecurityDeviceVm(
+            id: 'd1',
+            os: DeviceOs.mac,
+            name: 'MacBook Pro · Studio',
+            tag: SecurityTag.thisDevice,
+            usedNow: true,
+            lastUsed: now,
+            added: DateTime(2026, 11, 3, 10),
+            own: true,
+          ),
+          SecurityDeviceVm(
+            id: 'd2',
+            os: DeviceOs.iphone,
+            name: 'iPhone 15 · Studio',
+            lastUsed: now.subtract(const Duration(days: 2, hours: 1)),
+            added: DateTime(2026, 10, 28, 10),
+          ),
+          SecurityDeviceVm(
+            id: 'd3',
+            os: DeviceOs.windows,
+            name: 'ENG-LAPTOP-07 · Studio',
+            tag: SecurityTag.passwordDue,
+            dueDays: 4,
+            lastUsed: now.subtract(const Duration(days: 26, hours: 1)),
+          ),
+          const SecurityDeviceVm(
+            id: 'd4',
+            os: DeviceOs.android,
+            name: 'Pixel 8 · Studio',
+            tag: SecurityTag.removed,
+            removedBy: 'ivan',
+          ),
+        ],
+      ),
+      onUnlock: _none,
+      onLockAfter: _none,
+      onDevice: _none,
+      onSignOut: () {},
+      onClose: () {},
     ),
-    onUnlock: _none,
-    onPassword: _none,
-    onLockAfter: _none,
-    onDevice: _none,
-    onSignOut: () {},
-    onClose: () {},
-  ),
-);
+  );
+}
 
 /// Board `UnlockPlatforms`: the unlock on an iPhone and an Android phone
 /// (Studio's account card, the system's sheet drawn as the board does) and

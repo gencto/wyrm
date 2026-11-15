@@ -30,7 +30,7 @@ AppState loggedOut(AppState s) => AppState.initial().copyWith(
     lockError: null,
     stepUp: null,
     needPassword: false,
-    securityError: null,
+    passwordRefused: false,
     devices: const IListConst([]),
     userDevices: const IMapConst({}),
   ),
