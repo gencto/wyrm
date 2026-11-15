@@ -82,7 +82,7 @@ class _LogTableState extends State<LogTable> {
       body = Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
-          vertical: AppSpacing.s22,
+          vertical: 22,
         ),
         child: SelectableText(
           widget.message,
@@ -112,7 +112,7 @@ class _LogTableState extends State<LogTable> {
                   child: ListView.builder(
                     controller: _down,
                     padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.s6,
+                      vertical: 6,
                     ),
                     itemExtent: LogTable.rowHeight,
                     itemCount: rows.length,

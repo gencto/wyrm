@@ -43,13 +43,13 @@ class PageHeader extends StatelessWidget {
                         TextSpan(
                           text: subtitle == null ? u : '  ·  $u',
                           style: TextStyle(
-                            fontSize: FontSizes.meta,
+                            fontSize: FontSizes.sm,
                             color: c.text4,
                           ),
                         ),
                     ],
                   ),
-                  style: TextStyle(fontSize: FontSizes.body, color: c.text3),
+                  style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
                 ),
             ],
           ),

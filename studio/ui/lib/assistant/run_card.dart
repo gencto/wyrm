@@ -69,10 +69,7 @@ class RunCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -84,20 +81,20 @@ class RunCard extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s12,
-              AppSpacing.s14,
-              AppSpacing.s10,
+              14,
+              12,
+              14,
+              10,
             ),
             child: SectionLabel(vm.title),
           ),
           for (final r in vm.rows) _Row(vm: r),
           Container(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s10,
-              AppSpacing.s14,
-              AppSpacing.s12,
+              14,
+              10,
+              14,
+              12,
             ),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
@@ -105,7 +102,7 @@ class RunCard extends StatelessWidget {
             child: Text(
               vm.note,
               style: TextStyle(
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 height: 1.45,
                 color: vm.noteTone == .neutral
                     ? c.text3
@@ -135,9 +132,9 @@ class _Row extends StatelessWidget {
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s14,
+        14,
         AppSpacing.sm,
-        AppSpacing.s14,
+        14,
         AppSpacing.sm,
       ),
       decoration: BoxDecoration(
@@ -148,7 +145,7 @@ class _Row extends StatelessWidget {
         spacing: 12,
         children: [
           SizedBox(
-            width: AppSpacing.s22,
+            width: 22,
             child: Text('${vm.n}', style: mono(size: 12, color: c.text3)),
           ),
           Expanded(

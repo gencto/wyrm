@@ -3,7 +3,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// `Find on this network` beside the gateway field
@@ -43,7 +42,7 @@ class FindNetworkButton extends StatelessWidget {
           child: SizedBox(
             height: 46,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Row(
                 mainAxisSize: .min,
                 spacing: 8,
@@ -54,7 +53,7 @@ class FindNetworkButton extends StatelessWidget {
                   ),
                   Text(
                     S.current.findOnNetwork,
-                    style: TextStyle(fontSize: FontSizes.row, color: ink),
+                    style: TextStyle(fontSize: FontSizes.md, color: ink),
                   ),
                 ],
               ),

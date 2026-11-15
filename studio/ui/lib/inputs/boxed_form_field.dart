@@ -5,7 +5,6 @@ import 'package:material_ui/material_ui.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// A labelled text field in a box, as the log-in board draws its fields
@@ -155,14 +154,14 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
         final style = widget.mono
             ? TextStyle(
                 fontFamily: AppFonts.mono,
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 height: 1.3,
                 letterSpacing: 0,
                 color: c.text1,
               )
             : TextStyle(
                 fontFamily: AppFonts.sans,
-                fontSize: FontSizes.lead,
+                fontSize: 15,
                 height: 1.3,
                 color: c.text1,
                 // 0.2 em while hidden; none of the theme's spacing otherwise.
@@ -174,20 +173,16 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
           children: [
             Text(
               widget.label,
-              style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+              style: TextStyle(fontSize: FontSizes.md, color: c.text2),
             ),
             _beside(
               Container(
                 height: 46,
                 padding: EdgeInsets.only(
-                  left: widget.leading == null
-                      ? AppSpacing.s14
-                      : AppSpacing.s12,
+                  left: widget.leading == null ? 14 : 12,
                   right: widget.obscure
-                      ? AppSpacing.s6
-                      : (widget.leading == null
-                            ? AppSpacing.s14
-                            : AppSpacing.s12),
+                      ? 6
+                      : (widget.leading == null ? 14 : 12),
                 ),
                 decoration: BoxDecoration(
                   color: c.ground2,
@@ -231,7 +226,7 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
                           contentPadding:
                               widget.leading != null || widget.obscure
                               ? const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.s2,
+                                  horizontal: 2,
                                 )
                               : .zero,
                           border: .none,
@@ -278,7 +273,7 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
             if (error != null)
               Text(
                 error,
-                style: TextStyle(fontSize: FontSizes.row, color: c.badText),
+                style: TextStyle(fontSize: FontSizes.md, color: c.badText),
               ),
           ],
         );

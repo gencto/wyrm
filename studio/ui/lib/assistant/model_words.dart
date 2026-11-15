@@ -50,14 +50,14 @@ class ModelWords extends StatelessWidget {
               AppIcon('ws_assistant', size: 12, color: c.ember),
               Text(
                 vm.label,
-                style: TextStyle(fontSize: FontSizes.tag, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.xs, color: c.text3),
               ),
             ],
           ),
           SelectableText(
             vm.text,
             style: TextStyle(
-              fontSize: FontSizes.row,
+              fontSize: FontSizes.md,
               height: 1.45,
               color: c.text2,
             ),

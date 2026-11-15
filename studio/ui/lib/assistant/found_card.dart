@@ -138,12 +138,9 @@ class FoundCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: FontSizes.tag, color: c.text3);
+    final small = TextStyle(fontSize: FontSizes.xs, color: c.text3);
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.line2),
@@ -167,7 +164,7 @@ class FoundCard extends StatelessWidget {
                     child: Text(
                       vm.title.toUpperCase(),
                       style: TextStyle(
-                        fontSize: FontSizes.tag,
+                        fontSize: FontSizes.xs,
                         fontWeight: .w600,
                         letterSpacing: 0.66,
                         color: c.text3,
@@ -179,9 +176,9 @@ class FoundCard extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.s12,
-                AppSpacing.s10,
-                AppSpacing.s12,
+                12,
+                10,
+                12,
                 AppSpacing.xs,
               ),
               child: Column(
@@ -193,9 +190,9 @@ class FoundCard extends StatelessWidget {
             if (vm.missing.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s12,
-                  AppSpacing.s6,
-                  AppSpacing.s12,
+                  12,
+                  6,
+                  12,
                   AppSpacing.none,
                 ),
                 child: Column(
@@ -206,7 +203,7 @@ class FoundCard extends StatelessWidget {
                       Text(
                         m,
                         style: TextStyle(
-                          fontSize: FontSizes.tag,
+                          fontSize: FontSizes.xs,
                           color: c.warn,
                         ),
                       ),
@@ -216,15 +213,15 @@ class FoundCard extends StatelessWidget {
             if (vm.rows.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s12,
-                  AppSpacing.s2,
-                  AppSpacing.s12,
-                  AppSpacing.s10,
+                  12,
+                  2,
+                  12,
+                  10,
                 ),
                 child: Text(vm.note, style: small),
               )
             else
-              const SizedBox(height: AppSpacing.s10),
+              const SizedBox(height: 10),
           ],
           if (vm.timeline case final t?) ...[
             Container(
@@ -240,17 +237,17 @@ class FoundCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xs,
                 AppSpacing.none,
-                AppSpacing.s12,
+                12,
                 AppSpacing.sm,
               ),
               child: Trend(vm: t, onWindow: onWindow, onReset: onReset),
             ),
             Container(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.s12,
+                12,
                 AppSpacing.sm,
-                AppSpacing.s12,
-                AppSpacing.s10,
+                12,
+                10,
               ),
               decoration: BoxDecoration(
                 color: c.ground2,
@@ -303,8 +300,8 @@ class FoundCard extends StatelessWidget {
           child: Semantics(
             label: r.markLabel,
             child: SizedBox(
-              width: AppSpacing.s14,
-              height: AppSpacing.s18,
+              width: 14,
+              height: 18,
               child: Center(
                 child: switch (r.mark) {
                   .good => AppIcon('ui_check', size: 12, color: color),
@@ -331,13 +328,13 @@ class FoundCard extends StatelessWidget {
               Text.rich(
                 TextSpan(
                   text: r.label,
-                  style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                   children: [
                     if (r.detail.isNotEmpty)
                       TextSpan(
                         text: '  ${r.detail}',
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.text2,
                         ),
                       ),

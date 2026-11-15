@@ -95,14 +95,14 @@ class _SearchPaletteState extends State<SearchPalette> {
           mainAxisSize: .min,
           children: [
             Padding(
-              padding: const EdgeInsets.all(AppSpacing.s12),
+              padding: const EdgeInsets.all(12),
               child: TextField(
                 autofocus: true,
-                style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                 decoration: InputDecoration(
                   hintText: widget.hint,
                   prefixIcon: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.s10),
+                    padding: const EdgeInsets.all(10),
                     child: AppIcon('ui_search', size: 16, color: c.text3),
                   ),
                 ),
@@ -143,7 +143,7 @@ class _SearchPaletteState extends State<SearchPalette> {
                                 maxLines: 1,
                                 overflow: .ellipsis,
                                 style: TextStyle(
-                                  fontSize: FontSizes.body,
+                                  fontSize: FontSizes.lg,
                                   color: c.text1,
                                 ),
                               ),

@@ -7,7 +7,6 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
 
@@ -117,7 +116,7 @@ class UnlockOffer extends StatelessWidget {
               Flexible(
                 child: Text(
                   vm.checked,
-                  style: TextStyle(fontSize: FontSizes.row, color: c.good),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.good),
                 ),
               ),
             ],
@@ -144,7 +143,7 @@ class UnlockOffer extends StatelessWidget {
               Text(
                 vm.title,
                 style: TextStyle(
-                  fontSize: FontSizes.page,
+                  fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
                   letterSpacing: -.26,
                   color: c.text1,
@@ -153,7 +152,7 @@ class UnlockOffer extends StatelessWidget {
               Text(
                 vm.text,
                 style: TextStyle(
-                  fontSize: FontSizes.body,
+                  fontSize: FontSizes.lg,
                   height: 1.55,
                   color: c.text3,
                 ),
@@ -184,7 +183,7 @@ class UnlockOffer extends StatelessWidget {
                       child: Text(
                         f.text,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           height: 1.45,
                           color: c.text2,
                         ),
@@ -231,7 +230,7 @@ class UnlockOffer extends StatelessWidget {
           Text(
             vm.policy,
             style: TextStyle(
-              fontSize: FontSizes.meta,
+              fontSize: FontSizes.sm,
               height: 1.5,
               color: c.text4,
             ),
@@ -273,7 +272,7 @@ class OfferButton extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: FontSizes.section,
+                fontSize: 16,
                 fontWeight: .w600,
                 color: c.onEmber,
               ),
@@ -309,11 +308,11 @@ class _Outlined extends StatelessWidget {
     child: InkWell(
       onTap: onPressed,
       child: SizedBox(
-        height: AppSpacing.s42,
+        height: 42,
         child: Center(
           child: Text(
             label,
-            style: TextStyle(fontSize: FontSizes.body, color: ink),
+            style: TextStyle(fontSize: FontSizes.lg, color: ink),
           ),
         ),
       ),

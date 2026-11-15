@@ -184,12 +184,12 @@ class ParamField extends StatelessWidget {
         if (vm.error case final e?)
           Text(
             e,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.bad),
           )
         else if (vm.description case final d?)
           Text(
             d,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
       ],
     );
@@ -221,7 +221,7 @@ class ParamField extends StatelessWidget {
       ],
     ),
     style: TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       color: vm.error != null ? c.bad : c.text3,
     ),
   );
@@ -232,12 +232,12 @@ class ParamField extends StatelessWidget {
     filled: true,
     fillColor: c.ground3,
     contentPadding: const EdgeInsets.symmetric(
-      horizontal: AppSpacing.s10,
-      vertical: AppSpacing.s10,
+      horizontal: 10,
+      vertical: 10,
     ),
     suffixText: vm.unit,
-    suffixStyle: TextStyle(fontSize: FontSizes.meta, color: c.text4),
-    hintStyle: TextStyle(fontSize: FontSizes.row, color: c.text4),
+    suffixStyle: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+    hintStyle: TextStyle(fontSize: FontSizes.md, color: c.text4),
     border: _border(c.line2),
     enabledBorder: _border(vm.error != null ? c.bad : c.line2),
     disabledBorder: _border(c.line1),
@@ -250,7 +250,7 @@ class ParamField extends StatelessWidget {
   );
 
   Widget _field(BuildContext context, AppColors c) {
-    final style = TextStyle(fontSize: FontSizes.row, color: c.text1);
+    final style = TextStyle(fontSize: FontSizes.md, color: c.text1);
     switch (vm.kind) {
       case .choice:
         final value = vm.value as String?;
@@ -279,7 +279,7 @@ class ParamField extends StatelessWidget {
           borderRadius: Radii.segment,
           child: Container(
             height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+            padding: Insets.control,
             decoration: BoxDecoration(
               color: c.ground3,
               borderRadius: Radii.segment,
@@ -294,7 +294,7 @@ class ParamField extends StatelessWidget {
                     name ?? vm.hint ?? '',
                     overflow: .ellipsis,
                     style: name == null
-                        ? TextStyle(fontSize: FontSizes.row, color: c.text4)
+                        ? TextStyle(fontSize: FontSizes.md, color: c.text4)
                         : mono(color: c.text1),
                   ),
                 ),

@@ -39,15 +39,12 @@ class ResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s14,
-        AppSpacing.s12,
-        AppSpacing.s14,
-        AppSpacing.s12,
+        14,
+        12,
+        14,
+        12,
       ),
       decoration: BoxDecoration(
         color: c.ground1,
@@ -85,7 +82,7 @@ class ResultCard extends StatelessWidget {
             Text(
               n,
               style: TextStyle(
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 height: 1.45,
                 color: c.text3,
               ),

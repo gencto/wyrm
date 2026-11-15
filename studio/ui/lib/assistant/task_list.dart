@@ -73,7 +73,7 @@ class TaskList extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return ListView(
-      padding: const EdgeInsets.all(AppSpacing.s12),
+      padding: const EdgeInsets.all(12),
       children: [
         Button.secondary(
           label: newLabel,
@@ -84,23 +84,23 @@ class TaskList extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(
-            AppSpacing.s2,
-            AppSpacing.s10,
-            AppSpacing.s2,
+            2,
+            10,
+            2,
             AppSpacing.sm,
           ),
           child: Text(
             note,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
           ),
         ),
         for (final s in sections) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s2,
-              AppSpacing.s10,
-              AppSpacing.s2,
-              AppSpacing.s6,
+              2,
+              10,
+              2,
+              6,
             ),
             child: SectionLabel(s.label),
           ),
@@ -142,7 +142,7 @@ class _Task extends StatelessWidget {
                   vm.title,
                   maxLines: 2,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                 ),
                 Row(
                   spacing: 6,
@@ -153,7 +153,7 @@ class _Task extends StatelessWidget {
                         vm.state,
                         overflow: .ellipsis,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: color,
                         ),
                       ),
@@ -166,7 +166,7 @@ class _Task extends StatelessWidget {
                     d,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                   ),
               ],
             ),

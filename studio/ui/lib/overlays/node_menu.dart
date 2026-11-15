@@ -128,7 +128,7 @@ class NodeMenu extends StatelessWidget {
         onTap: enabled ? () => onPick(i.id) : null,
         child: Container(
           height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           child: Row(
             children: [
               Expanded(
@@ -137,7 +137,7 @@ class NodeMenu extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: FontSizes.body,
+                    fontSize: FontSizes.lg,
                     color: !enabled
                         ? c.muted
                         : (i.danger ? c.badText : c.text1),
@@ -146,7 +146,7 @@ class NodeMenu extends StatelessWidget {
               ),
               Text(
                 i.level,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
             ],
           ),
@@ -177,16 +177,16 @@ class NodeMenu extends StatelessWidget {
       child: SizedBox(
         width: AppSizes.menu,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s14,
-                  AppSpacing.s6,
-                  AppSpacing.s14,
+                  14,
+                  6,
+                  14,
                   AppSpacing.xs,
                 ),
                 child: Row(
@@ -214,7 +214,7 @@ class NodeMenu extends StatelessWidget {
                         maxLines: 1,
                         overflow: .ellipsis,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.text4,
                         ),
                       ),
@@ -225,9 +225,9 @@ class NodeMenu extends StatelessWidget {
               for (final g in vm.groups) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.s14,
-                    AppSpacing.s10,
-                    AppSpacing.s14,
+                    14,
+                    10,
+                    14,
                     AppSpacing.xs,
                   ),
                   child: Text(
@@ -235,7 +235,7 @@ class NodeMenu extends StatelessWidget {
                     maxLines: 1,
                     overflow: .ellipsis,
                     style: TextStyle(
-                      fontSize: FontSizes.tag,
+                      fontSize: FontSizes.xs,
                       fontWeight: .w600,
                       letterSpacing: 0.66,
                       color: c.text4,
@@ -250,7 +250,7 @@ class NodeMenu extends StatelessWidget {
                 child: Container(
                   height: 34,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.s14,
+                    horizontal: 14,
                   ),
                   child: Row(
                     children: [
@@ -258,7 +258,7 @@ class NodeMenu extends StatelessWidget {
                         child: Text(
                           vm.copyLabel,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             color: c.text3,
                           ),
                         ),

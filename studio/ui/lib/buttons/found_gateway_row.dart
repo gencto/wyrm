@@ -106,10 +106,7 @@ class FoundGatewayRow extends StatelessWidget {
           child: InkWell(
             onTap: vm.enabled ? onTap : null,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s14,
-                vertical: AppSpacing.s12,
-              ),
+              padding: Insets.card,
               decoration: BoxDecoration(
                 border: Border(
                   top: first ? .none : BorderSide(color: c.ground3),
@@ -136,7 +133,7 @@ class FoundGatewayRow extends StatelessWidget {
                             Text(
                               vm.site,
                               style: TextStyle(
-                                fontSize: FontSizes.body,
+                                fontSize: FontSizes.lg,
                                 fontWeight: .w600,
                                 color: c.text1,
                               ),
@@ -150,14 +147,14 @@ class FoundGatewayRow extends StatelessWidget {
                           overflow: .ellipsis,
                           style: TextStyle(
                             fontFamily: AppFonts.mono,
-                            fontSize: FontSizes.meta,
+                            fontSize: FontSizes.sm,
                             color: c.text4,
                           ),
                         ),
                         Text(
                           vm.note,
                           style: TextStyle(
-                            fontSize: FontSizes.meta,
+                            fontSize: FontSizes.sm,
                             color: switch (vm.noteTone) {
                               .warn => c.warn,
                               .bad => c.badText,
@@ -171,7 +168,7 @@ class FoundGatewayRow extends StatelessWidget {
                   Text(
                     vm.seen,
                     textAlign: .right,
-                    style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
+                    style: TextStyle(fontSize: FontSizes.xs, color: c.muted),
                   ),
                 ],
               ),
@@ -205,7 +202,7 @@ class _Tag extends StatelessWidget {
       child: Text(
         vm.label,
         style: TextStyle(
-          fontSize: FontSizes.tag,
+          fontSize: FontSizes.xs,
           fontWeight: .w500,
           color: ink,
         ),

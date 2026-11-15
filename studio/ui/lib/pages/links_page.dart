@@ -119,10 +119,10 @@ class LinksPage extends StatelessWidget {
     final c = context.colors;
     final body = ListView(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s28,
-        AppSpacing.s28,
-        AppSpacing.s28,
-        AppSpacing.s40,
+        28,
+        28,
+        28,
+        40,
       ),
       children: [
         PageHeader(
@@ -147,14 +147,14 @@ class LinksPage extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.s22),
+        const SizedBox(height: 22),
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: AppSpacing.s18),
+        const SizedBox(height: 18),
         Text(
           description,
-          style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+          style: TextStyle(fontSize: FontSizes.md, color: c.text2),
         ),
-        const SizedBox(height: AppSpacing.md),
+        Gaps.md,
         if (settings.isNotEmpty) ...[
           LayoutBuilder(
             builder: (context, box) {
@@ -162,8 +162,8 @@ class LinksPage extends StatelessWidget {
                 for (final s in settings)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.s14,
-                      vertical: AppSpacing.s6,
+                      horizontal: 14,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: c.ground1,
@@ -188,7 +188,7 @@ class LinksPage extends StatelessWidget {
                   : Column(spacing: 12, children: cards);
             },
           ),
-          const SizedBox(height: AppSpacing.md),
+          Gaps.md,
         ],
         RowTable(columns: columns, rows: rows, onTap: onRow, empty: empty),
       ],

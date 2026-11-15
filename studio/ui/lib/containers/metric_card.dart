@@ -50,14 +50,14 @@ class MetricCard extends StatelessWidget {
         children: [
           Text(
             vm.label,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text3),
           ),
           Text(
             vm.value,
             maxLines: 1,
             overflow: .ellipsis,
             style: TextStyle(
-              fontSize: FontSizes.display,
+              fontSize: FontSizes.figure,
               color: vm.tone == .neutral ? c.text1 : toneColor(c, vm.tone),
             ),
           ),
@@ -66,7 +66,7 @@ class MetricCard extends StatelessWidget {
               vm.sub,
               maxLines: 1,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
         ],
       ),

@@ -5,7 +5,6 @@ import '../buttons/button.dart';
 import '../indicators/fail_chip.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [ReadFail] draws: the reads of one node that failed.
@@ -56,7 +55,7 @@ class ReadFail extends StatelessWidget {
       container: true,
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s12),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.badLine),
@@ -71,7 +70,7 @@ class ReadFail extends StatelessWidget {
               Text(
                 line,
                 style: TextStyle(
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   height: 1.5,
                   color: c.text2,
                 ),

@@ -57,10 +57,7 @@ class UnreachableAlert extends StatelessWidget {
     return Semantics(
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.s14,
-        ),
+        padding: Insets.notice,
         decoration: BoxDecoration(
           color: fill,
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
@@ -79,7 +76,7 @@ class UnreachableAlert extends StatelessWidget {
                 ),
                 Text(
                   S.current.cantReachGateway,
-                  style: TextStyle(fontSize: FontSizes.body, color: c.badText),
+                  style: TextStyle(fontSize: FontSizes.lg, color: c.badText),
                 ),
               ],
             ),
@@ -87,7 +84,7 @@ class UnreachableAlert extends StatelessWidget {
               vm.detail,
               style: TextStyle(
                 fontFamily: AppFonts.mono,
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 color: c.text2,
               ),
             ),
@@ -103,7 +100,7 @@ class UnreachableAlert extends StatelessWidget {
                 ],
               ),
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 height: 1.5,
                 leadingDistribution: .even,
                 color: c.text3,
@@ -148,13 +145,13 @@ class UnreachableAlert extends StatelessWidget {
         borderRadius: shape,
         child: Container(
           height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           child: Center(
             widthFactor: 1,
             child: Text(
               label,
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 fontWeight: primary ? .w600 : .w400,
                 color: primary ? c.onEmber : c.text1,
               ),

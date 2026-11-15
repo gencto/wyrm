@@ -38,7 +38,7 @@ class StatusPill extends StatelessWidget {
     return Container(
       height: dense ? 22 : 28,
       padding: EdgeInsets.symmetric(
-        horizontal: dense ? AppSpacing.sm : AppSpacing.s12,
+        horizontal: dense ? AppSpacing.sm : 12,
       ),
       decoration: BoxDecoration(
         color: toneTint(c, vm.tone),

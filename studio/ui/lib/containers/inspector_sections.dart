@@ -5,7 +5,6 @@ import '../forms/param_form.dart';
 import '../inputs/switch_row.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'fact_grid.dart';
 
@@ -106,7 +105,7 @@ class InspectorSections extends StatelessWidget {
               child: Text(
                 s.label.toUpperCase(),
                 style: TextStyle(
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   fontWeight: .w600,
                   letterSpacing: 0.72,
                   color: c.text4,
@@ -126,7 +125,7 @@ class InspectorSections extends StatelessWidget {
                   Text(
                     n,
                     style: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       color: c.emberSoft,
                     ),
                   ),
@@ -142,7 +141,7 @@ class InspectorSections extends StatelessWidget {
         if (s.text case final t?)
           Text(
             t,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
       ],
     );
@@ -158,12 +157,12 @@ class InspectorSections extends StatelessWidget {
           children: [
             Text(
               f.label,
-              style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
             ),
             if (f.description case final d?)
               Text(
                 d,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
           ],
         ),
@@ -177,7 +176,7 @@ class InspectorSections extends StatelessWidget {
 
   Widget _segments(AppColors c, InspectorSectionVm s) {
     final bar = Container(
-      padding: const EdgeInsets.all(AppSpacing.s3),
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: c.ground3,
         border: .all(color: c.line1),
@@ -201,7 +200,7 @@ class InspectorSections extends StatelessWidget {
                   child: Text(
                     label,
                     style: TextStyle(
-                      fontSize: FontSizes.row,
+                      fontSize: FontSizes.md,
                       fontWeight: i == s.segment ? .w600 : .w400,
                       color: s.onSegment == null
                           ? c.muted
@@ -220,7 +219,7 @@ class InspectorSections extends StatelessWidget {
   }
 
   Widget _code(AppColors c, List<(String, String)> lines) => Container(
-    padding: const EdgeInsets.all(AppSpacing.s12),
+    padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
       color: c.ground0,
       border: .all(color: c.line1),

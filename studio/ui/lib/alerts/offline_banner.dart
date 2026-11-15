@@ -33,7 +33,7 @@ class OfflineBanner extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: TextStyle(fontSize: FontSizes.row, color: c.warn),
+              style: TextStyle(fontSize: FontSizes.md, color: c.warn),
             ),
           ),
           SizedBox.square(

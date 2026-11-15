@@ -148,7 +148,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
             side: BorderSide(color: c.line2),
           ),
           elevation: 24,
-          shadowColor: Shades.black50,
+          shadowColor: Shades.dialogShadow,
           clipBehavior: .antiAlias,
           child: SizedBox(
             width: 520,
@@ -159,9 +159,9 @@ class _StepUpDialogState extends State<StepUpDialog> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.lg,
-                    AppSpacing.s22,
+                    22,
                     AppSpacing.lg,
-                    AppSpacing.s6,
+                    6,
                   ),
                   child: Column(
                     crossAxisAlignment: .start,
@@ -170,7 +170,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                       Text(
                         vm.title,
                         style: TextStyle(
-                          fontSize: FontSizes.panel,
+                          fontSize: FontSizes.panelTitle,
                           fontWeight: .w600,
                           color: c.text1,
                         ),
@@ -178,7 +178,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                       Text(
                         vm.lead,
                         style: TextStyle(
-                          fontSize: FontSizes.body,
+                          fontSize: FontSizes.lg,
                           height: 1.5,
                           color: c.text3,
                         ),
@@ -189,9 +189,9 @@ class _StepUpDialogState extends State<StepUpDialog> {
                 Container(
                   margin: const EdgeInsets.fromLTRB(
                     AppSpacing.lg,
-                    AppSpacing.s10,
+                    10,
                     AppSpacing.lg,
-                    AppSpacing.s10,
+                    10,
                   ),
                   decoration: BoxDecoration(
                     borderRadius: const BorderRadius.all(
@@ -210,7 +210,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.lg,
-                      AppSpacing.s6,
+                      6,
                       AppSpacing.lg,
                       AppSpacing.none,
                     ),
@@ -233,11 +233,11 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   Container(
                     margin: const EdgeInsets.fromLTRB(
                       AppSpacing.lg,
-                      AppSpacing.s6,
+                      6,
                       AppSpacing.lg,
                       AppSpacing.none,
                     ),
-                    padding: const EdgeInsets.all(AppSpacing.s14),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: c.emberFill,
                       borderRadius: const BorderRadius.all(
@@ -272,7 +272,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                             child: Text(
                               vm.error ?? vm.device,
                               style: TextStyle(
-                                fontSize: FontSizes.row,
+                                fontSize: FontSizes.md,
                                 height: 1.45,
                                 color: vm.error == null ? c.text2 : c.badText,
                               ),
@@ -283,10 +283,10 @@ class _StepUpDialogState extends State<StepUpDialog> {
                     ),
                   ),
                 Container(
-                  margin: const EdgeInsets.only(top: AppSpacing.s12),
+                  margin: const EdgeInsets.only(top: 12),
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.lg,
-                    vertical: AppSpacing.s18,
+                    vertical: 18,
                   ),
                   decoration: BoxDecoration(
                     border: Border(top: BorderSide(color: c.ground3)),
@@ -302,7 +302,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                           child: Text(
                             vm.usePassword,
                             style: TextStyle(
-                              fontSize: FontSizes.row,
+                              fontSize: FontSizes.md,
                               color: c.text2,
                               decoration: .underline,
                               decorationColor: c.text2,
@@ -347,8 +347,8 @@ class _Line extends StatelessWidget {
     final config = vm.level == 'config';
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s14,
-        vertical: AppSpacing.s10,
+        horizontal: 14,
+        vertical: 10,
       ),
       decoration: BoxDecoration(
         border: first ? null : Border(top: BorderSide(color: c.ground3)),
@@ -359,7 +359,7 @@ class _Line extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.sm,
-              vertical: AppSpacing.s2,
+              vertical: 2,
             ),
             decoration: BoxDecoration(
               color: config ? c.badTint : c.ground4,
@@ -370,7 +370,7 @@ class _Line extends StatelessWidget {
             child: Text(
               vm.level,
               style: TextStyle(
-                fontSize: FontSizes.tag,
+                fontSize: FontSizes.xs,
                 color: config ? c.badText : c.text3,
               ),
             ),
@@ -378,7 +378,7 @@ class _Line extends StatelessWidget {
           Expanded(
             child: Text(
               vm.text,
-              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             ),
           ),
           if (vm.key.isNotEmpty)
@@ -391,7 +391,7 @@ class _Line extends StatelessWidget {
                 textAlign: .right,
                 style: TextStyle(
                   fontFamily: AppFonts.mono,
-                  fontSize: FontSizes.tag,
+                  fontSize: FontSizes.xs,
                   color: c.text4,
                 ),
               ),
@@ -436,7 +436,7 @@ class _Button extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: FontSizes.body,
+            fontSize: FontSizes.lg,
             fontWeight: strong ? .w600 : .w400,
             color: ink,
           ),

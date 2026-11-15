@@ -68,7 +68,7 @@ class WorkspaceRail extends StatelessWidget {
                 Text(
                   it.label,
                   style: TextStyle(
-                    fontSize: FontSizes.meta,
+                    fontSize: FontSizes.sm,
                     color: on ? c.text1 : c.text3,
                   ),
                 ),
@@ -81,7 +81,7 @@ class WorkspaceRail extends StatelessWidget {
 
     return Container(
       width: 76,
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s12),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         color: c.ground0,
         border: Border(right: BorderSide(color: c.line1)),

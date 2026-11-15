@@ -71,7 +71,7 @@ class LoginSteps extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: FontSizes.row,
+                  fontSize: FontSizes.md,
                   color: i < current
                       ? c.text3
                       : i == current

@@ -9,7 +9,6 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One toast: a quiet failure, or something that went well (`good`).
@@ -250,14 +249,14 @@ class _ToastState extends State<_Toast> {
       child: Material(
         type: .transparency,
         child: Container(
-          padding: const EdgeInsets.all(AppSpacing.s14),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: c.ground3,
             border: .all(color: vm.stays == null ? c.line2 : line),
             borderRadius: Radii.card,
             boxShadow: const [
               BoxShadow(
-                color: Shades.black45,
+                color: Shades.popupShadow,
                 offset: Offset(0, 12),
                 blurRadius: 32,
               ),
@@ -280,7 +279,7 @@ class _ToastState extends State<_Toast> {
                   color: fg,
                 ),
               ),
-              const SizedBox(width: AppSpacing.s12),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: .start,
@@ -306,7 +305,7 @@ class _ToastState extends State<_Toast> {
                         ),
                       ),
                     Padding(
-                      padding: const EdgeInsets.only(top: AppSpacing.s2),
+                      padding: const EdgeInsets.only(top: 2),
                       child: Row(
                         spacing: 14,
                         children: [
@@ -337,7 +336,7 @@ class _ToastState extends State<_Toast> {
                   ],
                 ),
               ),
-              const SizedBox(width: AppSpacing.s12),
+              const SizedBox(width: 12),
               Transform.translate(
                 offset: const Offset(4, -4),
                 child: Semantics(

@@ -206,7 +206,7 @@ class AssistantPage extends StatelessWidget {
                 e,
                 textAlign: .center,
                 style: TextStyle(
-                  fontSize: FontSizes.body,
+                  fontSize: FontSizes.lg,
                   height: 1.5,
                   color: c.text2,
                 ),
@@ -322,7 +322,7 @@ class AssistantPage extends StatelessWidget {
           SegmentedTabs(tabs: panels, selected: panel, onSelect: onPanel),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(AppSpacing.s18),
+              padding: const EdgeInsets.all(18),
               children: [
                 if (rights case final r?)
                   RightsPanel(
@@ -334,12 +334,12 @@ class AssistantPage extends StatelessWidget {
                 else
                   FactGrid(facts: facts, labelWidth: 96),
                 if (reads.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.s20),
+                  const SizedBox(height: 20),
                   SectionLabel(readsLabel),
-                  const SizedBox(height: AppSpacing.sm),
+                  Gaps.sm,
                   for (final (kind, key) in reads)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.s6),
+                      padding: const EdgeInsets.only(bottom: 6),
                       child: Row(
                         crossAxisAlignment: .start,
                         spacing: 8,
@@ -356,11 +356,11 @@ class AssistantPage extends StatelessWidget {
                     ),
                 ],
                 if (panelNote.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.s14),
+                  const SizedBox(height: 14),
                   Text(
                     panelNote,
                     style: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       height: 1.5,
                       color: c.text3,
                     ),

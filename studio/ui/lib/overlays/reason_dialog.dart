@@ -70,7 +70,7 @@ class _ReasonDialogState extends State<ReasonDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.s22),
+          padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -82,7 +82,7 @@ class _ReasonDialogState extends State<ReasonDialog> {
               ),
               Text(
                 widget.message,
-                style: TextStyle(fontSize: FontSizes.body, color: c.text2),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text2),
               ),
               TextField(
                 controller: _text,
@@ -90,13 +90,13 @@ class _ReasonDialogState extends State<ReasonDialog> {
                 minLines: 1,
                 maxLines: 4,
                 onSubmitted: (_) => _done(),
-                style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                 decoration: InputDecoration(
                   hintText: widget.hint,
                   isDense: true,
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              Gaps.sm,
               Row(
                 mainAxisAlignment: .end,
                 spacing: 10,

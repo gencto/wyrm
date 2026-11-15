@@ -6,7 +6,6 @@ import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'shortcut_card.dart';
 
@@ -173,7 +172,7 @@ class _FlowMenuState extends State<FlowMenu> {
       child: SizedBox(
         width: FlowMenu.width,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -205,7 +204,7 @@ class _FlowMenuState extends State<FlowMenu> {
         child: Container(
           height: 34,
           color: isFields && _fields ? c.ground4 : null,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           child: Row(
             spacing: 8,
             children: [
@@ -217,7 +216,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: FontSizes.row,
+                    fontSize: FontSizes.md,
                     color: !enabled
                         ? c.muted
                         : (i.danger ? c.badText : c.text1),
@@ -261,7 +260,7 @@ class _FlowMenuState extends State<FlowMenu> {
               },
         child: Container(
           height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             spacing: 8,
             children: [
@@ -290,7 +289,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: FontSizes.row,
+                    fontSize: FontSizes.md,
                     color: locked ? c.text3 : c.text1,
                   ),
                 ),
@@ -298,7 +297,7 @@ class _FlowMenuState extends State<FlowMenu> {
               if (f.lockedReason case final why?)
                 Text(
                   why,
-                  style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
                 ),
             ],
           ),
@@ -315,10 +314,10 @@ class _FlowMenuState extends State<FlowMenu> {
         panel([
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s6,
-              AppSpacing.s14,
-              AppSpacing.s6,
+              14,
+              6,
+              14,
+              6,
             ),
             child: Row(
               spacing: 8,
@@ -338,7 +337,7 @@ class _FlowMenuState extends State<FlowMenu> {
                     vm.subtitle,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                   ),
                 ),
               ],
@@ -348,19 +347,19 @@ class _FlowMenuState extends State<FlowMenu> {
         ]),
         if (_fields && vm.fields.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.s40),
+            padding: const EdgeInsets.only(top: 40),
             child: panel([
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s12,
-                  AppSpacing.s6,
-                  AppSpacing.s12,
-                  AppSpacing.s6,
+                  12,
+                  6,
+                  12,
+                  6,
                 ),
                 child: Text(
                   S.current.fmFieldsTitle.toUpperCase(),
                   style: TextStyle(
-                    fontSize: FontSizes.tag,
+                    fontSize: FontSizes.xs,
                     fontWeight: .w600,
                     letterSpacing: 0.66,
                     color: c.text4,

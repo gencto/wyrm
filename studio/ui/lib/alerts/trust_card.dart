@@ -80,7 +80,7 @@ class TrustCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final small = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       height: 1.5,
       leadingDistribution: .even,
       color: c.text4,
@@ -110,7 +110,7 @@ class TrustCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     vm.title,
-                    style: TextStyle(fontSize: FontSizes.body, color: c.warn),
+                    style: TextStyle(fontSize: FontSizes.lg, color: c.warn),
                   ),
                 ),
               ],
@@ -118,7 +118,7 @@ class TrustCard extends StatelessWidget {
             Text(
               vm.why,
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 height: 1.5,
                 leadingDistribution: .even,
                 color: c.text2,
@@ -129,7 +129,7 @@ class TrustCard extends StatelessWidget {
               value: vm.code.join(' '),
               child: ExcludeSemantics(
                 child: Container(
-                  padding: const EdgeInsets.all(AppSpacing.s12),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: c.ground0,
                     borderRadius: const BorderRadius.all(
@@ -150,7 +150,7 @@ class TrustCard extends StatelessWidget {
                                   textAlign: .center,
                                   style: TextStyle(
                                     fontFamily: AppFonts.mono,
-                                    fontSize: FontSizes.lead,
+                                    fontSize: 15,
                                     letterSpacing: 1.2,
                                     color: c.text1,
                                   ),
@@ -186,7 +186,7 @@ class TrustCard extends StatelessWidget {
             if (vm.refused case final r?)
               Text(
                 r,
-                style: TextStyle(fontSize: FontSizes.row, color: c.badText),
+                style: TextStyle(fontSize: FontSizes.md, color: c.badText),
               ),
             Row(
               spacing: 10,
@@ -233,7 +233,7 @@ class TrustCard extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: FontSizes.body,
+                fontSize: FontSizes.lg,
                 fontWeight: primary ? .w600 : .w400,
                 color: primary ? c.onEmber : c.text1,
               ),

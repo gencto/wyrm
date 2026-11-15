@@ -1515,7 +1515,7 @@ class _CanvasTools extends StatelessWidget {
           child: Container(
             width: width,
             height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+            padding: Insets.control,
             alignment: .center,
             child: child,
           ),
@@ -1542,7 +1542,7 @@ class _CanvasTools extends StatelessWidget {
           child: Text(
             '?',
             style: TextStyle(
-              fontSize: FontSizes.body,
+              fontSize: FontSizes.lg,
               fontWeight: .w600,
               color: helpOpen ? c.emberSoft : c.text2,
             ),
@@ -1598,7 +1598,7 @@ class _WarnChip extends StatelessWidget {
         ),
         child: Text(
           text,
-          style: TextStyle(fontSize: FontSizes.tag, color: c.warn),
+          style: TextStyle(fontSize: FontSizes.xs, color: c.warn),
         ),
       ),
     );

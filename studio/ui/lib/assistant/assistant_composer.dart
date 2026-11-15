@@ -95,7 +95,7 @@ class _AssistantComposerState extends State<AssistantComposer> {
               minLines: 1,
               maxLines: 6,
               onChanged: widget.onDraft,
-              style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
               decoration: InputDecoration(
                 hintText: widget.reason ?? widget.hint,
                 isDense: true,
@@ -113,14 +113,14 @@ class _AssistantComposerState extends State<AssistantComposer> {
     return Container(
       padding: widget.dense
           ? const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s10,
-              AppSpacing.s14,
-              AppSpacing.s12,
+              14,
+              10,
+              14,
+              12,
             )
           : const EdgeInsets.fromLTRB(
               AppSpacing.lg,
-              AppSpacing.s12,
+              12,
               AppSpacing.lg,
               AppSpacing.md,
             ),
@@ -144,7 +144,7 @@ class _AssistantComposerState extends State<AssistantComposer> {
                       height: 24,
                       padding: const EdgeInsets.only(
                         left: AppSpacing.sm,
-                        right: AppSpacing.s2,
+                        right: 2,
                       ),
                       decoration: BoxDecoration(
                         color: c.ground3,
@@ -184,13 +184,13 @@ class _AssistantComposerState extends State<AssistantComposer> {
                           : null,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.s6,
-                          vertical: AppSpacing.s3,
+                          horizontal: 6,
+                          vertical: 3,
                         ),
                         child: Text(
                           add,
                           style: TextStyle(
-                            fontSize: FontSizes.meta,
+                            fontSize: FontSizes.sm,
                             color: widget.addChipReason == null
                                 ? c.text2
                                 : c.text4,
@@ -204,7 +204,7 @@ class _AssistantComposerState extends State<AssistantComposer> {
           if (widget.note case final n?)
             Text(
               n,
-              style: TextStyle(fontSize: FontSizes.meta, color: c.warn),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.warn),
             ),
           box,
         ],

@@ -4,7 +4,6 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One entry of the official list.
@@ -94,7 +93,7 @@ class CatalogCard extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(vm.id),
         borderRadius: Radii.card,
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.s14),
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: .start,
             spacing: 8,
@@ -122,7 +121,7 @@ class CatalogCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: FontSizes.body,
+                        fontSize: FontSizes.lg,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -131,7 +130,7 @@ class CatalogCard extends StatelessWidget {
                   if (vm.note case final n?)
                     Text(
                       n,
-                      style: TextStyle(fontSize: FontSizes.tag, color: c.good),
+                      style: TextStyle(fontSize: FontSizes.xs, color: c.good),
                     ),
                 ],
               ),
@@ -146,7 +145,7 @@ class CatalogCard extends StatelessWidget {
                   maxLines: descriptionLines,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: FontSizes.meta,
+                    fontSize: FontSizes.sm,
                     height: 1.4,
                     color: c.text3,
                   ),
@@ -157,8 +156,8 @@ class CatalogCard extends StatelessWidget {
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.s6,
-                      vertical: AppSpacing.s2,
+                      horizontal: 6,
+                      vertical: 2,
                     ),
                     decoration: BoxDecoration(
                       color: vm.builtIn ? c.ground4 : c.goodTint,
@@ -167,7 +166,7 @@ class CatalogCard extends StatelessWidget {
                     child: Text(
                       vm.source,
                       style: TextStyle(
-                        fontSize: FontSizes.tag,
+                        fontSize: FontSizes.xs,
                         color: vm.builtIn ? c.text2 : c.good,
                       ),
                     ),
@@ -175,8 +174,8 @@ class CatalogCard extends StatelessWidget {
                   if (vm.official case final o?)
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.s6,
-                        vertical: AppSpacing.s2,
+                        horizontal: 6,
+                        vertical: 2,
                       ),
                       decoration: BoxDecoration(
                         color: c.emberFill,
@@ -190,7 +189,7 @@ class CatalogCard extends StatelessWidget {
                           Text(
                             o,
                             style: TextStyle(
-                              fontSize: FontSizes.tag,
+                              fontSize: FontSizes.xs,
                               color: c.ember,
                             ),
                           ),

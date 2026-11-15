@@ -3,7 +3,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
 
@@ -34,7 +33,7 @@ class FailChip extends StatelessWidget {
     final c = context.colors;
     final chip = Container(
       height: 20,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(color: c.badTint, borderRadius: Radii.chip),
       child: Row(
         mainAxisSize: .min,

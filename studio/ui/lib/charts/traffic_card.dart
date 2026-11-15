@@ -107,7 +107,7 @@ class TrafficCard extends StatelessWidget {
                 child: Text(
                   vm.title,
                   style: const TextStyle(
-                    fontSize: FontSizes.body,
+                    fontSize: FontSizes.lg,
                     fontWeight: .w600,
                   ),
                 ),
@@ -117,7 +117,7 @@ class TrafficCard extends StatelessWidget {
                 selected: vm.measure,
                 onSelect: onMeasure,
                 height: 30,
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 inset: true,
               ),
             ],
@@ -143,14 +143,14 @@ class TrafficCard extends StatelessWidget {
               child: Center(
                 child: Text(
                   vm.empty,
-                  style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                 ),
               ),
             ),
           CodeText(
             vm.note,
             style: TextStyle(
-              fontSize: FontSizes.meta,
+              fontSize: FontSizes.sm,
               height: 1.5,
               color: c.text4,
             ),
@@ -178,13 +178,13 @@ class TrafficCard extends StatelessWidget {
                       text: key,
                       style: TextStyle(
                         fontFamily: AppFonts.mono,
-                        fontSize: FontSizes.tag,
+                        fontSize: FontSizes.xs,
                         color: SysTile.keyColor(c),
                       ),
                     ),
                   ],
                 ),
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
               ),
             ],
           ),
@@ -198,13 +198,13 @@ class TrafficCard extends StatelessWidget {
                 now,
                 style: TextStyle(
                   fontFamily: AppFonts.mono,
-                  fontSize: FontSizes.panel,
+                  fontSize: 20,
                   color: c.text1,
                 ),
               ),
               Text(
                 vm.unit,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
             ],
           ),

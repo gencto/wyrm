@@ -21,7 +21,6 @@ import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
 
@@ -99,7 +98,7 @@ class GallerySection extends StatelessWidget {
         title,
         style: const TextStyle(fontSize: 28, fontWeight: .w600),
       ),
-      const SizedBox(height: AppSpacing.s14),
+      const SizedBox(height: 14),
       child,
     ],
   );
@@ -114,7 +113,7 @@ class _Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(AppSpacing.s20),
+    padding: const EdgeInsets.all(20),
     decoration: BoxDecoration(
       color: context.colors.ground1,
       border: .all(color: context.colors.line1),
@@ -127,7 +126,7 @@ class _Panel extends StatelessWidget {
         Text(
           title,
           style: TextStyle(
-            fontSize: FontSizes.body,
+            fontSize: FontSizes.lg,
             fontWeight: .w600,
             color: context.colors.text2,
           ),
@@ -222,19 +221,19 @@ class _Swatch extends StatelessWidget {
         children: [
           Container(height: 64, color: color),
           Padding(
-            padding: const EdgeInsets.all(AppSpacing.s10),
+            padding: const EdgeInsets.all(10),
             child: Column(
               crossAxisAlignment: .start,
               spacing: 2,
               children: [
                 Text(
                   name,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text1),
                 ),
                 Text(hex, style: mono(size: 12, color: c.text4)),
                 Text(
                   use,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                 ),
               ],
             ),
@@ -304,8 +303,8 @@ class TypeScale extends StatelessWidget {
           for (final (name, sample, spec) in rows)
             Container(
               padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s20,
-                vertical: AppSpacing.s14,
+                horizontal: 20,
+                vertical: 14,
               ),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
@@ -317,7 +316,7 @@ class TypeScale extends StatelessWidget {
                     child: Text(
                       name,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: c.text4,
                       ),
                     ),
@@ -325,7 +324,7 @@ class TypeScale extends StatelessWidget {
                   Expanded(child: sample),
                   Text(
                     spec,
-                    style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                   ),
                 ],
               ),

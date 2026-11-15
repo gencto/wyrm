@@ -601,14 +601,14 @@ class ExplorerPage extends StatelessWidget {
       return Center(
         child: Text(
           empty,
-          style: TextStyle(fontSize: FontSizes.body, color: c.text4),
+          style: TextStyle(fontSize: FontSizes.lg, color: c.text4),
         ),
       );
     }
     final header = Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
-        AppSpacing.s20,
+        20,
         AppSpacing.lg,
         AppSpacing.none,
       ),
@@ -661,7 +661,7 @@ class ExplorerPage extends StatelessWidget {
         if (paramsNote case final n?)
           Text(
             n,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text3),
           ),
         InspectorSections(sections: params),
       ]),
@@ -670,7 +670,7 @@ class ExplorerPage extends StatelessWidget {
         if (historyNote case final n?)
           Text(
             n,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text4),
           )
         else ...[
           if (historyFail case final f?)
@@ -697,7 +697,7 @@ class ExplorerPage extends StatelessWidget {
         if (auditNote case final n?)
           Text(
             n,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text4),
           ),
         if (auditRows.isNotEmpty)
           RowTable(columns: auditColumns, rows: auditRows, rowHeight: 40),
@@ -713,7 +713,7 @@ class ExplorerPage extends StatelessWidget {
         if (childrenNote case final n?)
           Text(
             n,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text4),
           ),
       ]),
       'points' => _pointsTab(c),
@@ -749,7 +749,7 @@ class ExplorerPage extends StatelessWidget {
                 style: titleName == null
                     ? mono(size: 26, weight: .w600, color: c.text1)
                     : TextStyle(
-                        fontSize: FontSizes.page,
+                        fontSize: FontSizes.pageTitle,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -775,7 +775,7 @@ class ExplorerPage extends StatelessWidget {
             s,
             maxLines: 1,
             overflow: .ellipsis,
-            style: TextStyle(fontSize: FontSizes.body, color: c.text3),
+            style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
           ),
         ),
     ],
@@ -819,7 +819,7 @@ class ExplorerPage extends StatelessWidget {
   Widget _padded(List<Widget> children) => Padding(
     padding: const EdgeInsets.fromLTRB(
       AppSpacing.lg,
-      AppSpacing.s18,
+      18,
       AppSpacing.lg,
       AppSpacing.none,
     ),
@@ -838,7 +838,7 @@ class ExplorerPage extends StatelessWidget {
         vertical: AppSpacing.md,
       ),
       child: SizedBox(
-        height: AppSpacing.s40,
+        height: 40,
         child: bar != null
             ? Row(
                 spacing: 8,
@@ -846,12 +846,12 @@ class ExplorerPage extends StatelessWidget {
                   Text(
                     bar.count,
                     style: TextStyle(
-                      fontSize: FontSizes.body,
+                      fontSize: FontSizes.lg,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
+                  Gaps.hXs,
                   Expanded(
                     child: SingleChildScrollView(
                       scrollDirection: .horizontal,
@@ -916,13 +916,13 @@ class ExplorerPage extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg,
-              AppSpacing.s12,
+              12,
               AppSpacing.lg,
               AppSpacing.none,
             ),
             child: Text(
               n,
-              style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.md, color: c.text4),
             ),
           ),
       ],
@@ -937,7 +937,7 @@ class ExplorerPage extends StatelessWidget {
 
   Widget _filterBox(AppColors c) => Container(
     height: 40,
-    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
+    padding: const EdgeInsets.symmetric(horizontal: 12),
     decoration: BoxDecoration(
       color: c.ground1,
       border: .all(color: c.line1),
@@ -951,7 +951,7 @@ class ExplorerPage extends StatelessWidget {
           child: TextFormField(
             initialValue: pointFilter,
             onChanged: onPointFilter,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             decoration: InputDecoration(
               isCollapsed: true,
               contentPadding: EdgeInsets.zero,
@@ -960,7 +960,7 @@ class ExplorerPage extends StatelessWidget {
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               hintText: pointFilterHint,
-              hintStyle: TextStyle(fontSize: FontSizes.row, color: c.text4),
+              hintStyle: TextStyle(fontSize: FontSizes.md, color: c.text4),
             ),
           ),
         ),
@@ -981,7 +981,7 @@ class ExplorerPage extends StatelessWidget {
         Text(
           pointsEmpty!,
           style: TextStyle(
-            fontSize: FontSizes.section,
+            fontSize: 16,
             fontWeight: .w600,
             color: c.text1,
           ),
@@ -1009,7 +1009,7 @@ class ExplorerPage extends StatelessWidget {
               SectionLabel(g.label),
               Text(
                 g.note,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
             ],
           ),
@@ -1038,7 +1038,7 @@ class ExplorerPage extends StatelessWidget {
         children: [
           Text(
             r.title,
-            style: const TextStyle(fontSize: FontSizes.body, fontWeight: .w600),
+            style: const TextStyle(fontSize: FontSizes.lg, fontWeight: .w600),
           ),
           QualityMark(
             vm: QualityMarkVm(label: r.status, tone: .good),
@@ -1077,7 +1077,7 @@ class ExplorerPage extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: FontSizes.heading,
+                    fontSize: 18,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -1183,14 +1183,14 @@ class ExplorerPage extends StatelessWidget {
             Text(
               ins.note,
               style: TextStyle(
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 height: 1.5,
                 color: c.text3,
               ),
             ),
             SectionLabel(ins.cliLabel),
             Container(
-              padding: const EdgeInsets.all(AppSpacing.s12),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.line1),
@@ -1243,14 +1243,14 @@ class ExplorerPage extends StatelessWidget {
       borderRadius: Radii.button,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         child: Row(
           mainAxisSize: .min,
           spacing: 8,
           children: [
             Text(
               label,
-              style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
             ),
             AppIcon('ui_chevron_down', size: 14, color: c.text1),
           ],

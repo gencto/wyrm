@@ -146,57 +146,35 @@ TextStyle boardText({
   color: color,
 );
 
-/// The font sizes of the canvas, by what they set (board *Design system*
-/// §03). `TextStyle(fontSize: FontSizes.meta, …)` where a style is written
-/// out; [AppText] for a new one.
+/// The font sizes of the canvas (board *Design system* §03). The four
+/// body steps are a scale, like `AppSpacing`: [xs] … [lg] say where a size
+/// sits, not what the text is. The titles and the figure are named for what
+/// they set. A size off both lists is a smell: it gets a name here first.
 abstract final class FontSizes {
-  /// A badge's count, a superscript.
-  static const double micro = 10;
+  static const double xs = 11;
+  static const double sm = 12;
+  static const double md = 13;
+  static const double lg = 14;
 
-  /// A tag, a column head, a tile word (`labelSmall`).
-  static const double tag = 11;
-
-  /// Meta text, a caption, a hint (`bodySmall`, `labelMedium`).
-  static const double meta = 12;
-
-  /// A row of a list or a table (`bodyMedium`).
-  static const double row = 13;
-
-  /// Body text, a field, a button (`bodyLarge`).
-  static const double body = 14;
-
-  /// A lead line under a title.
-  static const double lead = 15;
-
-  /// A section title (`titleMedium`).
-  static const double section = 16;
-
-  /// A card's heading.
-  static const double heading = 18;
+  /// A section's title (`titleMedium`).
+  static const double sectionTitle = 16;
 
   /// A panel's or a dialog's title (`titleLarge`).
-  static const double panel = 20;
+  static const double panelTitle = 20;
 
-  /// A large figure, a hero line.
-  static const double display = 22;
+  /// A large figure: a tile's value, a metric.
+  static const double figure = 22;
 
-  /// A page title (`headlineSmall`).
-  static const double page = 26;
+  /// A page's title (`headlineSmall`).
+  static const double pageTitle = 26;
 }
 
 /// Text styles that set the size only: a widget adds its colour and weight
-/// with `copyWith` (`AppText.meta.copyWith(color: c.text4)`), which is the
-/// same style as `TextStyle(fontSize: 12, color: …)` written out.
+/// with `copyWith` (`AppText.sm.copyWith(color: c.text4)`), which is the
+/// same style as `TextStyle(fontSize: FontSizes.sm, color: …)` written out.
 abstract final class AppText {
-  static const micro = TextStyle(fontSize: FontSizes.micro);
-  static const tag = TextStyle(fontSize: FontSizes.tag);
-  static const meta = TextStyle(fontSize: FontSizes.meta);
-  static const row = TextStyle(fontSize: FontSizes.row);
-  static const body = TextStyle(fontSize: FontSizes.body);
-  static const lead = TextStyle(fontSize: FontSizes.lead);
-  static const section = TextStyle(fontSize: FontSizes.section);
-  static const heading = TextStyle(fontSize: FontSizes.heading);
-  static const panel = TextStyle(fontSize: FontSizes.panel);
-  static const display = TextStyle(fontSize: FontSizes.display);
-  static const page = TextStyle(fontSize: FontSizes.page);
+  static const xs = TextStyle(fontSize: FontSizes.xs);
+  static const sm = TextStyle(fontSize: FontSizes.sm);
+  static const md = TextStyle(fontSize: FontSizes.md);
+  static const lg = TextStyle(fontSize: FontSizes.lg);
 }

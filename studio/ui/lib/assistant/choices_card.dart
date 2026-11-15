@@ -99,20 +99,17 @@ class ChoicesCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final small = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       height: 1.45,
       color: c.text3,
     );
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s14,
-        AppSpacing.s12,
-        AppSpacing.s14,
-        AppSpacing.s12,
+        14,
+        12,
+        14,
+        12,
       ),
       decoration: BoxDecoration(
         color: c.ground1,
@@ -128,7 +125,7 @@ class ChoicesCard extends StatelessWidget {
             Text(
               q.text,
               style: TextStyle(
-                fontSize: FontSizes.body,
+                fontSize: FontSizes.lg,
                 height: 1.4,
                 color: c.text1,
               ),
@@ -194,7 +191,7 @@ class _Option extends StatelessWidget {
             Container(
               width: 14,
               height: 14,
-              margin: const EdgeInsets.only(top: AppSpacing.s3),
+              margin: const EdgeInsets.only(top: 3),
               decoration: BoxDecoration(
                 shape: multiple ? .rectangle : .circle,
                 borderRadius: multiple
@@ -212,7 +209,7 @@ class _Option extends StatelessWidget {
                   Text(
                     vm.label,
                     style: TextStyle(
-                      fontSize: FontSizes.body,
+                      fontSize: FontSizes.lg,
                       fontWeight: .w500,
                       color: c.text1,
                     ),
@@ -221,7 +218,7 @@ class _Option extends StatelessWidget {
                     Text(
                       vm.detail,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         height: 1.4,
                         color: c.text3,
                       ),

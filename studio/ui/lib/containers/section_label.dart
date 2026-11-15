@@ -19,7 +19,7 @@ class SectionLabel extends StatelessWidget {
         child: Text(
           text.toUpperCase(),
           style: TextStyle(
-            fontSize: FontSizes.meta,
+            fontSize: FontSizes.sm,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: context.colors.text3,

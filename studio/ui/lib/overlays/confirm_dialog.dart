@@ -57,7 +57,7 @@ class ConfirmDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.s22),
+          padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -66,9 +66,9 @@ class ConfirmDialog extends StatelessWidget {
               Text(title, style: Theme.of(context).textTheme.titleLarge),
               Text(
                 message,
-                style: TextStyle(fontSize: FontSizes.body, color: c.text2),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text2),
               ),
-              const SizedBox(height: AppSpacing.sm),
+              Gaps.sm,
               Row(
                 mainAxisAlignment: .end,
                 spacing: 10,

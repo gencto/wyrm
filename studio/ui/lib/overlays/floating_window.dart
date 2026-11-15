@@ -130,9 +130,9 @@ class _FloatingWindowState extends State<FloatingWindow> {
                                   cursor: SystemMouseCursors.move,
                                   child: Container(
                                     padding: const EdgeInsets.fromLTRB(
-                                      AppSpacing.s14,
+                                      14,
                                       AppSpacing.sm,
-                                      AppSpacing.s6,
+                                      6,
                                       AppSpacing.sm,
                                     ),
                                     decoration: BoxDecoration(

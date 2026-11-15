@@ -53,10 +53,7 @@ class UnlockNotice extends StatelessWidget {
       liveRegion: true,
       container: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.s14,
-        ),
+        padding: Insets.notice,
         decoration: BoxDecoration(
           color: fill,
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
@@ -68,12 +65,12 @@ class UnlockNotice extends StatelessWidget {
           children: [
             Text(
               vm.title,
-              style: TextStyle(fontSize: FontSizes.body, color: ink),
+              style: TextStyle(fontSize: FontSizes.lg, color: ink),
             ),
             Text(
               vm.text,
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 height: 1.5,
                 color: c.text3,
               ),

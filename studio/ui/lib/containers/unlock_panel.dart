@@ -186,7 +186,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
     final c = context.colors;
     final vm = widget.vm;
     final link = TextStyle(
-      fontSize: FontSizes.row,
+      fontSize: FontSizes.md,
       color: c.text2,
       decoration: .underline,
       decorationColor: c.text2,
@@ -203,7 +203,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
               Text(
                 vm.title,
                 style: TextStyle(
-                  fontSize: FontSizes.page,
+                  fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
                   letterSpacing: -.26,
                   color: c.text1,
@@ -211,7 +211,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
               ),
               Text(
                 vm.subtitle,
-                style: TextStyle(fontSize: FontSizes.body, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
               ),
             ],
           ),
@@ -270,7 +270,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
     final c = context.colors;
     final vm = widget.vm;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         spacing: 14,
         children: [
@@ -283,7 +283,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
           Text(
             vm.unlockLabel,
             style: TextStyle(
-              fontSize: FontSizes.lead,
+              fontSize: 15,
               fontWeight: .w600,
               color: c.text1,
             ),
@@ -292,7 +292,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
             liveRegion: true,
             child: Text(
               vm.note,
-              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
           ),
         ],
@@ -341,14 +341,14 @@ class _UnlockPanelState extends State<UnlockPanel> {
 
   Widget _footer(BuildContext context) {
     final c = context.colors;
-    final note = TextStyle(fontSize: FontSizes.meta, color: c.text4);
+    final note = TextStyle(fontSize: FontSizes.sm, color: c.text4);
     final lock = switch (widget.vm.footerTone) {
       .warn => c.warn,
       .bad => c.bad,
       _ => c.good,
     };
     return Container(
-      padding: const EdgeInsets.only(top: AppSpacing.s14),
+      padding: const EdgeInsets.only(top: 14),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.ground3)),
       ),
@@ -392,7 +392,7 @@ class _AccountCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
-        vertical: AppSpacing.s14,
+        vertical: 14,
       ),
       decoration: BoxDecoration(
         color: c.ground1,
@@ -413,7 +413,7 @@ class _AccountCard extends StatelessWidget {
             child: Text(
               vm.initials,
               style: TextStyle(
-                fontSize: FontSizes.lead,
+                fontSize: 15,
                 fontWeight: .w600,
                 color: c.emberSoft,
               ),
@@ -428,7 +428,7 @@ class _AccountCard extends StatelessWidget {
                   TextSpan(
                     text: vm.user,
                     style: TextStyle(
-                      fontSize: FontSizes.lead,
+                      fontSize: 15,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -464,7 +464,7 @@ class _AccountCard extends StatelessWidget {
                         overflow: .ellipsis,
                         style: TextStyle(
                           fontFamily: AppFonts.mono,
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.text4,
                         ),
                       ),
@@ -477,7 +477,7 @@ class _AccountCard extends StatelessWidget {
           Text(
             vm.last,
             textAlign: .right,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
         ],
       ),

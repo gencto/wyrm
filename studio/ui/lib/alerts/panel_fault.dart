@@ -96,7 +96,7 @@ class PanelFault extends StatelessWidget {
           );
         }
         final card = Container(
-          padding: const EdgeInsets.all(AppSpacing.s20),
+          padding: const EdgeInsets.all(20),
           decoration: ShapeDecoration(
             color: c.ground2,
             shape: _DashedBorder(color: c.badLine),
@@ -118,7 +118,7 @@ class PanelFault extends StatelessWidget {
               Container(
                 width: .infinity,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s10,
+                  horizontal: 10,
                   vertical: AppSpacing.sm,
                 ),
                 decoration: BoxDecoration(
@@ -139,7 +139,7 @@ class PanelFault extends StatelessWidget {
                       key: const ValueKey('fault-draw-again'),
                       label: vm.drawAgain,
                       size: .compact,
-                      fontSize: FontSizes.row,
+                      fontSize: FontSizes.md,
                       inset: 14,
                       onPressed: f,
                     ),
@@ -147,7 +147,7 @@ class PanelFault extends StatelessWidget {
                     key: const ValueKey('fault-copy'),
                     label: vm.copy,
                     size: .compact,
-                    fontSize: FontSizes.row,
+                    fontSize: FontSizes.md,
                     fontWeight: .w400,
                     inset: 14,
                     onPressed: onCopy,
@@ -166,11 +166,11 @@ class PanelFault extends StatelessWidget {
           liveRegion: true,
           child: box.hasBoundedHeight
               ? SingleChildScrollView(
-                  padding: const EdgeInsets.all(AppSpacing.s20),
+                  padding: const EdgeInsets.all(20),
                   child: Align(alignment: .topCenter, child: sized),
                 )
               : Padding(
-                  padding: const EdgeInsets.all(AppSpacing.s20),
+                  padding: const EdgeInsets.all(20),
                   child: sized,
                 ),
         );
@@ -280,7 +280,7 @@ class _DashedBorder extends ShapeBorder {
   static const _radius = Radius.circular(AppRadii.panel);
 
   @override
-  EdgeInsetsGeometry get dimensions => const EdgeInsets.all(AppSpacing.s1);
+  EdgeInsetsGeometry get dimensions => const EdgeInsets.all(1);
 
   @override
   Path getInnerPath(Rect rect, {TextDirection? textDirection}) =>

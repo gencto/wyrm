@@ -75,20 +75,17 @@ class StoppedCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final small = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       height: 1.45,
       color: c.text3,
     );
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s14,
-        AppSpacing.s12,
-        AppSpacing.s14,
-        AppSpacing.s14,
+        14,
+        12,
+        14,
+        14,
       ),
       decoration: BoxDecoration(
         color: c.ground1,
@@ -101,12 +98,12 @@ class StoppedCard extends StatelessWidget {
         children: [
           Text(
             vm.title,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.bad),
           ),
           SelectableText(
             vm.message,
             style: TextStyle(
-              fontSize: FontSizes.body,
+              fontSize: FontSizes.lg,
               height: 1.5,
               color: c.text1,
             ),
@@ -125,8 +122,8 @@ class StoppedCard extends StatelessWidget {
             if (vm.caution case final w?)
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s10,
-                  vertical: AppSpacing.s6,
+                  horizontal: 10,
+                  vertical: 6,
                 ),
                 decoration: BoxDecoration(
                   color: c.warnTint,

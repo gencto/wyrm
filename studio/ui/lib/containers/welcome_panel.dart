@@ -7,7 +7,6 @@ import '../indicators/login_steps.dart';
 import '../indicators/sweep_bar.dart';
 import '../indicators/wyrm_loader.dart';
 import '../theme/extensions/colors.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What the welcome says while the tree opens (docs/design/specs/login.md
@@ -62,7 +61,7 @@ class WelcomePanel extends StatelessWidget {
     final opening = S.current.openingTreeOf(vm.site);
     final at = opening.indexOf(vm.site);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s40),
+      padding: const EdgeInsets.symmetric(vertical: 40),
       child: Column(
         mainAxisSize: .min,
         spacing: 26,
@@ -78,7 +77,7 @@ class WelcomePanel extends StatelessWidget {
                 vm.title,
                 textAlign: .center,
                 style: TextStyle(
-                  fontSize: FontSizes.page,
+                  fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
                   color: c.text1,
                 ),
@@ -102,7 +101,7 @@ class WelcomePanel extends StatelessWidget {
                         ],
                 ),
                 textAlign: .center,
-                style: TextStyle(fontSize: FontSizes.body, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
               ),
             ],
           ),
@@ -131,7 +130,7 @@ class WelcomePanel extends StatelessWidget {
                           f,
                           textAlign: .center,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             color: c.text4,
                           ),
                         ),

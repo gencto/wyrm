@@ -61,7 +61,7 @@ class StepList extends StatelessWidget {
                         : Text(
                             '$i',
                             style: TextStyle(
-                              fontSize: FontSizes.meta,
+                              fontSize: FontSizes.sm,
                               fontWeight: .w600,
                               color: i == current ? c.onEmber : c.text3,
                             ),
@@ -70,7 +70,7 @@ class StepList extends StatelessWidget {
                   Text(
                     steps[i - 1],
                     style: TextStyle(
-                      fontSize: FontSizes.row,
+                      fontSize: FontSizes.md,
                       fontWeight: i == current ? .w600 : .w400,
                       color: i == current ? c.text1 : c.text3,
                     ),

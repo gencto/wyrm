@@ -151,10 +151,7 @@ class StartFault extends StatelessWidget {
                   ),
                   Container(
                     width: .infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.s14,
-                    ),
+                    padding: Insets.notice,
                     decoration: BoxDecoration(
                       color: c.ground1,
                       border: .all(color: c.line1),
@@ -174,7 +171,7 @@ class StartFault extends StatelessWidget {
                                   right: AppSpacing.md,
                                   top: i == AppSpacing.none
                                       ? AppSpacing.none
-                                      : AppSpacing.s6,
+                                      : 6,
                                 ),
                                 child: Text(
                                   r.label,
@@ -185,7 +182,7 @@ class StartFault extends StatelessWidget {
                                 padding: EdgeInsets.only(
                                   top: i == AppSpacing.none
                                       ? AppSpacing.none
-                                      : AppSpacing.s6,
+                                      : 6,
                                 ),
                                 child: SelectableText(
                                   r.value,

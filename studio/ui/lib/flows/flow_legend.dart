@@ -41,7 +41,7 @@ class FlowLegend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final style = TextStyle(fontSize: FontSizes.meta, color: c.text3);
+    final style = TextStyle(fontSize: FontSizes.sm, color: c.text3);
     Widget line(Color color, String label) => Row(
       mainAxisSize: .min,
       spacing: 6,
@@ -52,7 +52,7 @@ class FlowLegend extends StatelessWidget {
     );
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s12,
+        horizontal: 12,
         vertical: AppSpacing.sm,
       ),
       decoration: BoxDecoration(

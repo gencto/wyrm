@@ -64,7 +64,7 @@ class RecentChip extends StatelessWidget {
           customBorder: const StadiumBorder(),
           child: Container(
             height: 28,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+            padding: Insets.control,
             child: Row(
               mainAxisSize: .min,
               spacing: 6,
@@ -74,7 +74,7 @@ class RecentChip extends StatelessWidget {
                   vm.label,
                   style: TextStyle(
                     fontFamily: AppFonts.mono,
-                    fontSize: FontSizes.meta,
+                    fontSize: FontSizes.sm,
                     color: vm.current ? c.emberNew : c.text3,
                   ),
                 ),

@@ -44,7 +44,7 @@ class TermTable extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.md,
-                    vertical: AppSpacing.s12,
+                    vertical: 12,
                   ),
                   decoration: BoxDecoration(
                     border: i == 0
@@ -60,7 +60,7 @@ class TermTable extends StatelessWidget {
                         child: Text(
                           r.term,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             fontWeight: .w600,
                             color: c.text1,
                           ),
@@ -70,7 +70,7 @@ class TermTable extends StatelessWidget {
                         child: CodeText(
                           r.text,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             height: 1.5,
                             color: c.text3,
                           ),

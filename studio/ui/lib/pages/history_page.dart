@@ -124,10 +124,10 @@ class HistoryPage extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s12,
-              AppSpacing.s14,
-              AppSpacing.s6,
-              AppSpacing.s6,
+              12,
+              14,
+              6,
+              6,
             ),
             child: Row(
               children: [
@@ -151,7 +151,7 @@ class HistoryPage extends StatelessWidget {
                     onTap: () => onGroup(g.id),
                     borderRadius: Radii.control,
                     child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.s10),
+                      padding: const EdgeInsets.all(10),
                       margin: const EdgeInsets.only(bottom: AppSpacing.xs),
                       decoration: BoxDecoration(
                         color: g.selected ? c.emberTint : null,
@@ -164,7 +164,7 @@ class HistoryPage extends StatelessWidget {
                           Text(
                             g.title,
                             style: TextStyle(
-                              fontSize: FontSizes.body,
+                              fontSize: FontSizes.lg,
                               fontWeight: g.selected ? .w600 : .w400,
                               color: c.text1,
                             ),
@@ -172,7 +172,7 @@ class HistoryPage extends StatelessWidget {
                           Text(
                             g.sub,
                             style: TextStyle(
-                              fontSize: FontSizes.meta,
+                              fontSize: FontSizes.sm,
                               color: c.text4,
                             ),
                           ),
@@ -185,14 +185,14 @@ class HistoryPage extends StatelessWidget {
           ),
           if (footer case final f?)
             Container(
-              padding: const EdgeInsets.all(AppSpacing.s12),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 f,
                 style: TextStyle(
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   height: 1.5,
                   color: c.text3,
                 ),
@@ -207,10 +207,10 @@ class HistoryPage extends StatelessWidget {
           )
         : ListView(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s28,
+              28,
               AppSpacing.lg,
-              AppSpacing.s28,
-              AppSpacing.s40,
+              28,
+              40,
             ),
             children: [
               Row(
@@ -229,7 +229,7 @@ class HistoryPage extends StatelessWidget {
                           Text(
                             s,
                             style: TextStyle(
-                              fontSize: FontSizes.body,
+                              fontSize: FontSizes.lg,
                               color: c.text3,
                             ),
                           ),
@@ -246,7 +246,7 @@ class HistoryPage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.s18),
+              const SizedBox(height: 18),
               if (trend case final t?)
                 Trend(
                   vm: t,
@@ -265,19 +265,19 @@ class HistoryPage extends StatelessWidget {
                   ),
                   child: Text(
                     trendEmpty,
-                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                   ),
                 ),
-              const SizedBox(height: AppSpacing.s22),
+              const SizedBox(height: 22),
               SectionLabel(pointsLabel),
               if (pointsHint case final hint?) ...[
-                const SizedBox(height: AppSpacing.xs),
+                Gaps.xs,
                 Text(
                   hint,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
               ],
-              const SizedBox(height: AppSpacing.s10),
+              const SizedBox(height: 10),
               RowTable(
                 columns: columns,
                 rows: points,

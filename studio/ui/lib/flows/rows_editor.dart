@@ -200,7 +200,7 @@ class _RowsEditorState extends State<RowsEditor> {
           if (_rows.isEmpty)
             Text(
               widget.vm.emptyLabel,
-              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             )
           else
             Row(
@@ -212,10 +212,10 @@ class _RowsEditorState extends State<RowsEditor> {
                       col.label,
                       maxLines: 1,
                       overflow: .ellipsis,
-                      style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+                      style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
                     ),
                   ),
-                const SizedBox(width: AppSpacing.lg),
+                Gaps.hLg,
               ],
             ),
           for (var r = 0; r < _rows.length; r++)
@@ -224,8 +224,8 @@ class _RowsEditorState extends State<RowsEditor> {
               children: [
                 for (final col in cols) Expanded(child: cell(r, col)),
                 SizedBox(
-                  width: AppSpacing.lg,
-                  height: AppSpacing.xl,
+                  width: 24,
+                  height: 32,
                   child: Tooltip(
                     message: widget.vm.removeLabel,
                     child: InkWell(
@@ -250,7 +250,7 @@ class _RowsEditorState extends State<RowsEditor> {
               icon: Text('+', style: mono(color: c.ember)),
               label: Text(
                 widget.vm.addLabel,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.ember),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.ember),
               ),
             ),
           ),

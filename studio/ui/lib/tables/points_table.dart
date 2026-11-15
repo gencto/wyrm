@@ -197,7 +197,7 @@ class PointsTable extends StatelessWidget {
 
   Widget _header(AppColors c, {required bool all, required bool some}) {
     final style = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       fontWeight: .w600,
       letterSpacing: 0.48,
       color: c.text4,
@@ -205,7 +205,7 @@ class PointsTable extends StatelessWidget {
     Text h(String s) => Text(s.toUpperCase(), style: style);
     return Container(
       height: 40,
-      padding: const EdgeInsets.only(right: AppSpacing.s12),
+      padding: const EdgeInsets.only(right: 12),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.line1)),
       ),
@@ -228,7 +228,7 @@ class PointsTable extends StatelessWidget {
 
   Widget _skeleton(AppColors c) => Container(
     height: rowHeight,
-    padding: const EdgeInsets.only(right: AppSpacing.s12),
+    padding: const EdgeInsets.only(right: 12),
     decoration: BoxDecoration(
       border: Border(bottom: BorderSide(color: c.ground3)),
     ),
@@ -270,7 +270,7 @@ class PointsTable extends StatelessWidget {
         hoverColor: c.ground2,
         child: Container(
           constraints: BoxConstraints(minHeight: rowHeight),
-          padding: const EdgeInsets.only(right: AppSpacing.s12),
+          padding: const EdgeInsets.only(right: 12),
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: c.ground3)),
           ),
@@ -303,7 +303,7 @@ class PointsTable extends StatelessWidget {
                               text: '  $d',
                               style: TextStyle(
                                 fontFamily: AppFonts.sans,
-                                fontSize: FontSizes.row,
+                                fontSize: FontSizes.md,
                                 color: c.text4,
                               ),
                             ),
@@ -337,7 +337,7 @@ class PointsTable extends StatelessWidget {
               r.unit,
               maxLines: 1,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: FontSizes.body, color: c.text2),
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text2),
             ),
             Column(
               crossAxisAlignment: .start,
@@ -346,7 +346,7 @@ class PointsTable extends StatelessWidget {
                 Text(
                   r.poll,
                   style: TextStyle(
-                    fontSize: FontSizes.body,
+                    fontSize: FontSizes.lg,
                     fontWeight: r.pollWas == null ? .w400 : .w600,
                     color: r.pollWas == null ? c.text2 : c.emberSoft,
                   ),
@@ -354,7 +354,7 @@ class PointsTable extends StatelessWidget {
                 if (r.pollWas case final w?)
                   Text(
                     '${labels.was} $w',
-                    style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                   ),
               ],
             ),
@@ -368,7 +368,7 @@ class PointsTable extends StatelessWidget {
             Text(
               r.writable ? 'RW' : 'R',
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 color: r.writable ? c.text1 : c.text4,
               ),
             ),

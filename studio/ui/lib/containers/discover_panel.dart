@@ -110,10 +110,7 @@ class DiscoverPanel extends StatelessWidget {
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s14,
-                vertical: AppSpacing.s12,
-              ),
+              padding: Insets.card,
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.ground3)),
               ),
@@ -133,7 +130,7 @@ class DiscoverPanel extends StatelessWidget {
                       child: Text(
                         vm.title,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           color: c.text2,
                         ),
                       ),
@@ -164,20 +161,20 @@ class DiscoverPanel extends StatelessWidget {
   Widget _none(BuildContext context, DiscoverNoneVm none) {
     final c = context.colors;
     final text = TextStyle(
-      fontSize: FontSizes.row,
+      fontSize: FontSizes.md,
       height: 1.45,
       leadingDistribution: .even,
       color: c.text2,
     );
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.s14),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 12,
         children: [
           Text(
             none.title,
-            style: TextStyle(fontSize: FontSizes.body, color: c.badText),
+            style: TextStyle(fontSize: FontSizes.lg, color: c.badText),
           ),
           Column(
             crossAxisAlignment: .stretch,
@@ -232,7 +229,7 @@ class DiscoverPanel extends StatelessWidget {
             ],
           ),
           Container(
-            padding: const EdgeInsets.only(top: AppSpacing.s10),
+            padding: const EdgeInsets.only(top: 10),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.ground3)),
             ),

@@ -34,9 +34,9 @@ class CheckRow extends StatelessWidget {
               // The system checkbox's own margin (3 px, 4 on the left).
               margin: const EdgeInsets.fromLTRB(
                 AppSpacing.xs,
-                AppSpacing.s3,
-                AppSpacing.s3,
-                AppSpacing.s3,
+                3,
+                3,
+                3,
               ),
               decoration: BoxDecoration(
                 color: on ? c.ember : c.ground2,
@@ -50,7 +50,7 @@ class CheckRow extends StatelessWidget {
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text2),
               ),
             ),
           ],

@@ -276,7 +276,7 @@ class TableGridState extends State<TableGrid> {
   double get _gutter => 18 + '${_t.rows.length}'.length * _charW;
 
   TextStyle _headStyle(Color? color) =>
-      TextStyle(fontSize: FontSizes.meta, fontWeight: .w600, color: color);
+      TextStyle(fontSize: FontSizes.sm, fontWeight: .w600, color: color);
 
   // ---------- editing ----------
 
@@ -574,7 +574,7 @@ class TableGridState extends State<TableGrid> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(
-            AppSpacing.s12,
+            12,
             AppSpacing.sm,
             AppSpacing.sm,
             AppSpacing.sm,
@@ -594,7 +594,7 @@ class TableGridState extends State<TableGrid> {
                     isDense: true,
                     hintText: s.tableFilter,
                     hintStyle: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       color: c.text4,
                     ),
                     prefixIcon: Padding(
@@ -625,7 +625,7 @@ class TableGridState extends State<TableGrid> {
                   key: const ValueKey('table-count'),
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                 ),
               ),
               if (_editable) ...[
@@ -634,7 +634,7 @@ class TableGridState extends State<TableGrid> {
                   label: s.tableAddRow,
                   icon: 'ui_add',
                   size: ButtonSize.small,
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   inset: 8,
                   onPressed: _t.columns.isEmpty ? null : _addRow,
                 ),
@@ -643,7 +643,7 @@ class TableGridState extends State<TableGrid> {
                   label: s.tableAddColumn,
                   icon: 'ui_add',
                   size: ButtonSize.small,
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   inset: 8,
                   onPressed: _addColumn,
                 ),
@@ -655,15 +655,15 @@ class TableGridState extends State<TableGrid> {
         if (_message case final m?)
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
+              14,
               AppSpacing.none,
-              AppSpacing.s14,
+              14,
               AppSpacing.sm,
             ),
             child: Text(
               m,
               key: const ValueKey('table-refused'),
-              style: TextStyle(fontSize: FontSizes.meta, color: c.badText),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.badText),
             ),
           ),
         Expanded(
@@ -673,7 +673,7 @@ class TableGridState extends State<TableGrid> {
             ),
             child: _t.columns.isEmpty
                 ? Padding(
-                    padding: const EdgeInsets.all(AppSpacing.s14),
+                    padding: const EdgeInsets.all(14),
                     child: Text(
                       _editable ? s.tableNoColumnsEdit : s.tableNoColumns,
                       style: mono(color: c.text4),
@@ -702,12 +702,12 @@ class TableGridState extends State<TableGrid> {
                                     child: _shown.isEmpty
                                         ? Padding(
                                             padding: const EdgeInsets.all(
-                                              AppSpacing.s12,
+                                              12,
                                             ),
                                             child: Text(
                                               s.tableNoRows,
                                               style: TextStyle(
-                                                fontSize: FontSizes.meta,
+                                                fontSize: FontSizes.sm,
                                                 color: c.text4,
                                               ),
                                             ),
@@ -753,7 +753,7 @@ class TableGridState extends State<TableGrid> {
             value: () => _beginName(sel!.$2),
             child: Text(
               s.tableRenameColumn,
-              style: const TextStyle(fontSize: FontSizes.row),
+              style: const TextStyle(fontSize: FontSizes.md),
             ),
           ),
         PopupMenuItem(
@@ -762,7 +762,7 @@ class TableGridState extends State<TableGrid> {
           value: _removeRow,
           child: Text(
             s.tableRemoveRow,
-            style: const TextStyle(fontSize: FontSizes.row),
+            style: const TextStyle(fontSize: FontSizes.md),
           ),
         ),
         PopupMenuItem(
@@ -771,13 +771,13 @@ class TableGridState extends State<TableGrid> {
           value: _removeColumn,
           child: Text(
             s.tableRemoveColumn,
-            style: const TextStyle(fontSize: FontSizes.row),
+            style: const TextStyle(fontSize: FontSizes.md),
           ),
         ),
       ],
       child: SizedBox(
-        width: AppSpacing.xl,
-        height: AppSpacing.xl,
+        width: 32,
+        height: 32,
         child: Center(child: AppIcon('ui_more', size: 16, color: c.text3)),
       ),
     );
@@ -944,7 +944,7 @@ class TableGridState extends State<TableGrid> {
           width: _widths[i],
           height: _rowH,
           padding: EdgeInsets.symmetric(
-            horizontal: editing ? AppSpacing.s6 : AppSpacing.sm,
+            horizontal: editing ? 6 : AppSpacing.sm,
           ),
           alignment: shown.kind == .number && !editing
               ? .centerRight

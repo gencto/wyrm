@@ -65,10 +65,10 @@ class SitesPage extends StatelessWidget {
     final c = context.colors;
     final body = ListView(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s28,
-        AppSpacing.s28,
-        AppSpacing.s28,
-        AppSpacing.s40,
+        28,
+        28,
+        28,
+        40,
       ),
       children: [
         PageHeader(
@@ -81,7 +81,7 @@ class SitesPage extends StatelessWidget {
             onPressed: connectReason == null ? onConnect : null,
           ),
         ),
-        const SizedBox(height: AppSpacing.s14),
+        const SizedBox(height: 14),
         Align(
           alignment: .centerLeft,
           child: Button.secondary(
@@ -92,11 +92,11 @@ class SitesPage extends StatelessWidget {
           ),
         ),
         if (waiting case final w?) ...[
-          const SizedBox(height: AppSpacing.md),
+          Gaps.md,
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s14,
-              vertical: AppSpacing.s10,
+              horizontal: 14,
+              vertical: 10,
             ),
             decoration: BoxDecoration(
               color: c.warnTint,
@@ -108,7 +108,7 @@ class SitesPage extends StatelessWidget {
                 Expanded(
                   child: Text(
                     w,
-                    style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                    style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                   ),
                 ),
                 if (onReview != null)
@@ -123,9 +123,9 @@ class SitesPage extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: AppSpacing.s18),
+        const SizedBox(height: 18),
         Container(
-          padding: const EdgeInsets.all(AppSpacing.s18),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: c.ground0,
             border: .all(color: c.line1),

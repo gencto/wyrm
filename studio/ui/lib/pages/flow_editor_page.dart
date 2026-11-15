@@ -330,7 +330,7 @@ class FlowEditorPage extends StatelessWidget {
           children: [
             Container(
               constraints: const BoxConstraints(minHeight: 52),
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+              padding: const EdgeInsets.symmetric(vertical: 6),
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: Border(bottom: BorderSide(color: c.line1)),
@@ -361,7 +361,7 @@ class FlowEditorPage extends StatelessWidget {
                             child: Text(
                               flowsLabel,
                               style: TextStyle(
-                                fontSize: FontSizes.body,
+                                fontSize: FontSizes.lg,
                                 color: c.text3,
                               ),
                             ),
@@ -427,7 +427,7 @@ class FlowEditorPage extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: .ellipsis,
                                   style: TextStyle(
-                                    fontSize: FontSizes.meta,
+                                    fontSize: FontSizes.sm,
                                     color: c.text4,
                                   ),
                                 ),
@@ -458,7 +458,7 @@ class FlowEditorPage extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: .ellipsis,
                                 style: TextStyle(
-                                  fontSize: FontSizes.meta,
+                                  fontSize: FontSizes.sm,
                                   color: c.text4,
                                 ),
                               ),
@@ -616,9 +616,9 @@ class FlowEditorPage extends StatelessWidget {
         header: switch (nameField) {
           final f? => Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s18,
+              18,
               AppSpacing.md,
-              AppSpacing.s18,
+              18,
               AppSpacing.none,
             ),
             child: ParamField(vm: f),
@@ -682,7 +682,7 @@ class FlowEditorPage extends StatelessWidget {
             height: 34,
             child: Text(
               label,
-              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             ),
           ),
       ],

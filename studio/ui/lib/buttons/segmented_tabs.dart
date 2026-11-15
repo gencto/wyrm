@@ -87,9 +87,7 @@ class SegmentedTabs extends StatelessWidget {
       child: Container(
         height: height,
         padding: EdgeInsets.symmetric(
-          horizontal: equal
-              ? AppSpacing.xs
-              : (plainCounts ? AppSpacing.s14 : AppSpacing.s12),
+          horizontal: equal ? AppSpacing.xs : (plainCounts ? 14 : 12),
         ),
         alignment: equal ? Alignment.center : null,
         decoration: BoxDecoration(
@@ -121,13 +119,13 @@ class SegmentedTabs extends StatelessWidget {
             if (t.count case final n? when plainCounts)
               Text(
                 n,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
               )
             else if (t.count case final n?)
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+                padding: const EdgeInsets.symmetric(horizontal: 6),
                 decoration: BoxDecoration(
                   color: t.countTone == .neutral
                       ? c.ground4
@@ -139,7 +137,7 @@ class SegmentedTabs extends StatelessWidget {
                   child: Text(
                     n,
                     style: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       color: t.countTone == .neutral
                           ? c.text3
                           : toneColor(c, t.countTone),

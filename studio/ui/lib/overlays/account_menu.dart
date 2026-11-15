@@ -118,7 +118,7 @@ class _AccountMenuState extends State<AccountMenu> {
     Widget label(String text) => Text(
       text.toUpperCase(),
       style: TextStyle(
-        fontSize: FontSizes.tag,
+        fontSize: FontSizes.xs,
         fontWeight: .w600,
         letterSpacing: 0.66,
         color: c.text4,
@@ -136,17 +136,17 @@ class _AccountMenuState extends State<AccountMenu> {
       child: SizedBox(
         width: AppSizes.menu,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s14,
+                  14,
                   AppSpacing.sm,
-                  AppSpacing.s14,
-                  AppSpacing.s10,
+                  14,
+                  10,
                 ),
                 child: Column(
                   crossAxisAlignment: .start,
@@ -163,7 +163,7 @@ class _AccountMenuState extends State<AccountMenu> {
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: c.text4,
                       ),
                     ),
@@ -173,9 +173,9 @@ class _AccountMenuState extends State<AccountMenu> {
               Divider(height: 1, color: c.line1),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s14,
-                  AppSpacing.s12,
-                  AppSpacing.s14,
+                  14,
+                  12,
+                  14,
                   AppSpacing.xs,
                 ),
                 child: Column(
@@ -192,7 +192,7 @@ class _AccountMenuState extends State<AccountMenu> {
                         },
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.xs),
+                    Gaps.xs,
                     label(s.menuTheme),
                     ThemeSwitcher(
                       vm: FieldVm(
@@ -213,13 +213,13 @@ class _AccountMenuState extends State<AccountMenu> {
                   child: Container(
                     height: 38,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.s14,
+                      horizontal: 14,
                     ),
                     alignment: .centerLeft,
                     child: Text(
                       s.securityMenu,
                       style: TextStyle(
-                        fontSize: FontSizes.body,
+                        fontSize: FontSizes.lg,
                         color: c.text1,
                       ),
                     ),
@@ -230,12 +230,12 @@ class _AccountMenuState extends State<AccountMenu> {
                 child: Container(
                   height: 38,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.s14,
+                    horizontal: 14,
                   ),
                   alignment: .centerLeft,
                   child: Text(
                     s.logOut,
-                    style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                    style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                   ),
                 ),
               ),

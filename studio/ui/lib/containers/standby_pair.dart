@@ -66,7 +66,7 @@ class StandbyPair extends StatelessWidget {
     final lagFill = dark ? const Color(0xFF211D10) : c.warnTint;
     final tone = vm.behind ? c.warn : c.good;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s20),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -95,7 +95,7 @@ class StandbyPair extends StatelessWidget {
                   spacing: 6,
                   children: [
                     SizedBox(
-                      height: AppSpacing.lg,
+                      height: 24,
                       width: double.infinity,
                       child: CustomPaint(
                         painter: _Arrow(color: tone, dashed: vm.behind),
@@ -105,7 +105,7 @@ class StandbyPair extends StatelessWidget {
                       vm.flow,
                       textAlign: .center,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: c.text3,
                       ),
                     ),
@@ -113,7 +113,7 @@ class StandbyPair extends StatelessWidget {
                       vm.every,
                       textAlign: .center,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: c.text4,
                       ),
                     ),
@@ -160,7 +160,7 @@ class StandbyPair extends StatelessWidget {
         Text(
           label.toUpperCase(),
           style: TextStyle(
-            fontSize: FontSizes.meta,
+            fontSize: FontSizes.sm,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: tone,
@@ -172,14 +172,14 @@ class StandbyPair extends StatelessWidget {
           overflow: .ellipsis,
           style: TextStyle(
             fontFamily: AppFonts.mono,
-            fontSize: FontSizes.section,
+            fontSize: 16,
             color: c.text1,
           ),
         ),
         CodeText(
           note,
           style: TextStyle(
-            fontSize: FontSizes.row,
+            fontSize: FontSizes.md,
             height: 1.5,
             color: c.text3,
           ),

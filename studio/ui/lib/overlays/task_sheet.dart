@@ -471,9 +471,9 @@ class TaskSheet extends StatelessWidget {
     final head = Padding(
       padding: EdgeInsets.fromLTRB(
         pad,
-        dialog ? AppSpacing.s22 : AppSpacing.s18,
+        dialog ? 22 : 18,
         pad,
-        AppSpacing.s12,
+        12,
       ),
       child: Column(
         crossAxisAlignment: .start,
@@ -506,7 +506,7 @@ class TaskSheet extends StatelessWidget {
                   child: Text(
                     p,
                     style: TextStyle(
-                      fontSize: FontSizes.tag,
+                      fontSize: FontSizes.xs,
                       color: vm.pillTone == .neutral
                           ? c.text3
                           : toneColor(c, vm.pillTone),
@@ -528,7 +528,7 @@ class TaskSheet extends StatelessWidget {
             Text(
               s,
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 height: 1.5,
                 color: c.text3,
               ),
@@ -565,9 +565,9 @@ class TaskSheet extends StatelessWidget {
     final foot = Container(
       padding: EdgeInsets.fromLTRB(
         pad,
-        AppSpacing.s14,
+        14,
         pad,
-        dialog ? AppSpacing.s20 : AppSpacing.s18,
+        dialog ? 20 : 18,
       ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
@@ -578,7 +578,7 @@ class TaskSheet extends StatelessWidget {
           Expanded(
             child: Text(
               vm.note ?? '',
-              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
           ),
           if (vm.secondary case final s?)
@@ -668,7 +668,7 @@ class TaskSheet extends StatelessWidget {
         return Text(
           text.toUpperCase(),
           style: TextStyle(
-            fontSize: FontSizes.meta,
+            fontSize: FontSizes.sm,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: c.text4,
@@ -714,7 +714,7 @@ class TaskSheet extends StatelessWidget {
                     child: Text(
                       line,
                       style: TextStyle(
-                        fontSize: FontSizes.row,
+                        fontSize: FontSizes.md,
                         height: 1.5,
                         color: c.text2,
                       ),
@@ -727,8 +727,8 @@ class TaskSheet extends StatelessWidget {
       case SheetCard(:final title, :final detail, :final tone):
         return Container(
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.s12,
-            vertical: AppSpacing.s10,
+            horizontal: 12,
+            vertical: 10,
           ),
           decoration: BoxDecoration(
             color: card,
@@ -746,7 +746,7 @@ class TaskSheet extends StatelessWidget {
               Container(
                 width: 8,
                 height: 8,
-                margin: const EdgeInsets.only(top: AppSpacing.s6),
+                margin: const EdgeInsets.only(top: 6),
                 decoration: BoxDecoration(
                   color: toneColor(c, tone),
                   shape: .circle,
@@ -759,13 +759,13 @@ class TaskSheet extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+                      style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                     ),
                     if (detail != null && detail.isNotEmpty)
                       Text(
                         detail,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           height: 1.45,
                           color: c.text4,
                         ),
@@ -803,8 +803,8 @@ class TaskSheet extends StatelessWidget {
                   spacing: 12,
                   children: [
                     SizedBox(
-                      width: AppSpacing.s20,
-                      height: AppSpacing.s20,
+                      width: 20,
+                      height: 20,
                       child: switch (s.state) {
                         .now => ArcSpinner(color: c.ember, size: 20),
                         .done => DecoratedBox(
@@ -840,7 +840,7 @@ class TaskSheet extends StatelessWidget {
                           Text(
                             s.title,
                             style: TextStyle(
-                              fontSize: FontSizes.row,
+                              fontSize: FontSizes.md,
                               color: s.state == .todo ? c.text4 : c.text1,
                             ),
                           ),
@@ -858,10 +858,7 @@ class TaskSheet extends StatelessWidget {
         return Semantics(
           liveRegion: true,
           child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.s14,
-            ),
+            padding: Insets.notice,
             decoration: BoxDecoration(
               color: toneTint(c, tone),
               borderRadius: Radii.card,
@@ -888,7 +885,7 @@ class TaskSheet extends StatelessWidget {
                       Text(
                         title,
                         style: TextStyle(
-                          fontSize: FontSizes.body,
+                          fontSize: FontSizes.lg,
                           fontWeight: .w600,
                           color: c.text1,
                         ),
@@ -897,7 +894,7 @@ class TaskSheet extends StatelessWidget {
                         Text(
                           text,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             height: 1.5,
                             color: c.text2,
                           ),
@@ -917,8 +914,8 @@ class TaskSheet extends StatelessWidget {
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.s12,
-                    vertical: AppSpacing.s10,
+                    horizontal: 12,
+                    vertical: 10,
                   ),
                   decoration: BoxDecoration(
                     color: card,
@@ -941,7 +938,7 @@ class TaskSheet extends StatelessWidget {
                       Text(
                         t.label,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.text4,
                         ),
                       ),
@@ -966,7 +963,7 @@ class TaskSheet extends StatelessWidget {
         return _choice(context, b);
       case SheetCode(:final text):
         return Container(
-          padding: const EdgeInsets.all(AppSpacing.s12),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: c.ground0,
             borderRadius: Radii.control,
@@ -982,7 +979,7 @@ class TaskSheet extends StatelessWidget {
             ClipRRect(
               borderRadius: Radii.chip,
               child: SizedBox(
-                height: AppSpacing.sm,
+                height: 8,
                 child: LinearProgressIndicator(
                   value: percent.clamp(0, 100) / 100,
                   backgroundColor: c.ground4,
@@ -993,7 +990,7 @@ class TaskSheet extends StatelessWidget {
             if (text != null && text.isNotEmpty)
               Text(
                 text,
-                style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text2),
               ),
           ],
         );
@@ -1017,7 +1014,7 @@ class TaskSheet extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: FontSizes.body,
+                        fontSize: FontSizes.lg,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -1026,7 +1023,7 @@ class TaskSheet extends StatelessWidget {
                       Text(
                         text,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           color: c.text3,
                         ),
                       ),
@@ -1048,11 +1045,11 @@ class TaskSheet extends StatelessWidget {
       children: [
         if (b.sign case final s?)
           SizedBox(
-            width: AppSpacing.s14,
+            width: 14,
             child: Text(
               s,
               style: TextStyle(
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 color: toneColor(c, b.tone),
               ),
             ),
@@ -1068,12 +1065,12 @@ class TaskSheet extends StatelessWidget {
                 b.text,
                 style: b.mono
                     ? mono(size: 12, color: c.text2)
-                    : TextStyle(fontSize: FontSizes.row, color: c.text2),
+                    : TextStyle(fontSize: FontSizes.md, color: c.text2),
               ),
               if (b.divider && (b.note ?? '').isNotEmpty)
                 Text(
                   b.note!,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
             ],
           ),
@@ -1083,7 +1080,7 @@ class TaskSheet extends StatelessWidget {
             child: Text(
               n,
               textAlign: .end,
-              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
           ),
         if (link != null && b.actionLabel != null)
@@ -1095,7 +1092,7 @@ class TaskSheet extends StatelessWidget {
               child: Text(
                 b.actionLabel!,
                 style: TextStyle(
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   color: onAction == null ? c.muted : c.emberSoft,
                 ),
               ),
@@ -1126,7 +1123,7 @@ class TaskSheet extends StatelessWidget {
         spacing: 10,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.s2),
+            padding: const EdgeInsets.only(top: 2),
             child: _Box(on: b.on, dim: b.locked),
           ),
           Expanded(
@@ -1149,7 +1146,7 @@ class TaskSheet extends StatelessWidget {
                             child: Text(
                               b.name,
                               style: TextStyle(
-                                fontSize: FontSizes.body,
+                                fontSize: FontSizes.lg,
                                 fontWeight: .w600,
                                 color: c.text1,
                               ),
@@ -1158,8 +1155,8 @@ class TaskSheet extends StatelessWidget {
                           if (b.tag case final t?)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.s6,
-                                vertical: AppSpacing.s1,
+                                horizontal: 6,
+                                vertical: 1,
                               ),
                               decoration: BoxDecoration(
                                 color: toneTint(c, b.tagTone),
@@ -1168,7 +1165,7 @@ class TaskSheet extends StatelessWidget {
                               child: Text(
                                 t,
                                 style: TextStyle(
-                                  fontSize: FontSizes.tag,
+                                  fontSize: FontSizes.xs,
                                   color: b.tagTone == .neutral
                                       ? c.text3
                                       : toneColor(c, b.tagTone),
@@ -1186,7 +1183,7 @@ class TaskSheet extends StatelessWidget {
                   Text(
                     d,
                     style: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       height: 1.45,
                       color: c.text4,
                     ),
@@ -1227,8 +1224,8 @@ class TaskSheet extends StatelessWidget {
       opacity: b.on ? 1 : 0.55,
       child: Container(
         padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s12,
-          vertical: AppSpacing.s10,
+          horizontal: 12,
+          vertical: 10,
         ),
         decoration: BoxDecoration(
           color: card,
@@ -1275,7 +1272,7 @@ class TaskSheet extends StatelessWidget {
                     Container(
                       width: 14,
                       height: 14,
-                      margin: const EdgeInsets.only(top: AppSpacing.s3),
+                      margin: const EdgeInsets.only(top: 3),
                       decoration: BoxDecoration(
                         shape: .circle,
                         border: .all(
@@ -1288,7 +1285,7 @@ class TaskSheet extends StatelessWidget {
                       child: Text(
                         label,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           height: 1.5,
                           color: c.text2,
                         ),
@@ -1302,7 +1299,7 @@ class TaskSheet extends StatelessWidget {
       );
     } else {
       options = Container(
-        padding: const EdgeInsets.all(AppSpacing.s3),
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
           color: c.ground3,
           borderRadius: Radii.control,
@@ -1327,7 +1324,7 @@ class TaskSheet extends StatelessWidget {
                             label,
                             overflow: .ellipsis,
                             style: TextStyle(
-                              fontSize: FontSizes.row,
+                              fontSize: FontSizes.md,
                               color: v == b.selected ? c.text1 : c.text3,
                             ),
                           ),
@@ -1348,13 +1345,13 @@ class TaskSheet extends StatelessWidget {
         if (b.label case final l?)
           Text(
             l,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text2),
           ),
         options,
         if (b.note case final n?)
           Text(
             n,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
       ],
     );
@@ -1432,7 +1429,7 @@ class _Chip extends StatelessWidget {
                 Text(
                   chip.label,
                   style: TextStyle(
-                    fontSize: FontSizes.meta,
+                    fontSize: FontSizes.sm,
                     color: picked ? c.emberSoft : (multi ? c.text2 : c.text3),
                   ),
                 ),
@@ -1497,10 +1494,10 @@ class _SheetInputState extends State<_SheetInput> {
       children: [
         Text(
           f.label,
-          style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+          style: TextStyle(fontSize: FontSizes.md, color: c.text2),
         ),
         SizedBox(
-          height: AppSpacing.s40,
+          height: 40,
           child: TextField(
             controller: _text,
             enabled: f.enabled,
@@ -1508,13 +1505,13 @@ class _SheetInputState extends State<_SheetInput> {
             enableSuggestions: !f.secret,
             autocorrect: false,
             onChanged: (v) => widget.onText?.call(f.id, v),
-            style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
             decoration: InputDecoration(
               isDense: true,
               filled: true,
               fillColor: widget.ground,
               hintText: f.hint,
-              hintStyle: TextStyle(fontSize: FontSizes.body, color: c.muted),
+              hintStyle: TextStyle(fontSize: FontSizes.lg, color: c.muted),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 11,
@@ -1529,13 +1526,13 @@ class _SheetInputState extends State<_SheetInput> {
         if (f.error case final e?)
           Text(
             e,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.badText),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.badText),
           )
         else if (f.note case final n?)
           Text(
             n,
             style: TextStyle(
-              fontSize: FontSizes.meta,
+              fontSize: FontSizes.sm,
               height: 1.45,
               color: c.text4,
             ),

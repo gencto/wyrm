@@ -113,7 +113,7 @@ class ChoiceCard extends StatelessWidget {
                         style: vm.monoTitle
                             ? mono(size: 15, weight: .w600, color: c.text1)
                             : TextStyle(
-                                fontSize: FontSizes.section,
+                                fontSize: FontSizes.sectionTitle,
                                 fontWeight: .w600,
                                 color: c.text1,
                               ),
@@ -123,7 +123,7 @@ class ChoiceCard extends StatelessWidget {
                       Text(
                         b,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.text4,
                         ),
                       ),
@@ -135,7 +135,7 @@ class ChoiceCard extends StatelessWidget {
                     style: vm.monoTitle
                         ? mono(size: 12, color: c.text4)
                         : TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             height: 1.45,
                             color: c.text3,
                           ),
@@ -144,7 +144,7 @@ class ChoiceCard extends StatelessWidget {
                   Text(
                     n,
                     style: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       color: off ? c.text3 : toneColor(c, vm.noteTone),
                     ),
                   ),

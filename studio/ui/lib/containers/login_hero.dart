@@ -83,7 +83,7 @@ class _LoginHeroState extends State<LoginHero> {
         border: Border(right: BorderSide(color: c.ground3)),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(right: AppSpacing.s1),
+        padding: const EdgeInsets.only(right: 1),
         child: ClipRect(
           child: CustomPaint(
             painter: _Glow(LoginHero.glow, c.ground0),
@@ -141,7 +141,7 @@ class _LoginHeroState extends State<LoginHero> {
                                 child: Text(
                                   S.current.heroLead,
                                   style: TextStyle(
-                                    fontSize: FontSizes.section,
+                                    fontSize: 16,
                                     height: 1.6,
                                     leadingDistribution: .even,
                                     color: c.text3,
@@ -166,7 +166,7 @@ class _LoginHeroState extends State<LoginHero> {
                               Text(
                                 S.current.legendNote,
                                 style: TextStyle(
-                                  fontSize: FontSizes.meta,
+                                  fontSize: FontSizes.sm,
                                   color: c.text4,
                                 ),
                               ),
@@ -191,13 +191,13 @@ class _LoginHeroState extends State<LoginHero> {
     spacing: 6,
     children: [
       SizedBox(
-        width: AppSpacing.s14,
-        height: AppSpacing.s2,
+        width: 14,
+        height: 2,
         child: ColoredBox(color: line),
       ),
       Text(
         label,
-        style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+        style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
       ),
     ],
   );
@@ -523,7 +523,7 @@ class _Network extends CustomPainter {
     if (clear.isNotEmpty) {
       final erase = Paint()
         ..blendMode = .dstOut
-        ..color = Shades.black
+        ..color = Shades.mask
         ..maskFilter = const MaskFilter.blur(.normal, _quietBlur);
       for (final r in clear) {
         canvas.drawRRect(

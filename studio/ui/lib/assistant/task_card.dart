@@ -62,7 +62,7 @@ class TaskCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      margin: const EdgeInsets.only(left: AppSpacing.s42),
+      margin: const EdgeInsets.only(left: 42),
       // the note's band ends at the card's rounded corners
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
@@ -75,9 +75,9 @@ class TaskCard extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s12,
-              AppSpacing.s14,
+              14,
+              12,
+              14,
               AppSpacing.sm,
             ),
             child: SectionLabel(vm.title),
@@ -86,19 +86,19 @@ class TaskCard extends StatelessWidget {
             color: vm.caution ? c.warnTint : null,
             padding: vm.caution
                 ? const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.s14,
+                    horizontal: 14,
                     vertical: AppSpacing.sm,
                   )
                 : const EdgeInsets.fromLTRB(
-                    AppSpacing.s14,
+                    14,
                     AppSpacing.none,
-                    AppSpacing.s14,
-                    AppSpacing.s12,
+                    14,
+                    12,
                   ),
             child: Text(
               vm.note,
               style: TextStyle(
-                fontSize: FontSizes.row,
+                fontSize: FontSizes.md,
                 height: 1.45,
                 color: vm.caution ? c.warn : c.text3,
               ),
@@ -106,7 +106,7 @@ class TaskCard extends StatelessWidget {
           ),
           if (vm.buttons.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.all(AppSpacing.s12),
+              padding: const EdgeInsets.all(12),
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,

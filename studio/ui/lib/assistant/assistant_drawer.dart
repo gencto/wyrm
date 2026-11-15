@@ -122,7 +122,7 @@ class AssistantDrawer extends StatelessWidget {
               height: 48,
               padding: const EdgeInsets.only(
                 left: AppSpacing.md,
-                right: AppSpacing.s6,
+                right: 6,
               ),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
@@ -134,7 +134,7 @@ class AssistantDrawer extends StatelessWidget {
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: FontSizes.body,
+                      fontSize: FontSizes.lg,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -163,11 +163,11 @@ class AssistantDrawer extends StatelessWidget {
             Expanded(
               child: empty != null
                   ? Padding(
-                      padding: const EdgeInsets.all(AppSpacing.s20),
+                      padding: const EdgeInsets.all(20),
                       child: Text(
                         empty!,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           color: c.text2,
                         ),
                       ),
@@ -205,8 +205,8 @@ class AssistantDrawer extends StatelessWidget {
                           if (second case final t?)
                             Padding(
                               padding: const EdgeInsets.only(
-                                left: AppSpacing.s42,
-                                top: AppSpacing.s12,
+                                left: 42,
+                                top: 12,
                               ),
                               child: Column(
                                 crossAxisAlignment: .stretch,
@@ -216,7 +216,7 @@ class AssistantDrawer extends StatelessWidget {
                                     Text(
                                       l,
                                       style: TextStyle(
-                                        fontSize: FontSizes.tag,
+                                        fontSize: FontSizes.xs,
                                         color: c.text3,
                                       ),
                                     ),

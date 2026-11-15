@@ -40,10 +40,7 @@ class Notice extends StatelessWidget {
     };
     final light = Theme.of(context).brightness == .light;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s14,
-        vertical: AppSpacing.s12,
-      ),
+      padding: Insets.card,
       decoration: BoxDecoration(
         color: bg,
         border: Border.all(color: line),
@@ -54,7 +51,7 @@ class Notice extends StatelessWidget {
         spacing: 10,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.s1),
+            padding: const EdgeInsets.only(top: 1),
             child: AppIcon(icon, size: 16, color: toneOf(c, vm.tone)),
           ),
           Expanded(
@@ -65,7 +62,7 @@ class Notice extends StatelessWidget {
                 Text(
                   vm.message,
                   style: TextStyle(
-                    fontSize: FontSizes.row,
+                    fontSize: FontSizes.md,
                     color: light ? c.text1 : fg,
                   ),
                 ),

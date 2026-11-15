@@ -4,7 +4,6 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [CommandCard] draws: shell commands the user runs on a host.
@@ -49,7 +48,7 @@ class CommandCard extends StatelessWidget {
     final c = context.colors;
     final dark = Theme.of(context).brightness == .dark;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s14),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: c.ground0,
         border: .all(color: c.line1),
@@ -62,15 +61,15 @@ class CommandCard extends StatelessWidget {
           Text(
             vm.title,
             style: TextStyle(
-              fontSize: FontSizes.row,
+              fontSize: FontSizes.md,
               fontWeight: .w600,
               color: c.text1,
             ),
           ),
           Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s12,
-              vertical: AppSpacing.s10,
+              horizontal: 12,
+              vertical: 10,
             ),
             decoration: BoxDecoration(
               color: Color.alphaBlend(
@@ -92,7 +91,7 @@ class CommandCard extends StatelessWidget {
                     vm.code.split('').join('\u200B'),
                     style: TextStyle(
                       fontFamily: AppFonts.mono,
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       height: 1.7,
                       color: c.text2,
                     ),
@@ -131,7 +130,7 @@ class CommandCard extends StatelessWidget {
           Text(
             vm.note,
             style: TextStyle(
-              fontSize: FontSizes.meta,
+              fontSize: FontSizes.sm,
               height: 1.5,
               color: c.text4,
             ),

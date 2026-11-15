@@ -185,10 +185,10 @@ class _NodeTreeState extends State<NodeTree> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s12,
-              AppSpacing.s14,
-              AppSpacing.s12,
-              AppSpacing.s10,
+              12,
+              14,
+              12,
+              10,
             ),
             child: Column(
               crossAxisAlignment: .stretch,
@@ -215,11 +215,11 @@ class _NodeTreeState extends State<NodeTree> {
                       AppSpacing.sm,
                       AppSpacing.none,
                       AppSpacing.sm,
-                      AppSpacing.s12,
+                      12,
                     ),
                     itemCount: rows.length,
                     itemBuilder: (_, i) => Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.s1),
+                      padding: const EdgeInsets.only(bottom: 1),
                       child: GestureDetector(
                         onSecondaryTapUp: onMenu == null
                             ? null
@@ -240,12 +240,12 @@ class _NodeTreeState extends State<NodeTree> {
           if (note case final n?)
             Container(
               margin: const EdgeInsets.fromLTRB(
-                AppSpacing.s12,
+                12,
                 AppSpacing.none,
-                AppSpacing.s12,
-                AppSpacing.s14,
+                12,
+                14,
               ),
-              padding: const EdgeInsets.only(top: AppSpacing.s12),
+              padding: const EdgeInsets.only(top: 12),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
@@ -258,7 +258,7 @@ class _NodeTreeState extends State<NodeTree> {
 
   Widget _filter(AppColors c) => Container(
     height: 36,
-    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+    padding: Insets.control,
     decoration: BoxDecoration(
       color: c.ground3,
       border: .all(color: c.line1),
@@ -272,7 +272,7 @@ class _NodeTreeState extends State<NodeTree> {
           child: TextFormField(
             initialValue: filter,
             onChanged: onFilter,
-            style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             decoration: InputDecoration(
               isCollapsed: true,
               contentPadding: EdgeInsets.zero,
@@ -281,7 +281,7 @@ class _NodeTreeState extends State<NodeTree> {
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               hintText: filterHint,
-              hintStyle: TextStyle(fontSize: FontSizes.row, color: c.text4),
+              hintStyle: TextStyle(fontSize: FontSizes.md, color: c.text4),
             ),
           ),
         ),
@@ -292,7 +292,7 @@ class _NodeTreeState extends State<NodeTree> {
   Widget _skeleton(AppColors c, int i) => Container(
     height: 40,
     padding: EdgeInsets.only(
-      left: AppSpacing.s10 + (i % AppSpacing.s3) * 16,
+      left: 10 + (i % 3) * 16,
       right: 10,
     ),
     alignment: .centerLeft,
@@ -305,7 +305,7 @@ class _NodeTreeState extends State<NodeTree> {
 
   Widget _note(AppColors c, TreeNoteVm n) {
     final base = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       height: 1.5,
       color: c.text4,
     );

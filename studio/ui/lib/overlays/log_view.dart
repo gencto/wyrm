@@ -33,13 +33,13 @@ class LogView extends StatelessWidget {
           ? Center(
               child: Text(
                 empty,
-                style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
             )
           : Scrollbar(
               child: SelectionArea(
                 child: ListView.builder(
-                  padding: const EdgeInsets.all(AppSpacing.s12),
+                  padding: const EdgeInsets.all(12),
                   itemCount: lines.length,
                   itemBuilder: (_, i) => Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.xs),

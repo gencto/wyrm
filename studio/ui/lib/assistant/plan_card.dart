@@ -224,10 +224,7 @@ class _PlanCardState extends State<PlanCard> {
     final toggle = _open ? vm.hideLabel : vm.showLabel;
     final open = _open || vm.showLabel == null;
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -239,10 +236,10 @@ class _PlanCardState extends State<PlanCard> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s12,
-              AppSpacing.s14,
-              AppSpacing.s10,
+              14,
+              12,
+              14,
+              10,
             ),
             // a long state line (how far it was checked) wraps beside the
             // toggle instead of pushing it out
@@ -264,7 +261,7 @@ class _PlanCardState extends State<PlanCard> {
                       vm.state,
                       textAlign: .right,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: vm.stateTone == .neutral
                             ? c.text3
                             : toneColor(c, vm.stateTone),
@@ -277,7 +274,7 @@ class _PlanCardState extends State<PlanCard> {
                       child: Text(
                         toggle,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.text2,
                         ),
                       ),
@@ -297,10 +294,10 @@ class _PlanCardState extends State<PlanCard> {
           if (vm.note case final n? when open)
             Container(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.s14,
-                AppSpacing.s10,
-                AppSpacing.s14,
-                AppSpacing.s12,
+                14,
+                10,
+                14,
+                12,
               ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
@@ -308,7 +305,7 @@ class _PlanCardState extends State<PlanCard> {
               child: Text(
                 n,
                 style: TextStyle(
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   height: 1.45,
                   color: c.text3,
                 ),
@@ -337,17 +334,17 @@ class _Step extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final small = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       height: 1.45,
       color: c.text3,
     );
     final can = onTick != null && vm.tickReason == null;
     return Container(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s14,
-        AppSpacing.s10,
-        AppSpacing.s14,
-        AppSpacing.s10,
+        14,
+        10,
+        14,
+        10,
       ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
@@ -446,8 +443,8 @@ class _Step extends StatelessWidget {
                 if (vm.warn case final w?)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.s10,
-                      vertical: AppSpacing.s6,
+                      horizontal: 10,
+                      vertical: 6,
                     ),
                     decoration: BoxDecoration(
                       color: c.warnTint,

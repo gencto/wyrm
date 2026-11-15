@@ -30,9 +30,9 @@ class AnswerList extends StatelessWidget {
         SectionLabel(title),
         Text(
           note,
-          style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+          style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
         ),
-        const SizedBox(height: AppSpacing.s10),
+        const SizedBox(height: 10),
         for (final (label, value) in answers)
           Container(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
@@ -45,11 +45,11 @@ class AnswerList extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
                 Text(
                   value,
-                  style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                 ),
               ],
             ),

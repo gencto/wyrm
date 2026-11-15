@@ -83,13 +83,13 @@ class RowList extends StatelessWidget {
           if (rows.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s12,
-                vertical: AppSpacing.s12,
+                horizontal: 12,
+                vertical: 12,
               ),
               child: Text(
                 empty,
                 style: TextStyle(
-                  fontSize: FontSizes.row,
+                  fontSize: FontSizes.md,
                   height: 1.5,
                   color: emptyBad ? c.text3 : c.text4,
                 ),
@@ -98,8 +98,8 @@ class RowList extends StatelessWidget {
           for (final (i, r) in rows.indexed)
             Container(
               padding: EdgeInsets.symmetric(
-                horizontal: AppSpacing.s12,
-                vertical: r.action == null ? AppSpacing.s10 : AppSpacing.sm,
+                horizontal: 12,
+                vertical: r.action == null ? 10 : AppSpacing.sm,
               ),
               decoration: BoxDecoration(
                 border: i == 0
@@ -120,7 +120,7 @@ class RowList extends StatelessWidget {
                           overflow: .ellipsis,
                           style: TextStyle(
                             fontFamily: AppFonts.mono,
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             color: c.text1,
                           ),
                         ),
@@ -130,7 +130,7 @@ class RowList extends StatelessWidget {
                             maxLines: 1,
                             overflow: .ellipsis,
                             style: TextStyle(
-                              fontSize: FontSizes.meta,
+                              fontSize: FontSizes.sm,
                               color: c.text4,
                             ),
                           ),
@@ -141,7 +141,7 @@ class RowList extends StatelessWidget {
                     Text(
                       r.trailing,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: c.text4,
                       ),
                     ),
@@ -174,11 +174,11 @@ class RowList extends StatelessWidget {
           child: Container(
             height: 30,
             alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+            padding: Insets.control,
             child: Text(
               label,
               style: TextStyle(
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 color: enabled ? c.text3 : c.muted,
               ),
             ),

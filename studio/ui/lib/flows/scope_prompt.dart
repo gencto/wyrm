@@ -125,7 +125,7 @@ class _ScopePromptState extends State<ScopePrompt> {
         color: Colors.transparent,
         child: Container(
           width: ScopePrompt.width,
-          padding: const EdgeInsets.all(AppSpacing.s12),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: c.ground2,
             border: .all(color: c.emberLine),
@@ -134,7 +134,7 @@ class _ScopePromptState extends State<ScopePrompt> {
             ),
             boxShadow: const [
               BoxShadow(
-                color: Shades.black45,
+                color: Shades.popupShadow,
                 offset: Offset(0, 12),
                 blurRadius: 28,
               ),
@@ -148,14 +148,14 @@ class _ScopePromptState extends State<ScopePrompt> {
               Text(
                 vm.title,
                 style: TextStyle(
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   fontWeight: .w600,
                   color: c.text2,
                 ),
               ),
               Container(
                 height: 34,
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+                padding: Insets.control,
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
                   color: c.ground3,
@@ -192,8 +192,8 @@ class _ScopePromptState extends State<ScopePrompt> {
                         ),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.s6,
-                            vertical: AppSpacing.s3,
+                            horizontal: 6,
+                            vertical: 3,
                           ),
                           decoration: BoxDecoration(
                             color: c.ground4,
@@ -214,7 +214,7 @@ class _ScopePromptState extends State<ScopePrompt> {
               Text(
                 problem ?? vm.note,
                 style: TextStyle(
-                  fontSize: FontSizes.tag,
+                  fontSize: FontSizes.xs,
                   height: 1.4,
                   color: problem == null ? c.text4 : c.bad,
                 ),

@@ -94,15 +94,12 @@ class MoreRowsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final small = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       height: 1.45,
       color: c.text3,
     );
     return Container(
-      margin: const EdgeInsets.only(
-        left: AppSpacing.s42,
-        bottom: AppSpacing.s12,
-      ),
+      margin: Insets.assistantCard,
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -114,10 +111,10 @@ class MoreRowsCard extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s10,
-              AppSpacing.s14,
-              AppSpacing.s10,
+              14,
+              10,
+              14,
+              10,
             ),
             child: Column(
               crossAxisAlignment: .start,
@@ -125,7 +122,7 @@ class MoreRowsCard extends StatelessWidget {
               children: [
                 Text(
                   vm.title,
-                  style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                 ),
                 if (vm.detail.isNotEmpty) Text(vm.detail, style: small),
               ],
@@ -134,10 +131,10 @@ class MoreRowsCard extends StatelessWidget {
           for (final r in vm.rows)
             Container(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.s6,
-                AppSpacing.s2,
-                AppSpacing.s14,
-                AppSpacing.s2,
+                6,
+                2,
+                14,
+                2,
               ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
@@ -156,7 +153,7 @@ class MoreRowsCard extends StatelessWidget {
                         Text(
                           r.label,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             color: c.text1,
                           ),
                         ),
@@ -176,10 +173,10 @@ class MoreRowsCard extends StatelessWidget {
             ),
           Container(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s14,
-              AppSpacing.s10,
-              AppSpacing.s14,
-              AppSpacing.s12,
+              14,
+              10,
+              14,
+              12,
             ),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),

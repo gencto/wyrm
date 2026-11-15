@@ -285,7 +285,7 @@ class _LogToolbarState extends State<LogToolbar> {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
-        vertical: AppSpacing.s14,
+        vertical: 14,
       ),
       decoration: BoxDecoration(
         color: c.ground1,
@@ -398,7 +398,7 @@ class _LogToolbarState extends State<LogToolbar> {
               onPressed: enabled ? widget.onGet : null,
               disabledReason: vm.disabledReason,
               size: ButtonSize.compact,
-              fontSize: FontSizes.row,
+              fontSize: FontSizes.md,
             ),
           ];
           return wide
@@ -425,7 +425,7 @@ class _LogToolbarState extends State<LogToolbar> {
     children: [
       Text(
         label,
-        style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+        style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
       ),
       control,
     ],
@@ -469,7 +469,7 @@ class _LogToolbarState extends State<LogToolbar> {
             height: 36,
             child: Text(
               i.label,
-              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             ),
           ),
       ],
@@ -477,7 +477,7 @@ class _LogToolbarState extends State<LogToolbar> {
         height: 36,
         width: minWidth,
         padding: const EdgeInsets.only(
-          left: AppSpacing.s12,
+          left: 12,
           right: AppSpacing.sm,
         ),
         decoration: _box(c),
@@ -490,7 +490,7 @@ class _LogToolbarState extends State<LogToolbar> {
                 maxLines: 1,
                 overflow: .ellipsis,
                 style: TextStyle(
-                  fontSize: FontSizes.row,
+                  fontSize: FontSizes.md,
                   color: enabled ? c.text1 : c.muted,
                 ),
               ),
@@ -531,7 +531,7 @@ class _LogToolbarState extends State<LogToolbar> {
       cursorColor: c.ember,
       style: TextStyle(
         fontFamily: mono ? AppFonts.mono : AppFonts.sans,
-        fontSize: FontSizes.row,
+        fontSize: FontSizes.md,
         color: c.text1,
       ),
       decoration: InputDecoration(
@@ -546,11 +546,11 @@ class _LogToolbarState extends State<LogToolbar> {
         enabledBorder: InputBorder.none,
         focusedBorder: InputBorder.none,
         disabledBorder: InputBorder.none,
-        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+        contentPadding: Insets.control,
         hintText: hint,
         hintStyle: TextStyle(
           fontFamily: AppFonts.sans,
-          fontSize: FontSizes.row,
+          fontSize: FontSizes.md,
           color: c.text4,
         ),
       ),

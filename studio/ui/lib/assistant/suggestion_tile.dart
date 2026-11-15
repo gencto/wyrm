@@ -88,7 +88,7 @@ class SuggestionTile extends StatelessWidget {
                     Text(
                       vm.label,
                       style: TextStyle(
-                        fontSize: FontSizes.row,
+                        fontSize: FontSizes.md,
                         fontWeight: .w600,
                         color: can ? c.text1 : c.text3,
                       ),
@@ -97,7 +97,7 @@ class SuggestionTile extends StatelessWidget {
                       Text(
                         vm.detail,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           height: 1.45,
                           color: c.text3,
                         ),
@@ -106,7 +106,7 @@ class SuggestionTile extends StatelessWidget {
                       Text(
                         n,
                         style: TextStyle(
-                          fontSize: FontSizes.meta,
+                          fontSize: FontSizes.sm,
                           color: c.ember,
                         ),
                       ),

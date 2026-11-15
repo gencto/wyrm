@@ -49,7 +49,7 @@ class LogInButton extends StatelessWidget {
                       busy ? S.current.signingIn : S.current.logIn,
                       style: TextStyle(
                         fontFamily: AppFonts.sans,
-                        fontSize: FontSizes.section,
+                        fontSize: 16,
                         fontWeight: .w600,
                         color: c.onEmber,
                       ),

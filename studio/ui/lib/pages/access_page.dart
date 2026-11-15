@@ -52,10 +52,10 @@ class AccessPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final body = ListView(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s28,
-        AppSpacing.s28,
-        AppSpacing.s28,
-        AppSpacing.s40,
+        28,
+        28,
+        28,
+        40,
       ),
       children: [
         PageHeader(
@@ -70,9 +70,9 @@ class AccessPage extends StatelessWidget {
                   onPressed: addReason == null ? onAdd : null,
                 ),
         ),
-        const SizedBox(height: AppSpacing.s20),
+        const SizedBox(height: 20),
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: AppSpacing.md),
+        Gaps.md,
         if (tab == 'audit')
           SizedBox(
             height: 560,

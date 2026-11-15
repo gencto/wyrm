@@ -36,7 +36,7 @@ class PanelDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width),
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.s22),
+          padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -59,7 +59,7 @@ class PanelDialog extends StatelessWidget {
               if (note case final n?)
                 Text(
                   n,
-                  style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.text3),
                 ),
               Flexible(child: SingleChildScrollView(child: child)),
               if (actions.isNotEmpty)

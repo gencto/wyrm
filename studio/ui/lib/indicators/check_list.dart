@@ -47,8 +47,8 @@ class CheckList extends StatelessWidget {
           for (var i = 0; i < rows.length; i++)
             Container(
               padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s14,
-                vertical: AppSpacing.s10,
+                horizontal: 14,
+                vertical: 10,
               ),
               decoration: BoxDecoration(
                 border: i == 0 ? null : Border(top: BorderSide(color: c.line1)),
@@ -80,7 +80,7 @@ class CheckList extends StatelessWidget {
                         Text(
                           rows[i].title,
                           style: TextStyle(
-                            fontSize: FontSizes.row,
+                            fontSize: FontSizes.md,
                             color: c.text1,
                           ),
                         ),

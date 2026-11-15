@@ -3,7 +3,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What a [JsonNodeVm] holds; it picks the colour of its text.
@@ -85,9 +84,9 @@ class _JsonTreeState extends State<JsonTree> {
       out.add(
         Padding(
           padding: EdgeInsets.only(
-            left: indent + AppSpacing.s18,
-            top: AppSpacing.s1,
-            bottom: AppSpacing.s1,
+            left: indent + 18,
+            top: 1,
+            bottom: 1,
           ),
           child: Text.rich(
             TextSpan(
@@ -120,14 +119,14 @@ class _JsonTreeState extends State<JsonTree> {
         child: Padding(
           padding: EdgeInsets.only(
             left: indent,
-            top: AppSpacing.s1,
-            bottom: AppSpacing.s1,
+            top: 1,
+            bottom: 1,
           ),
           child: Row(
             mainAxisSize: .min,
             children: [
               SizedBox(
-                width: AppSpacing.s18,
+                width: 18,
                 child: empty
                     ? null
                     : AppIcon(
@@ -170,9 +169,9 @@ class _JsonTreeState extends State<JsonTree> {
     out.add(
       Padding(
         padding: EdgeInsets.only(
-          left: indent + AppSpacing.s18,
-          top: AppSpacing.s1,
-          bottom: AppSpacing.s1,
+          left: indent + 18,
+          top: 1,
+          bottom: 1,
         ),
         child: Text(end, style: bracket),
       ),

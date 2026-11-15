@@ -445,7 +445,7 @@ class _TrendState extends State<Trend> {
             right: hasRight ? side : AppSpacing.none,
           ),
           child: SizedBox(
-            height: AppSpacing.s14,
+            height: 14,
             child: _ticks(_plotTicks(), mono(size: 11, color: c.text4)),
           ),
         ),
@@ -466,7 +466,7 @@ class _TrendState extends State<Trend> {
                     child: Text(
                       s.trendAll,
                       textAlign: .right,
-                      style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
+                      style: TextStyle(fontSize: FontSizes.xs, color: c.muted),
                     ),
                   ),
                 ),
@@ -480,7 +480,7 @@ class _TrendState extends State<Trend> {
               right: hasRight ? side : AppSpacing.none,
             ),
             child: SizedBox(
-              height: AppSpacing.s14,
+              height: 14,
               child: _ticks(_brushTicks(s), mono(size: 10, color: c.muted)),
             ),
           ),
@@ -491,13 +491,13 @@ class _TrendState extends State<Trend> {
                 ? const SizedBox.shrink()
                 : Text(
                     s.trendHint,
-                    style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
+                    style: TextStyle(fontSize: FontSizes.xs, color: c.muted),
                   ),
           ),
       ],
     );
     final content = DefaultTextStyle.merge(
-      style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+      style: TextStyle(fontSize: FontSizes.md, color: c.text1),
       child: body,
     );
     if (!vm.card) {
@@ -545,11 +545,11 @@ class _TrendState extends State<Trend> {
         customBorder: const StadiumBorder(),
         child: Container(
           height: 26,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
+          padding: Insets.control,
           alignment: .center,
           child: Text(
             label,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.emberSoft),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.emberSoft),
           ),
         ),
       ),
@@ -567,7 +567,7 @@ class _TrendState extends State<Trend> {
                 text: '  · ${vm.rollup}',
                 style: TextStyle(
                   fontFamily: AppFonts.sans,
-                  fontSize: FontSizes.meta,
+                  fontSize: FontSizes.sm,
                   color: c.muted,
                 ),
               ),
@@ -598,8 +598,8 @@ class _TrendState extends State<Trend> {
                 spacing: 6,
                 children: [
                   SizedBox(
-                    width: AppSpacing.s14,
-                    height: AppSpacing.s10,
+                    width: 14,
+                    height: 10,
                     child: CustomPaint(
                       painter: _DashedBox(
                         fill: c.bad.withValues(alpha: 0.18),
@@ -609,7 +609,7 @@ class _TrendState extends State<Trend> {
                   ),
                   Text(
                     s.trendNoData,
-                    style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.bad),
                   ),
                 ],
               ),
@@ -651,7 +651,7 @@ class _TrendState extends State<Trend> {
                 if (x.label.isNotEmpty)
                   Text(
                     x.label,
-                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                   ),
               ],
             ),
@@ -805,7 +805,7 @@ class _TrendState extends State<Trend> {
                 Center(
                   child: Text(
                     message,
-                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                   ),
                 ),
               if (vm.refining)
@@ -860,7 +860,7 @@ class _TrendState extends State<Trend> {
   }
 
   Widget _skeleton(AppColors c, {required int bars}) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: AppSpacing.s12),
+    padding: const EdgeInsets.symmetric(vertical: 12),
     child: Column(
       mainAxisAlignment: .spaceEvenly,
       crossAxisAlignment: .start,
@@ -1054,7 +1054,7 @@ class _TrendState extends State<Trend> {
                         child: Container(
                           height: 20,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.s6,
+                            horizontal: 6,
                           ),
                           alignment: .center,
                           decoration: BoxDecoration(
@@ -1167,8 +1167,8 @@ class _TrendState extends State<Trend> {
     final tip = Container(
       width: 232,
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s12,
-        vertical: AppSpacing.s10,
+        horizontal: 12,
+        vertical: 10,
       ),
       decoration: BoxDecoration(
         color: c.ground2.withValues(alpha: 0.97),
@@ -1176,7 +1176,7 @@ class _TrendState extends State<Trend> {
         borderRadius: Radii.card,
         boxShadow: const [
           BoxShadow(
-            color: Shades.black50,
+            color: Shades.tooltipShadow,
             blurRadius: 32,
             offset: Offset(0, 12),
           ),
@@ -1195,7 +1195,7 @@ class _TrendState extends State<Trend> {
               Text(f.clock(d), style: mono(size: 13, color: c.text1)),
               Text(
                 f.day(d),
-                style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
               ),
               Expanded(
                 child: Text(
@@ -1203,7 +1203,7 @@ class _TrendState extends State<Trend> {
                   textAlign: .right,
                   maxLines: 2,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
+                  style: TextStyle(fontSize: FontSizes.xs, color: c.muted),
                 ),
               ),
             ],
@@ -1211,18 +1211,18 @@ class _TrendState extends State<Trend> {
           ...rows,
           for (final line in delta)
             Container(
-              padding: const EdgeInsets.only(top: AppSpacing.s6),
+              padding: const EdgeInsets.only(top: 6),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 line,
-                style: TextStyle(fontSize: FontSizes.tag, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.xs, color: c.text3),
               ),
             ),
           Text(
             _marker == null ? s.trendSetMarker : s.trendClearMarker,
-            style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
+            style: TextStyle(fontSize: FontSizes.xs, color: c.muted),
           ),
         ],
       ),
@@ -1276,7 +1276,7 @@ class _TrendState extends State<Trend> {
               label,
               maxLines: 1,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+              style: TextStyle(fontSize: FontSizes.md, color: c.text3),
             ),
           ),
           Text(value, style: mono(size: 14, color: valueColor)),
@@ -1284,17 +1284,17 @@ class _TrendState extends State<Trend> {
             constraints: const BoxConstraints(minWidth: 18),
             child: Text(
               unit,
-              style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.xs, color: c.text4),
             ),
           ),
         ],
       ),
       if (sub != null)
         Padding(
-          padding: const EdgeInsets.only(left: AppSpacing.s18),
+          padding: const EdgeInsets.only(left: 18),
           child: Text(
             sub,
-            style: TextStyle(fontSize: FontSizes.tag, color: subColor),
+            style: TextStyle(fontSize: FontSizes.xs, color: subColor),
           ),
         ),
     ],

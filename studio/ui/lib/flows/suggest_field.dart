@@ -3,7 +3,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [SuggestField] draws: the [value] typed, and the [choices] its menu
@@ -80,7 +79,7 @@ class _SuggestFieldState extends State<SuggestField> {
     return Container(
       height: 32,
       decoration: widget.decoration,
-      padding: const EdgeInsets.only(left: AppSpacing.s10),
+      padding: const EdgeInsets.only(left: 10),
       child: Row(
         children: [
           Expanded(
@@ -123,8 +122,8 @@ class _SuggestFieldState extends State<SuggestField> {
                 ),
             ],
             child: SizedBox(
-              width: AppSpacing.s28,
-              height: AppSpacing.xl,
+              width: 28,
+              height: 32,
               child: Center(
                 child: AppIcon('ui_chevron_down', size: 14, color: c.text4),
               ),

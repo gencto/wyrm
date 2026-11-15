@@ -5,7 +5,6 @@ import '../indicators/app_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
-import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One action of an inspector: icon, title, one line of what it does, the
@@ -91,8 +90,8 @@ class ActionRow extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s10,
-              vertical: AppSpacing.s10,
+              horizontal: 10,
+              vertical: 10,
             ),
             child: Row(
               spacing: 12,
@@ -125,7 +124,7 @@ class ActionRow extends StatelessWidget {
                       Text(
                         vm.title,
                         style: TextStyle(
-                          fontSize: FontSizes.body,
+                          fontSize: FontSizes.lg,
                           fontWeight: .w500,
                           color: title,
                         ),
@@ -134,7 +133,7 @@ class ActionRow extends StatelessWidget {
                         Text(
                           d,
                           style: TextStyle(
-                            fontSize: FontSizes.meta,
+                            fontSize: FontSizes.sm,
                             height: 1.4,
                             color: vm.enabled ? c.text3 : c.muted,
                           ),

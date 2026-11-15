@@ -149,10 +149,8 @@ class TreeRow extends StatelessWidget {
       child: Container(
         height: height,
         padding: EdgeInsets.only(
-          left: compact
-              ? AppSpacing.s6 + vm.depth * AppSpacing.s12
-              : AppSpacing.s10 + vm.depth * AppSpacing.md,
-          right: compact ? AppSpacing.sm : AppSpacing.s10,
+          left: compact ? 6 + vm.depth * 12 : 10 + vm.depth * AppSpacing.md,
+          right: compact ? AppSpacing.sm : 10,
         ),
         decoration: BoxDecoration(
           color: sel ? c.emberTint : (vm.marked ? c.ground3 : null),
@@ -163,7 +161,7 @@ class TreeRow extends StatelessWidget {
           children: [
             if (!leaf)
               SizedBox(
-                width: AppSpacing.md,
+                width: 16,
                 child: vm.hasChildren
                     ? GestureDetector(
                         onTap: onToggle == null ? null : () => onToggle!(vm.id),
@@ -181,7 +179,7 @@ class TreeRow extends StatelessWidget {
               ),
             if (vm.tag case final tag?)
               SizedBox(
-                width: AppSpacing.lg,
+                width: 24,
                 child: Text(
                   tag,
                   maxLines: 1,
@@ -239,7 +237,7 @@ class TreeRow extends StatelessWidget {
             if (vm.meta case final m?)
               Text(
                 m,
-                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
             if (vm.dot case final t?)
               Tooltip(
@@ -279,13 +277,13 @@ class _Chip extends StatelessWidget {
     final c = context.colors;
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s6,
-        vertical: AppSpacing.s2,
+        horizontal: 6,
+        vertical: 2,
       ),
       decoration: BoxDecoration(color: c.ground4, borderRadius: Radii.chip),
       child: Text(
         label,
-        style: TextStyle(fontSize: FontSizes.tag, color: c.text3),
+        style: TextStyle(fontSize: FontSizes.xs, color: c.text3),
       ),
     );
   }

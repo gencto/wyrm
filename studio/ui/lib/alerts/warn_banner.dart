@@ -49,10 +49,7 @@ class WarnBanner extends StatelessWidget {
       container: true,
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.s14,
-        ),
+        padding: Insets.notice,
         decoration: BoxDecoration(
           color: c.warnTint,
           border: .all(color: c.warnLine),
@@ -63,7 +60,7 @@ class WarnBanner extends StatelessWidget {
           spacing: 12,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.s1),
+              padding: const EdgeInsets.only(top: 1),
               child: SvgPicture.string(
                 _triangle,
                 width: 18,
@@ -79,7 +76,7 @@ class WarnBanner extends StatelessWidget {
                   Text(
                     vm.title,
                     style: TextStyle(
-                      fontSize: FontSizes.row,
+                      fontSize: FontSizes.md,
                       height: 1.5,
                       fontWeight: .w600,
                       color: c.text1,
@@ -88,7 +85,7 @@ class WarnBanner extends StatelessWidget {
                   CodeText(
                     vm.body,
                     style: TextStyle(
-                      fontSize: FontSizes.row,
+                      fontSize: FontSizes.md,
                       height: 1.5,
                       color: c.text2,
                     ),
@@ -99,7 +96,7 @@ class WarnBanner extends StatelessWidget {
                       child: Text(
                         a,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           height: 1.5,
                           color: c.emberSoft,
                         ),

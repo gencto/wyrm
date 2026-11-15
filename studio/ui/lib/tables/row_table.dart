@@ -119,7 +119,7 @@ class RowTable extends StatelessWidget {
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         color: c.text3,
                       ),
                     ),
@@ -129,13 +129,13 @@ class RowTable extends StatelessWidget {
           ),
           if (rows.isEmpty && empty != null)
             Container(
-              padding: const EdgeInsets.all(AppSpacing.s20),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 empty!,
-                style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
             ),
           for (final r in rows)
@@ -224,7 +224,7 @@ class _Cell extends StatelessWidget {
             s,
             maxLines: 1,
             overflow: .ellipsis,
-            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
       ],
     );

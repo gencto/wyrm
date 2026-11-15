@@ -38,9 +38,9 @@ class Inspector extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s18,
-              AppSpacing.s18,
-              AppSpacing.s12,
+              18,
+              18,
+              12,
               AppSpacing.md,
             ),
             decoration: BoxDecoration(
@@ -60,7 +60,7 @@ class Inspector extends StatelessWidget {
                           maxLines: 1,
                           overflow: .ellipsis,
                           style: TextStyle(
-                            fontSize: FontSizes.meta,
+                            fontSize: FontSizes.sm,
                             fontWeight: .w600,
                             letterSpacing: 0.72,
                             color: c.text3,
@@ -91,7 +91,7 @@ class Inspector extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.s18),
+              padding: const EdgeInsets.all(18),
               child: child,
             ),
           ),

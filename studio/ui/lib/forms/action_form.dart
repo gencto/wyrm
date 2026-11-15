@@ -206,7 +206,7 @@ class _ActionFormState extends State<ActionForm> {
               r.message,
               key: const ValueKey('form-refusal'),
               style: TextStyle(
-                fontSize: FontSizes.meta,
+                fontSize: FontSizes.sm,
                 height: 1.4,
                 color: c.bad,
               ),

@@ -68,7 +68,7 @@ class ChangeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s14),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: c.ground2,
         border: .all(color: vm.allowed ? c.line1 : c.badLine),
@@ -90,7 +90,7 @@ class ChangeCard extends StatelessWidget {
                 child: Text(
                   vm.op.toUpperCase(),
                   style: TextStyle(
-                    fontSize: FontSizes.tag,
+                    fontSize: FontSizes.xs,
                     fontWeight: .w600,
                     letterSpacing: 0.55,
                     color: c.text2,
@@ -226,7 +226,7 @@ class ReviewPanel extends StatelessWidget {
           border: Border(left: BorderSide(color: c.line2)),
           boxShadow: const [
             BoxShadow(
-              color: Shades.black40,
+              color: Shades.drawerShadow,
               blurRadius: 48,
               offset: Offset(-24, 0),
             ),
@@ -237,9 +237,9 @@ class ReviewPanel extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.s22,
-                AppSpacing.s20,
-                AppSpacing.s14,
+                22,
+                20,
+                14,
                 AppSpacing.md,
               ),
               decoration: BoxDecoration(
@@ -257,7 +257,7 @@ class ReviewPanel extends StatelessWidget {
                         Text(
                           labels.title,
                           style: TextStyle(
-                            fontSize: FontSizes.panel,
+                            fontSize: FontSizes.panelTitle,
                             fontWeight: .w600,
                             color: c.text1,
                           ),
@@ -266,7 +266,7 @@ class ReviewPanel extends StatelessWidget {
                           Text(
                             labels.rights,
                             style: TextStyle(
-                              fontSize: FontSizes.row,
+                              fontSize: FontSizes.md,
                               color: c.text3,
                             ),
                           ),
@@ -298,9 +298,9 @@ class ReviewPanel extends StatelessWidget {
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s22,
+                  22,
                   AppSpacing.md,
-                  AppSpacing.s22,
+                  22,
                   AppSpacing.md,
                 ),
                 children: [
@@ -312,26 +312,26 @@ class ReviewPanel extends StatelessWidget {
                         tone: .bad,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.s12),
+                    const SizedBox(height: 12),
                   ],
                   if (cards.isEmpty)
                     Text(
                       labels.empty,
-                      style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                      style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                     ),
                   for (final card in cards) ...[
                     ChangeCard(vm: card, onRemove: onRemove),
-                    const SizedBox(height: AppSpacing.s12),
+                    const SizedBox(height: 12),
                   ],
                 ],
               ),
             ),
             Container(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.s22,
+                22,
                 AppSpacing.md,
-                AppSpacing.s22,
-                AppSpacing.s20,
+                22,
+                20,
               ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
@@ -357,7 +357,7 @@ class ReviewPanel extends StatelessWidget {
                               ),
                             ],
                           ),
-                    style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.md, color: c.text3),
                   ),
                   Row(
                     spacing: 10,

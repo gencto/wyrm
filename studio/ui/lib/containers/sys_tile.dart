@@ -88,12 +88,12 @@ class SysTile extends StatelessWidget {
   Widget _head(BuildContext context, AppColors c) {
     final base = DefaultTextStyle.of(context).style;
     final labelStyle = base.merge(
-      TextStyle(fontSize: FontSizes.meta, color: c.text3),
+      TextStyle(fontSize: FontSizes.sm, color: c.text3),
     );
     final keyStyle = base.merge(
       TextStyle(
         fontFamily: AppFonts.mono,
-        fontSize: FontSizes.tag,
+        fontSize: FontSizes.xs,
         color: keyColor(c),
       ),
     );
@@ -138,7 +138,7 @@ class SysTile extends StatelessWidget {
           width: labelWidth,
           child: Text(vm.label, style: labelStyle),
         ),
-        const SizedBox(width: AppSpacing.s6),
+        const SizedBox(width: 6),
         Expanded(child: keyText),
       ],
     );
@@ -162,7 +162,7 @@ class SysTile extends StatelessWidget {
     final body = Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
-        vertical: AppSpacing.s14,
+        vertical: 14,
       ),
       child: Column(
         crossAxisAlignment: .start,
@@ -181,7 +181,7 @@ class SysTile extends StatelessWidget {
                   overflow: .ellipsis,
                   style: TextStyle(
                     fontFamily: AppFonts.mono,
-                    fontSize: FontSizes.display,
+                    fontSize: FontSizes.figure,
                     color: vm.tone == .neutral
                         ? c.text1
                         : toneColor(c, vm.tone),
@@ -191,7 +191,7 @@ class SysTile extends StatelessWidget {
               if (vm.unit.isNotEmpty)
                 Text(
                   vm.unit,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
             ],
           ),
@@ -200,7 +200,7 @@ class SysTile extends StatelessWidget {
             maxLines: 2,
             overflow: .ellipsis,
             style: TextStyle(
-              fontSize: FontSizes.meta,
+              fontSize: FontSizes.sm,
               height: relaxed ? 1.5 : null,
               color: vm.subTone == .neutral
                   ? c.text4

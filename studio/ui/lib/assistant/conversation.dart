@@ -70,14 +70,14 @@ class Conversation extends StatelessWidget {
   Widget build(BuildContext context) => ListView(
     padding: dense
         ? const EdgeInsets.fromLTRB(
-            AppSpacing.s14,
-            AppSpacing.s14,
-            AppSpacing.s14,
+            14,
+            14,
+            14,
             AppSpacing.md,
           )
         : const EdgeInsets.fromLTRB(
             AppSpacing.lg,
-            AppSpacing.s20,
+            20,
             AppSpacing.lg,
             AppSpacing.lg,
           ),
@@ -153,8 +153,8 @@ class _Event extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 600),
             child: Container(
               padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s14,
-                vertical: AppSpacing.s12,
+                horizontal: 14,
+                vertical: 12,
               ),
               decoration: BoxDecoration(
                 color: c.ground3,
@@ -163,7 +163,7 @@ class _Event extends StatelessWidget {
               child: SelectableText(
                 vm.text,
                 style: TextStyle(
-                  fontSize: FontSizes.body,
+                  fontSize: FontSizes.lg,
                   height: 1.5,
                   color: c.text1,
                 ),
@@ -198,7 +198,7 @@ class _Event extends StatelessWidget {
                     ),
                   ),
                   style: TextStyle(
-                    fontSize: FontSizes.body,
+                    fontSize: FontSizes.lg,
                     height: 1.55,
                     color: c.text1,
                   ),
@@ -209,7 +209,7 @@ class _Event extends StatelessWidget {
         );
       case .reads:
         return Padding(
-          padding: const EdgeInsets.only(left: AppSpacing.s42),
+          padding: const EdgeInsets.only(left: 42),
           child: Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -218,7 +218,7 @@ class _Event extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.s3,
+                    vertical: 3,
                   ),
                   decoration: BoxDecoration(
                     border: Border.all(color: c.line2),
@@ -231,7 +231,7 @@ class _Event extends StatelessWidget {
         );
       case .state:
         return Padding(
-          padding: const EdgeInsets.only(left: AppSpacing.s42),
+          padding: const EdgeInsets.only(left: 42),
           child: Row(
             spacing: 8,
             children: [
@@ -241,18 +241,18 @@ class _Event extends StatelessWidget {
               ),
               Text(
                 vm.text,
-                style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text3),
               ),
             ],
           ),
         );
       case .error:
         return Padding(
-          padding: const EdgeInsets.only(left: AppSpacing.s42),
+          padding: const EdgeInsets.only(left: 42),
           child: Container(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s12,
-              vertical: AppSpacing.s10,
+              horizontal: 12,
+              vertical: 10,
             ),
             decoration: BoxDecoration(
               color: c.badTint,

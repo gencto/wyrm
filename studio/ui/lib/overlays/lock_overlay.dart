@@ -242,7 +242,7 @@ class _LockCardState extends State<_LockCard> {
     final vm = widget.vm;
     final usePassword = _password || vm.passwordOnly || widget.onUnlock == null;
     final link = TextStyle(
-      fontSize: FontSizes.row,
+      fontSize: FontSizes.md,
       color: c.text2,
       decoration: .underline,
       decorationColor: c.text2,
@@ -270,7 +270,7 @@ class _LockCardState extends State<_LockCard> {
             border: Border.all(color: c.line1),
             boxShadow: const [
               BoxShadow(
-                color: Shades.black50,
+                color: Shades.dialogShadow,
                 blurRadius: 80,
                 offset: Offset(0, 30),
               ),
@@ -291,7 +291,7 @@ class _LockCardState extends State<_LockCard> {
                     vm.title,
                     textAlign: .center,
                     style: TextStyle(
-                      fontSize: FontSizes.display,
+                      fontSize: 22,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -300,7 +300,7 @@ class _LockCardState extends State<_LockCard> {
                     vm.text,
                     textAlign: .center,
                     style: TextStyle(
-                      fontSize: FontSizes.body,
+                      fontSize: FontSizes.lg,
                       height: 1.5,
                       color: c.text3,
                     ),
@@ -344,7 +344,7 @@ class _LockCardState extends State<_LockCard> {
                 Text(
                   vm.unlockLabel,
                   style: TextStyle(
-                    fontSize: FontSizes.lead,
+                    fontSize: 15,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -354,7 +354,7 @@ class _LockCardState extends State<_LockCard> {
                 Text(
                   k,
                   textAlign: .center,
-                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
               Wrap(
                 spacing: 20,

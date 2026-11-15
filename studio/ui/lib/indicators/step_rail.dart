@@ -54,7 +54,7 @@ class StepRail extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.s12,
+                  vertical: 12,
                 ),
                 decoration: BoxDecoration(
                   color: i == current ? c.emberTint : null,
@@ -82,7 +82,7 @@ class StepRail extends StatelessWidget {
                           : Text(
                               '$i',
                               style: TextStyle(
-                                fontSize: FontSizes.meta,
+                                fontSize: FontSizes.sm,
                                 fontWeight: .w600,
                                 color: i < current
                                     ? c.good
@@ -97,7 +97,7 @@ class StepRail extends StatelessWidget {
                           Text(
                             steps[i - 1].title,
                             style: TextStyle(
-                              fontSize: FontSizes.body,
+                              fontSize: FontSizes.lg,
                               fontWeight: i == current ? .w600 : .w400,
                               color: i <= current ? c.text1 : c.text3,
                             ),
@@ -107,7 +107,7 @@ class StepRail extends StatelessWidget {
                               steps[i - 1].sub,
                               overflow: .ellipsis,
                               style: TextStyle(
-                                fontSize: FontSizes.meta,
+                                fontSize: FontSizes.sm,
                                 color: c.text4,
                               ),
                             ),

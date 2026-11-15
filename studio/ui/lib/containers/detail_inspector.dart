@@ -133,9 +133,9 @@ class DetailInspector extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s20,
-              AppSpacing.s22,
-              AppSpacing.s20,
+              20,
+              22,
+              20,
               AppSpacing.md,
             ),
             decoration: BoxDecoration(
@@ -167,7 +167,7 @@ class DetailInspector extends StatelessWidget {
           ),
           if (vm.facts.isNotEmpty)
             Container(
-              padding: const EdgeInsets.all(AppSpacing.s20),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
@@ -175,10 +175,10 @@ class DetailInspector extends StatelessWidget {
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.s20,
-              AppSpacing.s18,
-              AppSpacing.s20,
-              AppSpacing.s20,
+              20,
+              18,
+              20,
+              20,
             ),
             child: Column(
               crossAxisAlignment: .stretch,
@@ -186,7 +186,7 @@ class DetailInspector extends StatelessWidget {
               children: [
                 for (final g in vm.groups) ...[
                   Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.s6),
+                    padding: const EdgeInsets.only(top: 6),
                     child: SectionLabel(g.label),
                   ),
                   for (final a in g.actions) ActionRow(vm: a, onTap: onAction),
@@ -194,8 +194,8 @@ class DetailInspector extends StatelessWidget {
                 if (vm.form case final f?) ...[
                   Padding(
                     padding: const EdgeInsets.only(
-                      top: AppSpacing.s6,
-                      bottom: AppSpacing.s6,
+                      top: 6,
+                      bottom: 6,
                     ),
                     child: SectionLabel(f.label),
                   ),
@@ -215,7 +215,7 @@ class DetailInspector extends StatelessWidget {
                       child: Text(
                         n,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           height: 1.5,
                           color: c.text3,
                         ),
@@ -225,7 +225,7 @@ class DetailInspector extends StatelessWidget {
                 if (vm.footer case final n?)
                   Container(
                     margin: const EdgeInsets.only(top: AppSpacing.md),
-                    padding: const EdgeInsets.all(AppSpacing.s14),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: c.ground2,
                       border: .all(color: c.line1),
@@ -234,7 +234,7 @@ class DetailInspector extends StatelessWidget {
                     child: Text(
                       n,
                       style: TextStyle(
-                        fontSize: FontSizes.row,
+                        fontSize: FontSizes.md,
                         height: 1.5,
                         color: c.text2,
                       ),

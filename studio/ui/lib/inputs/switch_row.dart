@@ -43,7 +43,7 @@ class SwitchRow extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: FontSizes.body,
+                    fontSize: FontSizes.lg,
                     fontWeight: .w500,
                     color: vm.enabled ? c.text1 : c.text3,
                   ),
@@ -51,7 +51,7 @@ class SwitchRow extends StatelessWidget {
                 if (disabledReason ?? description case final d?)
                   Text(
                     d,
-                    style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
                   ),
                 if (keyName case final k?) KeyText(k, size: 12, color: c.text4),
               ],
@@ -91,7 +91,7 @@ class AppSwitch extends StatelessWidget {
           duration: const Duration(milliseconds: 120),
           width: 44,
           height: 26,
-          padding: const EdgeInsets.all(AppSpacing.s2),
+          padding: const EdgeInsets.all(2),
           alignment: value ? Alignment.centerRight : Alignment.centerLeft,
           decoration: BoxDecoration(
             color: value ? (enabled ? c.ember : c.muted) : c.ground4,

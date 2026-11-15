@@ -101,17 +101,17 @@ class AttentionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final label = TextStyle(
-      fontSize: FontSizes.meta,
+      fontSize: FontSizes.sm,
       fontWeight: .w600,
       letterSpacing: 0.72,
       color: c.text4,
     );
     final head = Container(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s20,
-        AppSpacing.s18,
-        AppSpacing.s20,
-        AppSpacing.s14,
+        20,
+        18,
+        20,
+        14,
       ),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.line1)),
@@ -124,7 +124,7 @@ class AttentionPanel extends StatelessWidget {
           Text(
             vm.note,
             style: TextStyle(
-              fontSize: FontSizes.row,
+              fontSize: FontSizes.md,
               height: 1.5,
               color: c.text3,
             ),
@@ -133,7 +133,7 @@ class AttentionPanel extends StatelessWidget {
       ),
     );
     final cards = Padding(
-      padding: const EdgeInsets.all(AppSpacing.s12),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 8,
@@ -143,7 +143,7 @@ class AttentionPanel extends StatelessWidget {
               padding: const EdgeInsets.all(AppSpacing.sm),
               child: Text(
                 vm.empty,
-                style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
             ),
           for (final a in vm.items) _card(c, a),
@@ -152,10 +152,10 @@ class AttentionPanel extends StatelessWidget {
     );
     final facts = Container(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s20,
+        20,
         AppSpacing.md,
-        AppSpacing.s20,
-        AppSpacing.s20,
+        20,
+        20,
       ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
@@ -176,24 +176,20 @@ class AttentionPanel extends StatelessWidget {
                   children: [
                     Padding(
                       padding: EdgeInsets.only(
-                        top: i == AppSpacing.none
-                            ? AppSpacing.none
-                            : AppSpacing.s6,
-                        right: AppSpacing.s14,
+                        top: i == AppSpacing.none ? AppSpacing.none : 6,
+                        right: 14,
                       ),
                       child: Text(
                         f.label,
                         style: TextStyle(
-                          fontSize: FontSizes.row,
+                          fontSize: FontSizes.md,
                           color: c.text4,
                         ),
                       ),
                     ),
                     Padding(
                       padding: EdgeInsets.only(
-                        top: i == AppSpacing.none
-                            ? AppSpacing.none
-                            : AppSpacing.s6,
+                        top: i == AppSpacing.none ? AppSpacing.none : 6,
                       ),
                       child: _fact(c, f),
                     ),
@@ -239,7 +235,7 @@ class AttentionPanel extends StatelessWidget {
       onTap: () => onItem(a.id),
       hoverColor: c.text1.withValues(alpha: 0.04),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.s12),
+        padding: const EdgeInsets.all(12),
         child: Row(
           crossAxisAlignment: .start,
           spacing: 10,
@@ -261,7 +257,7 @@ class AttentionPanel extends StatelessWidget {
                   Text(
                     a.title,
                     style: TextStyle(
-                      fontSize: FontSizes.row,
+                      fontSize: FontSizes.md,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -272,7 +268,7 @@ class AttentionPanel extends StatelessWidget {
                       maxLines: 4,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: FontSizes.meta,
+                        fontSize: FontSizes.sm,
                         height: 1.45,
                         color: c.text3,
                       ),
@@ -280,7 +276,7 @@ class AttentionPanel extends StatelessWidget {
                   Text(
                     a.go,
                     style: TextStyle(
-                      fontSize: FontSizes.meta,
+                      fontSize: FontSizes.sm,
                       color: c.emberSoft,
                     ),
                   ),
@@ -301,10 +297,10 @@ class AttentionPanel extends StatelessWidget {
       style: f.mono
           ? TextStyle(
               fontFamily: AppFonts.mono,
-              fontSize: FontSizes.row,
+              fontSize: FontSizes.md,
               color: f.dot == null ? c.text1 : c.text2,
             )
-          : TextStyle(fontSize: FontSizes.row, color: c.text1),
+          : TextStyle(fontSize: FontSizes.md, color: c.text1),
     );
     final dot = f.dot;
     if (dot == null) {
