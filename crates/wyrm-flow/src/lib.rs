@@ -9,6 +9,7 @@ pub mod artifacts;
 pub mod blocks;
 pub mod catalog;
 pub mod catalog3;
+pub mod codes;
 mod commands;
 mod cpu_clock;
 pub mod def;

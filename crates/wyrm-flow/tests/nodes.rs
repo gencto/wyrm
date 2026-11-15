@@ -650,3 +650,165 @@ async fn a_source_takes_its_key_from_a_port_inside_its_scope() {
     );
     assert!(matches!(on(&sent, "error"), Some((Value::Str(w), _)) if w.contains("no scope")));
 }
+
+/// `quality: custom` (docs/flow-blocks.md "Quality from a script"): the quality is the
+/// result's `q` as a code or a name; anything else is `bad`, never `good`.
+#[tokio::test(flavor = "multi_thread")]
+async fn expression_custom_quality_never_opens_to_good() {
+    let e = env().await;
+    let cases = [
+        ("#{ v: 1, q: 0.9 }", Quality::Bad),
+        ("#{ v: 1, q: -1 }", Quality::Bad),
+        ("#{ v: 1, q: 0.0 / 0.0 }", Quality::Bad),
+        ("#{ v: 1, q: 1000000000 }", Quality::Bad),
+        ("#{ v: 1, q: 0.0 }", Quality::Bad),
+        ("#{ v: 1, q: \"worse\" }", Quality::Bad),
+        ("#{ v: 1, q: () }", Quality::Bad),
+        ("#{ v: 1 }", Quality::Bad),
+        ("1", Quality::Bad),
+        ("#{ w: 1, q: 0 }", Quality::Bad),
+        ("#{ v: 1, q: \"bad\" }", Quality::Bad),
+        ("#{ v: 1, q: \"uncertain\" }", Quality::Uncertain),
+        ("#{ v: 1, q: \"good\" }", Quality::Good),
+        ("#{ v: 1, q: 0 }", Quality::Good),
+        ("#{ v: 1, q: 1 }", Quality::Uncertain),
+        ("#{ v: 1, q: 2 }", Quality::Bad),
+    ];
+    for (script, want) in cases {
+        let mut x = expr(script, "any", "custom");
+        feed(x.as_mut(), &e.io, "in.a", g(1.0, 1));
+        let out = feed(x.as_mut(), &e.io, "in.b", g(1.0, 1));
+        assert_eq!(out.len(), 1, "{script}");
+        assert_eq!(out[0].1.q, want, "{script}");
+    }
+}
+
+fn result(kv: &[(&str, Value)]) -> Value {
+    Value::Map(
+        kv.iter()
+            .map(|(k, v)| ((*k).to_owned(), v.clone()))
+            .collect(),
+    )
+}
+
+fn error_code(out: &[(String, Msg)]) -> Option<Value> {
+    out.iter()
+        .find(|(p, _)| p == "error")
+        .and_then(|(_, m)| match &m.v {
+            Value::Map(e) => e.get("code").cloned(),
+            _ => None,
+        })
+}
+
+const INTERNAL_ERROR: u64 = 0x25;
+
+/// A failed read whose answer has no valid error code reports `internal_error`, never
+/// `ok`; a read answer without a valid `q` is `bad`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reader_answer_without_a_code_or_quality_is_never_ok() {
+    let e = env().await;
+    let reader = || {
+        build(
+            "load_value",
+            &[
+                ("key", Value::from("downstream/m/p0")),
+                ("auto_run", Value::Bool(false)),
+            ],
+        )
+    };
+    for code in [
+        None,
+        Some(Value::UInt(0)),
+        Some(Value::Float(0.9)),
+        Some(Value::Int(-1)),
+        Some(Value::from("ok")),
+        Some(Value::from("nonsense")),
+    ] {
+        let mut r = reader();
+        let mut kv = vec![("message", Value::from("lost"))];
+        if let Some(c) = &code {
+            kv.push(("code", c.clone()));
+        }
+        let out = feed(
+            r.as_mut(),
+            &e.io,
+            "__result.0",
+            m(result(&kv), Quality::Bad, 1),
+        );
+        assert_eq!(
+            error_code(&out),
+            Some(Value::UInt(INTERNAL_ERROR)),
+            "{code:?}"
+        );
+    }
+    // a valid error code, as a code or a name, passes as it is
+    for code in [Value::UInt(0x28), Value::from("timeout")] {
+        let mut r = reader();
+        let out = feed(
+            r.as_mut(),
+            &e.io,
+            "__result.0",
+            m(result(&[("code", code.clone())]), Quality::Bad, 1),
+        );
+        assert_eq!(error_code(&out), Some(Value::UInt(0x28)), "{code:?}");
+    }
+    for (q, want) in [
+        (None, Quality::Bad),
+        (Some(Value::Float(0.9)), Quality::Bad),
+        (Some(Value::from("bad")), Quality::Bad),
+        (Some(Value::from("uncertain")), Quality::Uncertain),
+        (Some(Value::UInt(0)), Quality::Good),
+    ] {
+        let mut r = reader();
+        let mut kv = vec![("v", Value::Float(1.0))];
+        if let Some(q) = &q {
+            kv.push(("q", q.clone()));
+        }
+        let out = feed(
+            r.as_mut(),
+            &e.io,
+            "__result.0",
+            m(result(&kv), Quality::Good, 1),
+        );
+        let got = out.iter().find(|(p, _)| p == "out").map(|(_, m)| m.q);
+        assert_eq!(got, Some(want), "{q:?}");
+    }
+}
+
+/// A failed command whose answer has no valid error code reports `internal_error`, never
+/// `ok`; a user-defined error code (spec 04 `0x40..=0x4F`) passes as it is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_answer_without_a_code_is_never_ok() {
+    let e = env().await;
+    for ty in ["invoke", "set"] {
+        let mut kv: Vec<(&str, Value)> = vec![("path", Value::from("downstream/m/p0"))];
+        if ty == "invoke" {
+            kv.push(("action", Value::from("count")));
+        }
+        for (code, want) in [
+            (None, INTERNAL_ERROR),
+            (Some(Value::UInt(0)), INTERNAL_ERROR),
+            (Some(Value::UInt(0x02)), INTERNAL_ERROR),
+            (Some(Value::Float(0.9)), INTERNAL_ERROR),
+            (Some(Value::Int(-1)), INTERNAL_ERROR),
+            (Some(Value::UInt(300)), INTERNAL_ERROR),
+            (Some(Value::from("ok")), INTERNAL_ERROR),
+            (Some(Value::UInt(0x21)), 0x21),
+            (Some(Value::from("busy")), 0x24),
+            (Some(Value::UInt(0x41)), 0x41),
+        ] {
+            let mut c = build(ty, &kv);
+            let mut r = vec![("seq", Value::UInt(0)), ("message", Value::from("no"))];
+            if let Some(code) = &code {
+                r.push(("code", code.clone()));
+            }
+            let out = feed(
+                c.as_mut(),
+                &e.io,
+                "__result",
+                m(result(&r), Quality::Bad, 1),
+            );
+            assert_eq!(error_code(&out), Some(Value::UInt(want)), "{ty} {code:?}");
+        }
+    }
+}

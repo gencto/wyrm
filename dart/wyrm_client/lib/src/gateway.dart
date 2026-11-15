@@ -545,8 +545,9 @@ class WyrmGateway {
   }) async {
     final req = await c.postUrl(url);
     req.headers.contentType = ContentType('application', 'cbor');
-    if (bearer != null)
+    if (bearer != null) {
       req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
+    }
     final bytes = raw ?? (body == null ? Uint8List(0) : VMap(body).toCbor());
     req.contentLength = bytes.length;
     req.add(bytes);
@@ -555,8 +556,9 @@ class WyrmGateway {
 
   static Future<Value> _get(HttpClient c, Uri url, {String? bearer}) async {
     final req = await c.getUrl(url);
-    if (bearer != null)
+    if (bearer != null) {
       req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
+    }
     return _read(await req.close());
   }
 

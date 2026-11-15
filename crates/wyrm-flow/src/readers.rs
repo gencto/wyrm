@@ -602,19 +602,18 @@ impl Node for Reader {
             }
             let Value::Map(r) = &m.v else { return };
             if m.q == Quality::Bad {
-                let code = r.get("code").and_then(Value::as_f64).unwrap_or(0.0) as u8;
-                let code = Status::try_from(code).unwrap_or(Status::InternalError);
+                // a failure never reads as a success: no valid error code is `internal_error`
+                let code = match crate::codes::error_status_of(r.get("code")) {
+                    wyrm_core::status::StatusCode::Known(s) => s,
+                    _ => Status::InternalError,
+                };
                 let message = match r.get("message") {
                     Some(Value::Str(s)) => s.clone(),
                     _ => String::new(),
                 };
                 self.failed(code, &message, out);
             } else {
-                let q = r
-                    .get("q")
-                    .and_then(Value::as_f64)
-                    .and_then(|q| Quality::try_from(q as u8).ok())
-                    .unwrap_or(Quality::Bad);
+                let q = crate::codes::quality_of(r.get("q"));
                 let v = r.get("v").cloned().unwrap_or(Value::Null);
                 match (self.what, v) {
                     (What::History, Value::Map(h)) => {
