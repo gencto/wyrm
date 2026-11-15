@@ -740,6 +740,10 @@ impl WyrmClient {
                         let msg = format!("consumer too slow: {n} replies lost");
                         Some(Err(ClientError::new(Status::ResourceExhausted, msg)))
                     }
+                    // Zenoh's own timeout reply: no (more) reply from the responder
+                    Ok(ReplyStep::Reply(reply)) if is_query_timeout(&reply) => {
+                        Some(Err(me.no_reply(&key).await))
+                    }
                     Ok(ReplyStep::Reply(reply)) => Some(response(&reply).and_then(Response::check)),
                     Ok(ReplyStep::Done) if !got_any => Some(Err(me.no_reply(&key).await)),
                     Ok(ReplyStep::Done) => None,
