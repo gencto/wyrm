@@ -345,6 +345,13 @@ pub(crate) enum Refused {
     NotFound,
 }
 
+impl From<crate::rng::NoRandomness> for Refused {
+    fn from(_: crate::rng::NoRandomness) -> Self {
+        // logged where it happened (`rng::fill`); the client may try again
+        Refused::Busy
+    }
+}
+
 /// What a nonce may be used for; it is part of the nonce's MAC, never stored.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Purpose {
@@ -834,7 +841,7 @@ impl Gateway {
             return Err(self.bare("(new)", Some(&p.name), ip, "bad_registration"));
         }
         let mut raw = [0u8; 16];
-        crate::rng::fill(&mut raw).map_err(|_| Refused::Busy)?;
+        crate::rng::fill(&mut raw)?;
         let id = hex(&raw);
         {
             let mut store = self.store();
@@ -958,7 +965,7 @@ impl Gateway {
             roles: u.roles,
             exp,
             iat: now,
-            jti: session::new_jti().map_err(|_| Refused::Busy)?,
+            jti: session::new_jti()?,
             gen: u.gen,
             amr: Amr::Device,
             auth_at: now,

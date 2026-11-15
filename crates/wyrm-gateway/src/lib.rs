@@ -987,7 +987,7 @@ impl Gateway {
             roles,
             exp,
             iat,
-            jti: session::new_jti().map_err(|_| LoginError::Unavailable)?,
+            jti: session::new_jti()?,
             gen,
             amr: session::Amr::Password,
             auth_at: iat,
@@ -1080,6 +1080,13 @@ enum LoginError {
     RateLimited,
     /// No randomness for the session id, or the user store refused a write.
     Unavailable,
+}
+
+impl From<rng::NoRandomness> for LoginError {
+    fn from(_: rng::NoRandomness) -> Self {
+        // logged where it happened (`rng::fill`)
+        LoginError::Unavailable
+    }
 }
 
 /// Read the 32-byte Ed25519 seed, or create it (0600) if the file is absent.
