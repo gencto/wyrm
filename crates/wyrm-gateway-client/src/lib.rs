@@ -29,7 +29,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::status::StatusCode;
-use wyrm_core::{NodeMeta, Status, Value};
+use wyrm_core::{NodeMeta, Perm, Status, Value};
 
 /// How long a one-shot request waits for its reply.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -430,10 +430,10 @@ pub struct Gateway {
 pub struct Me {
     pub sub: String,
     pub roles: Vec<String>,
-    /// `(key pattern, level)` per grant.
-    pub grants: Vec<(String, String)>,
-    /// The highest level of any grant (`none`, `list`, `read`, `write`, `config`).
-    pub max: String,
+    /// `(key pattern, level)` per grant, in match order.
+    pub grants: Vec<(String, Perm)>,
+    /// The highest level of any grant.
+    pub max: Perm,
     /// Session expiry, seconds since the Unix epoch.
     pub exp: u64,
     /// The site the gateway serves.
@@ -484,18 +484,29 @@ impl Gateway {
                 .collect(),
             _ => Vec::new(),
         };
+        // a level this build does not know refuses the answer: a grant is never dropped
+        // from the list (grants match in order) nor read as another level
+        let level = |p: Option<String>| {
+            p.as_deref()
+                .and_then(Perm::from_name)
+                .ok_or_else(|| Error::Transport("/api/me: a level that is not a level".into()))
+        };
         let grants = match m.get("grants") {
             Some(Value::Array(a)) => a
                 .iter()
-                .filter_map(|g| Some((text_field(g, "k")?, text_field(g, "p")?)))
-                .collect(),
+                .map(|g| {
+                    let k = text_field(g, "k")
+                        .ok_or_else(|| Error::Transport("/api/me: a grant without a key".into()))?;
+                    Ok((k, level(text_field(g, "p"))?))
+                })
+                .collect::<Result<Vec<_>>>()?,
             _ => Vec::new(),
         };
         Ok(Me {
             sub: text_field(&v, "sub").unwrap_or_default(),
             roles: strs("roles"),
             grants,
-            max: text_field(&v, "max").unwrap_or_default(),
+            max: level(text_field(&v, "max"))?,
             exp: match m.get("exp") {
                 Some(Value::UInt(e)) => *e,
                 _ => 0,

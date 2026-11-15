@@ -154,7 +154,7 @@ async fn run_gateway(cli: Cli, url: String) -> Result<(), Error> {
             "gateway {url}: logged in as {} (site {}, max {})",
             me.sub,
             me.site,
-            me.max
+            me.max.name()
         ),
         Err(e) => tracing::warn!("{e}"),
     }

@@ -579,9 +579,17 @@ pub(crate) struct AuthorizeForm {
     /// Checkboxes: present = on.
     write: Option<String>,
     config: Option<String>,
-    /// `allow` or `deny`.
+    /// The button; none (or `deny`) denies. Any other text refuses the form.
     #[serde(default)]
-    decision: String,
+    decision: Option<Decision>,
+}
+
+wyrm_core::name_enum! {
+    /// The consent page's two buttons (`name="decision"`).
+    pub(crate) enum Decision as "consent decision" {
+        Allow => "allow",
+        Deny => "deny",
+    }
 }
 
 fn esc(s: &str) -> String {
@@ -742,7 +750,7 @@ pub(crate) async fn authorize_submit(
         Ok(n) => n,
         Err(e) => return error_page(&e),
     };
-    if f.decision != "allow" {
+    if f.decision != Some(Decision::Allow) {
         return redirect(o, &f.q, &[("error", "access_denied")]);
     }
     let user = f.user.trim().to_owned();
@@ -964,6 +972,22 @@ mod tests {
 
     fn o() -> OAuth {
         OAuth::new(McpConfig::new("https://broker.example"), b"k").unwrap()
+    }
+
+    /// Review T5: the consent button was a `String` compared with `"allow"`. Missing or
+    /// `deny` still denies; a value that is neither is refused with the form.
+    #[test]
+    fn the_decision_is_one_of_two_buttons() {
+        let form = |d: &str| {
+            serde_urlencoded::from_str::<AuthorizeForm>(&format!("client_id=c&user=u{d}"))
+                .map(|f| f.decision)
+        };
+        assert_eq!(form("&decision=allow").unwrap(), Some(Decision::Allow));
+        assert_eq!(form("&decision=deny").unwrap(), Some(Decision::Deny));
+        assert_eq!(form("").unwrap(), None);
+        for bad in ["&decision=", "&decision=Allow", "&decision=yes"] {
+            assert!(form(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -274,7 +274,7 @@ pub enum AuditEvent {
         user: String,
         device: String,
         name: String,
-        platform: String,
+        platform: devices::Platform,
         ip: IpAddr,
     },
     DeviceLogin {
