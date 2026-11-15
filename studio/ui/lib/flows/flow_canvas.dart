@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../models/query.dart';
 import '../models/value_changed.dart';
 import '../overlays/floating_window.dart';
 import '../theme/extensions/colors.dart';
@@ -15,8 +16,10 @@ import '../theme/radii.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'block_palette.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
+import 'flow_intents.dart';
 import 'flow_legend.dart';
 import 'flow_menu.dart';
 import 'scope_prompt.dart';
@@ -102,34 +105,22 @@ class FlowCanvas extends StatefulWidget {
     required this.actions,
     required this.onClear,
     required this.onMove,
-    required this.onDrop,
     this.onSelectMany,
     this.onCommand,
     this.menu,
     this.onPin,
     this.onViewField,
-    this.legend,
+    this.legend = false,
     this.controller,
     this.help = false,
     this.mac,
     this.view,
-    this.dropChoice,
     this.prompt,
     this.onPromptSave,
     this.onPromptCancel,
     this.validatePrompt,
     super.key,
   });
-
-  /// Asked when a palette entry is let go on the canvas, at `global`: the
-  /// entry to place instead (a writable point: `Read` or `Write`), or null
-  /// for none. Without it the entry is placed as it is.
-  final Future<String?> Function(
-    BuildContext context,
-    String entry,
-    Offset global,
-  )?
-  dropChoice;
 
   /// The scope asked of a key that got a wire ([ScopePrompt]): drawn on
   /// that field's row.
@@ -149,10 +140,6 @@ class FlowCanvas extends StatefulWidget {
   /// the selection, or (`nudge`) a step of the arrow keys.
   final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
 
-  /// A palette entry (its id) dropped: the new block's top-left, on the
-  /// grid.
-  final void Function(String entry, double x, double y) onDrop;
-
   /// A marquee or Select all: the ids alone, added (`add`) or switched
   /// in and out (`toggle`).
   final void Function(
@@ -169,7 +156,7 @@ class FlowCanvas extends StatefulWidget {
 
   /// The context menu for a right click: on a block (and its row) with
   /// the selection's ids, or on the empty canvas (both null).
-  final FlowMenuVm Function(Set<String> ids, String? block, String? row)? menu;
+  final QueryVm<FlowMenuAsk, FlowMenuVm>? menu;
 
   /// A tick of the menu's `Fields ▸` checklist, or `Unpin from block`.
   final void Function(String block, String field, {required bool pinned})?
@@ -177,7 +164,9 @@ class FlowCanvas extends StatefulWidget {
 
   /// `V` over a row: opens its value in the viewer.
   final RowAction<String, String>? onViewField;
-  final FlowLegendVm? legend;
+
+  /// The legend of the wires and ports, bottom-left.
+  final bool legend;
 
   /// The zoom and scroll; the canvas keeps its own when none is given.
   final TransformationController? controller;
@@ -884,11 +873,41 @@ class _FlowCanvasState extends State<FlowCanvas> {
     _press = _Tap(e.position, b.id, r.id);
   }
 
+  /// A writable point let go at [global]: `Read` or `Write` where it
+  /// landed (true: write); Alt held writes at once; null: neither picked.
+  Future<bool?> _readOrWrite(Offset global) async {
+    if (HardwareKeyboard.instance.isAltPressed) {
+      return true;
+    }
+    final c = context.colors;
+    return showMenu<bool>(
+      context: context,
+      color: c.ground3,
+      position: RelativeRect.fromLTRB(
+        global.dx,
+        global.dy,
+        global.dx,
+        global.dy,
+      ),
+      items: [
+        for (final write in const [false, true])
+          PopupMenuItem(
+            value: write,
+            height: AppSizes.flowMenuItem,
+            child: Text(
+              write ? S.current.dropWrite : S.current.dropRead,
+              style: TextStyle(fontSize: FontSizes.md, color: c.text1),
+            ),
+          ),
+      ],
+    );
+  }
+
   /// The right button: the menu of the block under it (which joins the
   /// selection's place when it was not part of it), or of the canvas.
   Future<void> _openMenu(Offset global, Offset p) async {
-    final build = widget.menu;
-    if (build == null) {
+    final menu = widget.menu;
+    if (menu == null) {
       return;
     }
     final b = _blockAt(_blocks, p);
@@ -902,7 +921,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
     final picked = await FlowMenu.show(
       context,
       at: global,
-      vm: build(ids, b?.id, row),
+      vm: menu.ask(FlowMenuAsk(ids, block: b?.id, row: row)),
       onPin: (field, {required on}) {
         if (b != null) {
           widget.onPin?.call(b.id, field, pinned: on);
@@ -1208,21 +1227,22 @@ class _FlowCanvasState extends State<FlowCanvas> {
         child: Stack(
           children: [
             Positioned.fill(
-              child: DragTarget<String>(
+              child: DragTarget<PaletteDrag>(
                 onAcceptWithDetails: (d) async {
                   final p = _local(d.offset) - FlowCanvas.dropGrab;
                   final extent = FlowCanvas.extentOf(widget.blocks);
-                  final choose = widget.dropChoice;
-                  final entry = choose == null
-                      ? d.data
-                      : await choose(context, d.data, d.offset);
-                  if (entry == null || !mounted) {
+                  final write = d.data.writable
+                      ? await _readOrWrite(d.offset)
+                      : false;
+                  if (write == null || !mounted) {
                     return;
                   }
-                  widget.onDrop(
-                    entry,
-                    FlowCanvas.snap(p.dx.clamp(0, extent.width)),
-                    FlowCanvas.snap(p.dy.clamp(0, extent.height)),
+                  d.data.place(
+                    PlaceOnCanvas(
+                      FlowCanvas.snap(p.dx.clamp(0, extent.width)),
+                      FlowCanvas.snap(p.dy.clamp(0, extent.height)),
+                      write: write,
+                    ),
                   );
                 },
                 builder: (context, _, _) => Listener(
@@ -1357,9 +1377,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
                 crossAxisAlignment: .end,
                 spacing: AppSpacing.sm,
                 children: [
-                  if (widget.legend case final l?)
-                    Flexible(
-                      child: IgnorePointer(child: FlowLegend(vm: l)),
+                  if (widget.legend)
+                    const Flexible(
+                      child: IgnorePointer(child: FlowLegend()),
                     ),
                   ListenableBuilder(
                     listenable: _ctl,

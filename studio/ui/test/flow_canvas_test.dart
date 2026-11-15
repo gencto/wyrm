@@ -3,10 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/shortcut_card.dart';
+import 'package:ui/models/disabled.dart';
+import 'package:ui/models/query.dart';
 
 import 'frames/harness.dart';
 
@@ -147,41 +151,48 @@ void main() {
               onCommand: (c, {at}) => commands.add((c, at)),
               onPin: (b, f, {required pinned}) => pins.add((b, f, pinned)),
               onViewField: (b, r) => viewed.add((b, r)),
-              menu: (ids, block, row) => FlowMenuVm(
-                title: block ?? 'canvas',
-                subtitle: '${ids.length}',
-                items: const [
-                  FlowMenuItemVm(.copy),
-                  FlowMenuItemVm(.paste),
-                  FlowMenuItemVm(.fields),
-                  FlowMenuItemVm(.unpin),
-                  FlowMenuItemVm(
-                    .createCustomBlock,
-                    disabledReason: 'needs the engine',
-                  ),
-                ],
-                fields: block == null
-                    ? const []
-                    : const [
-                        FlowPinVm(id: 'p:a', label: 'Alpha', pinned: true),
-                        FlowPinVm(id: 'p:b', label: 'Beta', pinned: false),
-                        FlowPinVm(
-                          id: 'p:c',
-                          label: 'Gamma',
-                          pinned: true,
-                          lockedReason: 'bound',
-                        ),
-                      ],
-                unpin: row == null
-                    ? null
-                    : FlowPinVm(id: row, label: 'Row', pinned: true),
+              menu: QueryVm(
+                (ask) => FlowMenuVm(
+                  block: ask.block,
+                  count: ask.ids.length,
+                  flow: 'canvas',
+                  items: const [
+                    FlowMenuItemVm(.copy),
+                    FlowMenuItemVm(.paste),
+                    FlowMenuItemVm(.fields),
+                    FlowMenuItemVm(.unpin),
+                    FlowMenuItemVm(
+                      .createCustomBlock,
+                      off: FlowOff(.needsBroker),
+                    ),
+                  ],
+                  fields: ask.block == null
+                      ? const []
+                      : const [
+                          FlowPinVm(id: 'p:a', label: 'Alpha', pinned: true),
+                          FlowPinVm(id: 'p:b', label: 'Beta', pinned: false),
+                          FlowPinVm(
+                            id: 'p:c',
+                            label: 'Gamma',
+                            pinned: true,
+                            locked: true,
+                          ),
+                        ],
+                  unpin: switch (ask.row) {
+                    final row? => FlowPinVm(
+                      id: row,
+                      label: 'Row',
+                      pinned: true,
+                    ),
+                    null => null,
+                  },
+                ),
               ),
               actions: FlowBlockActions(
                 onSelect: (id) => setState(() => selected = {id}),
                 onBind: (f, b, p) => bound.add((f, b, p)),
                 onRebind: (ob, op, b, p) => rebound.add((ob, op, b, p)),
                 onUnbind: (b, r) => unbound.add((b, r)),
-                onDropEntry: (_, _, _) {},
                 onResize: (b, {required add}) => resized.add((b, add)),
                 refusal: (from, block, row, {replacing}) =>
                     row.startsWith('out:') ? 'Outputs cannot be bound' : null,
@@ -196,7 +207,6 @@ void main() {
                   for (final e in to.entries) (e.key, e.value.dx, e.value.dy),
                 ]);
               },
-              onDrop: (e, x, y) => dropped.add((e, x, y)),
             ),
           ),
         ),
@@ -350,15 +360,26 @@ void main() {
     await tester.pumpWidget(
       canvas(
         controller: ctl,
-        beside: const SizedBox(
+        beside: SizedBox(
           width: 200,
           height: 700,
           child: Align(
-            child: Draggable<String>(
-              data: 'type:scale',
+            child: Draggable<PaletteDrag>(
+              data: PaletteDrag(
+                'scale',
+                place: (p) {
+                  if (p case PlaceOnCanvas(:final x, :final y)) {
+                    dropped.add(('type:scale', x, y));
+                  }
+                },
+              ),
               dragAnchorStrategy: pointerDragAnchorStrategy,
-              feedback: SizedBox(width: 20, height: 20),
-              child: SizedBox(width: 80, height: 30, child: Text('scale')),
+              feedback: const SizedBox(width: 20, height: 20),
+              child: const SizedBox(
+                width: 80,
+                height: 30,
+                child: Text('scale'),
+              ),
             ),
           ),
         ),

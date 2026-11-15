@@ -177,7 +177,6 @@ void main() {
             onBind: (_, _, _) {},
             onRebind: (_, _, _, _) {},
             onUnbind: (_, _) {},
-            onDropEntry: (_, _, _) {},
             onResize: (_, {required add}) {},
           ),
         ),

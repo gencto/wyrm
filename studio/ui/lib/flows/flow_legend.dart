@@ -1,4 +1,4 @@
-import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
@@ -7,37 +7,10 @@ import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
-/// The words of the canvas legend (spec §5).
-final class FlowLegendVm extends Equatable {
-  const FlowLegendVm({
-    required this.reads,
-    required this.writes,
-    required this.free,
-    required this.readOnly,
-  });
-
-  /// `reads a value` (teal line).
-  final String reads;
-
-  /// `writes to a device` (ember line).
-  final String writes;
-
-  /// `free field` (grey ring).
-  final String free;
-
-  /// `no left port = read-only point`.
-  final String readOnly;
-
-  @override
-  List<Object?> get props => [reads, writes, free, readOnly];
-}
-
 /// The legend pinned bottom-left over the flow canvas: what a teal and an
 /// ember wire mean, what a grey ring is, and what a missing left port says.
 class FlowLegend extends StatelessWidget {
-  const FlowLegend({required this.vm, super.key});
-
-  final FlowLegendVm vm;
+  const FlowLegend({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -67,8 +40,8 @@ class FlowLegend extends StatelessWidget {
         runSpacing: AppSpacing.sm,
         crossAxisAlignment: .center,
         children: [
-          line(c.good, vm.reads),
-          line(c.ember, vm.writes),
+          line(c.good, S.current.legendReads),
+          line(c.ember, S.current.legendWrites),
           Row(
             mainAxisSize: .min,
             spacing: AppSpacing.flowRowParts,
@@ -81,10 +54,10 @@ class FlowLegend extends StatelessWidget {
                   border: .all(color: c.muted, width: 2),
                 ),
               ),
-              Text(vm.free, style: style),
+              Text(S.current.legendFree, style: style),
             ],
           ),
-          Text(vm.readOnly, style: style),
+          Text(S.current.legendReadOnly, style: style),
         ],
       ),
     );

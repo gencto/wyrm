@@ -11,6 +11,8 @@ import '../theme/shades.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'block_palette.dart';
+import 'flow_intents.dart';
 
 /// What a block is (spec §3 header chip): a point of the tree, logic, a
 /// sink, an action of the tree, an own block.
@@ -301,7 +303,6 @@ final class FlowBlockActions {
     required this.onBind,
     required this.onRebind,
     required this.onUnbind,
-    required this.onDropEntry,
     required this.onResize,
     this.refusal = _takesAll,
     this.onOpen,
@@ -337,9 +338,6 @@ final class FlowBlockActions {
   /// Double click or Alt-click on a bound input, or its wire picked up and
   /// let go on the empty canvas.
   final RowAction<String, String> onUnbind;
-
-  /// A palette entry (`key:<point>`) dropped on input `toPort` of `block`.
-  final void Function(String entry, String block, String toPort) onDropEntry;
 
   /// − (false) or + (true).
   final void Function(String block, {required bool add}) onResize;
@@ -771,9 +769,9 @@ class _FieldRow extends StatelessWidget {
     final inPort = vm.inPort;
     if (inPort != null) {
       // A point of the Tree tab dropped on an input (a palette Draggable).
-      child = DragTarget<String>(
-        onWillAcceptWithDetails: (d) => d.data.startsWith('key:'),
-        onAcceptWithDetails: (d) => actions.onDropEntry(d.data, block, inPort),
+      child = DragTarget<PaletteDrag>(
+        onWillAcceptWithDetails: (d) => d.data.point,
+        onAcceptWithDetails: (d) => d.data.place(PlaceOnInput(block, inPort)),
         builder: (context, candidates, _) => candidates.isEmpty
             ? row(light, point: vm.dropTarget)
             : row(RowLight.none, point: true),

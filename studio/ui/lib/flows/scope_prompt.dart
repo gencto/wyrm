@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/services.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
@@ -16,43 +17,37 @@ final class ScopePromptVm extends Equatable {
   const ScopePromptVm({
     required this.block,
     required this.row,
-    required this.title,
     required this.value,
-    this.note = '',
     this.suggestions = const [],
-    this.saveLabel = 'Save',
-    this.cancelLabel = 'Cancel',
   });
 
   /// The block whose key is bound, and the row the prompt points at.
   final String block;
   final String row;
 
-  /// `This block may read keys under`.
-  final String title;
-
   /// The scope the field starts with: the block's own, else a suggestion.
   final String value;
 
-  /// Said under the field while the scope is right: what a scope is for.
-  final String note;
-
   /// Scopes offered as chips: the key's parent, the site's sections.
   final List<String> suggestions;
-  final String saveLabel;
-  final String cancelLabel;
 
   @override
-  List<Object?> get props => [
-    block,
-    row,
-    title,
-    value,
-    note,
-    suggestions,
-    saveLabel,
-    cancelLabel,
-  ];
+  List<Object?> get props => [block, row, value, suggestions];
+}
+
+/// Why a scope typed for a key of this site is refused (ADR 0040).
+enum ScopeProblemVm {
+  empty,
+  section,
+  otherSite,
+  segment;
+
+  String get label => switch (this) {
+    empty => S.current.scopeEmpty,
+    section => S.current.scopeSection,
+    otherSite => S.current.scopeOtherSite,
+    segment => S.current.scopeSegment,
+  };
 }
 
 /// The small card that asks for the scope of a key that just got a wire
@@ -147,7 +142,7 @@ class _ScopePromptState extends State<ScopePrompt> {
             spacing: AppSpacing.sm,
             children: [
               Text(
-                vm.title,
+                S.current.scopeTitle,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
                   fontWeight: .w600,
@@ -213,7 +208,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                   ],
                 ),
               Text(
-                problem ?? vm.note,
+                problem ?? S.current.scopeNote,
                 style: TextStyle(
                   fontSize: FontSizes.xs,
                   height: 1.4,
@@ -225,13 +220,13 @@ class _ScopePromptState extends State<ScopePrompt> {
                 spacing: AppSpacing.sm,
                 children: [
                   Button.quiet(
-                    label: vm.cancelLabel,
+                    label: S.current.cancel,
                     size: ButtonSize.small,
                     onPressed: widget.onCancel,
                   ),
                   Button.primary(
                     key: const ValueKey('scope-save'),
-                    label: vm.saveLabel,
+                    label: S.current.viewerSave,
                     size: ButtonSize.small,
                     onPressed: problem == null ? _save : null,
                   ),

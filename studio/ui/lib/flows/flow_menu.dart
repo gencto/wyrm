@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../models/disabled.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -15,7 +16,7 @@ import 'shortcut_card.dart';
 final class FlowMenuItemVm extends Equatable {
   const FlowMenuItemVm(
     this.command, {
-    this.disabledReason,
+    this.off,
     this.danger = false,
     this.divider = false,
   });
@@ -23,14 +24,14 @@ final class FlowMenuItemVm extends Equatable {
   final FlowCommand command;
 
   /// Why it cannot be picked (its tooltip); null: it can.
-  final String? disabledReason;
+  final Disabled? off;
   final bool danger;
 
   /// A line above it.
   final bool divider;
 
   @override
-  List<Object?> get props => [command, disabledReason, danger, divider];
+  List<Object?> get props => [command, off, danger, divider];
 }
 
 /// One field of the block in the `Fields ▸` checklist.
@@ -39,7 +40,7 @@ final class FlowPinVm extends Equatable {
     required this.id,
     required this.label,
     required this.pinned,
-    this.lockedReason,
+    this.locked = false,
   });
 
   /// The field's id within its block.
@@ -49,29 +50,42 @@ final class FlowPinVm extends Equatable {
   /// Whether it is a row of the block now.
   final bool pinned;
 
-  /// Why it cannot be taken off (`bound`); null: it can.
-  final String? lockedReason;
+  /// Bound: it cannot be taken off (`bound`).
+  final bool locked;
+
+  /// Why it cannot be taken off; null: it can.
+  String? get lockedReason => locked ? S.current.fmBound : null;
 
   @override
-  List<Object?> get props => [id, label, pinned, lockedReason];
+  List<Object?> get props => [id, label, pinned, locked];
 }
 
 /// What a [FlowMenu] shows: the block, the selection or the canvas it was
 /// opened on, its commands, and the fields of the block when it is one.
 final class FlowMenuVm extends Equatable {
   const FlowMenuVm({
-    required this.title,
     required this.items,
-    this.subtitle = '',
+    this.block,
+    this.blockType,
+    this.count = 0,
+    this.flow,
+    this.blocksInFlow = 0,
     this.fields = const [],
     this.unpin,
   });
 
-  /// The block's id, `3 blocks`, or the flow.
-  final String title;
+  /// The one block it was opened on, and its type.
+  final String? block;
+  final String? blockType;
 
-  /// The block's type, or how many blocks the flow has.
-  final String subtitle;
+  /// How many blocks are selected.
+  final int count;
+
+  /// The flow's id; null: a new flow.
+  final String? flow;
+
+  /// How many blocks the flow has (said on the canvas's own menu).
+  final int blocksInFlow;
   final List<FlowMenuItemVm> items;
 
   /// The checklist behind [FlowCommand.fields].
@@ -81,8 +95,39 @@ final class FlowMenuVm extends Equatable {
   /// block (disabled with its `lockedReason` when it is bound).
   final FlowPinVm? unpin;
 
+  /// The block's id, `3 blocks`, or the flow (`Canvas` for a new one).
+  String get title =>
+      block ??
+      (count > 1 ? S.current.fmBlocks(count) : (flow ?? S.current.fmCanvas));
+
+  /// The block's type, or how many blocks the flow has.
+  String get subtitle =>
+      blockType ?? (count > 1 ? '' : S.current.fmBlocks(blocksInFlow));
+
   @override
-  List<Object?> get props => [title, subtitle, items, fields, unpin];
+  List<Object?> get props => [
+    block,
+    blockType,
+    count,
+    flow,
+    blocksInFlow,
+    items,
+    fields,
+    unpin,
+  ];
+}
+
+/// Where the context menu of the canvas was opened: on [block] (and its
+/// [row]) with the selection [ids], or on the empty canvas.
+final class FlowMenuAsk extends Equatable {
+  const FlowMenuAsk(this.ids, {this.block, this.row});
+
+  final Set<String> ids;
+  final String? block;
+  final String? row;
+
+  @override
+  List<Object?> get props => [ids, block, row];
 }
 
 /// The context menu of the flow canvas (spec §13), in the style of the
@@ -187,7 +232,7 @@ class _FlowMenuState extends State<FlowMenu> {
     Widget item(FlowMenuItemVm i) {
       final isFields = i.command == FlowCommand.fields;
       final unpin = i.command == FlowCommand.unpin ? vm.unpin : null;
-      final reason = i.disabledReason ?? unpin?.lockedReason;
+      final reason = i.off?.text ?? unpin?.lockedReason;
       final enabled = reason == null;
       final hint = flowHintOf(i.command, mac: widget.mac);
       final row = InkWell(

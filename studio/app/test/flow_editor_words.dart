@@ -4,8 +4,10 @@
 // read and kept by hand). `[…]` is what a text field holds, `[on]` and
 // `[off]` a switch. The palette's block names, the catalog's
 // descriptions and the field labels come from the broker's catalog and
-// stay in English in every language, as does Deploy's reason
-// (`needs config on dataflows`, written by `business`).
+// stay in English in every language. Deploy's reason was English in
+// every language too (`needs config on dataflows`, written by
+// `business`); since the words moved to `ui` it is said in the language
+// shown (`ukWriteOnlyWords`).
 
 /// `FlowState.loaded`.
 List<String> get loadedWords => [
@@ -4246,7 +4248,7 @@ List<String> get ukWriteOnlyWords => [
   'Чернетку збережено',
   'Перевірити',
   'Розгорнути',
-  'needs config on dataflows',
+  'потрібен рівень налаштування на dataflows',
   'Блоки',
   'Мої блоки',
   'Дерево',

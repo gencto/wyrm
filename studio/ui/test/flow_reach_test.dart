@@ -7,6 +7,7 @@ import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/shortcut_card.dart';
+import 'package:ui/models/query.dart';
 
 import 'frames/harness.dart';
 
@@ -58,28 +59,23 @@ void main() {
         controller: ctl,
         view: view,
         onCommand: onCommand,
-        menu: (ids, block, row) => const FlowMenuVm(
-          title: 'canvas',
-          items: [FlowMenuItemVm(.tidy)],
+        menu: QueryVm(
+          (_) => const FlowMenuVm(
+            flow: 'canvas',
+            items: [FlowMenuItemVm(.tidy)],
+          ),
         ),
-        legend: const FlowLegendVm(
-          reads: 'reads a value',
-          writes: 'writes to a device',
-          free: 'free field',
-          readOnly: 'no left port = read-only point',
-        ),
+        legend: true,
         actions: FlowBlockActions(
           onSelect: picked.add,
           onBind: (_, _, _) {},
           onRebind: (_, _, _, _) {},
           onUnbind: (_, _) {},
-          onDropEntry: (_, _, _) {},
           onResize: (_, {required add}) {},
           refusal: (_, _, _, {replacing}) => null,
         ),
         onClear: () {},
         onMove: (_, {required nudge}) {},
-        onDrop: (_, _, _) {},
       ),
     ),
   );

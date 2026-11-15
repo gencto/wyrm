@@ -1,10 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/services.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
-import '../buttons/segmented_tabs.dart';
 import '../containers/fault_boundary.dart';
 import '../containers/side_panels.dart';
 import '../flows/block_palette.dart';
@@ -12,13 +11,15 @@ import '../flows/custom_block_dialog.dart';
 import '../flows/field_inspector.dart';
 import '../flows/flow_block_view.dart';
 import '../flows/flow_canvas.dart';
-import '../flows/flow_legend.dart';
 import '../flows/flow_menu.dart';
+import '../flows/flow_status.dart';
 import '../flows/scope_prompt.dart';
 import '../flows/shortcut_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../models/disabled.dart';
 import '../models/panels.dart';
+import '../models/query.dart';
 import '../models/value_changed.dart';
 import '../overlays/confirm_dialog.dart';
 import '../overlays/value_viewer.dart';
@@ -28,7 +29,6 @@ import '../theme/extensions/colors.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
-import '../trees/tree_row.dart';
 
 /// Boards *Flow editor · fields, bindings, properties* and *· drag points
 /// and actions from the tree* (studio/docs/design/specs/flow-editor.md): the
@@ -37,61 +37,45 @@ import '../trees/tree_row.dart';
 /// selected block or of the flow.
 class FlowEditorPage extends StatelessWidget {
   const FlowEditorPage({
-    required this.flowsLabel,
-    required this.flowLabel,
-    required this.state,
-    required this.validateLabel,
-    required this.deployLabel,
+    required this.status,
     required this.onValidate,
     required this.onClose,
     required this.onFlows,
     required this.onLogo,
-    required this.paletteTabs,
     required this.paletteTab,
     required this.onPaletteTab,
     required this.palette,
-    required this.onPick,
     required this.blocks,
     required this.wires,
     required this.blockActions,
     required this.onClear,
     required this.onMove,
-    required this.onDrop,
-    required this.inspectorFooter,
     required this.onFieldChanged,
     required this.onFieldUnbind,
     required this.onFieldBind,
     required this.onProblem,
-    this.blockLabel,
+    this.flowName,
+    this.version = 0,
+    this.selected,
+    this.selectedCount = 0,
     this.stateDot = false,
     this.onDeploy,
-    this.deployReason,
-    this.searchHint = '',
-    this.paletteNotes = const [],
+    this.deployOff,
+    this.myBlocksOff = false,
     this.paletteClosed = const {},
-    this.legend,
     this.nameField,
     this.inspectorKind = '',
     this.inspectorTitle = '',
     this.inspectorNote = '',
     this.inspectorRows = const [],
     this.summary,
-    this.removeLabel = '',
     this.onRemove,
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
     this.onGoToSource,
-    this.unbindLabel = 'Unbind',
-    this.goToSourceLabel = 'Go to source',
-    this.boundLabel = 'bound',
-    this.suggestLabel = 'Choose a value',
     this.viewer,
     this.onView,
     this.onCloseViewer,
-    this.viewLabel = 'View value',
-    this.copyLabel = 'Copy',
-    this.copiedLabel = 'Copied',
-    this.closeLabel = 'Close',
     this.window = const WindowBarVm(),
     this.onSelectMany,
     this.onCommand,
@@ -99,44 +83,26 @@ class FlowEditorPage extends StatelessWidget {
     this.onPin,
     this.onViewField,
     this.onFieldPin,
-    this.pinLabel = 'Pin to block',
-    this.unpinLabel = 'Unpin from block',
-    this.pinLockedLabel = 'A bound field stays on the block',
     this.onSaveViewer,
     this.validateViewer,
     this.viewerTables,
-    this.editLabel = 'Edit',
-    this.saveLabel = 'Save',
-    this.cancelLabel = 'Cancel',
-    this.saveHint = '',
-    this.deployAskTitle = 'Deploy this flow?',
-    this.deployAskMessage = '',
+    this.mac,
     this.crumbs = const [],
     this.onBack,
-    this.backLabel = 'Back',
-    this.insideNote,
+    this.instances,
     this.tree,
     this.onTreeToggle,
     this.onTreeQuery,
-    this.onPaletteMenu,
-    this.paletteEmpty = '',
-    this.writable = const {},
-    this.readLabel = 'Read',
-    this.writeLabel = 'Write',
     this.createBlock,
-    this.validateBlock,
+    this.checkBlock,
     this.onCreateBlock,
-    this.onRenameBlock,
-    this.validateBlockName,
-    this.renameTitle = 'Rename',
-    this.renameLabel = 'Rename',
+    this.checkBlockName,
     this.prompt,
     this.onPromptSave,
     this.onPromptCancel,
-    this.validatePrompt,
+    this.checkScope,
     this.onRun,
-    this.inspectorLinks = const [],
-    this.confirmLabel = 'Turn on',
+    this.onOpenInside,
     super.key,
   });
 
@@ -147,53 +113,39 @@ class FlowEditorPage extends StatelessWidget {
 
   /// Back by so many levels (`Back`: one; the flow's name: all).
   final ValueChanged<int>? onBack;
-  final String backLabel;
 
-  /// Said beside the path while inside a block (`2 instances in this
-  /// flow`).
-  final String? insideNote;
+  /// Inside a block: how many instances of it the flow has (said beside
+  /// the path: `2 instances in this flow`); null: the flow itself.
+  final int? instances;
 
   /// The Tree tab's rows (spec §18); null on the other tabs.
-  final List<TreeRowVm>? tree;
+  final List<PaletteTreeRowVm>? tree;
   final ValueChanged<String>? onTreeToggle;
   final ValueChanged<String>? onTreeQuery;
 
-  /// An item of a palette entry's context menu. `rename` asks for the new
-  /// name first and goes to [onRenameBlock].
-  final MenuPicked? onPaletteMenu;
-  final String paletteEmpty;
-
-  /// The `key:<point>` entries that may also be written: dropped on the
-  /// canvas they ask `Read` or `Write` (Alt held: `Write` at once), and
-  /// `Write` places `set:<point>`.
-  final Set<String> writable;
-  final String readLabel;
-  final String writeLabel;
-
   /// What `Create custom block…` asks of the selection; null: nothing to
   /// make a block of.
-  final CustomBlockDialogVm? Function()? createBlock;
-  final Validate<CustomBlockResult>? validateBlock;
+  final QueryVm<void, CustomBlockDialogVm?>? createBlock;
+
+  /// Why the block the dialog would create is refused; null: it is taken.
+  final QueryVm<CustomBlockResult, CustomBlockProblemVm?>? checkBlock;
   final ValueChanged<CustomBlockResult>? onCreateBlock;
 
-  /// `Rename` of a custom block of the palette: the entry, the new name.
-  final Renamed? onRenameBlock;
-  final Validate<String>? validateBlockName;
-  final String renameTitle;
-  final String renameLabel;
+  /// Why a new name of a custom block (Rename) is refused.
+  final QueryVm<String, CustomBlockProblemVm?>? checkBlockName;
 
   /// The scope asked of a key that got a wire (spec §17).
   final ScopePromptVm? prompt;
   final ValueChanged<String>? onPromptSave;
   final VoidCallback? onPromptCancel;
-  final Validate<String>? validatePrompt;
+  final QueryVm<String, ScopeProblemVm?>? checkScope;
 
   /// The `Run` button of an inspector row (an unbound `Trigger`).
   final ValueChanged<String>? onRun;
 
-  /// Link buttons above the inspector's rows (`Open inside`).
-  final List<(String, VoidCallback)> inspectorLinks;
-  final String confirmLabel;
+  /// `Open inside` above the inspector's rows (an instance of a custom
+  /// block); null: none.
+  final VoidCallback? onOpenInside;
 
   /// A marquee or Select all on the canvas.
   final void Function(
@@ -205,12 +157,12 @@ class FlowEditorPage extends StatelessWidget {
 
   /// A command of the canvas (copy, paste at `at`, delete, undo, …). The
   /// page itself answers two: `searchPalette` puts the cursor in the
-  /// palette's search field, `deploy` asks first ([deployAskTitle]) and
-  /// then calls [onDeploy].
+  /// palette's search field, `deploy` asks first and then calls
+  /// [onDeploy].
   final void Function(FlowCommand command, {Offset? at})? onCommand;
 
   /// The context menu of a block, of the selection or of the canvas.
-  final FlowMenuVm Function(Set<String> ids, String? block, String? row)? menu;
+  final QueryVm<FlowMenuAsk, FlowMenuVm>? menu;
 
   /// A field pinned to its block or taken off it, from the context menu.
   final void Function(String block, String field, {required bool pinned})?
@@ -221,9 +173,6 @@ class FlowEditorPage extends StatelessWidget {
 
   /// The pin of an inspector row (a field of the selected block).
   final Toggled<String>? onFieldPin;
-  final String pinLabel;
-  final String unpinLabel;
-  final String pinLockedLabel;
 
   /// Save of the viewer's Edit mode: the editor's text.
   final ValueChanged<String>? onSaveViewer;
@@ -233,44 +182,41 @@ class FlowEditorPage extends StatelessWidget {
 
   /// How the viewer reads and writes tables (a date cell, CSV).
   final ViewerTables? viewerTables;
-  final String editLabel;
-  final String saveLabel;
-  final String cancelLabel;
-  final String saveHint;
-  final String deployAskTitle;
-  final String deployAskMessage;
 
-  /// `Flows`, a link back to the list.
-  final String flowsLabel;
+  /// ⌘ (true) or Ctrl in the viewer's save hint; null: this machine's.
+  final bool? mac;
 
-  /// The flow id (or `New dataflow`).
-  final String flowLabel;
+  /// The flow's id; null: a new flow not named yet (`New dataflow`).
+  final String? flowName;
 
-  /// The selected block, if any.
-  final String? blockLabel;
+  /// The selected block, if one is.
+  final String? selected;
 
-  /// `Draft saved`, `Version 4 · deployed`, `Deploying…`, a problem.
-  final String state;
+  /// How many blocks are selected (several: `3 blocks` in the path).
+  final int selectedCount;
 
-  /// A teal dot before [state] (a draft that differs from the deployed one).
+  /// Where the draft stands (`Draft saved`, `Version 4 · deployed`), with
+  /// the deployed [version].
+  final FlowStatusVm status;
+  final int version;
+
+  /// A teal dot before the status (a draft that differs from the deployed
+  /// one).
   final bool stateDot;
-  final String validateLabel;
-  final String deployLabel;
   final VoidCallback onValidate;
   final VoidCallback onClose;
   final VoidCallback onFlows;
   final VoidCallback? onDeploy;
 
   /// Why Deploy is off (`Nothing to deploy`); null: it is on.
-  final String? deployReason;
+  final Disabled? deployOff;
 
-  final List<TabItemVm<String>> paletteTabs;
-  final String paletteTab;
-  final ValueChanged<String> onPaletteTab;
+  final PaletteTabVm paletteTab;
+  final ValueChanged<PaletteTabVm> onPaletteTab;
+
+  /// The broker has no custom blocks: the My blocks tab is off.
+  final bool myBlocksOff;
   final List<PaletteEntryVm> palette;
-  final ValueChanged<String> onPick;
-  final String searchHint;
-  final List<PaletteNoteVm> paletteNotes;
 
   /// Palette groups shown closed at first.
   final Set<String> paletteClosed;
@@ -280,8 +226,6 @@ class FlowEditorPage extends StatelessWidget {
   final FlowBlockActions blockActions;
   final VoidCallback onClear;
   final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
-  final void Function(String entry, double x, double y) onDrop;
-  final FlowLegendVm? legend;
 
   /// The id field of a new flow.
   final ParamFieldVm? nameField;
@@ -290,22 +234,14 @@ class FlowEditorPage extends StatelessWidget {
   final String inspectorNote;
   final List<InspectorRowVm> inspectorRows;
   final FlowSummaryVm? summary;
-  final List<String> inspectorFooter;
   final FieldEdited onFieldChanged;
   final ValueChanged<String> onFieldUnbind;
   final FieldBound<FieldRefVm> onFieldBind;
   final ValueChanged<String> onProblem;
-  final String removeLabel;
   final VoidCallback? onRemove;
 
   /// `Go to source` of a bound field in the inspector: selects the block.
   final ValueChanged<String>? onGoToSource;
-  final String unbindLabel;
-  final String goToSourceLabel;
-  final String boundLabel;
-
-  /// The tooltip of the menu of a field with usual values (a time zone).
-  final String suggestLabel;
 
   /// The open value viewer of a field, live; null: none is open.
   final ValueViewerVm? viewer;
@@ -313,18 +249,21 @@ class FlowEditorPage extends StatelessWidget {
   /// The eye of an inspector row (its id): opens the viewer.
   final ValueChanged<String>? onView;
   final VoidCallback? onCloseViewer;
-  final String viewLabel;
-  final String copyLabel;
-  final String copiedLabel;
-  final String closeLabel;
 
   /// The frameless window's side of the top bar (docs/studio.md §7.1).
   final WindowBarVm window;
 
+  /// The flow's name in the path: its id, or `New dataflow`.
+  String get _flowLabel => flowName ?? S.current.newDataflow;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final deployOn = deployReason == null && onDeploy != null;
+    final deployOn = deployOff == null && onDeploy != null;
+    final flowLabel = _flowLabel;
+    final blockLabel =
+        selected ??
+        (selectedCount > 1 ? S.current.fmBlocks(selectedCount) : null);
     return Scaffold(
       backgroundColor: c.ground0,
       body: SafeArea(
@@ -354,14 +293,14 @@ class FlowEditorPage extends StatelessWidget {
                           if (crumbs.isNotEmpty)
                             Button.quiet(
                               key: const ValueKey('flow-back'),
-                              label: backLabel,
+                              label: S.current.flowBack,
                               size: ButtonSize.small,
                               onPressed: () => onBack?.call(1),
                             ),
                           InkWell(
                             onTap: onFlows,
                             child: Text(
-                              flowsLabel,
+                              S.current.wsFlows,
                               style: TextStyle(
                                 fontSize: FontSizes.lg,
                                 color: c.text3,
@@ -420,7 +359,7 @@ class FlowEditorPage extends StatelessWidget {
                               ),
                             ),
                           ],
-                          if (insideNote case final note?)
+                          if (instances case final n?)
                             Flexible(
                               flex: 2,
                               child: Padding(
@@ -428,7 +367,7 @@ class FlowEditorPage extends StatelessWidget {
                                   left: AppSpacing.sm,
                                 ),
                                 child: Text(
-                                  note,
+                                  S.current.instancesInFlow(n),
                                   maxLines: 1,
                                   overflow: .ellipsis,
                                   style: TextStyle(
@@ -461,7 +400,7 @@ class FlowEditorPage extends StatelessWidget {
                                 maxWidth: AppSizes.flowStateText,
                               ),
                               child: Text(
-                                state,
+                                status.label(version),
                                 maxLines: 1,
                                 overflow: .ellipsis,
                                 style: TextStyle(
@@ -473,18 +412,18 @@ class FlowEditorPage extends StatelessWidget {
                           ],
                         ),
                         Button.secondary(
-                          label: validateLabel,
+                          label: S.current.validate,
                           onPressed: onValidate,
                         ),
                         if (deployOn)
                           Button.primary(
-                            label: deployLabel,
+                            label: S.current.deploy,
                             onPressed: onDeploy,
                           )
                         else
                           Button.secondary(
-                            label: deployLabel,
-                            disabledReason: deployReason,
+                            label: S.current.deploy,
+                            disabledReason: deployOff?.text,
                             onPressed: null,
                           ),
                         IconButton(
@@ -514,13 +453,15 @@ class FlowEditorPage extends StatelessWidget {
                         onSave: onSaveViewer,
                         validate: validateViewer,
                         tables: viewerTables,
-                        copyLabel: copyLabel,
-                        copiedLabel: copiedLabel,
-                        closeLabel: closeLabel,
-                        editLabel: editLabel,
-                        saveLabel: saveLabel,
-                        cancelLabel: cancelLabel,
-                        saveHint: saveHint,
+                        copyLabel: S.current.copyValue,
+                        copiedLabel: S.current.copiedValue,
+                        closeLabel: S.current.closeLabel,
+                        editLabel: S.current.viewerEdit,
+                        saveLabel: S.current.viewerSave,
+                        cancelLabel: S.current.cancel,
+                        saveHint: S.current.viewerSaveHint(
+                          (mac ?? flowOnMac) ? 'Cmd+Enter' : 'Ctrl+Enter',
+                        ),
                       ),
                     ),
                 ],
@@ -544,14 +485,15 @@ class FlowEditorPage extends StatelessWidget {
       paletteSearchRequest.value++;
     } else if (command == FlowCommand.createCustomBlock) {
       // Name the block and its ports, then the selection becomes one.
-      final vm = createBlock?.call();
+      final vm = createBlock?.ask(null);
       if (vm == null) {
         return;
       }
+      final check = checkBlock;
       final made = await CustomBlockDialog.ask(
         context,
         vm: vm,
-        validate: validateBlock,
+        validate: check == null ? null : (r) => check.ask(r)?.label,
       );
       if (made != null) {
         onCreateBlock?.call(made);
@@ -561,10 +503,10 @@ class FlowEditorPage extends StatelessWidget {
     } else if (deployOn) {
       final yes = await ConfirmDialog.ask(
         context,
-        title: deployAskTitle,
-        message: deployAskMessage,
-        confirm: deployLabel,
-        cancel: cancelLabel,
+        title: S.current.deployAskTitle,
+        message: S.current.deployAskMessage(_flowLabel),
+        confirm: S.current.deploy,
+        cancel: S.current.cancel,
         danger: false,
       );
       if (yes) {
@@ -579,19 +521,18 @@ class FlowEditorPage extends StatelessWidget {
       width: panels.left,
       defaultWidth: AppSizes.flowPalette,
       child: BlockPalette(
-        tabs: paletteTabs,
         tab: paletteTab,
         onTab: onPaletteTab,
         entries: palette,
-        onPick: onPick,
-        hint: searchHint,
-        notes: paletteNotes,
+        myBlocksOff: myBlocksOff,
         closed: paletteClosed,
         tree: tree,
         onTreeToggle: onTreeToggle,
         onQuery: onTreeQuery,
-        empty: paletteEmpty,
-        onMenu: (entry, item) => unawaited(_paletteMenu(context, entry, item)),
+        checkName: switch (checkBlockName) {
+          final q? => (name) => q.ask(name)?.label,
+          null => null,
+        },
       ),
     ),
     center: FaultBoundary(
@@ -602,10 +543,9 @@ class FlowEditorPage extends StatelessWidget {
         actions: blockActions,
         onClear: onClear,
         onMove: onMove,
-        onDrop: onDrop,
-        legend: legend,
+        legend: true,
         // A flow, or a block opened inside it, fits the view when it opens.
-        view: [flowLabel, ...crumbs].join('/'),
+        view: [_flowLabel, ...crumbs].join('/'),
         onSelectMany: onSelectMany,
         onCommand: (command, {at}) => unawaited(
           _command(context, command, deployOn: deployOn, at: at),
@@ -613,11 +553,13 @@ class FlowEditorPage extends StatelessWidget {
         menu: menu,
         onPin: onPin,
         onViewField: onViewField,
-        dropChoice: _dropChoice,
         prompt: prompt,
         onPromptSave: onPromptSave,
         onPromptCancel: onPromptCancel,
-        validatePrompt: validatePrompt,
+        validatePrompt: switch (checkScope) {
+          final q? => (scope) => q.ask(scope)?.label,
+          null => null,
+        },
       ),
     ),
     right: SidePanel(
@@ -636,87 +578,33 @@ class FlowEditorPage extends StatelessWidget {
         note: inspectorNote,
         rows: inspectorRows,
         summary: summary,
-        footer: inspectorFooter,
+        footer: [S.current.flowPropertiesNote, S.current.flowPropertiesNote2],
         onChanged: onFieldChanged,
         onUnbind: onFieldUnbind,
         onBind: onFieldBind,
         onProblem: onProblem,
         onGoToSource: onGoToSource,
-        unbindLabel: unbindLabel,
-        goToSourceLabel: goToSourceLabel,
-        boundLabel: boundLabel,
-        suggestLabel: suggestLabel,
-        removeLabel: removeLabel,
+        unbindLabel: S.current.unbind,
+        goToSourceLabel: S.current.goToSource,
+        boundLabel: S.current.boundMark,
+        suggestLabel: S.current.suggestPick,
+        removeLabel: S.current.removeBlock,
         onRemove: onRemove,
         onView: onView,
-        viewLabel: viewLabel,
+        viewLabel: S.current.viewValue,
         onPin: onFieldPin,
-        pinLabel: pinLabel,
-        unpinLabel: unpinLabel,
-        pinLockedLabel: pinLockedLabel,
+        pinLabel: S.current.pinField,
+        unpinLabel: S.current.unpinField,
+        pinLockedLabel: S.current.pinLocked,
         onRun: onRun,
-        links: inspectorLinks,
-        confirmLabel: confirmLabel,
-        cancelLabel: cancelLabel,
+        links: [
+          if (onOpenInside case final open?) (S.current.openInside, open),
+        ],
+        confirmLabel: S.current.turnOn,
+        cancelLabel: S.current.cancel,
       ),
     ),
   );
-
-  /// A palette entry let go on the canvas: a point that may be written
-  /// asks `Read` or `Write` where it landed; Alt held writes at once.
-  Future<String?> _dropChoice(
-    BuildContext context,
-    String entry,
-    Offset at,
-  ) async {
-    if (!writable.contains(entry)) {
-      return entry;
-    }
-    final write = 'set:${entry.substring(entry.indexOf(':') + 1)}';
-    if (HardwareKeyboard.instance.isAltPressed) {
-      return write;
-    }
-    final c = context.colors;
-    return showMenu<String>(
-      context: context,
-      color: c.ground3,
-      position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
-      items: [
-        for (final (value, label) in [(entry, readLabel), (write, writeLabel)])
-          PopupMenuItem(
-            value: value,
-            height: AppSizes.flowMenuItem,
-            child: Text(
-              label,
-              style: TextStyle(fontSize: FontSizes.md, color: c.text1),
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// An item of a palette entry's menu: `rename` asks for the name first.
-  Future<void> _paletteMenu(
-    BuildContext context,
-    String entry,
-    String item,
-  ) async {
-    if (item != 'rename') {
-      onPaletteMenu?.call(entry, item);
-      return;
-    }
-    final name = await NameDialog.ask(
-      context,
-      title: renameTitle,
-      value: entry.substring(entry.indexOf(':') + 1),
-      confirm: renameLabel,
-      cancel: cancelLabel,
-      validate: validateBlockName,
-    );
-    if (name != null) {
-      onRenameBlock?.call(entry, name);
-    }
-  }
 
   /// The logo: to Explorer (spec §1).
   final VoidCallback onLogo;

@@ -27,7 +27,6 @@
   "string-case": {
     "app/lib/common/backup_sheets.dart": 47,
     "app/lib/common/update_sheets.dart": 4,
-    "app/lib/connectors/flow_editor_page_connector.dart": 5,
     "app/lib/connectors/link_install_page_connector.dart": 36,
     "app/lib/connectors/links_page_connector.dart": 30,
     "app/lib/dialogs/backup_dialogs.dart": 19,
@@ -43,7 +42,6 @@
     "business/lib/wyrm/mappers/link_info_mapper.dart": 3,
     "business/lib/wyrm/package_check.dart": 2,
     "business/lib/wyrm/points.dart": 1,
-    "ui/lib/flows/block_palette.dart": 2,
     "ui/lib/indicators/app_icon.dart": 12,
     "ui/lib/tables/log_table.dart": 3
   },
@@ -51,7 +49,7 @@
     "app/lib/common/backup_sheets.dart": 15,
     "app/lib/common/broker_update_sheets.dart": 1,
     "app/lib/common/update_sheets.dart": 3,
-    "app/lib/connectors/flow_editor_page_connector.dart": 7,
+    "app/lib/connectors/flow_editor_page_connector.dart": 3,
     "app/lib/connectors/link_install_page_connector.dart": 13,
     "app/lib/connectors/links_page_connector.dart": 6,
     "app/lib/dialogs/assistant_dialogs.dart": 1,
@@ -81,7 +79,7 @@
     "app/lib/connectors/access_page_connector.dart": 117,
     "app/lib/connectors/assistant_page_connector.dart": 887,
     "app/lib/connectors/explorer_page_connector.dart": 704,
-    "app/lib/connectors/flow_editor_page_connector.dart": 2208,
+    "app/lib/connectors/flow_editor_page_connector.dart": 1626,
     "app/lib/connectors/flows_page_connector.dart": 92,
     "app/lib/connectors/gallery_page_connector.dart": 31,
     "app/lib/connectors/history_page_connector.dart": 124,
@@ -110,7 +108,7 @@
     "app/lib/common/update_sheets.dart": 4,
     "app/lib/common/validators.dart": 1,
     "app/lib/common/value_viewer.dart": 4,
-    "app/lib/connectors/flow_editor_page_connector.dart": 195,
+    "app/lib/connectors/flow_editor_page_connector.dart": 90,
     "app/lib/connectors/link_install_page_connector.dart": 112,
     "app/lib/connectors/links_page_connector.dart": 166
   },
@@ -202,7 +200,7 @@
     "ui/lib/trees/tree_row.dart": 4
   },
   "ad-hoc-callback": {
-    "app/lib/connectors/flow_editor_page_connector.dart": 25,
+    "app/lib/connectors/flow_editor_page_connector.dart": 16,
     "app/lib/connectors/link_install_page_connector.dart": 1,
     "app/lib/connectors/links_page_connector.dart": 3,
     "app/lib/navigation/go_action.dart": 1,
@@ -212,12 +210,12 @@
     "ui/lib/containers/side_panels.dart": 1,
     "ui/lib/dialogs/error_dialog.dart": 1,
     "ui/lib/flows/field_drop_zone.dart": 1,
-    "ui/lib/flows/flow_block_view.dart": 4,
-    "ui/lib/flows/flow_canvas.dart": 7,
+    "ui/lib/flows/flow_block_view.dart": 3,
+    "ui/lib/flows/flow_canvas.dart": 4,
     "ui/lib/forms/base_form.dart": 1,
     "ui/lib/overlays/search_palette.dart": 1,
     "ui/lib/overlays/value_viewer.dart": 3,
-    "ui/lib/pages/flow_editor_page.dart": 7
+    "ui/lib/pages/flow_editor_page.dart": 4
   },
   "untyped-wire": {
     "app/lib/common/value_viewer.dart": 6,
