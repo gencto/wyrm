@@ -354,7 +354,7 @@ mod tests {
             a.default_message(),
             "wy/s/downstream/plc/temp",
             &Value::Null,
-            Quality::Good,
+            Quality::Bad,
             "c",
             "w1",
             &a,
