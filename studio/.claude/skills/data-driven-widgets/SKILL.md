@@ -30,8 +30,8 @@ The whole chain, in three fragments:
 final class TaskTileVm extends Equatable {
   const TaskTileVm({required this.title, required this.due, this.onTap});
 
-  final String title;
-  final String due;              // already formatted — see "Text", below
+  final String title;            // domain text: the task's own name
+  final DateTime due;            // a typed value; the widget formats it
   final VoidCallback? onTap;     // null when the row does not react
 
   @override
@@ -49,7 +49,7 @@ final class TaskTile extends StatelessWidget {
       onTap: vm.onTap,
       child: Row(
         crossAxisAlignment: .start,
-        children: [Text(vm.title), Text(vm.due)],
+        children: [Text(vm.title), Text(S.current.dueOn(vm.due))],
       ),
     ),
   );
@@ -68,7 +68,7 @@ class _Factory extends VmFactory<AppState, TasksPageConnector, _Vm>
       for (final task in tasks.visible)
         TaskTileVm(
           title: task.name,
-          due: S.current.dueOn(task.dueAt),
+          due: task.dueAt,               // no S.current here: studio-rules §5
           onTap: task.isOpen ? () => dispatch(OpenTaskAction(task.id)) : null,
         ),
     ],
@@ -276,13 +276,14 @@ That is why `theme/radii.dart` and `theme/spacing.dart` are full of
 `.all(16)`. Reach for the shorthand when there is no token for the value; reach
 for the token first.
 
-## Text: chrome is looked up, content arrives resolved
+## Text: resolved in `ui`, never in a connector
 
-A widget's own fixed label may come from `S.current` — a page titles its own
-`AppBar` that way. Anything depending on the domain or the data — an item's
-title, a formatted date, a pluralised count — arrives as a finished `String`,
-resolved in the connector where the locale and the domain both live.
-`ChoiceItemVm.label` states it in one line: **label is data, not design**.
+Replaced by the owner's rule (2026-11-15, `studio-rules` §5). A widget's own
+words come from `S.current` in the widget. A `ui` enum carries its own label.
+A count, a date, a duration arrives as a typed value and `ui` formats it.
+Domain text — a node's name, a user's name, a broker's message — arrives as a
+`String`. A connector never calls `S.current`. `ChoiceItemVm.label` is domain
+text in that sense; a label that comes from the locale is an enum's getter.
 
 ## Before you write one
 
