@@ -2095,6 +2095,46 @@ class S {
     );
   }
 
+  /// `network`
+  String get rightNetwork {
+    return Intl.message('network', name: 'rightNetwork', desc: '', args: []);
+  }
+
+  /// `store`
+  String get rightStore {
+    return Intl.message('store', name: 'rightStore', desc: '', args: []);
+  }
+
+  /// `memory`
+  String get rightMemory {
+    return Intl.message('memory', name: 'rightMemory', desc: '', args: []);
+  }
+
+  /// `call`
+  String get rightCall {
+    return Intl.message('call', name: 'rightCall', desc: '', args: []);
+  }
+
+  /// `{n} MiB`
+  String rightMib(int n) {
+    return Intl.message('$n MiB', name: 'rightMib', desc: '', args: [n]);
+  }
+
+  /// `{n} ms`
+  String rightMs(int n) {
+    return Intl.message('$n ms', name: 'rightMs', desc: '', args: [n]);
+  }
+
+  /// `on {path}`
+  String rightOn(String path) {
+    return Intl.message('on $path', name: 'rightOn', desc: '', args: [path]);
+  }
+
+  /// `none`
+  String get rightsNone {
+    return Intl.message('none', name: 'rightsNone', desc: '', args: []);
+  }
+
   /// `The package asks for these rights`
   String get rightsTitle {
     return Intl.message(

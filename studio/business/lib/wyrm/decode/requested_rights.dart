@@ -69,13 +69,3 @@ Decoded<List<RequestedRight>> requestedRightsOf(
   }
   return Valid(rights);
 }
-
-/// [r] as the check *Rights asked* says it (`network 10.0.5.0/24:502`,
-/// `read on wy/{site}/downstream/modbus`).
-String rightText(RequestedRight r) => switch (r) {
-  RightNetwork(:final hosts) => 'network ${hosts.join(', ')}',
-  RightStore(:final mib) => 'store $mib MiB',
-  RightMemory(:final mib) => 'memory $mib MiB',
-  RightCall(:final ms) => 'call $ms ms',
-  RightGrant(:final level, :final path) => '${level.wire} on $path',
-};

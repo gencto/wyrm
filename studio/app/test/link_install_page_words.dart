@@ -1952,7 +1952,7 @@ final installWords = <String, List<String>>{
     'Binaries',
     'linux-aarch64, macos-aarch64',
     'Rights asked',
-    'none',
+    'немає',
     'МАНІФЕСТ',
     '{',
     '  "name": "acme-meter",',

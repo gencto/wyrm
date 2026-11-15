@@ -530,7 +530,7 @@ class _Center extends StatelessWidget {
       style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
     ),
     Gaps.sectionTitle,
-    CheckList(rows: vm.checks),
+    CheckList(rows: [for (final c in vm.checks) c.row]),
     if (vm.manifest case final m?) ...[
       Gaps.stepGroup,
       SectionLabel(S.current.manifest),

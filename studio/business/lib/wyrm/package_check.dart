@@ -193,14 +193,8 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
       checks.add(_bad('Rights asked', '$field: $reason'));
   }
   if (asked is Valid) {
-    checks.add(
-      rights.isEmpty
-          ? _ok('Rights asked', 'none')
-          : _ok(
-              'Rights asked',
-              [for (final r in rights) rightText(r)].join('; '),
-            ),
-    );
+    // the rights themselves: ui says them in the language on screen
+    checks.add(PackageCheck(title: 'Rights asked', rights: rights.lock));
   }
   return PackageReport(
     checks: checks.lock,

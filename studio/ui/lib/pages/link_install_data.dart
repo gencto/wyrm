@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 
 import '../containers/catalog_card.dart';
 import '../indicators/check_list.dart';
+import '../indicators/level_badge.dart';
 import '../models/link_run_mode.dart';
 import '../shell/window_bar.dart';
 
@@ -155,34 +156,20 @@ enum InstallHold {
   needsConfig,
 }
 
-/// A level a package's grant asks for.
-enum InstallGrantLevel {
-  none('none'),
-  list('list'),
-  read('read'),
-  write('write'),
-  config('config');
-
-  const InstallGrantLevel(this.code);
-
-  /// The level's own name, as the manifest writes it.
-  final String code;
-}
-
-/// One right a custom package asks for, as typed values; the rights card
-/// says each as its kind and what it covers, in the manifest's own terms
-/// (`network` `10.0.5.0/24:502`, `read` `on wy/{site}/…`).
+/// One right a custom package asks for, as typed values; `ui` says each
+/// as its kind and what it covers (`network` `10.0.5.0/24:502`, `read`
+/// `on wy/{site}/…`) in the language on screen.
 sealed class InstallRightVm extends Equatable {
   const InstallRightVm();
 
-  /// The kind, in the manifest's own word.
+  /// The kind.
   String get kind;
 
   /// What it covers.
   String get detail;
 
-  @override
-  List<Object?> get props => [kind, detail];
+  /// Both, as one line of a list.
+  String get line => '$kind $detail';
 }
 
 /// The hosts and nets it may reach.
@@ -192,10 +179,13 @@ final class NetworkRightVm extends InstallRightVm {
   final List<String> hosts;
 
   @override
-  String get kind => 'network';
+  String get kind => S.current.rightNetwork;
 
   @override
   String get detail => hosts.join(', ');
+
+  @override
+  List<Object?> get props => [hosts];
 }
 
 /// A size in MiB: its store ([store]) or its memory.
@@ -206,10 +196,13 @@ final class SizeRightVm extends InstallRightVm {
   final bool store;
 
   @override
-  String get kind => store ? 'store' : 'memory';
+  String get kind => store ? S.current.rightStore : S.current.rightMemory;
 
   @override
-  String get detail => '$mib MiB';
+  String get detail => S.current.rightMib(mib);
+
+  @override
+  List<Object?> get props => [mib, store];
 }
 
 /// The time of one call, in ms.
@@ -219,24 +212,60 @@ final class CallRightVm extends InstallRightVm {
   final int ms;
 
   @override
-  String get kind => 'call';
+  String get kind => S.current.rightCall;
 
   @override
-  String get detail => '$ms ms';
+  String get detail => S.current.rightMs(ms);
+
+  @override
+  List<Object?> get props => [ms];
 }
 
 /// A grant: [level] on the keys of [path].
 final class GrantRightVm extends InstallRightVm {
   const GrantRightVm(this.level, this.path);
 
-  final InstallGrantLevel level;
+  final AccessLevel level;
   final String path;
 
   @override
-  String get kind => level.code;
+  String get kind => level.label;
 
   @override
-  String get detail => 'on $path';
+  String get detail => S.current.rightOn(path);
+
+  @override
+  List<Object?> get props => [level, path];
+}
+
+/// One check of a package or a backup; [rights] when the check lists the
+/// rights it asks for (its [detail] is then said from them).
+final class InstallCheckVm extends Equatable {
+  const InstallCheckVm({
+    required this.title,
+    required this.result,
+    this.detail = '',
+    this.rights,
+  });
+
+  final String title;
+  final CheckResult result;
+  final String detail;
+  final List<InstallRightVm>? rights;
+
+  /// Its row of the check list.
+  CheckRowVm get row => CheckRowVm(
+    title: title,
+    result: result,
+    detail: switch (rights) {
+      null => detail,
+      final r when r.isEmpty => S.current.rightsNone,
+      final r => [for (final x in r) x.line].join('; '),
+    },
+  );
+
+  @override
+  List<Object?> get props => [title, result, detail, rights];
 }
 
 /// A broker a link can go to: the site, its host when known, and why it
@@ -349,7 +378,7 @@ final class LinkInstallVm extends Equatable {
   final String? refusedSaid;
 
   /// Check: the checks and the manifest.
-  final List<CheckRowVm> checks;
+  final List<InstallCheckVm> checks;
   final String? manifest;
 
   /// Where it runs: the brokers, the modes offered, what is wrong with the
