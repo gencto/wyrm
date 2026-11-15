@@ -144,8 +144,10 @@ pub fn parse(bytes: &[u8]) -> Result<Official, String> {
     if o.format != FORMAT {
         return Err(format!("manifest: format {:?}, not {FORMAT}", o.format));
     }
-    if !o.releases.starts_with("https://") || o.releases.ends_with('/') || o.releases.contains('?')
-    {
+    let https =
+        wyrm_core::weburl::HttpUrl::parse(&o.releases, wyrm_core::weburl::SchemeCase::Lower)
+            .is_ok_and(|u| u.tls && u.url.query.is_none() && u.url.fragment.is_none());
+    if !https || o.releases.ends_with('/') {
         return Err(format!(
             "manifest: releases {:?}: an https URL without a trailing '/'",
             o.releases

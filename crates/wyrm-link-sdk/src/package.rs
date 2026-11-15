@@ -440,8 +440,12 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<RepoEntry>, String> {
 /// relative to the index's directory (a repository moves as a whole). A
 /// relative URL may not leave that directory.
 pub fn resolve(index_url: &str, url: &str) -> Result<String, String> {
-    if url.contains("://") {
-        return Ok(url.to_owned());
+    use wyrm_core::weburl::{Url, UrlError};
+    match Url::parse(url) {
+        // absolute: fetched as it is (the fetch checks it)
+        Ok(_) => return Ok(url.to_owned()),
+        Err(UrlError::NoScheme) => {}
+        Err(e) => return Err(format!("{url:?}: {e}")),
     }
     if url.starts_with('/')
         || url.contains('\\')
@@ -452,14 +456,13 @@ pub fn resolve(index_url: &str, url: &str) -> Result<String, String> {
     {
         return Err(format!("{url:?}: a relative url inside the repository"));
     }
-    let base = match index_url.rfind('/') {
-        Some(i) if i > index_url.find("://").map_or(0, |s| s + 2) => &index_url[..=i],
-        _ => {
-            return Err(format!(
-                "{index_url}: no directory to resolve {url:?} against"
-            ))
-        }
-    };
+    let base = Url::parse(index_url)
+        .ok()
+        .and_then(|u| {
+            let (dir, _) = u.path.rsplit_once('/')?;
+            Some(format!("{}://{}{dir}/", u.scheme, u.authority))
+        })
+        .ok_or_else(|| format!("{index_url}: no directory to resolve {url:?} against"))?;
     Ok(format!("{base}{url}"))
 }
 
@@ -816,6 +819,63 @@ mod tests {
         ] {
             assert!(parse_index(bad.as_bytes()).is_err(), "{bad}");
         }
+    }
+
+    /// The resolver before review S4, kept to compare.
+    fn old_resolve(index_url: &str, url: &str) -> Result<String, String> {
+        if url.contains("://") {
+            return Ok(url.to_owned());
+        }
+        if url.starts_with('/')
+            || url.contains('\\')
+            || url.contains('?')
+            || url
+                .split('/')
+                .any(|s| s.is_empty() || s == "." || s == "..")
+        {
+            return Err(format!("{url:?}: a relative url inside the repository"));
+        }
+        let base = match index_url.rfind('/') {
+            Some(i) if i > index_url.find("://").map_or(0, |s| s + 2) => &index_url[..=i],
+            _ => {
+                return Err(format!(
+                    "{index_url}: no directory to resolve {url:?} against"
+                ))
+            }
+        };
+        Ok(format!("{base}{url}"))
+    }
+
+    /// Review S4: every URL the old resolver took resolves the same; what it refused
+    /// stays refused.
+    #[test]
+    fn urls_resolve_as_before() {
+        for (idx, url) in [
+            (
+                "https://repo.example/wyrm/index.json",
+                "acme/1.0.0/acme.zip",
+            ),
+            ("https://repo.example/wyrm/index.json", "https://cdn/x.zip"),
+            ("https://repo.example/index.json", "a.zip"),
+            ("http://127.0.0.1:8080/r/index.json", "a/b.zip"),
+            ("https://repo.example:8443/a/b/", "c.zip"),
+        ] {
+            assert_eq!(resolve(idx, url), old_resolve(idx, url), "{idx} {url}");
+        }
+        for (idx, url) in [
+            ("https://repo.example/w/index.json", "/etc/x"),
+            ("https://repo.example/w/index.json", "../x.zip"),
+            ("https://repo.example/w/index.json", "a//b"),
+            ("https://repo.example/w/index.json", "a?b"),
+            ("https://repo.example", "x.zip"),
+            ("https://repo.example/w/index.json", "a\\b"),
+        ] {
+            assert!(old_resolve(idx, url).is_err(), "old took {url}");
+            assert!(resolve(idx, url).is_err(), "{url}");
+        }
+        // refused now, passed on before: a malformed absolute URL
+        assert!(old_resolve("https://r/i.json", "https://u:p@cdn/x.zip").is_ok());
+        assert!(resolve("https://r/i.json", "https://u:p@cdn/x.zip").is_err());
     }
 
     #[test]
