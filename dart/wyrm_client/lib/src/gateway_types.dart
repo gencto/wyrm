@@ -170,26 +170,6 @@ abstract class GatewayInfo with _$GatewayInfo {
       ),
     );
   }
-
-  /// The old tolerant reader: a field that is absent or of another type
-  /// takes its default.
-  @Deprecated('Use GatewayInfo.fromValue: it names a malformed field')
-  factory GatewayInfo.of(Value v) => GatewayInfo(
-    site: _str(v['site']) ?? '',
-    version: _str(v['version']) ?? '',
-    tls: v['tls'] == const VBool(true),
-    role: GatewayRole.fromWire(_str(v['role']) ?? '') ?? GatewayRole.active,
-    pair: _str(v['pair']),
-    up: _strs(v['up']),
-    minStudio: _str(v['min_studio']) ?? '0',
-    caFp: _str(v['ca_fp']),
-    ca: switch (v['ca']) {
-      VBytes(:final v) => v,
-      _ => null,
-    },
-    names: _strs(v['names']),
-    devices: _policy(v['devices']),
-  );
 }
 
 /// `gateway.devices` as `/api/info` tells it (`devices.rs` `DevicePolicy`).
@@ -219,11 +199,6 @@ abstract class DevicePolicy with _$DevicePolicy {
       allowDeviceCredential: m.boolean('allow_device_credential'),
     );
   }
-
-  /// The old tolerant reader; null, or a field that is absent or of
-  /// another type, gives the defaults.
-  @Deprecated('Use DevicePolicy.fromValue: it names a malformed field')
-  factory DevicePolicy.of(Value? v) => _policy(v);
 }
 
 /// A device record (`GET /api/devices`, `devices.rs` `devices_of`).
@@ -280,26 +255,6 @@ abstract class GatewayDevice with _$GatewayDevice {
     ],
     _ => throw DecodeError.of('GatewayDevice[]', 'an array', v),
   };
-
-  /// The old tolerant reader: a field that is absent or of another type
-  /// takes its default.
-  @Deprecated('Use GatewayDevice.fromValue: it names a malformed field')
-  factory GatewayDevice.of(Value v) => GatewayDevice(
-    id: _str(v['id']) ?? '',
-    name: _str(v['name']) ?? '',
-    platform: DevicePlatform.fromWire(_str(v['platform']) ?? ''),
-    alg: DeviceAlg.fromWire(_str(v['alg']) ?? '') ?? DeviceAlg.es256,
-    added: _int(v['added']) ?? 0,
-    lastUsed: _int(v['last_used']) ?? 0,
-    passwordAt: _int(v['password_at']) ?? 0,
-    passwordDueAt: _int(v['password_due_at']) ?? 0,
-    state:
-        GatewayDeviceState.fromWire(_str(v['state']) ?? '') ??
-        GatewayDeviceState.active,
-    thisSession: v['this'] == const VBool(true),
-    removedBy: _str(v['removed_by']),
-    removedAt: _int(v['removed_at']),
-  );
 }
 
 /// A user of the gateway (`GET /api/users`). Roles are the gateway's role
@@ -337,16 +292,6 @@ abstract class GatewayUser with _$GatewayUser {
     ],
     _ => throw DecodeError.of('GatewayUser[]', 'an array', v),
   };
-
-  /// The old tolerant reader: a field that is absent or of another type
-  /// takes its default.
-  @Deprecated('Use GatewayUser.fromValue: it names a malformed field')
-  factory GatewayUser.of(Value v) => GatewayUser(
-    _str(v['name']) ?? '',
-    _strs(v['roles']),
-    disabled: v['disabled'] == const VBool(true),
-    devices: _int(v['devices']) ?? 0,
-  );
 }
 
 /// Who the session is (`GET /api/me`): `{sub, roles, grants, max, exp,
@@ -410,30 +355,3 @@ abstract class GatewaySession with _$GatewaySession {
   @override
   String toString() => 'GatewaySession(exp: $exp)';
 }
-
-// ---- the old tolerant readers (the deprecated `.of` factories) ----
-
-DevicePolicy _policy(Value? v) => DevicePolicy(
-  enabled: v?['enabled'] == const VBool(true),
-  maxPerUser: _int(v?['max_per_user']) ?? 5,
-  passwordEveryDays: _int(v?['password_every_days']) ?? 30,
-  idleLockMaxMin: _int(v?['idle_lock_max_min']) ?? 30,
-  stepUp: StepUp.fromWire(_str(v?['step_up']) ?? '') ?? StepUp.none,
-  allowDeviceCredential: v?['allow_device_credential'] == const VBool(true),
-);
-
-String? _str(Value? v) => switch (v) {
-  VStr(:final v) => v,
-  _ => null,
-};
-
-int? _int(Value? v) => switch (v) {
-  VInt(:final v) => v,
-  _ => null,
-};
-
-List<String> _strs(Value? v) => [
-  if (v case VArray(:final v))
-    for (final s in v)
-      if (s case VStr(:final v)) v,
-];
