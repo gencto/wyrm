@@ -30,20 +30,14 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as ToggleNodeAction
-    participant A2 as RetrieveDetailsAction
+    participant A1 as ToggleTreeNodeAction
     participant ST as AppState
 
     User->>UI: onTreeToggle
     UI->>VM: onTreeToggle()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.expanded)
-    alt opening && !nodes.detail.containsKey(key)
-        VM->>+A2: dispatchAndWait
-        Note over A2: async
-        A2->>ST: copyWith(nodes.detail)
-        A2-->>-VM: ActionStatus
-    end
+    A1->>ST: dispatchSync(ToggleNodeAction)
+    A1->>ST: dispatch(action)
 ```
 
 ## onTreeQuery
@@ -71,35 +65,31 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as EnterBlockAction
-    participant A2 as SaveBlockToLibraryAction
-    participant A3 as UpdateBlockFromLibraryAction
-    participant A4 as RemoveCustomBlockAction
-    participant A5 as RemoveLibraryBlockAction
+    participant A1 as PaletteMenuAction
     participant ST as AppState
 
     User->>UI: onPaletteMenu
     UI->>VM: onPaletteMenu()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
-    VM->>+A2: dispatchAndWait
-    Note over A2: async
-    A2->>ST: copyWith(flowEditor.message, flowEditor.library, flowEditor.libraryOff)
-    A2->>ST: dispatch(RetrieveBlockLibraryAction)
-    A2-->>-VM: ActionStatus
-    VM->>+A3: dispatchAndWait
-    Note over A3: async
-    A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A3->>ST: dispatch(ValidateFlowAction)
-    A3-->>-VM: ActionStatus
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A4->>ST: dispatch(ValidateFlowAction)
-    VM->>+A5: dispatchAndWait
-    Note over A5: async
-    A5->>ST: copyWith(flowEditor.library, flowEditor.libraryOff)
-    A5->>ST: dispatch(RetrieveBlockLibraryAction)
-    A5-->>-VM: ActionStatus
+    A1->>ST: dispatchSync(EnterBlockAction)
+    A1->>ST: dispatchSync(RemoveCustomBlockAction)
+    A1->>ST: dispatch(action)
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(EnterBlockAction)
+    A1->>ST: dispatchSync(RemoveCustomBlockAction)
+    A1->>ST: dispatch(action)
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(EnterBlockAction)
+    A1->>ST: dispatchSync(RemoveCustomBlockAction)
+    A1->>ST: dispatch(action)
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(EnterBlockAction)
+    A1->>ST: dispatchSync(RemoveCustomBlockAction)
+    A1->>ST: dispatch(action)
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(EnterBlockAction)
+    A1->>ST: dispatchSync(RemoveCustomBlockAction)
+    A1->>ST: dispatch(action)
 ```
 
 ## onRenameBlock
@@ -128,7 +118,7 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as CreateCustomBlockAction
+    participant A1 as CreateCustomBlockAction.selected
     participant ST as AppState
 
     User->>UI: onCreateBlock
@@ -146,19 +136,14 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetBlockParamAction
-    participant A2 as SetScopePromptAction
+    participant A1 as SaveScopePromptAction
     participant ST as AppState
 
     User->>UI: onPromptSave
     UI->>VM: onPromptSave()
-    alt keyed != null
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(flowEditor.scopePrompt)
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.scopePrompt)
+    A1->>ST: dispatchSync(SetBlockParamAction)
 ```
 
 ## onPromptCancel
@@ -169,19 +154,14 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as DisconnectEdgeAction
-    participant A2 as SetScopePromptAction
+    participant A1 as CancelScopePromptAction
     participant ST as AppState
 
     User->>UI: onPromptCancel
     UI->>VM: onPromptCancel()
-    alt x != null && keyed != null && (x.textOf(keyed.scope)?.trim().isEmpty ?? true)
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(flowEditor.scopePrompt)
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(flowEditor.scopePrompt)
+    A1->>ST: dispatchSync(DisconnectEdgeAction)
 ```
 
 ## onRowAction
@@ -192,14 +172,14 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetScopePromptAction
+    participant A1 as EditScopeAction
     participant ST as AppState
 
     User->>UI: onRowAction
     UI->>VM: onRowAction()
-    alt keyed != null && RowId.fromKey(row) == keyed.scopeField
+    alt RowId.fromKey(row)
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.scopePrompt)
+        A1->>ST: dispatchSync(SetScopePromptAction)
     end
 ```
 
@@ -211,15 +191,13 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as EnterBlockAction
+    participant A1 as OpenInstanceAction
     participant ST as AppState
 
     User->>UI: onOpen
     UI->>VM: onOpen()
-    alt blockNameOf(blocks[block]?.type)
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
-    end
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(EnterBlockAction)
 ```
 
 ## onRun
@@ -230,16 +208,14 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as TriggerBlockAction
+    participant A1 as RunBlockAction
     participant ST as AppState
 
     User->>UI: onRun
     UI->>VM: onRun()
-    alt RowId.fromKey(row) == FieldId.input(EnginePort.trigger.wire) && node != null
-        VM->>+A1: dispatchAndWait
-        Note over A1: NonReentrant · async
-        A1->>ST: copyWith(flowEditor.message)
-        A1-->>-VM: ActionStatus
+    alt RowId.fromKey(row)
+        VM->>A1: dispatchSync
+        A1->>ST: dispatch(action)
     end
 ```
 
@@ -251,14 +227,14 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as EnterBlockAction
+    participant A1 as OpenInstanceAction
     participant ST as AppState
 
     User->>UI: onOpenInside
     UI->>VM: onOpenInside()
-    alt blockNameOf(b?.type)
+    alt b != null
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
+        A1->>ST: dispatchSync(EnterBlockAction)
     end
 ```
 
@@ -329,11 +305,10 @@ sequenceDiagram
 
     User->>UI: onDeploy
     UI->>VM: onDeploy()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: NonReentrant · WaitingAction · async
-    A1->>ST: copyWith(flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft, flowEditor.deployed)
+    A1->>ST: copyWith(flowEditor.version, flowEditor.dirty, flowEditor.draft, flowEditor.deployed)
     A1->>ST: dispatch(RetrieveFlowsAction)
-    A1-->>-VM: ActionStatus
 ```
 
 ## onValidate
@@ -349,10 +324,9 @@ sequenceDiagram
 
     User->>UI: onValidate
     UI->>VM: onValidate()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: Debounce · async
     A1->>ST: copyWith(flowEditor.problems)
-    A1-->>-VM: ActionStatus
 ```
 
 ## onClose
@@ -378,21 +352,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetPaletteAction
-    participant A2 as RetrieveBlockLibraryAction
+    participant A1 as ShowPaletteTabAction
     participant ST as AppState
 
     User->>UI: onPaletteTab
     UI->>VM: onPaletteTab()
-    alt t != PaletteTab.my || caps.blocks
+    alt paletteTabOfId(id)
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.palette)
-    end
-    alt t == PaletteTab.my
-        VM->>+A2: dispatchAndWait
-        Note over A2: async
-        A2->>ST: copyWith(flowEditor.library, flowEditor.libraryOff)
-        A2-->>-VM: ActionStatus
+        A1->>ST: dispatch(action)
     end
 ```
 
@@ -404,28 +372,16 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as AddBlockAction
-    participant A2 as PlaceLibraryBlockAction
+    participant A1 as PickPaletteEntryAction
     participant ST as AppState
 
     User->>UI: onPick
     UI->>VM: onPick()
-    alt entry.startsWith('type:')
+    alt picked != null
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    alt entry.startsWith('lib:')
-        VM->>+A2: dispatchAndWait
-        Note over A2: async
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
-        A2-->>-VM: ActionStatus
-    end
-    alt made != null
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
+        A1->>ST: dispatchSync(AddBlockAction)
+        A1->>ST: dispatchSync(AddBlockAction)
+        A1->>ST: dispatch(action)
     end
 ```
 
@@ -437,28 +393,16 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as AddBlockAction
-    participant A2 as PlaceLibraryBlockAction
+    participant A1 as PickPaletteEntryAction
     participant ST as AppState
 
     User->>UI: onDrop
     UI->>VM: onDrop()
-    alt entry.startsWith('type:')
+    alt picked != null
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    alt entry.startsWith('lib:')
-        VM->>+A2: dispatchAndWait
-        Note over A2: async
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
-        A2-->>-VM: ActionStatus
-    end
-    alt made != null
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
+        A1->>ST: dispatchSync(AddBlockAction)
+        A1->>ST: dispatchSync(AddBlockAction)
+        A1->>ST: dispatch(action)
     end
 ```
 
@@ -538,53 +482,24 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetClipboardAction
-    participant A2 as RemoveBlocksAction
-    participant A3 as PasteBlocksAction
-    participant A4 as PasteBlocksAction.duplicate
-    participant A5 as UndoFlowAction
-    participant A6 as RedoFlowAction
-    participant A7 as SetViewedFieldAction
-    participant A8 as SetSelectedBlockAction
-    participant A9 as TidyFlowAction
-    participant A10 as EnterBlockAction
+    participant A1 as FlowEditAction
     participant ST as AppState
 
     User->>UI: onCommand
     UI->>VM: onCommand()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.clipboard)
-    alt _copy(d, ids)
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
-    end
-    VM->>A3: dispatchSync
-    A3->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A3->>ST: dispatch(ValidateFlowAction)
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A4->>ST: dispatch(ValidateFlowAction)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A2->>ST: dispatch(ValidateFlowAction)
-    VM->>A5: dispatchSync
-    A5->>ST: copyWith(flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
-    A5->>ST: dispatch(ValidateFlowAction)
-    VM->>A6: dispatchSync
-    A6->>ST: copyWith(flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
-    A6->>ST: dispatch(ValidateFlowAction)
-    alt ed.viewedField != null
-        VM->>A7: dispatchSync
-        A7->>ST: copyWith(flowEditor.viewedField)
-        VM->>A8: dispatchSync
-        A8->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
-    end
-    VM->>A9: dispatchSync
-    A9->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    alt blockNameOf(one?.type)
-        VM->>A10: dispatchSync
-        A10->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
+    alt _editOf(command)
+        VM->>A1: dispatchSync
+        A1->>ST: dispatchSync(CopyBlocksAction)
+        A1->>ST: dispatchSync(CopyBlocksAction)
+        A1->>ST: dispatchSync(PasteBlocksAction.duplicate)
+        A1->>ST: dispatchSync(RemoveBlocksAction)
+        A1->>ST: dispatchSync(UndoFlowAction)
+        A1->>ST: dispatchSync(RedoFlowAction)
+        A1->>ST: dispatchSync(SetViewedFieldAction)
+        A1->>ST: dispatchSync(SetSelectedBlockAction)
+        A1->>ST: dispatchSync(TidyFlowAction)
+        A1->>ST: dispatchSync(EnterBlockAction)
+        A1->>ST: dispatch(action)
     end
 ```
 
@@ -653,31 +568,18 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetBlockParamAction
-    participant A2 as SetOperandValueAction
+    participant A1 as TypeFieldAction
     participant ST as AppState
 
     User->>UI: onSaveViewer
     UI->>VM: onSaveViewer()
-    alt b.id == blockInputsId
+    alt ed.viewedField
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    alt f.operand
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
-    end
-    alt f.kind == FieldKind.arg
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    alt f.spec
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
+        A1->>ST: dispatchSync(SetBlockFormAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
+        A1->>ST: dispatchSync(SetOperandValueAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
     end
 ```
 
@@ -707,14 +609,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as DisconnectEdgeAction
+    participant A1 as UnbindFieldAction
     participant ST as AppState
 
     User->>UI: onUnbind
     UI->>VM: onUnbind()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
+    alt RowId.fromKey(row)
+        VM->>A1: dispatchSync
+        A1->>ST: dispatchSync(DisconnectEdgeAction)
+    end
 ```
 
 ## onRebind
@@ -725,14 +628,13 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as RebindEdgeAction
+    participant A1 as RebindFieldAction
     participant ST as AppState
 
     User->>UI: onRebind
     UI->>VM: onRebind()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
+    A1->>ST: dispatchSync(RebindEdgeAction)
 ```
 
 ## onDropEntry
@@ -743,14 +645,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as AddBlockAction
+    participant A1 as DropPointOnInputAction
     participant ST as AppState
 
     User->>UI: onDropEntry
     UI->>VM: onDropEntry()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
+    alt entry.startsWith('key:')
+        VM->>A1: dispatchSync
+        A1->>ST: dispatchSync(AddBlockAction)
+    end
 ```
 
 ## onResize
@@ -761,11 +664,13 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as isBoundary(block) ? ResizeBlockPortsAction(input: block == blockInputsId, add: add) : ResizeInputsAction(block, add: add)
+    participant A1 as ResizeBlockAction
+    participant ST as AppState
 
     User->>UI: onResize
     UI->>VM: onResize()
     VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(isBoundary(block) ? ResizeBlockPortsAction(input: block == blockInputsId, add: add) : ResizeInputsAction(block, add: add))
 ```
 
 ## onFieldChanged
@@ -776,37 +681,18 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetBlockFormAction
-    participant A2 as SetBlockParamAction
-    participant A3 as SetOperandValueAction
+    participant A1 as TypeFieldAction
     participant ST as AppState
 
     User->>UI: onFieldChanged
     UI->>VM: onFieldChanged()
-    alt form != null
+    alt (sel, RowId.fromKey(row))
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    alt b.id == blockInputsId
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
-    end
-    alt f.operand
-        VM->>A3: dispatchSync
-        A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A3->>ST: dispatch(ValidateFlowAction)
-    end
-    alt f.kind == FieldKind.arg
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
-    end
-    alt f.spec
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
+        A1->>ST: dispatchSync(SetBlockFormAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
+        A1->>ST: dispatchSync(SetOperandValueAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
     end
 ```
 
@@ -818,14 +704,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as DisconnectEdgeAction
+    participant A1 as UnbindFieldAction
     participant ST as AppState
 
     User->>UI: onFieldUnbind
     UI->>VM: onFieldUnbind()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A1->>ST: dispatch(ValidateFlowAction)
+    alt (sel, RowId.fromKey(row))
+        VM->>A1: dispatchSync
+        A1->>ST: dispatchSync(DisconnectEdgeAction)
+    end
 ```
 
 ## onFieldBind
@@ -836,21 +723,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as SetBlockParamAction
-    participant A2 as ConnectPortsAction
+    participant A1 as BindFieldAction
     participant ST as AppState
 
     User->>UI: onFieldBind
     UI->>VM: onFieldBind()
-    alt f.kind == FieldKind.arg && !{...b.cfgArgs}.containsKey(f.name)
+    alt (sel, RowId.fromKey(row))
         VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A1->>ST: dispatch(ValidateFlowAction)
-    end
-    alt b != null && f != null && port != null && from.block != b.id
-        VM->>A2: dispatchSync
-        A2->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A2->>ST: dispatch(ValidateFlowAction)
+        A1->>ST: dispatchSync(SetBlockParamAction)
+        A1->>ST: dispatchSync(ConnectPortsAction)
     end
 ```
 
@@ -923,48 +804,48 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `FlowEditorPageConnector` — 15 dispatches
+- `FlowEditorPageConnector` — 3 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onBack` | `LeaveBlockAction` | `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
-| `onTreeToggle` | `ToggleNodeAction`, `RetrieveDetailsAction` ? | `nodes.expanded`, `nodes.detail` |
+| `onTreeToggle` | `ToggleTreeNodeAction` | — |
 | `onTreeQuery` | `SetTreeQueryAction` | `flowEditor.treeQuery` |
-| `onPaletteMenu` | `EnterBlockAction`, `SaveBlockToLibraryAction`, `UpdateBlockFromLibraryAction`, `RemoveCustomBlockAction`, `RemoveLibraryBlockAction` | `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt`, `flowEditor.message, flowEditor.library, flowEditor.libraryOff`, `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.library, flowEditor.libraryOff` |
+| `onPaletteMenu` | `PaletteMenuAction`, `PaletteMenuAction`, `PaletteMenuAction`, `PaletteMenuAction`, `PaletteMenuAction` | — |
 | `onRenameBlock` | `RenameCustomBlockAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onCreateBlock` | `CreateCustomBlockAction` | `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onPromptSave` | `SetBlockParamAction` ?, `SetScopePromptAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.scopePrompt` |
-| `onPromptCancel` | `DisconnectEdgeAction` ?, `SetScopePromptAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.scopePrompt` |
-| `onRowAction` | `SetScopePromptAction` ? | `flowEditor.scopePrompt` |
-| `onOpen` | `EnterBlockAction` ? | `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
-| `onRun` | `TriggerBlockAction` ? | `flowEditor.message` |
-| `onOpenInside` | `EnterBlockAction` ? | `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
+| `onCreateBlock` | `CreateCustomBlockAction.selected` | `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onPromptSave` | `SaveScopePromptAction` | `flowEditor.scopePrompt` |
+| `onPromptCancel` | `CancelScopePromptAction` | `flowEditor.scopePrompt` |
+| `onRowAction` | `EditScopeAction` ? | — |
+| `onOpen` | `OpenInstanceAction` | — |
+| `onRun` | `RunBlockAction` ? | — |
+| `onOpenInside` | `OpenInstanceAction` ? | — |
 | `nameField.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
 | `onView` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
 | `onCloseViewer` | `SetViewedFieldAction` | `flowEditor.viewedField` |
-| `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.message, flowEditor.draft, flowEditor.deployed` |
+| `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.draft, flowEditor.deployed` |
 | `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
 | `onClose` | `GoAction.pop` | — |
-| `onPaletteTab` | `SetPaletteAction` ?, `RetrieveBlockLibraryAction` ? | `flowEditor.palette`, `flowEditor.library, flowEditor.libraryOff` |
-| `onPick` | `AddBlockAction` ?, `PlaceLibraryBlockAction` ?, `AddBlockAction` ? | `flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onDrop` | `AddBlockAction` ?, `PlaceLibraryBlockAction` ?, `AddBlockAction` ? | `flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onPaletteTab` | `ShowPaletteTabAction` ? | `flowEditor.palette` |
+| `onPick` | `PickPaletteEntryAction` ? | — |
+| `onDrop` | `PickPaletteEntryAction` ? | — |
 | `onClear` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onMove` | `MoveBlocksAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onSelectMany` | `SelectBlocksAction` | `flowEditor.selection, flowEditor.selectedBlock` |
-| `onCommand` | `SetClipboardAction`, `RemoveBlocksAction` ?, `PasteBlocksAction`, `PasteBlocksAction.duplicate`, `RemoveBlocksAction`, `UndoFlowAction`, `RedoFlowAction`, `SetViewedFieldAction` ?, `SetSelectedBlockAction` ?, `TidyFlowAction`, `EnterBlockAction` ? | `flowEditor.clipboard`, `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.viewedField`, `flowEditor.selectedBlock, flowEditor.selection`, `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
+| `onCommand` | `FlowEditAction` ? | — |
 | `onPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onFieldPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onViewField` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
-| `onSaveViewer` | `SetBlockParamAction` ?, `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onSaveViewer` | `TypeFieldAction` ? | — |
 | `onBind` | `ConnectPortsAction` | `flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onRebind` | `RebindEdgeAction` | `flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onDropEntry` | `AddBlockAction` | `flowEditor.scopePrompt, flowEditor.draft, flowEditor.selectedBlock, flowEditor.selection, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onResize` | `isBoundary(block) ? ResizeBlockPortsAction(input: block == blockInputsId, add: add) : ResizeInputsAction(block, add: add)` | — |
-| `onFieldChanged` | `SetBlockFormAction` ?, `SetBlockParamAction` ?, `SetOperandValueAction` ?, `SetBlockParamAction` ?, `SetBlockParamAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onFieldUnbind` | `DisconnectEdgeAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onFieldBind` | `SetBlockParamAction` ?, `ConnectPortsAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onUnbind` | `UnbindFieldAction` ? | — |
+| `onRebind` | `RebindFieldAction` | — |
+| `onDropEntry` | `DropPointOnInputAction` ? | — |
+| `onResize` | `ResizeBlockAction` | — |
+| `onFieldChanged` | `TypeFieldAction` ? | — |
+| `onFieldUnbind` | `UnbindFieldAction` ? | — |
+| `onFieldBind` | `BindFieldAction` ? | — |
 | `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onRemove` | `RemoveBlocksAction` | `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onLogo` | `GoAction.navigate` | — |

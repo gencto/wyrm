@@ -1,6 +1,5 @@
 {
   "unawaited-dispatch": {
-    "app/lib/connectors/flow_editor_page_connector.dart": 13,
     "app/lib/connectors/link_install_page_connector.dart": 1,
     "app/lib/connectors/links_page_connector.dart": 5,
     "app/lib/dialogs/error_dialogs.dart": 3,
@@ -82,7 +81,7 @@
     "app/lib/connectors/access_page_connector.dart": 117,
     "app/lib/connectors/assistant_page_connector.dart": 887,
     "app/lib/connectors/explorer_page_connector.dart": 704,
-    "app/lib/connectors/flow_editor_page_connector.dart": 2566,
+    "app/lib/connectors/flow_editor_page_connector.dart": 2208,
     "app/lib/connectors/flows_page_connector.dart": 92,
     "app/lib/connectors/gallery_page_connector.dart": 31,
     "app/lib/connectors/history_page_connector.dart": 124,
@@ -259,7 +258,6 @@
     "business/lib/wyrm/transfer.dart": 6
   },
   "multi-dispatch": {
-    "app/lib/connectors/flow_editor_page_connector.dart": 1,
     "app/lib/connectors/link_install_page_connector.dart": 4,
     "app/lib/connectors/links_page_connector.dart": 1
   }

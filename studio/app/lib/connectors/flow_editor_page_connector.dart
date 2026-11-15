@@ -1,61 +1,50 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/flow_editor/actions/add_block_action.dart';
+import 'package:business/redux/flow_editor/actions/bind_field_action.dart';
+import 'package:business/redux/flow_editor/actions/cancel_scope_prompt_action.dart';
+import 'package:business/redux/flow_editor/actions/close_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/create_custom_block_action.dart';
 import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/disconnect_edge_action.dart';
-import 'package:business/redux/flow_editor/actions/enter_block_action.dart';
+import 'package:business/redux/flow_editor/actions/drop_point_on_input_action.dart';
+import 'package:business/redux/flow_editor/actions/edit_scope_action.dart';
+import 'package:business/redux/flow_editor/actions/flow_edit_action.dart';
+import 'package:business/redux/flow_editor/actions/follow_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/leave_block_action.dart';
-import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/new_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/paste_blocks_action.dart';
-import 'package:business/redux/flow_editor/actions/place_library_block_action.dart';
-import 'package:business/redux/flow_editor/actions/preview_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/rebind_edge_action.dart';
-import 'package:business/redux/flow_editor/actions/redo_flow_action.dart';
+import 'package:business/redux/flow_editor/actions/open_flow_editor_action.dart';
+import 'package:business/redux/flow_editor/actions/open_instance_action.dart';
+import 'package:business/redux/flow_editor/actions/palette_menu_action.dart';
+import 'package:business/redux/flow_editor/actions/pick_palette_entry_action.dart';
+import 'package:business/redux/flow_editor/actions/rebind_field_action.dart';
 import 'package:business/redux/flow_editor/actions/remove_blocks_action.dart';
-import 'package:business/redux/flow_editor/actions/remove_custom_block_action.dart';
-import 'package:business/redux/flow_editor/actions/remove_library_block_action.dart';
 import 'package:business/redux/flow_editor/actions/rename_custom_block_action.dart';
-import 'package:business/redux/flow_editor/actions/resize_block_ports_action.dart';
-import 'package:business/redux/flow_editor/actions/resize_inputs_action.dart';
-import 'package:business/redux/flow_editor/actions/retrieve_block_library_action.dart';
-import 'package:business/redux/flow_editor/actions/save_block_to_library_action.dart';
+import 'package:business/redux/flow_editor/actions/resize_block_action.dart';
+import 'package:business/redux/flow_editor/actions/run_block_action.dart';
+import 'package:business/redux/flow_editor/actions/save_scope_prompt_action.dart';
 import 'package:business/redux/flow_editor/actions/select_blocks_action.dart';
-import 'package:business/redux/flow_editor/actions/set_block_form_action.dart';
-import 'package:business/redux/flow_editor/actions/set_block_param_action.dart';
-import 'package:business/redux/flow_editor/actions/set_clipboard_action.dart';
 import 'package:business/redux/flow_editor/actions/set_field_pin_action.dart';
-import 'package:business/redux/flow_editor/actions/set_operand_value_action.dart';
-import 'package:business/redux/flow_editor/actions/set_palette_action.dart';
-import 'package:business/redux/flow_editor/actions/set_scope_prompt_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
 import 'package:business/redux/flow_editor/actions/set_tree_query_action.dart';
 import 'package:business/redux/flow_editor/actions/set_viewed_field_action.dart';
-import 'package:business/redux/flow_editor/actions/tidy_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
-import 'package:business/redux/flow_editor/actions/undo_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/update_block_from_library_action.dart';
+import 'package:business/redux/flow_editor/actions/show_palette_tab_action.dart';
+import 'package:business/redux/flow_editor/actions/toggle_tree_node_action.dart';
+import 'package:business/redux/flow_editor/actions/type_field_action.dart';
+import 'package:business/redux/flow_editor/actions/unbind_field_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
-import 'package:business/redux/flow_editor/actions/watch_flow_action.dart';
-import 'package:business/redux/live/actions/unwatch_keys_action.dart';
-import 'package:business/redux/live/actions/watch_keys_action.dart';
-import 'package:business/redux/nodes/actions/retrieve_details_action.dart';
-import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
-import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/decode/block_cfg.dart';
 import 'package:business/wyrm/decode/block_def.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/flow_val.dart';
 import 'package:business/wyrm/flow_view/flow_live.dart';
-import 'package:business/wyrm/flow_view/palette_view.dart' show treeSections;
+import 'package:business/wyrm/flow_view/flow_view.dart';
+import 'package:business/wyrm/flow_view/palette_view.dart'
+    show MyBlockItem, treeSections;
 import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
@@ -64,8 +53,6 @@ import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/action_info.dart';
@@ -74,6 +61,7 @@ import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/flow_edit.dart';
 import 'package:models/flow_problem.dart';
 import 'package:models/flow_problem_kind.dart';
 import 'package:models/live_value.dart';
@@ -113,7 +101,6 @@ import '../mappers/explorer_mappers.dart' show TypeCodeValueType;
 import '../mappers/palette_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
-import 'flows_page_connector.dart';
 
 /// A value with no time: what the definition says a field holds.
 final _typedTime = DateTime.fromMicrosecondsSinceEpoch(0, isUtc: true);
@@ -128,32 +115,15 @@ class FlowEditorPageConnector extends StatelessWidget {
   Widget build(BuildContext context) => StoreConnector<AppState, _Vm>(
     debug: this,
     vm: () => _Factory(this),
-    onInit: (store) {
-      store.dispatchSync(WatchKeysAction(_watch(store.state, id)));
-      unawaited(_open(store));
-    },
+    onInit: (store) => store.dispatch(OpenFlowEditorAction(id)),
+    // What the editor follows (the Tree tab's points, the blocks' points,
+    // the flow's `~val`, the preview, the action blocks' nodes): one step.
     onWillChange: (context, store, before, now) {
-      // Points of the Tree tab and of the blocks, and the flow's own value.
-      if (!listEquals(before.watch, now.watch)) {
-        store
-          ..dispatchSync(WatchKeysAction(now.watch))
-          ..dispatchSync(UnwatchKeysAction(before.watch));
-      }
-      // The draft runs as a preview while it differs from the deployed
-      // version (debounced by the service).
-      if (before.run != now.run) {
-        store.dispatchSync(PreviewFlowAction());
-      }
-      // What the actions of the flow's action blocks take (their
-      // arguments' types): read once per node, quietly.
-      if (!listEquals(before.details, now.details) && now.details.isNotEmpty) {
-        unawaited(store.dispatchAndWait(RetrieveDetailsAction(now.details)));
+      if (before.follow != now.follow) {
+        store.dispatchSync(FollowFlowEditorAction(before.follow, now.follow));
       }
     },
-    onDispose: (store) => store
-      ..dispatchSync(UnwatchKeysAction(_watch(store.state, id)))
-      ..dispatchSync(WatchFlowAction(null))
-      ..dispatchSync(PreviewFlowAction(stop: true)),
+    onDispose: (store) => store.dispatchSync(CloseFlowEditorAction(id)),
     builder: (context, vm) => FlowEditorPage(
       window: vm.window,
       flowsLabel: S.current.wsFlows,
@@ -302,71 +272,6 @@ class FlowEditorPageConnector extends StatelessWidget {
       deployAskMessage: S.current.deployAskMessage(vm.flowLabel),
     ),
   );
-
-  Future<void> _open(Store<AppState> store) async {
-    final isNew = id == newFlowId;
-    await store.dispatchAndWait(LoadFlowAction(isNew ? '' : id, isNew: isNew));
-    // The deployed version's live values (ADR 0038 §3); a draft that
-    // differs from it runs as a preview (`dataflows` ▸ `preview`).
-    store
-      ..dispatchSync(WatchFlowAction(isNew ? null : id))
-      ..dispatchSync(PreviewFlowAction());
-    // The Tree tab draws the site's live tree: its lists open like the
-    // Explorer's.
-    if (SelectNodes(store.state).expanded.isEmpty) {
-      unawaited(store.dispatchAndWait(RetrieveNodesAction(quiet: true)));
-    }
-    // Custom blocks: whether this broker has them, and the site's library.
-    unawaited(store.dispatchAndWait(RetrieveBlockLibraryAction()));
-    final details = _details(store.state);
-    if (details.isNotEmpty) {
-      unawaited(store.dispatchAndWait(RetrieveDetailsAction(details)));
-    }
-    await store.dispatchAndWait(ValidateFlowAction());
-  }
-
-  /// The nodes whose actions the flow's `invoke` blocks run and whose
-  /// `~meta` is not read yet: it says what each argument is.
-  static List<String> _details(AppState s) {
-    final root = SelectSite(s).root;
-    final d = SelectFlowEditor(s).draft;
-    if (root == null || d == null) {
-      return const [];
-    }
-    final read = SelectNodes(s).detail;
-    return {
-      for (final b in d.blocks.values)
-        if (b.type.known == KnownBlock.invoke)
-          if (pointOf(b) case final k? when !read.containsKey(fullKey(root, k)))
-            fullKey(root, k),
-    }.toList();
-  }
-
-  /// What the editor subscribes to: the parents of the Tree tab's points
-  /// while it is shown, the points the blocks read and write, and the
-  /// flow's own `~val` (version, deployed by).
-  static List<String> _watch(AppState s, String id) {
-    final root = SelectSite(s).root;
-    if (root == null) {
-      return const [];
-    }
-    final nodes = SelectNodes(s);
-    final ed = SelectFlowEditor(s);
-    return {
-      // The values of the leaves the Tree tab shows: every open node's.
-      if (ed.palette == PaletteTab.tree)
-        for (final k in nodes.expanded)
-          if (treeSections.any((s) => k.startsWith('$root/$s'))) '$k/*',
-      for (final b in ed.draft?.blocks.values ?? const <FlowBlock>[])
-        if (isPoint(b.type))
-          if (pointOf(b) case final k?) fullKey(root, k),
-      if (id != newFlowId) '$root/dataflows/$id',
-      // What the deployed publish blocks last published: their inputs.
-      if (id != newFlowId)
-        for (final b in ed.deployed?.blocks.values ?? const <FlowBlock>[])
-          ?publishedKey(root, id, b),
-    }.toList();
-  }
 }
 
 /// Factory that creates a view-model for the StoreConnector.
@@ -399,7 +304,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final busy = state.wait.isWaitingForType<DeployFlowAction>();
     final edges = d?.edges ?? const IListConst<FlowEdge>([]);
     final blocks = d?.blocks ?? const IMapConst<String, FlowBlock>({});
-    final run = flow == null ? null : previewDefOf(flow);
     final previewing = _previewing;
     final fields = {
       for (final x in blocks.values)
@@ -438,9 +342,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 
     return _Vm(
       window: windowBar(fullScreen: window.fullScreen),
-      watch: FlowEditorPageConnector._watch(state, connector.id),
-      details: FlowEditorPageConnector._details(state),
-      run: run,
+      follow: followOf(state, flowBaseOf(state, connector.id)),
       crumbs: [for (final f in frames) f.block],
       insideNote: inside && flow != null
           ? S.current.instancesInFlow(instancesOf(flow, frames.last.block))
@@ -449,29 +351,21 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       myBlocksOff: caps.blocks ? null : S.current.myBlocksOff,
       tree: ed.palette == PaletteTab.tree ? _treeRows(root, blocks) : null,
       writable: ed.palette == PaletteTab.tree ? _writable(root) : const {},
-      onTreeToggle: (key) {
-        final opening = !nodes.expanded.contains(key);
-        dispatchSync(ToggleNodeAction(key));
-        // A node's actions are in its own `~meta`: read once, when it is
-        // first opened here (the tree's lists do not carry them).
-        if (opening && !nodes.detail.containsKey(key)) {
-          unawaited(dispatchAndWait(RetrieveDetailsAction([key])));
-        }
-      },
+      onTreeToggle: (key) => dispatchSync(ToggleTreeNodeAction(key)),
       onTreeQuery: (q) => dispatchSync(SetTreeQueryAction(q)),
       onPaletteMenu: (entry, item) {
         final name = entry.substring(entry.lastIndexOf(':') + 1);
         switch (item) {
           case 'edit':
-            dispatchSync(EnterBlockAction(name));
+            dispatchSync(PaletteMenuAction(name, MyBlockItem.edit));
           case 'save':
-            unawaited(dispatchAndWait(SaveBlockToLibraryAction(name)));
+            dispatchSync(PaletteMenuAction(name, MyBlockItem.save));
           case 'update':
-            unawaited(dispatchAndWait(UpdateBlockFromLibraryAction(name)));
+            dispatchSync(PaletteMenuAction(name, MyBlockItem.update));
           case 'delete':
-            dispatchSync(RemoveCustomBlockAction(name));
+            dispatchSync(PaletteMenuAction(name, MyBlockItem.delete));
           case 'remove-library':
-            unawaited(dispatchAndWait(RemoveLibraryBlockAction(name)));
+            dispatchSync(PaletteMenuAction(name, MyBlockItem.removeLibrary));
         }
       },
       onRenameBlock: (entry, name) => dispatchSync(
@@ -497,56 +391,29 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           BlockNameProblem.limit => S.current.cbLimit,
         };
       },
-      onCreateBlock: (r) {
-        final ids = SelectFlowEditor(currentState()).selection.unlock;
-        dispatchSync(CreateCustomBlockAction(ids, _specOf(r)));
-      },
+      onCreateBlock: (r) =>
+          dispatchSync(CreateCustomBlockAction.selected(_specOf(r))),
       prompt: _prompt(root, blocks, types, rows),
-      onPromptSave: (scope) {
-        final block = ed.scopePrompt ?? '';
-        final keyed = scopedKeyOf(types[blocks[block]?.type]);
-        if (keyed != null) {
-          dispatchSync(SetBlockParamAction(block, keyed.scope, scope));
-        }
-        dispatchSync(SetScopePromptAction(null));
-      },
-      onPromptCancel: () {
-        // No scope, no binding: a key from a wire without one does not
-        // compile. A block that has its scope keeps both.
-        final x = blocks[ed.scopePrompt ?? ''];
-        final keyed = scopedKeyOf(types[x?.type]);
-        if (x != null &&
-            keyed != null &&
-            (x.textOf(keyed.scope)?.trim().isEmpty ?? true)) {
-          dispatchSync(DisconnectEdgeAction(x.id, keyed.port));
-        }
-        dispatchSync(SetScopePromptAction(null));
-      },
+      onPromptSave: (scope) => dispatchSync(SaveScopePromptAction(scope)),
+      onPromptCancel: () => dispatchSync(CancelScopePromptAction()),
       validatePrompt: (scope) => _scopeError(root, scope),
       onRowAction: (block, row) {
-        final keyed = scopedKeyOf(types[blocks[block]?.type]);
-        if (keyed != null && RowId.fromKey(row) == keyed.scopeField) {
-          dispatchSync(SetScopePromptAction(block));
+        if (RowId.fromKey(row) case final r?) {
+          dispatchSync(EditScopeAction(block, r));
         }
       },
-      onOpen: (block) {
-        if (blockNameOf(blocks[block]?.type) case final name?) {
-          dispatchSync(EnterBlockAction(name, instance: block));
-        }
-      },
+      onOpen: (block) => dispatchSync(OpenInstanceAction(block)),
       onRun: (row) {
-        final node = b == null ? null : _engineId(b.id);
-        if (RowId.fromKey(row) == FieldId.input(EnginePort.trigger.wire) &&
-            node != null) {
-          unawaited(dispatchAndWait(TriggerBlockAction(node)));
+        if (RowId.fromKey(row) case final r?) {
+          dispatchSync(RunBlockAction(r));
         }
       },
       openInside: b != null && caps.blocks && isInstance(b.type)
           ? S.current.openInside
           : null,
       onOpenInside: () {
-        if (blockNameOf(b?.type) case final name?) {
-          dispatchSync(EnterBlockAction(name, instance: b!.id));
+        if (b != null) {
+          dispatchSync(OpenInstanceAction(b.id));
         }
       },
       flowLabel: id.isNotEmpty ? id : S.current.newDataflow,
@@ -715,26 +582,15 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         }
       },
       onCloseViewer: () => dispatchSync(SetViewedFieldAction(null)),
-      onDeploy: () => unawaited(dispatchAndWait(DeployFlowAction())),
-      onValidate: () => unawaited(dispatchAndWait(ValidateFlowAction())),
+      onDeploy: () => dispatch(DeployFlowAction()),
+      onValidate: () => dispatch(ValidateFlowAction()),
       onClose: () => dispatch(GoAction.pop()),
       onPaletteTab: (id) {
-        final t = paletteTabOfId(id);
-        if (t == null) {
-          return;
-        }
-        if (t != PaletteTab.my || caps.blocks) {
-          dispatchSync(SetPaletteAction(t));
-        }
-        if (t == PaletteTab.my) {
-          unawaited(dispatchAndWait(RetrieveBlockLibraryAction()));
+        if (paletteTabOfId(id) case final t?) {
+          dispatchSync(ShowPaletteTabAction(t));
         }
       },
-      onPick: (entry) => _add(
-        entry,
-        60 + 30.0 * (blocks.length % 8),
-        60 + 30.0 * (blocks.length % 8),
-      ),
+      onPick: (entry) => _add(entry, null, null),
       onDrop: _add,
       onClear: () => dispatchSync(SetSelectedBlockAction(null)),
       onMove: (to, {required nudge}) => dispatchSync(
@@ -746,7 +602,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onSelect: (x) => dispatchSync(SetSelectedBlockAction(x)),
       onSelectMany: (ids, {required add, required toggle}) =>
           dispatchSync(SelectBlocksAction(ids, add: add, toggle: toggle)),
-      onCommand: _command,
+      onCommand: (command, {at}) {
+        if (_editOf(command) case final e?) {
+          dispatchSync(FlowEditAction(e, x: at?.dx, y: at?.dy));
+        }
+      },
       menu: (ids, block, row) => _menu(ids, block, row, fields),
       onPin: (block, field, {required pinned}) {
         if (FieldId.fromKey(field) case final id?) {
@@ -764,8 +624,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         }
       },
       onSaveViewer: (text) {
-        if (viewed case (final vb, final f?)) {
-          _setField(vb, f, text);
+        if (ed.viewedField case FieldAt(:final block, :final row)) {
+          dispatchSync(TypeFieldAction(block, row, text));
         }
       },
       validateViewer: (text) {
@@ -782,24 +642,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       },
       onBind: (from, to, port) =>
           dispatchSync(ConnectPortsAction(from.block, from.port, to, port)),
-      onUnbind: _unbind,
-      onRebind: (oldBlock, oldPort, block, port) {
-        final old = fields[oldBlock]
-            ?.where((f) => f.inPort == oldPort)
-            .firstOrNull;
-        dispatchSync(
-          RebindEdgeAction(
-            oldBlock,
-            oldPort,
-            block,
-            port,
-            param: old?.spec?.name,
-            keep: old != null && old.typed
-                ? _shown[portKey(PortSide.input, oldBlock, oldPort)]?.value
-                : null,
-          ),
-        );
+      onUnbind: (block, row) {
+        if (RowId.fromKey(row) case final r?) {
+          dispatchSync(UnbindFieldAction(block, r));
+        }
       },
+      onRebind: (oldBlock, oldPort, block, port) => dispatchSync(
+        RebindFieldAction(PortEnd(oldBlock, oldPort), PortEnd(block, port)),
+      ),
       refusal: (from, block, row, {replacing}) {
         final to = fields[block]?.where((f) => f.id.key == row).firstOrNull;
         if (d == null || to == null) {
@@ -830,65 +680,28 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         };
       },
       onDropEntry: (entry, block, port) {
-        final target = blocks[block];
-        if (target == null || !entry.startsWith('key:')) {
-          return;
+        // A point of the Tree tab (a `key:` entry; phase C types it).
+        if (entry.startsWith('key:')) {
+          dispatchSync(
+            DropPointOnInputAction(entry.substring(4), PortEnd(block, port)),
+          );
         }
-        dispatchSync(
-          AddBlockAction(
-            KnownBlock.subscribe.type,
-            (target.x - 260).clamp(0, double.infinity).toDouble(),
-            target.y,
-            cfg: {'key': relativeKey(entry.substring(4))},
-            into: PortEnd(block, port),
-          ),
-        );
       },
-      onResize: (block, {required add}) => dispatchSync(
-        isBoundary(block)
-            ? ResizeBlockPortsAction(input: block == blockInputsId, add: add)
-            : ResizeInputsAction(block, add: add),
-      ),
+      onResize: (block, {required add}) =>
+          dispatchSync(ResizeBlockAction(block, add: add)),
       onFieldChanged: (row, text) {
-        if (b == null) {
-          return;
-        }
-        if (RowId.fromKey(row) is FormRow) {
-          final form = formsOf(
-            b.type,
-          ).where((f) => f.label == text).firstOrNull;
-          if (form != null) {
-            dispatchSync(SetBlockFormAction(b.id, form.id));
-          }
-          return;
-        }
-        final f = fields[b.id]!.where((x) => x.id.key == row).firstOrNull;
-        if (f != null) {
-          _setField(b, f, text);
+        if ((sel, RowId.fromKey(row)) case (final at?, final r?)) {
+          dispatchSync(TypeFieldAction(at, r, text));
         }
       },
       onFieldUnbind: (row) {
-        if (b != null) {
-          _unbind(b.id, row);
+        if ((sel, RowId.fromKey(row)) case (final at?, final r?)) {
+          dispatchSync(UnbindFieldAction(at, r));
         }
       },
       onFieldBind: (row, from) {
-        final f = b == null
-            ? null
-            : fields[b.id]!.where((x) => x.id.key == row).firstOrNull;
-        final port = f?.inPort;
-        if (b != null && f != null && port != null && from.block != b.id) {
-          // An argument the action has and the block not yet: its key
-          // first, so the port exists.
-          if (f.kind == FieldKind.arg && !{...b.cfgArgs}.containsKey(f.name)) {
-            dispatchSync(
-              SetBlockParamAction(b.id, 'args', {
-                ...{...b.cfgArgs},
-                f.name: null,
-              }),
-            );
-          }
-          dispatchSync(ConnectPortsAction(from.block, from.port, b.id, port));
+        if ((sel, RowId.fromKey(row)) case (final at?, final r?)) {
+          dispatchSync(BindFieldAction(at, r, PortEnd(from.block, from.port)));
         }
       },
       onProblem: (x) => dispatchSync(SetSelectedBlockAction(x)),
@@ -903,158 +716,43 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     );
   }
 
-  /// Types [text] into field [f] of block [b]: what the inspector's row
-  /// and the value viewer's Save both do (spec §15). The field's kind reads
-  /// the text (a number, a bool, JSON; `fieldEditOf`, `typedText`); a
-  /// parameter goes into the config, an operand into `values`, an
-  /// argument into `args`. A field that is not typed (bound, an output)
-  /// changes nothing.
-  void _setField(FlowBlock b, FlowField f, String text) {
-    final edit = fieldEditOf(
-      b,
-      f,
-      flowEditor.draft?.edges ?? const IListConst<FlowEdge>([]),
-    ).edit;
-    if (edit == null) {
-      return;
-    }
-    final value = typedText(text, edit);
-    if (b.id == blockInputsId) {
-      // The default of a custom block's input.
-      final defaults = {...b.cfgDefaults};
-      if (text.trim().isEmpty) {
-        defaults.remove(f.name);
-      } else {
-        defaults[f.name] = value;
-      }
-      dispatchSync(SetBlockParamAction(b.id, 'defaults', defaults));
-    } else if (f.operand) {
-      dispatchSync(SetOperandValueAction(b.id, f.inPort!, value));
-    } else if (f.kind == FieldKind.arg) {
-      final args = {...b.cfgArgs};
-      // Nothing typed: an argument the action may go without leaves the
-      // call; any other is sent as nothing.
-      if (text.trim().isEmpty && f.argSpec != null && !f.argSpec!.required) {
-        args.remove(f.name);
-      } else {
-        args[f.name] = text.trim().isEmpty ? null : value;
-      }
-      // An empty map stays a map: the block still names its arguments.
-      dispatchSync(SetBlockParamAction(b.id, 'args', args));
-    } else if (f.spec case final p?) {
-      dispatchSync(SetBlockParamAction(b.id, p.name, value));
-    }
-  }
-
-  /// A command of the canvas, from a key or from its context menu (spec
-  /// §13). The state is read when the command comes: the clipboard and
-  /// the history change without the page being rebuilt.
-  void _command(FlowCommand command, {Offset? at}) {
-    final ed = SelectFlowEditor(currentState());
-    final d = ed.draft;
-    if (d == null) {
-      return;
-    }
-    final ids = ed.selection.unlock;
-    switch (command) {
-      case .copy:
-        _copy(d, ids);
-      case .cut:
-        if (_copy(d, ids)) {
-          dispatchSync(RemoveBlocksAction(ids));
-        }
-      case .paste:
-        unawaited(_paste(at));
-      case .duplicate:
-        dispatchSync(PasteBlocksAction.duplicate(d, ids));
-      case .delete:
-        dispatchSync(RemoveBlocksAction(ids));
-      case .undo:
-        dispatchSync(UndoFlowAction());
-      case .redo:
-        dispatchSync(RedoFlowAction());
-      case .escape:
-        // The viewer first, then the selection.
-        if (ed.viewedField != null) {
-          dispatchSync(SetViewedFieldAction(null));
-        } else {
-          dispatchSync(SetSelectedBlockAction(null));
-        }
-      case .tidy:
-        dispatchSync(TidyFlowAction());
-      case .editCustomBlock:
-        final one = ids.length == 1 ? d.blocks[ids.single] : null;
-        if (blockNameOf(one?.type) case final name?) {
-          dispatchSync(EnterBlockAction(name, instance: one!.id));
-        }
-      // The canvas and the page answer the rest (the page asks the name
-      // of a new custom block first).
-      case .selectAll ||
-          .marquee ||
-          .addToSelection ||
-          .moveSelection ||
-          .nudgeLeft ||
-          .nudgeRight ||
-          .nudgeUp ||
-          .nudgeDown ||
-          .unbind ||
-          .pan ||
-          .zoom ||
-          .zoomIn ||
-          .zoomOut ||
-          .zoomReset ||
-          .zoomFit ||
-          .viewValue ||
-          .searchPalette ||
-          .deploy ||
-          .help ||
-          .fields ||
-          .unpin ||
-          .createCustomBlock:
-        break;
-    }
-  }
-
-  /// Copies the blocks [ids]: into the editor's own clipboard (it lasts
-  /// from one flow to the next) and, as the same JSON, onto the system's
-  /// (another window pastes it). False when there is nothing to copy.
-  bool _copy(FlowDraft d, Set<String> ids) {
-    final text = clipTextOf(d, ids);
-    if (text == null) {
-      return false;
-    }
-    dispatchSync(SetClipboardAction(text));
-    unawaited(_systemCopy(text));
-    return true;
-  }
-
-  static Future<void> _systemCopy(String text) async {
-    try {
-      await Clipboard.setData(ClipboardData(text: text));
-    } on Object {
-      // No system clipboard here: the editor's own still pastes.
-    }
-  }
-
-  /// Pastes at [at] what the system clipboard holds; a text that is not
-  /// blocks pastes nothing. Only where there is no system clipboard (or it
-  /// is empty) the editor's own copy is pasted.
-  Future<void> _paste(Offset? at) async {
-    String? text;
-    try {
-      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
-    } on Object {
-      text = null;
-    }
-    final own = SelectFlowEditor(currentState()).clipboard;
-    dispatchSync(
-      PasteBlocksAction(
-        text == null || text.isEmpty ? own : text,
-        at?.dx ?? 60,
-        at?.dy ?? 60,
-      ),
-    );
-  }
+  /// The edit the store makes of a canvas command; null for the ones the
+  /// canvas and the page answer themselves (the page asks the name of a
+  /// new custom block first).
+  static FlowEdit? _editOf(FlowCommand command) => switch (command) {
+    .copy => FlowEdit.copy,
+    .cut => FlowEdit.cut,
+    .paste => FlowEdit.paste,
+    .duplicate => FlowEdit.duplicate,
+    .delete => FlowEdit.delete,
+    .undo => FlowEdit.undo,
+    .redo => FlowEdit.redo,
+    .escape => FlowEdit.escape,
+    .tidy => FlowEdit.tidy,
+    .editCustomBlock => FlowEdit.editCustomBlock,
+    .selectAll ||
+    .marquee ||
+    .addToSelection ||
+    .moveSelection ||
+    .nudgeLeft ||
+    .nudgeRight ||
+    .nudgeUp ||
+    .nudgeDown ||
+    .unbind ||
+    .pan ||
+    .zoom ||
+    .zoomIn ||
+    .zoomOut ||
+    .zoomReset ||
+    .zoomFit ||
+    .viewValue ||
+    .searchPalette ||
+    .deploy ||
+    .help ||
+    .fields ||
+    .unpin ||
+    .createCustomBlock => null,
+  };
 
   /// The context menu (spec §13) opened on [block] (and its [row]) with the
   /// selection [ids], or on the empty canvas.
@@ -1154,76 +852,31 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         (dep == null || previewDefOf(dep) != previewDefOf(d));
   }
 
-  /// The live values the blocks show now: the preview's or the watch's.
-  IMap<String, LiveValue> get _shown =>
-      _previewing ? flowEditor.previewPorts : flowEditor.ports;
-
-  /// Unbinds the field [row] of [block]; a typed parameter keeps the last
-  /// value it had.
-  void _unbind(String block, String row) {
-    final d = flowEditor.draft;
-    final b = d?.blocks[block];
-    if (b == null) {
-      return;
-    }
-    final t = flowEditor.types.where((t) => t.type == b.type).firstOrNull;
-    final f = fieldsOf(
-      t,
-      b,
-      edges: d!.edges,
-    ).where((x) => x.id.key == row).firstOrNull;
-    final port = f?.inPort;
-    if (f == null || port == null) {
-      return;
-    }
-    final last = _shown[portKey(PortSide.input, block, port)]?.value;
-    dispatchSync(
-      DisconnectEdgeAction(
-        block,
-        port,
-        param: f.spec?.name,
-        keep: f.typed ? last : null,
-      ),
-    );
-  }
-
-  void _add(String entry, double x, double y) {
-    if (entry.startsWith('type:')) {
-      dispatchSync(
-        AddBlockAction(BlockType.fromWire(entry.substring(5)), x, y),
-      );
-      return;
-    }
-    if (entry.startsWith('lib:')) {
-      // A block of the site's library: the flow copies it first.
-      unawaited(
-        dispatchAndWait(PlaceLibraryBlockAction(entry.substring(4), x, y)),
-      );
-      return;
-    }
-    // A point (read or write) or an action of the tree (flow-editor.md
-    // §18).
-    final full = entry.substring(entry.indexOf(':') + 1);
+  /// A palette entry placed at ([x], [y]) (null: a tap). A bridge from the
+  /// palette's text entries (`type:`, `lib:`, `key:`, `set:`, `act:`) to
+  /// the typed one; phase B2-C gives the palette typed entries and removes
+  /// it.
+  void _add(String entry, double? x, double? y) {
+    final colon = entry.indexOf(':');
+    final full = entry.substring(colon + 1);
     final i = full.lastIndexOf('/');
-    final action = entry.startsWith('act:') && i > 0
-        ? nodes.detail[full.substring(0, i)]?.actions
-              .where((a) => a.name == full.substring(i + 1))
-              .firstOrNull
-        : null;
-    // A bridge from the palette's text entries (phase B2-C removes it).
-    final made = blockOfEntry(
-      entry.startsWith('act:') && i > 0
-          ? ActionPick(full.substring(0, i), full.substring(i + 1))
-          : (entry.startsWith('act:')
-                ? const LibraryPick('')
-                : PointPick(full)),
-      write: entry.startsWith('set:'),
-      action: action,
-      caps: flowEditor.caps,
-    );
-    if (made != null) {
+    final picked = entry.startsWith('type:')
+        ? EnginePick(BlockType.fromWire(full))
+        : entry.startsWith('lib:')
+        ? LibraryPick(full)
+        : entry.startsWith('act:')
+        ? (i > 0
+              ? ActionPick(full.substring(0, i), full.substring(i + 1))
+              : null)
+        : PointPick(full);
+    if (picked != null) {
       dispatchSync(
-        AddBlockAction(made.type.type, x, y, cfg: made.cfg, pins: made.pins),
+        PickPaletteEntryAction(
+          picked,
+          x: x,
+          y: y,
+          write: entry.startsWith('set:'),
+        ),
       );
     }
   }
@@ -2338,9 +1991,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 class _Vm extends Vm {
   _Vm({
     required this.window,
-    required this.watch,
-    required this.details,
-    required this.run,
+    required this.follow,
     required this.crumbs,
     required this.insideNote,
     required this.onBack,
@@ -2416,8 +2067,7 @@ class _Vm extends Vm {
   }) : super(
          equals: [
            window,
-           watch,
-           run,
+           follow,
            flowLabel,
            blockLabel,
            state,
@@ -2436,7 +2086,6 @@ class _Vm extends Vm {
            onRemove != null,
            panelWidths,
            viewer,
-           details,
            crumbs,
            insideNote,
            myBlocksOff,
@@ -2446,9 +2095,6 @@ class _Vm extends Vm {
            openInside,
          ],
        );
-
-  /// The nodes whose `~meta` the flow's action blocks wait for.
-  final List<String> details;
 
   /// The custom blocks the canvas is inside of, outermost first.
   final List<String> crumbs;
@@ -2487,13 +2133,9 @@ class _Vm extends Vm {
   /// The frameless window's side of the top bar.
   final WindowBarVm window;
 
-  /// What the editor subscribes to (Tree tab parents, block points, the
-  /// flow's `~val`).
-  final List<String> watch;
-
-  /// What the draft runs as (its definition, layout aside): a change runs
-  /// it again as a preview.
-  final Object? run;
+  /// What the editor follows: the keys it watches, the draft it runs as a
+  /// preview, the nodes whose `~meta` its action blocks wait for.
+  final FlowFollow follow;
   final String flowLabel;
   final String? blockLabel;
   final String state;

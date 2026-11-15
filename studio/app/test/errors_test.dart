@@ -13,6 +13,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/common/action.dart';
+import 'package:business/redux/flow_editor/actions/trigger_block_action.dart';
 import 'package:business/redux/store.dart';
 import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/calls.dart';
@@ -210,6 +211,25 @@ void main() {
       );
       expect(fault.message, contains('a fault in Studio'));
       expect(fault.message, isNot(contains('Exception')));
+    });
+
+    test('a refused Run the broker said nothing of reads why; the '
+        "broker's words win", () {
+      StudioError run(Status st, String m) => wordError(
+        refusalOf(
+          WyrmException.of(st, m),
+          key: 'wy/plant/dataflows/line',
+          call: 'trigger',
+        ).copyWith(hint: m.isEmpty ? triggerHintOf(StatusCode.of(st)) : null),
+      );
+      expect(run(Status.permissionDenied, '').message, contains('needs write'));
+      expect(run(Status.notSupported, '').message, 'The flow is not running.');
+      expect(run(Status.notFound, '').message, contains('no trigger action'));
+      expect(
+        run(Status.invalidParameter, '').message,
+        'This block cannot be run by hand.',
+      );
+      expect(run(Status.busy, 'queue full').message, 'queue full');
     });
 
     test('what Studio did on its own reads as what stopped', () {

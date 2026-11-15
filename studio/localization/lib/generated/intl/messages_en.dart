@@ -2070,6 +2070,18 @@ class MessageLookup extends MessageLookupByLibrary {
     "errRowStatus": MessageLookupByLibrary.simpleMessage("Status"),
     "errRowStudio": MessageLookupByLibrary.simpleMessage("Studio"),
     "errRowTime": MessageLookupByLibrary.simpleMessage("Time"),
+    "errRunDenied": MessageLookupByLibrary.simpleMessage(
+      "You may not run it: this needs write on the flow, and the rights of what the block and the blocks after it act on.",
+    ),
+    "errRunNoTrigger": MessageLookupByLibrary.simpleMessage(
+      "This broker has no trigger action (it needs ADR 0040).",
+    ),
+    "errRunNotByHand": MessageLookupByLibrary.simpleMessage(
+      "This block cannot be run by hand.",
+    ),
+    "errRunNotRunning": MessageLookupByLibrary.simpleMessage(
+      "The flow is not running.",
+    ),
     "errSaidBroker": MessageLookupByLibrary.simpleMessage("The broker said"),
     "errSaidNoAnswer": MessageLookupByLibrary.simpleMessage("Studio waited"),
     "errSaidStudio": MessageLookupByLibrary.simpleMessage("What happened"),

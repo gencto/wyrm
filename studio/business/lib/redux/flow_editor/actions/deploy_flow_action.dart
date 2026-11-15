@@ -34,7 +34,6 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
     return state.copyWith.flowEditor(
       version: v,
       dirty: false,
-      message: 'deployed version $v',
       draft: d.copyWith(version: v),
       deployed: d.copyWith(version: v),
     );

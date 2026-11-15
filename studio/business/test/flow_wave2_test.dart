@@ -31,6 +31,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
@@ -39,6 +40,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/action_info.dart';
 import 'package:models/block_type.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
@@ -49,6 +51,7 @@ import 'package:models/node_type.dart';
 import 'package:models/palette_entry.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/port_end.dart';
+import 'package:models/studio_error.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -1034,29 +1037,36 @@ void main() {
     });
 
     test('a refused trigger says why', () async {
-      Future<String?> refused(Status st, [String m = '']) async {
+      Future<StudioError?> refused(Status st, [String m = '']) async {
         api.errors['wy/central/dataflows/line ▸ trigger'] = WyrmException.of(
           st,
           m,
         );
         final r = await s.dispatchAndWait(TriggerBlockAction('invoke1'));
         return switch (r.originalError) {
-          final UserException e => e.reason,
+          final StudioException e => e.error,
           _ => null,
         };
       }
 
-      expect(await refused(Status.permissionDenied), contains('needs write'));
-      expect(await refused(Status.notSupported), 'The flow is not running.');
-      expect(await refused(Status.notFound), contains('no trigger action'));
+      // No words from the broker: Studio names why (the app says it).
+      final denied = await refused(Status.permissionDenied);
+      expect((denied?.message, denied?.hint), ('', ErrorHint.runDenied));
       expect(
-        await refused(
-          Status.invalidParameter,
-          'node level cannot be triggered',
-        ),
+        (await refused(Status.notSupported))?.hint,
+        ErrorHint.runNotRunning,
+      );
+      expect((await refused(Status.notFound))?.hint, ErrorHint.runNoTrigger);
+      // The broker's words as they came, and no hint of Studio's.
+      final own = await refused(
+        Status.invalidParameter,
         'node level cannot be triggered',
       );
-      expect(await refused(Status.busy, 'queue full'), 'queue full');
+      expect(
+        (own?.message, own?.hint),
+        ('node level cannot be triggered', null),
+      );
+      expect((await refused(Status.busy, 'queue full'))?.message, 'queue full');
     });
 
     test('create a custom block, open its inside, change it, come back: '

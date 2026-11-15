@@ -1,0 +1,57 @@
+import 'package:async_redux/async_redux.dart';
+
+import '../../../wyrm/flow_view/flow_view.dart';
+import '../../app_state.dart';
+import '../../common/action.dart';
+import '../../live/actions/watch_keys_action.dart';
+import '../../nodes/actions/retrieve_details_action.dart';
+import '../../nodes/actions/retrieve_nodes_action.dart';
+import 'load_flow_action.dart';
+import 'preview_flow_action.dart';
+import 'retrieve_block_library_action.dart';
+import 'validate_flow_action.dart';
+import 'watch_flow_action.dart';
+
+/// The flow editor opens on route [routeId] (`newFlowId`: a new flow): what
+/// it shows is followed at once (`FollowFlowEditorAction` keeps it so),
+/// the flow is read, and then its live values, its preview, the site's
+/// tree, the library of custom blocks and the actions its blocks run are
+/// asked for; last, the engine checks the draft.
+class OpenFlowEditorAction extends Action {
+  OpenFlowEditorAction(this.routeId);
+
+  final String routeId;
+
+  @override
+  Future<AppState?> reduce() async {
+    // What the first view shows is followed before the read: the editor's
+    // keys stay watched until it closes (`CloseFlowEditorAction`).
+    dispatchSync(WatchKeysAction(flowViewOf(state, routeId).follow.watch));
+    final isNew = routeId == newFlowId;
+    await dispatchAndWait(
+      LoadFlowAction(isNew ? '' : routeId, isNew: isNew, route: routeId),
+    );
+    // The deployed version's live values (ADR 0038 §3); a draft that
+    // differs from it runs as a preview (`dataflows` ▸ `preview`).
+    dispatchSync(WatchFlowAction(isNew ? null : routeId));
+    dispatchSync(PreviewFlowAction());
+    // The Tree tab draws the site's live tree: its lists open like the
+    // Explorer's (its own waiting state).
+    if (nodes.expanded.isEmpty) {
+      _start(RetrieveNodesAction(quiet: true));
+    }
+    // Custom blocks: whether this broker has them, and the site's library.
+    _start(RetrieveBlockLibraryAction());
+    // What the actions of the flow's action blocks take.
+    final details = flowViewOf(state, routeId).follow.details;
+    if (details.isNotEmpty) {
+      _start(RetrieveDetailsAction(details.toList()));
+    }
+    await dispatchAndWait(ValidateFlowAction());
+    return null;
+  }
+
+  /// Starts [action] and does not wait for it: it brings its own state
+  /// (and its own waiting state, where it has one).
+  void _start(ReduxAction<AppState> action) => dispatch(action);
+}

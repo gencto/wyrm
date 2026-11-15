@@ -1690,12 +1690,6 @@ extension type SelectFlowEditor(AppState _state) {
   /// Returns version
   int get version => _state.flowEditor.version;
 
-  /// Returns state
-  String? get state => _state.flowEditor.state;
-
-  /// Returns message
-  String? get message => _state.flowEditor.message;
-
   /// Returns palette
   PaletteTab get palette => _state.flowEditor.palette;
 
@@ -1798,6 +1792,14 @@ extension type SelectFlowEditor(AppState _state) {
   /// What is wrong with [text] typed in the viewer's Edit mode.
   FieldEditError? viewerTextError(String routeId, String text) =>
       viewerTextErrorAt(_state, routeId, text);
+
+  /// The route the editor was opened on (`newFlowId` for a new flow);
+  /// null before it was opened.
+  String? get route => _state.flowEditor.route;
+
+  /// The blocks, fields and types of the editor's flow as the screen
+  /// shows them (what an intent reads to act on a field).
+  FlowBase get base => flowBaseOf(_state, route ?? newFlowId);
 }
 
 extension type SelectTasks(AppState _state) {

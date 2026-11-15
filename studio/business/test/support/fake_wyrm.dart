@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
+import 'package:business/common/text_clipboard.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/wyrm/device_keys.dart';
@@ -712,6 +713,7 @@ Store<AppState> fakeStore({
   FakeLogin? login,
   FakeDeviceKey? keys,
   BaseKeyValueStorage? settings,
+  TextClipboard? clipboard,
 }) => Store<AppState>(
   initialState: initial ?? AppState.initial(),
   dependencies: (s) => AppDependencies(
@@ -720,8 +722,30 @@ Store<AppState> fakeStore({
     login: login ?? FakeLogin(),
     deviceKey: keys ?? FakeDeviceKey(availability: DeviceKeyAvailability.none),
     prompts: const PlainPrompts(),
+    // The platform's, unless a test hands in its own: a widget test
+    // answers the platform channel itself.
+    clipboard: clipboard ?? const SystemClipboard(),
   ),
 );
+
+/// A clipboard in memory: what Studio wrote, or what a test put there;
+/// [none] is a platform without one.
+class FakeClipboard implements TextClipboard {
+  FakeClipboard({this.text, this.none = false});
+
+  String? text;
+  final bool none;
+
+  @override
+  Future<String?> read() async => none ? null : text;
+
+  @override
+  Future<void> write(String text) async {
+    if (!none) {
+      this.text = text;
+    }
+  }
+}
 
 /// The store's dependencies, typed.
 AppDependencies depsOf(Store<AppState> store) =>

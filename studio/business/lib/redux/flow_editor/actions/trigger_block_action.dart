@@ -1,4 +1,5 @@
 import 'package:async_redux/async_redux.dart';
+import 'package:models/error_hint.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
@@ -36,32 +37,28 @@ class TriggerBlockAction extends Action with NonReentrant {
           .invoke('$root/dataflows/$id', 'trigger', Value.from({'node': node}))
           .toList();
     } on WyrmException catch (e) {
-      // The status stays as data; Studio adds its sentence only where the
-      // broker sent none.
-      throw StudioException.refused(
-        WyrmException(e.status, triggerRefusal(e)),
-        key: '$root/dataflows/$id',
-        call: 'trigger',
-        thing: node,
-        write: true,
+      // The broker's words as they came; where it sent none, the reason
+      // Studio knows (the app says it).
+      throw StudioException(
+        refusalOf(
+          e,
+          key: '$root/dataflows/$id',
+          call: 'trigger',
+          thing: node,
+          write: true,
+        ).copyWith(hint: e.message.isEmpty ? triggerHintOf(e.status) : null),
       );
     }
-    return state.copyWith.flowEditor(message: 'ran $node');
+    return null;
   }
 }
 
-/// Why the broker did not run a block: its own message, else a sentence
-/// for the status (docs/design/specs/errors.md: the broker's message is
-/// shown as it came).
-String triggerRefusal(WyrmException e) => e.message.isNotEmpty
-    ? e.message
-    : switch (e.status.known) {
-        Status.permissionDenied =>
-          'You may not run it: this needs write on the flow, and the rights '
-              'of what the block and the blocks after it act on.',
-        Status.notSupported => 'The flow is not running.',
-        Status.notFound =>
-          'This broker has no trigger action (it needs ADR 0040).',
-        Status.invalidParameter => 'This block cannot be run by hand.',
-        _ => '',
-      };
+/// Why the broker did not run a block, when it sent no words: the case of
+/// its status Studio can name (docs/design/specs/errors.md), else null.
+ErrorHint? triggerHintOf(StatusCode status) => switch (status.known) {
+  Status.permissionDenied => ErrorHint.runDenied,
+  Status.notSupported => ErrorHint.runNotRunning,
+  Status.notFound => ErrorHint.runNoTrigger,
+  Status.invalidParameter => ErrorHint.runNotByHand,
+  _ => null,
+};

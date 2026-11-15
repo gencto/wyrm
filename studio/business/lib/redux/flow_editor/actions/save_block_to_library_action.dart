@@ -55,7 +55,6 @@ class SaveBlockToLibraryAction extends Action {
     final own = blockDefsOf(d)[name];
     if (d == null || own == null || flowEditor.frames.isNotEmpty) {
       return state.copyWith.flowEditor(
-        message: 'saved $name',
         library: read.library,
         libraryOff: read.off,
       );
@@ -67,7 +66,6 @@ class SaveBlockToLibraryAction extends Action {
         ...blockDefsOf(d),
         name: withLibraryVersion(own, version),
       }),
-      message: 'saved $name as version $version',
     );
   }
 

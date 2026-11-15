@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:wyrm_core/wyrm_core.dart' show StatusCode;
 
+import 'error_hint.dart';
 import 'error_kind.dart';
 import 'fault_report.dart';
 
@@ -28,6 +29,10 @@ abstract class StudioError with _$StudioError {
     /// The status of the refusal; null for Studio's own faults and for a
     /// `{success: false}` answer.
     StatusCode? status,
+
+    /// Why Studio thinks it was refused, for the app to say when [message]
+    /// is empty (the broker sent no words).
+    ErrorHint? hint,
 
     /// The full key the call was made on.
     String? key,

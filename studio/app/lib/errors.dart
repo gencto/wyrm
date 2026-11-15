@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:business/wyrm/failures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:localization/localization.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/alerts/toast_stack.dart';
@@ -225,10 +226,22 @@ String errorTitle(StudioError e) {
 /// a message that is there already is left alone.
 StudioError wordError(StudioError e) => e.copyWith(
   title: e.title.isEmpty ? errorTitle(e) : e.title,
-  message: e.message.isEmpty && e.kind == .studio
-      ? S.current.errFaultMessage
-      : e.message,
+  message: e.message.isNotEmpty
+      ? e.message
+      : switch (e.hint) {
+          final h? => _hintText(h),
+          null when e.kind == .studio => S.current.errFaultMessage,
+          null => e.message,
+        },
 );
+
+/// What Studio says of a refusal the broker sent no words for.
+String _hintText(ErrorHint h) => switch (h) {
+  .runDenied => S.current.errRunDenied,
+  .runNotRunning => S.current.errRunNotRunning,
+  .runNoTrigger => S.current.errRunNoTrigger,
+  .runNotByHand => S.current.errRunNotByHand,
+};
 
 /// The tone of a kind (errors.md §1).
 Tone errorToneOf(ErrorKind kind) => switch (kind) {

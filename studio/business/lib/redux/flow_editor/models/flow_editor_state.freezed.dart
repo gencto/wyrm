@@ -15,12 +15,12 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$FlowEditorState {
 
- String? get flowId; FlowDraft? get draft; bool get dirty; IList<FlowProblem> get problems; String? get selectedBlock; IList<NodeType> get types; int get version; String? get state; String? get message; PaletteTab get palette; IMap<String, LiveValue> get ports; FlowDraft? get deployed;/// Why the broker refused the deployed flow's watch for good.
+ String? get flowId; FlowDraft? get draft; bool get dirty; IList<FlowProblem> get problems; String? get selectedBlock; IList<NodeType> get types; int get version; PaletteTab get palette; IMap<String, LiveValue> get ports; FlowDraft? get deployed;/// Why the broker refused the deployed flow's watch for good.
  Status? get watchRefused; IMap<String, LiveValue> get previewPorts; IMap<String, LiveValue> get previewSinks;/// The broker's compiler refused the draft's preview.
  FlowProblem? get previewError;/// Why the broker has no preview for this session.
  Status? get previewOff;/// The field the value viewer shows.
  FieldAt? get viewedField; ISet<String> get selection; IList<FlowDraft> get undo; IList<FlowDraft> get redo; UndoTag? get undoTag; String? get clipboard; String get treeQuery; String? get scopePrompt; IList<FlowFrame> get frames; IList<BlockInfo> get library;/// Why custom blocks are off; null once the library answered.
- LibraryOff? get libraryOff;
+ LibraryOff? get libraryOff; String? get route;
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -32,20 +32,20 @@ $FlowEditorStateCopyWith<FlowEditorState> get copyWith => _$FlowEditorStateCopyW
 @override
 bool operator ==(Object other) {
   final _this = this as FlowEditorState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowEditorState&&(identical(other.flowId, _this.flowId) || other.flowId == _this.flowId)&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.dirty, _this.dirty) || other.dirty == _this.dirty)&&const DeepCollectionEquality().equals(other.problems, _this.problems)&&(identical(other.selectedBlock, _this.selectedBlock) || other.selectedBlock == _this.selectedBlock)&&const DeepCollectionEquality().equals(other.types, _this.types)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.state, _this.state) || other.state == _this.state)&&(identical(other.message, _this.message) || other.message == _this.message)&&(identical(other.palette, _this.palette) || other.palette == _this.palette)&&(identical(other.ports, _this.ports) || other.ports == _this.ports)&&(identical(other.deployed, _this.deployed) || other.deployed == _this.deployed)&&(identical(other.watchRefused, _this.watchRefused) || other.watchRefused == _this.watchRefused)&&(identical(other.previewPorts, _this.previewPorts) || other.previewPorts == _this.previewPorts)&&(identical(other.previewSinks, _this.previewSinks) || other.previewSinks == _this.previewSinks)&&(identical(other.previewError, _this.previewError) || other.previewError == _this.previewError)&&(identical(other.previewOff, _this.previewOff) || other.previewOff == _this.previewOff)&&(identical(other.viewedField, _this.viewedField) || other.viewedField == _this.viewedField)&&const DeepCollectionEquality().equals(other.selection, _this.selection)&&const DeepCollectionEquality().equals(other.undo, _this.undo)&&const DeepCollectionEquality().equals(other.redo, _this.redo)&&(identical(other.undoTag, _this.undoTag) || other.undoTag == _this.undoTag)&&(identical(other.clipboard, _this.clipboard) || other.clipboard == _this.clipboard)&&(identical(other.treeQuery, _this.treeQuery) || other.treeQuery == _this.treeQuery)&&(identical(other.scopePrompt, _this.scopePrompt) || other.scopePrompt == _this.scopePrompt)&&const DeepCollectionEquality().equals(other.frames, _this.frames)&&const DeepCollectionEquality().equals(other.library, _this.library)&&(identical(other.libraryOff, _this.libraryOff) || other.libraryOff == _this.libraryOff));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is FlowEditorState&&(identical(other.flowId, _this.flowId) || other.flowId == _this.flowId)&&(identical(other.draft, _this.draft) || other.draft == _this.draft)&&(identical(other.dirty, _this.dirty) || other.dirty == _this.dirty)&&const DeepCollectionEquality().equals(other.problems, _this.problems)&&(identical(other.selectedBlock, _this.selectedBlock) || other.selectedBlock == _this.selectedBlock)&&const DeepCollectionEquality().equals(other.types, _this.types)&&(identical(other.version, _this.version) || other.version == _this.version)&&(identical(other.palette, _this.palette) || other.palette == _this.palette)&&(identical(other.ports, _this.ports) || other.ports == _this.ports)&&(identical(other.deployed, _this.deployed) || other.deployed == _this.deployed)&&(identical(other.watchRefused, _this.watchRefused) || other.watchRefused == _this.watchRefused)&&(identical(other.previewPorts, _this.previewPorts) || other.previewPorts == _this.previewPorts)&&(identical(other.previewSinks, _this.previewSinks) || other.previewSinks == _this.previewSinks)&&(identical(other.previewError, _this.previewError) || other.previewError == _this.previewError)&&(identical(other.previewOff, _this.previewOff) || other.previewOff == _this.previewOff)&&(identical(other.viewedField, _this.viewedField) || other.viewedField == _this.viewedField)&&const DeepCollectionEquality().equals(other.selection, _this.selection)&&const DeepCollectionEquality().equals(other.undo, _this.undo)&&const DeepCollectionEquality().equals(other.redo, _this.redo)&&(identical(other.undoTag, _this.undoTag) || other.undoTag == _this.undoTag)&&(identical(other.clipboard, _this.clipboard) || other.clipboard == _this.clipboard)&&(identical(other.treeQuery, _this.treeQuery) || other.treeQuery == _this.treeQuery)&&(identical(other.scopePrompt, _this.scopePrompt) || other.scopePrompt == _this.scopePrompt)&&const DeepCollectionEquality().equals(other.frames, _this.frames)&&const DeepCollectionEquality().equals(other.library, _this.library)&&(identical(other.libraryOff, _this.libraryOff) || other.libraryOff == _this.libraryOff)&&(identical(other.route, _this.route) || other.route == _this.route));
 }
 
 
 @override
 int get hashCode {
   final _this = this as FlowEditorState;
-  return Object.hashAll([runtimeType,_this.flowId,_this.draft,_this.dirty,const DeepCollectionEquality().hash(_this.problems),_this.selectedBlock,const DeepCollectionEquality().hash(_this.types),_this.version,_this.state,_this.message,_this.palette,_this.ports,_this.deployed,_this.watchRefused,_this.previewPorts,_this.previewSinks,_this.previewError,_this.previewOff,_this.viewedField,const DeepCollectionEquality().hash(_this.selection),const DeepCollectionEquality().hash(_this.undo),const DeepCollectionEquality().hash(_this.redo),_this.undoTag,_this.clipboard,_this.treeQuery,_this.scopePrompt,const DeepCollectionEquality().hash(_this.frames),const DeepCollectionEquality().hash(_this.library),_this.libraryOff]);
+  return Object.hashAll([runtimeType,_this.flowId,_this.draft,_this.dirty,const DeepCollectionEquality().hash(_this.problems),_this.selectedBlock,const DeepCollectionEquality().hash(_this.types),_this.version,_this.palette,_this.ports,_this.deployed,_this.watchRefused,_this.previewPorts,_this.previewSinks,_this.previewError,_this.previewOff,_this.viewedField,const DeepCollectionEquality().hash(_this.selection),const DeepCollectionEquality().hash(_this.undo),const DeepCollectionEquality().hash(_this.redo),_this.undoTag,_this.clipboard,_this.treeQuery,_this.scopePrompt,const DeepCollectionEquality().hash(_this.frames),const DeepCollectionEquality().hash(_this.library),_this.libraryOff,_this.route]);
 }
 
 @override
 String toString() {
   final _this = this as FlowEditorState;
-  return 'FlowEditorState(flowId: ${_this.flowId}, draft: ${_this.draft}, dirty: ${_this.dirty}, problems: ${_this.problems}, selectedBlock: ${_this.selectedBlock}, types: ${_this.types}, version: ${_this.version}, state: ${_this.state}, message: ${_this.message}, palette: ${_this.palette}, ports: ${_this.ports}, deployed: ${_this.deployed}, watchRefused: ${_this.watchRefused}, previewPorts: ${_this.previewPorts}, previewSinks: ${_this.previewSinks}, previewError: ${_this.previewError}, previewOff: ${_this.previewOff}, viewedField: ${_this.viewedField}, selection: ${_this.selection}, undo: ${_this.undo}, redo: ${_this.redo}, undoTag: ${_this.undoTag}, clipboard: ${_this.clipboard}, treeQuery: ${_this.treeQuery}, scopePrompt: ${_this.scopePrompt}, frames: ${_this.frames}, library: ${_this.library}, libraryOff: ${_this.libraryOff})';
+  return 'FlowEditorState(flowId: ${_this.flowId}, draft: ${_this.draft}, dirty: ${_this.dirty}, problems: ${_this.problems}, selectedBlock: ${_this.selectedBlock}, types: ${_this.types}, version: ${_this.version}, palette: ${_this.palette}, ports: ${_this.ports}, deployed: ${_this.deployed}, watchRefused: ${_this.watchRefused}, previewPorts: ${_this.previewPorts}, previewSinks: ${_this.previewSinks}, previewError: ${_this.previewError}, previewOff: ${_this.previewOff}, viewedField: ${_this.viewedField}, selection: ${_this.selection}, undo: ${_this.undo}, redo: ${_this.redo}, undoTag: ${_this.undoTag}, clipboard: ${_this.clipboard}, treeQuery: ${_this.treeQuery}, scopePrompt: ${_this.scopePrompt}, frames: ${_this.frames}, library: ${_this.library}, libraryOff: ${_this.libraryOff}, route: ${_this.route})';
 }
 
 
@@ -56,7 +56,7 @@ abstract mixin class $FlowEditorStateCopyWith<$Res>  {
   factory $FlowEditorStateCopyWith(FlowEditorState value, $Res Function(FlowEditorState) _then) = _$FlowEditorStateCopyWithImpl;
 @useResult
 $Res call({
- String? flowId, FlowDraft? draft, bool dirty, IList<FlowProblem> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, PaletteTab palette, IMap<String, LiveValue> ports, FlowDraft? deployed, Status? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, FlowProblem? previewError, Status? previewOff, FieldAt? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, UndoTag? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, LibraryOff? libraryOff
+ String? flowId, FlowDraft? draft, bool dirty, IList<FlowProblem> problems, String? selectedBlock, IList<NodeType> types, int version, PaletteTab palette, IMap<String, LiveValue> ports, FlowDraft? deployed, Status? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, FlowProblem? previewError, Status? previewOff, FieldAt? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, UndoTag? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, LibraryOff? libraryOff, String? route
 });
 
 
@@ -73,7 +73,7 @@ class _$FlowEditorStateCopyWithImpl<$Res>
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? state = freezed,Object? message = freezed,Object? palette = null,Object? ports = null,Object? deployed = freezed,Object? watchRefused = freezed,Object? previewPorts = null,Object? previewSinks = null,Object? previewError = freezed,Object? previewOff = freezed,Object? viewedField = freezed,Object? selection = null,Object? undo = null,Object? redo = null,Object? undoTag = freezed,Object? clipboard = freezed,Object? treeQuery = null,Object? scopePrompt = freezed,Object? frames = null,Object? library = null,Object? libraryOff = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? palette = null,Object? ports = null,Object? deployed = freezed,Object? watchRefused = freezed,Object? previewPorts = null,Object? previewSinks = null,Object? previewError = freezed,Object? previewOff = freezed,Object? viewedField = freezed,Object? selection = null,Object? undo = null,Object? redo = null,Object? undoTag = freezed,Object? clipboard = freezed,Object? treeQuery = null,Object? scopePrompt = freezed,Object? frames = null,Object? library = null,Object? libraryOff = freezed,Object? route = freezed,}) {
   return _then(FlowEditorState(
 flowId: freezed == flowId ? _self.flowId : flowId // ignore: cast_nullable_to_non_nullable
 as String?,draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
@@ -82,9 +82,7 @@ as bool,problems: null == problems ? _self.problems : problems // ignore: cast_n
 as IList<FlowProblem>,selectedBlock: freezed == selectedBlock ? _self.selectedBlock : selectedBlock // ignore: cast_nullable_to_non_nullable
 as String?,types: null == types ? _self.types : types // ignore: cast_nullable_to_non_nullable
 as IList<NodeType>,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
-as int,state: freezed == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
-as String?,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String?,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
+as int,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
 as PaletteTab,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,deployed: freezed == deployed ? _self.deployed : deployed // ignore: cast_nullable_to_non_nullable
 as FlowDraft?,watchRefused: freezed == watchRefused ? _self.watchRefused : watchRefused // ignore: cast_nullable_to_non_nullable
@@ -103,7 +101,8 @@ as String,scopePrompt: freezed == scopePrompt ? _self.scopePrompt : scopePrompt 
 as String?,frames: null == frames ? _self.frames : frames // ignore: cast_nullable_to_non_nullable
 as IList<FlowFrame>,library: null == library ? _self.library : library // ignore: cast_nullable_to_non_nullable
 as IList<BlockInfo>,libraryOff: freezed == libraryOff ? _self.libraryOff : libraryOff // ignore: cast_nullable_to_non_nullable
-as LibraryOff?,
+as LibraryOff?,route: freezed == route ? _self.route : route // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 /// Create a copy of FlowEditorState
@@ -175,7 +174,7 @@ $LibraryOffCopyWith<$Res>? get libraryOff {
 
 
 class _FlowEditorState implements FlowEditorState {
-  const _FlowEditorState({this.flowId, this.draft, this.dirty = false, this.problems = const IListConst([]), this.selectedBlock, this.types = const IListConst([]), this.version = 0, this.state, this.message, this.palette = PaletteTab.blocks, this.ports = const IMapConst({}), this.deployed, this.watchRefused, this.previewPorts = const IMapConst({}), this.previewSinks = const IMapConst({}), this.previewError, this.previewOff, this.viewedField, this.selection = const ISetConst({}), this.undo = const IListConst([]), this.redo = const IListConst([]), this.undoTag, this.clipboard, this.treeQuery = '', this.scopePrompt, this.frames = const IListConst([]), this.library = const IListConst([]), this.libraryOff});
+  const _FlowEditorState({this.flowId, this.draft, this.dirty = false, this.problems = const IListConst([]), this.selectedBlock, this.types = const IListConst([]), this.version = 0, this.palette = PaletteTab.blocks, this.ports = const IMapConst({}), this.deployed, this.watchRefused, this.previewPorts = const IMapConst({}), this.previewSinks = const IMapConst({}), this.previewError, this.previewOff, this.viewedField, this.selection = const ISetConst({}), this.undo = const IListConst([]), this.redo = const IListConst([]), this.undoTag, this.clipboard, this.treeQuery = '', this.scopePrompt, this.frames = const IListConst([]), this.library = const IListConst([]), this.libraryOff, this.route});
   
 
 @override final  String? flowId;
@@ -185,8 +184,6 @@ class _FlowEditorState implements FlowEditorState {
 @override final  String? selectedBlock;
 @override@JsonKey() final  IList<NodeType> types;
 @override@JsonKey() final  int version;
-@override final  String? state;
-@override final  String? message;
 @override@JsonKey() final  PaletteTab palette;
 @override@JsonKey() final  IMap<String, LiveValue> ports;
 @override final  FlowDraft? deployed;
@@ -211,6 +208,7 @@ class _FlowEditorState implements FlowEditorState {
 @override@JsonKey() final  IList<BlockInfo> library;
 /// Why custom blocks are off; null once the library answered.
 @override final  LibraryOff? libraryOff;
+@override final  String? route;
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
@@ -222,18 +220,18 @@ _$FlowEditorStateCopyWith<_FlowEditorState> get copyWith => __$FlowEditorStateCo
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowEditorState&&(identical(other.flowId, flowId) || other.flowId == flowId)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.dirty, dirty) || other.dirty == dirty)&&const DeepCollectionEquality().equals(other.problems, problems)&&(identical(other.selectedBlock, selectedBlock) || other.selectedBlock == selectedBlock)&&const DeepCollectionEquality().equals(other.types, types)&&(identical(other.version, version) || other.version == version)&&(identical(other.state, state) || other.state == state)&&(identical(other.message, message) || other.message == message)&&(identical(other.palette, palette) || other.palette == palette)&&(identical(other.ports, ports) || other.ports == ports)&&(identical(other.deployed, deployed) || other.deployed == deployed)&&(identical(other.watchRefused, watchRefused) || other.watchRefused == watchRefused)&&(identical(other.previewPorts, previewPorts) || other.previewPorts == previewPorts)&&(identical(other.previewSinks, previewSinks) || other.previewSinks == previewSinks)&&(identical(other.previewError, previewError) || other.previewError == previewError)&&(identical(other.previewOff, previewOff) || other.previewOff == previewOff)&&(identical(other.viewedField, viewedField) || other.viewedField == viewedField)&&const DeepCollectionEquality().equals(other.selection, selection)&&const DeepCollectionEquality().equals(other.undo, undo)&&const DeepCollectionEquality().equals(other.redo, redo)&&(identical(other.undoTag, undoTag) || other.undoTag == undoTag)&&(identical(other.clipboard, clipboard) || other.clipboard == clipboard)&&(identical(other.treeQuery, treeQuery) || other.treeQuery == treeQuery)&&(identical(other.scopePrompt, scopePrompt) || other.scopePrompt == scopePrompt)&&const DeepCollectionEquality().equals(other.frames, frames)&&const DeepCollectionEquality().equals(other.library, library)&&(identical(other.libraryOff, libraryOff) || other.libraryOff == libraryOff));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _FlowEditorState&&(identical(other.flowId, flowId) || other.flowId == flowId)&&(identical(other.draft, draft) || other.draft == draft)&&(identical(other.dirty, dirty) || other.dirty == dirty)&&const DeepCollectionEquality().equals(other.problems, problems)&&(identical(other.selectedBlock, selectedBlock) || other.selectedBlock == selectedBlock)&&const DeepCollectionEquality().equals(other.types, types)&&(identical(other.version, version) || other.version == version)&&(identical(other.palette, palette) || other.palette == palette)&&(identical(other.ports, ports) || other.ports == ports)&&(identical(other.deployed, deployed) || other.deployed == deployed)&&(identical(other.watchRefused, watchRefused) || other.watchRefused == watchRefused)&&(identical(other.previewPorts, previewPorts) || other.previewPorts == previewPorts)&&(identical(other.previewSinks, previewSinks) || other.previewSinks == previewSinks)&&(identical(other.previewError, previewError) || other.previewError == previewError)&&(identical(other.previewOff, previewOff) || other.previewOff == previewOff)&&(identical(other.viewedField, viewedField) || other.viewedField == viewedField)&&const DeepCollectionEquality().equals(other.selection, selection)&&const DeepCollectionEquality().equals(other.undo, undo)&&const DeepCollectionEquality().equals(other.redo, redo)&&(identical(other.undoTag, undoTag) || other.undoTag == undoTag)&&(identical(other.clipboard, clipboard) || other.clipboard == clipboard)&&(identical(other.treeQuery, treeQuery) || other.treeQuery == treeQuery)&&(identical(other.scopePrompt, scopePrompt) || other.scopePrompt == scopePrompt)&&const DeepCollectionEquality().equals(other.frames, frames)&&const DeepCollectionEquality().equals(other.library, library)&&(identical(other.libraryOff, libraryOff) || other.libraryOff == libraryOff)&&(identical(other.route, route) || other.route == route));
 }
 
 
 @override
 int get hashCode {
-    return Object.hashAll([runtimeType,flowId,draft,dirty,const DeepCollectionEquality().hash(problems),selectedBlock,const DeepCollectionEquality().hash(types),version,state,message,palette,ports,deployed,watchRefused,previewPorts,previewSinks,previewError,previewOff,viewedField,const DeepCollectionEquality().hash(selection),const DeepCollectionEquality().hash(undo),const DeepCollectionEquality().hash(redo),undoTag,clipboard,treeQuery,scopePrompt,const DeepCollectionEquality().hash(frames),const DeepCollectionEquality().hash(library),libraryOff]);
+    return Object.hashAll([runtimeType,flowId,draft,dirty,const DeepCollectionEquality().hash(problems),selectedBlock,const DeepCollectionEquality().hash(types),version,palette,ports,deployed,watchRefused,previewPorts,previewSinks,previewError,previewOff,viewedField,const DeepCollectionEquality().hash(selection),const DeepCollectionEquality().hash(undo),const DeepCollectionEquality().hash(redo),undoTag,clipboard,treeQuery,scopePrompt,const DeepCollectionEquality().hash(frames),const DeepCollectionEquality().hash(library),libraryOff,route]);
 }
 
 @override
 String toString() {
-    return 'FlowEditorState(flowId: $flowId, draft: $draft, dirty: $dirty, problems: $problems, selectedBlock: $selectedBlock, types: $types, version: $version, state: $state, message: $message, palette: $palette, ports: $ports, deployed: $deployed, watchRefused: $watchRefused, previewPorts: $previewPorts, previewSinks: $previewSinks, previewError: $previewError, previewOff: $previewOff, viewedField: $viewedField, selection: $selection, undo: $undo, redo: $redo, undoTag: $undoTag, clipboard: $clipboard, treeQuery: $treeQuery, scopePrompt: $scopePrompt, frames: $frames, library: $library, libraryOff: $libraryOff)';
+    return 'FlowEditorState(flowId: $flowId, draft: $draft, dirty: $dirty, problems: $problems, selectedBlock: $selectedBlock, types: $types, version: $version, palette: $palette, ports: $ports, deployed: $deployed, watchRefused: $watchRefused, previewPorts: $previewPorts, previewSinks: $previewSinks, previewError: $previewError, previewOff: $previewOff, viewedField: $viewedField, selection: $selection, undo: $undo, redo: $redo, undoTag: $undoTag, clipboard: $clipboard, treeQuery: $treeQuery, scopePrompt: $scopePrompt, frames: $frames, library: $library, libraryOff: $libraryOff, route: $route)';
 }
 
 
@@ -244,7 +242,7 @@ abstract mixin class _$FlowEditorStateCopyWith<$Res> implements $FlowEditorState
   factory _$FlowEditorStateCopyWith(_FlowEditorState value, $Res Function(_FlowEditorState) _then) = __$FlowEditorStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? flowId, FlowDraft? draft, bool dirty, IList<FlowProblem> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, PaletteTab palette, IMap<String, LiveValue> ports, FlowDraft? deployed, Status? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, FlowProblem? previewError, Status? previewOff, FieldAt? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, UndoTag? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, LibraryOff? libraryOff
+ String? flowId, FlowDraft? draft, bool dirty, IList<FlowProblem> problems, String? selectedBlock, IList<NodeType> types, int version, PaletteTab palette, IMap<String, LiveValue> ports, FlowDraft? deployed, Status? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, FlowProblem? previewError, Status? previewOff, FieldAt? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, UndoTag? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, LibraryOff? libraryOff, String? route
 });
 
 
@@ -261,7 +259,7 @@ class __$FlowEditorStateCopyWithImpl<$Res>
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? state = freezed,Object? message = freezed,Object? palette = null,Object? ports = null,Object? deployed = freezed,Object? watchRefused = freezed,Object? previewPorts = null,Object? previewSinks = null,Object? previewError = freezed,Object? previewOff = freezed,Object? viewedField = freezed,Object? selection = null,Object? undo = null,Object? redo = null,Object? undoTag = freezed,Object? clipboard = freezed,Object? treeQuery = null,Object? scopePrompt = freezed,Object? frames = null,Object? library = null,Object? libraryOff = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? flowId = freezed,Object? draft = freezed,Object? dirty = null,Object? problems = null,Object? selectedBlock = freezed,Object? types = null,Object? version = null,Object? palette = null,Object? ports = null,Object? deployed = freezed,Object? watchRefused = freezed,Object? previewPorts = null,Object? previewSinks = null,Object? previewError = freezed,Object? previewOff = freezed,Object? viewedField = freezed,Object? selection = null,Object? undo = null,Object? redo = null,Object? undoTag = freezed,Object? clipboard = freezed,Object? treeQuery = null,Object? scopePrompt = freezed,Object? frames = null,Object? library = null,Object? libraryOff = freezed,Object? route = freezed,}) {
   return _then(_FlowEditorState(
 flowId: freezed == flowId ? _self.flowId : flowId // ignore: cast_nullable_to_non_nullable
 as String?,draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
@@ -270,9 +268,7 @@ as bool,problems: null == problems ? _self.problems : problems // ignore: cast_n
 as IList<FlowProblem>,selectedBlock: freezed == selectedBlock ? _self.selectedBlock : selectedBlock // ignore: cast_nullable_to_non_nullable
 as String?,types: null == types ? _self.types : types // ignore: cast_nullable_to_non_nullable
 as IList<NodeType>,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
-as int,state: freezed == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
-as String?,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String?,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
+as int,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
 as PaletteTab,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,deployed: freezed == deployed ? _self.deployed : deployed // ignore: cast_nullable_to_non_nullable
 as FlowDraft?,watchRefused: freezed == watchRefused ? _self.watchRefused : watchRefused // ignore: cast_nullable_to_non_nullable
@@ -291,7 +287,8 @@ as String,scopePrompt: freezed == scopePrompt ? _self.scopePrompt : scopePrompt 
 as String?,frames: null == frames ? _self.frames : frames // ignore: cast_nullable_to_non_nullable
 as IList<FlowFrame>,library: null == library ? _self.library : library // ignore: cast_nullable_to_non_nullable
 as IList<BlockInfo>,libraryOff: freezed == libraryOff ? _self.libraryOff : libraryOff // ignore: cast_nullable_to_non_nullable
-as LibraryOff?,
+as LibraryOff?,route: freezed == route ? _self.route : route // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

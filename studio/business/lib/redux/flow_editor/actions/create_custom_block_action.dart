@@ -10,14 +10,19 @@ import 'validate_flow_action.dart';
 /// inside of a new block [spec] of this flow and are replaced by one
 /// instance of it, selected. One step of the history.
 class CreateCustomBlockAction extends Action {
-  CreateCustomBlockAction(this.ids, this.spec);
+  CreateCustomBlockAction(Set<String> this.ids, this.spec);
 
-  final Set<String> ids;
+  /// Of the blocks selected when it runs (the dialog asked the name while
+  /// the selection stood).
+  CreateCustomBlockAction.selected(this.spec) : ids = null;
+
+  final Set<String>? ids;
   final CustomBlockSpec spec;
 
   @override
   AppState? reduce() {
     final d = flowEditor.draft;
+    final ids = this.ids ?? flowEditor.selection.unlock;
     final made = d == null
         ? null
         : createCustomBlock(d, {

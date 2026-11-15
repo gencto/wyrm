@@ -2094,6 +2094,16 @@ class MessageLookup extends MessageLookupByLibrary {
     "errRowStatus": MessageLookupByLibrary.simpleMessage("Статус"),
     "errRowStudio": MessageLookupByLibrary.simpleMessage("Studio"),
     "errRowTime": MessageLookupByLibrary.simpleMessage("Час"),
+    "errRunDenied": MessageLookupByLibrary.simpleMessage(
+      "Тобі не можна запустити його: це потребує write на флоу і прав на те, на що діють блок і блоки після нього.",
+    ),
+    "errRunNoTrigger": MessageLookupByLibrary.simpleMessage(
+      "Цей брокер не має дії trigger (потрібен ADR 0040).",
+    ),
+    "errRunNotByHand": MessageLookupByLibrary.simpleMessage(
+      "Цей блок не можна запустити вручну.",
+    ),
+    "errRunNotRunning": MessageLookupByLibrary.simpleMessage("Флоу не працює."),
     "errSaidBroker": MessageLookupByLibrary.simpleMessage("Брокер відповів"),
     "errSaidNoAnswer": MessageLookupByLibrary.simpleMessage("Studio чекала"),
     "errSaidStudio": MessageLookupByLibrary.simpleMessage("Що сталося"),

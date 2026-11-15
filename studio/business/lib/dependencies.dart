@@ -8,6 +8,7 @@ import 'package:models/studio_error.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'common/text_clipboard.dart';
 import 'redux/app_state.dart';
 import 'redux/changes/actions/apply_changes_action.dart';
 import 'redux/device/actions/show_step_up_action.dart';
@@ -63,6 +64,7 @@ class AppDependencies {
     this._browser,
     this.browseDuration = browseFor,
     this.clock = DateTime.now,
+    this.clipboard = const SystemClipboard(),
   }) : login =
            login ??
            GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
@@ -85,6 +87,10 @@ class AppDependencies {
   /// The words of an error: its title and, for a fault in Studio, its
   /// sentence. The app's, in the user's language; plain English in tests.
   final ErrorWording wording;
+
+  /// The system clipboard (the flow editor's copy and paste); tests pass
+  /// a fake.
+  final TextClipboard clipboard;
 
   /// The time now: when a history is read and from when (a test sets its
   /// own, so a range drawn from it is the same on every machine).

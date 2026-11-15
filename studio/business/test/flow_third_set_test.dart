@@ -14,6 +14,7 @@ import 'package:business/wyrm/mappers/table_value.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/error_hint.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
@@ -491,10 +492,10 @@ void main() {
       };
       expect(reason, contains('w (downstream of h)'));
       expect(reason, contains('does not hold write'));
-      // No words from the broker: Studio says it.
+      // No words from the broker: Studio names why (the app says it).
       expect(
-        triggerRefusal(WyrmException.of(Status.permissionDenied, '')),
-        contains('needs write'),
+        triggerHintOf(StatusCode.of(Status.permissionDenied)),
+        ErrorHint.runDenied,
       );
     });
   });

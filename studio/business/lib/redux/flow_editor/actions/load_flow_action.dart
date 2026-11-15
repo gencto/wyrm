@@ -23,16 +23,19 @@ import 'unload_flow_action.dart';
 /// version is kept (closing the editor does not drop it) unless the broker
 /// has a newer version.
 class LoadFlowAction extends Action {
-  LoadFlowAction(this.id, {this.isNew = false});
+  LoadFlowAction(this.id, {this.isNew = false, this.route});
 
   @override
-  Action again() => LoadFlowAction(id, isNew: isNew);
+  Action again() => LoadFlowAction(id, isNew: isNew, route: route);
 
   @override
   Action reload() => RetrieveFlowsAction();
 
   final String id;
   final bool isNew;
+
+  /// The editor's route, kept with the flow (null: the one it has).
+  final String? route;
 
   @override
   Future<AppState?> reduce() async {
@@ -92,6 +95,7 @@ class LoadFlowAction extends Action {
       flows: state.flows.copyWith(blockTypes: types),
       flowEditor: FlowEditorState(
         flowId: id,
+        route: route ?? held.route,
         draft: shown,
         dirty: keep,
         deployed: isNew ? null : draft,

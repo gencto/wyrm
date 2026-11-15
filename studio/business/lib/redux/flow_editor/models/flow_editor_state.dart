@@ -24,8 +24,6 @@ abstract class FlowEditorState with _$FlowEditorState {
     String? selectedBlock,
     @Default(IListConst([])) IList<NodeType> types,
     @Default(0) int version,
-    String? state,
-    String? message,
     @Default(PaletteTab.blocks) PaletteTab palette,
     @Default(IMapConst({})) IMap<String, LiveValue> ports,
     FlowDraft? deployed,
@@ -55,5 +53,7 @@ abstract class FlowEditorState with _$FlowEditorState {
 
     /// Why custom blocks are off; null once the library answered.
     LibraryOff? libraryOff,
+    /// The route the editor was opened on (`newFlowId`: a new flow).
+    String? route,
   }) = _FlowEditorState;
 }
