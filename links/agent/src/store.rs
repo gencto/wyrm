@@ -34,9 +34,12 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 /// One task as persisted.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct TaskRec {
-    /// [`TaskState::name`].
+    /// Kept by its name ([`TaskState::name`]), not its code: the text the field held
+    /// as a `String`. A name this build does not know does not decode.
     #[n(0)]
-    pub state: String,
+    #[cbor(with = "wyrm_core::named::cbor")]
+    #[serde(with = "wyrm_core::named::serde")]
+    pub state: TaskState,
     #[n(1)]
     pub owner: String,
     #[n(2)]
@@ -461,13 +464,66 @@ fn plan_op_from(v: &Value) -> Result<PlanOp, String> {
     })
 }
 
-pub fn state_from_name(n: &str) -> Option<TaskState> {
-    TaskState::from_name(n)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review T5: `TaskRec.state` was the state's name as a `String`, turned back with
+    /// `state_from_name` at every load. Typed, it keeps the name on disk: a snapshot
+    /// written then (postcard) and a WAL record (CBOR, fixed bytes in the tests below)
+    /// read back as the same bytes, and a name this build does not know does not decode.
+    #[test]
+    fn task_state_is_kept_by_name_as_before() {
+        #[derive(Serialize, Encode)]
+        struct OldRec {
+            #[n(0)]
+            state: String,
+            #[n(1)]
+            owner: String,
+            #[n(2)]
+            ask: String,
+            #[n(3)]
+            #[cbor(with = "minicbor::bytes")]
+            plan: Vec<u8>,
+            #[n(4)]
+            log: Vec<String>,
+            #[n(5)]
+            error: Option<String>,
+            #[n(6)]
+            tokens: u64,
+            #[n(7)]
+            created: u64,
+            #[n(8)]
+            seq: u64,
+        }
+        let old = |state: &str| OldRec {
+            state: state.into(),
+            owner: "user:op".into(),
+            ask: "set p".into(),
+            plan: vec![0x80],
+            log: vec!["asked".into()],
+            error: None,
+            tokens: 3,
+            created: 1,
+            seq: 2,
+        };
+        for st in TaskState::ALL {
+            let pc = postcard::to_stdvec(&old(st.name())).unwrap();
+            let rec: TaskRec = postcard::from_bytes(&pc).unwrap();
+            assert_eq!(rec.state, *st);
+            assert_eq!(postcard::to_stdvec(&rec).unwrap(), pc);
+            let cbor = minicbor::to_vec(old(st.name())).unwrap();
+            let rec: TaskRec = minicbor::decode(&cbor).unwrap();
+            assert_eq!(rec.state, *st);
+            assert_eq!(minicbor::to_vec(&rec).unwrap(), cbor);
+        }
+        for bad in ["paused", "Done", ""] {
+            assert!(
+                postcard::from_bytes::<TaskRec>(&postcard::to_stdvec(&old(bad)).unwrap()).is_err()
+            );
+            assert!(minicbor::decode::<TaskRec>(&minicbor::to_vec(old(bad)).unwrap()).is_err());
+        }
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!(
@@ -481,7 +537,7 @@ mod tests {
 
     fn rec(seq: u64) -> TaskRec {
         TaskRec {
-            state: "done".into(),
+            state: TaskState::Done,
             owner: "user:op".into(),
             ask: "x".into(),
             plan: encode_plan(
@@ -642,7 +698,7 @@ mod tests {
         let put = Op::Put(
             "t1-2".into(),
             TaskRec {
-                state: "awaiting_approval".into(),
+                state: TaskState::AwaitingApproval,
                 owner: "user:op".into(),
                 ask: "set p".into(),
                 plan: wyrm_core::codec::to_vec(&plan).unwrap(),
@@ -667,8 +723,8 @@ mod tests {
             panic!("not a put")
         };
         assert_eq!(
-            (id.as_str(), rec.state.as_str()),
-            ("t1-2", "awaiting_approval")
+            (id.as_str(), rec.state),
+            ("t1-2", TaskState::AwaitingApproval)
         );
         let (steps, extras) = decode_plan(&rec.plan).unwrap();
         assert_eq!(steps.len(), 1);
@@ -725,7 +781,7 @@ mod tests {
         let put = Op::Put(
             "t1-2".into(),
             TaskRec {
-                state: "failed".into(),
+                state: TaskState::Failed,
                 owner: "user:op".into(),
                 ask: "set p".into(),
                 plan: wyrm_core::codec::to_vec(&plan).unwrap(),

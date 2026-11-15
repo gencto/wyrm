@@ -6910,6 +6910,7 @@ dependencies = [
  "hyper 1.12.0",
  "hyper-util",
  "minicbor",
+ "postcard",
  "rustls",
  "rustls-pki-types",
  "serde",

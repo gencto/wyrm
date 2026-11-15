@@ -472,7 +472,7 @@ struct Task {
 impl Task {
     fn to_rec(&self) -> TaskRec {
         TaskRec {
-            state: self.state.name().to_owned(),
+            state: self.state,
             owner: self.owner.clone(),
             ask: self.ask.clone(),
             plan: store::encode_plan(
@@ -499,7 +499,7 @@ impl Task {
     /// A reloaded record. A task that was `planning` or `running` is not
     /// resumed: it becomes `failed` ([`INTERRUPTED`]). `Err`: unreadable.
     fn from_rec(r: &TaskRec) -> std::result::Result<Self, String> {
-        let state = store::state_from_name(&r.state).ok_or("unknown state")?;
+        let state = r.state;
         let (plan, extras) = store::decode_plan(&r.plan)?;
         let mut t = Self {
             owner: r.owner.clone(),
@@ -1090,7 +1090,7 @@ fn reload(db: AgentStore, dir: &Path) -> State {
     loaded.sort_by_key(|(_, t)| (t.created, t.seq));
     for (id, t) in loaded {
         st.next = st.next.max(t.seq);
-        let interrupted = store::state_from_name(&saved.tasks[&id].state) != Some(t.state);
+        let interrupted = saved.tasks[&id].state != t.state;
         st.order.push_back(id.clone());
         st.tasks.insert(id.clone(), t);
         if interrupted {
@@ -3093,7 +3093,7 @@ mod tests {
 
     fn rec(state: TaskState) -> TaskRec {
         TaskRec {
-            state: state.name().to_owned(),
+            state,
             owner: "user:op".into(),
             ask: "x".into(),
             plan: Vec::new(),
