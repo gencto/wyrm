@@ -6,6 +6,8 @@ import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
+import 'package:models/site_node.dart';
+import 'package:models/site_pick.dart';
 import 'package:models/system_tab.dart';
 
 import 'app_router.dart';
@@ -101,7 +103,7 @@ class OpenAttentionAction extends ReduxAction<AppState> {
         quarantine: state.quarantine.copyWith(selectedEntry: what),
       ),
       AttentionKind.brokerWaiting => state.copyWith.peers(
-        selectedPeer: 'waiting:$what',
+        selectedPeer: SitePick(SiteNode.waiting, what),
       ),
       AttentionKind.aclGrown => state.copyWith.access(tab: AccessTab.audit),
     };

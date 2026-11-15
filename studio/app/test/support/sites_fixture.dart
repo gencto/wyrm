@@ -1,6 +1,7 @@
 import 'package:business/redux/app_state.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/site_choice.dart';
+import 'package:models/site_pick.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'screen_app.dart';
@@ -109,7 +110,7 @@ void sitesBroker(FakeWyrmApi api) {
 }
 
 /// [s] with the sites `plant` reaches: `line3` relayed below `line1`.
-AppState withSites(AppState s, {String? selected}) => s.copyWith(
+AppState withSites(AppState s, {SitePick? selected}) => s.copyWith(
   site: s.site.copyWith(
     connected: true,
     choices: IList(const [

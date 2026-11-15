@@ -6,6 +6,8 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/access_tab.dart';
 import 'package:models/links_tab.dart';
+import 'package:models/site_node.dart';
+import 'package:models/site_pick.dart';
 import 'package:ui/pages/system_page.dart';
 
 import 'support/system_app.dart';
@@ -102,7 +104,10 @@ void main() {
     await app.toSystem(t);
     await tap('line2 waits for Authorize');
     expect(app.workspace, SitesRoute.name);
-    expect(s().peers.selectedPeer, 'waiting:line2');
+    expect(
+      s().peers.selectedPeer,
+      const SitePick(SiteNode.waiting, 'line2'),
+    );
 
     // leaving System noted the ACL counter: as at an earlier visit again
     await app.toSystem(t);

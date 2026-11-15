@@ -2,6 +2,8 @@ import 'package:app/connectors/sites_page_connector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/site_node.dart';
+import 'package:models/site_pick.dart';
 import 'package:ui/buttons/button.dart';
 import 'package:ui/pages/sites_page.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -20,7 +22,7 @@ void main() {
   Future<ScreenApp> shown(
     WidgetTester t, {
     bool config = true,
-    String? selected,
+    SitePick? selected,
     Locale locale = const Locale('en'),
   }) async {
     final app = ScreenApp(config: config);
@@ -67,13 +69,13 @@ void main() {
   group('every word', () {
     for (final (name, selected) in [
       ('self', null),
-      ('upstream', 'upstream:central'),
-      ('downstream', 'downstream:line1'),
-      ('waiting broker', 'waiting:line2'),
-      ('waiting link', 'waiting:field-x'),
-      ('device', 'device:field-gw'),
-      ('relayed', 'relayed:line3'),
-      ('platform', 'platform:mqtt-cloud'),
+      ('upstream', const SitePick(SiteNode.upstream, 'central')),
+      ('downstream', const SitePick(SiteNode.downstream, 'line1')),
+      ('waiting broker', const SitePick(SiteNode.waiting, 'line2')),
+      ('waiting link', const SitePick(SiteNode.waiting, 'field-x')),
+      ('device', const SitePick(SiteNode.device, 'field-gw')),
+      ('relayed', const SitePick(SiteNode.relayed, 'line3')),
+      ('platform', const SitePick(SiteNode.platform, 'mqtt-cloud')),
     ]) {
       testWidgets('the map, $name picked', (t) async {
         final app = await shown(t, selected: selected);
@@ -87,7 +89,11 @@ void main() {
       await app.leave(t);
     });
     testWidgets('without config, a waiting broker picked', (t) async {
-      final app = await shown(t, config: false, selected: 'waiting:line2');
+      final app = await shown(
+        t,
+        config: false,
+        selected: const SitePick(SiteNode.waiting, 'line2'),
+      );
       words.check('no config broker', on(t, app));
       await app.leave(t);
     });
@@ -125,9 +131,15 @@ void main() {
     final app = await shown(t);
     expect(app.store.state.peers.selectedPeer, isNull);
     await tap(t, app, onPage('central'));
-    expect(app.store.state.peers.selectedPeer, 'upstream:central');
+    expect(
+      app.store.state.peers.selectedPeer,
+      const SitePick(SiteNode.upstream, 'central'),
+    );
     await tap(t, app, onPage('link:field-x'));
-    expect(app.store.state.peers.selectedPeer, 'waiting:field-x');
+    expect(
+      app.store.state.peers.selectedPeer,
+      const SitePick(SiteNode.waiting, 'field-x'),
+    );
     await app.leave(t);
   });
 
@@ -135,12 +147,10 @@ void main() {
     t,
   ) async {
     final app = await shown(t);
-    final connect = find.widgetWithText(Button, 'Connect to an upstream');
-    // The connector reads the form from the state it was built with: on
-    // the first tap the detail of sys/upstream is not in it yet.
-    await tap(t, app, connect);
-    expect(find.byType(Dialog), findsNothing);
-    await tap(t, app, connect);
+    // The form of sys/upstream ▸ add, read first, opens at the first tap
+    // (before the rules rewrite it opened only at the second: the
+    // connector read the detail from the state it was built with).
+    await tap(t, app, find.widgetWithText(Button, 'Connect to an upstream'));
     words.check('connect dialog', dialog(t, app));
     await type(t, 0, 'quic://central.example:7447');
     await tap(t, app, inDialog.last);
@@ -158,8 +168,8 @@ void main() {
     await tap(t, app, inDialog.last);
     final call = app.calls('add').where((c) => c.key.endsWith('tokens'));
     expect(call.single.args, Value.from({'count': 1, 'hours': 24}));
-    // The dialog reads the answer from the state it was built with, so it
-    // keeps the form.
+    // The token the broker gave, shown once (before the rules rewrite the
+    // dialog kept its form: it read the answer from a state built before).
     words.check('token issued', dialog(t, app));
     await app.leave(t);
   });
@@ -174,8 +184,6 @@ void main() {
     await t.tapAt(Offset.zero);
     await app.settle(t);
     await tap(t, app, find.text('sys/upstream add'));
-    expect(find.byType(Dialog), findsNothing);
-    await tap(t, app, find.text('sys/upstream add'));
     expect(dialog(t, app).first, 'Connect to an upstream');
     await app.leave(t);
   });
@@ -183,7 +191,10 @@ void main() {
   testWidgets('Deauthorize asks, then deauthorizes the broker below', (
     t,
   ) async {
-    final app = await shown(t, selected: 'downstream:line1');
+    final app = await shown(
+      t,
+      selected: const SitePick(SiteNode.downstream, 'line1'),
+    );
     await tap(t, app, find.text('deauthorize'));
     words.check('deauthorize dialog', dialog(t, app));
     final reads = app.calls('children').length;
@@ -199,7 +210,10 @@ void main() {
   testWidgets('Approve lets the waiting broker in', (
     t,
   ) async {
-    final app = await shown(t, selected: 'waiting:line2');
+    final app = await shown(
+      t,
+      selected: const SitePick(SiteNode.waiting, 'line2'),
+    );
     await t.enterText(
       find
           .descendant(
@@ -219,7 +233,10 @@ void main() {
   });
 
   testWidgets('Reject asks, then rejects the waiting broker', (t) async {
-    final app = await shown(t, selected: 'waiting:line2');
+    final app = await shown(
+      t,
+      selected: const SitePick(SiteNode.waiting, 'line2'),
+    );
     await t.ensureVisible(find.widgetWithText(Button, 'Reject'));
     await tap(t, app, find.widgetWithText(Button, 'Reject'));
     words.check('reject dialog', dialog(t, app));

@@ -57,6 +57,7 @@ import 'package:models/restore_check.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
 import 'package:models/site_choice.dart';
+import 'package:models/site_pick.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/step_up_request.dart';
@@ -1448,7 +1449,7 @@ extension type SelectPeers(AppState _state) {
   IList<String> get view => _state.peers.view;
 
   /// Returns selectedPeer
-  String? get selectedPeer => _state.peers.selectedPeer;
+  SitePick? get selectedPeer => _state.peers.selectedPeer;
 }
 
 extension type SelectFlows(AppState _state) {

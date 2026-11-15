@@ -555,11 +555,7 @@
   "token issued": [
     "Token for a site below",
     "One token admits a broker at once. It is shown once; set its uses and hours.",
-    "Uses",
-    "Valid for hours",
-    "Issue",
-    "tip: count",
-    "tip: hours"
+    "wyt_1a2b3c"
   ],
   "deauthorize dialog": [
     "Deauthorize line1?",

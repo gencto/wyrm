@@ -12,6 +12,7 @@ import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/pages/access_page.dart';
+import 'package:ui/theme/sizes.dart';
 import 'package:wyrm_client/wyrm_client.dart'
     show GatewayDevice, GatewayDeviceState, Perm;
 
@@ -65,7 +66,7 @@ Future<void> _form(
     context: context,
     builder: (dialog) => PanelDialog(
       title: title,
-      width: 520,
+      width: AppSizes.formDialog,
       child: ActionForm(
         fields: fields,
         submit: title,
