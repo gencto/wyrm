@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
@@ -6,25 +7,13 @@ import '../theme/extensions/colors.dart';
 
 /// What [WindowControls] draws.
 final class WindowControlsVm extends Equatable {
-  const WindowControlsVm({
-    this.maximized = false,
-    this.minimize = 'Minimize',
-    this.maximize = 'Maximize',
-    this.restore = 'Restore',
-    this.close = 'Close',
-  });
+  const WindowControlsVm({this.maximized = false});
 
   /// The window fills the screen: the middle button restores it.
   final bool maximized;
 
-  /// The buttons' names for assistive technology, localized by the app.
-  final String minimize;
-  final String maximize;
-  final String restore;
-  final String close;
-
   @override
-  List<Object?> get props => [maximized, minimize, maximize, restore, close];
+  List<Object?> get props => [maximized];
 }
 
 /// Minimize, maximize or restore, and close of a frameless window on
@@ -62,19 +51,21 @@ class WindowControls extends StatelessWidget {
       children: [
         _Cell(
           icon: 'ui_minimize',
-          label: vm.minimize,
+          label: S.current.windowMinimize,
           hover: c.ground4,
           onTap: onMinimize,
         ),
         _Cell(
           icon: vm.maximized ? 'ui_restore' : 'ui_maximize',
-          label: vm.maximized ? vm.restore : vm.maximize,
+          label: vm.maximized
+              ? S.current.windowRestore
+              : S.current.windowMaximize,
           hover: c.ground4,
           onTap: onMaximize,
         ),
         _Cell(
           icon: 'ui_close',
-          label: vm.close,
+          label: S.current.windowClose,
           hover: c.bad,
           hoverInk: c.ground0,
           onTap: onClose,

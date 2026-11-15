@@ -6,6 +6,7 @@ import 'package:business/redux/access/actions/set_tab_action.dart'
     as access_slice;
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/problems/actions/add_problem_action.dart';
+import 'package:business/redux/problems/actions/dismiss_toast_action.dart';
 import 'package:business/redux/problems/actions/mark_problem_shown_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
@@ -105,6 +106,13 @@ void showUserException({
 
 /// *Details* of a toast or of a card in Problems: the dialog of the problem
 /// [id], read only. It repeats no write and counts nothing down.
+/// The details of the toast [id]'s failure: the toast goes (one
+/// dispatch), the dialog opens.
+Future<void> showToastDetails(BuildContext context, int id) {
+  AppStore.of(context).dispatchSync(DismissToastAction(id));
+  return showProblemDetails(context, id);
+}
+
 Future<void> showProblemDetails(BuildContext context, int id) async {
   final store = AppStore.of(context);
   final e = store.state.problems.items.where((p) => p.id == id).firstOrNull;

@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/node_info.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/studio_error.dart';
+import 'package:models/studio_notice.dart';
 import 'package:models/workspace.dart';
 
 import '../redux/app_state.dart';
@@ -49,6 +51,34 @@ final class SearchNode {
 
   /// The node holds a value.
   final bool value;
+}
+
+/// A toast of the stack: a quiet failure or a notice.
+sealed class Toast {
+  const Toast();
+
+  /// From one counter for both, so the toasts keep the order they came in.
+  int get id;
+}
+
+/// A failure nobody was waiting for.
+final class ErrorToast extends Toast {
+  const ErrorToast(this.error);
+
+  final StudioError error;
+
+  @override
+  int get id => error.id;
+}
+
+/// Something that went well.
+final class NoticeToast extends Toast {
+  const NoticeToast(this.notice);
+
+  final StudioNotice notice;
+
+  @override
+  int get id => notice.id;
 }
 
 /// What the Studio shell shows, computed from the state.
@@ -126,4 +156,19 @@ extension ShellSelect on Selectors {
         value: nodes.table[k]?.type != null,
       ),
   ];
+
+  /// The toasts, oldest first; none while the Problems drawer is open (the
+  /// same failures are listed there).
+  List<Toast> get toasts {
+    final p = problems;
+    if (p.open) {
+      return const [];
+    }
+    final failed = {for (final e in p.items) e.id: e};
+    return [
+      for (final id in p.toasts)
+        if (failed[id] case final e?) ErrorToast(e),
+      for (final n in p.notices) NoticeToast(n),
+    ]..sort((a, b) => a.id.compareTo(b.id));
+  }
 }

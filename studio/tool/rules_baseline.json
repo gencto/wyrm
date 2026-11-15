@@ -6,7 +6,6 @@
     "app/lib/connectors/lock_overlay_connector.dart": 1,
     "app/lib/connectors/log_in_page_connector.dart": 8,
     "app/lib/connectors/step_up_dialog_connector.dart": 2,
-    "app/lib/connectors/toast_stack_connector.dart": 1,
     "app/lib/dialogs/error_dialogs.dart": 3,
     "app/lib/dialogs/link_dialogs.dart": 3,
     "business/lib/redux/access/actions/save_user_action.dart": 1,
@@ -113,7 +112,7 @@
     "ui/lib/flows/flow_canvas.dart": 3,
     "ui/lib/overlays/task_sheet.dart": 1,
     "ui/lib/overlays/value_viewer.dart": 2,
-    "ui/lib/pages/gallery_page.dart": 16,
+    "ui/lib/pages/gallery_page.dart": 10,
     "ui/lib/pages/link_install_page.dart": 5,
     "ui/lib/pages/system_screen.dart": 7,
     "ui/lib/trees/node_tree.dart": 2
@@ -136,9 +135,9 @@
     "app/lib/connectors/step_up_dialog_connector.dart": 129,
     "app/lib/connectors/studio_page_connector.dart": 188,
     "app/lib/connectors/system_page_connector.dart": 293,
-    "app/lib/connectors/toast_stack_connector.dart": 80,
+    "app/lib/connectors/toast_stack_connector.dart": 69,
     "app/lib/connectors/top_level_page_connector.dart": 52,
-    "app/lib/connectors/window_controls_connector.dart": 82
+    "app/lib/connectors/window_controls_connector.dart": 75
   },
   "context-in-connector": {
     "app/lib/common/app_store.dart": 1,
@@ -157,9 +156,7 @@
     "app/lib/connectors/links_page_connector.dart": 166,
     "app/lib/connectors/lock_overlay_connector.dart": 1,
     "app/lib/connectors/log_in_page_connector.dart": 75,
-    "app/lib/connectors/step_up_dialog_connector.dart": 1,
-    "app/lib/connectors/toast_stack_connector.dart": 5,
-    "app/lib/connectors/window_controls_connector.dart": 4
+    "app/lib/connectors/step_up_dialog_connector.dart": 1
   },
   "number-literal": {
     "ui/lib/alerts/notice.dart": 3,
@@ -282,7 +279,6 @@
     "app/lib/navigation/go_action.dart": 1,
     "app/lib/navigation/leave_on_log_out_action.dart": 1,
     "app/lib/start_fault_app.dart": 1,
-    "ui/lib/alerts/toast_stack.dart": 1,
     "ui/lib/charts/trend.dart": 4,
     "ui/lib/containers/side_panels.dart": 1,
     "ui/lib/dialogs/error_dialog.dart": 1,
