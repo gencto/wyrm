@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::Duration;
+use wyrm_core::weburl::{HttpUrl, SchemeCase};
 use wyrm_core::Value;
 use zeroize::Zeroizing;
 
@@ -86,36 +87,15 @@ impl McpConfig {
     }
 }
 
-/// `scheme://host[:port]` of a URL without query or fragment: `(scheme, authority, path)`.
-fn split_url(u: &str) -> Option<(&str, &str, &str)> {
-    if u.len() > URI_MAX || u.contains(['#', ' ', '"', '<', '>', '\\']) {
+/// An `http(s)://` URL (the scheme as written) without a fragment, read by
+/// [`wyrm_core::weburl`]; `"`, `<` and `>` are refused too (a URL goes into a page).
+fn split_url(u: &str) -> Option<HttpUrl> {
+    if u.len() > URI_MAX || u.contains(['"', '<', '>']) {
         return None;
     }
-    let (scheme, rest) = u.split_once("://")?;
-    if !matches!(scheme, "http" | "https") {
-        return None;
-    }
-    let (auth, path) = match rest.find(['/', '?']) {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, ""),
-    };
-    if auth.is_empty() || auth.contains('@') {
-        return None;
-    }
-    Some((scheme, auth, path))
-}
-
-fn host_of(authority: &str) -> &str {
-    if authority.starts_with('[') {
-        return authority
-            .split_once(']')
-            .map(|(h, _)| &h[1..])
-            .unwrap_or(authority);
-    }
-    authority
-        .rsplit_once(':')
-        .map(|(h, _)| h)
-        .unwrap_or(authority)
+    HttpUrl::parse(u, SchemeCase::Lower)
+        .ok()
+        .filter(|h| h.url.fragment.is_none())
 }
 
 fn is_loopback_host(h: &str) -> bool {
@@ -210,12 +190,12 @@ fn bool_of(v: &Value, k: &str) -> bool {
 impl OAuth {
     pub(crate) fn new(cfg: McpConfig, state_key: &[u8]) -> Result<Self, String> {
         let issuer = cfg.public_url.trim_end_matches('/').to_owned();
-        let (scheme, auth, path) = split_url(&issuer)
+        let u = split_url(&issuer)
             .ok_or_else(|| format!("mcp.public_url {issuer:?}: https://host[:port]"))?;
-        if !path.is_empty() {
+        if !u.url.path.is_empty() || u.url.query.is_some() {
             return Err(format!("mcp.public_url {issuer:?}: no path"));
         }
-        if scheme == "http" && !is_loopback_host(host_of(auth)) {
+        if !u.tls && !is_loopback_host(&u.host().text()) {
             return Err(format!(
                 "mcp.public_url {issuer:?}: https (plain http only on loopback)"
             ));
@@ -228,8 +208,8 @@ impl OAuth {
                 continue;
             }
             match split_url(r) {
-                Some(("https", ..)) => {}
-                Some(("http", a, _)) if is_loopback_host(host_of(a)) => {}
+                Some(u) if u.tls => {}
+                Some(u) if is_loopback_host(&u.host().text()) => {}
                 _ => {
                     return Err(format!(
                         "mcp.redirect_uris {r:?}: https URL or \"loopback\""
@@ -262,11 +242,11 @@ impl OAuth {
     /// `host` and `host:port` of the public URL, for the MCP endpoint's `Host` check.
     pub(crate) fn hosts(&self) -> Vec<String> {
         // checked at start; a broken one gives no host, so every Host check fails
-        let Some((_, auth, _)) = split_url(&self.issuer) else {
+        let Some(u) = split_url(&self.issuer) else {
             return Vec::new();
         };
-        let host = host_of(auth).to_owned();
-        let mut v = vec![auth.to_owned()];
+        let (auth, host) = (u.url.authority.clone(), u.host().text());
+        let mut v = vec![auth.clone()];
         if host != auth {
             v.push(host);
         }
@@ -282,7 +262,9 @@ impl OAuth {
             return true;
         }
         self.cfg.redirect_uris.iter().any(|r| r == LOOPBACK)
-            && matches!(split_url(uri), Some(("http", a, _)) if is_loopback_host(host_of(a)) && a.contains(':'))
+            && split_url(uri).is_some_and(|u| {
+                !u.tls && is_loopback_host(&u.host().text()) && u.url.port.is_some()
+            })
     }
 
     fn client(&self, client_id: &str) -> Option<(Vec<String>, String)> {
@@ -666,7 +648,7 @@ fn login_form(
         .map(|e| format!("<p class=\"e\">{}</p>", esc(e)))
         .unwrap_or_default();
     let redirect_host = split_url(&q.redirect_uri)
-        .map(|(_, a, _)| a.to_owned())
+        .map(|u| u.url.authority)
         .unwrap_or_default();
     page(
         if error.is_some() { StatusCode::UNAUTHORIZED } else { StatusCode::OK },
@@ -972,6 +954,94 @@ mod tests {
 
     fn o() -> OAuth {
         OAuth::new(McpConfig::new("https://broker.example"), b"k").unwrap()
+    }
+
+    /// The splitter before review S4, kept to compare.
+    /// `scheme://host[:port]` of a URL without query or fragment: `(scheme, authority, path)`.
+    fn old_split_url(u: &str) -> Option<(&str, &str, &str)> {
+        if u.len() > URI_MAX || u.contains(['#', ' ', '"', '<', '>', '\\']) {
+            return None;
+        }
+        let (scheme, rest) = u.split_once("://")?;
+        if !matches!(scheme, "http" | "https") {
+            return None;
+        }
+        let (auth, path) = match rest.find(['/', '?']) {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, ""),
+        };
+        if auth.is_empty() || auth.contains('@') {
+            return None;
+        }
+        Some((scheme, auth, path))
+    }
+
+    fn old_host_of(authority: &str) -> &str {
+        if authority.starts_with('[') {
+            return authority
+                .split_once(']')
+                .map(|(h, _)| &h[1..])
+                .unwrap_or(authority);
+        }
+        authority
+            .rsplit_once(':')
+            .map(|(h, _)| h)
+            .unwrap_or(authority)
+    }
+
+    /// Review S4: the URLs the OAuth server took read the same (scheme, authority, path
+    /// and query, host); what it refused stays refused.
+    #[test]
+    fn urls_split_as_before() {
+        for s in [
+            "https://broker.example:8445",
+            "https://claude.ai/api/mcp/auth_callback",
+            "http://127.0.0.1:33418/callback?x=1",
+            "http://localhost:9/cb",
+            "http://[::1]:7/cb",
+            "https://Broker.Example",
+        ] {
+            let (scheme, auth, path) = old_split_url(s).unwrap();
+            let u = split_url(s).unwrap();
+            let q = u
+                .url
+                .query
+                .as_ref()
+                .map(|q| format!("?{q}"))
+                .unwrap_or_default();
+            assert_eq!(
+                (
+                    if u.tls { "https" } else { "http" },
+                    u.url.authority.as_str(),
+                    format!("{}{q}", u.url.path)
+                ),
+                (scheme, auth, path.to_owned()),
+                "{s}"
+            );
+            assert_eq!(
+                u.host().text(),
+                old_host_of(auth).to_ascii_lowercase(),
+                "{s}"
+            );
+        }
+        for s in [
+            "ftp://h",
+            "https://u@h/cb",
+            "https://h/cb#x",
+            "https://h/a b",
+            "https://h/\"x\"",
+            "https://h\\cb",
+            "HTTPS://h",
+            "https://",
+        ] {
+            assert!(old_split_url(s).is_none(), "old took {s}");
+            assert!(split_url(s).is_none(), "{s}");
+        }
+        // refused now, taken before: a host that is no host, a bad port
+        for s in ["https://[x/cb", "https://h:99999/cb", "https://h:0"] {
+            assert!(old_split_url(s).is_some(), "{s}");
+            assert!(split_url(s).is_none(), "{s}");
+        }
     }
 
     /// Review T5: the consent button was a `String` compared with `"allow"`. Missing or

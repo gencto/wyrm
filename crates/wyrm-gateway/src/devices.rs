@@ -30,6 +30,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
+use wyrm_core::weburl::{HttpUrl, SchemeCase};
 use wyrm_core::Value;
 use zeroize::Zeroizing;
 
@@ -561,35 +562,16 @@ impl Fresh {
     }
 }
 
-/// An origin as `(scheme, host, port)`, host in lower case, IPv6 without brackets.
+/// An origin as `(scheme, host, port)`, host in lower case, IPv6 without brackets: an
+/// `http(s)://host[:port]` URL (scheme in any case) without path, query or fragment, read
+/// by [`wyrm_core::weburl`].
 pub fn parse_origin(s: &str) -> Option<(String, String, u16)> {
-    let (scheme, rest) = s.split_once("://")?;
-    let scheme = scheme.to_ascii_lowercase();
-    let default = match scheme.as_str() {
-        "https" => 443,
-        "http" => 80,
-        _ => return None,
-    };
-    if rest.is_empty() || rest.contains(['/', '?', '#', '@']) {
+    let u = HttpUrl::parse(s, SchemeCase::Any).ok()?;
+    if !u.url.path.is_empty() || u.url.query.is_some() || u.url.fragment.is_some() {
         return None;
     }
-    let (host, port) = if let Some(v6) = rest.strip_prefix('[') {
-        let (h, after) = v6.split_once(']')?;
-        let port = match after {
-            "" => default,
-            p => p.strip_prefix(':')?.parse().ok()?,
-        };
-        (h.to_owned(), port)
-    } else {
-        match rest.rsplit_once(':') {
-            Some((h, p)) => (h.to_owned(), p.parse().ok()?),
-            None => (rest.to_owned(), default),
-        }
-    };
-    if host.is_empty() {
-        return None;
-    }
-    Some((scheme, host.to_ascii_lowercase(), port))
+    let scheme = if u.tls { "https" } else { "http" };
+    Some((scheme.to_owned(), u.url.host.text(), u.port))
 }
 
 /// The names of a certificate (its DNS and IP subject alternative names, lower case), the
@@ -1155,6 +1137,82 @@ fn limit_key(device: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare.
+    /// An origin as `(scheme, host, port)`, host in lower case, IPv6 without brackets.
+    fn old_parse_origin(s: &str) -> Option<(String, String, u16)> {
+        let (scheme, rest) = s.split_once("://")?;
+        let scheme = scheme.to_ascii_lowercase();
+        let default = match scheme.as_str() {
+            "https" => 443,
+            "http" => 80,
+            _ => return None,
+        };
+        if rest.is_empty() || rest.contains(['/', '?', '#', '@']) {
+            return None;
+        }
+        let (host, port) = if let Some(v6) = rest.strip_prefix('[') {
+            let (h, after) = v6.split_once(']')?;
+            let port = match after {
+                "" => default,
+                p => p.strip_prefix(':')?.parse().ok()?,
+            };
+            (h.to_owned(), port)
+        } else {
+            match rest.rsplit_once(':') {
+                Some((h, p)) => (h.to_owned(), p.parse().ok()?),
+                None => (rest.to_owned(), default),
+            }
+        };
+        if host.is_empty() {
+            return None;
+        }
+        Some((scheme, host.to_ascii_lowercase(), port))
+    }
+
+    /// Review S4: every origin the old parser took parses the same; what it refused stays
+    /// refused.
+    #[test]
+    fn origins_parse_as_before() {
+        for s in [
+            "https://Broker.Example:8443",
+            "https://broker.example",
+            "http://[::1]:8080",
+            "HTTP://127.0.0.1:8445",
+            "http://localhost",
+            "https://10.1.2.3:443",
+            "https://[FE80::1]",
+        ] {
+            assert_eq!(parse_origin(s), old_parse_origin(s), "{s}");
+        }
+        for s in [
+            "broker.example",
+            "ftp://x",
+            "https://x/path",
+            "https://x/",
+            "https://x?q",
+            "https://x#f",
+            "https://user@x",
+            "https://:1",
+            "https://x:port",
+            "https://x:99999",
+            "https://",
+            "https://[::1",
+        ] {
+            assert_eq!(old_parse_origin(s), None, "old took {s}");
+            assert_eq!(parse_origin(s), None, "{s}");
+        }
+        // refused now, taken before: port 0, a sign, a host that is no host
+        for s in [
+            "https://x:0",
+            "https://x:+1",
+            "https://a b",
+            "https://[zz]",
+            "https://x:",
+        ] {
+            assert_eq!(parse_origin(s), None, "{s}");
+        }
+    }
 
     #[test]
     fn origins_parse() {
