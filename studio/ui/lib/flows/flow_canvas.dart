@@ -182,7 +182,24 @@ class FlowCanvas extends StatefulWidget {
   /// ⌘ glyphs in the card and the menu; null: this machine's.
   final bool? mac;
 
+  /// The smallest canvas: an empty or small flow still has room to grow.
   static const size = Size(3000, 2000);
+
+  /// Room past the last block to the right and below it, so it can be
+  /// panned clear of the legend and moved further out.
+  static const margin = 400.0;
+
+  /// The canvas for [blocks]: every block with [margin] past it, never
+  /// smaller than [size]. Panning, moving and dropping reach all of it.
+  static Size extentOf(Iterable<FlowBlockVm> blocks) {
+    var w = size.width;
+    var h = size.height;
+    for (final b in blocks) {
+      w = math.max(w, b.x + b.width + margin);
+      h = math.max(h, b.y + b.height + margin);
+    }
+    return Size(w, h);
+  }
 
   /// The grid blocks snap to.
   static const grid = 20.0;
@@ -411,15 +428,16 @@ class _FlowCanvasState extends State<FlowCanvas> {
   void _setView(double scale, Offset shift) {
     final s = scale.clamp(FlowCanvas.minScale, FlowCanvas.maxScale);
     final view = _viewBox?.size ?? Size.zero;
-    double bound(double v, double viewExtent, double extent) {
-      final low = math.min<double>(200, viewExtent - extent * s - 200);
+    final extent = FlowCanvas.extentOf(widget.blocks);
+    double bound(double v, double viewLength, double length) {
+      final low = math.min<double>(200, viewLength - length * s - 200);
       return v.clamp(low, 200.0);
     }
 
     _ctl.value = Matrix4.identity()
       ..translateByDouble(
-        bound(shift.dx, view.width, FlowCanvas.size.width),
-        bound(shift.dy, view.height, FlowCanvas.size.height),
+        bound(shift.dx, view.width, extent.width),
+        bound(shift.dy, view.height, extent.height),
         0,
         1,
       )
@@ -614,18 +632,19 @@ class _FlowCanvasState extends State<FlowCanvas> {
   }
 
   /// [delta] shortened so that every block of [moving] stays on the canvas.
-  static Offset _inside(List<FlowBlockVm> moving, Offset delta) {
+  Offset _inside(List<FlowBlockVm> moving, Offset delta) {
+    final extent = FlowCanvas.extentOf(widget.blocks);
     final box = moving
         .map((b) => b.rect)
         .reduce((a, b) => a.expandToInclude(b));
     return Offset(
       delta.dx.clamp(
         -box.left,
-        math.max(-box.left, FlowCanvas.size.width - box.right),
+        math.max(-box.left, extent.width - box.right),
       ),
       delta.dy.clamp(
         -box.top,
-        math.max(-box.top, FlowCanvas.size.height - box.bottom),
+        math.max(-box.top, extent.height - box.bottom),
       ),
     );
   }
@@ -1033,6 +1052,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final blocks = _blocks;
+    final extent = FlowCanvas.extentOf(blocks);
     final byId = {for (final b in blocks) b.id: b};
     final wire = switch (_press) {
       final _Wire w when w.dragging => w,
@@ -1092,6 +1112,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
               child: DragTarget<String>(
                 onAcceptWithDetails: (d) async {
                   final p = _local(d.offset) - FlowCanvas.dropGrab;
+                  final extent = FlowCanvas.extentOf(widget.blocks);
                   final choose = widget.dropChoice;
                   final entry = choose == null
                       ? d.data
@@ -1101,8 +1122,8 @@ class _FlowCanvasState extends State<FlowCanvas> {
                   }
                   widget.onDrop(
                     entry,
-                    FlowCanvas.snap(p.dx.clamp(0, FlowCanvas.size.width)),
-                    FlowCanvas.snap(p.dy.clamp(0, FlowCanvas.size.height)),
+                    FlowCanvas.snap(p.dx.clamp(0, extent.width)),
+                    FlowCanvas.snap(p.dy.clamp(0, extent.height)),
                   );
                 },
                 builder: (context, _, _) => Listener(
@@ -1140,8 +1161,8 @@ class _FlowCanvasState extends State<FlowCanvas> {
                     boundaryMargin: const EdgeInsets.all(200),
                     child: SizedBox(
                       key: _key,
-                      width: FlowCanvas.size.width,
-                      height: FlowCanvas.size.height,
+                      width: extent.width,
+                      height: extent.height,
                       child: Stack(
                         clipBehavior: .none,
                         children: [
