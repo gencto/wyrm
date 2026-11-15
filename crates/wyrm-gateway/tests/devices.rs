@@ -498,6 +498,12 @@ async fn a_device_registers_and_logs_in() {
         assert_eq!(get(row, "this"), &Value::Bool(true));
         assert_eq!(text(row, "state"), "active");
         assert_eq!(text(row, "alg"), key.alg());
+        // a device login is a person's: it gets a WebSocket (ADR 0049)
+        let mut ws = env.ws(&s).await;
+        let f = ws
+            .invoke(&format!("wy/{SITE}/downstream/plant"), "look")
+            .await;
+        assert_eq!(get(&f, "ok"), &Value::Bool(true), "{f:?}");
     }
     // an admin sees the user's devices, and the count in the user list
     let (st, list) = env

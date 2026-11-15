@@ -1035,6 +1035,61 @@ async fn tickets_are_capped_per_user() {
     env.stop().await;
 }
 
+/// A WebSocket is for a person's own login (ADR 0049): a session token made by OAuth (as
+/// only `/mcp` makes its claims) gets no ticket and no socket, even signed with the session
+/// key; a password session of the same user gets both.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_socket_is_only_for_a_persons_login() {
+    use wyrm_gateway::session::{new_jti, now_s, SessionKey};
+    let env = Env::start("ws-person", wyrm_gateway::SESSION_TTL).await;
+    let now = now_s();
+    let oauth = SessionKey::derive(b"test state key").mint(&wyrm_gateway::SessionClaims {
+        sub: "root".into(),
+        roles: vec!["admin".into()],
+        exp: now + 600,
+        iat: now,
+        jti: new_jti(),
+        gen: env.gw.user("root").unwrap().gen,
+        amr: wyrm_gateway::Amr::OAuth,
+        auth_at: now,
+        dev: None,
+    });
+    // the token is good: the session key verifies it and the user is as at login
+    assert!(env.gw.authenticate(&oauth).is_some());
+    // no ticket: 403 with the gateway's error shape, a refusal (≥ 0x20)
+    let (st, v) = env.http("POST", "/api/ws-ticket", Some(&oauth), None).await;
+    assert_eq!(st, 403, "{v:?}");
+    assert_eq!(err_status_body(&v), Some(Status::PermissionDenied));
+    assert_eq!(get(&v, "code"), &Value::from("person_required"));
+    assert!(
+        env.gw.ws_ticket(&oauth).is_none(),
+        "nor through the library"
+    );
+    // no socket with the token as a bearer
+    let mut req = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+        format!("ws://{}/api/ws", env.addr),
+    )
+    .unwrap();
+    req.headers_mut()
+        .insert("authorization", format!("Bearer {oauth}").parse().unwrap());
+    match tokio_tungstenite::connect_async(req).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(r)) => assert_eq!(r.status(), 403),
+        other => panic!("refused with 403, got {:?}", other.map(|_| ())),
+    }
+    // a password session of the same user: a ticket, a socket, and with a bearer too
+    let pw = env.session("root", ADMIN_PW).await;
+    let mut ws = env.ws(&pw).await;
+    assert!(is_ok(&ws.call("meta", ROOT, vec![]).await));
+    let mut req = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+        format!("ws://{}/api/ws", env.addr),
+    )
+    .unwrap();
+    req.headers_mut()
+        .insert("authorization", format!("Bearer {pw}").parse().unwrap());
+    assert!(tokio_tungstenite::connect_async(req).await.is_ok());
+    env.stop().await;
+}
+
 /// A flow deploy through the gateway carries the user's own per-target
 /// proofs (ADR 0008): an engineer deploys; a user with `config` on flows but
 /// no rights on the target device is refused.
