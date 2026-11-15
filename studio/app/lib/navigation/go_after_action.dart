@@ -4,12 +4,14 @@ import 'package:business/redux/app_state.dart';
 
 import 'go_action.dart';
 
-/// Runs [steps] (synchronous business actions: close the drawer, select a
-/// node, open its trend), then goes to [route]: one intent, one dispatch
-/// (studio-rules §9). `business` cannot navigate, so the step that follows
-/// lives here, beside [GoAction].
+/// Runs [steps] (business actions: close the drawer, select a node, open
+/// its trend), then goes to [route]: one intent, one dispatch (studio-rules
+/// §9). `business` cannot navigate, so the step that follows lives here,
+/// beside [GoAction].
 ///
-/// The steps are one change on screen: only the last one notifies. It
+/// The steps start in order and show their state at once (a selection
+/// shows before its reads); the route changes then, and this action ends
+/// when the steps' reads have answered. Only the last step notifies. It
 /// changes no state itself (`null`); the route change is the router's.
 class GoAfterAction extends ReduxAction<AppState> {
   GoAfterAction(this.route, this.steps);
@@ -18,11 +20,13 @@ class GoAfterAction extends ReduxAction<AppState> {
   final List<ReduxAction<AppState>> steps;
 
   @override
-  AppState? reduce() {
-    for (final (i, a) in steps.indexed) {
-      dispatchSync(a, notify: i == steps.length - 1);
-    }
+  Future<AppState?> reduce() async {
+    final running = [
+      for (final (i, a) in steps.indexed)
+        dispatchAndWait(a, notify: i == steps.length - 1),
+    ];
     dispatchSync(GoAction.navigate(route));
+    await Future.wait(running);
     return null;
   }
 }

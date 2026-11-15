@@ -1,11 +1,11 @@
 import 'package:async_redux/async_redux.dart';
-import 'package:models/action_answer.dart';
 import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_step.dart';
+import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/decode/action_answer.dart';
+import '../../../wyrm/decode/sys_verdict.dart';
 import '../../../wyrm/failures.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
@@ -46,7 +46,7 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
     dispatchSync(InstallingAction());
     final backups = 'wy/$broker/sys/backups';
     String? upload;
-    ActionAnswer answer;
+    SysVerdict answer;
     try {
       upload = await uploadParts(
         deps.wyrm,
@@ -67,16 +67,16 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
           )
           .toList();
       answer =
-          actionAnswerOf(rows).orWarn('install_backup on $broker') ??
-          const ActionAnswer(success: false);
+          sysVerdictOf(rows).orWarn('install_backup on $broker') ??
+          const SysVerdict(success: false);
     } on WyrmException catch (e) {
-      answer = ActionAnswer(
+      answer = SysVerdict(
         success: false,
         message: '${e.status.name}: ${e.message}',
       );
     } on StudioException catch (e) {
       // A refused part of the upload: the broker's own words.
-      answer = ActionAnswer(success: false, message: e.error.message);
+      answer = SysVerdict(success: false, message: e.error.message);
     }
     if (answer.success) {
       // the new link is in the tables when the result is shown

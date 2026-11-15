@@ -1,5 +1,4 @@
 import 'package:async_redux/async_redux.dart';
-import 'package:models/action_answer.dart';
 import 'package:models/catalog_item.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/install_field.dart';
@@ -8,10 +7,11 @@ import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/decode/action_answer.dart';
 import '../../../wyrm/decode/install_field.dart';
+import '../../../wyrm/decode/sys_verdict.dart';
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -52,7 +52,7 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
       return null;
     }
     dispatchSync(InstallingAction());
-    ActionAnswer answer;
+    SysVerdict answer;
     InstallField? refusedField;
     String? refusedSaid;
     try {
@@ -60,10 +60,10 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
           .invoke('wy/$broker/sys/links', call.action, Value.from(call.args))
           .toList();
       answer =
-          actionAnswerOf(rows).orWarn('${call.action} on $broker') ??
-          const ActionAnswer(success: false);
+          sysVerdictOf(rows).orWarn('${call.action} on $broker') ??
+          const SysVerdict(success: false);
     } on WyrmException catch (e) {
-      answer = ActionAnswer(
+      answer = SysVerdict(
         success: false,
         message: '${e.status.name}: ${e.message}',
       );

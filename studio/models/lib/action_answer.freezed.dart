@@ -15,7 +15,11 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ActionAnswer {
 
- bool get success; String? get message;
+/// The records' fields, in the order first seen (at most six).
+ IList<String> get columns;/// One cell per column, as text; empty when the answer is no table.
+ IList<IList<String>> get rows;/// How many rows the action answered.
+ int get count;/// Each row as indented JSON, split into lines.
+ IList<String> get lines;
 /// Create a copy of ActionAnswer
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +31,20 @@ $ActionAnswerCopyWith<ActionAnswer> get copyWith => _$ActionAnswerCopyWithImpl<A
 @override
 bool operator ==(Object other) {
   final _this = this as ActionAnswer;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ActionAnswer&&(identical(other.success, _this.success) || other.success == _this.success)&&(identical(other.message, _this.message) || other.message == _this.message));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ActionAnswer&&const DeepCollectionEquality().equals(other.columns, _this.columns)&&const DeepCollectionEquality().equals(other.rows, _this.rows)&&(identical(other.count, _this.count) || other.count == _this.count)&&const DeepCollectionEquality().equals(other.lines, _this.lines));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ActionAnswer;
-  return Object.hash(runtimeType,_this.success,_this.message);
+  return Object.hash(runtimeType,const DeepCollectionEquality().hash(_this.columns),const DeepCollectionEquality().hash(_this.rows),_this.count,const DeepCollectionEquality().hash(_this.lines));
 }
 
 @override
 String toString() {
   final _this = this as ActionAnswer;
-  return 'ActionAnswer(success: ${_this.success}, message: ${_this.message})';
+  return 'ActionAnswer(columns: ${_this.columns}, rows: ${_this.rows}, count: ${_this.count}, lines: ${_this.lines})';
 }
 
 
@@ -51,7 +55,7 @@ abstract mixin class $ActionAnswerCopyWith<$Res>  {
   factory $ActionAnswerCopyWith(ActionAnswer value, $Res Function(ActionAnswer) _then) = _$ActionAnswerCopyWithImpl;
 @useResult
 $Res call({
- bool success, String? message
+ IList<String> columns, IList<IList<String>> rows, int count, IList<String> lines
 });
 
 
@@ -68,11 +72,13 @@ class _$ActionAnswerCopyWithImpl<$Res>
 
 /// Create a copy of ActionAnswer
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? success = null,Object? message = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? columns = null,Object? rows = null,Object? count = null,Object? lines = null,}) {
   return _then(ActionAnswer(
-success: null == success ? _self.success : success // ignore: cast_nullable_to_non_nullable
-as bool,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String?,
+columns: null == columns ? _self.columns : columns // ignore: cast_nullable_to_non_nullable
+as IList<String>,rows: null == rows ? _self.rows : rows // ignore: cast_nullable_to_non_nullable
+as IList<IList<String>>,count: null == count ? _self.count : count // ignore: cast_nullable_to_non_nullable
+as int,lines: null == lines ? _self.lines : lines // ignore: cast_nullable_to_non_nullable
+as IList<String>,
   ));
 }
 
@@ -84,11 +90,17 @@ as String?,
 
 
 class _ActionAnswer implements ActionAnswer {
-  const _ActionAnswer({required this.success, this.message});
+  const _ActionAnswer({this.columns = const IListConst([]), this.rows = const IListConst([]), this.count = 0, this.lines = const IListConst([])});
   
 
-@override final  bool success;
-@override final  String? message;
+/// The records' fields, in the order first seen (at most six).
+@override@JsonKey() final  IList<String> columns;
+/// One cell per column, as text; empty when the answer is no table.
+@override@JsonKey() final  IList<IList<String>> rows;
+/// How many rows the action answered.
+@override@JsonKey() final  int count;
+/// Each row as indented JSON, split into lines.
+@override@JsonKey() final  IList<String> lines;
 
 /// Create a copy of ActionAnswer
 /// with the given fields replaced by the non-null parameter values.
@@ -100,18 +112,18 @@ _$ActionAnswerCopyWith<_ActionAnswer> get copyWith => __$ActionAnswerCopyWithImp
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ActionAnswer&&(identical(other.success, success) || other.success == success)&&(identical(other.message, message) || other.message == message));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ActionAnswer&&const DeepCollectionEquality().equals(other.columns, columns)&&const DeepCollectionEquality().equals(other.rows, rows)&&(identical(other.count, count) || other.count == count)&&const DeepCollectionEquality().equals(other.lines, lines));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,success,message);
+    return Object.hash(runtimeType,const DeepCollectionEquality().hash(columns),const DeepCollectionEquality().hash(rows),count,const DeepCollectionEquality().hash(lines));
 }
 
 @override
 String toString() {
-    return 'ActionAnswer(success: $success, message: $message)';
+    return 'ActionAnswer(columns: $columns, rows: $rows, count: $count, lines: $lines)';
 }
 
 
@@ -122,7 +134,7 @@ abstract mixin class _$ActionAnswerCopyWith<$Res> implements $ActionAnswerCopyWi
   factory _$ActionAnswerCopyWith(_ActionAnswer value, $Res Function(_ActionAnswer) _then) = __$ActionAnswerCopyWithImpl;
 @override @useResult
 $Res call({
- bool success, String? message
+ IList<String> columns, IList<IList<String>> rows, int count, IList<String> lines
 });
 
 
@@ -139,11 +151,13 @@ class __$ActionAnswerCopyWithImpl<$Res>
 
 /// Create a copy of ActionAnswer
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? success = null,Object? message = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? columns = null,Object? rows = null,Object? count = null,Object? lines = null,}) {
   return _then(_ActionAnswer(
-success: null == success ? _self.success : success // ignore: cast_nullable_to_non_nullable
-as bool,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
-as String?,
+columns: null == columns ? _self.columns : columns // ignore: cast_nullable_to_non_nullable
+as IList<String>,rows: null == rows ? _self.rows : rows // ignore: cast_nullable_to_non_nullable
+as IList<IList<String>>,count: null == count ? _self.count : count // ignore: cast_nullable_to_non_nullable
+as int,lines: null == lines ? _self.lines : lines // ignore: cast_nullable_to_non_nullable
+as IList<String>,
   ));
 }
 

@@ -17,8 +17,8 @@ mixin _$HistPoint {
 
  DateTime get time;/// A number when the value is one (a bool as 0/1), else null.
  num? get value;/// The value as text.
- String get text;/// `good`, `uncertain`, `bad`; null for a rollup row.
- String? get quality;
+ String get text;/// Null for a rollup row.
+ Quality? get quality;
 /// Create a copy of HistPoint
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -54,7 +54,7 @@ abstract mixin class $HistPointCopyWith<$Res>  {
   factory $HistPointCopyWith(HistPoint value, $Res Function(HistPoint) _then) = _$HistPointCopyWithImpl;
 @useResult
 $Res call({
- DateTime time, num? value, String text, String? quality
+ DateTime time, num? value, String text, Quality? quality
 });
 
 
@@ -77,7 +77,7 @@ time: null == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as DateTime,value: freezed == value ? _self.value : value // ignore: cast_nullable_to_non_nullable
 as num?,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String,quality: freezed == quality ? _self.quality : quality // ignore: cast_nullable_to_non_nullable
-as String?,
+as Quality?,
   ));
 }
 
@@ -97,8 +97,8 @@ class _HistPoint implements HistPoint {
 @override final  num? value;
 /// The value as text.
 @override@JsonKey() final  String text;
-/// `good`, `uncertain`, `bad`; null for a rollup row.
-@override final  String? quality;
+/// Null for a rollup row.
+@override final  Quality? quality;
 
 /// Create a copy of HistPoint
 /// with the given fields replaced by the non-null parameter values.
@@ -132,7 +132,7 @@ abstract mixin class _$HistPointCopyWith<$Res> implements $HistPointCopyWith<$Re
   factory _$HistPointCopyWith(_HistPoint value, $Res Function(_HistPoint) _then) = __$HistPointCopyWithImpl;
 @override @useResult
 $Res call({
- DateTime time, num? value, String text, String? quality
+ DateTime time, num? value, String text, Quality? quality
 });
 
 
@@ -155,7 +155,7 @@ time: null == time ? _self.time : time // ignore: cast_nullable_to_non_nullable
 as DateTime,value: freezed == value ? _self.value : value // ignore: cast_nullable_to_non_nullable
 as num?,text: null == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String,quality: freezed == quality ? _self.quality : quality // ignore: cast_nullable_to_non_nullable
-as String?,
+as Quality?,
   ));
 }
 

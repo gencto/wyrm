@@ -6,6 +6,7 @@ import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/hist_point.dart';
 import '../../../wyrm/history_steps.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -45,7 +46,7 @@ class LoadTrendWindowAction extends Action with Debounce, WaitingAction {
           window: step,
           limit: step == null ? rawLimit : 1000,
         );
-        return [for (final r in rows) histPoint(r)].lock;
+        return [for (final r in rows) histPointOf(r)].lock;
       } on WyrmException {
         return const IListConst([]);
       }

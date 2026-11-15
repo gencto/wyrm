@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/error_kind.dart';
@@ -8,14 +6,13 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
-import '../../nodes/actions/add_nodes_action.dart';
+import '../../nodes/actions/child_added_action.dart';
+import '../../nodes/actions/children_listed_action.dart';
 import '../../nodes/actions/remove_nodes_action.dart';
-import '../../nodes/actions/retrieve_enum_names_action.dart';
 import '../../nodes/actions/retry_read_action.dart';
 import '../../nodes/actions/set_children_action.dart';
 import '../../nodes/actions/set_list_failed_action.dart';
 import '../../problems/actions/add_problem_action.dart';
-import '../../problems/actions/resolve_stream_action.dart';
 import 'tree_watch.dart';
 
 /// Turns list updates into the `nodes` table.
@@ -25,32 +22,12 @@ class TreeWatchDispatcher implements TreeWatchServiceListener {
   final Store<AppState> _store;
 
   @override
-  void onChildren(String parent, List<NodeInfo> children) {
-    _store.dispatchSync(SetChildrenAction(parent, children.lock));
-    // A list answered: the streams of its site are open.
-    if (siteOf(parent) case final site?
-        when _store.state.problems.items.any((e) => e.stream == site)) {
-      _store.dispatchSync(ResolveStreamAction(site));
-    }
-    _enumNames(children);
-  }
+  void onChildren(String parent, List<NodeInfo> children) =>
+      _store.dispatch(ChildrenListedAction(parent, children.lock));
 
   @override
-  void onChild(String parent, NodeInfo child) {
-    _store.dispatchSync(AddNodesAction([child].lock));
-    _enumNames([child]);
-  }
-
-  /// A list carries no enum names: read them for the enum points listed.
-  void _enumNames(List<NodeInfo> children) {
-    final enums = [
-      for (final c in children)
-        if (c.type == 'enum' && c.choices.isEmpty) c.key,
-    ];
-    if (enums.isNotEmpty) {
-      unawaited(_store.dispatchAndWait(RetrieveEnumNamesAction(enums)));
-    }
-  }
+  void onChild(String parent, NodeInfo child) =>
+      _store.dispatch(ChildAddedAction(parent, child));
 
   @override
   void onRemoved(String parent, String name) =>

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/pages/gallery_page.dart';
 
@@ -17,6 +18,9 @@ void main() {
     test('goldens', () {}, skip: 'goldens are compared on macOS');
     return;
   }
+
+  // The tree rows say their chip and count words (studio-rules §5).
+  setUpAll(() => S.load(const Locale('en')));
 
   Future<void> shoot(
     WidgetTester tester,

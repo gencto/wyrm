@@ -1,12 +1,12 @@
-import 'package:business/wyrm/decode/action_answer.dart';
 import 'package:business/wyrm/decode/broker_text.dart';
 import 'package:business/wyrm/decode/catalog_rows.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/install_field.dart';
+import 'package:business/wyrm/decode/sys_verdict.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:models/action_answer.dart';
 import 'package:models/install_field.dart';
+import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 /// The decoders behind Add a link (studio-rules §8): the answer of an
@@ -14,58 +14,58 @@ import 'package:wyrm_client/wyrm_client.dart';
 /// field a refusal names. Each shape decodes once, typed; a value of
 /// another shape names its field.
 void main() {
-  group('actionAnswerOf', () {
+  group('sysVerdictOf', () {
     test('the last row counts: success and message, kept verbatim', () {
       expect(
-        actionAnswerOf([
+        sysVerdictOf([
           Value.from({'success': false, 'message': 'first'}),
           Value.from({'success': true, 'message': 'link modbus installed'}),
         ]),
         const Valid(
-          ActionAnswer(success: true, message: 'link modbus installed'),
+          SysVerdict(success: true, message: 'link modbus installed'),
         ),
       );
     });
 
     test('no row, or a null one, is no success', () {
       expect(
-        actionAnswerOf(const []),
-        const Valid(ActionAnswer(success: false)),
+        sysVerdictOf(const []),
+        const Valid(SysVerdict(success: false)),
       );
       expect(
-        actionAnswerOf(const [VNull()]),
-        const Valid(ActionAnswer(success: false)),
+        sysVerdictOf(const [VNull()]),
+        const Valid(SysVerdict(success: false)),
       );
     });
 
     test('a map without success: the action ran', () {
       expect(
-        actionAnswerOf([
+        sysVerdictOf([
           Value.from({'message': 'done'}),
         ]),
-        const Valid(ActionAnswer(success: true, message: 'done')),
+        const Valid(SysVerdict(success: true, message: 'done')),
       );
     });
 
     test('an answer that is no map: the action ran, said nothing more', () {
       expect(
-        actionAnswerOf(const [VStr('ok')]),
-        const Valid(ActionAnswer(success: true)),
+        sysVerdictOf(const [VStr('ok')]),
+        const Valid(SysVerdict(success: true)),
       );
     });
 
     test('a success or a message of another type names its field', () {
       expect(
-        actionAnswerOf([
+        sysVerdictOf([
           Value.from({'success': 'yes'}),
         ]),
-        const Invalid<ActionAnswer>('action answer', 'success', 'not a bool'),
+        const Invalid<SysVerdict>('sys verdict', 'success', 'not a bool'),
       );
       expect(
-        actionAnswerOf([
+        sysVerdictOf([
           Value.from({'success': true, 'message': 3}),
         ]),
-        const Invalid<ActionAnswer>('action answer', 'message', 'not a text'),
+        const Invalid<SysVerdict>('sys verdict', 'message', 'not a text'),
       );
     });
   });

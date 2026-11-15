@@ -1,37 +1,49 @@
+import 'dart:convert';
+
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/action_answer.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'decoded.dart';
+import '../../redux/links/actions/retrieve_link_history_action.dart'
+    show prettyJson;
+import '../mappers/values.dart';
 
-const _shape = 'action answer';
-
-/// The answer of a `sys` action that says whether it did its work
-/// (`install`, `install_repo`, `install_zip`, `install_url`, `install_git`,
-/// `install_wasm`, `install_backup`): its last row counts.
+/// The rows a node's action answered (`invoke`, one per result) as the
+/// Explorer shows them: a table when they are records (a row that is a map,
+/// or an array of maps), else each row as indented JSON.
 ///
-/// No row, or a null one, is no success. A map is `{success, message}`;
-/// without `success` the action ran. Any other answer (a text, a number)
-/// is the action's own result: it ran, and says nothing more.
-Decoded<ActionAnswer> actionAnswerOf(List<Value> rows) =>
-    switch (rows.isEmpty ? const VNull() : rows.last) {
-      VNull() => const Valid(ActionAnswer(success: false)),
-      VMap(:final v) => _fromMap(v),
-      _ => const Valid(ActionAnswer(success: true)),
-    };
-
-Decoded<ActionAnswer> _fromMap(Map<String, Value> m) {
-  final bool success;
-  switch (m['success']) {
-    case null || VNull():
-      success = true;
-    case VBool(:final v):
-      success = v;
-    default:
-      return const Invalid(_shape, 'success', 'not a bool');
-  }
-  return switch (m['message']) {
-    null || VNull() => Valid(ActionAnswer(success: success)),
-    VStr(:final v) => Valid(ActionAnswer(success: success, message: v)),
-    _ => const Invalid(_shape, 'message', 'not a text'),
-  };
+/// Any answer is one: the rows that are no records are its lines.
+ActionAnswer actionAnswerOf(List<Value> rows) {
+  final records = <Map<String, Value>>[
+    for (final r in rows)
+      ...switch (r) {
+        VArray(:final v) => [
+          for (final e in v)
+            if (e case VMap(:final v)) v,
+        ],
+        VMap(:final v) => [v],
+        _ => const <Map<String, Value>>[],
+      },
+  ];
+  final lines = [for (final r in rows) prettyJson(toDart(r))];
+  final columns = {for (final r in records) ...r.keys}.take(6).toList();
+  final table = records.length == lines.length || records.length > 1;
+  return ActionAnswer(
+    columns: columns.lock,
+    rows: table
+        ? [
+            for (final r in records.take(200))
+              [for (final c in columns) _cell(r[c])].lock,
+          ].lock
+        : const IListConst([]),
+    count: records.isEmpty ? lines.length : records.length,
+    lines: [for (final l in lines) ...l.split('\n')].lock,
+  );
 }
+
+/// A field as its JSON line reads it back: bytes in base64.
+String _cell(Value? v) => switch (v) {
+  null || VNull() => '',
+  VBytes(:final v) => base64Encode(v),
+  _ => '${toDart(v)}',
+};

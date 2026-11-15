@@ -39,6 +39,9 @@ import 'wyrm/failures.dart';
 import 'wyrm/session.dart';
 import 'wyrm/step_up.dart';
 
+/// The time now, as [AppDependencies.clock] gives it.
+typedef Clock = DateTime Function();
+
 /// Container for the app's injected services, one instance per [Store].
 ///
 /// Wired via the store's `dependencies` factory, which receives the store — so
@@ -57,6 +60,7 @@ class AppDependencies {
     GatewayInfoReader? gatewayInfo,
     this._browser,
     this.browseDuration = browseFor,
+    this.clock = DateTime.now,
   }) : login =
            login ??
            GatewayLogin(trust: () => GatewayTrust(_store.state.discovery.pins)),
@@ -76,6 +80,10 @@ class AppDependencies {
   /// The words of an error: its title and, for a fault in Studio, its
   /// sentence. The app's, in the user's language; plain English in tests.
   final ErrorWording wording;
+
+  /// The time now: when a history is read and from when (a test sets its
+  /// own, so a range drawn from it is the same on every machine).
+  final Clock clock;
 
   final Store<AppState> _store;
 

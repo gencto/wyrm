@@ -1545,7 +1545,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       final acts = [
         for (final a
             in nodes.detail[key]?.actions ?? const IListConst<ActionInfo>([]))
-          if (a.level != 'config') a,
+          if (!a.staged) a,
       ];
       final hits = q.isEmpty || name.toLowerCase().contains(q);
       // A node may hold values, which only its list tells; so it opens
@@ -1565,12 +1565,12 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             key: key,
             root: root,
             profile: info?.profile,
-            type: info?.type,
+            value: info?.type != null,
           ),
           hasChildren: opens,
           expanded: open,
           marked: used.contains(key),
-          tag: typed ? AppIcon.typeTag(info!.type) : null,
+          tag: typed ? AppIcon.typeTag(info!.type?.wire) : null,
           drag: typed ? 'key:$key' : null,
           value: !typed
               ? null
