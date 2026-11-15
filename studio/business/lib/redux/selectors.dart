@@ -70,6 +70,7 @@ import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'device/actions/load_device_action.dart';
+import 'device/actions/set_device_unlock_action.dart';
 import 'discovery/actions/trust_gateway_action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
@@ -1552,6 +1553,33 @@ extension type SelectDevice(AppState _state) {
 
   /// Returns keyRole
   String? get keyRole => _state.device.keyRole;
+
+  /// This computer unlocks with its key: a device record and a key, not
+  /// stale.
+  bool get unlockOn =>
+      _state.device.deviceId != null &&
+      _state.device.keyId != null &&
+      !_state.device.stale;
+
+  /// The unlock switch can be used: a biometric is here and the gateway's
+  /// policy (when known) has devices on.
+  bool get unlockAllowed =>
+      _state.device.available && (_state.device.policy?.enabled ?? true);
+
+  /// The gateway asks for a fresh confirmation before a config change
+  /// (`gateway.devices.step_up: config`).
+  bool get confirmsConfig => _state.device.policy?.stepUp == 'config';
+
+  /// The longest idle lock the gateway allows, in minutes (30 when not
+  /// told).
+  int get lockMaxMin => _state.device.policy?.idleLockMaxMin ?? 30;
+
+  /// The gateway refused the password asked before a new key.
+  bool get passwordRefused => _state.device.securityError == 'bad_password';
+
+  /// The unlock switch is being turned on or off.
+  bool get isSettingUnlock =>
+      _state.wait.isWaitingForType<SetDeviceUnlockAction>();
 }
 
 extension type SelectDiscovery(AppState _state) {

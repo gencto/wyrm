@@ -38,11 +38,11 @@ import 'package:ui/shell/workspace_rail.dart';
 import '../common/changes.dart';
 import '../common/window.dart';
 import '../dialogs/error_dialogs.dart';
+import '../dialogs/security_dialogs.dart';
 import '../errors.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import 'lock_overlay_connector.dart';
-import 'security_dialog_connector.dart';
 
 /// The eight workspaces, in rail order (docs/studio.md §7.1).
 const List<PageRouteInfo> _tabs = [
@@ -135,8 +135,7 @@ class StudioPageConnector extends StatelessWidget {
                   onSearch: () => _search(context, vm, tabs),
                   onReview: vm.onReview,
                   onLogOut: vm.onLogOut,
-                  onSecurity: () =>
-                      unawaited(SecurityDialogConnector.show(context)),
+                  onSecurity: () => unawaited(showSecurityDialog(context)),
                   onProblems: vm.onProblems,
                   onLanguage: vm.onLanguage,
                   onTheme: vm.onTheme,

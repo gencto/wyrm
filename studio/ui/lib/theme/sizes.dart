@@ -2,6 +2,9 @@
 /// (see `common.dart`). A size used once belongs to its widget as a named
 /// constant; a size two widgets share is here.
 abstract final class AppSizes {
+  /// A dialog's width (Account › Security, the backup and update sheets).
+  static const double dialog = 680;
+
   /// A menu's width (the account menu, a node's menu).
   static const double menu = 300;
 

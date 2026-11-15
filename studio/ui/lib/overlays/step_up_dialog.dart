@@ -107,7 +107,7 @@ class StepUpDialog extends StatefulWidget {
   final VoidCallback onCancel;
 
   /// The board's dimmer under the dialog.
-  static const barrier = Color.fromRGBO(8, 10, 11, 0.6);
+  static const Color barrier = Shades.barrier;
 
   @override
   State<StepUpDialog> createState() => _StepUpDialogState();
