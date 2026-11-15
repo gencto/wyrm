@@ -1,11 +1,12 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/field_id.dart';
 
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_fields.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
-/// Pins field [field] (its id, `p:input_min`) of block [block] to the
+/// Pins field [field] (`FieldId.param('input_min')`) of block [block] to the
 /// block, or takes it off ([pinned] false): the row leaves the canvas and
 /// stays in the inspector. A bound field cannot be taken off. Kept in the
 /// definition's `layout` (flow-editor.md §12).
@@ -13,7 +14,7 @@ class SetFieldPinAction extends Action {
   SetFieldPinAction(this.block, this.field, {required this.pinned});
 
   final String block;
-  final String field;
+  final FieldId field;
   final bool pinned;
 
   @override

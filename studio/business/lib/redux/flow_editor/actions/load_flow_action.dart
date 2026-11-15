@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
+import 'package:models/library_off.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/decode/decoded.dart';
@@ -109,7 +110,9 @@ class LoadFlowAction extends Action {
         // The library is read after the flow (`RetrieveBlockLibraryAction`);
         // until it answers, custom blocks are off.
         library: held.library,
-        libraryOff: held.flowId == null ? libraryUnread : held.libraryOff,
+        libraryOff: held.flowId == null
+            ? const LibraryOff.unread()
+            : held.libraryOff,
       ),
     );
   }

@@ -1,9 +1,13 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/flow_problem.dart';
+import 'package:models/flow_problem_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/decoded.dart';
 import '../../../wyrm/decode/flow_check.dart';
 import '../../../wyrm/decode/flow_def.dart';
+import '../../../wyrm/mappers/flow_problems.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -22,9 +26,7 @@ class ValidateFlowAction extends Action with Debounce {
       return null;
     }
     if (d.id.isEmpty) {
-      return state.copyWith.flowEditor(
-        problems: const IListConst(['name the flow']),
-      );
+      return state.copyWith.flowEditor(problems: unnamedFlowProblems);
     }
     try {
       final rows = await deps.wyrm
@@ -34,14 +36,24 @@ class ValidateFlowAction extends Action with Debounce {
             defArgs(defOf(d, flowEditor.version + 1)),
           )
           .toList();
-      final check = flowCheckOf(rows).orWarn('validate ${d.id}');
+      final ids = d.blocks.keys;
+      // An answer Studio cannot read goes to the log with its field.
+      final check = flowCheckOf(rows)..orWarn('validate ${d.id}');
       return state.copyWith.flowEditor(
-        problems: check != null && check.ok
-            ? const IListConst([])
-            : [check?.error ?? 'invalid'].lock,
+        problems: switch (check) {
+          Valid(value: FlowCheck(ok: true)) => const IListConst([]),
+          Valid(value: FlowCheck(:final error)) => [
+            brokerProblem(error, ids),
+          ].lock,
+          Invalid() => const IListConst([
+            FlowProblem(kind: FlowProblemKind.unread),
+          ]),
+        },
       );
     } on WyrmException catch (e) {
-      return state.copyWith.flowEditor(problems: [e.message].lock);
+      return state.copyWith.flowEditor(
+        problems: [brokerProblem(e.message, d.blocks.keys)].lock,
+      );
     }
   }
 }

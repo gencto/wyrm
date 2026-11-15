@@ -1,5 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
+import 'package:models/undo_tag.dart';
+
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -11,7 +13,7 @@ class MoveBlocksAction extends Action {
   MoveBlocksAction(this.to, {this.tag});
 
   final Map<String, (double, double)> to;
-  final String? tag;
+  final UndoTag? tag;
 
   @override
   AppState? reduce() {

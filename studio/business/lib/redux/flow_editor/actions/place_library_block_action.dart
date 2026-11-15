@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/error_kind.dart';
@@ -12,12 +10,13 @@ import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'add_block_action.dart';
+import 'validate_flow_action.dart';
 
 /// A block of the site's library dropped on the canvas at ([x], [y]): the
 /// flow COPIES it (`dataflows` ▸ `get_block {name}`: its definition and the
 /// library blocks it uses go into the definition's `blocks`, ADR 0040 §3)
-/// and gets one instance of it. A block of that name the flow already has
+/// and gets one instance of it, selected, in one step of the history. A
+/// block of that name the flow already has
 /// is used as the flow has it; `Update from library` replaces it.
 class PlaceLibraryBlockAction extends Action {
   PlaceLibraryBlockAction(this.name, this.x, this.y);
@@ -49,30 +48,34 @@ class PlaceLibraryBlockAction extends Action {
     if (d == null) {
       return null;
     }
-    final next = withLibraryBlock(
+    final copied = withLibraryBlock(
       d,
       name,
       answer.def,
       version: answer.version,
       requires: answer.requires,
     );
+    if (!blockDefsOf(copied).containsKey(name)) {
+      return null;
+    }
+    // The copy and its instance are one state and one step of the
+    // history: the screen never draws the copy without its instance.
+    final types = typesWithBlocks(flowEditor.types, copied);
+    final added = withNewBlock(types, copied, CustomType(name), x, y);
+    _validate();
     return state.copyWith.flowEditor(
-      draft: next,
+      draft: added.draft,
+      selectedBlock: added.id,
+      selection: {added.id}.toISet(),
       dirty: true,
       undo: undoPush(flowEditor.undo, d),
       redo: const IListConst([]),
-      undoTag: 'place:$name',
+      undoTag: null,
     );
   }
 
-  @override
-  void after() {
-    super.after();
-    // The instance, in the same step of the history as the copy.
-    if (blockDefsOf(flowEditor.draft).containsKey(name)) {
-      dispatchSync(
-        AddBlockAction(CustomType(name), x, y, tag: 'place:$name'),
-      );
-    }
-  }
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:models/live_value.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -23,7 +21,7 @@ class FlowWatchDispatcher implements FlowWatchServiceListener {
 
   @override
   void onRefused(Status? status) =>
-      _store.dispatchSync(SetWatchRefusedAction(status?.wireName));
+      _store.dispatchSync(SetWatchRefusedAction(status));
 
   /// A draft that differs from the deployed version is kept; else the new
   /// version is read so the blocks match their live values.
@@ -32,7 +30,10 @@ class FlowWatchDispatcher implements FlowWatchServiceListener {
     final ed = _store.state.flowEditor;
     final id = ed.flowId;
     if (id != null && id.isNotEmpty && !ed.dirty) {
-      unawaited(_store.dispatchAndWait(LoadFlowAction(id)));
+      _load(id);
     }
   }
+
+  /// Reads flow [id] again; the stream listener does not wait for it.
+  void _load(String id) => _store.dispatch(LoadFlowAction(id));
 }

@@ -13,8 +13,10 @@ import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
+import 'package:models/flow_problem.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/grant.dart';
@@ -24,6 +26,7 @@ import 'package:models/hist_window.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
 import 'package:models/key_kind.dart';
+import 'package:models/library_off.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_revision.dart';
@@ -39,6 +42,7 @@ import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/package_check.dart';
 import 'package:models/package_info.dart';
+import 'package:models/palette_tab.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
@@ -66,13 +70,14 @@ import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
+import 'package:models/undo_tag.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart'
-    show DevicePolicy, GatewayDevice, StepUp;
+    show DevicePolicy, GatewayDevice, Status, StepUp;
 
 import '../wyrm/approval.dart';
 import '../wyrm/context_keys.dart';
@@ -1463,7 +1468,7 @@ extension type SelectFlowEditor(AppState _state) {
   bool get dirty => _state.flowEditor.dirty;
 
   /// Returns problems
-  IList<String> get problems => _state.flowEditor.problems;
+  IList<FlowProblem> get problems => _state.flowEditor.problems;
 
   /// Returns selectedBlock
   String? get selectedBlock => _state.flowEditor.selectedBlock;
@@ -1484,7 +1489,7 @@ extension type SelectFlowEditor(AppState _state) {
   String? get message => _state.flowEditor.message;
 
   /// Returns palette
-  String get palette => _state.flowEditor.palette;
+  PaletteTab get palette => _state.flowEditor.palette;
 
   /// Returns ports
   IMap<String, LiveValue> get ports => _state.flowEditor.ports;
@@ -1493,7 +1498,7 @@ extension type SelectFlowEditor(AppState _state) {
   FlowDraft? get deployed => _state.flowEditor.deployed;
 
   /// Returns watchRefused
-  String? get watchRefused => _state.flowEditor.watchRefused;
+  Status? get watchRefused => _state.flowEditor.watchRefused;
 
   /// Returns previewPorts
   IMap<String, LiveValue> get previewPorts => _state.flowEditor.previewPorts;
@@ -1502,13 +1507,13 @@ extension type SelectFlowEditor(AppState _state) {
   IMap<String, LiveValue> get previewSinks => _state.flowEditor.previewSinks;
 
   /// Returns previewError
-  String? get previewError => _state.flowEditor.previewError;
+  FlowProblem? get previewError => _state.flowEditor.previewError;
 
   /// Returns previewOff
-  String? get previewOff => _state.flowEditor.previewOff;
+  Status? get previewOff => _state.flowEditor.previewOff;
 
   /// Returns viewedField
-  String? get viewedField => _state.flowEditor.viewedField;
+  FieldAt? get viewedField => _state.flowEditor.viewedField;
 
   /// Returns selection
   ISet<String> get selection => _state.flowEditor.selection;
@@ -1520,7 +1525,7 @@ extension type SelectFlowEditor(AppState _state) {
   IList<FlowDraft> get redo => _state.flowEditor.redo;
 
   /// Returns undoTag
-  String? get undoTag => _state.flowEditor.undoTag;
+  UndoTag? get undoTag => _state.flowEditor.undoTag;
 
   /// Returns clipboard
   String? get clipboard => _state.flowEditor.clipboard;
@@ -1538,7 +1543,7 @@ extension type SelectFlowEditor(AppState _state) {
   IList<BlockInfo> get library => _state.flowEditor.library;
 
   /// Returns libraryOff
-  String? get libraryOff => _state.flowEditor.libraryOff;
+  LibraryOff? get libraryOff => _state.flowEditor.libraryOff;
 
   /// Returns root
   FlowDraft? get root =>

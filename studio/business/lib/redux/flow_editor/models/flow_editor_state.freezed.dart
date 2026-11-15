@@ -15,7 +15,12 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$FlowEditorState {
 
- String? get flowId; FlowDraft? get draft; bool get dirty; IList<String> get problems; String? get selectedBlock; IList<NodeType> get types; int get version; String? get state; String? get message; String get palette; IMap<String, LiveValue> get ports; FlowDraft? get deployed; String? get watchRefused; IMap<String, LiveValue> get previewPorts; IMap<String, LiveValue> get previewSinks; String? get previewError; String? get previewOff; String? get viewedField; ISet<String> get selection; IList<FlowDraft> get undo; IList<FlowDraft> get redo; String? get undoTag; String? get clipboard; String get treeQuery; String? get scopePrompt; IList<FlowFrame> get frames; IList<BlockInfo> get library; String? get libraryOff;
+ String? get flowId; FlowDraft? get draft; bool get dirty; IList<FlowProblem> get problems; String? get selectedBlock; IList<NodeType> get types; int get version; String? get state; String? get message; PaletteTab get palette; IMap<String, LiveValue> get ports; FlowDraft? get deployed;/// Why the broker refused the deployed flow's watch for good.
+ Status? get watchRefused; IMap<String, LiveValue> get previewPorts; IMap<String, LiveValue> get previewSinks;/// The broker's compiler refused the draft's preview.
+ FlowProblem? get previewError;/// Why the broker has no preview for this session.
+ Status? get previewOff;/// The field the value viewer shows.
+ FieldAt? get viewedField; ISet<String> get selection; IList<FlowDraft> get undo; IList<FlowDraft> get redo; UndoTag? get undoTag; String? get clipboard; String get treeQuery; String? get scopePrompt; IList<FlowFrame> get frames; IList<BlockInfo> get library;/// Why custom blocks are off; null once the library answered.
+ LibraryOff? get libraryOff;
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,11 +56,11 @@ abstract mixin class $FlowEditorStateCopyWith<$Res>  {
   factory $FlowEditorStateCopyWith(FlowEditorState value, $Res Function(FlowEditorState) _then) = _$FlowEditorStateCopyWithImpl;
 @useResult
 $Res call({
- String? flowId, FlowDraft? draft, bool dirty, IList<String> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, String palette, IMap<String, LiveValue> ports, FlowDraft? deployed, String? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, String? previewError, String? previewOff, String? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, String? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, String? libraryOff
+ String? flowId, FlowDraft? draft, bool dirty, IList<FlowProblem> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, PaletteTab palette, IMap<String, LiveValue> ports, FlowDraft? deployed, Status? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, FlowProblem? previewError, Status? previewOff, FieldAt? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, UndoTag? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, LibraryOff? libraryOff
 });
 
 
-$FlowDraftCopyWith<$Res>? get draft;$FlowDraftCopyWith<$Res>? get deployed;
+$FlowDraftCopyWith<$Res>? get draft;$FlowDraftCopyWith<$Res>? get deployed;$FlowProblemCopyWith<$Res>? get previewError;$UndoTagCopyWith<$Res>? get undoTag;$LibraryOffCopyWith<$Res>? get libraryOff;
 
 }
 /// @nodoc
@@ -74,31 +79,31 @@ flowId: freezed == flowId ? _self.flowId : flowId // ignore: cast_nullable_to_no
 as String?,draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as FlowDraft?,dirty: null == dirty ? _self.dirty : dirty // ignore: cast_nullable_to_non_nullable
 as bool,problems: null == problems ? _self.problems : problems // ignore: cast_nullable_to_non_nullable
-as IList<String>,selectedBlock: freezed == selectedBlock ? _self.selectedBlock : selectedBlock // ignore: cast_nullable_to_non_nullable
+as IList<FlowProblem>,selectedBlock: freezed == selectedBlock ? _self.selectedBlock : selectedBlock // ignore: cast_nullable_to_non_nullable
 as String?,types: null == types ? _self.types : types // ignore: cast_nullable_to_non_nullable
 as IList<NodeType>,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as int,state: freezed == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as String?,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String?,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
-as String,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
+as PaletteTab,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,deployed: freezed == deployed ? _self.deployed : deployed // ignore: cast_nullable_to_non_nullable
 as FlowDraft?,watchRefused: freezed == watchRefused ? _self.watchRefused : watchRefused // ignore: cast_nullable_to_non_nullable
-as String?,previewPorts: null == previewPorts ? _self.previewPorts : previewPorts // ignore: cast_nullable_to_non_nullable
+as Status?,previewPorts: null == previewPorts ? _self.previewPorts : previewPorts // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,previewSinks: null == previewSinks ? _self.previewSinks : previewSinks // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,previewError: freezed == previewError ? _self.previewError : previewError // ignore: cast_nullable_to_non_nullable
-as String?,previewOff: freezed == previewOff ? _self.previewOff : previewOff // ignore: cast_nullable_to_non_nullable
-as String?,viewedField: freezed == viewedField ? _self.viewedField : viewedField // ignore: cast_nullable_to_non_nullable
-as String?,selection: null == selection ? _self.selection : selection // ignore: cast_nullable_to_non_nullable
+as FlowProblem?,previewOff: freezed == previewOff ? _self.previewOff : previewOff // ignore: cast_nullable_to_non_nullable
+as Status?,viewedField: freezed == viewedField ? _self.viewedField : viewedField // ignore: cast_nullable_to_non_nullable
+as FieldAt?,selection: null == selection ? _self.selection : selection // ignore: cast_nullable_to_non_nullable
 as ISet<String>,undo: null == undo ? _self.undo : undo // ignore: cast_nullable_to_non_nullable
 as IList<FlowDraft>,redo: null == redo ? _self.redo : redo // ignore: cast_nullable_to_non_nullable
 as IList<FlowDraft>,undoTag: freezed == undoTag ? _self.undoTag : undoTag // ignore: cast_nullable_to_non_nullable
-as String?,clipboard: freezed == clipboard ? _self.clipboard : clipboard // ignore: cast_nullable_to_non_nullable
+as UndoTag?,clipboard: freezed == clipboard ? _self.clipboard : clipboard // ignore: cast_nullable_to_non_nullable
 as String?,treeQuery: null == treeQuery ? _self.treeQuery : treeQuery // ignore: cast_nullable_to_non_nullable
 as String,scopePrompt: freezed == scopePrompt ? _self.scopePrompt : scopePrompt // ignore: cast_nullable_to_non_nullable
 as String?,frames: null == frames ? _self.frames : frames // ignore: cast_nullable_to_non_nullable
 as IList<FlowFrame>,library: null == library ? _self.library : library // ignore: cast_nullable_to_non_nullable
 as IList<BlockInfo>,libraryOff: freezed == libraryOff ? _self.libraryOff : libraryOff // ignore: cast_nullable_to_non_nullable
-as String?,
+as LibraryOff?,
   ));
 }
 /// Create a copy of FlowEditorState
@@ -125,6 +130,42 @@ $FlowDraftCopyWith<$Res>? get deployed {
   return $FlowDraftCopyWith<$Res>(_self.deployed!, (value) {
     return _then(_self.copyWith(deployed: value));
   });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$FlowProblemCopyWith<$Res>? get previewError {
+    if (_self.previewError == null) {
+    return null;
+  }
+
+  return $FlowProblemCopyWith<$Res>(_self.previewError!, (value) {
+    return _then(_self.copyWith(previewError: value));
+  });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$UndoTagCopyWith<$Res>? get undoTag {
+    if (_self.undoTag == null) {
+    return null;
+  }
+
+  return $UndoTagCopyWith<$Res>(_self.undoTag!, (value) {
+    return _then(_self.copyWith(undoTag: value));
+  });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$LibraryOffCopyWith<$Res>? get libraryOff {
+    if (_self.libraryOff == null) {
+    return null;
+  }
+
+  return $LibraryOffCopyWith<$Res>(_self.libraryOff!, (value) {
+    return _then(_self.copyWith(libraryOff: value));
+  });
 }
 }
 
@@ -134,37 +175,42 @@ $FlowDraftCopyWith<$Res>? get deployed {
 
 
 class _FlowEditorState implements FlowEditorState {
-  const _FlowEditorState({this.flowId, this.draft, this.dirty = false, this.problems = const IListConst([]), this.selectedBlock, this.types = const IListConst([]), this.version = 0, this.state, this.message, this.palette = 'blocks', this.ports = const IMapConst({}), this.deployed, this.watchRefused, this.previewPorts = const IMapConst({}), this.previewSinks = const IMapConst({}), this.previewError, this.previewOff, this.viewedField, this.selection = const ISetConst({}), this.undo = const IListConst([]), this.redo = const IListConst([]), this.undoTag, this.clipboard, this.treeQuery = '', this.scopePrompt, this.frames = const IListConst([]), this.library = const IListConst([]), this.libraryOff});
+  const _FlowEditorState({this.flowId, this.draft, this.dirty = false, this.problems = const IListConst([]), this.selectedBlock, this.types = const IListConst([]), this.version = 0, this.state, this.message, this.palette = PaletteTab.blocks, this.ports = const IMapConst({}), this.deployed, this.watchRefused, this.previewPorts = const IMapConst({}), this.previewSinks = const IMapConst({}), this.previewError, this.previewOff, this.viewedField, this.selection = const ISetConst({}), this.undo = const IListConst([]), this.redo = const IListConst([]), this.undoTag, this.clipboard, this.treeQuery = '', this.scopePrompt, this.frames = const IListConst([]), this.library = const IListConst([]), this.libraryOff});
   
 
 @override final  String? flowId;
 @override final  FlowDraft? draft;
 @override@JsonKey() final  bool dirty;
-@override@JsonKey() final  IList<String> problems;
+@override@JsonKey() final  IList<FlowProblem> problems;
 @override final  String? selectedBlock;
 @override@JsonKey() final  IList<NodeType> types;
 @override@JsonKey() final  int version;
 @override final  String? state;
 @override final  String? message;
-@override@JsonKey() final  String palette;
+@override@JsonKey() final  PaletteTab palette;
 @override@JsonKey() final  IMap<String, LiveValue> ports;
 @override final  FlowDraft? deployed;
-@override final  String? watchRefused;
+/// Why the broker refused the deployed flow's watch for good.
+@override final  Status? watchRefused;
 @override@JsonKey() final  IMap<String, LiveValue> previewPorts;
 @override@JsonKey() final  IMap<String, LiveValue> previewSinks;
-@override final  String? previewError;
-@override final  String? previewOff;
-@override final  String? viewedField;
+/// The broker's compiler refused the draft's preview.
+@override final  FlowProblem? previewError;
+/// Why the broker has no preview for this session.
+@override final  Status? previewOff;
+/// The field the value viewer shows.
+@override final  FieldAt? viewedField;
 @override@JsonKey() final  ISet<String> selection;
 @override@JsonKey() final  IList<FlowDraft> undo;
 @override@JsonKey() final  IList<FlowDraft> redo;
-@override final  String? undoTag;
+@override final  UndoTag? undoTag;
 @override final  String? clipboard;
 @override@JsonKey() final  String treeQuery;
 @override final  String? scopePrompt;
 @override@JsonKey() final  IList<FlowFrame> frames;
 @override@JsonKey() final  IList<BlockInfo> library;
-@override final  String? libraryOff;
+/// Why custom blocks are off; null once the library answered.
+@override final  LibraryOff? libraryOff;
 
 /// Create a copy of FlowEditorState
 /// with the given fields replaced by the non-null parameter values.
@@ -198,11 +244,11 @@ abstract mixin class _$FlowEditorStateCopyWith<$Res> implements $FlowEditorState
   factory _$FlowEditorStateCopyWith(_FlowEditorState value, $Res Function(_FlowEditorState) _then) = __$FlowEditorStateCopyWithImpl;
 @override @useResult
 $Res call({
- String? flowId, FlowDraft? draft, bool dirty, IList<String> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, String palette, IMap<String, LiveValue> ports, FlowDraft? deployed, String? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, String? previewError, String? previewOff, String? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, String? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, String? libraryOff
+ String? flowId, FlowDraft? draft, bool dirty, IList<FlowProblem> problems, String? selectedBlock, IList<NodeType> types, int version, String? state, String? message, PaletteTab palette, IMap<String, LiveValue> ports, FlowDraft? deployed, Status? watchRefused, IMap<String, LiveValue> previewPorts, IMap<String, LiveValue> previewSinks, FlowProblem? previewError, Status? previewOff, FieldAt? viewedField, ISet<String> selection, IList<FlowDraft> undo, IList<FlowDraft> redo, UndoTag? undoTag, String? clipboard, String treeQuery, String? scopePrompt, IList<FlowFrame> frames, IList<BlockInfo> library, LibraryOff? libraryOff
 });
 
 
-@override $FlowDraftCopyWith<$Res>? get draft;@override $FlowDraftCopyWith<$Res>? get deployed;
+@override $FlowDraftCopyWith<$Res>? get draft;@override $FlowDraftCopyWith<$Res>? get deployed;@override $FlowProblemCopyWith<$Res>? get previewError;@override $UndoTagCopyWith<$Res>? get undoTag;@override $LibraryOffCopyWith<$Res>? get libraryOff;
 
 }
 /// @nodoc
@@ -221,31 +267,31 @@ flowId: freezed == flowId ? _self.flowId : flowId // ignore: cast_nullable_to_no
 as String?,draft: freezed == draft ? _self.draft : draft // ignore: cast_nullable_to_non_nullable
 as FlowDraft?,dirty: null == dirty ? _self.dirty : dirty // ignore: cast_nullable_to_non_nullable
 as bool,problems: null == problems ? _self.problems : problems // ignore: cast_nullable_to_non_nullable
-as IList<String>,selectedBlock: freezed == selectedBlock ? _self.selectedBlock : selectedBlock // ignore: cast_nullable_to_non_nullable
+as IList<FlowProblem>,selectedBlock: freezed == selectedBlock ? _self.selectedBlock : selectedBlock // ignore: cast_nullable_to_non_nullable
 as String?,types: null == types ? _self.types : types // ignore: cast_nullable_to_non_nullable
 as IList<NodeType>,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as int,state: freezed == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as String?,message: freezed == message ? _self.message : message // ignore: cast_nullable_to_non_nullable
 as String?,palette: null == palette ? _self.palette : palette // ignore: cast_nullable_to_non_nullable
-as String,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
+as PaletteTab,ports: null == ports ? _self.ports : ports // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,deployed: freezed == deployed ? _self.deployed : deployed // ignore: cast_nullable_to_non_nullable
 as FlowDraft?,watchRefused: freezed == watchRefused ? _self.watchRefused : watchRefused // ignore: cast_nullable_to_non_nullable
-as String?,previewPorts: null == previewPorts ? _self.previewPorts : previewPorts // ignore: cast_nullable_to_non_nullable
+as Status?,previewPorts: null == previewPorts ? _self.previewPorts : previewPorts // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,previewSinks: null == previewSinks ? _self.previewSinks : previewSinks // ignore: cast_nullable_to_non_nullable
 as IMap<String, LiveValue>,previewError: freezed == previewError ? _self.previewError : previewError // ignore: cast_nullable_to_non_nullable
-as String?,previewOff: freezed == previewOff ? _self.previewOff : previewOff // ignore: cast_nullable_to_non_nullable
-as String?,viewedField: freezed == viewedField ? _self.viewedField : viewedField // ignore: cast_nullable_to_non_nullable
-as String?,selection: null == selection ? _self.selection : selection // ignore: cast_nullable_to_non_nullable
+as FlowProblem?,previewOff: freezed == previewOff ? _self.previewOff : previewOff // ignore: cast_nullable_to_non_nullable
+as Status?,viewedField: freezed == viewedField ? _self.viewedField : viewedField // ignore: cast_nullable_to_non_nullable
+as FieldAt?,selection: null == selection ? _self.selection : selection // ignore: cast_nullable_to_non_nullable
 as ISet<String>,undo: null == undo ? _self.undo : undo // ignore: cast_nullable_to_non_nullable
 as IList<FlowDraft>,redo: null == redo ? _self.redo : redo // ignore: cast_nullable_to_non_nullable
 as IList<FlowDraft>,undoTag: freezed == undoTag ? _self.undoTag : undoTag // ignore: cast_nullable_to_non_nullable
-as String?,clipboard: freezed == clipboard ? _self.clipboard : clipboard // ignore: cast_nullable_to_non_nullable
+as UndoTag?,clipboard: freezed == clipboard ? _self.clipboard : clipboard // ignore: cast_nullable_to_non_nullable
 as String?,treeQuery: null == treeQuery ? _self.treeQuery : treeQuery // ignore: cast_nullable_to_non_nullable
 as String,scopePrompt: freezed == scopePrompt ? _self.scopePrompt : scopePrompt // ignore: cast_nullable_to_non_nullable
 as String?,frames: null == frames ? _self.frames : frames // ignore: cast_nullable_to_non_nullable
 as IList<FlowFrame>,library: null == library ? _self.library : library // ignore: cast_nullable_to_non_nullable
 as IList<BlockInfo>,libraryOff: freezed == libraryOff ? _self.libraryOff : libraryOff // ignore: cast_nullable_to_non_nullable
-as String?,
+as LibraryOff?,
   ));
 }
 
@@ -272,6 +318,42 @@ $FlowDraftCopyWith<$Res>? get deployed {
 
   return $FlowDraftCopyWith<$Res>(_self.deployed!, (value) {
     return _then(_self.copyWith(deployed: value));
+  });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$FlowProblemCopyWith<$Res>? get previewError {
+    if (_self.previewError == null) {
+    return null;
+  }
+
+  return $FlowProblemCopyWith<$Res>(_self.previewError!, (value) {
+    return _then(_self.copyWith(previewError: value));
+  });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$UndoTagCopyWith<$Res>? get undoTag {
+    if (_self.undoTag == null) {
+    return null;
+  }
+
+  return $UndoTagCopyWith<$Res>(_self.undoTag!, (value) {
+    return _then(_self.copyWith(undoTag: value));
+  });
+}/// Create a copy of FlowEditorState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$LibraryOffCopyWith<$Res>? get libraryOff {
+    if (_self.libraryOff == null) {
+    return null;
+  }
+
+  return $LibraryOffCopyWith<$Res>(_self.libraryOff!, (value) {
+    return _then(_self.copyWith(libraryOff: value));
   });
 }
 }

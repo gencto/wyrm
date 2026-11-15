@@ -615,7 +615,7 @@ void main() {
           ..dispatchSync(SetBlockParamAction('limit', 'value', 30))
           ..dispatchSync(PreviewFlowAction());
         await debounce();
-        expect(s.state.flowEditor.previewOff, 'not_found');
+        expect(s.state.flowEditor.previewOff, Status.notFound);
         expect(s.state.flowEditor.previewError, isNull);
         s
           ..dispatchSync(SetBlockParamAction('limit', 'value', 31))

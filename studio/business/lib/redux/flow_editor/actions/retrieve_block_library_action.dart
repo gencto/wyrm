@@ -1,4 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_info.dart';
+import 'package:models/library_off.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/block_library.dart';
@@ -17,17 +19,29 @@ class RetrieveBlockLibraryAction extends Action {
     if (root == null) {
       return null;
     }
-    try {
-      final rows = await deps.wyrm
-          .invoke('$root/dataflows', 'list_blocks')
-          .toList();
-      final blocks = blockListOf(rows, where: 'list_blocks of $root');
-      return state.copyWith.flowEditor(library: blocks.lock, libraryOff: null);
-    } on WyrmException catch (e) {
-      return state.copyWith.flowEditor(
-        library: const IListConst([]),
-        libraryOff: e.status.name,
-      );
-    }
+    final read = await readLibrary(deps.wyrm, root);
+    return state.copyWith.flowEditor(
+      library: read.library,
+      libraryOff: read.off,
+    );
+  }
+}
+
+/// The library of the site at [root] (`list_blocks`), or why it is off.
+Future<({IList<BlockInfo> library, LibraryOff? off})> readLibrary(
+  WyrmApi api,
+  String root,
+) async {
+  try {
+    final rows = await api.invoke('$root/dataflows', 'list_blocks').toList();
+    return (
+      library: blockListOf(rows, where: 'list_blocks of $root').lock,
+      off: null,
+    );
+  } on WyrmException catch (e) {
+    return (
+      library: const IListConst<BlockInfo>([]),
+      off: LibraryOff.refused(e.status),
+    );
   }
 }

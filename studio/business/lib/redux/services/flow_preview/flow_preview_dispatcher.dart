@@ -29,5 +29,5 @@ class FlowPreviewDispatcher implements FlowPreviewServiceListener {
 
   @override
   void onOff(Status? status) =>
-      _store.dispatchSync(SetPreviewOffAction(status?.wireName));
+      _store.dispatchSync(SetPreviewOffAction(status));
 }

@@ -47,7 +47,7 @@ FlowField field(
   String type,
   String id, [
   Map<String, Object?> cfg = const {},
-]) => fieldsOf(types[type], block(type, cfg)).firstWhere((f) => f.id == id);
+]) => fieldsOf(types[type], block(type, cfg)).firstWhere((f) => f.id.key == id);
 
 void main() {
   test('the catalog has the 125 types and the labels the engine gives', () {

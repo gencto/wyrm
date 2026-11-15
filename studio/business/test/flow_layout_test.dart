@@ -297,7 +297,7 @@ void main() {
               'rows': [
                 for (final f in rowsOf(types[b.type.wire], b, edges: d.edges))
                   {
-                    'id': f.id,
+                    'id': f.id.key,
                     'label': f.label,
                     'in': f.inPort,
                     'out': f.outPort,

@@ -39,9 +39,11 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/action_info.dart';
 import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
@@ -116,7 +118,7 @@ List<String> rowIds(FlowDraft d, String id, {Map<String, NodeType>? by}) {
       d.blocks[id]!,
       edges: d.edges,
     ))
-      f.id,
+      f.id.key,
   ];
 }
 
@@ -160,7 +162,7 @@ void main() {
     test('a catalog with ADR 0040 has scopes, trigger and argument ports; '
         'custom blocks once the library answered', () {
       expect(
-        flowCapsOf(types.values, libraryOff: libraryUnread),
+        flowCapsOf(types.values, libraryOff: const LibraryOff.unread()),
         const FlowCaps(scopes: true, trigger: true, args: true),
       );
       expect(
@@ -179,7 +181,10 @@ void main() {
           nodeTypeOf(Value.from(t)).orWarn('test')!,
       ];
       expect(
-        flowCapsOf(old, libraryOff: 'not_found'),
+        flowCapsOf(
+          old,
+          libraryOff: LibraryOff.refused(StatusCode.of(Status.notFound)),
+        ),
         const FlowCaps(),
       );
     });
@@ -200,7 +205,7 @@ void main() {
       final key = fieldsOf(
         old,
         d.blocks['level']!,
-      ).firstWhere((f) => f.id == 'p:key');
+      ).firstWhere((f) => f.id.key == 'p:key');
       expect(key.inPort, isNull);
       expect(
         bindRefusal(
@@ -215,7 +220,7 @@ void main() {
       );
       // Its rows are the ones of before: the point alone.
       expect(
-        [for (final f in rowsOf(old, d.blocks['level']!)) f.id],
+        [for (final f in rowsOf(old, d.blocks['level']!)) f.id.key],
         ['out:out'],
       );
     });
@@ -229,7 +234,7 @@ void main() {
       final key = fieldsOf(
         types['subscribe'],
         d.blocks['level']!,
-      ).firstWhere((f) => f.id == 'p:key');
+      ).firstWhere((f) => f.id.key == 'p:key');
       expect(key.inPort, 'in.key');
       expect(key.label, 'Point');
       expect(
@@ -263,7 +268,7 @@ void main() {
         types['subscribe'],
         d.blocks['level']!,
         edges: d.edges,
-      ).firstWhere((f) => f.id == 'p:key_scope');
+      ).firstWhere((f) => f.id.key == 'p:key_scope');
       expect(scope.label, 'Scope');
       expect(scope.inPort, isNull);
       expect(scope.outPort, isNull, reason: 'read on the block, feeds nothing');
@@ -344,25 +349,32 @@ void main() {
         'action': 'ramp',
         'args': {'target': null, 'ramp_s': 30, 'mode': null},
       });
-      expect(e.pins, {'arg:ramp_s': false, 'arg:mode': false});
+      expect(e.pins, {
+        const FieldId.arg('ramp_s'): false,
+        const FieldId.arg('mode'): false,
+      });
       final b = FlowBlock(
         id: 'ramp1',
         type: bt('invoke'),
         cfg: e.cfg.lock,
-        pins: e.pins.lock,
+        pins: {for (final p in e.pins.entries) p.key.key: p.value}.lock,
       );
       final fields = fieldsOf(types['invoke'], b, actionParams: ramp.params);
-      final target = fields.firstWhere((f) => f.id == 'arg:target');
+      final target = fields.firstWhere((f) => f.id.key == 'arg:target');
       expect(target.inPort, 'arg.target');
       expect(target.argSpec?.required, isTrue);
       expect(
-        [for (final f in rowsOf(types['invoke'], b)) f.id],
+        [for (final f in rowsOf(types['invoke'], b)) f.id.key],
         ['arg:target', 'in:trigger', 'out:ok', 'out:error'],
       );
       // The argument's own type is its editor.
       const none = IListConst<FlowEdge>([]);
       expect(
-        fieldEditOf(b, fields.firstWhere((f) => f.id == 'arg:mode'), none).edit,
+        fieldEditOf(
+          b,
+          fields.firstWhere((f) => f.id.key == 'arg:mode'),
+          none,
+        ).edit,
         FieldEdit.choice,
       );
       expect(fieldEditOf(b, target, none).edit, FieldEdit.number);
@@ -426,7 +438,7 @@ void main() {
           'state:last_run',
         ],
       );
-      String label(String id) => fields.firstWhere((f) => f.id == id).label;
+      String label(String id) => fields.firstWhere((f) => f.id.key == id).label;
       expect(label('in:trigger'), 'Trigger');
       expect(label('p:interval_ms'), 'Every');
       expect(label('p:auto_run'), 'Auto run');
@@ -435,7 +447,7 @@ void main() {
       expect(label('out:result'), 'Result');
       expect(label('out:out'), 'Output');
       // `run_on_start` has no port; its warning is the catalog's.
-      final ros = fields.firstWhere((f) => f.id == 'p:run_on_start');
+      final ros = fields.firstWhere((f) => f.id.key == 'p:run_on_start');
       expect(ros.inPort, isNull);
       expect(ros.spec!.description, startsWith('WARNING:'));
     });
@@ -443,7 +455,7 @@ void main() {
     test('a behaviour that is set shows on the block', () {
       final every = b.copyWith(cfg: b.cfg.add('interval_ms', 5000));
       expect(
-        [for (final f in rowsOf(types['invoke'], every)) f.id],
+        [for (final f in rowsOf(types['invoke'], every)) f.id.key],
         [
           'arg:target',
           'in:trigger',
@@ -461,7 +473,7 @@ void main() {
         type: bt('set'),
         cfg: <String, Object?>{'path': 'downstream/plc/fan'}.lock,
       );
-      expect([for (final f in rowsOf(types['set'], set)) f.id], ['in:in']);
+      expect([for (final f in rowsOf(types['set'], set)) f.id.key], ['in:in']);
       expect(
         {
           for (final f in fieldsOf(types['set'], set))
@@ -476,7 +488,7 @@ void main() {
       );
       final load = FlowBlock(id: 'l', type: bt('load_value'));
       expect(
-        [for (final f in rowsOf(types['load_value'], load)) f.id],
+        [for (final f in rowsOf(types['load_value'], load)) f.id.key],
         [
           'p:key',
           'in:trigger',
@@ -488,13 +500,12 @@ void main() {
       final path = fieldsOf(
         types['list_children'],
         list,
-      ).firstWhere((f) => f.id == 'p:path');
+      ).firstWhere((f) => f.id.key == 'p:path');
       expect(path.label, 'Node');
-      expect(scopedKeyOf(types['list_children']), (
-        key: 'path',
-        scope: 'path_scope',
-        port: 'in.path',
-      ));
+      expect(
+        scopedKeyOf(types['list_children']),
+        const ScopedKey(key: 'path', scope: 'path_scope', port: 'in.path'),
+      );
       // A type without behaviours has no groups.
       final add = FlowBlock(id: 'x', type: bt('add'));
       expect(
@@ -543,14 +554,14 @@ void main() {
       String out(String type, String port) => fieldsOf(
         types[type],
         FlowBlock(id: 'x', type: bt(type)),
-      ).firstWhere((f) => f.id == 'out:$port').label;
+      ).firstWhere((f) => f.id.key == 'out:$port').label;
       expect(out('rising_edge', 'on_edge'), 'On edge');
       expect(out('stats', 'avg'), 'Average');
       expect(
         fieldsOf(
           types['debounce'],
           FlowBlock(id: 'x', type: bt('debounce')),
-        ).firstWhere((f) => f.id == 'p:ms').label,
+        ).firstWhere((f) => f.id.key == 'p:ms').label,
         'Quiet time (ms)',
       );
       // Named inputs keep the names the user gave them.
@@ -921,7 +932,7 @@ void main() {
           40,
           600,
           cfg: {'key': 'storage/names/current'},
-          into: ('level', 'in.key'),
+          into: const PortEnd('level', 'in.key'),
         ),
       );
       expect(ed().scopePrompt, 'level');
@@ -1234,7 +1245,10 @@ void main() {
       api.invokes.remove('wy/central/dataflows ▸ list_blocks');
       final r = await s.dispatchAndWait(RetrieveBlockLibraryAction());
       expect(r.isCompletedOk, isTrue);
-      expect(ed().libraryOff, 'not_found');
+      expect(
+        ed().libraryOff,
+        LibraryOff.refused(StatusCode.of(Status.notFound)),
+      );
       expect(ed().library, isEmpty);
       expect(ed().caps.blocks, isFalse);
       // The same flow read again keeps the answer.

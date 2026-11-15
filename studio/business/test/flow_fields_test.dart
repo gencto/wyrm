@@ -19,12 +19,14 @@ import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
 import 'package:models/port_type.dart';
 import 'package:models/quality.dart' as m;
 import 'package:wyrm_client/wyrm_client.dart';
@@ -467,7 +469,7 @@ void main() {
         blocks: d.blocks.add('dl', block('dl', 'delay', {'ms': 10})),
       );
       const dl = FlowField(
-        id: 'in:in',
+        id: FieldId.input('in'),
         name: 'in',
         label: 'Input',
         kind: FieldKind.input,
@@ -497,7 +499,7 @@ void main() {
           fromPort: 'out',
           toBlock: 'm',
           to: field('m', 'modulo'),
-          replacing: ('add', 'in.0'),
+          replacing: const PortEnd('add', 'in.0'),
         ),
         isNull,
       );

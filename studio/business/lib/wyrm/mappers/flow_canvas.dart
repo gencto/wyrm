@@ -2,11 +2,15 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
+import 'package:models/param_spec.dart';
 import 'package:models/port_end.dart';
+import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../decode/block_cfg.dart';
@@ -39,7 +43,9 @@ FlowBlock? withPin(
     return null;
   }
   return b.copyWith(
-    pins: pinned == f.onBlock ? b.pins.remove(f.id) : b.pins.add(f.id, pinned),
+    pins: pinned == f.onBlock
+        ? b.pins.remove(f.id.key)
+        : b.pins.add(f.id.key, pinned),
   );
 }
 
@@ -63,8 +69,8 @@ FlowDraft pinBound(Iterable<NodeType> types, FlowDraft d) {
     }
     var pins = b.pins;
     for (final f in fieldsOf(byType[b.type], b, edges: d.edges)) {
-      if (!(pins[f.id] ?? f.onBlock) && fieldBound(b, f, d.edges)) {
-        pins = pins.add(f.id, true);
+      if (!(pins[f.id.key] ?? f.onBlock) && fieldBound(b, f, d.edges)) {
+        pins = pins.add(f.id.key, true);
       }
     }
     if (!identical(pins, b.pins)) {
@@ -72,6 +78,72 @@ FlowDraft pinBound(Iterable<NodeType> types, FlowDraft d) {
     }
   }
   return identical(blocks, d.blocks) ? d : d.copyWith(blocks: blocks);
+}
+
+// ---------- a new block (§2, §18) ----------
+
+/// A block just added to a draft: the draft with it, and its id.
+final class AddedBlock {
+  const AddedBlock(this.draft, this.id);
+
+  final FlowDraft draft;
+  final String id;
+}
+
+/// [d] with a block of [type] at ([x], [y]) with the defaults of its
+/// choice parameters (and [cfg] over them) under a fresh id
+/// (`<type><n>`; an instance after its block, `mean1`), its pins, and,
+/// with [into], a wire from its `out` into that input (a point of the
+/// Tree tab dropped on a field) that replaces the one there.
+///
+/// Other defaults stay out of the definition: the block shows them as the
+/// values of its fields, and the engine applies them itself. Writing them
+/// would change what a block means (a `scale` with a range parameter maps
+/// from the range: it is in its range form).
+AddedBlock withNewBlock(
+  Iterable<NodeType> types,
+  FlowDraft d,
+  BlockType type,
+  double x,
+  double y, {
+  Map<String, Object?> cfg = const {},
+  Map<FieldId, bool> pins = const {},
+  PortEnd? into,
+}) {
+  final t = types.where((t) => t.type == type).firstOrNull;
+  final base = (blockNameOf(type) ?? type.wire).replaceAll(
+    RegExp('[^A-Za-z0-9_]'),
+    '_',
+  );
+  var n = 1;
+  while (d.blocks.containsKey('$base$n')) {
+    n++;
+  }
+  final id = '$base$n';
+  final defaults = <String, Object?>{
+    for (final p in t?.params ?? const IListConst<ParamSpec>([]))
+      if (p.choices.isNotEmpty && p.defaultValue != null)
+        p.name: p.defaultValue,
+  };
+  final next = d.copyWith(
+    edges: into == null
+        ? d.edges
+        : d.edges
+              .removeWhere((e) => e.target == into)
+              .add(FlowEdge.between(PortEnd(id, EnginePort.out.wire), into)),
+    blocks: d.blocks.add(
+      id,
+      FlowBlock(
+        id: id,
+        type: type,
+        cfg: <String, Object?>{...defaults, ...cfg}.lock,
+        pins: {for (final e in pins.entries) e.key.key: e.value}.lock,
+        x: x,
+        y: y,
+      ),
+    ),
+  );
+  return AddedBlock(pinBound(types, next), id);
 }
 
 // ---------- undo (§13) ----------
@@ -86,8 +158,8 @@ const undoLimit = 100;
 IList<FlowDraft> undoPush(
   IList<FlowDraft> undo,
   FlowDraft before, {
-  String? tag,
-  String? lastTag,
+  UndoTag? tag,
+  UndoTag? lastTag,
 }) {
   if (tag != null && tag == lastTag && undo.isNotEmpty) {
     return undo;

@@ -50,6 +50,7 @@ import 'package:business/redux/nodes/actions/retrieve_details_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
+import 'package:business/wyrm/decode/block_cfg.dart';
 import 'package:business/wyrm/decode/block_def.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/flow_val.dart';
@@ -67,13 +68,20 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/action_info.dart';
 import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
+import 'package:models/flow_problem.dart';
+import 'package:models/flow_problem_kind.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_tab.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
+import 'package:models/undo_kind.dart';
+import 'package:models/undo_tag.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/side_panels.dart';
 import 'package:ui/flows/block_palette.dart';
@@ -93,11 +101,12 @@ import 'package:ui/pages/flow_editor_page.dart';
 import 'package:ui/shell/window_bar.dart';
 import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/tree_row.dart';
-import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
+import 'package:wyrm_client/wyrm_client.dart' show Status, TypeCode;
 
 import '../common/side_panels.dart';
 import '../common/value_viewer.dart';
 import '../common/window.dart';
+import '../mappers/palette_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 import 'flows_page_connector.dart';
@@ -156,22 +165,22 @@ class FlowEditorPageConnector extends StatelessWidget {
       onClose: vm.onClose,
       onFlows: vm.onClose,
       paletteTabs: [
-        TabItemVm(id: 'blocks', label: S.current.paletteBlocks),
+        TabItemVm(id: PaletteTab.blocks.tabId, label: S.current.paletteBlocks),
         TabItemVm(
-          id: 'my',
+          id: PaletteTab.my.tabId,
           label: S.current.paletteMyBlocks,
           disabledReason: vm.myBlocksOff,
         ),
-        TabItemVm(id: 'tree', label: S.current.paletteTree),
+        TabItemVm(id: PaletteTab.tree.tabId, label: S.current.paletteTree),
       ],
       tree: vm.tree,
       onTreeToggle: vm.onTreeToggle,
       onTreeQuery: vm.onTreeQuery,
       onPaletteMenu: vm.onPaletteMenu,
-      paletteEmpty: switch (vm.paletteTab) {
-        'my' => S.current.myBlocksEmpty,
-        'tree' => S.current.treeEmpty,
-        _ => '',
+      paletteEmpty: switch (paletteTabOfId(vm.paletteTab)) {
+        PaletteTab.my => S.current.myBlocksEmpty,
+        PaletteTab.tree => S.current.treeEmpty,
+        PaletteTab.blocks || null => '',
       },
       writable: vm.writable,
       readLabel: S.current.dropRead,
@@ -199,10 +208,10 @@ class FlowEditorPageConnector extends StatelessWidget {
       paletteTab: vm.paletteTab,
       onPaletteTab: vm.onPaletteTab,
       palette: vm.palette,
-      searchHint: vm.paletteTab == 'tree'
+      searchHint: paletteTabOfId(vm.paletteTab) == PaletteTab.tree
           ? S.current.findInTree
           : S.current.findBlock,
-      paletteNotes: vm.paletteTab == 'tree'
+      paletteNotes: paletteTabOfId(vm.paletteTab) == PaletteTab.tree
           ? [
               PaletteNoteVm(S.current.treePoint, S.current.treePointNote2),
               PaletteNoteVm(
@@ -324,8 +333,8 @@ class FlowEditorPageConnector extends StatelessWidget {
     return {
       for (final b in d.blocks.values)
         if (b.type.known == KnownBlock.invoke)
-          if (pointOf(b) case final k? when !read.containsKey(_full(root, k)))
-            _full(root, k),
+          if (pointOf(b) case final k? when !read.containsKey(fullKey(root, k)))
+            fullKey(root, k),
     }.toList();
   }
 
@@ -341,12 +350,12 @@ class FlowEditorPageConnector extends StatelessWidget {
     final ed = SelectFlowEditor(s);
     return {
       // The values of the leaves the Tree tab shows: every open node's.
-      if (ed.palette == 'tree')
+      if (ed.palette == PaletteTab.tree)
         for (final k in nodes.expanded)
           if (_treeSections.any((s) => k.startsWith('$root/$s'))) '$k/*',
       for (final b in ed.draft?.blocks.values ?? const <FlowBlock>[])
         if (isPoint(b.type))
-          if (pointOf(b) case final k?) _full(root, k),
+          if (pointOf(b) case final k?) fullKey(root, k),
       if (id != newFlowId) '$root/dataflows/$id',
       // What the deployed publish blocks last published: their inputs.
       if (id != newFlowId)
@@ -363,16 +372,11 @@ const _treeSections = ['downstream', 'dataflows', 'storage'];
 /// The value a `publish` block of flow [flow] publishes
 /// (`dataflows/<flow>/nodes/<node>`), null for any other block.
 String? _published(String root, String flow, FlowBlock b) =>
-    switch (b.cfg['node']) {
-      final String n
-          when b.type.known == KnownBlock.publish && flow.isNotEmpty =>
+    switch (b.cfgNode) {
+      final n? when b.type.known == KnownBlock.publish && flow.isNotEmpty =>
         '$root/dataflows/$flow/nodes/$n',
       _ => null,
     };
-
-/// A point key of a definition (relative to the site, or full) as a full key.
-String _full(String root, String key) =>
-    key.startsWith('wy/') ? key : '$root/$key';
 
 /// Factory that creates a view-model for the StoreConnector.
 class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
@@ -428,10 +432,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     };
     final selection = ed.selection;
     // The field the viewer shows: its block and its field.
-    final viewed = switch (ed.viewedField?.split('/')) {
-      [final vb, ...final rest] when blocks[vb] != null => (
-        blocks[vb]!,
-        fields[vb]!.where((f) => f.id == rest.join('/')).firstOrNull,
+    final viewed = switch (ed.viewedField) {
+      FieldAt(:final block, :final row) when blocks[block] != null => (
+        blocks[block]!,
+        fields[block]!.where((f) => f.id == row).firstOrNull,
       ),
       _ => null,
     };
@@ -452,8 +456,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           : null,
       onBack: (levels) => dispatchSync(LeaveBlockAction(levels: levels)),
       myBlocksOff: caps.blocks ? null : S.current.myBlocksOff,
-      tree: ed.palette == 'tree' ? _treeRows(root, blocks) : null,
-      writable: ed.palette == 'tree' ? _writable(root) : const {},
+      tree: ed.palette == PaletteTab.tree ? _treeRows(root, blocks) : null,
+      writable: ed.palette == PaletteTab.tree ? _writable(root) : const {},
       onTreeToggle: (key) {
         final opening = !nodes.expanded.contains(key);
         dispatchSync(ToggleNodeAction(key));
@@ -528,7 +532,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       validatePrompt: (scope) => _scopeError(root, scope),
       onRowAction: (block, row) {
         final keyed = scopedKeyOf(types[blocks[block]?.type]);
-        if (keyed != null && row == 'p:${keyed.scope}') {
+        if (keyed != null && RowId.fromKey(row) == keyed.scopeField) {
           dispatchSync(SetScopePromptAction(block));
         }
       },
@@ -539,7 +543,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       },
       onRun: (row) {
         final node = b == null ? null : _engineId(b.id);
-        if (row == 'in:trigger' && node != null) {
+        if (RowId.fromKey(row) == FieldId.input(EnginePort.trigger.wire) &&
+            node != null) {
           unawaited(dispatchAndWait(TriggerBlockAction(node)));
         }
       },
@@ -571,11 +576,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                 : (problems.isNotEmpty
                       ? S.current.fixFirst
                       : site.needs('config', '$root/dataflows'))),
-      paletteTab: ed.palette,
+      paletteTab: ed.palette.tabId,
       palette: switch (ed.palette) {
-        'tree' => const [],
-        'my' => _myBlocks(root, flow, defs),
-        _ => _catalog(ed.types),
+        PaletteTab.tree => const [],
+        PaletteTab.my => _myBlocks(root, flow, defs),
+        PaletteTab.blocks => _catalog(ed.types),
       },
       blocks: [
         for (final x in blocks.values)
@@ -690,19 +695,21 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       summary: b == null
           ? _summary(root, id, flow, problems, previewing: previewing)
           : null,
-      viewer: switch (ed.viewedField?.split('/')) {
+      viewer: switch (ed.viewedField) {
         // The Form row: the form's name.
-        [final vb, 'form'] when blocks[vb] != null => switch (formOf(
-          blocks[vb]!,
-          edges,
-        )) {
-          final form? => valueViewerOf(title: '$vb.form', value: form.label),
-          null => null,
-        },
-        [final vb, ...final rest] when d != null && blocks[vb] != null =>
+        FieldAt(block: final vb, row: FormRow()) when blocks[vb] != null =>
+          switch (formOf(blocks[vb]!, edges)) {
+            final form? => valueViewerOf(
+              title: '$vb.${const FormRow().key}',
+              value: form.label,
+            ),
+            null => null,
+          },
+        FieldAt(block: final vb, :final row)
+            when d != null && blocks[vb] != null =>
           _viewer(
             blocks[vb]!,
-            fields[vb]!.where((f) => f.id == rest.join('/')).firstOrNull,
+            fields[vb]!.where((f) => f.id == row).firstOrNull,
             fields[vb]!,
             d,
             look(blocks[vb]!),
@@ -710,19 +717,23 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         _ => null,
       },
       onView: (row) {
-        if (sel != null) {
-          dispatchSync(SetViewedFieldAction('$sel/$row'));
+        if ((sel, RowId.fromKey(row)) case (final at?, final id?)) {
+          dispatchSync(SetViewedFieldAction(FieldAt(at, id)));
         }
       },
       onCloseViewer: () => dispatchSync(SetViewedFieldAction(null)),
       onDeploy: () => unawaited(dispatchAndWait(DeployFlowAction())),
       onValidate: () => unawaited(dispatchAndWait(ValidateFlowAction())),
       onClose: () => dispatch(GoAction.pop()),
-      onPaletteTab: (t) {
-        if (t != 'my' || caps.blocks) {
+      onPaletteTab: (id) {
+        final t = paletteTabOfId(id);
+        if (t == null) {
+          return;
+        }
+        if (t != PaletteTab.my || caps.blocks) {
           dispatchSync(SetPaletteAction(t));
         }
-        if (t == 'my') {
+        if (t == PaletteTab.my) {
           unawaited(dispatchAndWait(RetrieveBlockLibraryAction()));
         }
       },
@@ -737,22 +748,28 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         MoveBlocksAction({
           for (final MapEntry(:key, :value) in to.entries)
             key: (value.dx, value.dy),
-        }, tag: nudge ? 'nudge' : null),
+        }, tag: nudge ? const UndoTag(UndoKind.nudge) : null),
       ),
       onSelect: (x) => dispatchSync(SetSelectedBlockAction(x)),
       onSelectMany: (ids, {required add, required toggle}) =>
           dispatchSync(SelectBlocksAction(ids, add: add, toggle: toggle)),
       onCommand: _command,
       menu: (ids, block, row) => _menu(ids, block, row, fields),
-      onPin: (block, field, {required pinned}) =>
-          dispatchSync(SetFieldPinAction(block, field, pinned: pinned)),
-      onFieldPin: (field, {required on}) {
-        if (sel != null) {
-          dispatchSync(SetFieldPinAction(sel, field, pinned: on));
+      onPin: (block, field, {required pinned}) {
+        if (FieldId.fromKey(field) case final id?) {
+          dispatchSync(SetFieldPinAction(block, id, pinned: pinned));
         }
       },
-      onViewField: (block, row) =>
-          dispatchSync(SetViewedFieldAction('$block/$row')),
+      onFieldPin: (field, {required on}) {
+        if ((sel, FieldId.fromKey(field)) case (final at?, final id?)) {
+          dispatchSync(SetFieldPinAction(at, id, pinned: on));
+        }
+      },
+      onViewField: (block, row) {
+        if (RowId.fromKey(row) case final id?) {
+          dispatchSync(SetViewedFieldAction(FieldAt(block, id)));
+        }
+      },
       onSaveViewer: (text) {
         if (viewed case (final vb, final f?)) {
           _setField(vb, f, text);
@@ -791,7 +808,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         );
       },
       refusal: (from, block, row, {replacing}) {
-        final to = fields[block]?.where((f) => f.id == row).firstOrNull;
+        final to = fields[block]?.where((f) => f.id.key == row).firstOrNull;
         if (d == null || to == null) {
           return null;
         }
@@ -802,7 +819,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           fromPort: from.port,
           toBlock: block,
           to: to,
-          replacing: replacing,
+          replacing: replacing == null
+              ? null
+              : PortEnd(replacing.$1, replacing.$2),
         );
         return switch (r?.reason) {
           null => null,
@@ -828,7 +847,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             (target.x - 260).clamp(0, double.infinity).toDouble(),
             target.y,
             cfg: {'key': relativeKey(entry.substring(4))},
-            into: (block, port),
+            into: PortEnd(block, port),
           ),
         );
       },
@@ -841,7 +860,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         if (b == null) {
           return;
         }
-        if (row == 'form') {
+        if (RowId.fromKey(row) is FormRow) {
           final form = formsOf(
             b.type,
           ).where((f) => f.label == text).firstOrNull;
@@ -850,7 +869,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           }
           return;
         }
-        final f = fields[b.id]!.where((x) => x.id == row).firstOrNull;
+        final f = fields[b.id]!.where((x) => x.id.key == row).firstOrNull;
         if (f != null) {
           _setField(b, f, text);
         }
@@ -863,14 +882,17 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onFieldBind: (row, from) {
         final f = b == null
             ? null
-            : fields[b.id]!.where((x) => x.id == row).firstOrNull;
+            : fields[b.id]!.where((x) => x.id.key == row).firstOrNull;
         final port = f?.inPort;
         if (b != null && f != null && port != null && from.block != b.id) {
           // An argument the action has and the block not yet: its key
           // first, so the port exists.
-          if (f.kind == FieldKind.arg && !_args(b).containsKey(f.name)) {
+          if (f.kind == FieldKind.arg && !{...b.cfgArgs}.containsKey(f.name)) {
             dispatchSync(
-              SetBlockParamAction(b.id, 'args', {..._args(b), f.name: null}),
+              SetBlockParamAction(b.id, 'args', {
+                ...{...b.cfgArgs},
+                f.name: null,
+              }),
             );
           }
           dispatchSync(ConnectPortsAction(from.block, from.port, b.id, port));
@@ -906,12 +928,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final value = typedText(text, edit);
     if (b.id == blockInputsId) {
       // The default of a custom block's input.
-      final defaults = {
-        ...switch (b.cfg['defaults']) {
-          final Map<Object?, Object?> m => m.cast<String, Object?>(),
-          _ => const <String, Object?>{},
-        },
-      };
+      final defaults = {...b.cfgDefaults};
       if (text.trim().isEmpty) {
         defaults.remove(f.name);
       } else {
@@ -921,7 +938,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     } else if (f.operand) {
       dispatchSync(SetOperandValueAction(b.id, f.inPort!, value));
     } else if (f.kind == FieldKind.arg) {
-      final args = _args(b);
+      final args = {...b.cfgArgs};
       // Nothing typed: an argument the action may go without leaves the
       // call; any other is sent as nothing.
       if (text.trim().isEmpty && f.argSpec != null && !f.argSpec!.required) {
@@ -1066,7 +1083,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final one = ids.length == 1 && b != null;
     final noBlocks = ed.caps.blocks ? null : S.current.fmNeedsBroker;
     FlowPinVm pinOf(FlowField f) => FlowPinVm(
-      id: f.id,
+      id: f.id.key,
       label: f.label,
       pinned: fieldPinned(b!, f, edges),
       lockedReason: fieldBound(b, f, edges) ? S.current.fmBound : null,
@@ -1074,7 +1091,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final own = one ? fields[b.id] ?? const <FlowField>[] : const <FlowField>[];
     final onRow = row == null
         ? null
-        : own.where((f) => f.id == row).firstOrNull;
+        : own.where((f) => f.id.key == row).firstOrNull;
     return FlowMenuVm(
       title: one
           ? b.id
@@ -1161,7 +1178,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       t,
       b,
       edges: d!.edges,
-    ).where((x) => x.id == row).firstOrNull;
+    ).where((x) => x.id.key == row).firstOrNull;
     final port = f?.inPort;
     if (f == null || port == null) {
       return;
@@ -1209,13 +1226,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   }
 
   /// The arguments of an `invoke` block, as its config holds them.
-  static Map<String, Object?> _args(FlowBlock b) => {
-    ...switch (b.cfg['args']) {
-      final Map<Object?, Object?> m => m.cast<String, Object?>(),
-      _ => const <String, Object?>{},
-    },
-  };
-
   static bool _blank(Object? v) => v is! String || v.trim().isEmpty;
 
   /// The parameters of the action an `invoke` block runs, from its node's
@@ -1225,10 +1235,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       return const [];
     }
     final path = pointOf(b);
-    final name = b.cfg['action'];
+    final name = b.cfgAction;
     return path == null
         ? const []
-        : nodes.detail[_full(root, path)]?.actions
+        : nodes.detail[fullKey(root, path)]?.actions
                   .where((a) => a.name == name)
                   .firstOrNull
                   ?.params ??
@@ -1238,10 +1248,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
   /// The id the engine knows block [id] of the canvas by: its own in the
   /// flow, `<instance>/<inner>` inside a custom block. Null inside a
   /// block opened from the palette: no instance, so no running node.
-  String? _engineId(String id) {
-    final path = insidePath(flowEditor.frames);
-    return path == null ? null : (path.isEmpty ? id : '$path/$id');
-  }
+  String? _engineId(String id) => engineIdOf(flowEditor.frames, id);
 
   /// Why `Run` is off for [b], or null when it runs: the engine's
   /// `trigger` acts on the deployed flow, so the draft must be it.
@@ -1265,7 +1272,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     if (_engineId(b.id) == null) {
       return S.current.runNoInstance;
     }
-    if (b.cfg['enabled'] == false) {
+    if (b.cfgEnabled == false) {
       return S.current.runOff;
     }
     return site.needs('write', '$root/dataflows/$flow');
@@ -1308,10 +1315,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final site = root.startsWith('wy/') ? root.substring(3) : root;
     final own = b.cfg[keyed.scope];
     final suggested = scopeSuggestion(b.cfg[keyed.key] as String?, site: site);
-    final onBlock = rows[b.id]?.any((f) => f.id == 'p:${keyed.scope}') ?? false;
+    final onBlock = rows[b.id]?.any((f) => f.id == keyed.scopeField) ?? false;
     return ScopePromptVm(
       block: b.id,
-      row: 'p:${onBlock ? keyed.scope : keyed.key}',
+      row: (onBlock ? keyed.scopeField : keyed.keyField).key,
       title: S.current.scopeTitle,
       note: S.current.scopeNote,
       value: _blank(own) ? suggested : own! as String,
@@ -1495,7 +1502,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final q = flowEditor.treeQuery.trim().toLowerCase();
     final used = {
       for (final x in blocks.values)
-        if (pointOf(x) case final k?) _full(root, k),
+        if (pointOf(x) case final k?) fullKey(root, k),
     };
     final keep = <String>{};
     void keepUp(String key) {
@@ -1662,7 +1669,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         : _published(root, flow, b);
     final tree = pub != null
         ? live.values[pub]
-        : (point == null ? null : live.values[_full(root, point)]);
+        : (point == null ? null : live.values[fullKey(root, point)]);
     final inPrefix = portKey(PortSide.input, b.id, '');
     final outPrefix = portKey(PortSide.output, b.id, '');
     final instance = d != null && isInstance(b.type);
@@ -1773,18 +1780,17 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final keyed = scopedKeyOf(t);
     final behaves = behavesOf(t);
     // The row a sink's ghost stands on: its value's, else its trigger's.
-    final ghostRow = rows.any((f) => f.inPort == 'in')
-        ? 'in:in'
-        : (rows.any((f) => f.id == 'in:trigger')
-              ? 'in:trigger'
-              : rows.firstOrNull?.id);
+    final trigger = FieldId.input(EnginePort.trigger.wire);
+    final ghostRow = rows.any((f) => f.inPort == EnginePort.in_.wire)
+        ? FieldId.input(EnginePort.in_.wire)
+        : (rows.any((f) => f.id == trigger) ? trigger : rows.firstOrNull?.id);
     // What a sink would write in the preview (nothing is written).
     final ghost = previewing && isSink(b.type)
         ? flowEditor.previewSinks[_engineId(b.id) ?? b.id]
         : null;
     // The draft no longer runs: the preview's last values, greyed.
     final stale = previewing && flowEditor.previewError != null;
-    final info = point == null ? null : nodes.table[_full(root, point)];
+    final info = point == null ? null : nodes.table[fullKey(root, point)];
     final v = variadicOf(t, b);
     return FlowBlockVm(
       id: b.id,
@@ -1794,11 +1800,11 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         final x => x,
       },
       type: switch (role) {
-        BlockRole.node => _connection(point, parent: true),
+        BlockRole.node => connectionOf(point, parent: true),
         // The action block names what it runs: `tcp-tank · ramp`.
         BlockRole.action => [
-          _connection(point, parent: false).split('/').last,
-          if (b.cfg['action'] case final String a when behaves) a,
+          connectionOf(point, parent: false).split('/').last,
+          if (b.cfgAction case final a? when behaves) a,
         ].where((x) => x.isNotEmpty).join(' · '),
         BlockRole.custom => blockNameOf(b.type) ?? '',
         _ => b.type.wire,
@@ -1845,7 +1851,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                         ))
                 : null;
             return FieldRowVm(
-              id: f.id,
+              id: f.id.key,
               label: f.label,
               name: f.name,
               // An event reads when it fired, not its map; a run its time.
@@ -1915,23 +1921,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 
   /// `modbus/tcp-tank` of `downstream/modbus/tcp-tank/level` (the parent of a
   /// point, or a node itself), without `downstream`.
-  static String _connection(String? key, {required bool parent}) {
-    if (key == null) {
-      return '';
-    }
-    var parts = key.split('/');
-    if (parts.first == 'wy' && parts.length > 2) {
-      parts = parts.skip(2).toList();
-    }
-    if (parts.first == 'downstream') {
-      parts = parts.skip(1).toList();
-    }
-    if (parent && parts.length > 1) {
-      parts = parts.take(parts.length - 1).toList();
-    }
-    return parts.join('/');
-  }
-
   static String _kindLabel(BlockRole r) => switch (r) {
     BlockRole.node => S.current.kindTreeNode,
     BlockRole.logic => S.current.kindLogic,
@@ -1956,7 +1945,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final point = pointOf(b);
     final info = point == null
         ? null
-        : nodes.table[_full(site.root ?? '', point)];
+        : nodes.table[fullKey(site.root ?? '', point)];
     final at = f.kind == FieldKind.input || f.kind == FieldKind.output;
     final v = fieldValue(b, f, d, live);
     final how = fieldEditOf(b, f, d.edges);
@@ -2063,7 +2052,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     String Function(String block, String port) inLabelOf,
     NodeType? t, {
     required String root,
-    required ({String key, String scope, String port})? keyed,
+    required ScopedKey? keyed,
     required String? runReason,
   }) {
     final behaves = behavesOf(t);
@@ -2083,7 +2072,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       // The value that comes in, not where it comes from (owner decision
       // 2026-11-08): the wire shows the source, `Go to source` selects it.
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.bound,
@@ -2096,9 +2085,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     }
     // An unbound trigger is a button: the engine's `trigger` action on
     // the deployed flow (spec §19).
-    if (f.id == 'in:trigger' && (t?.trigger ?? false)) {
+    if (f.id == FieldId.input(EnginePort.trigger.wire) &&
+        (t?.trigger ?? false)) {
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.run,
@@ -2111,7 +2101,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     // sample on its wire presses; Studio has no way to press it itself.
     if (f.command) {
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.run,
@@ -2122,12 +2112,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     }
     if (b.id == blockInputsId) {
       // An input of a custom block: its default is typed here.
-      final v = switch (b.cfg['defaults']) {
-        final Map<Object?, Object?> m => m[f.name],
-        _ => null,
-      };
+      final v = b.cfgDefaults[f.name];
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         editor: FieldEditorVm.text,
         value: v == null ? '' : (v is String ? v : jsonEncode(v)),
@@ -2148,13 +2135,13 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           ? timeZoneChoicesOf(b.type)
           : (isRangeText(b.type, p.name) ? rangeChoices : null);
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         rows: items == null
             ? null
             : RowsEditorVm(
-                id: f.id,
+                id: f.id.key,
                 columns: [
                   for (final c in items)
                     RowsColumnVm(c.key, humanize(c.key), choices: c.choices),
@@ -2199,10 +2186,10 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     if (f.kind == FieldKind.arg) {
       // An argument is typed as its action says: its choices, a toggle,
       // else a value.
-      final v = (b.cfg['args'] as Map?)?[f.name];
+      final v = b.cfgArgs[f.name];
       final spec = f.argSpec;
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: spec != null && spec.choices.isNotEmpty
@@ -2225,7 +2212,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       // The range text of a `date_range`: a text with the usual ones.
       final range = isRangeText(b.type, f.name);
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: range ? FieldEditorVm.suggest : FieldEditorVm.text,
@@ -2250,7 +2237,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     };
     if (f.kind == FieldKind.output) {
       return InspectorRowVm(
-        id: f.id,
+        id: f.id.key,
         name: f.label,
         engine: f.name == f.label ? '' : f.name,
         editor: FieldEditorVm.output,
@@ -2261,7 +2248,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       );
     }
     return InspectorRowVm(
-      id: f.id,
+      id: f.id.key,
       name: f.label,
       editor: FieldEditorVm.sample,
       value: value.isEmpty ? '—' : value,
@@ -2274,7 +2261,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     String root,
     String id,
     FlowDraft? d,
-    IList<String> problems, {
+    IList<FlowProblem> problems, {
     required bool previewing,
   }) {
     final own = live.values['$root/dataflows/$id'];
@@ -2283,7 +2270,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final by = val?.deployedBy ?? known?.deployedBy;
     final maxperm = d?.permissions?.maxperm?.wireName;
     final keys = d == null ? null : flowKeysOf(d);
-    final ids = d?.blocks.keys.toList() ?? const <String>[];
     return FlowSummaryVm(
       label: S.current.kindFlow,
       title: id.isEmpty ? S.current.newDataflow : id,
@@ -2305,8 +2291,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             S.current.factValues,
             previewing ? S.current.valuesPreview : S.current.valuesDeployed,
           ),
-        if (flowEditor.watchRefused == 'permission_denied' ||
-            flowEditor.previewOff == 'permission_denied')
+        if (flowEditor.watchRefused == Status.permissionDenied ||
+            flowEditor.previewOff == Status.permissionDenied)
           (S.current.factLive, S.current.liveRefused),
         if (keys != null && keys.reads.isNotEmpty)
           (S.current.factReads, keys.reads.join(', ')),
@@ -2317,25 +2303,22 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       problems: [
         // The broker's compiler refused the draft's preview.
         if (flowEditor.previewError case final m? when previewing)
-          ProblemVm(S.current.previewInvalid(m), block: _blockIn(m, ids)),
-        for (final p in problems) ProblemVm(p, block: _blockIn(p, ids)),
+          ProblemVm(
+            S.current.previewInvalid(_problemText(m)),
+            block: m.block,
+          ),
+        for (final p in problems) ProblemVm(_problemText(p), block: p.block),
       ],
     );
   }
 
-  /// The block a problem names: the longest block id it holds as a word.
-  static String? _blockIn(String problem, List<String> ids) {
-    String? best;
-    for (final id in ids) {
-      final hit = RegExp(
-        '(^|[^A-Za-z0-9_])${RegExp.escape(id)}([^A-Za-z0-9_]|\$)',
-      ).hasMatch(problem);
-      if (hit && (best == null || id.length > best.length)) {
-        best = id;
-      }
-    }
-    return best;
-  }
+  /// A problem as the editor has always said it (phase B2 moves the
+  /// words to `ui`).
+  static String _problemText(FlowProblem p) => switch (p.kind) {
+    FlowProblemKind.unnamed => 'name the flow',
+    FlowProblemKind.broker => p.message ?? 'invalid',
+    FlowProblemKind.unread => 'invalid',
+  };
 
   static String _ago(DateTime t) {
     final d = DateTime.now().toUtc().difference(t);

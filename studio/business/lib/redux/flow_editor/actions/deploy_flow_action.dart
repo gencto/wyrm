@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 
 import '../../../wyrm/calls.dart';
@@ -49,7 +47,10 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
   void after() {
     super.after();
     if (flows.follow == null) {
-      unawaited(dispatchAndWait(RetrieveFlowsAction()));
+      _readFlows();
     }
   }
+
+  /// One full read of the flows list; nothing waits for it.
+  void _readFlows() => dispatch(RetrieveFlowsAction());
 }

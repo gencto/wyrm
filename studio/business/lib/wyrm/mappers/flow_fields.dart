@@ -8,6 +8,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
 import 'package:models/port_side.dart';
 import 'package:models/port_type.dart';
 import 'package:models/quality.dart';
@@ -185,9 +186,8 @@ final class FlowField {
     this.command = false,
   });
 
-  /// Unique within the block: `p:<name>`, `in:<port>`, `out:<port>`,
-  /// `arg:<name>`.
-  final String id;
+  /// Unique within the block: its kind and the engine's name for it.
+  final FieldId id;
 
   /// What the engine calls it: the parameter (`input_min`), the port
   /// (`in`, `in.0`, `quotient`) or the argument; shown small in the
@@ -973,14 +973,14 @@ List<FlowField> fieldsOf(
   if (t == null) {
     return const [
       FlowField(
-        id: 'in:in',
+        id: FieldId.input('in'),
         name: 'in',
         label: 'Input',
         kind: .input,
         inPort: 'in',
       ),
       FlowField(
-        id: 'out:out',
+        id: FieldId.output('out'),
         name: 'out',
         label: 'Output',
         kind: .output,
@@ -994,7 +994,7 @@ List<FlowField> fieldsOf(
     final p = t.params.first;
     return [
       FlowField(
-        id: 'p:${p.name}',
+        id: FieldId.param(p.name),
         name: p.name,
         label: fieldLabel(b.type, p.name, spec: p),
         kind: .param,
@@ -1076,7 +1076,7 @@ List<FlowField> fieldsOf(
     for (final p in t.params)
       if (!dynParams.contains(p.name) && !_otherForm(b, p.name, edges))
         FlowField(
-          id: 'p:${p.name}',
+          id: FieldId.param(p.name),
           name: p.name,
           label: fieldLabel(b.type, p.name, spec: p),
           kind: .param,
@@ -1124,7 +1124,7 @@ List<FlowField> fieldsOf(
         : port;
     final main = EnginePort.fromWire(port) == EnginePort.in_;
     return FlowField(
-      id: 'in:$port',
+      id: FieldId.input(port),
       name: port,
       label: switch (known) {
         KnownBlock.publish when main => 'Value',
@@ -1169,7 +1169,7 @@ List<FlowField> fieldsOf(
   ];
   final argSpecs = {for (final p in actionParams) p.name: p};
   FlowField arg(String k, {required bool has}) => FlowField(
-    id: 'arg:$k',
+    id: FieldId.arg(k),
     name: k,
     label: argSpecs[k]?.display ?? k,
     kind: .arg,
@@ -1193,7 +1193,7 @@ List<FlowField> fieldsOf(
     for (final p in ports.outputs)
       if (!_otherForm(b, p, edges) && !caseOuts.contains(p))
         FlowField(
-          id: 'out:$p',
+          id: FieldId.output(p),
           name: p,
           // A `subscribe` output is its point's value, named after the
           // point; a `liveliness` output is whether its node is there.
@@ -1309,7 +1309,12 @@ bool fieldBound(FlowBlock b, FlowField f, Iterable<FlowEdge> edges) =>
 /// block ([FlowBlock.pins]); else the type's default ([FlowField.onBlock]).
 /// The inspector lists every field, pinned or not.
 bool fieldPinned(FlowBlock b, FlowField f, Iterable<FlowEdge> edges) =>
-    fieldBound(b, f, edges) || (b.pins[f.id] ?? f.onBlock);
+    fieldBound(b, f, edges) || (pinOf(b, f.id) ?? f.onBlock);
+
+/// What the user chose for field [id] of [b] ([FlowBlock.pins], keyed by
+/// [FieldId.key] as the definition's layout keeps it): pinned to the block,
+/// taken off it, or null for the type's default.
+bool? pinOf(FlowBlock b, FieldId id) => b.pins[id.key];
 
 /// The rows of [b] drawn on the canvas: its pinned fields ([fieldPinned]),
 /// in the order of [fieldsOf].
@@ -1418,7 +1423,7 @@ Refused? bindRefusal(
   required String fromPort,
   required String toBlock,
   required FlowField to,
-  (String, String)? replacing,
+  PortEnd? replacing,
 }) {
   final inPort = to.inPort;
   if (inPort == null) {
@@ -1460,9 +1465,7 @@ Refused? bindRefusal(
     final next = <String, List<String>>{};
     for (final e in d.edges) {
       if ((e.to == toBlock && e.toPort == inPort) ||
-          (replacing != null &&
-              e.to == replacing.$1 &&
-              e.toPort == replacing.$2) ||
+          e.target == replacing ||
           d.blocks[e.to]?.type.known == KnownBlock.delay) {
         continue;
       }

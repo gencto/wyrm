@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import '../../../wyrm/mappers/flow_blocks.dart';
@@ -24,7 +22,7 @@ class ResizeBlockPortsAction extends Action {
     if (d == null || next == null) {
       return null;
     }
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     return state.copyWith.flowEditor(
       draft: next,
       dirty: true,
@@ -33,4 +31,9 @@ class ResizeBlockPortsAction extends Action {
       undoTag: null,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

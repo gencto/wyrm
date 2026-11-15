@@ -36,6 +36,8 @@ import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
 import 'package:models/port_end.dart';
+import 'package:models/undo_kind.dart';
+import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -141,14 +143,14 @@ List<String> rowIds(FlowDraft d, String id) => [
     d.blocks[id]!,
     edges: d.edges,
   ))
-    f.id,
+    f.id.key,
 ];
 
 FlowField field(FlowDraft d, String block, String id) => fieldsOf(
   types[d.blocks[block]!.type.wire],
   d.blocks[block]!,
   edges: d.edges,
-).firstWhere((f) => f.id == id);
+).firstWhere((f) => f.id.key == id);
 
 void main() {
   group('pins', () {
@@ -474,7 +476,9 @@ void main() {
       expect(now().blocks['avg']!.pins['p:fn'], isTrue);
       expect(rowIds(now(), 'avg'), contains('p:fn'));
 
-      s.dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: false));
+      s.dispatchSync(
+        SetFieldPinAction('avg', const FieldId.param('fn'), pinned: false),
+      );
       expect(rowIds(now(), 'avg'), contains('p:fn'), reason: 'bound');
 
       s.dispatchSync(DisconnectEdgeAction('out2', 'in'));
@@ -484,7 +488,9 @@ void main() {
         reason: 'a wire pins its field for good',
       );
 
-      s.dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: false));
+      s.dispatchSync(
+        SetFieldPinAction('avg', const FieldId.param('fn'), pinned: false),
+      );
       expect(rowIds(now(), 'avg'), isNot(contains('p:fn')));
       expect(now().blocks['avg']!.pins, isEmpty);
       expect(s.state.flowEditor.dirty, isTrue);
@@ -492,8 +498,16 @@ void main() {
 
     test('pins go out with a deploy and survive a reload', () async {
       s
-        ..dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: true))
-        ..dispatchSync(SetFieldPinAction('avg', 'p:size_s', pinned: false));
+        ..dispatchSync(
+          SetFieldPinAction('avg', const FieldId.param('fn'), pinned: true),
+        )
+        ..dispatchSync(
+          SetFieldPinAction(
+            'avg',
+            const FieldId.param('size_s'),
+            pinned: false,
+          ),
+        );
       await s.dispatchAndWait(DeployFlowAction());
       final sent = api.calls.lastWhere((c) => c.action == 'deploy').args!;
       final layout = toDart(sent['def']!['layout'])! as Map<String, Object?>;
@@ -567,7 +581,9 @@ void main() {
           MoveBlocksAction(const {'avg': (320, 60), 'text': (580, 60)}),
         )
         ..dispatchSync(ConnectPortsAction('level', 'out', 'window1', 'in'))
-        ..dispatchSync(SetFieldPinAction('avg', 'p:fn', pinned: true))
+        ..dispatchSync(
+          SetFieldPinAction('avg', const FieldId.param('fn'), pinned: true),
+        )
         ..dispatchSync(RemoveBlocksAction(const ['out2']));
       final end = now();
       expect(s.state.flowEditor.undo, hasLength(5));
@@ -659,7 +675,9 @@ void main() {
       // The arrows nudge with one tag: one step.
       for (var i = 1; i <= 3; i++) {
         s.dispatchSync(
-          MoveBlocksAction({'avg': (300 + 20.0 * i, 40)}, tag: 'nudge'),
+          MoveBlocksAction({
+            'avg': (300 + 20.0 * i, 40),
+          }, tag: const UndoTag(UndoKind.nudge)),
         );
       }
       expect(s.state.flowEditor.undo, hasLength(1));

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_edge.dart';
 
@@ -25,7 +23,7 @@ class ConnectPortsAction extends Action {
     if (d == null || from == to) {
       return null;
     }
-    unawaited(dispatchAndWait(ValidateFlowAction()));
+    _validate();
     return state.copyWith.flowEditor(
       // A key that gets a wire needs a scope: the editor asks for it in
       // place (flow-editor.md §17).
@@ -54,4 +52,9 @@ class ConnectPortsAction extends Action {
       undoTag: null,
     );
   }
+
+  /// The engine checks the draft again once the edits settle
+  /// ([ValidateFlowAction] is debounced and brings its own state); this
+  /// edit does not wait for it.
+  void _validate() => dispatch(ValidateFlowAction());
 }

@@ -1,10 +1,12 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/action_info.dart';
 import 'package:models/block_type.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/flow_frame.dart';
+import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
@@ -71,17 +73,15 @@ final class FlowCaps {
       'blocks: $blocks)';
 }
 
-/// `flowEditor.libraryOff` until the library has answered.
-const libraryUnread = 'unread';
-
 /// The capabilities of a broker whose catalog is [types]. [libraryOff] is
 /// why its library does not answer (`flowEditor.libraryOff`); null: it did.
-FlowCaps flowCapsOf(Iterable<NodeType> types, {String? libraryOff}) => FlowCaps(
-  scopes: types.any((t) => t.params.any((p) => p.scope != null)),
-  trigger: types.any((t) => t.trigger),
-  args: types.any((t) => t.dynInKeys),
-  blocks: libraryOff == null,
-);
+FlowCaps flowCapsOf(Iterable<NodeType> types, {LibraryOff? libraryOff}) =>
+    FlowCaps(
+      scopes: types.any((t) => t.params.any((p) => p.scope != null)),
+      trigger: types.any((t) => t.trigger),
+      args: types.any((t) => t.dynInKeys),
+      blocks: libraryOff == null,
+    );
 
 // ---------- the scope of a key from a port (ADR 0040 §1) ----------
 
@@ -159,14 +159,48 @@ ScopeProblem? scopeProblem(String scope, {required String site}) {
   return null;
 }
 
-/// The parameter that holds the scope of a type's key field (`key_scope`,
-/// `path_scope`) and the key parameter itself, by the catalog; null when
-/// its type has none (an older broker, another type).
-({String key, String scope, String port})? scopedKeyOf(NodeType? t) {
+/// A key parameter that may come on a port, and the parameter that holds
+/// its scope (ADR 0040 §1), by the catalog.
+final class ScopedKey {
+  const ScopedKey({required this.key, required this.scope, required this.port});
+
+  /// The key parameter (`key`, `path`).
+  final String key;
+
+  /// The parameter that holds its scope (`key_scope`, `path_scope`).
+  final String scope;
+
+  /// The input a key comes on (`in.key`).
+  final String port;
+
+  /// The key's field.
+  FieldId get keyField => FieldId.param(key);
+
+  /// The scope's field.
+  FieldId get scopeField => FieldId.param(scope);
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScopedKey &&
+      other.key == key &&
+      other.scope == scope &&
+      other.port == port;
+
+  @override
+  int get hashCode => Object.hash(key, scope, port);
+
+  @override
+  String toString() => 'ScopedKey($key, $scope, $port)';
+}
+
+/// The scoped key of a type ([ScopedKey]); null when its type has none
+/// (an older broker, another type).
+ScopedKey? scopedKeyOf(NodeType? t) {
   for (final p in t?.params ?? const IListConst<ParamSpec>([])) {
     final port = p.port;
-    if (p.scope != null && port != null) {
-      return (key: p.name, scope: p.scope!, port: port);
+    final scope = p.scope;
+    if (scope != null && port != null) {
+      return ScopedKey(key: p.name, scope: scope, port: port);
     }
   }
   return null;
@@ -190,10 +224,7 @@ bool scopeAsked(
   );
   return keyed != null &&
       keyed.port == toPort &&
-      switch (b.cfg[keyed.scope]) {
-        final String s => s.trim().isEmpty,
-        _ => true,
-      };
+      (b.textOf(keyed.scope)?.trim().isEmpty ?? true);
 }
 
 // ---------- a point or an action of the tree as a block (§18) ----------
@@ -206,12 +237,38 @@ final class EntryBlock {
   final Map<String, Object?> cfg;
 
   /// Fields taken off the block at once (an action's optional arguments).
-  final Map<String, bool> pins;
+  final Map<FieldId, bool> pins;
 }
 
 /// A full key as a definition writes it, relative to the site.
 String relativeKey(String key) =>
     key.startsWith('wy/') ? key.split('/').skip(2).join('/') : key;
+
+/// A point key of a definition (relative to the site, or full) as a full
+/// key under [root] (`wy/<site>`).
+String fullKey(String root, String key) =>
+    key.startsWith('wy/') ? key : '$root/$key';
+
+/// What a block's header says of the point [key] it names: the key
+/// without `wy/<site>/` and `downstream/` (`modbus/tank/level`), its
+/// parent's for a point of a node ([parent]: `modbus/tank`); empty for
+/// none.
+String connectionOf(String? key, {required bool parent}) {
+  if (key == null) {
+    return '';
+  }
+  var parts = key.split('/');
+  if (parts.first == 'wy' && parts.length > 2) {
+    parts = parts.skip(2).toList();
+  }
+  if (parts.first == scopeSections.first) {
+    parts = parts.skip(1).toList();
+  }
+  if (parent && parts.length > 1) {
+    parts = parts.take(parts.length - 1).toList();
+  }
+  return parts.join('/');
+}
 
 /// The block of [entry]: `key:<point>` reads it (`subscribe`), `set:<point>`
 /// writes it (`set`), `act:<node>/<action>` runs it (`invoke`, with one
@@ -269,7 +326,7 @@ EntryBlock? blockOfEntry(
     },
     pins: {
       for (final p in params)
-        if (!p.required) 'arg:${p.name}': false,
+        if (!p.required) FieldId.arg(p.name): false,
     },
   );
 }
@@ -610,9 +667,10 @@ BlockNameProblem? customBlockProblem(FlowDraft d, CustomBlockSpec spec) {
       .map((b) => b.x)
       .reduce((a, b) => a > b ? a : b);
   // The inside keeps the selection's shape, with room for the inputs block
-  // on its left.
+  // on its left. Only its nodes, edges and layout are kept: the
+  // definition of a block has no id.
   final inner = FlowDraft(
-    id: '',
+    id: d.id,
     blocks: {
       for (final b in sub.blocks.values)
         b.id: b.copyWith(x: b.x - left + 320, y: b.y - top + 60),
@@ -876,6 +934,15 @@ String? insidePath(IList<FlowFrame> frames) {
     parts.add(i);
   }
   return parts.join('/');
+}
+
+/// The id the engine knows block [id] of the canvas by: its own in the
+/// flow, `<instance>/<inner>` inside a custom block ([frames]). Null
+/// inside a block opened from the palette: no instance, so no running
+/// node.
+String? engineIdOf(IList<FlowFrame> frames, String id) {
+  final path = insidePath(frames);
+  return path == null ? null : (path.isEmpty ? id : '$path/$id');
 }
 
 /// The names + adds to a boundary block: `in1`, `in2`, … or `out1`, …,

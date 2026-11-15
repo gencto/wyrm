@@ -5,6 +5,7 @@ import 'package:business/redux/flow_editor/actions/connect_ports_action.dart';
 import 'package:business/redux/flow_editor/actions/deploy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/load_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/remove_blocks_action.dart';
+import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
@@ -15,6 +16,7 @@ import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/flow_problem_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -181,6 +183,26 @@ void main() {
       expect(s.state.flowEditor.draft, held);
       expect(s.state.flowEditor.version, 3);
     });
+
+    test(
+      "validate: the engine's words become a problem with the block "
+      'they name; an answer of another shape is one Studio cannot read',
+      () async {
+        await s.dispatchAndWait(LoadFlowAction('tank'));
+        api.invokes['wy/central/dataflows ▸ validate'] = [
+          Value.from({'ok': false, 'error': 'scale: in.zz is no input'}),
+        ];
+        await s.dispatchAndWait(ValidateFlowAction());
+        expect(
+          s.state.flowEditor.problems.single.message,
+          'scale: in.zz is no input',
+        );
+        expect(s.state.flowEditor.problems.single.block, 'scale');
+        api.invokes['wy/central/dataflows ▸ validate'] = [const VArray([])];
+        await s.dispatchAndWait(ValidateFlowAction());
+        expect(s.state.flowEditor.problems.single.kind, FlowProblemKind.unread);
+      },
+    );
 
     test('loads, edits and deploys version + 1', () async {
       await s.dispatchAndWait(LoadFlowAction('tank'));
