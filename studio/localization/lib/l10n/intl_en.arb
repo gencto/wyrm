@@ -1757,7 +1757,7 @@
     "updVersionsOf": "Versions of {package}",
     "updNeverUpdated": "This package was not updated on this broker yet.",
     "bakNoBackups": "This broker makes no backups for Studio (a wyrmd before ADR 0048).",
-    "planSteps": "Plan · {n} steps",
+    "planSteps": "{n, plural, =1{Plan · 1 step} other{Plan · {n} steps}}",
     "planChecked": "awaiting approval · checked",
     "planWhyNote": "The lines after “why” and under “the assistant says” come from the model; a warning on the yellow band is the link's own check. Read the key and the arguments of each step: they are what runs.",
     "checkNow": "checked against the live tree",

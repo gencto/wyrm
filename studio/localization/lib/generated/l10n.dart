@@ -13976,10 +13976,12 @@ class S {
     );
   }
 
-  /// `Plan · {n} steps`
-  String planSteps(Object n) {
-    return Intl.message(
-      'Plan · $n steps',
+  /// `{n, plural, =1{Plan · 1 step} other{Plan · {n} steps}}`
+  String planSteps(num n) {
+    return Intl.plural(
+      n,
+      one: 'Plan · 1 step',
+      other: 'Plan · $n steps',
       name: 'planSteps',
       desc: '',
       args: [n],

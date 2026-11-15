@@ -203,13 +203,20 @@ void main() {
   testWidgets('while the model reviews the run: a spinner, and Cancel', (
     tester,
   ) async {
+    // a review of an earlier run is still in the record while the model
+    // reads this one: it is not shown
     final app = AssistantApp()
-      ..task('t-1', _failed(suggestions: const [], reviewing: true));
+      ..task(
+        't-1',
+        _failed(suggestions: const [], reviewing: true)
+          ..['review'] = 'Unit 3 did not answer last time.',
+      );
     await app.pump(tester, selected: 't-1');
 
     final card = tester.widget<StoppedCard>(find.byType(StoppedCard)).vm;
     expect(card.reviewingNote, 'The assistant reads why it stopped…');
-    expect(card.review, isNull);
+    expect(card.reviewWords, isNull);
+    expect(find.text('Unit 3 did not answer last time.'), findsNothing);
     expect(find.byType(ArcSpinner), findsOneWidget);
     expect(_button(tester, 'Cancel task').onPressed, isNotNull);
   });

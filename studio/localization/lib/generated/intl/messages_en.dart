@@ -546,7 +546,8 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m229(s) => "${s} s";
 
-  static String m230(n) => "Plan · ${n} steps";
+  static String m230(n) =>
+      "${Intl.plural(n, one: 'Plan · 1 step', other: 'Plan · ${n} steps')}";
 
   static String m231(s) => "timeout ${s} s";
 
