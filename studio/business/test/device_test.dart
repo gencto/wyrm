@@ -29,6 +29,7 @@ import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/staged_change.dart';
@@ -217,6 +218,25 @@ void main() {
       expect(s.state.problems.toasts, isNotEmpty, reason: 'a quiet toast');
     });
   });
+
+  test(
+    'on linux no key is made and nothing goes to the gateway',
+    () async {
+      final c = _Computer();
+      final s = await c.loggedIn();
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+      final status = await s.dispatchAndWait(
+        EnableDeviceAction(reason: 'turn on'),
+      );
+
+      expect(status.originalError, isA<UserException>());
+      expect(c.gateway.records, isEmpty);
+      expect(c.keys.has(keyAlias(_origin, _user)), isFalse);
+      expect(c.keys.reasons, isEmpty, reason: 'no OS prompt');
+    },
+  );
 
   group('unlock on start', () {
     test('a key shows Welcome back and logs in with it', () async {

@@ -41,6 +41,19 @@ class EnableDeviceAction extends Action with WaitingAction {
     final keys = deps.deviceKey;
     final alias = keyAlias(account.origin, account.user);
     final name = device.name ?? 'biometrics';
+    // The gateway takes a device key only from a platform of its set: on
+    // linux and the web Studio refuses here, and sends nothing.
+    final host = hostPlatform();
+    final platform = host.device;
+    if (platform == null) {
+      dispatchSync(_Left());
+      throw StudioException.said(
+        ErrorKind.studio,
+        'no device key on ${host.name}',
+        call: 'enable_device',
+        thing: name,
+      );
+    }
     try {
       if (password case final pw?) {
         await session.confirmWithPassword(pw);
@@ -55,7 +68,7 @@ class EnableDeviceAction extends Action with WaitingAction {
           site: site,
           user: account.user,
           name: deviceName(),
-          platform: hostPlatform().device?.wire ?? hostPlatform().name,
+          platform: platform.wire,
           alg: pub.alg,
           publicKey: pub.publicKey,
           sign: signer(keys, alias, reason),
