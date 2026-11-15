@@ -1,7 +1,9 @@
 import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flow_editor/actions/drop_point_on_input_action.dart';
 import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
+import 'package:business/redux/flow_editor/actions/palette_menu_action.dart';
 import 'package:business/redux/flow_editor/actions/pick_palette_entry_action.dart';
+import 'package:business/redux/flow_editor/actions/rename_custom_block_action.dart';
 import 'package:business/wyrm/flow_view/block_view.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
 import 'package:business/wyrm/flow_view/menu_view.dart';
@@ -10,6 +12,7 @@ import 'package:business/wyrm/flow_view/palette_view.dart';
 import 'package:business/wyrm/flow_view/prompt_view.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:models/field_id.dart';
 import 'package:models/flow_edit.dart';
@@ -536,4 +539,64 @@ extension BlocksMovedAction on BlocksMoved {
   MoveBlocksAction get action => MoveBlocksAction({
     for (final MapEntry(:key, :value) in to.entries) key: (value.dx, value.dy),
   }, tag: nudge ? const UndoTag(UndoKind.nudge) : null);
+}
+
+/// What the create dialog handed back, as the block to make.
+extension CustomBlockResultSpec on CustomBlockResult {
+  CustomBlockSpec get spec => customBlockSpecOf(
+    name: name,
+    description: description,
+    inputs: inputs,
+    outputs: outputs,
+    defaults: defaults,
+  );
+}
+
+/// The palette of the flow editor, as the tab shown draws it; each gesture
+/// on an entry becomes the action `act` runs.
+extension FlowViewPalette on FlowView {
+  /// The entries of the Blocks or the My blocks tab.
+  IList<PaletteEntryVm> paletteVms(ValueChanged<Action> act) {
+    void place(PaletteEntry entry, Place at) {
+      if (placeActionOf(entry, at) case final action?) {
+        act(action);
+      }
+    }
+
+    return switch (palette) {
+      PaletteTab.tree => const IListConst([]),
+      PaletteTab.my => [
+        for (final m in myBlocks)
+          m.vm(
+            place: (p) => place(m.entry, p),
+            onMenu: (item) => act(PaletteMenuAction(m.name, item.item)),
+            onRename: (name) => act(RenameCustomBlockAction(m.name, name)),
+          ),
+        for (final l in library)
+          l.vm(
+            place: (p) => place(l.entry, p),
+            onMenu: (item) => act(PaletteMenuAction(l.name, item.item)),
+          ),
+      ].lock,
+      PaletteTab.blocks => [
+        for (final c in catalog) c.vm((p) => place(EnginePick(c.type), p)),
+      ].lock,
+    };
+  }
+
+  /// The rows of the Tree tab; null on the other tabs. A row that only
+  /// opens places nothing.
+  IList<PaletteTreeRowVm>? treeVms(ValueChanged<Action> act) => switch (tree) {
+    final rows? => [
+      for (final e in rows)
+        e.vm(root, (p) {
+          if (e.entry case final entry?) {
+            if (placeActionOf(entry, p) case final action?) {
+              act(action);
+            }
+          }
+        }),
+    ].lock,
+    null => null,
+  };
 }

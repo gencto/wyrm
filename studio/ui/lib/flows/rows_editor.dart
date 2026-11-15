@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
@@ -29,9 +30,6 @@ final class RowsEditorVm extends Equatable {
     required this.id,
     required this.columns,
     required this.rows,
-    this.addLabel = 'Add a row',
-    this.removeLabel = 'Remove this row',
-    this.emptyLabel = 'No rows yet',
   });
 
   final String id;
@@ -39,19 +37,9 @@ final class RowsEditorVm extends Equatable {
 
   /// Each row: a text per column key.
   final List<Map<String, String>> rows;
-  final String addLabel;
-  final String removeLabel;
-  final String emptyLabel;
 
   @override
-  List<Object?> get props => [
-    id,
-    columns,
-    rows,
-    addLabel,
-    removeLabel,
-    emptyLabel,
-  ];
+  List<Object?> get props => [id, columns, rows];
 }
 
 /// The list editor of the flow inspector (flow-editor.md §6): a header of
@@ -204,7 +192,7 @@ class _RowsEditorState extends State<RowsEditor> {
         children: [
           if (_rows.isEmpty)
             Text(
-              widget.vm.emptyLabel,
+              S.current.rowsEmpty,
               style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             )
           else
@@ -232,7 +220,7 @@ class _RowsEditorState extends State<RowsEditor> {
                   width: AppSizes.flowRowsRemove,
                   height: AppSizes.flowControl,
                   child: Tooltip(
-                    message: widget.vm.removeLabel,
+                    message: S.current.rowsRemove,
                     child: InkWell(
                       key: ValueKey('rows-${widget.vm.id}-remove-$r'),
                       borderRadius: const BorderRadius.all(
@@ -258,7 +246,7 @@ class _RowsEditorState extends State<RowsEditor> {
               onPressed: _add,
               icon: Text('+', style: mono(color: c.ember)),
               label: Text(
-                widget.vm.addLabel,
+                S.current.rowsAdd,
                 style: TextStyle(fontSize: FontSizes.sm, color: c.ember),
               ),
             ),

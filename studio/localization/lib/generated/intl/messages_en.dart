@@ -2300,6 +2300,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "followUpTileNote": MessageLookupByLibrary.simpleMessage(
       "a new ask that follows this task",
     ),
+    "formLinear": MessageLookupByLibrary.simpleMessage("k × in + b"),
+    "formRange": MessageLookupByLibrary.simpleMessage("Range"),
     "foundBad": MessageLookupByLibrary.simpleMessage("bad now"),
     "foundGood": MessageLookupByLibrary.simpleMessage("good now"),
     "foundNoValue": MessageLookupByLibrary.simpleMessage("no value read"),
@@ -2917,6 +2919,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "problemCodeMismatch": MessageLookupByLibrary.simpleMessage(
       "Not offered: the CA code it announced is not the code of its CA.",
     ),
+    "problemInvalid": MessageLookupByLibrary.simpleMessage("invalid"),
     "problemNoAnswer": m240,
     "problemNoCa": MessageLookupByLibrary.simpleMessage(
       "Not offered: this computer does not trust its certificate, and it sends no CA to check.",
@@ -2931,6 +2934,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Not offered: plain http off this computer is refused (insecure_plaintext).",
     ),
     "problemStudioTooOld": m241,
+    "problemUnnamed": MessageLookupByLibrary.simpleMessage("name the flow"),
     "problems": MessageLookupByLibrary.simpleMessage("Problems"),
     "problemsClear": MessageLookupByLibrary.simpleMessage("Clear all"),
     "problemsClose": MessageLookupByLibrary.simpleMessage("Close problems"),

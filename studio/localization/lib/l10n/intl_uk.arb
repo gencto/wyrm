@@ -2140,5 +2140,9 @@
     "errRunDenied": "Тобі не можна запустити його: це потребує write на флоу і прав на те, на що діють блок і блоки після нього.",
     "errRunNotRunning": "Флоу не працює.",
     "errRunNoTrigger": "Цей брокер не має дії trigger (потрібен ADR 0040).",
-    "errRunNotByHand": "Цей блок не можна запустити вручну."
+    "errRunNotByHand": "Цей блок не можна запустити вручну.",
+    "formLinear": "k × in + b",
+    "formRange": "Діапазон",
+    "problemUnnamed": "назвіть потік",
+    "problemInvalid": "недійсний"
 }

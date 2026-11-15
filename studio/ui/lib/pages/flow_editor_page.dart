@@ -15,6 +15,7 @@ import '../flows/flow_canvas.dart';
 import '../flows/flow_intents.dart';
 import '../flows/flow_menu.dart';
 import '../flows/flow_status.dart';
+import '../flows/flow_viewer.dart';
 import '../flows/scope_prompt.dart';
 import '../flows/shortcut_card.dart';
 import '../forms/param_form.dart';
@@ -68,10 +69,8 @@ class FlowEditorPage extends StatelessWidget {
     this.deployOff,
     this.myBlocksOff = false,
     this.paletteClosed = const {},
-    this.nameField,
-    this.inspectorKind = '',
-    this.inspectorTitle = '',
-    this.inspectorNote = '',
+    this.newFlowName,
+    this.inspector,
     this.inspectorRows = const [],
     this.summary,
     this.onRemove,
@@ -92,7 +91,7 @@ class FlowEditorPage extends StatelessWidget {
     this.onViewField,
     this.onFieldPin,
     this.onSaveViewer,
-    this.validateViewer,
+    this.checkViewer,
     this.viewerTables,
     this.mac,
     this.crumbs = const [],
@@ -110,6 +109,7 @@ class FlowEditorPage extends StatelessWidget {
     this.onPromptCancel,
     this.checkScope,
     this.onRun,
+    this.onForm,
     this.onOpenInside,
     super.key,
   });
@@ -148,8 +148,12 @@ class FlowEditorPage extends StatelessWidget {
   final VoidCallback? onPromptCancel;
   final QueryVm<String, ScopeProblemVm?>? checkScope;
 
-  /// The `Run` button of an inspector row (an unbound `Trigger`).
-  final ValueChanged<String>? onRun;
+  /// The `Run` button of an inspector row (an unbound `Trigger`): its
+  /// index.
+  final ValueChanged<int>? onRun;
+
+  /// A form picked on the inspector's Form row.
+  final ValueChanged<BlockFormVm>? onForm;
 
   /// `Open inside` above the inspector's rows (an instance of a custom
   /// block); null: none.
@@ -194,14 +198,15 @@ class FlowEditorPage extends StatelessWidget {
   /// The pencil of a canvas row (the scope of a key).
   final ValueChanged<RowRef>? onRowAction;
 
-  /// The pin of an inspector row (a field of the selected block).
-  final Toggled<String>? onFieldPin;
+  /// The pin of an inspector row (a field of the selected block), by its
+  /// index.
+  final ValueChanged<RowPinned>? onFieldPin;
 
   /// Save of the viewer's Edit mode: the editor's text.
   final ValueChanged<String>? onSaveViewer;
 
   /// What is wrong with a text typed in the viewer; null: it saves.
-  final Validate<String>? validateViewer;
+  final QueryVm<String, ViewerTextProblemVm?>? checkViewer;
 
   /// How the viewer reads and writes tables (a date cell, CSV).
   final ViewerTables? viewerTables;
@@ -249,16 +254,18 @@ class FlowEditorPage extends StatelessWidget {
   final VoidCallback onClear;
   final ValueChanged<BlocksMoved> onMove;
 
-  /// The id field of a new flow.
-  final ParamFieldVm? nameField;
-  final String inspectorKind;
-  final String inspectorTitle;
-  final String inspectorNote;
+  /// The id of a new flow, typed; null: the flow has one.
+  final FieldVm<String>? newFlowName;
+
+  /// The selected block's kind, title and note; null: none is selected.
+  final InspectorHeadVm? inspector;
   final List<InspectorRowVm> inspectorRows;
   final FlowSummaryVm? summary;
-  final FieldEdited onFieldChanged;
-  final ValueChanged<String> onFieldUnbind;
-  final FieldBound<FieldRefVm> onFieldBind;
+
+  /// An inspector row typed, bound or unbound, by its index.
+  final ValueChanged<RowTyped> onFieldChanged;
+  final ValueChanged<int> onFieldUnbind;
+  final ValueChanged<RowBound> onFieldBind;
   final ValueChanged<String> onProblem;
   final VoidCallback? onRemove;
 
@@ -266,14 +273,18 @@ class FlowEditorPage extends StatelessWidget {
   final ValueChanged<String>? onGoToSource;
 
   /// The open value viewer of a field, live; null: none is open.
-  final ValueViewerVm? viewer;
+  final FlowViewerVm? viewer;
 
-  /// The eye of an inspector row (its id): opens the viewer.
-  final ValueChanged<String>? onView;
+  /// The eye of an inspector row (its index): opens the viewer.
+  final ValueChanged<int>? onView;
   final VoidCallback? onCloseViewer;
 
   /// The frameless window's side of the top bar (docs/studio.md §7.1).
   final WindowBarVm window;
+
+  /// The definition's key the id field of a new flow types: the raw name
+  /// its tooltip shows.
+  static const _flowIdParam = 'id';
 
   /// The flow's name in the path: its id, or `New dataflow`.
   String get _flowLabel => flowName ?? S.current.newDataflow;
@@ -470,10 +481,13 @@ class FlowEditorPage extends StatelessWidget {
                     Positioned.fill(
                       child: ValueViewer(
                         key: const ValueKey('value-viewer'),
-                        vm: v,
+                        vm: v.vm,
                         onClose: onCloseViewer ?? () {},
                         onSave: onSaveViewer,
-                        validate: validateViewer,
+                        validate: switch (checkViewer) {
+                          final q? => (text) => q.ask(text)?.label,
+                          null => null,
+                        },
                         tables: viewerTables,
                         copyLabel: S.current.copyValue,
                         copiedLabel: S.current.copiedValue,
@@ -594,42 +608,37 @@ class FlowEditorPage extends StatelessWidget {
       width: panels.right,
       defaultWidth: AppSizes.flowInspector,
       child: FieldInspector(
-        header: switch (nameField) {
+        header: switch (newFlowName) {
           final f? => Padding(
             padding: Insets.flowInspectorName,
-            child: ParamField(vm: f),
+            child: ParamField(
+              vm: ParamFieldVm(
+                id: _flowIdParam,
+                label: S.current.flowName,
+                kind: ParamKind.text,
+                value: f.value,
+                required: true,
+                hint: 'tank_level',
+                onChanged: (v) => f.onChanged('${v ?? ''}'),
+              ),
+            ),
           ),
           null => null,
         },
-        kindLabel: inspectorKind,
-        title: inspectorTitle,
-        note: inspectorNote,
+        head: inspector,
         rows: inspectorRows,
         summary: summary,
-        footer: [S.current.flowPropertiesNote, S.current.flowPropertiesNote2],
         onChanged: onFieldChanged,
         onUnbind: onFieldUnbind,
         onBind: onFieldBind,
         onProblem: onProblem,
         onGoToSource: onGoToSource,
-        unbindLabel: S.current.unbind,
-        goToSourceLabel: S.current.goToSource,
-        boundLabel: S.current.boundMark,
-        suggestLabel: S.current.suggestPick,
-        removeLabel: S.current.removeBlock,
         onRemove: onRemove,
         onView: onView,
-        viewLabel: S.current.viewValue,
         onPin: onFieldPin,
-        pinLabel: S.current.pinField,
-        unpinLabel: S.current.unpinField,
-        pinLockedLabel: S.current.pinLocked,
         onRun: onRun,
-        links: [
-          if (onOpenInside case final open?) (S.current.openInside, open),
-        ],
-        confirmLabel: S.current.turnOn,
-        cancelLabel: S.current.cancel,
+        onForm: onForm,
+        onOpenInside: onOpenInside,
       ),
     ),
   );

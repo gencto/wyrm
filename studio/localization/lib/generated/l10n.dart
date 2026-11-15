@@ -17413,6 +17413,31 @@ class S {
       args: [],
     );
   }
+
+  /// `k × in + b`
+  String get formLinear {
+    return Intl.message('k × in + b', name: 'formLinear', desc: '', args: []);
+  }
+
+  /// `Range`
+  String get formRange {
+    return Intl.message('Range', name: 'formRange', desc: '', args: []);
+  }
+
+  /// `name the flow`
+  String get problemUnnamed {
+    return Intl.message(
+      'name the flow',
+      name: 'problemUnnamed',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `invalid`
+  String get problemInvalid {
+    return Intl.message('invalid', name: 'problemInvalid', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

@@ -36,11 +36,11 @@ void main() {
       SizedBox(
         width: 340,
         child: FieldInspector(
-          footer: const [],
           rows: rows,
-          onChanged: (id, v) => changed.add('$id=$v'),
+          // The row's index back to its id, as the harness names it.
+          onChanged: (t) => changed.add('${rows[t.row].id}=${t.text}'),
           onUnbind: (_) {},
-          onBind: (_, _) {},
+          onBind: (_) {},
           onProblem: (_) {},
         ),
       ),

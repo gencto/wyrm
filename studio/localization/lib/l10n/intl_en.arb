@@ -2152,5 +2152,9 @@
     "errRunDenied": "You may not run it: this needs write on the flow, and the rights of what the block and the blocks after it act on.",
     "errRunNotRunning": "The flow is not running.",
     "errRunNoTrigger": "This broker has no trigger action (it needs ADR 0040).",
-    "errRunNotByHand": "This block cannot be run by hand."
+    "errRunNotByHand": "This block cannot be run by hand.",
+    "formLinear": "k × in + b",
+    "formRange": "Range",
+    "problemUnnamed": "name the flow",
+    "problemInvalid": "invalid"
 }

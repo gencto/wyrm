@@ -109,7 +109,22 @@ enum FlowOffReason {
   needsBroker,
   nothingToUndo,
   nothingToRedo,
-  notCustom;
+  notCustom,
+
+  /// `Run` of a block: the broker has no `trigger` action.
+  runNoBroker,
+
+  /// `Run`: the flow is not deployed.
+  runNotDeployed,
+
+  /// `Run`: the draft differs from the deployed version.
+  runDraft,
+
+  /// `Run`: a block of a custom block opened from the palette.
+  runNoInstance,
+
+  /// `Run`: the block is disabled.
+  runOff;
 
   String get label => switch (this) {
     loading => S.current.loading,
@@ -126,6 +141,11 @@ enum FlowOffReason {
     nothingToUndo => S.current.fmNothingToUndo,
     nothingToRedo => S.current.fmNothingToRedo,
     notCustom => S.current.fmNotCustom,
+    runNoBroker => S.current.runNoBroker,
+    runNotDeployed => S.current.runNotDeployed,
+    runDraft => S.current.runDraft,
+    runNoInstance => S.current.runNoInstance,
+    runOff => S.current.runOff,
   };
 }
 

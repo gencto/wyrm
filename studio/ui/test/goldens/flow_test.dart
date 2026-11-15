@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/models/disabled.dart';
 import 'package:ui/theme/common.dart';
 
 import '../frames/flow.dart';
@@ -300,9 +301,7 @@ void main() {
       'flow_action_run',
       flowActionBlock(
         button: true,
-        runReason:
-            'Deploy first: Run acts on the deployed version, and the draft '
-            'differs from it',
+        runOff: const FlowOff(.runDraft),
         preview: true,
       ),
     ),

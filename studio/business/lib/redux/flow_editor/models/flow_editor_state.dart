@@ -53,6 +53,7 @@ abstract class FlowEditorState with _$FlowEditorState {
 
     /// Why custom blocks are off; null once the library answered.
     LibraryOff? libraryOff,
+
     /// The route the editor was opened on (`newFlowId`: a new flow).
     String? route,
   }) = _FlowEditorState;

@@ -181,9 +181,7 @@ final class FlowView extends Equatable {
   /// canvas (what the canvas reports a row by); null when there is none.
   FieldId? rowAt(String block, int row) {
     final rows = blocks.where((b) => b.id == block).firstOrNull?.rows;
-    return rows == null || row < 0 || row >= rows.length
-        ? null
-        : rows[row].id;
+    return rows == null || row < 0 || row >= rows.length ? null : rows[row].id;
   }
 
   @override

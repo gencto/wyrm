@@ -238,9 +238,9 @@ void main() {
           onUnbind: base.onUnbind,
           onClear: () {},
           onMove: (_) {},
-          onFieldChanged: (_, _) {},
+          onFieldChanged: (_) {},
           onFieldUnbind: (_) {},
-          onFieldBind: (_, _) {},
+          onFieldBind: (_) {},
           onProblem: (_) {},
         ),
       );
@@ -304,13 +304,13 @@ void main() {
         SizedBox(
           width: 340,
           child: FieldInspector(
-            footer: const [],
             rows: rows,
-            onChanged: (id, v) => changed.add('$id=$v'),
+            // The row's index back to its id, as the harness names it.
+            onChanged: (t) => changed.add('${rows[t.row].id}=${t.text}'),
             onUnbind: (_) {},
-            onBind: (_, _) {},
+            onBind: (_) {},
             onProblem: (_) {},
-            onRun: ran?.add,
+            onRun: ran == null ? null : (i) => ran.add(rows[i].id),
           ),
         ),
       );
@@ -340,7 +340,6 @@ void main() {
           id: 'in:trigger',
           name: 'Trigger',
           editor: FieldEditorVm.run,
-          value: 'Run',
         ),
       ], ran: ran);
       await tester.tap(find.byKey(const ValueKey('run-in:trigger')));
@@ -354,8 +353,7 @@ void main() {
           id: 'in:trigger',
           name: 'Trigger',
           editor: FieldEditorVm.run,
-          value: 'Run',
-          disabledReason: 'Deploy the flow first',
+          off: FlowOff(.runNotDeployed),
         ),
       ], ran: ran);
       expect(find.text('Deploy the flow first'), findsOneWidget);
@@ -417,7 +415,7 @@ void main() {
         name: 'Run on start',
         editor: FieldEditorVm.toggle,
         value: 'false',
-        confirm: ('Run on every start?', 'WARNING: true runs this command.'),
+        confirm: 'WARNING: true runs this command.',
       );
       final changed = await inspector(tester, const [row]);
       await tester.tap(find.byKey(const ValueKey('toggle-p:run_on_start')));
@@ -485,9 +483,9 @@ void main() {
           onUnbind: base.onUnbind,
           onClear: () {},
           onMove: (_) {},
-          onFieldChanged: (_, _) {},
+          onFieldChanged: (_) {},
           onFieldUnbind: (_) {},
-          onFieldBind: (_, _) {},
+          onFieldBind: (_) {},
           onProblem: (_) {},
           crumbs: const ['outer', 'inner'],
           onBack: back.add,

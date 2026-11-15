@@ -387,6 +387,10 @@ final class InspectorView extends Equatable {
   final bool openInside;
   final IList<InspectorRow> rows;
 
+  /// The field of the inspector's row [row] (its index, as the inspector
+  /// draws [rows]); null when there is none.
+  RowId? rowAt(int row) => row >= 0 && row < rows.length ? rows[row].id : null;
+
   @override
   List<Object?> get props => [
     id,

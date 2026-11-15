@@ -68,7 +68,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
   }
 
-  ValueViewerVm typed(TableDataVm t, {String? locked}) => ValueViewerVm(
+  ValueViewerVm typed(TableDataVm t, {ViewerLockVm? locked}) => ValueViewerVm(
     title: 'table1.value',
     type: 'table',
     size: '${t.rows.length} rows · ${t.columns.length} columns',
@@ -97,7 +97,7 @@ void main() {
       ],
     );
     final started = DateTime.now();
-    await show(tester, typed(big, locked: 'Read only.'), canSave: false);
+    await show(tester, typed(big, locked: .output), canSave: false);
     expect(
       DateTime.now().difference(started),
       lessThan(const Duration(seconds: 5)),
@@ -119,7 +119,7 @@ void main() {
   testWidgets('cells by type; the filter counts what it keeps', (
     tester,
   ) async {
-    await show(tester, typed(pumps(), locked: 'Read only.'), canSave: false);
+    await show(tester, typed(pumps(), locked: .output), canSave: false);
     expect(find.text('null'), findsOneWidget);
     expect(find.text('{"zone":"A"}'), findsOneWidget);
     final kw = tester.widget<Text>(
@@ -136,11 +136,11 @@ void main() {
   testWidgets('a wired table is read only and says why', (tester) async {
     await show(
       tester,
-      typed(pumps(), locked: 'Read only: a wire feeds this field.'),
+      typed(pumps(), locked: .bound),
     );
     expect(find.byKey(const ValueKey('table-add-row')), findsNothing);
     expect(find.byKey(const ValueKey('viewer-edit')), findsNothing);
-    expect(find.text('Read only: a wire feeds this field.'), findsOneWidget);
+    expect(find.text(ViewerLockVm.bound.label), findsOneWidget);
     await tester.tap(cell(0, 0));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(cell(0, 0));

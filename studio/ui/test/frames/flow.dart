@@ -13,6 +13,7 @@ import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/flow_status.dart';
+import 'package:ui/flows/flow_viewer.dart';
 import 'package:ui/flows/scope_prompt.dart';
 import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/indicators/quality_mark.dart';
@@ -40,7 +41,48 @@ final _refusal = QueryVm<BindAsk, BindRefusalVm?>(
 
 void _id(String _) {}
 void _tab(PaletteTabVm _) {}
-void _two(String _, String _) {}
+void _typed(RowTyped _) {}
+
+/// The moment [age] before now: a deploy `12 min ago` on a board.
+DateTime _ago(Duration age) => DateTime.now().subtract(age);
+void _index(int _) {}
+void _rowBound(RowBound _) {}
+void _pinned(RowPinned _) {}
+
+/// The head of the inspector as a board words it (its kind, title and note
+/// in English): the kind and a note of the app's own as their values, any
+/// other note as the catalogue's description.
+InspectorHeadVm? _head(String kind, String title, String note) {
+  if (kind.isEmpty) {
+    return null;
+  }
+  const kinds = {
+    'Custom block': InspectorKindVm.ports,
+    'Tree node': InspectorKindVm.node,
+    'Logic block': InspectorKindVm.logic,
+    'Sink': InspectorKindVm.sink,
+    'Action': InspectorKindVm.action,
+    'My block': InspectorKindVm.my,
+  };
+  final notes = {
+    for (final n in InspectorNoteVm.values)
+      if (n != InspectorNoteVm.catalog)
+        InspectorHeadVm(kind: .logic, id: '', note: n).noteText: n,
+  };
+  final known = notes[note];
+  return InspectorHeadVm(
+    kind: kinds[kind]!,
+    id: title,
+    boundary: switch (title) {
+      'Inputs' => BoundaryVm.inputs,
+      'Outputs' => BoundaryVm.outputs,
+      _ => null,
+    },
+    note: known ?? InspectorNoteVm.catalog,
+    description: known == null ? note : '',
+  );
+}
+
 void _place(Place _) {}
 void _rowRef(RowRef _) {}
 void _bindWire(WireDropped _) {}
@@ -354,27 +396,26 @@ FlowEditorPage _bind({
   refusal: _refusal,
   onClear: () {},
   onMove: _moved,
-  inspectorKind: kind,
-  inspectorTitle: title,
-  inspectorNote: note,
+  inspector: _head(kind, title, note),
   inspectorRows: rows,
   summary: summary,
-  onFieldChanged: _two,
-  onFieldUnbind: _id,
-  onFieldBind: (_, _) {},
+  onFieldChanged: _typed,
+  onFieldUnbind: _index,
+  onFieldBind: _rowBound,
   onProblem: _id,
   onRemove: selected == null ? null : () {},
-  onView: _id,
-  viewer: viewer,
+  onView: _index,
+  viewer: viewer == null ? null : FieldViewerVm(viewer),
   viewerTables: tables,
   onCloseViewer: () {},
   onSelectMany: _selected,
   onCommand: _command,
   onViewField: _rowRef,
-  onFieldPin: pins ? (_, {required on}) {} : null,
+  onFieldPin: pins ? _pinned : null,
   onSaveViewer: _id,
-  validateViewer: (text) =>
-      text.contains('oops') ? 'Not a JSON map or list' : null,
+  checkViewer: QueryVm(
+    (text) => text.contains('oops') ? ViewerTextProblemVm.json : null,
+  ),
   mac: true,
   menu: QueryVm(
     (ask) => _menu(
@@ -512,9 +553,8 @@ FlowEditorPage flowSelection() {
         b.marked(selected: picked.contains(b.id)),
     ],
     summary: const FlowSummaryVm(
-      label: 'Flow',
-      title: 'tank-level',
-      facts: [('Version', '4'), ('Values', 'the deployed version')],
+      name: 'tank-level',
+      facts: [FactVersion(4), FactValues(.deployed)],
     ),
   );
 }
@@ -546,9 +586,7 @@ FlowEditorPage flowViewerEdit({bool locked = false}) => flowLongOutput(
             kind: .json,
             text: '{\n  "unit": "%",\n  "display": "Tank 3",\n  "max": 100\n}',
           ),
-    locked: locked
-        ? 'Read only: a wire feeds this field. Unbind it to type a value.'
-        : null,
+    locked: locked ? ViewerLockVm.bound : null,
   ),
 );
 
@@ -591,7 +629,7 @@ List<InspectorRowVm> _caseRows(int cases) => [
     engine: 'output',
     editor: FieldEditorVm.output,
     value: '100',
-    targets: '→ plc1.fan',
+    targets: ['plc1.fan'],
   ),
 ];
 
@@ -607,22 +645,24 @@ FlowEditorPage flowBlockSelected() => _bind(
 /// FlowBind with nothing selected: the flow's summary.
 FlowEditorPage flowNothingSelected() => _bind(
   selected: null,
-  summary: const FlowSummaryVm(
-    label: 'Flow',
-    title: 'tank-level',
+  summary: FlowSummaryVm(
+    name: 'tank-level',
     facts: [
-      ('Version', '4'),
-      ('Deployed by', 'olena · 12 min ago'),
-      ('May write', 'write'),
-      (
-        'Reads',
-        'downstream/modbus/tcp-boiler/t1, downstream/modbus/tcp-boiler/t2',
-      ),
-      ('Writes', 'downstream/modbus/tcp-boiler/fan'),
+      const FactVersion(4),
+      FactDeployedBy('olena', at: _ago(const Duration(minutes: 12))),
+      const FactMayWrite(.write),
+      const FactReads([
+        'downstream/modbus/tcp-boiler/t1',
+        'downstream/modbus/tcp-boiler/t2',
+      ]),
+      const FactWrites(['downstream/modbus/tcp-boiler/fan']),
     ],
-    problemsLabel: 'Problems',
-    problems: [
-      ProblemVm('node script: expr: unknown variable c', block: 'script'),
+    problems: const [
+      FlowProblemVm(
+        .broker,
+        message: 'node script: expr: unknown variable c',
+        block: 'script',
+      ),
     ],
   ),
 );
@@ -854,9 +894,11 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
   refusal: _refusal,
   onClear: () {},
   onMove: _moved,
-  inspectorKind: 'Action',
-  inspectorTitle: 'stop_pump',
-  inspectorNote: 'Dragged from the tree. Runs when run when turns true; ok, code and message come back.',
+  inspector: _head(
+    'Action',
+    'stop_pump',
+    'Dragged from the tree. Runs when run when turns true; ok, code and message come back.',
+  ),
   inspectorRows: const [
     InspectorRowVm(
       id: 'run when',
@@ -882,7 +924,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       engine: 'ok',
       editor: FieldEditorVm.output,
       value: 'true',
-      targets: 'not bound',
     ),
     InspectorRowVm(
       id: 'code',
@@ -890,7 +931,6 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       engine: 'code',
       editor: FieldEditorVm.output,
       value: '—',
-      targets: 'not bound',
     ),
     InspectorRowVm(
       id: 'message',
@@ -898,12 +938,11 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
       engine: 'message',
       editor: FieldEditorVm.output,
       value: 'stopped',
-      targets: 'not bound',
     ),
   ],
-  onFieldChanged: _two,
-  onFieldUnbind: _id,
-  onFieldBind: (_, _) {},
+  onFieldChanged: _typed,
+  onFieldUnbind: _index,
+  onFieldBind: _rowBound,
   onProblem: _id,
   onRemove: () {},
 );
@@ -1025,7 +1064,7 @@ FlowEditorPage flowScale({required bool range}) {
         engine: 'out',
         editor: FieldEditorVm.output,
         value: '92.6',
-        targets: '→ show.Value',
+        targets: ['show.Value'],
       ),
       if (range)
         const InspectorRowVm(
@@ -1034,7 +1073,6 @@ FlowEditorPage flowScale({required bool range}) {
           engine: 'input_out_of_range',
           editor: FieldEditorVm.output,
           value: 'false',
-          targets: 'not bound',
         ),
     ],
   );
@@ -1248,7 +1286,7 @@ FlowEditorPage flowBoundValue() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'Hello, tank 3',
-      targets: '→ show.Value',
+      targets: ['show.Value'],
     ),
   ],
 );
@@ -1260,15 +1298,14 @@ FlowEditorPage flowPreviewSink() => _bind(
   selected: null,
   blocks: _textBlocks('', preview: true),
   wires: _textWires,
-  summary: const FlowSummaryVm(
-    label: 'Flow',
-    title: 'banner',
+  summary: FlowSummaryVm(
+    name: 'banner',
     facts: [
-      ('Version', '3'),
-      ('Deployed by', 'user:admin · 2 h ago'),
-      ('May write', 'write'),
-      ('Values', 'a preview of the draft; nothing is written'),
-      ('Writes', 'downstream/mockdev/bench/rig1/knob'),
+      const FactVersion(3),
+      FactDeployedBy('user:admin', at: _ago(const Duration(hours: 2))),
+      const FactMayWrite(.write),
+      const FactValues(.preview),
+      const FactWrites(['downstream/mockdev/bench/rig1/knob']),
     ],
   ),
 );
@@ -1415,7 +1452,7 @@ FlowEditorPage flowCase() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'high',
-      targets: '→ show.Value',
+      targets: ['show.Value'],
     ),
   ],
 );
@@ -1516,7 +1553,7 @@ FlowEditorPage flowOperand() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: 'AHU-2',
-      targets: '→ show.Value',
+      targets: ['show.Value'],
     ),
   ],
 );
@@ -1571,7 +1608,7 @@ FlowEditorPage flowLongOutput({ValueViewerVm? viewer}) => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: _long,
-      targets: '→ show.Value',
+      targets: ['show.Value'],
     ),
   ],
 );
@@ -1726,24 +1763,22 @@ FlowEditorPage _wave2({
   onRowAction: _rowRef,
   onClear: () {},
   onMove: _moved,
-  inspectorKind: kind,
-  inspectorTitle: title.isEmpty ? (selected ?? '') : title,
-  inspectorNote: note,
+  inspector: _head(kind, title.isEmpty ? (selected ?? '') : title, note),
   inspectorRows: rows,
   summary: summary,
   onOpenInside: openInside ? () {} : null,
-  onFieldChanged: _two,
-  onFieldUnbind: _id,
-  onFieldBind: (_, _) {},
+  onFieldChanged: _typed,
+  onFieldUnbind: _index,
+  onFieldBind: _rowBound,
   onProblem: _id,
   onRemove: selected == null || selected.startsWith('~') ? null : () {},
-  onView: _id,
+  onView: _index,
   onCloseViewer: () {},
   onSelectMany: _selected,
   onCommand: _command,
   onViewField: _rowRef,
-  onFieldPin: (_, {required on}) {},
-  onRun: _id,
+  onFieldPin: _pinned,
+  onRun: _index,
   menu: QueryVm(_menu2),
   crumbs: crumbs,
   onBack: (_) {},
@@ -1898,7 +1933,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: '41.5 %',
-      targets: '→ publish.Value',
+      targets: ['publish.Value'],
       pinned: true,
       pinLocked: true,
     ),
@@ -1907,7 +1942,6 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
       name: 'Error',
       engine: 'error',
       editor: FieldEditorVm.output,
-      targets: 'not bound',
       pinned: true,
     ),
   ],
@@ -1967,11 +2001,10 @@ List<FlowBlockVm> _actionBlocks({bool preview = false}) => [
 
 /// The action block (`invoke`): one block, its inspector in groups. The
 /// trigger is bound here; [button] shows it unbound, with `Run`, and
-/// [runReason] why `Run` is off; [preview] the ghost of what it would
-/// send.
+/// [runOff] why `Run` is off; [preview] the ghost of what it would send.
 FlowEditorPage flowActionBlock({
   bool button = false,
-  String? runReason,
+  Disabled? runOff,
   bool preview = false,
 }) => _wave2(
   selected: 'ramp1',
@@ -1991,7 +2024,7 @@ FlowEditorPage flowActionBlock({
       engine: 'path',
       editor: FieldEditorVm.text,
       value: 'downstream/modbus/line1/pump',
-      group: 'Target',
+      group: .target,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2000,7 +2033,7 @@ FlowEditorPage flowActionBlock({
       engine: 'action',
       editor: FieldEditorVm.text,
       value: 'ramp',
-      group: 'Target',
+      group: .target,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2011,7 +2044,7 @@ FlowEditorPage flowActionBlock({
       sourceBlock: 'target',
       writes: true,
       inPort: 'target',
-      group: 'Arguments',
+      group: .arguments,
       pinned: true,
       pinLocked: true,
     ),
@@ -2021,7 +2054,7 @@ FlowEditorPage flowActionBlock({
       editor: FieldEditorVm.text,
       value: '30',
       inPort: 'ramp_s',
-      group: 'Arguments',
+      group: .arguments,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2031,7 +2064,7 @@ FlowEditorPage flowActionBlock({
       value: 'linear',
       choices: ['linear', 'step'],
       inPort: 'mode',
-      group: 'Arguments',
+      group: .arguments,
       pinned: false,
     ),
     if (button)
@@ -2040,10 +2073,9 @@ FlowEditorPage flowActionBlock({
         name: 'Trigger',
         engine: 'trigger',
         editor: FieldEditorVm.run,
-        value: 'Run',
-        disabledReason: runReason,
+        off: runOff,
         inPort: 'trigger',
-        group: 'Behaviour',
+        group: .behaviour,
         pinned: true,
       )
     else
@@ -2056,7 +2088,7 @@ FlowEditorPage flowActionBlock({
         sourceBlock: 'alarm',
         writes: true,
         inPort: 'trigger',
-        group: 'Behaviour',
+        group: .behaviour,
         pinned: true,
         pinLocked: true,
       ),
@@ -2067,7 +2099,7 @@ FlowEditorPage flowActionBlock({
       editor: FieldEditorVm.toggle,
       value: 'false',
       inPort: 'auto_run',
-      group: 'Behaviour',
+      group: .behaviour,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2077,7 +2109,7 @@ FlowEditorPage flowActionBlock({
       editor: FieldEditorVm.duration,
       value: '300000',
       inPort: 'interval_ms',
-      group: 'Behaviour',
+      group: .behaviour,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2087,7 +2119,7 @@ FlowEditorPage flowActionBlock({
       editor: FieldEditorVm.toggle,
       value: 'true',
       inPort: 'enabled',
-      group: 'Behaviour',
+      group: .behaviour,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2096,12 +2128,9 @@ FlowEditorPage flowActionBlock({
       engine: 'run_on_start',
       editor: FieldEditorVm.toggle,
       value: 'false',
-      group: 'Behaviour',
+      group: .behaviour,
       pinned: false,
-      confirm: (
-        'Run on every start?',
-        'WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).',
-      ),
+      confirm: 'WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).',
     ),
     const InspectorRowVm(
       id: 'sent',
@@ -2109,8 +2138,7 @@ FlowEditorPage flowActionBlock({
       engine: 'sent',
       editor: FieldEditorVm.output,
       value: '14:03:27',
-      targets: 'not bound',
-      group: 'Events',
+      group: .events,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2119,8 +2147,7 @@ FlowEditorPage flowActionBlock({
       engine: 'ok',
       editor: FieldEditorVm.output,
       value: '14:03:28',
-      targets: 'not bound',
-      group: 'Events',
+      group: .events,
       pinned: true,
     ),
     const InspectorRowVm(
@@ -2129,8 +2156,8 @@ FlowEditorPage flowActionBlock({
       engine: 'error',
       editor: FieldEditorVm.output,
       value: '13:58:02 · busy: queue full',
-      targets: '→ publish.Value',
-      group: 'Events',
+      targets: ['publish.Value'],
+      group: .events,
       pinned: true,
       pinLocked: true,
     ),
@@ -2140,8 +2167,7 @@ FlowEditorPage flowActionBlock({
       engine: 'result',
       editor: FieldEditorVm.output,
       value: '{…}',
-      targets: 'not bound',
-      group: 'State',
+      group: .state,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2150,8 +2176,7 @@ FlowEditorPage flowActionBlock({
       engine: 'running',
       editor: FieldEditorVm.output,
       value: 'false',
-      targets: 'not bound',
-      group: 'State',
+      group: .state,
       pinned: false,
     ),
     const InspectorRowVm(
@@ -2160,8 +2185,7 @@ FlowEditorPage flowActionBlock({
       engine: 'last_run',
       editor: FieldEditorVm.output,
       value: '14:03:27',
-      targets: 'not bound',
-      group: 'State',
+      group: .state,
       pinned: false,
     ),
   ],
@@ -2303,9 +2327,8 @@ FlowEditorPage flowTreeTab() => _wave2(
     FlowWireVm('ramp1', 'error', 'pub', 'value'),
   ],
   summary: const FlowSummaryVm(
-    label: 'Flow',
-    title: 'line',
-    facts: [('Version', '4'), ('May write', 'write')],
+    name: 'line',
+    facts: [FactVersion(4), FactMayWrite(.write)],
   ),
 );
 
@@ -2456,7 +2479,7 @@ FlowEditorPage flowCustomInstance() => _wave2(
       name: 'out',
       editor: FieldEditorVm.output,
       value: '42.5',
-      targets: '→ publish.Value',
+      targets: ['publish.Value'],
       pinned: true,
       pinLocked: true,
     ),
@@ -2472,7 +2495,7 @@ FlowEditorPage flowCustomCreate() => _wave2(
       b.marked(selected: b.id == 'a' || b.id == 'b'),
   ],
   wires: _customWires,
-  summary: const FlowSummaryVm(label: 'Flow', title: 'line'),
+  summary: const FlowSummaryVm(name: 'line'),
 );
 
 /// The inside of `mean2`, opened from `mean21`: the path with the block,
@@ -2712,7 +2735,6 @@ FlowEditorPage flowCsvLines() => _bind(
       engine: 'out',
       editor: FieldEditorVm.output,
       value: '{…}',
-      targets: 'not bound',
     ),
   ],
 );
@@ -2805,10 +2827,11 @@ FlowEditorPage flowLarge() {
     flow: 'dvpsm-bot',
     blocks: blocks,
     wires: wires,
+    // The app's facts: the version of this flow (the board also listed
+    // `Blocks · 62`, a fact the editor never shows).
     summary: const FlowSummaryVm(
-      label: 'FLOW',
-      title: 'dvpsm-bot',
-      facts: [('Version', '2'), ('Blocks', '62')],
+      name: 'dvpsm-bot',
+      facts: [FactVersion(2)],
     ),
   );
 }

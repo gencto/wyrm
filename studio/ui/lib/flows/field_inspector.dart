@@ -1,12 +1,14 @@
 import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/level_badge.dart';
 import '../indicators/lines_text.dart';
-import '../models/value_changed.dart';
+import '../models/disabled.dart';
 import '../overlays/confirm_dialog.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
@@ -16,7 +18,9 @@ import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
+import 'flow_intents.dart';
 import 'rows_editor.dart';
+import 'scope_prompt.dart';
 import 'suggest_field.dart';
 
 /// How a field of the inspector is edited (spec §6).
@@ -41,9 +45,20 @@ enum FieldEditorVm {
   /// An input with no typed value: its last sample.
   sample,
 
-  /// An unbound `Trigger`: a `Run` button ([InspectorRowVm.value] is its
-  /// label, [InspectorRowVm.disabledReason] why it is off).
+  /// An unbound `Trigger`: a `Run` button ([InspectorRowVm.off] why it is
+  /// off).
   run,
+
+  /// A command input (`date_range` Next): a button named as the field that
+  /// a sample on its wire presses; Studio cannot press it.
+  command,
+
+  /// The default of a custom block's input: a text field.
+  defaults,
+
+  /// The form of a block of several ([InspectorRowVm.form] of
+  /// [InspectorRowVm.forms]): a dropdown.
+  form,
 
   /// A period: a number with its unit (ms, s, min, h); the value is in
   /// milliseconds.
@@ -59,6 +74,105 @@ enum FieldEditorVm {
   rows,
 }
 
+/// The group a row is listed under: its heading stands above the group's
+/// first row.
+enum FieldGroupVm {
+  target,
+  arguments,
+  behaviour,
+  events,
+  state;
+
+  String get label => switch (this) {
+    target => S.current.grpTarget,
+    arguments => S.current.grpArguments,
+    behaviour => S.current.grpBehaviour,
+    events => S.current.grpEvents,
+    state => S.current.grpState,
+  };
+}
+
+/// One way a block of several forms works (`scale`), as the Form row says
+/// it.
+enum BlockFormVm {
+  linear,
+  range;
+
+  String get label => switch (this) {
+    linear => S.current.formLinear,
+    range => S.current.formRange,
+  };
+}
+
+/// What the inspector says the selected block is.
+enum InspectorKindVm {
+  /// The inputs or outputs block of an inside view.
+  ports,
+  node,
+  logic,
+  sink,
+  action,
+  my;
+
+  String get label => switch (this) {
+    ports => S.current.kindBlockPorts,
+    node => S.current.kindTreeNode,
+    logic => S.current.kindLogic,
+    sink => S.current.kindSink,
+    action => S.current.kindAction,
+    my => S.current.kindMyBlock,
+  };
+}
+
+/// The note under the inspector's title.
+enum InspectorNoteVm {
+  inputs,
+  outputs,
+  treeNode,
+  actionBlock,
+  action,
+
+  /// The catalogue's description of the type ([InspectorHeadVm.description]).
+  catalog,
+}
+
+/// The head of the inspector of a selected block: its kind, its title (the
+/// block's id, or the word of a [boundary] block) and its note.
+final class InspectorHeadVm extends Equatable {
+  const InspectorHeadVm({
+    required this.kind,
+    required this.id,
+    this.boundary,
+    this.note = InspectorNoteVm.catalog,
+    this.description = '',
+  });
+
+  final InspectorKindVm kind;
+  final String id;
+  final BoundaryVm? boundary;
+  final InspectorNoteVm note;
+
+  /// The catalogue's description (domain text) of a [InspectorNoteVm.catalog]
+  /// note.
+  final String description;
+
+  /// The title: the block's id, or `Inputs` / `Outputs`.
+  String get title => boundary?.label ?? id;
+
+  /// The note, in words.
+  String get noteText => switch (note) {
+    InspectorNoteVm.inputs => S.current.noteBlockInputs,
+    InspectorNoteVm.outputs => S.current.noteBlockOutputs,
+    InspectorNoteVm.treeNode => S.current.noteTreeNode,
+    InspectorNoteVm.actionBlock => S.current.noteActionBlock,
+    InspectorNoteVm.action => S.current.noteAction,
+    InspectorNoteVm.catalog => description,
+  };
+
+  @override
+  List<Object?> get props => [kind, id, boundary, note, description];
+}
+
 /// One field of the selected block.
 final class InspectorRowVm extends Equatable {
   const InspectorRowVm({
@@ -70,36 +184,41 @@ final class InspectorRowVm extends Equatable {
     this.choices = const [],
     this.sourceBlock,
     this.writes = false,
-    this.targets = '',
+    this.targets = const [],
     this.inPort,
     this.hint = '',
     this.pinned,
     this.pinLocked = false,
-    this.group = '',
-    this.disabledReason,
+    this.group,
+    this.off,
     this.confirm,
-    this.error = '',
+    this.error,
     this.rows,
+    this.form,
+    this.forms = const [],
   });
 
   /// The list a [FieldEditorVm.rows] editor shows.
   final RowsEditorVm? rows;
 
-  /// The group this row is listed under (`Arguments`, `Behaviour`,
-  /// `Events`, `State`): its heading stands above the group's first row.
-  final String group;
+  /// The group this row is listed under; null: none.
+  final FieldGroupVm? group;
 
-  /// Why a `run` button is off (its tooltip); null: it runs.
-  final String? disabledReason;
+  /// Why a `run` button is off (said under it); null: it runs.
+  final Disabled? off;
 
-  /// A toggle that asks before it goes on: the question's title and its
-  /// text (`Run on start`: the catalog's warning).
-  final (String, String)? confirm;
+  /// A toggle that asks before it goes on (`Run on start`): the catalogue's
+  /// warning, under the question's own title.
+  final String? confirm;
 
-  /// What is wrong with the typed value, in coral under the editor.
-  final String error;
+  /// What is wrong with the typed scope, in coral under the editor.
+  final ScopeProblemVm? error;
 
-  /// The field's id within its block.
+  /// The block's form and its forms ([FieldEditorVm.form]).
+  final BlockFormVm? form;
+  final List<BlockFormVm> forms;
+
+  /// The field's id within its block: the row's widget identity.
   final String id;
 
   /// What the row reads: `Input min`.
@@ -110,8 +229,9 @@ final class InspectorRowVm extends Equatable {
   final String engine;
   final FieldEditorVm editor;
 
-  /// The typed value (text, choice, `true`/`false`) or the sample shown.
-  final String value;
+  /// The typed value (text, choice, `true`/`false`) or the sample shown;
+  /// null: an event that has not fired yet (or a run not made).
+  final String? value;
   final List<String> choices;
 
   /// The block a bound field's wire comes from: `Go to source` selects
@@ -121,8 +241,8 @@ final class InspectorRowVm extends Equatable {
   /// The binding writes to a device (ember frame).
   final bool writes;
 
-  /// An output's `→ plc1.fan, …` or `not bound`.
-  final String targets;
+  /// The inputs an output feeds (`plc1.fan`); none: not bound.
+  final List<String> targets;
 
   /// The engine input a drop on this row binds; null: it takes none.
   final String? inPort;
@@ -137,15 +257,21 @@ final class InspectorRowVm extends Equatable {
   /// A bound field stays on the block: its pin cannot be taken off.
   final bool pinLocked;
 
+  /// [value] as the row shows it: `not yet` for none.
+  String get text => value ?? S.current.eventNone;
+
+  /// What the row reads: [name], or `Form` for the Form row.
+  String get label => editor == FieldEditorVm.form ? S.current.blockForm : name;
+
   /// The same row with its pin: on the block or not, and whether a wire
   /// holds it there.
   InspectorRowVm pin({required bool pinned, required bool locked}) =>
       _with(pinned: pinned, pinLocked: locked);
 
   /// The same row under [group].
-  InspectorRowVm inGroup(String group) => _with(group: group);
+  InspectorRowVm inGroup(FieldGroupVm? group) => _with(group: group);
 
-  InspectorRowVm _with({bool? pinned, bool? pinLocked, String? group}) =>
+  InspectorRowVm _with({bool? pinned, bool? pinLocked, FieldGroupVm? group}) =>
       InspectorRowVm(
         id: id,
         name: name,
@@ -161,10 +287,12 @@ final class InspectorRowVm extends Equatable {
         pinned: pinned ?? this.pinned,
         pinLocked: pinLocked ?? this.pinLocked,
         group: group ?? this.group,
-        disabledReason: disabledReason,
+        off: off,
         confirm: confirm,
         error: error,
         rows: rows,
+        form: form,
+        forms: forms,
       );
 
   @override
@@ -183,47 +311,211 @@ final class InspectorRowVm extends Equatable {
     inPort,
     hint,
     group,
-    disabledReason,
+    off,
     confirm,
     error,
     rows,
+    form,
+    forms,
   ];
 }
 
-/// One problem of the last validation; [block] selects its block.
-final class ProblemVm extends Equatable {
-  const ProblemVm(this.text, {this.block});
+/// Where the values the blocks show come from.
+enum ValuesFromVm {
+  preview,
+  deployed;
 
-  final String text;
-  final String? block;
+  String get label => switch (this) {
+    preview => S.current.valuesPreview,
+    deployed => S.current.valuesDeployed,
+  };
+}
+
+/// One fact of the flow's summary: its label and its value, in words.
+sealed class FlowFactVm extends Equatable {
+  const FlowFactVm();
+
+  String get label;
+  String get value;
+}
+
+/// The deployed version; 0: not deployed.
+final class FactVersion extends FlowFactVm {
+  const FactVersion(this.version);
+
+  final int version;
 
   @override
-  List<Object?> get props => [text, block];
+  String get label => S.current.factVersion;
+
+  @override
+  String get value => version > 0 ? '$version' : S.current.notDeployed;
+
+  @override
+  List<Object?> get props => [version];
+}
+
+/// Who deployed it and, when the flow is watched, how long ago.
+final class FactDeployedBy extends FlowFactVm {
+  const FactDeployedBy(this.by, {this.at});
+
+  final String by;
+  final DateTime? at;
+
+  @override
+  String get label => S.current.factDeployedBy;
+
+  @override
+  String get value => switch (at) {
+    final t? => '$by · ${Formats.ago(t)}',
+    null => by,
+  };
+
+  @override
+  List<Object?> get props => [by, at];
+}
+
+/// The most it may write.
+final class FactMayWrite extends FlowFactVm {
+  const FactMayWrite(this.level);
+
+  final AccessLevel level;
+
+  @override
+  String get label => S.current.factMayWrite;
+
+  @override
+  String get value => level.label;
+
+  @override
+  List<Object?> get props => [level];
+}
+
+/// Where the values the blocks show come from.
+final class FactValues extends FlowFactVm {
+  const FactValues(this.from);
+
+  final ValuesFromVm from;
+
+  @override
+  String get label => S.current.factValues;
+
+  @override
+  String get value => from.label;
+
+  @override
+  List<Object?> get props => [from];
+}
+
+/// The watch or the preview was refused for a lack of rights.
+final class FactLiveRefused extends FlowFactVm {
+  const FactLiveRefused();
+
+  @override
+  String get label => S.current.factLive;
+
+  @override
+  String get value => S.current.liveRefused;
+
+  @override
+  List<Object?> get props => [];
+}
+
+/// The keys it reads.
+final class FactReads extends FlowFactVm {
+  const FactReads(this.keys);
+
+  final List<String> keys;
+
+  @override
+  String get label => S.current.factReads;
+
+  @override
+  String get value => keys.join(', ');
+
+  @override
+  List<Object?> get props => [keys];
+}
+
+/// The keys it writes.
+final class FactWrites extends FlowFactVm {
+  const FactWrites(this.keys);
+
+  final List<String> keys;
+
+  @override
+  String get label => S.current.factWrites;
+
+  @override
+  String get value => keys.join(', ');
+
+  @override
+  List<Object?> get props => [keys];
+}
+
+/// What a problem of the last validation is about.
+enum FlowProblemKindVm {
+  /// The flow has no name yet.
+  unnamed,
+
+  /// The broker said what is wrong ([FlowProblemVm.message]).
+  broker,
+
+  /// The broker's answer could not be read.
+  unread,
+}
+
+/// One problem of the last validation, or the draft's preview refused
+/// ([preview]); [block] selects its block.
+final class FlowProblemVm extends Equatable {
+  const FlowProblemVm(
+    this.kind, {
+    this.message,
+    this.block,
+    this.preview = false,
+  });
+
+  final FlowProblemKindVm kind;
+
+  /// The broker's own words (domain text).
+  final String? message;
+  final String? block;
+  final bool preview;
+
+  /// The problem in words.
+  String get text {
+    final what = switch (kind) {
+      FlowProblemKindVm.unnamed => S.current.problemUnnamed,
+      FlowProblemKindVm.broker => message ?? S.current.problemInvalid,
+      FlowProblemKindVm.unread => S.current.problemInvalid,
+    };
+    return preview ? S.current.previewInvalid(what) : what;
+  }
+
+  @override
+  List<Object?> get props => [kind, message, block, preview];
 }
 
 /// The inspector with nothing selected: the flow itself.
 final class FlowSummaryVm extends Equatable {
   const FlowSummaryVm({
-    required this.label,
-    required this.title,
+    required this.name,
     this.facts = const [],
-    this.problemsLabel = '',
     this.problems = const [],
   });
 
-  /// `FLOW`.
-  final String label;
-
-  /// The flow id.
-  final String title;
+  /// The flow id; null: a new flow with no name yet.
+  final String? name;
 
   /// `Version` · `4`, `Deployed by` · `olena · 12 min ago`, `May write` · …
-  final List<(String, String)> facts;
-  final String problemsLabel;
-  final List<ProblemVm> problems;
+  final List<FlowFactVm> facts;
+  final List<FlowProblemVm> problems;
+
+  /// The title: the flow's id, or `New dataflow`.
+  String get title => name ?? S.current.newDataflow;
 
   @override
-  List<Object?> get props => [label, title, facts, problemsLabel, problems];
+  List<Object?> get props => [name, facts, problems];
 }
 
 /// The right column of the flow editor (spec §6): the selected block's kind,
@@ -232,7 +524,6 @@ final class FlowSummaryVm extends Equatable {
 /// dropped on a row binds it.
 class FieldInspector extends StatelessWidget {
   const FieldInspector({
-    required this.footer,
     required this.onChanged,
     required this.onUnbind,
     required this.onBind,
@@ -240,80 +531,58 @@ class FieldInspector extends StatelessWidget {
     this.onGoToSource,
     this.onView,
     this.onPin,
-    this.pinLabel = 'Pin to block',
-    this.unpinLabel = 'Unpin from block',
-    this.pinLockedLabel = 'A bound field stays on the block',
-    this.viewLabel = 'View value',
-    this.kindLabel = '',
-    this.title = '',
-    this.note = '',
+    this.onForm,
+    this.head,
     this.rows = const [],
     this.summary,
     this.header,
-    this.removeLabel = '',
     this.onRemove,
-    this.unbindLabel = 'Unbind',
-    this.bindLabel = 'Drag an output here to bind',
-    this.goToSourceLabel = 'Go to source',
-    this.boundLabel = 'bound',
-    this.suggestLabel = 'Choose a value',
     this.onRun,
-    this.confirmLabel = 'Turn on',
-    this.cancelLabel = 'Cancel',
-    this.links = const [],
+    this.onOpenInside,
     super.key,
   });
 
-  /// The `Run` button of a row ([FieldEditorVm.run]): the row's id.
-  final ValueChanged<String>? onRun;
+  /// The `Run` button of a row ([FieldEditorVm.run]): the row's index.
+  final ValueChanged<int>? onRun;
 
-  /// The buttons of a toggle's question ([InspectorRowVm.confirm]).
-  final String confirmLabel;
-  final String cancelLabel;
+  /// `Open inside` above the rows (an instance of a custom block); null:
+  /// none.
+  final VoidCallback? onOpenInside;
 
-  /// Link buttons above the rows (`Open inside`), each a label and what
-  /// it does.
-  final List<(String, VoidCallback)> links;
-
-  /// `LOGIC BLOCK`; with [summary] the flow is shown instead.
-  final String kindLabel;
-  final String title;
-  final String note;
+  /// The selected block's kind, title and note; with [summary] the flow is
+  /// shown instead.
+  final InspectorHeadVm? head;
   final List<InspectorRowVm> rows;
   final FlowSummaryVm? summary;
 
   /// Shown above everything (the id field of a new flow).
   final Widget? header;
-  final List<String> footer;
-  final FieldEdited onChanged;
-  final ValueChanged<String> onUnbind;
-  final FieldBound<FieldRefVm> onBind;
+
+  /// A row typed, by its index in [rows].
+  final ValueChanged<RowTyped> onChanged;
+
+  /// `Unbind` of a bound row: its index.
+  final ValueChanged<int> onUnbind;
+
+  /// An output dropped on a row.
+  final ValueChanged<RowBound> onBind;
   final ValueChanged<String> onProblem;
+
+  /// A form picked on the Form row ([FieldEditorVm.form]).
+  final ValueChanged<BlockFormVm>? onForm;
 
   /// `Go to source` of a bound field: selects the block its wire comes
   /// from.
   final ValueChanged<String>? onGoToSource;
 
-  /// The eye at the end of a row: opens the field's value in the viewer;
-  /// null: rows have none.
-  final ValueChanged<String>? onView;
-  final String viewLabel;
+  /// The eye at the end of a row (its index): opens the field's value in
+  /// the viewer; null: rows have none.
+  final ValueChanged<int>? onView;
 
-  /// The pin before a row's label: puts the field on the block or takes
-  /// it off (spec §12); null: rows have none.
-  final Toggled<String>? onPin;
-  final String pinLabel;
-  final String unpinLabel;
-  final String pinLockedLabel;
-  final String removeLabel;
+  /// The pin before a row's label (its index): puts the field on the block
+  /// or takes it off (spec §12); null: rows have none.
+  final ValueChanged<RowPinned>? onPin;
   final VoidCallback? onRemove;
-  final String unbindLabel;
-  final String bindLabel;
-  final String goToSourceLabel;
-  final String boundLabel;
-
-  /// The tooltip of a [FieldEditorVm.suggest] field's menu.
-  final String suggestLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -338,7 +607,8 @@ class FieldInspector extends StatelessWidget {
               spacing: AppSpacing.xs,
               children: [
                 Text(
-                  (s?.label ?? kindLabel).toUpperCase(),
+                  (s != null ? S.current.kindFlow : head?.kind.label ?? '')
+                      .toUpperCase(),
                   style: TextStyle(
                     fontSize: FontSizes.sm,
                     fontWeight: .w600,
@@ -347,16 +617,16 @@ class FieldInspector extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  s?.title ?? title,
+                  s?.title ?? head?.title ?? '',
                   style: mono(
                     size: FontSizes.flowInspectorTitle,
                     weight: .w600,
                     color: c.text1,
                   ),
                 ),
-                if (s == null && note.isNotEmpty)
+                if (s == null && (head?.noteText ?? '').isNotEmpty)
                   Text(
-                    note,
+                    head!.noteText,
                     style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                   ),
               ],
@@ -368,27 +638,27 @@ class FieldInspector extends StatelessWidget {
               children: s != null
                   ? _summary(context, s)
                   : [
-                      for (final (label, onTap) in links)
+                      if (onOpenInside case final open?)
                         Padding(
                           padding: Insets.flowInspectorLink,
                           child: Align(
                             alignment: .centerLeft,
                             child: Button.quiet(
-                              label: label,
+                              label: S.current.openInside,
                               size: ButtonSize.small,
-                              onPressed: onTap,
+                              onPressed: open,
                             ),
                           ),
                         ),
                       for (final (i, r) in rows.indexed) ...[
-                        if (r.group.isNotEmpty &&
-                            (i == 0 || rows[i - 1].group != r.group))
+                        if (r.group case final g?
+                            when i == 0 || rows[i - 1].group != g)
                           Padding(
                             padding: i == 0
                                 ? Insets.flowInspectorFirstGroup
                                 : Insets.flowInspectorGroup,
                             child: Text(
-                              r.group.toUpperCase(),
+                              g.label.toUpperCase(),
                               style: TextStyle(
                                 fontSize: FontSizes.xs,
                                 fontWeight: .w600,
@@ -399,24 +669,15 @@ class FieldInspector extends StatelessWidget {
                           ),
                         _Row(
                           vm: r,
+                          index: i,
                           onRun: onRun,
-                          confirmLabel: confirmLabel,
-                          cancelLabel: cancelLabel,
                           onChanged: onChanged,
                           onUnbind: onUnbind,
                           onBind: onBind,
+                          onForm: onForm,
                           onGoToSource: onGoToSource,
                           onView: onView,
-                          viewLabel: viewLabel,
                           onPin: onPin,
-                          pinLabel: pinLabel,
-                          unpinLabel: unpinLabel,
-                          pinLockedLabel: pinLockedLabel,
-                          unbindLabel: unbindLabel,
-                          bindLabel: bindLabel,
-                          goToSourceLabel: goToSourceLabel,
-                          boundLabel: boundLabel,
-                          suggestLabel: suggestLabel,
                         ),
                       ],
                       if (onRemove != null) ...[
@@ -424,7 +685,7 @@ class FieldInspector extends StatelessWidget {
                         Align(
                           alignment: .centerLeft,
                           child: Button.danger(
-                            label: removeLabel,
+                            label: S.current.removeBlock,
                             size: ButtonSize.small,
                             onPressed: onRemove,
                           ),
@@ -442,7 +703,10 @@ class FieldInspector extends StatelessWidget {
               crossAxisAlignment: .start,
               spacing: AppSpacing.flowLines,
               children: [
-                for (final f in footer)
+                for (final f in [
+                  S.current.flowPropertiesNote,
+                  S.current.flowPropertiesNote2,
+                ])
                   Text(
                     f,
                     style: TextStyle(
@@ -462,7 +726,7 @@ class FieldInspector extends StatelessWidget {
   List<Widget> _summary(BuildContext context, FlowSummaryVm s) {
     final c = context.colors;
     return [
-      for (final (k, v) in s.facts)
+      for (final f in s.facts)
         Container(
           constraints: const BoxConstraints(
             minHeight: AppSizes.flowInspectorFact,
@@ -477,13 +741,13 @@ class FieldInspector extends StatelessWidget {
               SizedBox(
                 width: AppSizes.flowInspectorLabel,
                 child: Text(
-                  k,
+                  f.label,
                   style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                 ),
               ),
               Expanded(
                 child: Text(
-                  v,
+                  f.value,
                   style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                 ),
               ),
@@ -493,7 +757,7 @@ class FieldInspector extends StatelessWidget {
       if (s.problems.isNotEmpty) ...[
         Gaps.md,
         Text(
-          s.problemsLabel.toUpperCase(),
+          S.current.problems.toUpperCase(),
           style: TextStyle(
             fontSize: FontSizes.sm,
             fontWeight: .w600,
@@ -552,45 +816,31 @@ class FieldInspector extends StatelessWidget {
 class _Row extends StatelessWidget {
   const _Row({
     required this.vm,
+    required this.index,
     required this.onChanged,
     required this.onUnbind,
     required this.onBind,
+    required this.onForm,
     required this.onGoToSource,
     required this.onView,
-    required this.viewLabel,
     required this.onPin,
-    required this.pinLabel,
-    required this.unpinLabel,
-    required this.pinLockedLabel,
-    required this.unbindLabel,
-    required this.bindLabel,
-    required this.goToSourceLabel,
-    required this.boundLabel,
-    required this.suggestLabel,
     required this.onRun,
-    required this.confirmLabel,
-    required this.cancelLabel,
   });
 
-  final ValueChanged<String>? onRun;
-  final String confirmLabel;
-  final String cancelLabel;
   final InspectorRowVm vm;
-  final Toggled<String>? onPin;
-  final String pinLabel;
-  final String unpinLabel;
-  final String pinLockedLabel;
-  final ValueChanged<String>? onView;
-  final String viewLabel;
-  final FieldEdited onChanged;
-  final ValueChanged<String> onUnbind;
-  final FieldBound<FieldRefVm> onBind;
+
+  /// The row's place in the inspector: what its callbacks report.
+  final int index;
+  final ValueChanged<int>? onRun;
+  final ValueChanged<RowPinned>? onPin;
+  final ValueChanged<int>? onView;
+  final ValueChanged<RowTyped> onChanged;
+  final ValueChanged<int> onUnbind;
+  final ValueChanged<RowBound> onBind;
+  final ValueChanged<BlockFormVm>? onForm;
   final ValueChanged<String>? onGoToSource;
-  final String unbindLabel;
-  final String bindLabel;
-  final String goToSourceLabel;
-  final String boundLabel;
-  final String suggestLabel;
+
+  void _typed(String text) => onChanged(RowTyped(index, text));
 
   @override
   Widget build(BuildContext context) {
@@ -610,15 +860,17 @@ class _Row extends StatelessWidget {
             height: AppSizes.flowControl,
             child: Tooltip(
               message: vm.pinLocked
-                  ? pinLockedLabel
-                  : (pinned ? unpinLabel : pinLabel),
+                  ? S.current.pinLocked
+                  : (pinned ? S.current.unpinField : S.current.pinField),
               waitDuration: Motion.flowPinTipWait,
               child: InkWell(
                 key: ValueKey('pin-${vm.id}'),
                 borderRadius: const BorderRadius.all(
                   Radius.circular(AppRadii.chip),
                 ),
-                onTap: vm.pinLocked ? null : () => pin(vm.id, on: !pinned),
+                onTap: vm.pinLocked
+                    ? null
+                    : () => pin(RowPinned(index, on: !pinned)),
                 child: Align(
                   alignment: .centerLeft,
                   child: AppIcon(
@@ -643,7 +895,7 @@ class _Row extends StatelessWidget {
               crossAxisAlignment: .start,
               children: [
                 Text(
-                  vm.name,
+                  vm.label,
                   maxLines: 2,
                   overflow: .ellipsis,
                   style: TextStyle(fontSize: FontSizes.md, color: c.text2),
@@ -663,7 +915,7 @@ class _Row extends StatelessWidget {
         Expanded(
           child: wide
               ? Gaps.xl
-              : vm.error.isEmpty
+              : vm.error == null
               ? _editor(context)
               : Column(
                   mainAxisSize: .min,
@@ -676,7 +928,7 @@ class _Row extends StatelessWidget {
                         vertical: AppSpacing.xs,
                       ),
                       child: Text(
-                        vm.error,
+                        vm.error!.label,
                         style: TextStyle(fontSize: FontSizes.xs, color: c.bad),
                       ),
                     ),
@@ -697,12 +949,15 @@ class _Row extends StatelessWidget {
                   items: [
                     if (vm.sourceBlock case final from?
                         when onGoToSource != null)
-                      (goToSourceLabel, () => onGoToSource!(from)),
-                    (unbindLabel, () => onUnbind(vm.id)),
+                      _LinkItem(
+                        S.current.goToSource,
+                        () => onGoToSource!(from),
+                      ),
+                    _LinkItem(S.current.unbind, () => onUnbind(index)),
                   ],
                 )
               : Tooltip(
-                  message: takes ? bindLabel : '',
+                  message: takes ? S.current.bindHint : '',
                   child: Opacity(
                     opacity: takes ? 1 : 0.35,
                     child: Center(
@@ -720,9 +975,9 @@ class _Row extends StatelessWidget {
             width: AppSizes.flowInspectorButton,
             height: AppSizes.flowControl,
             child: IconButton(
-              tooltip: viewLabel,
+              tooltip: S.current.viewValue,
               padding: EdgeInsets.zero,
-              onPressed: () => view(vm.id),
+              onPressed: () => view(index),
               icon: AppIcon(
                 'ui_view',
                 size: AppSizes.flowInspectorIcon,
@@ -756,7 +1011,7 @@ class _Row extends StatelessWidget {
     }
     // A wire dragged out of the canvas and let go here binds the field.
     return FieldDropZone(
-      drop: FieldDrop(vm.id, onDrop: (from) => onBind(vm.id, from)),
+      drop: FieldDrop(vm.id, onDrop: (from) => onBind(RowBound(index, from))),
       builder: (context, lit, _) => row(lit),
     );
   }
@@ -765,7 +1020,7 @@ class _Row extends StatelessWidget {
     final c = context.colors;
     // The mark of a value of several lines opens it in the viewer.
     final open = switch (onView) {
-      final view? => () => view(vm.id),
+      final view? => () => view(index),
       null => null,
     };
     final box = BoxDecoration(
@@ -792,16 +1047,16 @@ class _Row extends StatelessWidget {
             children: [
               Expanded(
                 child: LinesText(
-                  vm.value.isEmpty ? '—' : vm.value,
+                  vm.text.isEmpty ? '—' : vm.text,
                   onOpen: open,
                   style: mono(size: FontSizes.sm, color: c.emberNew),
                 ),
               ),
               // A value of several lines needs the room for its first
               // line and its mark; the frame's colour says it is bound.
-              if (!vm.value.contains('\n'))
+              if (!vm.text.contains('\n'))
                 Text(
-                  boundLabel,
+                  S.current.boundMark,
                   style: TextStyle(
                     fontSize: FontSizes.flowDetail,
                     color: vm.writes ? c.emberSoft : c.good,
@@ -834,7 +1089,39 @@ class _Row extends StatelessWidget {
                     child: Text(ch, maxLines: 1, overflow: .ellipsis),
                   ),
               ],
-              onChanged: (v) => onChanged(vm.id, v ?? ''),
+              onChanged: (v) => _typed(v ?? ''),
+            ),
+          ),
+        );
+      case FieldEditorVm.form:
+        return Container(
+          height: AppSizes.flowControl,
+          decoration: box,
+          padding: Insets.control,
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<BlockFormVm>(
+              value: vm.form,
+              isExpanded: true,
+              isDense: true,
+              dropdownColor: c.ground3,
+              icon: AppIcon(
+                'ui_chevron_down',
+                size: AppSizes.flowChoiceChevron,
+                color: c.text4,
+              ),
+              style: mono(size: FontSizes.sm, color: c.text1),
+              items: [
+                for (final f in vm.forms)
+                  DropdownMenuItem(
+                    value: f,
+                    child: Text(f.label, maxLines: 1, overflow: .ellipsis),
+                  ),
+              ],
+              onChanged: (f) {
+                if (f != null) {
+                  onForm?.call(f);
+                }
+              },
             ),
           ),
         );
@@ -850,30 +1137,30 @@ class _Row extends StatelessWidget {
                 onChanged: (v) async {
                   // A toggle with a warning asks before it goes on.
                   if (v) {
-                    if (vm.confirm case (final title, final message)) {
+                    if (vm.confirm case final message?) {
                       final yes = await ConfirmDialog.ask(
                         context,
-                        title: title,
+                        title: S.current.runOnStartTitle,
                         message: message,
-                        confirm: confirmLabel,
-                        cancel: cancelLabel,
+                        confirm: S.current.turnOn,
+                        cancel: S.current.cancel,
                       );
                       if (!yes) {
                         return;
                       }
                     }
                   }
-                  onChanged(vm.id, '$v');
+                  _typed('$v');
                 },
               ),
             ),
           ),
         );
-      case FieldEditorVm.text:
+      case FieldEditorVm.text || FieldEditorVm.defaults:
         return _TextEditor(
-          value: vm.value,
+          value: vm.text,
           decoration: box,
-          onChanged: (v) => onChanged(vm.id, v),
+          onChanged: _typed,
         );
       case FieldEditorVm.output:
         // The value, and under it where it goes: each has the whole cell,
@@ -886,29 +1173,31 @@ class _Row extends StatelessWidget {
               mainAxisAlignment: .center,
               crossAxisAlignment: .start,
               children: [
-                if (vm.value.isNotEmpty)
+                if (vm.text.isNotEmpty)
                   LinesText(
-                    vm.value,
+                    vm.text,
                     onOpen: open,
                     style: mono(size: FontSizes.sm, color: c.text1),
                   ),
-                if (vm.targets.isNotEmpty)
-                  Text(
-                    vm.targets,
-                    maxLines: 1,
-                    overflow: .ellipsis,
-                    style: mono(size: FontSizes.flowDetail, color: c.text4),
-                  ),
+                Text(
+                  vm.targets.isEmpty
+                      ? S.current.notBound
+                      : '→ ${vm.targets.join(', ')}',
+                  maxLines: 1,
+                  overflow: .ellipsis,
+                  style: mono(size: FontSizes.flowDetail, color: c.text4),
+                ),
               ],
             ),
           ),
         );
-      case FieldEditorVm.run:
-        // Off, it says why under the button, not only in its tooltip.
+      case FieldEditorVm.run || FieldEditorVm.command:
+        // Off, it says why under the button, not only in its tooltip; a
+        // command is pressed only by a sample on its wire.
+        final command = vm.editor == FieldEditorVm.command;
+        final why = command ? S.current.commandNote : vm.off?.text;
         return Padding(
-          padding: vm.disabledReason == null
-              ? EdgeInsets.zero
-              : Insets.flowInspectorRunWhy,
+          padding: why == null ? EdgeInsets.zero : Insets.flowInspectorRunWhy,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .start,
@@ -916,15 +1205,15 @@ class _Row extends StatelessWidget {
             children: [
               Button.secondary(
                 key: ValueKey('run-${vm.id}'),
-                label: vm.value,
+                label: command ? vm.name : S.current.runBlock,
                 icon: 'action_play',
                 size: ButtonSize.small,
-                disabledReason: vm.disabledReason,
-                onPressed: vm.disabledReason != null || onRun == null
+                disabledReason: why,
+                onPressed: why != null || onRun == null
                     ? null
-                    : () => onRun!(vm.id),
+                    : () => onRun!(index),
               ),
-              if (vm.disabledReason case final why?)
+              if (why != null)
                 Text(
                   why,
                   style: TextStyle(
@@ -939,21 +1228,21 @@ class _Row extends StatelessWidget {
       case FieldEditorVm.duration:
         return _DurationEditor(
           key: ValueKey('duration-${vm.id}'),
-          millis: vm.value,
+          millis: vm.text,
           decoration: box,
-          onChanged: (v) => onChanged(vm.id, v),
+          onChanged: _typed,
         );
       case FieldEditorVm.suggest:
         return SuggestField(
           key: ValueKey('suggest-field-${vm.id}'),
           vm: SuggestFieldVm(
             id: vm.id,
-            value: vm.value,
+            value: vm.text,
             choices: vm.choices,
-            menuLabel: suggestLabel,
+            menuLabel: S.current.suggestPick,
           ),
           decoration: box,
-          onChanged: (v) => onChanged(vm.id, v),
+          onChanged: _typed,
         );
       case FieldEditorVm.rows:
         final rows = vm.rows;
@@ -966,7 +1255,7 @@ class _Row extends StatelessWidget {
             key: ValueKey('rows-editor-${vm.id}'),
             vm: rows,
             decoration: box,
-            onChanged: (list) => onChanged(vm.id, jsonEncode(list)),
+            onChanged: (list) => _typed(jsonEncode(list)),
           ),
         );
       case FieldEditorVm.sample:
@@ -977,7 +1266,11 @@ class _Row extends StatelessWidget {
             child: Align(
               alignment: .centerLeft,
               child: LinesText(
-                vm.value,
+                switch (vm.value) {
+                  null => S.current.eventNone,
+                  final v when v.isEmpty => '—',
+                  final v => v,
+                },
                 onOpen: open,
                 style: mono(size: FontSizes.sm, color: c.text3),
               ),
@@ -1167,11 +1460,19 @@ class _TextEditorState extends State<_TextEditor> {
 
 /// The link button of a bound field: a menu of what can be done with its
 /// binding (`Go to source`, `Unbind`).
+/// An item of a [_LinkMenu]: its word and what it does.
+final class _LinkItem {
+  const _LinkItem(this.label, this.onTap);
+
+  final String label;
+  final VoidCallback onTap;
+}
+
 class _LinkMenu extends StatelessWidget {
   const _LinkMenu({required this.icon, required this.items});
 
   final Widget icon;
-  final List<(String, VoidCallback)> items;
+  final List<_LinkItem> items;
 
   @override
   Widget build(BuildContext context) {
@@ -1181,14 +1482,14 @@ class _LinkMenu extends StatelessWidget {
       tooltip: '',
       color: c.ground3,
       position: .under,
-      onSelected: (i) => items[i].$2(),
+      onSelected: (i) => items[i].onTap(),
       itemBuilder: (_) => [
-        for (final (i, (label, _)) in items.indexed)
+        for (final (i, item) in items.indexed)
           PopupMenuItem(
             value: i,
             height: AppSizes.flowLinkMenuItem,
             child: Text(
-              label,
+              item.label,
               style: TextStyle(fontSize: FontSizes.md, color: c.text1),
             ),
           ),

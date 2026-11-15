@@ -143,17 +143,52 @@ final class ViewerEditVm extends Equatable {
 }
 
 /// How a CSV text is read as `table_from_csv` reads it: the block's
-/// [delimiter] and [header] (`with_header`), and a [note] when a wire feeds
-/// either (`The delimiter comes in on a wire: read with ","`).
+/// [delimiter] and [header] (`with_header`); [wired]: a wire feeds either,
+/// and the viewer says the table uses what they hold now.
 final class ViewerCsvVm extends Equatable {
-  const ViewerCsvVm({this.delimiter = ',', this.header = true, this.note = ''});
+  const ViewerCsvVm({
+    this.delimiter = ',',
+    this.header = true,
+    this.wired = false,
+  });
 
   final String delimiter;
   final bool header;
-  final String note;
+  final bool wired;
 
   @override
-  List<Object?> get props => [delimiter, header, note];
+  List<Object?> get props => [delimiter, header, wired];
+}
+
+/// Why a field's value cannot be typed in the viewer.
+enum ViewerLockVm {
+  /// A wire feeds the field.
+  bound,
+
+  /// The block computes this output.
+  output,
+
+  /// An input with no typed value.
+  input;
+
+  String get label => switch (this) {
+    bound => S.current.viewerLockedBound,
+    output => S.current.viewerLockedOutput,
+    input => S.current.viewerLockedInput,
+  };
+}
+
+/// What is wrong with a text typed in the viewer's editor.
+enum ViewerTextProblemVm {
+  number,
+  json,
+  toggle;
+
+  String get label => switch (this) {
+    number => S.current.viewerBadNumber,
+    json => S.current.viewerBadJson,
+    toggle => S.current.viewerBadBool,
+  };
 }
 
 /// How the viewer reads and writes tables, given by the app: a cell's own
@@ -196,6 +231,21 @@ final class ValueViewerVm extends Equatable {
     this.csv,
   });
 
+  /// A text shown as it is, read only: the name of a block's form.
+  factory ValueViewerVm.text({required String title, required String text}) {
+    final lines = text.split('\n');
+    return ValueViewerVm(
+      title: title,
+      type: 'string',
+      size: [
+        S.current.sizeChars(text.length),
+        if (lines.length > 1) S.current.sizeLines(lines.length),
+      ].join(' · '),
+      content: TextContentVm(lines),
+      copy: text,
+    );
+  }
+
   /// A CSV text that the viewer also shows "As table" by these rules;
   /// null: none (only a typed text of `table_from_csv` has them).
   final ViewerCsvVm? csv;
@@ -203,14 +253,14 @@ final class ValueViewerVm extends Equatable {
   /// How the value is typed; null: the viewer only shows it.
   final ViewerEditVm? edit;
 
-  /// Why the value cannot be typed (`a wire feeds this field`), shown
-  /// under it; null: it can, or nothing is to be said (a point).
-  final String? locked;
+  /// Why the value cannot be typed (a wire feeds the field), said under
+  /// it; null: it can, or nothing is to be said (a point).
+  final ViewerLockVm? locked;
 
   /// The same value with how it is typed ([edit]) or why not ([locked]).
   ValueViewerVm typed({
     ViewerEditVm? edit,
-    String? locked,
+    ViewerLockVm? locked,
     ViewerCsvVm? csv,
   }) => ValueViewerVm(
     title: title,
@@ -640,7 +690,7 @@ class _ValueViewerState extends State<ValueViewer> {
                       csv.delimiter,
                       csv.header ? s.viewerCsvHeaderOn : s.viewerCsvHeaderOff,
                     ),
-                    if (csv.note.isNotEmpty) csv.note,
+                    if (csv.wired) s.viewerCsvWired,
                   ].join(' · '),
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
@@ -707,7 +757,7 @@ class _ValueViewerState extends State<ValueViewer> {
                 cancelLabel: s.viewerDiscard,
                 onSave: _saveTable,
               )
-            else if (vm.locked case final why?)
+            else if (vm.locked?.label case final why?)
               Container(
                 padding: const EdgeInsets.fromLTRB(
                   14,

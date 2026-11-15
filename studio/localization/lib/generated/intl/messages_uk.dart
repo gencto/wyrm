@@ -2328,6 +2328,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "followUpTileNote": MessageLookupByLibrary.simpleMessage(
       "нове прохання, що продовжує це завдання",
     ),
+    "formLinear": MessageLookupByLibrary.simpleMessage("k × in + b"),
+    "formRange": MessageLookupByLibrary.simpleMessage("Діапазон"),
     "foundBad": MessageLookupByLibrary.simpleMessage("зараз погано"),
     "foundGood": MessageLookupByLibrary.simpleMessage("зараз добре"),
     "foundNoValue": MessageLookupByLibrary.simpleMessage(
@@ -2953,6 +2955,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "problemCodeMismatch": MessageLookupByLibrary.simpleMessage(
       "Недоступно: оголошений код CA не збігається з кодом його CA.",
     ),
+    "problemInvalid": MessageLookupByLibrary.simpleMessage("недійсний"),
     "problemNoAnswer": m240,
     "problemNoCa": MessageLookupByLibrary.simpleMessage(
       "Недоступно: цей комп’ютер не довіряє сертифікату, а CA для перевірки gateway не надсилає.",
@@ -2967,6 +2970,7 @@ class MessageLookup extends MessageLookupByLibrary {
       "Недоступно: простий http поза цим комп’ютером заборонено (insecure_plaintext).",
     ),
     "problemStudioTooOld": m241,
+    "problemUnnamed": MessageLookupByLibrary.simpleMessage("назвіть потік"),
     "problems": MessageLookupByLibrary.simpleMessage("Проблеми"),
     "problemsClear": MessageLookupByLibrary.simpleMessage("Очистити все"),
     "problemsClose": MessageLookupByLibrary.simpleMessage("Закрити проблеми"),

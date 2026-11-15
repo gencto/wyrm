@@ -22,23 +22,6 @@ sequenceDiagram
     A1->>ST: dispatch(ValidateFlowAction)
 ```
 
-## tree
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as action
-
-    User->>UI: tree
-    UI->>VM: tree()
-    alt placeActionOf(entry, place)
-        VM->>A1: dispatchSync
-    end
-```
-
 ## onTreeToggle
 
 ```mermaid
@@ -128,25 +111,6 @@ sequenceDiagram
     A1->>ST: dispatchSync(DisconnectEdgeAction)
 ```
 
-## onRowAction
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as EditScopeAction
-    participant ST as AppState
-
-    User->>UI: onRowAction
-    UI->>VM: onRowAction()
-    alt rowAt(r)
-        VM->>A1: dispatchSync
-        A1->>ST: dispatchSync(SetScopePromptAction)
-    end
-```
-
 ## onOpen
 
 ```mermaid
@@ -164,7 +128,7 @@ sequenceDiagram
     A1->>ST: dispatchSync(EnterBlockAction)
 ```
 
-## onRun
+## onForm
 
 ```mermaid
 sequenceDiagram
@@ -172,14 +136,15 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as RunBlockAction
+    participant A1 as SetBlockFormAction
     participant ST as AppState
 
-    User->>UI: onRun
-    UI->>VM: onRun()
-    alt RowId.fromKey(row)
+    User->>UI: onForm
+    UI->>VM: onForm()
+    alt sel != null
         VM->>A1: dispatchSync
-        A1->>ST: dispatch(action)
+        A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+        A1->>ST: dispatch(ValidateFlowAction)
     end
 ```
 
@@ -200,38 +165,7 @@ sequenceDiagram
     A1->>ST: dispatchSync(EnterBlockAction)
 ```
 
-## palette
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as action
-    participant A2 as PaletteMenuAction
-    participant A3 as RenameCustomBlockAction
-    participant ST as AppState
-
-    User->>UI: palette
-    UI->>VM: palette()
-    alt placeActionOf(entry, place)
-        VM->>A1: dispatchSync
-    end
-    VM->>A2: dispatchSync
-    A2->>ST: dispatchSync(EnterBlockAction)
-    A2->>ST: dispatchSync(RemoveCustomBlockAction)
-    A2->>A1: dispatch
-    VM->>A3: dispatchSync
-    A3->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    A3->>ST: dispatch(ValidateFlowAction)
-    VM->>A2: dispatchSync
-    A2->>ST: dispatchSync(EnterBlockAction)
-    A2->>ST: dispatchSync(RemoveCustomBlockAction)
-    A2->>A1: dispatch
-```
-
-## nameField.onChanged
+## newFlowName.onChanged
 
 ```mermaid
 sequenceDiagram
@@ -242,30 +176,11 @@ sequenceDiagram
     participant A1 as NewFlowAction
     participant ST as AppState
 
-    User->>UI: nameField.onChanged
-    UI->>VM: nameField()
+    User->>UI: newFlowName.onChanged
+    UI->>VM: newFlowName()
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.flowId, flowEditor.draft, flowEditor.dirty)
     A1->>ST: dispatch(ValidateFlowAction)
-```
-
-## onView
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as SetViewedFieldAction
-    participant ST as AppState
-
-    User->>UI: onView
-    UI->>VM: onView()
-    alt (sel, RowId.fromKey(row))
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.viewedField)
-    end
 ```
 
 ## onCloseViewer
@@ -463,7 +378,7 @@ sequenceDiagram
 
     User->>UI: menu
     UI->>VM: menu()
-    alt ask.block
+    alt block != null
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     end
@@ -482,28 +397,9 @@ sequenceDiagram
 
     User->>UI: onFieldPin
     UI->>VM: onFieldPin()
-    alt (sel, FieldId.fromKey(field))
+    alt (sel, fieldAt(p.row))
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-    end
-```
-
-## onViewField
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as SetViewedFieldAction
-    participant ST as AppState
-
-    User->>UI: onViewField
-    UI->>VM: onViewField()
-    alt rowAt(r)
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(flowEditor.viewedField)
     end
 ```
 
@@ -520,7 +416,7 @@ sequenceDiagram
 
     User->>UI: onSaveViewer
     UI->>VM: onSaveViewer()
-    alt ed.viewedField
+    alt flowEditor.viewedField
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(SetBlockFormAction)
         A1->>ST: dispatchSync(SetBlockParamAction)
@@ -546,25 +442,6 @@ sequenceDiagram
     VM->>A1: dispatchSync
     A1->>ST: copyWith(flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A1->>ST: dispatch(ValidateFlowAction)
-```
-
-## onUnbind
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as UnbindFieldAction
-    participant ST as AppState
-
-    User->>UI: onUnbind
-    UI->>VM: onUnbind()
-    alt rowAt(r)
-        VM->>A1: dispatchSync
-        A1->>ST: dispatchSync(DisconnectEdgeAction)
-    end
 ```
 
 ## onRebind
@@ -614,32 +491,13 @@ sequenceDiagram
 
     User->>UI: onFieldChanged
     UI->>VM: onFieldChanged()
-    alt (sel, RowId.fromKey(row))
+    alt (sel, fieldAt(t.row))
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(SetBlockFormAction)
         A1->>ST: dispatchSync(SetBlockParamAction)
         A1->>ST: dispatchSync(SetOperandValueAction)
         A1->>ST: dispatchSync(SetBlockParamAction)
         A1->>ST: dispatchSync(SetBlockParamAction)
-    end
-```
-
-## onFieldUnbind
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as UnbindFieldAction
-    participant ST as AppState
-
-    User->>UI: onFieldUnbind
-    UI->>VM: onFieldUnbind()
-    alt (sel, RowId.fromKey(row))
-        VM->>A1: dispatchSync
-        A1->>ST: dispatchSync(DisconnectEdgeAction)
     end
 ```
 
@@ -656,28 +514,11 @@ sequenceDiagram
 
     User->>UI: onFieldBind
     UI->>VM: onFieldBind()
-    alt (sel, RowId.fromKey(row))
+    alt (sel, fieldAt(b.row))
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(SetBlockParamAction)
         A1->>ST: dispatchSync(ConnectPortsAction)
     end
-```
-
-## onProblem
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as FlowEditorPage
-    participant VM as FlowEditorPageConnector
-    participant A1 as SetSelectedBlockAction
-    participant ST as AppState
-
-    User->>UI: onProblem
-    UI->>VM: onProblem()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
 ```
 
 ## onRemove
@@ -732,24 +573,20 @@ sequenceDiagram
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `FlowEditorPageConnector` — 3 dispatches
+- `FlowEditorPageConnector` — 5 dispatches
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
 | `onBack` | `LeaveBlockAction` | `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
-| `tree` | `action` ? | — |
 | `onTreeToggle` | `ToggleTreeNodeAction` | — |
 | `onTreeQuery` | `SetTreeQueryAction` | `flowEditor.treeQuery` |
 | `onCreateBlock` | `CreateCustomBlockAction.selected` | `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onPromptSave` | `SaveScopePromptAction` | `flowEditor.scopePrompt` |
 | `onPromptCancel` | `CancelScopePromptAction` | `flowEditor.scopePrompt` |
-| `onRowAction` | `EditScopeAction` ? | — |
 | `onOpen` | `OpenInstanceAction` | — |
-| `onRun` | `RunBlockAction` ? | — |
+| `onForm` | `SetBlockFormAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onOpenInside` | `OpenInstanceAction` | — |
-| `palette` | `action` ?, `PaletteMenuAction`, `RenameCustomBlockAction`, `PaletteMenuAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `nameField.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
-| `onView` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
+| `newFlowName.onChanged` | `NewFlowAction` | `flowEditor.flowId, flowEditor.draft, flowEditor.dirty` |
 | `onCloseViewer` | `SetViewedFieldAction` | `flowEditor.viewedField` |
 | `onDeploy` | `DeployFlowAction` | `flowEditor.version, flowEditor.dirty, flowEditor.draft, flowEditor.deployed` |
 | `onValidate` | `ValidateFlowAction` | `flowEditor.problems` |
@@ -762,16 +599,12 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onCommand` | `FlowEditAction` ? | — |
 | `menu` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onFieldPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onViewField` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
 | `onSaveViewer` | `TypeFieldAction` ? | — |
 | `onBind` | `ConnectPortsAction` | `flowEditor.scopePrompt, flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
-| `onUnbind` | `UnbindFieldAction` ? | — |
 | `onRebind` | `RebindFieldAction` | — |
 | `onResize` | `ResizeBlockAction` | — |
 | `onFieldChanged` | `TypeFieldAction` ? | — |
-| `onFieldUnbind` | `UnbindFieldAction` ? | — |
 | `onFieldBind` | `BindFieldAction` ? | — |
-| `onProblem` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onRemove` | `RemoveBlocksAction` | `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onLogo` | `GoAction.navigate` | — |
 | `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |

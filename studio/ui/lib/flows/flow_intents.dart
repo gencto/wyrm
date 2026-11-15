@@ -156,3 +156,39 @@ final class BlockResized extends Equatable {
   @override
   List<Object?> get props => [block, add];
 }
+
+// ---- the inspector: a row is named by its place in the inspector's rows ----
+
+/// The inspector's row [row] (its index) was typed to [text]: a parameter,
+/// an argument, an operand, a default.
+final class RowTyped extends Equatable {
+  const RowTyped(this.row, this.text);
+
+  final int row;
+  final String text;
+
+  @override
+  List<Object?> get props => [row, text];
+}
+
+/// The output [from] was dropped on the inspector's row [row].
+final class RowBound extends Equatable {
+  const RowBound(this.row, this.from);
+
+  final int row;
+  final FieldRefVm from;
+
+  @override
+  List<Object?> get props => [row, from];
+}
+
+/// The pin of the inspector's row [row] turned [on] or off.
+final class RowPinned extends Equatable {
+  const RowPinned(this.row, {required this.on});
+
+  final int row;
+  final bool on;
+
+  @override
+  List<Object?> get props => [row, on];
+}
