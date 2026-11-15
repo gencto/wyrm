@@ -10,6 +10,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/trend_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -86,7 +87,7 @@ void main() {
       api.calls.clear();
       s
         ..dispatchSync(PickPointAction(d, add: true))
-        ..dispatchSync(SetRangeAction('7d'));
+        ..dispatchSync(SetRangeAction(TrendRange.week));
       await s.dispatchAndWait(RetrieveSeriesAction());
       expect(historyReads()..sort(), [b, d]);
       expect(s.state.historian.series.keys.toSet(), {b, d});

@@ -1,31 +1,22 @@
 import 'package:business/wyrm/history_steps.dart';
+// Moved to where they belong; the connectors still find them here.
+import 'package:business/wyrm/trend_window.dart' show decimalsOf;
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:localization/localization.dart';
 import 'package:models/hist_point.dart';
 import 'package:ui/charts/trend.dart';
+import 'package:ui/charts/trend_format.dart' show trendRollup;
 
-// Moved to where they belong; the connectors still find them here.
-export 'package:business/wyrm/trend_window.dart' show trendWindow;
+export 'package:business/wyrm/trend_window.dart'
+    show detailCovers, trendRangeEnd, trendWindow;
 export 'package:ui/charts/trend_format.dart' show trendFormat;
 
 /// What the three trends of Studio (History, Explorer, System) share on the
 /// connector side (spec trend.md §5): times in the viewer's zone and
 /// language, rows as samples, and the words for what a plot draws.
 
-/// `15 min avg`, `1 h avg`, `raw`.
-String rollupText(String? step) {
-  final s = S.current;
-  final d = stepDuration(step);
-  if (d == null) {
-    return s.trendRaw;
-  }
-  final name = d.inDays >= 1 && d.inHours % 24 == 0
-      ? s.trendStepDays('${d.inDays}')
-      : d.inHours >= 1 && d.inMinutes % 60 == 0
-      ? s.trendStepHours('${d.inHours}')
-      : s.trendStepMinutes('${d.inMinutes}');
-  return s.trendAvg(name);
-}
+/// `15 min avg`, `1 h avg`, `raw`: the words of [trendRollup] for a step's
+/// name (`15m`).
+String rollupText(String? step) => trendRollup(stepDuration(step));
 
 TrendQuality _quality(String? q) => switch (q) {
   'bad' => .bad,
@@ -59,50 +50,13 @@ List<TrendSample> trendSamples(
 }
 
 /// The decimals to write values of [rows] with: the point's `precision`
-/// when known, else 0 for whole numbers and 1 otherwise.
-int trendDecimals(Iterable<HistPoint> rows, {Object? precision}) {
-  final p = switch (precision) {
+/// when known (a number, or its text), else 0 for whole numbers and 1
+/// otherwise.
+int trendDecimals(Iterable<HistPoint> rows, {Object? precision}) => decimalsOf(
+  rows,
+  precision: switch (precision) {
     final num n => n.toInt(),
     final String t => int.tryParse(t),
     _ => null,
-  };
-  if (p != null) {
-    return p.clamp(0, 6);
-  }
-  for (final r in rows) {
-    final v = r.value;
-    if (v != null && v != v.roundToDouble()) {
-      return 1;
-    }
-  }
-  return 0;
-}
-
-/// The finer rows read for [from]…[to] (µs) cover the window
-/// [start]…[end]: they start at most a minute after it and, unless the
-/// window [follows] now (its rows grow with new samples), end at most a
-/// minute before it.
-bool detailCovers({
-  required int from,
-  required int to,
-  required int start,
-  required int end,
-  required bool follows,
-}) {
-  const slack = 60 * 1000000;
-  return from <= start + slack && (follows || to >= end - slack);
-}
-
-/// The end of a trend's range (µs): the latest of when it was read
-/// ([readAt], now when never) and the [newest] rows since (the range's last
-/// samples, the window's own read), so the range stays put between
-/// dispatches and still moves with new samples.
-int trendRangeEnd(DateTime? readAt, Iterable<DateTime?> newest) {
-  var end = readAt ?? DateTime.now().toUtc();
-  for (final t in newest) {
-    if (t != null && t.isAfter(end)) {
-      end = t;
-    }
-  }
-  return end.microsecondsSinceEpoch;
-}
+  },
+);

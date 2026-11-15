@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/panel_slot.dart';
+import 'package:models/trend_range.dart';
 import 'package:ui/buttons/button.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/side_panels.dart';
@@ -38,8 +39,11 @@ void main() {
     return app;
   }
 
+  // History's page, whatever its type arguments.
+  final page = find.byWidgetPredicate((w) => w is HistoryPage);
+
   List<String> on(WidgetTester t, ScreenApp app) =>
-      app.words(t, find.byType(HistoryPage), without: Trend);
+      app.words(t, page, without: Trend);
 
   /// The last button of the dialog on top: its confirm or submit.
   final inDialog = find
@@ -153,7 +157,7 @@ void main() {
     final reads = app.calls('history').length;
     await t.tap(find.text('7 d'));
     await app.settle(t);
-    expect(app.store.state.historian.range, '7d');
+    expect(app.store.state.historian.range, TrendRange.week);
     expect(app.calls('history').length, greaterThan(reads));
     await app.leave(t);
   });

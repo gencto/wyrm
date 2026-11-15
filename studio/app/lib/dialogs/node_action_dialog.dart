@@ -1,4 +1,5 @@
-import 'package:business/redux/nodes/actions/invoke_node_action.dart';
+import 'package:async_redux/async_redux.dart';
+import 'package:business/redux/app_state.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/wyrm/calls.dart' show clearedNames;
 import 'package:business/wyrm/labels.dart';
@@ -11,13 +12,22 @@ import 'package:ui/overlays/panel_dialog.dart';
 import '../common/app_store.dart';
 import '../common/forms.dart';
 
-/// Runs [action] of the node [key] now, with a form made from its
-/// parameters (or a confirmation when it has none and [confirm] is set).
-/// True when it ran.
-Future<bool> runNodeAction(
+/// The one action that runs an action of a node with the [args] the form
+/// gave, the names in [keep] sent even when empty.
+typedef NodeRun = ReduxAction<AppState> Function(
+  Map<String, Object?> args,
+  Set<String> keep,
+);
+
+/// Asks for [action] of the node [key]: a form made from its parameters
+/// (or a confirmation when it has none and [confirm] is set), then
+/// dispatches the one action [run] makes of the answer. The node's actions
+/// are read first, as they are now.
+Future<void> runNodeAction(
   BuildContext context,
   String key,
   String action, {
+  required NodeRun run,
   String? confirm,
 }) async {
   final store = AppStore.of(context);
@@ -26,7 +36,7 @@ Future<bool> runNodeAction(
       .where((x) => x.name == action)
       .firstOrNull;
   if (a == null || !context.mounted) {
-    return false;
+    return;
   }
   if (a.params.isEmpty) {
     if (confirm != null &&
@@ -37,12 +47,11 @@ Future<bool> runNodeAction(
           confirm: labelOf(a.name, display: a.display),
           cancel: S.current.cancel,
         )) {
-      return false;
+      return;
     }
-    final st = await store.dispatchAndWait(InvokeNodeAction(key, action));
-    return st.isCompletedOk;
+    await store.dispatchAndWait(run(const {}, const {}));
+    return;
   }
-  var ran = false;
   await showDialog<void>(
     context: context,
     builder: (dialog) => PanelDialog(
@@ -53,11 +62,8 @@ Future<bool> runNodeAction(
         fields: paramFields(a.params),
         submit: labelOf(a.name, display: a.display),
         onSubmit: (v) => sendForm(
-          store.dispatchAndWait(
-            InvokeNodeAction(key, action, plainArgs(v), clearedNames(a.params)),
-          ),
+          store.dispatchAndWait(run(plainArgs(v), clearedNames(a.params))),
           onOk: () {
-            ran = true;
             if (dialog.mounted) {
               Navigator.of(dialog).pop();
             }
@@ -66,5 +72,4 @@ Future<bool> runNodeAction(
       ),
     ),
   );
-  return ran;
 }

@@ -27,3 +27,18 @@ TrendFormat trendFormat() {
     weekday: (t) => wd(t.toLocal()),
   );
 }
+
+/// What a trend's plot draws for a [step]: `15 min avg`, `1 h avg`, `1 d
+/// avg`; `raw` for none.
+String trendRollup(Duration? step) {
+  final s = S.current;
+  if (step == null) {
+    return s.trendRaw;
+  }
+  final name = step.inDays >= 1 && step.inHours % 24 == 0
+      ? s.trendStepDays('${step.inDays}')
+      : step.inHours >= 1 && step.inMinutes % 60 == 0
+      ? s.trendStepHours('${step.inHours}')
+      : s.trendStepMinutes('${step.inMinutes}');
+  return s.trendAvg(name);
+}

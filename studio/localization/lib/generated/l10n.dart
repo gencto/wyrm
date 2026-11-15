@@ -17163,6 +17163,26 @@ class S {
   String get levelConfig {
     return Intl.message('config', name: 'levelConfig', desc: '', args: []);
   }
+
+  /// `1 h`
+  String get historyRange1h {
+    return Intl.message('1 h', name: 'historyRange1h', desc: '', args: []);
+  }
+
+  /// `24 h`
+  String get historyRange24h {
+    return Intl.message('24 h', name: 'historyRange24h', desc: '', args: []);
+  }
+
+  /// `7 d`
+  String get historyRange7d {
+    return Intl.message('7 d', name: 'historyRange7d', desc: '', args: []);
+  }
+
+  /// `30 d`
+  String get historyRange30d {
+    return Intl.message('30 d', name: 'historyRange30d', desc: '', args: []);
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

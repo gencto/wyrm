@@ -4,35 +4,34 @@ import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/historian/actions/follow_history_action.dart';
-import 'package:business/redux/historian/actions/load_trend_window_action.dart';
+import 'package:business/redux/historian/actions/pick_range_action.dart';
 import 'package:business/redux/historian/actions/pick_trend_point_action.dart';
-import 'package:business/redux/historian/actions/retrieve_series_action.dart';
-import 'package:business/redux/historian/actions/set_range_action.dart';
 import 'package:business/redux/historian/actions/set_selected_action.dart';
 import 'package:business/redux/historian/actions/set_trend_window_action.dart';
+import 'package:business/redux/historian/actions/show_history_action.dart';
 import 'package:business/redux/historian/actions/toggle_trend_series_action.dart';
-import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
+import 'package:business/redux/historian/actions/zoom_history_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
-import 'package:business/wyrm/history_steps.dart';
+import 'package:business/wyrm/historian_stats.dart';
+import 'package:business/wyrm/history_trend.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:ui/buttons/action_row.dart';
-import 'package:ui/buttons/segmented_tabs.dart';
-import 'package:ui/charts/trend.dart';
-import 'package:ui/containers/detail_inspector.dart';
-import 'package:ui/containers/fact_grid.dart';
-import 'package:ui/containers/side_panels.dart';
-import 'package:ui/models/tone.dart';
+import 'package:ui/models/panels.dart';
 import 'package:ui/models/value_changed.dart';
-import 'package:ui/pages/history_page.dart';
-import 'package:ui/tables/row_table.dart';
+import 'package:ui/pages/history_screen.dart';
+import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
-import '../common/trend.dart';
-import '../dialogs/node_action_dialog.dart';
+import '../dialogs/history_dialogs.dart';
+import '../mappers/history_mappers.dart';
+import '../mappers/rights_mappers.dart';
 
+/// History (docs/studio.md §7.7): the watch groups of `sys/history`, the
+/// picked points' trend (computed in business, `historyTrend`), mapped
+/// through `app/lib/mappers/history_mappers.dart`; `HistoryScreen` words
+/// them. One action per intent; an action of the inspector opens its form
+/// from the widget, with the widget's context (`askHistory`).
 @RoutePage()
 class HistoryPageConnector extends StatelessWidget {
   const HistoryPageConnector({super.key});
@@ -44,44 +43,17 @@ class HistoryPageConnector extends StatelessWidget {
     builder: (context, vm) => TabVisibility(
       onShow: vm.onShow,
       onHide: vm.onHide,
-      child: HistoryPage(
-        groupsLabel: S.current.watchGroups(vm.groups.length),
-        groups: vm.groups,
+      child: HistoryScreen(
+        vm: vm.screen,
         onGroup: vm.onGroup,
-        onAddGroup: () => vm.onAction(context, 'add_group'),
-        addReason: vm.configReason,
-        title: vm.title,
-        subtitle: vm.subtitle,
-        empty: S.current.noWatchGroups,
-        ranges: const [
-          TabItemVm(id: '1h', label: '1 h'),
-          TabItemVm(id: '24h', label: '24 h'),
-          TabItemVm(id: '7d', label: '7 d'),
-          TabItemVm(id: '30d', label: '30 d'),
-        ],
-        range: vm.range,
-        onRange: vm.onRange,
-        trend: vm.trend,
-        trendEmpty: S.current.pickPointTrend,
-        onTrendWindow: vm.onTrendWindow,
+        onSpan: vm.onSpan,
+        onPick: vm.onPick,
+        onAct: (act) => unawaited(askHistory(context, act)),
+        onTrendWindow: (start, end) =>
+            vm.onTrendWindow(TrendWindow(start, end)),
         onTrendToggle: vm.onTrendToggle,
         onTrendReset: vm.onTrendReset,
-        pointsLabel: S.current.pointsCount(vm.points.length),
-        pointsHint: S.current.pickPointHint,
-        columns: [
-          ColumnVm(S.current.colPoint, flex: 4),
-          ColumnVm(S.current.colWatch),
-          ColumnVm(S.current.colReadRows, flex: 2),
-        ],
-        points: vm.points,
-        picked: vm.trendPoints,
-        onPick: vm.onPick,
-        pointsEmpty: S.current.noWatchPaths,
-        footer: vm.footer,
-        inspector: vm.inspector,
-        onAction: (a) => vm.onAction(context, a),
-        panels: vm.panelWidths,
-        onPanelWidth: vm.onPanelWidth,
+        onPanelWidth: (side, width) => vm.onPanelWidth(PanelWidth(side, width)),
       ),
     ),
   );
@@ -92,387 +64,63 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
     with Selectors {
   _Factory(super._connector);
 
-  String get _base => '${site.root}/sys/history';
-
   @override
   _Vm fromStore() {
-    final h = historian;
-    // Groups and the historian's values with what History follows live.
-    final groupsLive = h.shownGroups;
-    final g = groupsLive.where((g) => g.name == h.selected).firstOrNull;
-    final stats = h.shownStats;
-    // The one point picked: Stop recording works on its watch.
-    final watch = g != null && h.points.length == 1
-        ? switch (g.keys.indexOf(h.points.first)) {
-            -1 => null,
-            final i => g.watchIds[i],
-          }
-        : null;
-    String every(num? s) => s == null
-        ? ''
-        : S.current.everySeconds(s == s.truncate() ? s.toInt() : s);
+    final series = historian.series;
     return _Vm(
-      panelWidths: WorkspacePanels.history.widths(panels.widths),
-      onPanelWidth: (side, w) => dispatchSync(
-        SetPanelWidthAction(WorkspacePanels.history.slot(side), w),
+      screen: HistoryScreenVm(
+        groups: [for (final g in historian.shownGroups) g.vm(series)],
+        selected: historian.selected,
+        stats: historianStats.vm,
+        span: historian.range.tab,
+        picked: ToggleVm(
+          selected: historian.points.toISet(),
+          onToggle: (key, {required on}) =>
+              dispatch(PickTrendPointAction(key, add: true)),
+        ),
+        trend: historyTrend?.vm,
+        watch: pickedWatch,
+        disabled: site.lacks(Perm.config, '${site.root}/sys/history')?.disabled,
+        panels: WorkspacePanels.history.widths(panels.widths),
       ),
-      configReason: site.needs('config', _base),
-      groups: [
-        for (final x in groupsLive)
-          GroupItemVm(
-            id: x.name,
-            title: x.name,
-            sub: [
-              S.current.pointsCount(x.keys.length),
-              x.loggingType,
-              every(x.interval),
-            ].where((s) => s.isNotEmpty).join(' · '),
-            selected: x.name == h.selected,
-          ),
-      ],
-      title: g?.name,
-      subtitle: g == null
-          ? null
-          : [
-              S.current.pointsCount(g.keys.length),
-              g.loggingType,
-              every(g.interval),
-            ].where((s) => s.isNotEmpty).join(' · '),
-      range: h.range,
-      trend: g == null || h.points.isEmpty ? null : _trend(),
-      points: [
-        if (g != null)
-          for (final (i, k) in g.keys.indexed)
-            RowVm(
-              id: k,
-              selected: h.points.contains(k),
-              cells: [
-                CellVm(title: k.split('/').skip(2).join('/'), monospace: true),
-                CellVm(title: g.watchIds[i], monospace: true),
-                // Read only for a picked point: a count of the others would
-                // cost a history read each.
-                CellVm(
-                  title: switch (h.series[k]) {
-                    final s? => '${s.length}',
-                    null => '—',
-                  },
-                ),
-              ],
-            ),
-      ],
-      footer: [
-        if (stats['database_size'] case final s?)
-          S.current.historianSize(_mib(s)),
-        if (stats['series'] case final s?) S.current.historianSeries(s),
-        if (stats['retention_days'] case final s?) S.current.historianKeep(s),
-      ].join(' · '),
-      inspector: g == null
-          ? null
-          : DetailInspectorVm(
-              eyebrow: S.current.watchGroup,
-              title: g.name,
-              keyName: 'sys/history/${g.name}',
-              facts: [
-                FactVm(label: S.current.factRecord, value: g.loggingType),
-                if (g.interval != null)
-                  FactVm(
-                    label: S.current.factInterval,
-                    value: every(g.interval),
-                  ),
-                if (g.flush != null)
-                  FactVm(label: S.current.factFlush, value: every(g.flush)),
-                if (stats['rows_written'] case final r?)
-                  FactVm(label: S.current.factRowsWritten, value: r),
-                if (stats['oldest_day'] case final d?)
-                  FactVm(label: S.current.factOldest, value: d),
-              ],
-              groups: [
-                if (watch != null)
-                  ActionGroupVm(
-                    label: h.points.first.split('/').last,
-                    actions: [
-                      ActionRowVm(
-                        id: 'watch:$watch',
-                        icon: 'action_trash',
-                        title: S.current.stopRecording,
-                        description: S.current.unsubscribeNote,
-                        code: 'unsubscribe',
-                        tone: Tone.warn,
-                        disabledReason: site.needs('config', _base),
-                      ),
-                    ],
-                  ),
-                ActionGroupVm(
-                  label: S.current.groupChange,
-                  actions: [
-                    ActionRowVm(
-                      id: 'add_path',
-                      icon: 'ui_add',
-                      title: S.current.addWatchPath,
-                      description: S.current.addWatchPathNote,
-                      code: 'add_watch_path',
-                      disabledReason: site.needs('config', _base),
-                    ),
-                    ActionRowVm(
-                      id: 'edit',
-                      icon: 'action_edit',
-                      title: S.current.editGroup,
-                      description: S.current.editGroupNote,
-                      code: 'edit',
-                      disabledReason: site.needs('config', _base),
-                    ),
-                  ],
-                ),
-                ActionGroupVm(
-                  label: S.current.groupRemove,
-                  actions: [
-                    ActionRowVm(
-                      id: 'purge',
-                      icon: 'action_trash',
-                      title: S.current.purgeHistory,
-                      description: S.current.purgeHistoryNote,
-                      code: 'purge',
-                      tone: Tone.warn,
-                      disabledReason: site.needs('config', _base),
-                    ),
-                    ActionRowVm(
-                      id: 'remove',
-                      icon: 'action_trash',
-                      title: S.current.removeGroup,
-                      description: S.current.removeGroupNote,
-                      code: 'remove',
-                      tone: Tone.bad,
-                      disabledReason: site.needs('config', _base),
-                    ),
-                  ],
-                ),
-              ],
-              footer: S.current.historyFooter,
-            ),
-      onShow: () {
-        dispatchSync(FollowHistoryAction(show: true));
-        if (historian.points.isNotEmpty) {
-          unawaited(dispatchAndWait(RetrieveSeriesAction()));
-          if (historian.window != null) {
-            unawaited(dispatchAndWait(LoadTrendWindowAction()));
-          }
-        }
-      },
+      onShow: () => dispatch(ShowHistoryAction()),
       onHide: () => dispatchSync(FollowHistoryAction(show: false)),
-      onGroup: (id) => dispatchSync(SetSelectedAction(id)),
-      trendPoints: ToggleVm(
-        selected: historian.points.toISet(),
-        onToggle: (key, {required on}) =>
-            dispatch(PickTrendPointAction(key, add: true)),
-      ),
+      onGroup: (name) => dispatchSync(SetSelectedAction(name)),
+      onSpan: (s) => dispatch(PickRangeAction(s.range)),
       onPick: (key) => dispatch(PickTrendPointAction(key)),
-      onTrendWindow: (a, b) {
-        final (start, end) = _range();
-        dispatchSync(SetTrendWindowAction(trendWindow(a, b, start, end)));
-      },
+      onTrendWindow: (w) => dispatchSync(ZoomHistoryAction(w.start, w.end)),
       onTrendToggle: (k) => dispatchSync(ToggleTrendSeriesAction(k)),
       onTrendReset: () => dispatchSync(SetTrendWindowAction(null)),
-      onRange: (r) {
-        dispatchSync(SetRangeAction(r));
-        unawaited(dispatchAndWait(RetrieveSeriesAction()));
-      },
-      // The groups, watches and values follow by themselves; the trend is
-      // read again (a purge, a watch stopped).
-      onAction: (context, a) async {
-        if (await _run(context, a, '$_base/${g?.name}') &&
-            historian.points.isNotEmpty) {
-          await dispatchAndWait(RetrieveSeriesAction());
-        }
-      },
-    );
-  }
-
-  /// The trend's range in µs: the span of `historian.range` up to the
-  /// last read or the newest sample since, whichever is later (so the Vm
-  /// stays equal between dispatches and still follows new samples).
-  (int, int) _range() {
-    final h = historian;
-    final span = RetrieveHistoryAction.span(h.range);
-    // A window read later (and following now) ends at its own read.
-    final e = trendRangeEnd(historian.seriesAt, [
-      for (final s in h.series.values) s.lastOrNull?.time,
-      h.detail?.to,
-    ]);
-    return (e - span.inMicroseconds, e);
-  }
-
-  /// The picked points as a trend (spec trend.md §4): the range read coarse
-  /// in the brush, the window from its finer rows once they cover it.
-  TrendVm _trend() {
-    final h = historian;
-    final (rs, re) = _range();
-    final span = RetrieveHistoryAction.span(h.range);
-    final (ws, we) = switch (h.window) {
-      null => (rs, re),
-      final w => (
-        (w.end?.microsecondsSinceEpoch ?? re) - w.span.inMicroseconds,
-        w.end?.microsecondsSinceEpoch ?? re,
+      onPanelWidth: (p) => dispatchSync(
+        SetPanelWidthAction(WorkspacePanels.history.slot(p.side), p.width),
       ),
-    };
-    final d = h.detail;
-    final fine =
-        h.window != null &&
-        d != null &&
-        detailCovers(
-          from: d.from.microsecondsSinceEpoch,
-          to: d.to.microsecondsSinceEpoch,
-          start: ws,
-          end: we,
-          follows: h.window!.end == null,
-        );
-    final coarse = stepFor(span);
-    final step = fine ? (d.step == 'raw' ? null : d.step) : coarse;
-    final minStep = stepDuration(stepFor(span, raw: false))!;
-    return TrendVm(
-      title: [for (final k in h.points) k.split('/').last].join(', '),
-      series: [
-        for (final (i, k) in h.points.indexed)
-          () {
-            final info = nodes.table[k];
-            final meta = nodes.detail[k];
-            final rows = h.series[k] ?? const IListConst([]);
-            final plot = fine ? d.points[k] ?? rows : rows;
-            return TrendSeriesVm(
-              id: k,
-              name: k.split('/').last,
-              label: meta?.display ?? info?.display ?? '',
-              color: TrendColor.byIndex(i),
-              unit: meta?.unit ?? info?.unit ?? '',
-              decimals: trendDecimals(plot, precision: meta?.cfg['precision']),
-              samples: trendSamples(
-                plot,
-                low: fine ? d.low[k] : h.low[k],
-                high: fine ? d.high[k] : h.high[k],
-              ),
-              overview: trendSamples(rows),
-              hidden: h.hidden.contains(k),
-              locked: !site.mayRead(k),
-            );
-          }(),
-      ],
-      rangeStart: rs,
-      rangeEnd: re,
-      windowStart: ws.clamp(rs, re),
-      windowEnd: we.clamp(rs, re),
-      rollup: rollupText(step),
-      step: stepDuration(step)?.inMicroseconds,
-      minWindow: 12 * minStep.inMicroseconds,
-      endsNow: true,
-      following: h.window?.end == null,
-      loading: historian.seriesLoading && h.series.isEmpty,
-      refining: historian.windowLoading,
-      format: trendFormat(),
     );
-  }
-
-  Future<bool> _run(BuildContext context, String a, String group) {
-    switch (a) {
-      case 'add_group':
-        return runNodeAction(context, _base, 'add_watch_group');
-      case 'add_path':
-        return runNodeAction(context, group, 'add_watch_path');
-      case 'edit':
-        return runNodeAction(context, group, 'edit');
-      case 'remove':
-        return runNodeAction(
-          context,
-          group,
-          'remove',
-          confirm: S.current.removeGroupNote,
-        );
-      case 'purge':
-        return runNodeAction(context, _base, 'purge');
-      case _ when a.startsWith('watch:'):
-        return runNodeAction(
-          context,
-          '$group/${a.substring(6)}',
-          'unsubscribe',
-          confirm: S.current.unsubscribeNote,
-        );
-    }
-    return Future.value(false);
-  }
-
-  /// `database_size` is in MiB.
-  static String _mib(String s) {
-    final n = num.tryParse(s);
-    if (n == null) {
-      return s;
-    }
-    return n >= 1024
-        ? '${(n / 1024).toStringAsFixed(1)} GiB'
-        : '${n.toStringAsFixed(n < 10 ? 1 : 0)} MiB';
   }
 }
 
-/// The view-model holds the part of the Store state the dumb-widget needs.
+/// What History draws ([screen], compared) and what it starts (not).
 class _Vm extends Vm {
   _Vm({
-    required this.configReason,
-    required this.groups,
-    required this.title,
-    required this.subtitle,
-    required this.range,
-    required this.trend,
-    required this.onTrendWindow,
-    required this.onTrendToggle,
-    required this.onTrendReset,
-    required this.points,
-    required this.footer,
-    required this.inspector,
+    required this.screen,
     required this.onShow,
     required this.onHide,
     required this.onGroup,
-    required this.trendPoints,
+    required this.onSpan,
     required this.onPick,
-    required this.onRange,
-    required this.onAction,
-    required this.panelWidths,
+    required this.onTrendWindow,
+    required this.onTrendToggle,
+    required this.onTrendReset,
     required this.onPanelWidth,
-  }) : super(
-         equals: [
-           configReason,
-           groups,
-           title,
-           subtitle,
-           range,
-           trendPoints,
-           trend,
-           points,
-           footer,
-           inspector,
-           panelWidths,
-         ],
-       );
+  }) : super(equals: [screen]);
 
-  final String? configReason;
-  final List<GroupItemVm> groups;
-  final String? title;
-  final String? subtitle;
-  final String range;
-  final TrendVm? trend;
-  final void Function(int start, int end) onTrendWindow;
-  final ValueChanged<String> onTrendToggle;
-  final VoidCallback onTrendReset;
-  final List<RowVm<String>> points;
-  final String footer;
-  final DetailInspectorVm<String>? inspector;
+  final HistoryScreenVm screen;
   final VoidCallback onShow;
   final VoidCallback onHide;
   final ValueChanged<String> onGroup;
-
-  /// The points on the trend (a ⌘- or Ctrl-click toggles one).
-  final ToggleVm<String> trendPoints;
-
-  /// A plain click: the trend shows that point alone.
+  final ValueChanged<HistorySpan> onSpan;
   final ValueChanged<String> onPick;
-  final ValueChanged<String> onRange;
-  final Future<void> Function(BuildContext context, String action) onAction;
-  final SidePanelWidths panelWidths;
-  final void Function(PanelSide side, double width) onPanelWidth;
+  final ValueChanged<TrendWindow> onTrendWindow;
+  final ValueChanged<String> onTrendToggle;
+  final VoidCallback onTrendReset;
+  final ValueChanged<PanelWidth> onPanelWidth;
 }

@@ -2396,6 +2396,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "Лінки синхронізації читають журнал змін історика, тож нічого не губиться, поки база недоступна.",
     ),
     "historyOf": m174,
+    "historyRange1h": MessageLookupByLibrary.simpleMessage("1 год"),
+    "historyRange24h": MessageLookupByLibrary.simpleMessage("24 год"),
+    "historyRange30d": MessageLookupByLibrary.simpleMessage("30 д"),
+    "historyRange7d": MessageLookupByLibrary.simpleMessage("7 д"),
     "historyUnavailable": MessageLookupByLibrary.simpleMessage(
       "історія недоступна",
     ),

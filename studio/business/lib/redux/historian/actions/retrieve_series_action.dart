@@ -9,7 +9,6 @@ import '../../../wyrm/history_steps.dart';
 import '../../../wyrm/mappers/node_detail_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import '../../nodes/actions/retrieve_history_action.dart';
 import 'load_trend_extremes_action.dart';
 
 /// Reads the recorded values of the points the user picked
@@ -33,7 +32,7 @@ class RetrieveSeriesAction extends Action with WaitingAction {
         detail: null,
       );
     }
-    final span = RetrieveHistoryAction.span(historian.range);
+    final span = historian.range.span;
     final from = DateTime.now().toUtc().subtract(span).toIso8601String();
     Future<IList<HistPoint>> read(String key, String? step) async {
       try {

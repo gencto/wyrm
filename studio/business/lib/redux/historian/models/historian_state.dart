@@ -4,6 +4,7 @@ import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
 import 'package:models/live_set.dart';
+import 'package:models/trend_range.dart';
 import 'package:models/watch_group.dart';
 
 part 'historian_state.freezed.dart';
@@ -13,7 +14,7 @@ abstract class HistorianState with _$HistorianState {
   const factory HistorianState({
     @Default(IListConst([])) IList<WatchGroup> groups,
     String? selected,
-    @Default('24h') String range,
+    @Default(TrendRange.day) TrendRange range,
     @Default(IMapConst({})) IMap<String, IList<HistPoint>> series,
     @Default(IMapConst({})) IMap<String, String> stats,
     @Default(IListConst([])) IList<String> points,

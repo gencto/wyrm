@@ -39,6 +39,15 @@ typedef Toggled<T> = void Function(T item, {required bool on});
 /// window (µs since the epoch).
 typedef RangeChanged<T> = void Function(T start, T end);
 
+/// What [RangeChanged] reports for a trend, as one value: a view-model's
+/// callback takes a `ValueChanged<TrendWindow>` (µs since the epoch).
+final class TrendWindow {
+  const TrendWindow(this.start, this.end);
+
+  final int start;
+  final int end;
+}
+
 /// An action on [row] of [owner]: a row of a flow block (`onRowAction(block,
 /// row)`), a field of a node. The row is named by its id.
 typedef RowAction<O, R> = void Function(O owner, R row);

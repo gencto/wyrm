@@ -66,6 +66,7 @@ import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
+import 'package:models/trend_range.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:models/user_info.dart';
@@ -1717,7 +1718,7 @@ extension type SelectHistorian(AppState _state) {
   String? get selected => _state.historian.selected;
 
   /// Returns range
-  String get range => _state.historian.range;
+  TrendRange get range => _state.historian.range;
 
   /// Returns series
   IMap<String, IList<HistPoint>> get series => _state.historian.series;

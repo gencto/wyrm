@@ -2364,6 +2364,10 @@ class MessageLookup extends MessageLookupByLibrary {
       "Sync links read the historian\'s change journal, so nothing is lost while a database is down.",
     ),
     "historyOf": m174,
+    "historyRange1h": MessageLookupByLibrary.simpleMessage("1 h"),
+    "historyRange24h": MessageLookupByLibrary.simpleMessage("24 h"),
+    "historyRange30d": MessageLookupByLibrary.simpleMessage("30 d"),
+    "historyRange7d": MessageLookupByLibrary.simpleMessage("7 d"),
     "historyUnavailable": MessageLookupByLibrary.simpleMessage(
       "history unavailable",
     ),

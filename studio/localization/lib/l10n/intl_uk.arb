@@ -2107,5 +2107,9 @@
     "levelList": "перелік",
     "levelRead": "читання",
     "levelWrite": "запис",
-    "levelConfig": "налаштування"
+    "levelConfig": "налаштування",
+    "historyRange1h": "1 год",
+    "historyRange24h": "24 год",
+    "historyRange7d": "7 д",
+    "historyRange30d": "30 д"
 }

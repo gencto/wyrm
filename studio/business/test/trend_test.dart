@@ -17,6 +17,7 @@ import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/trend_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -99,7 +100,7 @@ void main() {
     await s.dispatchAndWait(RetrieveSeriesAction());
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(s.state.historian.low, isNotEmpty);
-    s.dispatchSync(SetRangeAction('7d'));
+    s.dispatchSync(SetRangeAction(TrendRange.week));
     expect(s.state.historian.low, isEmpty);
     expect(s.state.historian.high, isEmpty);
   });
@@ -205,7 +206,7 @@ void main() {
       );
     final gen = s.state.historian.trendGen;
     final late = s.dispatchAndWait(LoadTrendWindowAction());
-    s.dispatchSync(SetRangeAction('7d'));
+    s.dispatchSync(SetRangeAction(TrendRange.week));
     await late;
     expect(s.state.historian.trendGen, greaterThan(gen));
     expect(s.state.historian.window, isNull);

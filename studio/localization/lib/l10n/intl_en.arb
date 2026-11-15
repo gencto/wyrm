@@ -2119,5 +2119,9 @@
     "levelList": "list",
     "levelRead": "read",
     "levelWrite": "write",
-    "levelConfig": "config"
+    "levelConfig": "config",
+    "historyRange1h": "1 h",
+    "historyRange24h": "24 h",
+    "historyRange7d": "7 d",
+    "historyRange30d": "30 d"
 }

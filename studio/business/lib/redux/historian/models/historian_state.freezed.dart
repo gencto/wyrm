@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$HistorianState {
 
- IList<WatchGroup> get groups; String? get selected; String get range; IMap<String, IList<HistPoint>> get series; IMap<String, String> get stats; IList<String> get points; LiveSet? get follow; HistWindow? get window; HistDetail? get detail; IMap<String, IList<HistPoint>> get low; IMap<String, IList<HistPoint>> get high; ISet<String> get hidden; int get trendGen; DateTime? get seriesAt;
+ IList<WatchGroup> get groups; String? get selected; TrendRange get range; IMap<String, IList<HistPoint>> get series; IMap<String, String> get stats; IList<String> get points; LiveSet? get follow; HistWindow? get window; HistDetail? get detail; IMap<String, IList<HistPoint>> get low; IMap<String, IList<HistPoint>> get high; ISet<String> get hidden; int get trendGen; DateTime? get seriesAt;
 /// Create a copy of HistorianState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,7 +51,7 @@ abstract mixin class $HistorianStateCopyWith<$Res>  {
   factory $HistorianStateCopyWith(HistorianState value, $Res Function(HistorianState) _then) = _$HistorianStateCopyWithImpl;
 @useResult
 $Res call({
- IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points, LiveSet? follow, HistWindow? window, HistDetail? detail, IMap<String, IList<HistPoint>> low, IMap<String, IList<HistPoint>> high, ISet<String> hidden, int trendGen, DateTime? seriesAt
+ IList<WatchGroup> groups, String? selected, TrendRange range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points, LiveSet? follow, HistWindow? window, HistDetail? detail, IMap<String, IList<HistPoint>> low, IMap<String, IList<HistPoint>> high, ISet<String> hidden, int trendGen, DateTime? seriesAt
 });
 
 
@@ -73,7 +73,7 @@ class _$HistorianStateCopyWithImpl<$Res>
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,range: null == range ? _self.range : range // ignore: cast_nullable_to_non_nullable
-as String,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
+as TrendRange,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
 as IMap<String, IList<HistPoint>>,stats: null == stats ? _self.stats : stats // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,points: null == points ? _self.points : points // ignore: cast_nullable_to_non_nullable
 as IList<String>,follow: freezed == follow ? _self.follow : follow // ignore: cast_nullable_to_non_nullable
@@ -132,12 +132,12 @@ $HistDetailCopyWith<$Res>? get detail {
 
 
 class _HistorianState implements HistorianState {
-  const _HistorianState({this.groups = const IListConst([]), this.selected, this.range = '24h', this.series = const IMapConst({}), this.stats = const IMapConst({}), this.points = const IListConst([]), this.follow, this.window, this.detail, this.low = const IMapConst({}), this.high = const IMapConst({}), this.hidden = const ISetConst({}), this.trendGen = 0, this.seriesAt});
+  const _HistorianState({this.groups = const IListConst([]), this.selected, this.range = TrendRange.day, this.series = const IMapConst({}), this.stats = const IMapConst({}), this.points = const IListConst([]), this.follow, this.window, this.detail, this.low = const IMapConst({}), this.high = const IMapConst({}), this.hidden = const ISetConst({}), this.trendGen = 0, this.seriesAt});
   
 
 @override@JsonKey() final  IList<WatchGroup> groups;
 @override final  String? selected;
-@override@JsonKey() final  String range;
+@override@JsonKey() final  TrendRange range;
 @override@JsonKey() final  IMap<String, IList<HistPoint>> series;
 @override@JsonKey() final  IMap<String, String> stats;
 @override@JsonKey() final  IList<String> points;
@@ -182,7 +182,7 @@ abstract mixin class _$HistorianStateCopyWith<$Res> implements $HistorianStateCo
   factory _$HistorianStateCopyWith(_HistorianState value, $Res Function(_HistorianState) _then) = __$HistorianStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<WatchGroup> groups, String? selected, String range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points, LiveSet? follow, HistWindow? window, HistDetail? detail, IMap<String, IList<HistPoint>> low, IMap<String, IList<HistPoint>> high, ISet<String> hidden, int trendGen, DateTime? seriesAt
+ IList<WatchGroup> groups, String? selected, TrendRange range, IMap<String, IList<HistPoint>> series, IMap<String, String> stats, IList<String> points, LiveSet? follow, HistWindow? window, HistDetail? detail, IMap<String, IList<HistPoint>> low, IMap<String, IList<HistPoint>> high, ISet<String> hidden, int trendGen, DateTime? seriesAt
 });
 
 
@@ -204,7 +204,7 @@ class __$HistorianStateCopyWithImpl<$Res>
 groups: null == groups ? _self.groups : groups // ignore: cast_nullable_to_non_nullable
 as IList<WatchGroup>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,range: null == range ? _self.range : range // ignore: cast_nullable_to_non_nullable
-as String,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
+as TrendRange,series: null == series ? _self.series : series // ignore: cast_nullable_to_non_nullable
 as IMap<String, IList<HistPoint>>,stats: null == stats ? _self.stats : stats // ignore: cast_nullable_to_non_nullable
 as IMap<String, String>,points: null == points ? _self.points : points // ignore: cast_nullable_to_non_nullable
 as IList<String>,follow: freezed == follow ? _self.follow : follow // ignore: cast_nullable_to_non_nullable
