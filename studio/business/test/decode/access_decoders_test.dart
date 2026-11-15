@@ -74,6 +74,7 @@ void main() {
       const Valid(
         AuditLine(
           time: '1700000000000000',
+          who: 'user:olena',
           what: 'set downstream/plc1/sp',
           result: '0',
         ),

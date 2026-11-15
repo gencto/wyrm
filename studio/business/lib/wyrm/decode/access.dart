@@ -56,10 +56,11 @@ Decoded<RoleGrant> roleGrantOf(Value v) {
   );
 }
 
-/// One record of `sys/audit ▸ tail`: its time (`time` or `t`), who
-/// (`who`, `by` or `subject`), what (`op` or `event`, `key` or `target`,
-/// `action`) and the result (`result` or `status`), each as written (a
-/// number as its digits).
+/// One record of `sys/audit ▸ tail`, as wyrm-admin writes it (`t`, `sub`,
+/// `op`, `key`, `status`) or with the other names a record may use: its
+/// time (`t` or `time`), who (`sub`, `who`, `by` or `subject`), what (`op`
+/// or `event`, `key` or `target`, `action`) and the result (`result` or
+/// `status`), each as written (a number as its digits).
 Decoded<AuditLine> auditLineOf(Value v) {
   const shape = 'audit record';
   final m = switch (v) {
@@ -89,8 +90,8 @@ Decoded<AuditLine> auditLineOf(Value v) {
 
   return Valid(
     AuditLine(
-      time: first(['time', 't']) ?? '',
-      who: first(['who', 'by', 'subject']) ?? '',
+      time: first(['t', 'time']) ?? '',
+      who: first(['sub', 'who', 'by', 'subject']) ?? '',
       what: [
         first(['op', 'event']),
         first(['key', 'target']),
