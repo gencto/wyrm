@@ -2319,7 +2319,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final known = flows.table[id];
     final by = val['deployed_by'] as String? ?? known?.deployedBy;
     final maxperm = switch (d?.rest['permissions']) {
-      final Map<Object?, Object?> m => m['maxperm'] as String?,
+      final Map<Object?, Object?> m => maxpermName(m['maxperm']),
       _ => null,
     };
     final keys = d == null ? null : flowKeysOf(d);
