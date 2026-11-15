@@ -270,7 +270,9 @@ class _SecurityDialogState extends State<SecurityDialog> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final s = S.current;
+    // `maybeOf` makes this widget depend on the locale, so a language
+    // switch redraws it although its view-model did not change.
+    final s = S.maybeOf(context) ?? S.current;
     final vm = widget.vm;
     final store = vm.os.store;
     final lockChoices = [
