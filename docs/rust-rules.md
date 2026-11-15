@@ -223,7 +223,7 @@ with codes, `name_enum!` (`wyrm_core`, names only: `ALL`, `name`,
 `from_name`, `FromStr`) for one without. Either takes its one name and no
 other form; a second form (another case, a display text) is mapped by the
 caller in one place that says why (`Freq`: RFC 5545 names are
-case-insensitive, so the text is upper-cased first). Left in C2 (20 after
+case-insensitive, so the text is upper-cased first). Left in C2 (19 after
 2026-11-15): lookups that build a variant with data (`Answer::Granted
 {left}`, `DType::String(n)`), names of other crates' types (`tracing`
 levels), comparisons that are not a lookup, and the closed sets of T5.
