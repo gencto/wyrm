@@ -18,7 +18,6 @@ import 'package:business/redux/assistant/actions/show_assistant_action.dart';
 import 'package:business/redux/assistant/actions/show_drawer_action.dart';
 import 'package:business/redux/assistant/actions/stage_agent_param_action.dart';
 import 'package:business/redux/nodes/actions/open_trend_action.dart';
-import 'package:business/redux/nodes/actions/retrieve_history_action.dart';
 import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/nodes/actions/set_history_window_action.dart';
 import 'package:business/redux/tasks/actions/answer_task_action.dart';
@@ -670,7 +669,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       point: point == null
           ? null
           : (nodes.table[point]?.display ?? lastSegment(point)),
-      range: nodes.historyRange,
+      range: nodes.historyRange.code,
       timeline: point == null ? null : _timeline(point),
       audit: [for (final a in audit) a.line],
       auditNote: !site.can('config', '${site.root ?? ''}/sys/audit')
@@ -683,7 +682,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
 
   /// The range of the history read for [key] in µs (as Explorer's).
   (int, int) _historyRange(String? key) {
-    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final span = nodes.historyRange.span;
     final rows = nodes.historyKey == key && key != null
         ? nodes.history
         : const IListConst<HistPoint>([]);
@@ -698,7 +697,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
     final w = nodes.historyWindow;
     final we = w?.end?.microsecondsSinceEpoch ?? re;
     final ws = w == null ? rs : we - w.span.inMicroseconds;
-    final span = RetrieveHistoryAction.span(nodes.historyRange);
+    final span = nodes.historyRange.span;
     final read = nodes.historyKey == point;
     final rows = read ? nodes.history : const IListConst<HistPoint>([]);
     final info = nodes.table[point];

@@ -1,8 +1,10 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../indicators/fail_chip.dart';
+import '../indicators/node_state.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
@@ -22,10 +24,10 @@ final class TreeRowVm extends Equatable {
     this.expanded = false,
     this.selected = false,
     this.staged = false,
-    this.chip,
-    this.dot,
-    this.dotLabel,
-    this.meta,
+    this.mode,
+    this.state,
+    this.count,
+    this.draft = false,
     this.hasHistory = false,
     this.marked = false,
     this.tag,
@@ -51,15 +53,17 @@ final class TreeRowVm extends Equatable {
   /// An ember dot: a change waits to be applied.
   final bool staged;
 
-  /// A run mode tag (`Process`).
-  final String? chip;
+  /// A link's run mode: its chip (`Process`).
+  final LinkModeTag? mode;
 
-  /// A state dot and its word (tooltip).
-  final Tone? dot;
-  final String? dotLabel;
+  /// A link's or a flow's state: a dot, its word the tooltip.
+  final NodeState? state;
 
-  /// Right-aligned grey text: a count, `draft`.
-  final String? meta;
+  /// Right-aligned grey: the children shown under an open row…
+  final int? count;
+
+  /// …or `draft`, a flow never deployed.
+  final bool draft;
 
   /// The point has a history store.
   final bool hasHistory;
@@ -97,10 +101,10 @@ final class TreeRowVm extends Equatable {
     expanded,
     selected,
     staged,
-    chip,
-    dot,
-    dotLabel,
-    meta,
+    mode,
+    state,
+    count,
+    draft,
     hasHistory,
     marked,
     tag,
@@ -233,16 +237,16 @@ class TreeRow extends StatelessWidget {
                 ),
               ),
             if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
-            if (vm.chip case final chip?) _Chip(chip),
-            if (vm.meta case final m?)
+            if (vm.mode case final m?) _Chip(m.label),
+            if (vm.count != null || vm.draft)
               Text(
-                m,
+                vm.draft ? S.current.treeDraft : '${vm.count}',
                 style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
-            if (vm.dot case final t?)
+            if (vm.state case final t?)
               Tooltip(
-                message: vm.dotLabel ?? '',
-                child: StateMark(mark: Mark.dot, color: toneColor(c, t)),
+                message: t.label,
+                child: StateMark(mark: Mark.dot, color: toneColor(c, t.tone)),
               ),
             if (sel && onMore != null)
               GestureDetector(

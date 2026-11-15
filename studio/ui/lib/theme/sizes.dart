@@ -13,6 +13,9 @@ abstract final class AppSizes {
   /// A menu's width (the account menu, a node's menu).
   static const double menu = 300;
 
+  /// The Assistant drawer over Explorer (⌘J, board *AssistantDrawer*).
+  static const double assistantDrawer = 420;
+
   /// The height of a log or a table shown inside a card or a dialog.
   static const double logPane = 260;
 

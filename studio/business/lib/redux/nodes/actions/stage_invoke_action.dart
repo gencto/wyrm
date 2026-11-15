@@ -58,7 +58,7 @@ class StageInvokeAction extends Action {
     final s = switch (v) {
       final List<int> b => '${b.length} bytes',
       // A name cleared (`display`, ADR 0042 §4).
-      '' => '""',
+      final String t when t.isEmpty => '""',
       _ => '$v',
     };
     return s.length > 40 ? '${s.substring(0, 39)}…' : s;

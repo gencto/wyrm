@@ -14,3 +14,17 @@ HistWindow? trendWindow(int start, int end, int rangeStart, int rangeEnd) {
     end: toEnd ? null : DateTime.fromMicrosecondsSinceEpoch(end, isUtc: true),
   );
 }
+
+/// The end of a trend's range (µs): the latest of when it was read
+/// ([readAt], now when never) and the [newest] rows since (the range's last
+/// samples, the window's own read), so the range stays put between
+/// dispatches and still moves with new samples.
+int trendRangeEnd(DateTime? readAt, Iterable<DateTime?> newest) {
+  var end = readAt ?? DateTime.now().toUtc();
+  for (final t in newest) {
+    if (t != null && t.isAfter(end)) {
+      end = t;
+    }
+  }
+  return end.microsecondsSinceEpoch;
+}

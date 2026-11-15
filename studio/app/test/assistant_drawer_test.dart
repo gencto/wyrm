@@ -49,7 +49,7 @@ Future<void> _drawer(
 }) async {
   await app.pump(tester, selected: 't-1');
   if (point != null) {
-    app.store.dispatchSync(SelectPointAction(point));
+    await app.store.dispatchAndWait(SelectPointAction(point));
   }
   app.store.dispatchSync(SetDrawerAction(open: true));
   await tester.pumpWidget(
@@ -305,7 +305,7 @@ void main() {
         [
           const NodeInfo(key: _link, name: 'tcp'),
           const NodeInfo(key: _plc, name: 'plc1', display: 'Boiler PLC'),
-          const NodeInfo(key: _valve, name: 'valve', type: 'number'),
+          const NodeInfo(key: _valve, name: 'valve', type: TypeCode.number),
         ].lock,
       ),
     );

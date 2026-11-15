@@ -2,10 +2,12 @@ import 'package:business/wyrm/history_steps.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 import 'package:models/hist_point.dart';
+import 'package:models/quality.dart';
 import 'package:ui/charts/trend.dart';
 
 // Moved to where they belong; the connectors still find them here.
-export 'package:business/wyrm/trend_window.dart' show trendWindow;
+export 'package:business/wyrm/trend_window.dart'
+    show trendRangeEnd, trendWindow;
 export 'package:ui/charts/trend_format.dart' show trendFormat;
 
 /// What the three trends of Studio (History, Explorer, System) share on the
@@ -27,10 +29,10 @@ String rollupText(String? step) {
   return s.trendAvg(name);
 }
 
-TrendQuality _quality(String? q) => switch (q) {
-  'bad' => .bad,
-  'uncertain' => .uncertain,
-  _ => .good,
+TrendQuality _quality(Quality? q) => switch (q) {
+  Quality.bad => .bad,
+  Quality.uncertain => .uncertain,
+  Quality.good || null => .good,
 };
 
 /// [rows] as samples, with the bucket's min and max from [low] and [high]
@@ -91,18 +93,4 @@ bool detailCovers({
 }) {
   const slack = 60 * 1000000;
   return from <= start + slack && (follows || to >= end - slack);
-}
-
-/// The end of a trend's range (µs): the latest of when it was read
-/// ([readAt], now when never) and the [newest] rows since (the range's last
-/// samples, the window's own read), so the range stays put between
-/// dispatches and still moves with new samples.
-int trendRangeEnd(DateTime? readAt, Iterable<DateTime?> newest) {
-  var end = readAt ?? DateTime.now().toUtc();
-  for (final t in newest) {
-    if (t != null && t.isAfter(end)) {
-      end = t;
-    }
-  }
-  return end.microsecondsSinceEpoch;
 }

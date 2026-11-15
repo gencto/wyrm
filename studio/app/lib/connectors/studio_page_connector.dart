@@ -371,7 +371,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
               key: k,
               root: site.root ?? '',
               profile: nodes.table[k]?.profile,
-              type: nodes.table[k]?.type,
+              value: nodes.table[k]?.type != null,
             ),
             detail: _relative(k),
           ),

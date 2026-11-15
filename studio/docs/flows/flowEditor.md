@@ -175,7 +175,7 @@ sequenceDiagram
 
     User->>UI: onPromptCancel
     UI->>VM: onPromptCancel()
-    alt x != null && keyed != null && _blank(x.cfg[keyed.scope])
+    alt x != null && keyed != null && (x.textOf(keyed.scope)?.trim().isEmpty ?? true)
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
         A1->>ST: dispatch(ValidateFlowAction)

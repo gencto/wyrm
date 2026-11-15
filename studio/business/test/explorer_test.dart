@@ -17,6 +17,7 @@ import 'package:business/wyrm/failures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/quality.dart' as studio;
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -43,7 +44,7 @@ void main() {
       cfg: {'unit': const VInt(1)},
     );
 
-    s.dispatchSync(SelectNodeAction(dev));
+    await s.dispatchAndWait(SelectNodeAction(dev));
     await Future<void>.delayed(Duration.zero);
 
     expect(s.state.nodes.selectedNode, dev);
@@ -61,7 +62,7 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 10));
     final d = s.state.nodes.detail[dev]!;
-    expect(d.actions.single.level, 'read');
+    expect(d.actions.single.level, Perm.read);
     expect(d.cfg['unit'], '1');
   });
 
@@ -279,12 +280,12 @@ void main() {
       s
           .state
           .nodes
-          .results[InvokeNodeAction.resultId(
+          .answers[InvokeNodeAction.resultId(
             'wy/central/downstream/m',
             'read_device_id',
           )]!
-          .single,
-      contains('"vendor": "acme"'),
+          .lines,
+      contains('  "vendor": "acme",'),
     );
   });
 
@@ -314,7 +315,7 @@ void main() {
     );
 
     expect(s.state.nodes.history.map((h) => h.value), [1, 0]);
-    expect(s.state.nodes.history.last.quality, 'bad');
+    expect(s.state.nodes.history.last.quality, studio.Quality.bad);
     expect(s.state.nodes.historyKey, 'wy/central/downstream/m/fan');
   });
 }

@@ -1,8 +1,3 @@
-import 'package:models/hist_point.dart';
-import 'package:wyrm_client/wyrm_client.dart';
-
-import 'mappers/values.dart';
-
 /// The rollup windows a trend reads, finest first (spec trend.md §4).
 const historySteps = [
   ('1m', Duration(minutes: 1)),
@@ -44,16 +39,3 @@ Duration? stepDuration(String? step) {
   }
   return null;
 }
-
-/// One history row as a point: a bool as 0/1, quality only on a raw row.
-HistPoint histPoint(HistRow r) => HistPoint(
-  time: DateTime.fromMicrosecondsSinceEpoch(r.t, isUtc: true),
-  value:
-      number(r.v) ??
-      switch (r.v) {
-        VBool(:final v) => v ? 1 : 0,
-        _ => null,
-      },
-  text: text(r.v) ?? '',
-  quality: r.q?.wireName,
-);

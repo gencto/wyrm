@@ -106,6 +106,7 @@ import 'package:wyrm_client/wyrm_client.dart' show Status, TypeCode;
 import '../common/side_panels.dart';
 import '../common/value_viewer.dart';
 import '../common/window.dart';
+import '../mappers/explorer_mappers.dart' show TypeCodeValueType;
 import '../mappers/palette_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
@@ -524,7 +525,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         // compile. A block that has its scope keeps both.
         final x = blocks[ed.scopePrompt ?? ''];
         final keyed = scopedKeyOf(types[x?.type]);
-        if (x != null && keyed != null && _blank(x.cfg[keyed.scope])) {
+        if (x != null &&
+            keyed != null &&
+            (x.textOf(keyed.scope)?.trim().isEmpty ?? true)) {
           dispatchSync(DisconnectEdgeAction(x.id, keyed.port));
         }
         dispatchSync(SetScopePromptAction(null));
@@ -1225,9 +1228,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     }
   }
 
-  /// The arguments of an `invoke` block, as its config holds them.
-  static bool _blank(Object? v) => v is! String || v.trim().isEmpty;
-
   /// The parameters of the action an `invoke` block runs, from its node's
   /// `~meta` (read once, `nodes.detail`); none while it is not read.
   Iterable<ParamSpec> _actionParams(String root, FlowBlock b) {
@@ -1313,15 +1313,15 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       return null;
     }
     final site = root.startsWith('wy/') ? root.substring(3) : root;
-    final own = b.cfg[keyed.scope];
-    final suggested = scopeSuggestion(b.cfg[keyed.key] as String?, site: site);
+    final own = b.textOf(keyed.scope);
+    final suggested = scopeSuggestion(b.textOf(keyed.key), site: site);
     final onBlock = rows[b.id]?.any((f) => f.id == keyed.scopeField) ?? false;
     return ScopePromptVm(
       block: b.id,
       row: (onBlock ? keyed.scopeField : keyed.keyField).key,
       title: S.current.scopeTitle,
       note: S.current.scopeNote,
-      value: _blank(own) ? suggested : own! as String,
+      value: own == null || own.trim().isEmpty ? suggested : own,
       suggestions: {
         suggested,
         for (final s in scopeSections) '$s/**',
@@ -1542,7 +1542,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       final acts = [
         for (final a
             in nodes.detail[key]?.actions ?? const IListConst<ActionInfo>([]))
-          if (a.level != 'config') a,
+          if (!a.staged) a,
       ];
       final hits = q.isEmpty || name.toLowerCase().contains(q);
       // A node may hold values, which only its list tells; so it opens
@@ -1562,12 +1562,12 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             key: key,
             root: root,
             profile: info?.profile,
-            type: info?.type,
+            value: info?.type != null,
           ),
           hasChildren: opens,
           expanded: open,
           marked: used.contains(key),
-          tag: typed ? AppIcon.typeTag(info!.type) : null,
+          tag: typed ? info!.type!.valueType.tag : null,
           drag: typed ? 'key:$key' : null,
           value: !typed
               ? null
@@ -2152,7 +2152,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                 emptyLabel: S.current.rowsEmpty,
               ),
         // A scope that the engine would refuse says why, once it matters.
-        error: scoped && (keyBound || !_blank(v))
+        error: scoped && (keyBound || (v is String && v.trim().isNotEmpty))
             ? _scopeError(root, v is String ? v : '') ?? ''
             : '',
         // `Run on start` asks first, with the catalog's own warning.
@@ -2173,9 +2173,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                   ? FieldEditorVm.duration
                   : FieldEditorVm.text),
         value: switch (v) {
+          Map() || List() => jsonEditText(v),
           null => '',
-          final Map<Object?, Object?> m => flowJson(m),
-          final List<Object?> l => flowJson(l),
           _ => '$v',
         },
         choices: suggested ?? p.choices.unlock,
