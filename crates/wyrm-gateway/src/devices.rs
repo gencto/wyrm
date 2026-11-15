@@ -460,8 +460,7 @@ impl Nonces {
     pub(crate) fn issue(&self, purpose: &Purpose, now: u64) -> Option<(Vec<u8>, u64)> {
         use hmac::Mac;
         let exp = now + CHALLENGE_TTL_S;
-        let mut n = vec![0u8; 16];
-        crate::rng::fill(&mut n).ok()?;
+        let mut n = crate::rng::bytes::<16>().ok()?.to_vec();
         n.extend(exp.to_be_bytes());
         let tag = self.mac(purpose, &n).finalize().into_bytes();
         n.extend(tag);
