@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:app/connectors/assistant_page_connector.dart';
+import 'package:app/navigation/app_router.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/assistant/actions/set_chip_action.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/live/actions/set_live_values_action.dart';
 import 'package:business/redux/nodes/actions/select_point_action.dart';
@@ -13,6 +15,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/live_value.dart';
 import 'package:models/quality.dart' as q;
+import 'package:ui/assistant/found_card.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -854,6 +857,104 @@ void main() {
       await t.tap(find.byTooltip('Close (Cmd+J)'));
       await t.pump();
       expect(app.store.state.assistant.drawer, isFalse);
+    });
+  });
+
+  group('what each control does on screen', () {
+    // one router per test file: the two steps that leave the tab are one
+    // test
+    testWidgets('Open full closes the drawer; Open in Explorer selects the '
+        'node the plan changed', (t) async {
+      final app = AssistantApp()
+        ..task(
+          't-1',
+          planRecord(state: 'done', results: const {1: _ok, 2: _ok, 3: _ok}),
+        );
+      await _pump(t, app, selected: 't-1');
+      createAppRouter(app.store);
+      await _drawer(t, app);
+      await t.tap(find.text('Open full'));
+      await app.settle(t);
+      expect(app.store.state.assistant.drawer, isFalse);
+      expect(app.store.state.tasks.selectedTask, 't-1');
+
+      await _pump(t, app, selected: 't-1');
+      await t.tap(find.text('Open sp in Explorer'));
+      await app.settle(t);
+      expect(app.store.state.nodes.selectedNode, _sp);
+    });
+
+    testWidgets('a way out of a stopped run is a follow-up ask', (t) async {
+      final app = AssistantApp()
+        ..task(
+          't-1',
+          planRecord(
+              state: 'failed',
+              step: 2,
+              results: const {
+                1: _ok,
+                2: {'status': 'failed', 'message': 'timeout'},
+              },
+            )
+            ..['suggestions'] = [
+              {
+                'id': 's1',
+                'label': 'Set 21 instead',
+                'detail': 'one step',
+                'changes': 1,
+              },
+            ],
+        );
+      app.api.invokes['$_agent ▸ ask'] = [
+        Value.from({'task': 't-2', 'state': 'planning'}),
+      ];
+      await _pump(t, app, selected: 't-1');
+      await t.tap(find.text('Set 21 instead'));
+      await app.settle(t);
+      expect(
+        app.calls('ask').single.args,
+        Value.from({'task': 'Set 21 instead. one step', 'parent': 't-1'}),
+      );
+    });
+
+    testWidgets('an @ chip is taken away', (t) async {
+      final app = AssistantApp();
+      await _pump(t, app);
+      app.store.dispatchSync(SetChipAction(_tcp));
+      await t.pump();
+      await t.tap(
+        find.descendant(
+          of: find.byTooltip(_tcp),
+          matching: find.byType(InkWell),
+        ),
+      );
+      await t.pump();
+      expect(app.store.state.assistant.chips, isEmpty);
+    });
+
+    testWidgets("the timeline's window, and its reset", (t) async {
+      final app = AssistantApp()..task('t-1', planRecord(state: 'done'));
+      app.api.histories[_valve] = [
+        HistRow(
+          DateTime.now()
+              .subtract(const Duration(minutes: 30))
+              .microsecondsSinceEpoch,
+          const VFloat(11),
+          Quality.good,
+        ),
+      ];
+      await _pump(t, app, selected: 't-1');
+      app.store.dispatchSync(SelectPointAction(_valve));
+      await _drawer(t, app);
+      final trend = t.widget<Trend>(find.byType(Trend)).vm;
+      final card = t.widget<FoundCard>(find.byType(FoundCard));
+      final mid = (trend.rangeStart + trend.rangeEnd) ~/ 2;
+      card.onWindow(mid, trend.rangeEnd);
+      await t.pump();
+      expect(app.store.state.nodes.historyWindow, isNotNull);
+      card.onReset!();
+      await t.pump();
+      expect(app.store.state.nodes.historyWindow, isNull);
     });
   });
 }

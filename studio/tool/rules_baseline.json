@@ -105,7 +105,7 @@
   },
   "connector-lines": {
     "app/lib/connectors/access_page_connector.dart": 514,
-    "app/lib/connectors/assistant_page_connector.dart": 895,
+    "app/lib/connectors/assistant_page_connector.dart": 890,
     "app/lib/connectors/explorer_page_connector.dart": 2186,
     "app/lib/connectors/flow_editor_page_connector.dart": 2612,
     "app/lib/connectors/flows_page_connector.dart": 186,

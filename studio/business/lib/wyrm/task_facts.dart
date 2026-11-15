@@ -52,6 +52,9 @@ extension TaskFacts on AgentTask {
       .map((s) => s.key)
       .lastOrNull;
 
+  /// A question of the task still waits for its answer.
+  bool get asksStill => questions.any((q) => !q.answered);
+
   /// The task's title: its ask, or its id before the ask is known.
   String get title => ask.isEmpty ? id : ask;
 

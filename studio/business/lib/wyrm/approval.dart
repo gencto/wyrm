@@ -93,4 +93,14 @@ extension TickedSteps on Iterable<StepChoice> {
     for (final c in this)
       if (c.ticked ?? false) c.n,
   ];
+
+  /// How many steps are ticked.
+  int get tickedCount => where((c) => c.ticked ?? false).length;
+
+  /// Every change that runs once approved: the ticked steps, and those the
+  /// agent runs with its own key (no tick, cannot be left out).
+  int get runCount => where((c) => c.runs).length;
+
+  /// The changes the agent runs with its own key and that are not skipped.
+  int get byAgentCount => where((c) => c.byAgent && !c.skipped).length;
 }

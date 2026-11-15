@@ -67,9 +67,10 @@ final class RunRowVm extends Equatable {
 
   /// `running…`, the answer of the step, `waiting`, `not run`.
   String get text => switch (status) {
-    RunStatus.ok ||
-    RunStatus.failed ||
-    RunStatus.skipped => answer.isEmpty ? status.name : answer,
+    // the link's own word when it said nothing more
+    RunStatus.ok => answer.isEmpty ? StepOutcome.ok.word : answer,
+    RunStatus.failed => answer.isEmpty ? StepOutcome.failed.word : answer,
+    RunStatus.skipped => answer.isEmpty ? StepOutcome.skipped.word : answer,
     RunStatus.running => S.current.runRunning,
     RunStatus.waiting => ended ? S.current.runNotRun : S.current.runWaiting,
   };

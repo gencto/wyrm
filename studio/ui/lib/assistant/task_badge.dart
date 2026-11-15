@@ -70,16 +70,16 @@ enum StepVerb {
 /// How a step of a run ended, as the plan and the run say it: the link's
 /// own word and its colour.
 enum StepOutcome {
-  ok(Tone.good),
-  failed(Tone.bad),
-  skipped(Tone.neutral);
+  ok(Tone.good, 'ok'),
+  failed(Tone.bad, 'failed'),
+  skipped(Tone.neutral, 'skipped');
 
-  const StepOutcome(this.tone);
+  const StepOutcome(this.tone, this.word);
 
   final Tone tone;
 
-  /// The link's word for it (`ok`, `failed`, `skipped`).
-  String get word => name;
+  /// The link's own word for it, shown as the link says it.
+  final String word;
 }
 
 /// A node key as a chip and a row show it: below the site, without

@@ -7,6 +7,7 @@ import 'package:business/redux/assistant/actions/set_drawer_action.dart';
 import 'package:business/redux/live/actions/set_live_values_action.dart';
 import 'package:business/redux/nodes/actions/add_nodes_action.dart';
 import 'package:business/redux/nodes/actions/select_point_action.dart';
+import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -504,5 +505,32 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(app.store.state.assistant.chips, isEmpty);
+  });
+
+  testWidgets("another site: the drawer's finding nodes are unwatched, not "
+      'moved', (tester) async {
+    final app = AssistantApp()..task('t-1', _foundRecord());
+    app.api.children_['wy/plant/sys/links'] = [];
+    await _drawer(tester, app);
+    expect(app.store.state.live.watched[_valve], 1);
+    expect(app.store.state.assistant.drawerWatched, contains(_valve));
+
+    app.store.dispatchSync(ViewSiteAction('plant'));
+    await app.settle(tester);
+
+    // central's findings went with central: nothing of them is watched
+    final watched = app.store.state.live.watched.keys;
+    expect(watched, isNot(contains(_valve)));
+    expect(watched, isNot(contains(_plc)));
+    expect(watched, isNot(contains(_link)));
+    expect(
+      watched,
+      isNot(contains(_valve.replaceFirst('wy/central/', 'wy/plant/'))),
+    );
+    expect(app.store.state.assistant.drawerWatched, isEmpty);
+
+    // and taking the drawer away later unwatches nothing it does not hold
+    await tester.pumpWidget(const SizedBox());
+    expect(app.store.state.live.watched.keys, isNot(contains(_valve)));
   });
 }

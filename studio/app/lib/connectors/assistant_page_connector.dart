@@ -432,7 +432,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       questions: [
         for (final q in t.questions) q.view(picksOf(t.id, q.id), open: open),
       ],
-      confirm: open && t.questions.any((q) => !q.answered),
+      confirm: open && t.asksStill,
       blocked: answerHold(t)?.blocked,
     );
   }
@@ -557,11 +557,6 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
 
   /// The card of a plan that waits: what Approve signs, Reject, Approve.
   TaskCardVm _approval(AgentTask t, List<StepChoice> choices) {
-    final ticked = choices.where((c) => c.ticked ?? false).length;
-    // every change that runs once approved: the ticked steps, and those
-    // the agent runs with its own key (no tick, cannot be left out)
-    final runs = choices.where((c) => c.runs).length;
-    final byAgent = choices.where((c) => c.byAgent && !c.skipped).length;
     final refusal = assistant.refusals[t.id];
     return TaskCardVm(
       badge: t.state.badge,
@@ -575,12 +570,12 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
           ? TaskNoteRefused(refusal)
           : !t.recorded
           ? const TaskNoteWaiting()
-          : TaskNoteSigns(role: site.role ?? '', byAgent: byAgent),
+          : TaskNoteSigns(role: site.role ?? '', byAgent: choices.byAgentCount),
       buttons: [
         TaskButtonVm(.reject, blocked: writeHold?.blocked),
         TaskButtonVm(
           .approve,
-          count: ticked == 0 ? 0 : runs,
+          count: choices.tickedCount == 0 ? 0 : choices.runCount,
           blocked: approveHold(t, choices)?.blocked,
         ),
       ],
