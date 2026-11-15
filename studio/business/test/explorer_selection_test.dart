@@ -5,8 +5,9 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
-import 'package:business/redux/nodes/actions/add_nodes_action.dart';
 import 'package:business/redux/nodes/actions/check_points_action.dart';
+import 'package:business/redux/nodes/actions/child_added_action.dart';
+import 'package:business/redux/nodes/actions/children_listed_action.dart';
 import 'package:business/redux/nodes/actions/clear_selection_action.dart';
 import 'package:business/redux/nodes/actions/mark_nodes_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_audit_action.dart';
@@ -82,7 +83,7 @@ void main() {
   NodeInfo point(String name) => NodeInfo(
     key: '$dev/$name',
     name: name,
-    type: 'number',
+    type: TypeCode.number,
   );
 
   test('diagnostic values are not points', () {
@@ -99,30 +100,28 @@ void main() {
     setUp(logIn);
 
     test('a point row shows in the inspector; the device stays', () async {
-      s.dispatchSync(SelectNodeAction(dev));
+      await s.dispatchAndWait(SelectNodeAction(dev));
       api.metas['$dev/temp'] = pointMeta();
-      s.dispatchSync(SelectPointAction('$dev/temp'));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await s.dispatchAndWait(SelectPointAction('$dev/temp'));
 
       expect(s.state.nodes.selectedNode, dev);
       expect(s.state.nodes.point, '$dev/temp');
       expect(s.state.nodes.detail['$dev/temp']?.cfg['poll_s'], '1');
     });
 
-    test('selecting a point key shows its parent with the point', () {
-      s
-        ..dispatchSync(SetChildrenAction(dev, [point('temp')].lock))
-        ..dispatchSync(SelectNodeAction('$dev/temp'));
+    test('selecting a point key shows its parent with the point', () async {
+      s.dispatchSync(SetChildrenAction(dev, [point('temp')].lock));
+      await s.dispatchAndWait(SelectNodeAction('$dev/temp'));
 
       expect(s.state.nodes.selectedNode, dev);
       expect(s.state.nodes.point, '$dev/temp');
     });
 
     test('the device children get their meta read, diagnostics not', () async {
-      s.dispatchSync(SelectNodeAction(dev));
+      await s.dispatchAndWait(SelectNodeAction(dev));
       api.metas['$dev/temp'] = pointMeta();
-      s.dispatchSync(
-        SetChildrenAction(
+      await s.dispatchAndWait(
+        ChildrenListedAction(
           dev,
           [point('temp'), point('requests'), point('gone')].lock,
         ),
@@ -164,11 +163,10 @@ void main() {
       expect(s.state.nodes.point, isNull);
     });
 
-    test('Shift-click in the tree marks from the selected node', () {
+    test('Shift-click in the tree marks from the selected node', () async {
       const order = ['wy/central/downstream', 'a', 'b', 'c'];
-      s
-        ..dispatchSync(SelectNodeAction('wy/central/downstream'))
-        ..dispatchSync(MarkNodesAction.range('b', order));
+      await s.dispatchAndWait(SelectNodeAction('wy/central/downstream'));
+      s.dispatchSync(MarkNodesAction.range('b', order));
       expect(s.state.nodes.marked, {'wy/central/downstream', 'a', 'b'});
     });
   });
@@ -245,13 +243,14 @@ void main() {
         api.metas[p.key] = pointMeta();
       }
       // The first list, and points arriving one by one at the same time.
-      s
-        ..dispatchSync(SelectNodeAction(dev))
-        ..dispatchSync(SetChildrenAction(dev, points.take(12).toList().lock));
-      for (final p in points.skip(12)) {
-        s.dispatchSync(AddNodesAction([p].lock));
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await s.dispatchAndWait(SelectNodeAction(dev));
+      await Future.wait([
+        s.dispatchAndWait(
+          ChildrenListedAction(dev, points.take(12).toList().lock),
+        ),
+        for (final p in points.skip(12))
+          s.dispatchAndWait(ChildAddedAction(dev, p)),
+      ]);
 
       expect(api.metaMaxInFlight, RetrieveDetailsAction.maxInFlight);
       final asked = api.calls
@@ -265,14 +264,12 @@ void main() {
     });
 
     test('a point added later gets its meta; a read one is cached', () async {
-      s.dispatchSync(SelectNodeAction(dev));
+      await s.dispatchAndWait(SelectNodeAction(dev));
       api.metas['$dev/late'] = pointMeta();
-      s.dispatchSync(AddNodesAction([point('late')].lock));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await s.dispatchAndWait(ChildAddedAction(dev, point('late')));
       expect(s.state.nodes.detail.containsKey('$dev/late'), isTrue);
 
-      s.dispatchSync(AddNodesAction([point('late')].lock));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await s.dispatchAndWait(ChildAddedAction(dev, point('late')));
       expect(
         api.calls.where((c) => c.op == 'meta' && c.key == '$dev/late'),
         hasLength(1),

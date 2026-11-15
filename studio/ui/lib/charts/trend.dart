@@ -289,10 +289,15 @@ class Trend extends StatefulWidget {
     this.onFollow,
     this.initialHover,
     this.initialMarker,
+    this.empty,
     super.key,
   });
 
   final TrendVm vm;
+
+  /// What the plot says with no rows, over the model's own words (the
+  /// screen that shows the trend words it).
+  final String? empty;
 
   /// The window the user chose (µs), already clamped to the range and to
   /// [TrendVm.minWindow].
@@ -775,7 +780,7 @@ class _TrendState extends State<Trend> {
       return SizedBox(height: h, child: _skeleton(c, bars: 3));
     }
     final message = _geo.empty
-        ? vm.empty ?? s.trendNothing
+        ? widget.empty ?? vm.empty ?? s.trendNothing
         : _geo.shown.isEmpty
         ? s.trendAllHidden
         : null;

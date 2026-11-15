@@ -225,7 +225,7 @@ void main() {
     test('are the audit records of the point, newest first', () async {
       await logIn(engineer());
       api.invokes['wy/central/sys/audit ▸ tail'] = tail();
-      s.dispatchSync(SelectPointAction(_valve));
+      await s.dispatchAndWait(SelectPointAction(_valve));
       await s.dispatchAndWait(RetrieveTimelineAuditAction(_valve));
       expect(s.state.assistant.timelineKey, _valve);
       expect(
@@ -242,7 +242,7 @@ void main() {
     test('of a point no longer selected are dropped', () async {
       await logIn(engineer());
       api.invokes['wy/central/sys/audit ▸ tail'] = tail();
-      s.dispatchSync(SelectPointAction('${_valve}2'));
+      await s.dispatchAndWait(SelectPointAction('${_valve}2'));
       await s.dispatchAndWait(RetrieveTimelineAuditAction(_valve));
       expect(s.state.assistant.timelineKey, isNull);
       expect(s.state.assistant.timelineAudit, isEmpty);
@@ -263,7 +263,7 @@ void main() {
         ),
       );
       api.invokes['wy/central/sys/audit ▸ tail'] = tail();
-      s.dispatchSync(SelectPointAction(_valve));
+      await s.dispatchAndWait(SelectPointAction(_valve));
       await s.dispatchAndWait(RetrieveTimelineAuditAction(_valve));
       expect(api.calls.where((c) => c.action == 'tail'), isEmpty);
       expect(s.state.assistant.timelineKey, _valve);

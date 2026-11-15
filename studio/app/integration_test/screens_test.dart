@@ -454,7 +454,7 @@ void main() {
         ('01k_explorer_storage_folder', 'wy/edge/storage/line1/test'),
         ('01l_explorer_broker', 'wy/edge/upstream/central'),
       ]) {
-        store.dispatchSync(SelectNodeAction(key));
+        await store.dispatchAndWait(SelectNodeAction(key));
         await settle(tester, 2500);
         // The frame's first tab: Contents, or a flow's Parameters.
         final first = find.text('Contents').evaluate().isNotEmpty

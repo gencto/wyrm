@@ -15,6 +15,7 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/approval_mode.dart';
+import 'package:models/explorer_tab.dart';
 import 'package:models/staged_change.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -319,9 +320,10 @@ void main() {
 
   test('the drawer opens with the Explorer selection as a chip', () async {
     await logIn();
-    s
-      ..dispatchSync(SelectNodeAction('wy/central/downstream/modbus/tcp/plc1'))
-      ..dispatchSync(SetDrawerAction.toggle());
+    await s.dispatchAndWait(
+      SelectNodeAction('wy/central/downstream/modbus/tcp/plc1'),
+    );
+    s.dispatchSync(SetDrawerAction.toggle());
     expect(s.state.assistant.drawer, isTrue);
     expect(s.state.assistant.chips, ['wy/central/downstream/modbus/tcp/plc1']);
     s.dispatchSync(SetDrawerAction.toggle());
@@ -331,13 +333,15 @@ void main() {
   test('the trend of a point opens in Explorer: its node, the point, the '
       'History tab', () async {
     await logIn();
-    s.dispatchSync(OpenTrendAction('wy/central/downstream/modbus/tcp/ahu2/sp'));
+    await s.dispatchAndWait(
+      OpenTrendAction('wy/central/downstream/modbus/tcp/ahu2/sp'),
+    );
     expect(
       s.state.nodes.selectedNode,
       'wy/central/downstream/modbus/tcp/ahu2',
     );
     expect(s.state.nodes.point, 'wy/central/downstream/modbus/tcp/ahu2/sp');
-    expect(s.state.nodes.tab, 'history');
+    expect(s.state.nodes.tab, ExplorerTab.history);
   });
 }
 

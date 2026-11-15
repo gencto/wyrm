@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/node_menu.dart';
@@ -9,6 +10,9 @@ import 'frames/harness.dart';
 
 /// Names in words with the raw name in reach (owner 2026-11-11).
 void main() {
+  // Explorer says its own words (studio-rules §5).
+  setUpAll(() => S.load(const Locale('en')));
+
   testWidgets('a field label in words keeps the parameter name as tooltip', (
     tester,
   ) async {

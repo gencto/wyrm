@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
 import 'param_spec.dart';
 
@@ -15,11 +16,17 @@ abstract class ActionInfo with _$ActionInfo {
     /// The menu group (`edit`, `secrets`, `Install Link`).
     String? group,
 
-    /// `read`, `write` or `config`.
-    @Default('write') String level,
+    /// The level a call needs: `read`, `write` or `config`.
+    @Default(Perm.write) Perm level,
     @Default(IListConst([])) IList<ParamSpec> params,
 
     /// `stream`, `void`, or a type name.
     String? result,
   }) = _ActionInfo;
+
+  const ActionInfo._();
+
+  /// A `config` action changes how the network runs: it is staged for
+  /// Review and apply, not run at once.
+  bool get staged => level == Perm.config;
 }

@@ -171,7 +171,7 @@ Future<void> pickContextKey(BuildContext context) async {
         key: k,
         root: root,
         profile: info?.profile,
-        type: info?.type,
+        value: info?.type != null,
       ),
       detail: detail ?? shortKey(k),
     );

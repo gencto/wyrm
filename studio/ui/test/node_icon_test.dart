@@ -6,12 +6,13 @@ import 'package:ui/indicators/app_icon.dart';
 /// interned codes that the client prints as names (`{code: 6}` → `wy:link`).
 void main() {
   const root = 'wy/edge';
-  String icon(String rel, {String? profile, String? type}) => AppIcon.nodeName(
-    key: rel.isEmpty ? root : '$root/$rel',
-    root: root,
-    profile: profile,
-    type: type,
-  );
+  String icon(String rel, {String? profile, bool value = false}) =>
+      AppIcon.nodeName(
+        key: rel.isEmpty ? root : '$root/$rel',
+        root: root,
+        profile: profile,
+        value: value,
+      );
 
   test('the site and its sections', () {
     expect(icon(''), 'node_site');
@@ -48,11 +49,11 @@ void main() {
     expect(icon('downstream/mock/g0', profile: 'wy:folder'), 'node_section');
     expect(icon('storage/line1', profile: 'wy:folder'), 'node_storage');
     expect(
-      icon('downstream/modbus/line1/status', type: 'enum'),
+      icon('downstream/modbus/line1/status', value: true),
       'node_point',
     );
     expect(
-      icon('dataflows/ahu2_ctl/nodes/temp_f', type: 'dynamic'),
+      icon('dataflows/ahu2_ctl/nodes/temp_f', value: true),
       'node_point',
     );
   });
