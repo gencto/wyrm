@@ -6,6 +6,7 @@ import 'package:models/studio_notice.dart';
 import 'package:models/workspace.dart';
 
 import '../redux/app_state.dart';
+import 'keys.dart';
 
 /// A staged change as the review panel shows it: whether the user's grants
 /// reach the level it needs, and the level they have on its key.
@@ -112,9 +113,7 @@ extension ShellSelect on Selectors {
   String get reviewAudit {
     final links = {
       for (final id in changes.view)
-        if (changes.table[id]?.key.split('/') case final p?
-            when p.length > 3 && p[2] == 'downstream')
-          p[3],
+        if (changes.table[id] case final c?) ?linkOf(c.key),
     };
     return links.length == 1 ? 'sys/audit/${links.single}' : 'sys/audit';
   }

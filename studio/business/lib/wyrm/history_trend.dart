@@ -111,7 +111,8 @@ extension HistoryTrendSelect on Selectors {
           end: we,
           follows: window.end == null,
         );
-    final step = fine ? (d.step == 'raw' ? null : d.step) : stepFor(span);
+    // `raw` is no step of [stepDuration]: the plot draws raw rows.
+    final step = fine ? d.step : stepFor(span);
     final minStep = stepDuration(stepFor(span, raw: false))!;
     return HistoryTrend(
       series: [

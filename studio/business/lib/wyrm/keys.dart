@@ -47,3 +47,10 @@ Set<String> parentLinksOf(String? key, {required Iterable<String> sections}) {
     for (var i = 3; i < parts.length; i++) parts.sublist(0, i).join('/'),
   };
 }
+
+/// The link a key of a site's `downstream` is under (spec 01:
+/// `wy/<site>/downstream/<link>/…`); null for any other key.
+String? linkOf(String key) => switch (key.split('/')) {
+  ['wy', _, 'downstream', final link, ...] => link,
+  _ => null,
+};

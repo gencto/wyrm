@@ -1,5 +1,4 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/link_state.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
@@ -313,9 +312,7 @@ extension SitesSelect on Selectors {
       SiteNode.device => DeviceDetail(
         name,
         'sys/links/$name',
-        connected:
-            LinkState.fromWire(links.table[name]?.state ?? '') ==
-            LinkState.connected,
+        connected: _peer(PeerKind.device, name)?.connected ?? false,
         device: links.table[name]?.device,
         branch: '$root/downstream/$name',
       ),
