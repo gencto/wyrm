@@ -1,7 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:models/key_kind.dart';
+import 'package:models/lock_error.dart';
 import 'package:models/step_up_request.dart';
+import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -27,11 +29,11 @@ abstract class DeviceState with _$DeviceState {
     DevicePolicy? policy,
     @Default(UnlockStage.none) UnlockStage stage,
     UnlockRefusal? refusal,
-    String? reason,
+    UnlockFallback? fallback,
     @Default(true) bool reEnable,
     @Default(false) bool autoPrompted,
     @Default(false) bool locked,
-    String? lockError,
+    LockError? lockError,
     StepUpRequest? stepUp,
     @Default(IListConst([])) IList<GatewayDevice> devices,
     @Default(IMapConst({})) IMap<String, IList<GatewayDevice>> userDevices,

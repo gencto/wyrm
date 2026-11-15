@@ -167,7 +167,7 @@ class DiscoverPanel extends StatelessWidget {
       color: c.text2,
     );
     return Padding(
-      padding: const EdgeInsets.all(14),
+      padding: Insets.panelBox,
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 12,
@@ -186,7 +186,7 @@ class DiscoverPanel extends StatelessWidget {
                   spacing: 10,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(top: 7),
+                      padding: Insets.bulletDot,
                       child: Container(
                         width: 6,
                         height: 6,
@@ -229,7 +229,7 @@ class DiscoverPanel extends StatelessWidget {
             ],
           ),
           Container(
-            padding: const EdgeInsets.only(top: 10),
+            padding: Insets.probeRange,
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.ground3)),
             ),

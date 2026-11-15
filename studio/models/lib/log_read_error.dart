@@ -14,6 +14,5 @@ sealed class LogReadError with _$LogReadError {
 
   /// The answer is not a log: the field at fault and why (the decoder's
   /// own words, `level: not a level name`).
-  const factory LogReadError.invalid(String field, String reason) =
-      LogInvalid;
+  const factory LogReadError.invalid(String field, String reason) = LogInvalid;
 }

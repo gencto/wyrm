@@ -12,7 +12,6 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -149,12 +148,12 @@ class LinkInstallApp {
   LinkInstallApp()
     : login = FakeLogin(
         session: FakeSession(
-          who: const WhoAmI(
+          who: identityOf(
             subject: 'user:olena',
             site: 'plant',
-            roles: ['admin'],
+            roles: const ['admin'],
             max: 'config',
-            grants: [
+            grants: const [
               ('$plant/**', 'config'),
               ('wy/line2/**', 'read'),
             ],

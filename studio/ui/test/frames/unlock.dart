@@ -613,17 +613,17 @@ Widget stepUp() => _over(
           'for a fresh confirmation before config changes.',
       lines: [
         StepUpLineVm(
-          level: 'config',
+          level: StepUpLevel.config,
           text: 'add_device ahu2',
           key: 'tcp-line2',
         ),
         StepUpLineVm(
-          level: 'config',
+          level: StepUpLevel.config,
           text: 'add_watch_path supply_temp',
           key: 'sys/history/1min',
         ),
         StepUpLineVm(
-          level: 'write',
+          level: StepUpLevel.write,
           text: 'set fan_speed = 70 %',
           key: 'ahu1/fan_speed',
         ),

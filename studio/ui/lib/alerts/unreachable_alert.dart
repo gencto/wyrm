@@ -48,7 +48,6 @@ class UnreachableAlert extends StatelessWidget {
 
   /// The alert's fill (the board's `#1C1513`, between `ground0` and
   /// `badTint`).
-  static const fill = Color(0xFF1C1513);
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +58,7 @@ class UnreachableAlert extends StatelessWidget {
       child: Container(
         padding: Insets.notice,
         decoration: BoxDecoration(
-          color: fill,
+          color: c.refusalFill,
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
           border: .all(color: c.badLine),
         ),
@@ -145,7 +144,7 @@ class UnreachableAlert extends StatelessWidget {
         borderRadius: shape,
         child: Container(
           height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: Insets.button,
           child: Center(
             widthFactor: 1,
             child: Text(

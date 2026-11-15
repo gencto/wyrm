@@ -2,28 +2,12 @@ import 'dart:convert';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/trust_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/discovery.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-
-/// Why a trust was refused (`discovery.trustRefused`); the card says it in
-/// the person's language.
-abstract final class TrustRefusal {
-  /// The gateway did not answer the second read.
-  static const noAnswer = 'no_answer';
-
-  /// The CA it sends now is not the one whose code was shown.
-  static const changed = 'changed';
-
-  /// Its `ca_fp` or its TXT `fp` is not the code of its CA.
-  static const mismatch = 'mismatch';
-
-  /// Its certificate does not chain to that CA, or does not name the
-  /// gateway's host.
-  static const chain = 'chain';
-}
 
 /// *It matches · trust `<site>`* (ADR 0050 §2.3, *Trust*): pins the CA of
 /// the row [found] for its origin and its standby's.
@@ -88,6 +72,6 @@ class TrustGatewayAction extends Action with NonReentrant, WaitingAction {
     );
   }
 
-  AppState _refused(String why) =>
+  AppState _refused(TrustRefusal why) =>
       state.copyWith.discovery(trustPending: found, trustRefused: why);
 }

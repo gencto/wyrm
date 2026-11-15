@@ -73,8 +73,6 @@ class TrustCard extends StatelessWidget {
 
   /// The board's fill and border (`#1A1810`, `#6A5A2A`): amber, darker than
   /// `warnTint` and lighter than `warnLine`.
-  static const fill = Color(0xFF1A1810);
-  static const border = Color(0xFF6A5A2A);
 
   @override
   Widget build(BuildContext context) {
@@ -92,9 +90,9 @@ class TrustCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: fill,
+          color: c.noticeFill,
           borderRadius: const BorderRadius.all(Radius.circular(AppRadii.panel)),
-          border: .all(color: border),
+          border: .all(color: c.noticeLine),
         ),
         child: Column(
           crossAxisAlignment: .stretch,
@@ -129,7 +127,7 @@ class TrustCard extends StatelessWidget {
               value: vm.code.join(' '),
               child: ExcludeSemantics(
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: Insets.caCode,
                   decoration: BoxDecoration(
                     color: c.ground0,
                     borderRadius: const BorderRadius.all(
@@ -150,7 +148,7 @@ class TrustCard extends StatelessWidget {
                                   textAlign: .center,
                                   style: TextStyle(
                                     fontFamily: AppFonts.mono,
-                                    fontSize: 15,
+                                    fontSize: FontSizes.lead,
                                     letterSpacing: 1.2,
                                     color: c.text1,
                                   ),

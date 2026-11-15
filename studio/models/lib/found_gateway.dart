@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'broker_role.dart';
 import 'found_problem.dart';
 
 part 'found_gateway.freezed.dart';
@@ -36,7 +37,7 @@ abstract class FoundGateway with _$FoundGateway {
     @Default(true) bool tls,
 
     /// `active` or `standby` (ADR 0036), as `/api/info` said.
-    @Default('active') String role,
+    @Default(BrokerRole.active) BrokerRole role,
 
     /// The upstream sites of this broker (`up`).
     @Default(IListConst([])) IList<String> up,

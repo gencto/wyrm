@@ -18,8 +18,8 @@ mixin _$StepUpRequest {
 /// What is being applied, in order.
  IList<StepUpLine> get lines;/// The device key or the password is being checked.
  bool get busy;/// Confirmed: the request goes again.
- bool get done;/// The last try failed: `bad_password`, a cancelled prompt, …
- String? get error;/// The session has no device key here, or it stopped working: the
+ bool get done;/// Why the last try failed; null before one did.
+ StepUpError? get error;/// The session has no device key here, or it stopped working: the
 /// password is the only way.
  bool get passwordOnly;
 /// Create a copy of StepUpRequest
@@ -57,11 +57,11 @@ abstract mixin class $StepUpRequestCopyWith<$Res>  {
   factory $StepUpRequestCopyWith(StepUpRequest value, $Res Function(StepUpRequest) _then) = _$StepUpRequestCopyWithImpl;
 @useResult
 $Res call({
- IList<StepUpLine> lines, bool busy, bool done, String? error, bool passwordOnly
+ IList<StepUpLine> lines, bool busy, bool done, StepUpError? error, bool passwordOnly
 });
 
 
-
+$StepUpErrorCopyWith<$Res>? get error;
 
 }
 /// @nodoc
@@ -80,11 +80,23 @@ lines: null == lines ? _self.lines : lines // ignore: cast_nullable_to_non_nulla
 as IList<StepUpLine>,busy: null == busy ? _self.busy : busy // ignore: cast_nullable_to_non_nullable
 as bool,done: null == done ? _self.done : done // ignore: cast_nullable_to_non_nullable
 as bool,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,passwordOnly: null == passwordOnly ? _self.passwordOnly : passwordOnly // ignore: cast_nullable_to_non_nullable
+as StepUpError?,passwordOnly: null == passwordOnly ? _self.passwordOnly : passwordOnly // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
+/// Create a copy of StepUpRequest
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$StepUpErrorCopyWith<$Res>? get error {
+    if (_self.error == null) {
+    return null;
+  }
 
+  return $StepUpErrorCopyWith<$Res>(_self.error!, (value) {
+    return _then(_self.copyWith(error: value));
+  });
+}
 }
 
 
@@ -102,8 +114,8 @@ class _StepUpRequest implements StepUpRequest {
 @override@JsonKey() final  bool busy;
 /// Confirmed: the request goes again.
 @override@JsonKey() final  bool done;
-/// The last try failed: `bad_password`, a cancelled prompt, …
-@override final  String? error;
+/// Why the last try failed; null before one did.
+@override final  StepUpError? error;
 /// The session has no device key here, or it stopped working: the
 /// password is the only way.
 @override@JsonKey() final  bool passwordOnly;
@@ -140,11 +152,11 @@ abstract mixin class _$StepUpRequestCopyWith<$Res> implements $StepUpRequestCopy
   factory _$StepUpRequestCopyWith(_StepUpRequest value, $Res Function(_StepUpRequest) _then) = __$StepUpRequestCopyWithImpl;
 @override @useResult
 $Res call({
- IList<StepUpLine> lines, bool busy, bool done, String? error, bool passwordOnly
+ IList<StepUpLine> lines, bool busy, bool done, StepUpError? error, bool passwordOnly
 });
 
 
-
+@override $StepUpErrorCopyWith<$Res>? get error;
 
 }
 /// @nodoc
@@ -163,12 +175,24 @@ lines: null == lines ? _self.lines : lines // ignore: cast_nullable_to_non_nulla
 as IList<StepUpLine>,busy: null == busy ? _self.busy : busy // ignore: cast_nullable_to_non_nullable
 as bool,done: null == done ? _self.done : done // ignore: cast_nullable_to_non_nullable
 as bool,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,passwordOnly: null == passwordOnly ? _self.passwordOnly : passwordOnly // ignore: cast_nullable_to_non_nullable
+as StepUpError?,passwordOnly: null == passwordOnly ? _self.passwordOnly : passwordOnly // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
 
+/// Create a copy of StepUpRequest
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$StepUpErrorCopyWith<$Res>? get error {
+    if (_self.error == null) {
+    return null;
+  }
 
+  return $StepUpErrorCopyWith<$Res>(_self.error!, (value) {
+    return _then(_self.copyWith(error: value));
+  });
+}
 }
 
 // dart format on

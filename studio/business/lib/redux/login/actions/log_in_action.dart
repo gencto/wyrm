@@ -136,9 +136,9 @@ Future<AppState> openedSession(
   String user,
   Uri gateway,
 ) async {
-  final WhoAmI me;
+  final GatewayIdentity me;
   try {
-    me = await session.me();
+    me = await session.identity();
   } on Object catch (e) {
     await session.close();
     throw switch (e) {
@@ -158,17 +158,21 @@ Future<AppState> openedSession(
   await a.deps.attach(session);
   // The idle lock's clock starts with the session (ADR 0050 §1.4).
   a.deps.idleLock.arm(Duration(minutes: a.state.device.lockAfter));
-  final subject = me.subject.isEmpty ? user : me.subject;
+  final subject = me.sub.isEmpty ? user : me.sub;
   return a.state.copyWith(
     session: SessionState(token: subject),
     site: SiteState(
       gateway: session.base.toString(),
       user: subject,
       name: me.site,
-      role: me.roles.isEmpty ? me.max : me.roles.join(', '),
-      max: me.max,
+      role: me.roles.isEmpty ? me.max.wire : me.roles.join(', '),
+      // The site slice keeps levels by name until the rights screens move
+      // to `Perm` (`Grant.level`, `SiteState.max`).
+      max: me.max.wire,
       connected: true,
-      grants: [for (final (k, p) in me.grants) Grant(key: k, level: p)].lock,
+      grants: [
+        for (final g in me.grants) Grant(key: g.k, level: g.p.wire),
+      ].lock,
     ),
   );
 }

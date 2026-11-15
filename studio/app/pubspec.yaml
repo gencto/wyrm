@@ -55,6 +55,8 @@ dev_dependencies:
   # The error tests build a store over in-memory storage.
   storage:
     path: ../storage
+  # The log-in tests open the settings link through a fake launcher.
+  url_launcher_platform_interface: ^2.3.2
 
 flutter:
   uses-material-design: true

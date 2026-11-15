@@ -1,19 +1,19 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/device/actions/cancel_step_up_action.dart';
 import 'package:business/redux/device/actions/confirm_step_up_action.dart';
 import 'package:business/wyrm/device_keys.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/overlays/step_up_dialog.dart';
+import 'package:ui/overlays/step_up_screen.dart';
 
 import '../mappers/device_mappers.dart';
+import '../mappers/log_in_mappers.dart';
 
 /// The step-up over everything (ADR 0050 §1.3, board `UnlockStepUp`): shown
 /// while a request refused with `confirm_required` waits, one at a time.
 /// Placed in the app's builder above the router, so it shows on any page.
+/// Typed values to `StepUpScreen`, which words them; one action per intent.
 class StepUpDialogConnector extends StatelessWidget {
   const StepUpDialogConnector({super.key});
 
@@ -36,7 +36,7 @@ class StepUpDialogConnector extends StatelessWidget {
               child: ColoredBox(
                 color: StepUpDialog.barrier,
                 child: Center(
-                  child: StepUpDialog(
+                  child: StepUpScreen(
                     vm: d,
                     onDevice: vm.onDevice,
                     onPassword: vm.onPassword,
@@ -58,62 +58,30 @@ class _Factory extends VmFactory<AppState, StepUpDialogConnector, _Vm>
   _Factory(super._connector);
 
   @override
-  _Vm fromStore() {
-    final pending = state.device.stepUp;
-    final s = S.current;
-    final siteName = site.name ?? '';
-    final name = device.kind.method.label;
-    final reason = s.unlockConfirmPrompt(siteName);
-    String? error(String? e) => switch (e) {
-      null => null,
-      'bad_password' => s.lockWrongPassword,
-      final e
-          when e.startsWith('cancelled') ||
-              e.startsWith('locked') ||
-              e.startsWith('biometrics') =>
-        s.stepUpStopped(name),
-      final e => s.stepUpRefused(siteName, e),
-    };
-    return _Vm(
-      dialog: pending == null
-          ? null
-          : StepUpDialogVm(
-              title: s.stepUpTitle,
-              lead: s.stepUpLead(pending.lines.length, siteName),
-              lines: [
-                for (final l in pending.lines)
-                  StepUpLineVm(level: l.level, text: l.text, key: l.key),
-              ],
-              glyph: device.kind.method.glyph,
-              device: pending.busy
-                  ? s.stepUpWaiting(name)
-                  : s.stepUpDevice(
-                      name,
-                      siteName,
-                      hostPlatform().os.device,
-                    ),
-              confirm: s.stepUpConfirmWith(name),
-              passwordConfirm: s.stepUpConfirm,
-              usePassword: s.unlockUsePassword,
-              cancel: s.cancel,
-              passwordLabel: s.unlockPasswordFor(
-                (login.user ?? '').trim(),
-              ),
-              busy: pending.busy,
-              error: error(pending.error),
-              passwordOnly: pending.passwordOnly,
-            ),
-      onDevice: () =>
-          unawaited(dispatchAndWait(ConfirmStepUpAction(reason: reason))),
-      onPassword: (p) => unawaited(
-        dispatchAndWait(ConfirmStepUpAction(reason: reason, password: p)),
+  _Vm fromStore() => _Vm(
+    dialog: switch (device.stepUp) {
+      final pending? => StepUpScreenVm(
+        site: site.name ?? '',
+        user: login.formUser,
+        lines: [
+          for (final l in pending.lines)
+            StepUpLineData(level: l.level.badge, text: l.text, key: l.key),
+        ],
+        method: device.kind.method,
+        os: hostPlatform().os,
+        busy: pending.busy,
+        problem: pending.error?.problem,
+        passwordOnly: pending.passwordOnly,
       ),
-      onCancel: () => dispatchSync(CancelStepUpAction()),
-    );
-  }
+      null => null,
+    },
+    onDevice: () => dispatch(ConfirmStepUpAction()),
+    onPassword: (p) => dispatch(ConfirmStepUpAction(password: p)),
+    onCancel: () => dispatchSync(CancelStepUpAction()),
+  );
 }
 
-/// The view-model holds the part of the Store state the dumb-widget needs.
+/// What the dialog draws ([dialog], compared) and what it starts (not).
 class _Vm extends Vm {
   _Vm({
     required this.dialog,
@@ -122,7 +90,7 @@ class _Vm extends Vm {
     required this.onCancel,
   }) : super(equals: [dialog]);
 
-  final StepUpDialogVm? dialog;
+  final StepUpScreenVm? dialog;
   final VoidCallback onDevice;
   final ValueChanged<String> onPassword;
   final VoidCallback onCancel;

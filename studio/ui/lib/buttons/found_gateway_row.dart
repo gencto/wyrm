@@ -194,7 +194,7 @@ class _Tag extends StatelessWidget {
       final t => (toneTint(c, t), toneColor(c, t)),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+      padding: Insets.foundTag,
       decoration: BoxDecoration(
         color: ground,
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),

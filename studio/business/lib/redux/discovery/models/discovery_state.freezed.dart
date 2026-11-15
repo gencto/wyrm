@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$DiscoveryState {
 
- bool get open; bool get scanning; bool get ended; int get scan; IMap<String, FoundGateway> get found; IMap<String, CaPin> get pins; String? get trustPending; String? get trustRefused; String? get picked; String? get network; String? get subnet; String? get range; String? get rangePort; bool get probing;
+ bool get open; bool get scanning; bool get ended; int get scan; IMap<String, FoundGateway> get found; IMap<String, CaPin> get pins; String? get trustPending; TrustRefusal? get trustRefused; String? get picked; String? get network; String? get subnet; String? get range; String? get rangePort; bool get probing;
 /// Create a copy of DiscoveryState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,7 +51,7 @@ abstract mixin class $DiscoveryStateCopyWith<$Res>  {
   factory $DiscoveryStateCopyWith(DiscoveryState value, $Res Function(DiscoveryState) _then) = _$DiscoveryStateCopyWithImpl;
 @useResult
 $Res call({
- bool open, bool scanning, bool ended, int scan, IMap<String, FoundGateway> found, IMap<String, CaPin> pins, String? trustPending, String? trustRefused, String? picked, String? network, String? subnet, String? range, String? rangePort, bool probing
+ bool open, bool scanning, bool ended, int scan, IMap<String, FoundGateway> found, IMap<String, CaPin> pins, String? trustPending, TrustRefusal? trustRefused, String? picked, String? network, String? subnet, String? range, String? rangePort, bool probing
 });
 
 
@@ -78,7 +78,7 @@ as int,found: null == found ? _self.found : found // ignore: cast_nullable_to_no
 as IMap<String, FoundGateway>,pins: null == pins ? _self.pins : pins // ignore: cast_nullable_to_non_nullable
 as IMap<String, CaPin>,trustPending: freezed == trustPending ? _self.trustPending : trustPending // ignore: cast_nullable_to_non_nullable
 as String?,trustRefused: freezed == trustRefused ? _self.trustRefused : trustRefused // ignore: cast_nullable_to_non_nullable
-as String?,picked: freezed == picked ? _self.picked : picked // ignore: cast_nullable_to_non_nullable
+as TrustRefusal?,picked: freezed == picked ? _self.picked : picked // ignore: cast_nullable_to_non_nullable
 as String?,network: freezed == network ? _self.network : network // ignore: cast_nullable_to_non_nullable
 as String?,subnet: freezed == subnet ? _self.subnet : subnet // ignore: cast_nullable_to_non_nullable
 as String?,range: freezed == range ? _self.range : range // ignore: cast_nullable_to_non_nullable
@@ -106,7 +106,7 @@ class _DiscoveryState implements DiscoveryState {
 @override@JsonKey() final  IMap<String, FoundGateway> found;
 @override@JsonKey() final  IMap<String, CaPin> pins;
 @override final  String? trustPending;
-@override final  String? trustRefused;
+@override final  TrustRefusal? trustRefused;
 @override final  String? picked;
 @override final  String? network;
 @override final  String? subnet;
@@ -146,7 +146,7 @@ abstract mixin class _$DiscoveryStateCopyWith<$Res> implements $DiscoveryStateCo
   factory _$DiscoveryStateCopyWith(_DiscoveryState value, $Res Function(_DiscoveryState) _then) = __$DiscoveryStateCopyWithImpl;
 @override @useResult
 $Res call({
- bool open, bool scanning, bool ended, int scan, IMap<String, FoundGateway> found, IMap<String, CaPin> pins, String? trustPending, String? trustRefused, String? picked, String? network, String? subnet, String? range, String? rangePort, bool probing
+ bool open, bool scanning, bool ended, int scan, IMap<String, FoundGateway> found, IMap<String, CaPin> pins, String? trustPending, TrustRefusal? trustRefused, String? picked, String? network, String? subnet, String? range, String? rangePort, bool probing
 });
 
 
@@ -173,7 +173,7 @@ as int,found: null == found ? _self.found : found // ignore: cast_nullable_to_no
 as IMap<String, FoundGateway>,pins: null == pins ? _self.pins : pins // ignore: cast_nullable_to_non_nullable
 as IMap<String, CaPin>,trustPending: freezed == trustPending ? _self.trustPending : trustPending // ignore: cast_nullable_to_non_nullable
 as String?,trustRefused: freezed == trustRefused ? _self.trustRefused : trustRefused // ignore: cast_nullable_to_non_nullable
-as String?,picked: freezed == picked ? _self.picked : picked // ignore: cast_nullable_to_non_nullable
+as TrustRefusal?,picked: freezed == picked ? _self.picked : picked // ignore: cast_nullable_to_non_nullable
 as String?,network: freezed == network ? _self.network : network // ignore: cast_nullable_to_non_nullable
 as String?,subnet: freezed == subnet ? _self.subnet : subnet // ignore: cast_nullable_to_non_nullable
 as String?,range: freezed == range ? _self.range : range // ignore: cast_nullable_to_non_nullable

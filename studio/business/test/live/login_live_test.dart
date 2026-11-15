@@ -15,6 +15,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/site/actions/retrieve_sites_action.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:storage/storage.dart';
 
@@ -26,7 +27,11 @@ void main() {
 
   Store<AppState> store() => Store<AppState>(
     initialState: AppState.initial(),
-    dependencies: (s) => AppDependencies(s, InMemoryKeyValueStorage()),
+    dependencies: (s) => AppDependencies(
+      s,
+      InMemoryKeyValueStorage(),
+      prompts: const PlainPrompts(),
+    ),
   );
 
   test('logs in to the gateway and lists the site', () async {
@@ -41,7 +46,7 @@ void main() {
     expect(s.state.session.token, user);
     expect(s.state.site.name, isNotEmpty);
     final deps = s.dependencies! as AppDependencies;
-    final who = await deps.session!.me();
+    final who = await deps.session!.identity();
     final children = await deps.wyrm.children('wy/${who.site}/sys');
     expect(children.map((c) => c.name), contains('links'));
     await deps.detach();

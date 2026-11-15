@@ -12,8 +12,7 @@ sealed class SystemNotice with _$SystemNotice {
   const factory SystemNotice.profilePut(String name) = ProfilePutNotice;
 
   /// `sys/profiles ▸ remove` removed the profile [name].
-  const factory SystemNotice.profileRemoved(String name) =
-      ProfileRemovedNotice;
+  const factory SystemNotice.profileRemoved(String name) = ProfileRemovedNotice;
 
   /// A command of Maintenance is on the clipboard.
   const factory SystemNotice.commandCopied() = CommandCopiedNotice;

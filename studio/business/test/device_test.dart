@@ -2,6 +2,7 @@ import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/changes/actions/add_changes_action.dart';
 import 'package:business/redux/changes/actions/apply_changes_action.dart';
+import 'package:business/redux/device/actions/accept_offer_action.dart';
 import 'package:business/redux/device/actions/cancel_step_up_action.dart';
 import 'package:business/redux/device/actions/confirm_step_up_action.dart';
 import 'package:business/redux/device/actions/decline_offer_action.dart';
@@ -31,8 +32,10 @@ import 'package:fake_async/fake_async.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/lock_error.dart';
 import 'package:models/login_failure.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/step_up_error.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:storage/storage.dart';
@@ -75,7 +78,7 @@ final class _Computer {
   Future<void> enrolled() async {
     final s = await loggedIn();
     await s.dispatchAndWait(
-      OfferDeviceAction(enable: () => _enable(s)),
+      OfferDeviceAction(),
     );
     expect(s.state.device.stage, UnlockStage.offer);
     await _enable(s);
@@ -108,7 +111,7 @@ void main() {
       final c = _Computer();
       final s = await c.loggedIn();
 
-      await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+      await s.dispatchAndWait(OfferDeviceAction());
 
       expect(s.state.device.stage, UnlockStage.offer);
       expect(s.state.device.policy?.enabled, isTrue);
@@ -120,7 +123,7 @@ void main() {
       await s.dispatchAndWait(LogOutAction());
       final again = await c.loggedIn();
       await again.dispatchAndWait(
-        OfferDeviceAction(enable: () => _enable(again)),
+        OfferDeviceAction(),
       );
       expect(again.state.device.stage, UnlockStage.none);
       expect((await c.records.read(_origin, _user)).dontAsk, isFalse);
@@ -129,7 +132,7 @@ void main() {
     test("`Don't ask on this computer` is kept", () async {
       final c = _Computer();
       final s = await c.loggedIn();
-      await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+      await s.dispatchAndWait(OfferDeviceAction());
 
       await s.dispatchAndWait(DeclineOfferAction(dontAsk: true));
 
@@ -147,7 +150,7 @@ void main() {
         );
         final s = await none.loggedIn();
         expect(await none.records.noticed(), isTrue);
-        await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+        await s.dispatchAndWait(OfferDeviceAction());
         expect(s.state.device.stage, UnlockStage.none);
 
         // Not said on the page (no remembered user then): the offer's own
@@ -159,14 +162,14 @@ void main() {
         await f.dispatchAndWait(LoadDeviceAction());
         await fill(f);
         await f.dispatchAndWait(LogInAction());
-        await f.dispatchAndWait(OfferDeviceAction(enable: () => _enable(f)));
+        await f.dispatchAndWait(OfferDeviceAction());
         expect(f.state.device.stage, UnlockStage.offer);
         expect(f.state.device.available, isFalse);
         await f.dispatchAndWait(DeclineOfferAction());
         await f.dispatchAndWait(LogOutAction());
         final again = await fresh.loggedIn();
         await again.dispatchAndWait(
-          OfferDeviceAction(enable: () => _enable(again)),
+          OfferDeviceAction(),
         );
         expect(again.state.device.stage, UnlockStage.none);
 
@@ -178,7 +181,7 @@ void main() {
             tls: false,
           );
         final o = await off.loggedIn();
-        await o.dispatchAndWait(OfferDeviceAction(enable: () => _enable(o)));
+        await o.dispatchAndWait(OfferDeviceAction());
         expect(o.state.device.stage, UnlockStage.none);
       },
     );
@@ -186,7 +189,7 @@ void main() {
     test('Use registers a key the gateway checked, then Welcome', () async {
       final c = _Computer();
       final s = await c.loggedIn();
-      await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+      await s.dispatchAndWait(OfferDeviceAction());
 
       await _enable(s);
 
@@ -200,6 +203,39 @@ void main() {
       expect(r.site, 'central');
       expect(c.gateway.records['d1']?.name, endsWith('Studio'));
       expect(c.keys.reasons, ['turn on'], reason: 'one prompt, the register');
+    });
+
+    test('Use when the gateway wants the password first: the offer ends, '
+        'nothing is registered', () async {
+      final c = _Computer();
+      final s = await c.loggedIn();
+      await s.dispatchAndWait(OfferDeviceAction());
+      expect(s.state.device.stage, UnlockStage.offer);
+      c.gateway.passwordFresh = false;
+
+      await s.dispatchAndWait(AcceptOfferAction());
+
+      expect(s.state.device.stage, UnlockStage.none);
+      expect(s.state.device.deviceId, isNull);
+      expect(c.gateway.records, isEmpty);
+      expect(s.state.device.needPassword, isTrue);
+    });
+
+    test('Use with no biometric here closes the offer', () async {
+      // The log-in page did not say it yet (no device read before).
+      final c = _Computer(
+        keys: FakeDeviceKey(availability: DeviceKeyAvailability.none),
+      );
+      final s = c.store();
+      await fill(s);
+      await s.dispatchAndWait(LogInAction());
+      await s.dispatchAndWait(OfferDeviceAction());
+      expect(s.state.device.stage, UnlockStage.offer);
+
+      await s.dispatchAndWait(AcceptOfferAction());
+
+      expect(s.state.device.stage, UnlockStage.none);
+      expect(c.gateway.records, isEmpty);
     });
 
     test('a failure goes on to Welcome with a quiet error', () async {
@@ -334,7 +370,7 @@ void main() {
       await s.dispatchAndWait(SetPasswordAction('wyrm-demo-1'));
       await s.dispatchAndWait(LogInAction());
       expect(c.login.device, isNull, reason: 'a stale key is not named');
-      await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+      await s.dispatchAndWait(OfferDeviceAction());
 
       expect(c.gateway.records.containsKey('d1'), isFalse, reason: 'removed');
       expect(s.state.device.deviceId, 'd2', reason: 'turned on again');
@@ -486,7 +522,7 @@ void main() {
       await pumpEventQueue();
 
       await s.dispatchAndWait(ConfirmStepUpAction(reason: 'c', password: 'no'));
-      expect(s.state.device.stepUp?.error, 'bad_password');
+      expect(s.state.device.stepUp?.error, const StepUpError.wrongPassword());
       await s.dispatchAndWait(
         ConfirmStepUpAction(reason: 'c', password: 'wyrm-demo-1'),
       );
@@ -549,7 +585,7 @@ void main() {
         await pumpEventQueue();
 
         final lines = s.state.device.stepUp!.lines;
-        expect(lines.map((l) => l.level), ['config', 'write']);
+        expect(lines.map((l) => l.level), [Perm.config, Perm.write]);
         await s.dispatchAndWait(ConfirmStepUpAction(reason: 'c'));
         await apply;
         await other;
@@ -620,7 +656,7 @@ void main() {
 
       await s.dispatchAndWait(UnlockWithPasswordAction('nope'));
       expect(s.state.device.locked, isTrue);
-      expect(s.state.device.lockError, 'bad_password');
+      expect(s.state.device.lockError, const LockError.wrongPassword());
       await s.dispatchAndWait(UnlockWithPasswordAction('wyrm-demo-1'));
       expect(s.state.device.locked, isFalse);
     });
@@ -696,7 +732,7 @@ void main() {
         await s.dispatchAndWait(SetUserAction('ivan'));
         await s.dispatchAndWait(SetPasswordAction('wyrm-demo-1'));
         await s.dispatchAndWait(LogInAction());
-        await s.dispatchAndWait(OfferDeviceAction(enable: () => _enable(s)));
+        await s.dispatchAndWait(OfferDeviceAction());
 
         expect(s.state.device.lockAfter, 5);
         expect(s.state.device.dontAsk, isFalse);
