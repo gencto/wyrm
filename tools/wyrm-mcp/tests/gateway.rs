@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
-use wyrm_core::meta::Writable;
-use wyrm_core::{NodeMeta, Quality, Value};
+use wyrm_core::meta::{ActionResult, ParamMeta, Writable, EDITOR_FILE};
+use wyrm_core::{ActionMeta, NodeMeta, Perm, Quality, TypeCode, Value};
 use wyrm_gateway::{Gateway, GatewayConfig};
 use wyrm_gateway_client::Endpoint;
 use wyrm_link_mock::{Mock, MockConfig};
@@ -20,7 +20,8 @@ use wyrm_link_sdk::{now_us, Caller, Link, LinkConfig, LinkCtx, LinkHandle};
 use wyrm_mcp::gateway::{GatewayMcp, GatewayOptions};
 use zeroize::Zeroizing;
 
-/// One config-level point `sp`.
+/// One config-level point `sp`, `put {data}` (a file, write level) that answers its size, and
+/// `import {json}` (text, as a framework branch import).
 struct Plant {
     ctx: LinkCtx,
 }
@@ -34,7 +35,47 @@ impl Link for Plant {
         ctx.declare_node("sp", NodeMeta::number().writable(Writable::Config))
             .await?;
         ctx.update("sp", 20.0, Quality::Good, now_us()).await?;
+        ctx.declare_action(
+            "",
+            "put",
+            ActionMeta::new()
+                .param(
+                    "data",
+                    ParamMeta::of(TypeCode::Binary)
+                        .editor(EDITOR_FILE)
+                        .required(true),
+                )
+                .result(ActionResult::Type(TypeCode::Number))
+                .level(Perm::Write),
+        )
+        .await?;
+        ctx.declare_action(
+            "",
+            "import",
+            ActionMeta::new()
+                .param("json", ParamMeta::of(TypeCode::String).required(true))
+                .level(Perm::Write),
+        )
+        .await?;
         Ok(Self { ctx })
+    }
+
+    async fn on_invoke(
+        &mut self,
+        _path: &str,
+        _action: &str,
+        args: Value,
+        _who: &Caller,
+        out: wyrm_link_sdk::ReplySink,
+    ) -> wyrm_link_sdk::Result<()> {
+        let n = match &args {
+            Value::Map(m) => match m.get("data") {
+                Some(Value::Bytes(b)) => b.len(),
+                _ => 0,
+            },
+            _ => 0,
+        };
+        out.reply(Value::UInt(n as u64)).await
     }
 
     async fn on_set(&mut self, path: &str, v: Value, _who: &Caller) -> wyrm_link_sdk::Result<()> {
@@ -52,6 +93,7 @@ impl ClientHandler for TestClient {
 }
 
 struct Env {
+    gw: Arc<Gateway>,
     url: String,
     ca: PathBuf,
     stop: Option<oneshot::Sender<()>>,
@@ -110,6 +152,7 @@ impl Env {
             .await
             .unwrap();
         Self {
+            gw,
             url: format!("https://localhost:{}", addr.port()),
             ca,
             stop: Some(stop),
@@ -367,5 +410,59 @@ async fn read_only_and_allow_config_and_a_wrong_password() {
     });
     let err = server.check().await.unwrap_err();
     assert!(err.contains("TLS"), "{err}");
+    env.stop().await;
+}
+
+/// `action_invoke` with a binary argument larger than a gateway frame: the connector's client
+/// sends it by `POST /api/invoke` over the same TLS (ADR 0028 amendment); the dry run says the
+/// link was not asked (a check goes in one frame); a non-file action is refused with the
+/// gateway's text.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_large_file_argument_goes_by_http() {
+    use base64::Engine as _;
+    let env = Env::start("bulk").await;
+    // a password unique to the run
+    let pw = format!("bulk-{:x}", std::process::id());
+    env.gw
+        .add_user("bulk", &pw, vec!["operator".into()])
+        .unwrap();
+    let mcp = env.mcp("bulk", &pw, false, false).await;
+    let n = 300usize << 10;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(vec![5u8; n]);
+    let args = json!({ "data": { "$bytes": b64 } });
+    let (e, d) = call(
+        &mcp,
+        "action_invoke",
+        json!({ "path": "downstream/plant", "action": "put", "args": args }),
+    )
+    .await;
+    assert!(!e, "{d}");
+    assert_eq!(d["dry_run"], json!(true), "{d}");
+    let by_link = &d["checked_by_link"];
+    assert!(
+        by_link.as_str().is_some_and(|t| t.starts_with("not asked")),
+        "the check is not asked over a frame: {d}"
+    );
+    let (e, r) = call(
+        &mcp,
+        "action_invoke",
+        json!({ "path": "downstream/plant", "action": "put", "args": args, "dry_run": false }),
+    )
+    .await;
+    assert!(!e, "{r}");
+    assert_eq!(r["result"], json!(n), "{r}");
+    // a large argument of an action without a file parameter: the gateway says what to do
+    let big = "x".repeat(100 << 10);
+    let (e, r) = call(
+        &mcp,
+        "action_invoke",
+        json!({ "path": "downstream/plant", "action": "import", "args": { "json": big }, "dry_run": false }),
+    )
+    .await;
+    assert!(e, "{r}");
+    assert!(r.to_string().contains("takes no file"), "{r}");
+    // the connector's socket still works
+    let (e, me) = call(&mcp, "whoami", json!({})).await;
+    assert!(!e, "{me}");
     env.stop().await;
 }

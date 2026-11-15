@@ -6,6 +6,7 @@ library;
 
 export 'src/attachment.dart';
 export 'src/cbor.dart';
+export 'src/decode.dart';
 export 'src/keyspace.dart';
 export 'src/meta.dart';
 export 'src/ptok.dart';

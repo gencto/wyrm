@@ -642,7 +642,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
   UnlockOfferVm _offer(Uri? standby) {
     final d = device;
     final s = S.current;
-    final platform = devicePlatform();
+    final platform = hostPlatform();
     final name = d.kind.method.label;
     final siteName = site.name ?? d.keySite ?? '';
     final user = _userName(site.user ?? login.user ?? '');
@@ -717,7 +717,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       return null;
     }
     final s = S.current;
-    final platform = devicePlatform();
+    final platform = hostPlatform();
     final name = d.kind.method.label;
     final glyph = d.kind.method.glyph;
     final faces = glyph == .face;

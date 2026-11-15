@@ -12120,11 +12120,14 @@ async fn backup_restores_into_a_fresh_data_dir() {
 }
 
 /// ADR 0028 (amended 2026-11-15): uploads in parts through the user gateway,
-/// as Studio sends them. A part is larger than a WebSocket frame (64 KiB), so
-/// it goes by `POST /api/invoke`, which takes only actions with an `editor:
+/// as Studio and the Rust client (`wyrm-gateway-client`: `wyrm-agent`, the
+/// MCP connector) send them. A part is larger than a WebSocket frame (64 KiB),
+/// so it goes by `POST /api/invoke`, which takes only actions with an `editor:
 /// file` parameter: a backup made here is read back through the gateway in
 /// parts, sent to `restore_begin`/`restore_part` and checked; a file goes to
-/// a file store by `upload_begin`/`upload_part`/`upload_commit`.
+/// a file store by `upload_begin`/`upload_part`/`upload_commit`. The parts go
+/// by the Rust client's `invoke`, a large text argument comes back as the
+/// gateway's refusal.
 #[tokio::test(flavor = "multi_thread")]
 async fn uploads_in_parts_through_the_gateway() {
     use sha2::Digest;
@@ -12148,39 +12151,13 @@ async fn uploads_in_parts_through_the_gateway() {
     )
     .await;
     drop(env_lock);
-    let addr = env.gateway.clone().expect("gateway").local_addr().await;
-    let login = wyrm_core::codec::to_vec(&args_map(&[
-        ("user", "root".into()),
-        ("password", password.as_str().into()),
-    ]))
-    .unwrap();
-    let (st, v) = http_post(addr, "/api/login", "", login).await;
-    assert_eq!(st, 200, "{v:?}");
-    let Value::Map(m) = v else {
-        panic!("login: a map")
-    };
-    let Some(Value::Str(session)) = m.get("session").cloned() else {
-        panic!("login: session")
-    };
+    // the gateway listens
+    env.gateway.clone().expect("gateway").local_addr().await;
     let gw =
         wyrm_gateway_client::Gateway::login(&format!("http://127.0.0.1:{port}"), "root", &password)
             .await
             .expect("login");
     let conn = gw.connect().await.expect("socket");
-    // `POST /api/invoke` of `action` on `key`; the status and the answer
-    let bulk = |key: String, action: &'static str, args: Value| {
-        let session = session.clone();
-        async move {
-            let path = format!("/api/invoke?key={key}&action={action}");
-            http_post(
-                addr,
-                &path,
-                &session,
-                wyrm_core::codec::to_vec(&args).unwrap(),
-            )
-            .await
-        }
-    };
 
     // a backup larger than the broker's part size (4 MiB), as the owner's
     // 5.8 MB one: text that does not compress to nothing
@@ -12259,8 +12236,9 @@ async fn uploads_in_parts_through_the_gateway() {
             ("offset", Value::UInt(offset as u64)),
             ("data", Value::Bytes(chunk.to_vec())),
         ]);
-        let (st, v) = bulk(backups.clone(), "restore_part", args).await;
-        assert_eq!(st, 200, "restore_part at {offset}: {v:?}");
+        conn.invoke(&backups, "restore_part", args)
+            .await
+            .unwrap_or_else(|e| panic!("restore_part at {offset}: {e}"));
         offset += chunk.len();
     }
     let check = args_map(&[("upload", upload.clone().into())]);
@@ -12308,8 +12286,9 @@ async fn uploads_in_parts_through_the_gateway() {
             ("index", Value::UInt(i as u64)),
             ("data", Value::Bytes(chunk.to_vec())),
         ]);
-        let (st, v) = bulk(connection.clone(), "upload_part", args).await;
-        assert_eq!(st, 200, "upload_part {i}: {v:?}");
+        conn.invoke(&connection, "upload_part", args)
+            .await
+            .unwrap_or_else(|e| panic!("upload_part {i}: {e}"));
     }
     conn.invoke(
         &connection,
@@ -12325,6 +12304,20 @@ async fn uploads_in_parts_through_the_gateway() {
     })
     .await;
     assert!(got == data, "the stored file is the one sent");
+
+    // a text argument over a frame (a storage value) has no file route: the
+    // gateway's refusal, with what to do, reaches the Rust client
+    let big = args_map(&[
+        ("path", "big".into()),
+        ("value", "x".repeat(100 << 10).into()),
+    ]);
+    let e = conn.invoke(&storage, "publish", big).await.unwrap_err();
+    assert!(
+        matches!(&e, wyrm_gateway_client::Error::Refused { http: Some(400), message, .. }
+            if message.contains("takes no file") && message.contains("editor: file")),
+        "{e:?}"
+    );
+    assert!(!conn.is_closed(), "the socket outlives the refusal");
     env.stop().await;
 }
 

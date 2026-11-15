@@ -1,5 +1,6 @@
-import 'package:business/wyrm/decode/user_device.dart';
 import 'package:ui/overlays/security_dialog.dart';
+import 'package:wyrm_client/wyrm_client.dart'
+    show GatewayDevice, GatewayDeviceState;
 
 import 'device_mappers.dart';
 
@@ -16,33 +17,33 @@ const _usedNowS = 60;
 /// A password due within this many days is tagged.
 const _dueSoonDays = 7;
 
-extension UserDeviceSecurityRow on UserDevice {
+extension GatewayDeviceSecurityRow on GatewayDevice {
   /// This record as a row; [thisDeviceId] is this computer's device and
   /// [now] the clock.
   SecurityDeviceVm securityRow({
     required String? thisDeviceId,
     required DateTime now,
   }) {
-    final own = thisDevice || id == thisDeviceId;
+    final own = thisSession || id == thisDeviceId;
     final nowS = now.millisecondsSinceEpoch ~/ 1000;
     final dueDays = passwordDueAt == 0
         ? null
         : ((passwordDueAt - nowS) / Duration.secondsPerDay).ceil();
     final tag = switch (state) {
-      DeviceRecordState.removed => SecurityTag.removed,
+      GatewayDeviceState.removed => SecurityTag.removed,
       _ when own => SecurityTag.thisDevice,
-      DeviceRecordState.signedOut => SecurityTag.signedOut,
-      DeviceRecordState.active
+      GatewayDeviceState.signedOut => SecurityTag.signedOut,
+      GatewayDeviceState.active
           when dueDays != null && dueDays <= _dueSoonDays =>
         SecurityTag.passwordDue,
-      DeviceRecordState.active => null,
+      GatewayDeviceState.active => null,
     };
     return SecurityDeviceVm(
       id: id,
       os: platform.os,
       name: name,
       tag: tag,
-      removedBy: removedBy ?? '',
+      removedBy: removedByUser,
       dueDays: dueDays == null || dueDays < 0 ? 0 : dueDays,
       lastUsed: momentOf(lastUsed),
       usedNow: own && lastUsed > 0 && nowS - lastUsed < _usedNowS,

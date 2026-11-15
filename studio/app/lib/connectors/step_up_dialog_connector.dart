@@ -90,7 +90,7 @@ class _Factory extends VmFactory<AppState, StepUpDialogConnector, _Vm>
                   : s.stepUpDevice(
                       name,
                       siteName,
-                      devicePlatform().os.device,
+                      hostPlatform().os.device,
                     ),
               confirm: s.stepUpConfirmWith(name),
               passwordConfirm: s.stepUpConfirm,

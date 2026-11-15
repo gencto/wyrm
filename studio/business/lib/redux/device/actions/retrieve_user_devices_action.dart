@@ -1,7 +1,7 @@
 import 'package:models/error_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/decode/user_device.dart';
+import '../../../wyrm/device_keys.dart';
 import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -25,7 +25,7 @@ class RetrieveUserDevicesAction extends Action with WaitingAction {
     try {
       final ds = await session.userDevices(user);
       return state.copyWith.device(
-        userDevices: state.device.userDevices.add(user, userDevicesOf(ds)),
+        userDevices: state.device.userDevices.add(user, newestFirst(ds)),
       );
     } on WyrmException catch (e) {
       throw StudioException.refused(e, call: 'devices', thing: user);

@@ -60,7 +60,7 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
     dialog: SecurityDialogVm(
       user: (login.user ?? '').trim(),
       site: site.name ?? '',
-      os: devicePlatform().os,
+      os: hostPlatform().os,
       method: device.kind.method,
       devices: [
         for (final x in device.devices)

@@ -5,7 +5,7 @@ import 'package:models/key_kind.dart';
 import 'package:models/step_up_request.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
-import '../../../wyrm/decode/user_device.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 part 'device_state.freezed.dart';
 
@@ -34,8 +34,8 @@ abstract class DeviceState with _$DeviceState {
     @Default(false) bool locked,
     String? lockError,
     StepUpRequest? stepUp,
-    @Default(IListConst([])) IList<UserDevice> devices,
-    @Default(IMapConst({})) IMap<String, IList<UserDevice>> userDevices,
+    @Default(IListConst([])) IList<GatewayDevice> devices,
+    @Default(IMapConst({})) IMap<String, IList<GatewayDevice>> userDevices,
     @Default(false) bool needPassword,
     String? securityError,
     String? keyRole,

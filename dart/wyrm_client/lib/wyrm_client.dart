@@ -6,7 +6,9 @@ library;
 export 'package:wyrm_core/wyrm_core.dart';
 
 export 'src/agent.dart';
+export 'src/agent_types.dart';
 export 'src/api.dart';
 export 'src/frames.dart';
 export 'src/gateway.dart';
+export 'src/gateway_types.dart';
 export 'src/reconnect.dart';

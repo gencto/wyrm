@@ -9,7 +9,6 @@ import 'package:business/redux/device/actions/remove_device_action.dart';
 import 'package:business/redux/device/actions/retrieve_devices_action.dart';
 import 'package:business/redux/device/actions/set_device_unlock_action.dart';
 import 'package:business/redux/device/actions/set_lock_after_action.dart';
-import 'package:business/wyrm/decode/user_device.dart';
 import 'package:device_key/testing.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +18,8 @@ import 'package:models/device_policy_info.dart';
 import 'package:models/key_kind.dart';
 import 'package:storage/storage.dart';
 import 'package:ui/theme/common.dart';
+import 'package:wyrm_client/wyrm_client.dart'
+    show DevicePlatform, GatewayDevice, GatewayDeviceState;
 
 import 'support/assistant_app.dart';
 
@@ -50,39 +51,40 @@ void main() {
           stepUp: confirm ? 'config' : 'none',
         ),
         devices: IList([
-          UserDevice(
+          GatewayDevice(
             id: 'd1',
             name: 'MacBook Pro · Studio',
             platform: DevicePlatform.macos,
             added: s(DateTime(2026, 11, 3, 10)),
             lastUsed: s(now.subtract(const Duration(seconds: 20))),
-            thisDevice: true,
+            thisSession: true,
           ),
-          UserDevice(
+          GatewayDevice(
             id: 'd2',
             name: 'iPhone 15 · Studio',
             platform: DevicePlatform.ios,
             added: s(DateTime(2026, 10, 28, 10)),
             lastUsed: s(now.subtract(const Duration(days: 2, hours: 1))),
           ),
-          UserDevice(
+          GatewayDevice(
             id: 'd3',
             name: 'ENG-LAPTOP-07 · Studio',
             platform: DevicePlatform.windows,
             lastUsed: s(now.subtract(const Duration(days: 26))),
             passwordDueAt: s(now.add(const Duration(days: 3, hours: 12))),
           ),
-          const UserDevice(
+          const GatewayDevice(
             id: 'd4',
             name: 'Pixel 8 · Studio',
             platform: DevicePlatform.android,
-            state: DeviceRecordState.removed,
-            removedBy: 'ivan',
+            state: GatewayDeviceState.removed,
+            removedBy: 'user:ivan',
           ),
-          const UserDevice(
+          const GatewayDevice(
             id: 'd5',
             name: 'Old box',
-            state: DeviceRecordState.signedOut,
+            platform: null,
+            state: GatewayDeviceState.signedOut,
           ),
         ]),
       ),

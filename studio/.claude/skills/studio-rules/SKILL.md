@@ -396,12 +396,12 @@ The shared parts the rules point to. Copy the reference connector,
 | Rule | Piece | Where |
 | --- | --- | --- |
 | 1, 9 | one action that awaits its parts (`ReloadShownAction`); a business action, then navigation (`LeaveOnLogOutAction(inner)`) | `business/lib/redux/site/actions/`, `app/lib/navigation/` |
-| 2, 3 | a domain enum with `wire`/`fromWire` (`DevicePlatform`); `ui` enums that carry what drawing needs: words (`DeviceOs`), a glyph and a label (`UnlockMethod`), a tone (`SecurityTag`); one mapper extension per domain enum | `business/lib/wyrm/decode/`, `ui/lib/indicators/`, `ui/lib/overlays/security_dialog.dart`, `app/lib/mappers/` |
+| 2, 3 | a wire enum from `wyrm_client` (`DevicePlatform`, `GatewayDeviceState`, `StepUp`, `Perm`…); a Studio-only domain enum in `models` (`HostPlatform`: the computer Studio runs on, a superset of the wire set); `ui` enums that carry what drawing needs: words (`DeviceOs`), a glyph and a label (`UnlockMethod`), a tone (`SecurityTag`); one mapper extension per domain enum | `dart/wyrm_client`, `models/lib/`, `ui/lib/indicators/`, `ui/lib/overlays/security_dialog.dart`, `app/lib/mappers/` |
 | 4 | a dialog opener that takes the context (`showSecurityDialog`) | `app/lib/dialogs/` |
 | 5 | `Formats.bytes/mebibytes/age/ago/shortDate/date/clock/clockSeconds/dateTime/minutesSeconds` | `localization/lib/formats.dart` |
 | 6 | `AppSpacing` (rhythm + `s1`…`s42`), `Insets` (`.top.sm`, `.h.md`), `AppRadii`/`Radii`, `FontSizes`, `AppText`, `Shades`, `AppSizes` | `ui/lib/theme/` |
 | 7 | `ItemChanged`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/value_changed.dart` |
-| 8 | `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)`; `flowPermissionsOf`, `userDeviceOf` | `business/lib/wyrm/decode/` |
+| 8 | a gateway or agent record: its `fromValue` in `wyrm_client` (`GatewayDevice`, `GatewayInfo`, …, `DecodeError`); a Studio-only shape: `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)` (`flowPermissionsOf`) | `dart/wyrm_client`, `business/lib/wyrm/decode/` |
 
 Three things the tools do not say:
 - A project typedef (`Toggled<T>`) in a connector's `_Vm` makes `frx doctor`

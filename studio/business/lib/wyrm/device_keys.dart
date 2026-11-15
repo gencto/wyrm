@@ -3,13 +3,14 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:device_key/device_key.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
 import 'package:models/device_policy_info.dart';
+import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import 'decode/user_device.dart';
 import 'session.dart';
 
 // What Studio does with the device key of ADR 0050, in one place: the
@@ -18,7 +19,7 @@ import 'session.dart';
 
 /// The platform Studio runs on: the one a new device record names and the
 /// log-in page draws (unlock-discover.md §1).
-DevicePlatform devicePlatform() {
+HostPlatform hostPlatform() {
   if (kIsWeb) {
     return .web;
   }
@@ -28,6 +29,18 @@ DevicePlatform devicePlatform() {
     TargetPlatform.iOS => .ios,
     TargetPlatform.android => .android,
     _ => .linux,
+  };
+}
+
+extension HostPlatformOnWire on HostPlatform {
+  /// The gateway's name for this platform; null where Studio keeps no
+  /// device key (`linux`, `web`).
+  DevicePlatform? get device => switch (this) {
+    HostPlatform.macos => .macos,
+    HostPlatform.windows => .windows,
+    HostPlatform.ios => .ios,
+    HostPlatform.android => .android,
+    HostPlatform.linux || HostPlatform.web => null,
   };
 }
 
@@ -61,9 +74,13 @@ DevicePolicyInfo policyOf(DevicePolicy p) => DevicePolicyInfo(
   maxPerUser: p.maxPerUser,
   passwordEveryDays: p.passwordEveryDays,
   idleLockMaxMin: p.idleLockMaxMin,
-  stepUp: p.stepUp,
+  stepUp: p.stepUp.wire,
   allowDeviceCredential: p.allowDeviceCredential,
 );
+
+/// The device records of a list, newest use first.
+IList<GatewayDevice> newestFirst(List<GatewayDevice> ds) =>
+    ([...ds]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed))).lock;
 
 /// Why the gateway refused a device login, from its `code`; null for a
 /// failure that is not a refusal of the key.

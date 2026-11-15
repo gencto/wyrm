@@ -696,7 +696,7 @@ void main() {
         await s.dispatchAndWait(UnlockWithDeviceAction(reason: _reason));
 
         await s.dispatchAndWait(RetrieveDevicesAction());
-        expect(s.state.device.devices.single.thisDevice, isTrue);
+        expect(s.state.device.devices.single.thisSession, isTrue);
 
         await s.dispatchAndWait(SetDeviceUnlockAction(on: false, reason: 'x'));
 
@@ -744,7 +744,7 @@ void main() {
       expect(c.gateway.records['x1']?.state, 'removed');
       expect(
         s.state.device.userDevices['olena']?.single.removedBy,
-        'admin',
+        'user:admin',
       );
       await s.dispatchAndWait(RemoveDeviceAction('x1', user: 'olena'));
       expect(c.gateway.records, isEmpty);

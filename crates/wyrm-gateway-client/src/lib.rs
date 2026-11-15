@@ -3,6 +3,12 @@
 //! protocol of `wyrm-gateway` (`ws.rs`): one-shot requests (`meta`,
 //! `children`, `set`, `invoke`, `history`) and `list`/`subscribe` streams.
 //!
+//! An invoke whose encoded arguments are over [`MAX_FRAME_ARGS`] (a file or a
+//! part of one) goes by `POST /api/invoke` instead, with the session bearer and
+//! `Expect: 100-continue`, so a refusal arrives before the body is sent (ADR
+//! 0011, ADR 0028 amendment); every other frame over [`MAX_FRAME`] is refused
+//! here, before it would close the socket.
+//!
 //! `https://host[:port]` (TLS by rustls/ring, the roots of `--ca` or the
 //! public web roots) reaches a gateway anywhere; plain `http://` only one on
 //! loopback, since the password goes in the clear (ADR 0041).
@@ -27,6 +33,24 @@ use wyrm_core::{NodeMeta, Status, Value};
 
 /// How long a one-shot request waits for its reply.
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Largest frame the gateway reads (`wyrm-gateway` `ws::MAX_FRAME`).
+pub const MAX_FRAME: usize = 64 * 1024;
+/// Largest encoded `args` an invoke sends in a frame (the rest of the frame
+/// is the request around them); larger ones go by `POST /api/invoke`, as the
+/// Dart client's `maxFrameArgs`.
+pub const MAX_FRAME_ARGS: usize = 60 * 1024;
+/// Largest body of `POST /api/invoke` (`wyrm-gateway` takes this one).
+pub const MAX_INVOKE_BODY: usize = (64 << 20) + (64 << 10);
+/// How long `POST /api/invoke` waits for `100 Continue` (or a refusal)
+/// before it sends the body anyway (RFC 9110 §10.1.1).
+const CONTINUE_WAIT: Duration = Duration::from_secs(10);
+/// Sending a body: the gateway reads one within 120 s.
+const BODY_TIMEOUT: Duration = Duration::from_secs(125);
+/// The answer after the body: the gateway waits up to 180 s for the action.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(185);
+/// Largest response head read.
+const MAX_HEAD: usize = 64 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -67,6 +91,60 @@ mod tests {
     }
 
     #[test]
+    fn query_values_are_escaped() {
+        assert_eq!(
+            super::query_value("wy/s/downstream/a-b_c.d~e"),
+            "wy/s/downstream/a-b_c.d~e"
+        );
+        assert_eq!(super::query_value("a b+c&d=é"), "a%20b%2Bc%26d%3D%C3%A9");
+    }
+
+    #[test]
+    fn bulk_answers() {
+        use super::{bulk_answer, Error};
+        use wyrm_core::codec::to_vec;
+        use wyrm_core::{Status, Value};
+        let resp = |head: &str, body: Value| {
+            let mut b = head.as_bytes().to_vec();
+            b.extend(to_vec(&body).unwrap());
+            b
+        };
+        let ok = Value::Map([("result".to_owned(), Value::UInt(5))].into());
+        // an interim head is skipped
+        let r = resp("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\n\r\n", ok);
+        assert_eq!(bulk_answer("put", &r).unwrap(), Some(Value::UInt(5)));
+        let none = Value::Map([("result".to_owned(), Value::Null)].into());
+        let r = resp("HTTP/1.1 200 OK\r\n\r\n", none);
+        assert_eq!(bulk_answer("put", &r).unwrap(), None);
+        let refused = Value::Map(
+            [
+                (
+                    "status".to_owned(),
+                    Value::UInt(Status::PermissionDenied.code().into()),
+                ),
+                ("message".to_owned(), Value::from("not authenticated")),
+            ]
+            .into(),
+        );
+        let r = resp("HTTP/1.1 401 Unauthorized\r\n\r\n", refused);
+        match bulk_answer("put", &r).unwrap_err() {
+            e @ Error::Refused {
+                http: Some(401), ..
+            } => {
+                assert!(e.is(Status::PermissionDenied));
+                assert!(e.to_string().contains("not authenticated"), "{e}");
+                assert!(e.to_string().contains("log in again"), "{e}");
+            }
+            e => panic!("{e:?}"),
+        }
+        // no CBOR body: the HTTP status decides
+        let r = b"HTTP/1.1 503 Service Unavailable\r\n\r\n".to_vec();
+        let e = bulk_answer("put", &r).unwrap_err();
+        assert!(e.is(Status::Busy), "{e:?}");
+        assert!(bulk_answer("put", b"garbage").is_err());
+    }
+
+    #[test]
     fn a_missing_ca_file_is_an_error() {
         let r = Endpoint::parse(
             "https://broker.example",
@@ -80,14 +158,42 @@ mod tests {
 pub enum Error {
     #[error("{0}")]
     Transport(String),
-    /// An answer of the gateway or the broker: `status` (spec 04) and text.
+    /// An answer of the gateway or the broker: `status` (spec 04) and text;
+    /// `http` is the HTTP status of a refusal of an HTTP request
+    /// (`POST /api/invoke`), `None` for one in a WebSocket frame.
     #[error("{status:?}: {message}")]
-    Refused { status: StatusCode, message: String },
+    Refused {
+        status: StatusCode,
+        message: String,
+        http: Option<u16>,
+    },
+    /// Nothing was sent: `size` bytes are over `limit`, the most the request
+    /// can carry on the route it has; `hint` says what to do.
+    #[error("{what}: {size} bytes, over {limit} bytes: {hint}")]
+    TooLarge {
+        what: String,
+        size: usize,
+        limit: usize,
+        hint: &'static str,
+    },
 }
 
 impl Error {
     pub fn is(&self, s: Status) -> bool {
         matches!(self, Error::Refused { status, .. } if *status == StatusCode::Known(s))
+    }
+
+    /// Refused here as [`Error::TooLarge`], before anything was sent.
+    pub fn is_too_large(&self) -> bool {
+        matches!(self, Error::TooLarge { .. })
+    }
+
+    fn refused(status: Status, message: String) -> Self {
+        Error::Refused {
+            status: StatusCode::Known(status),
+            message,
+            http: None,
+        }
     }
 }
 
@@ -348,16 +454,14 @@ impl Gateway {
         let (st, v) = http(&ep, "/api/login", None, Some(&body)).await?;
         match (st, text_field(&v, "session")) {
             (200, Some(session)) => Ok(Self { ep, session }),
-            (401 | 403, _) => Err(Error::Refused {
-                status: StatusCode::Known(Status::PermissionDenied),
-                message: format!(
-                    "login as {user}: wrong user or password, or the user is disabled"
-                ),
-            }),
-            (429, _) => Err(Error::Refused {
-                status: StatusCode::Known(Status::RateLimited),
-                message: format!("login as {user}: too many failed logins, wait a minute"),
-            }),
+            (401 | 403, _) => Err(Error::refused(
+                Status::PermissionDenied,
+                format!("login as {user}: wrong user or password, or the user is disabled"),
+            )),
+            (429, _) => Err(Error::refused(
+                Status::RateLimited,
+                format!("login as {user}: too many failed logins, wait a minute"),
+            )),
             _ => Err(Error::Transport(format!("login as {user}: HTTP {st}"))),
         }
     }
@@ -421,8 +525,210 @@ impl Gateway {
                 .await
                 .map_err(|_| Error::Transport("websocket handshake timed out".into()))?
                 .map_err(transport)?;
-        Ok(Conn::start(ws))
+        let bulk = Bulk {
+            ep: self.ep.clone(),
+            session: self.session.clone(),
+        };
+        Ok(Conn::start(ws, Some(bulk)))
     }
+}
+
+/// The HTTP route of a [`Conn`] for invokes larger than a frame. No `Debug`:
+/// it holds the session bearer.
+#[derive(Clone)]
+struct Bulk {
+    ep: Endpoint,
+    session: String,
+}
+
+/// `s` for a query value: unreserved characters and `/` as they are, every
+/// other byte `%XX` (a `+` would read as a space).
+fn query_value(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The end of the first response head in `buf` (after its blank line).
+fn head_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
+}
+
+/// The status of a response head.
+fn head_status(head: &[u8]) -> Option<u16> {
+    String::from_utf8_lossy(head)
+        .split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+}
+
+/// Read into `buf` until it holds a whole response head; its end.
+async fn read_head(s: &mut BoxIo, buf: &mut Vec<u8>) -> std::io::Result<usize> {
+    let mut chunk = [0u8; 4096];
+    loop {
+        if let Some(n) = head_end(buf) {
+            return Ok(n);
+        }
+        if buf.len() > MAX_HEAD {
+            return Err(std::io::Error::other("response head too long"));
+        }
+        let n = s.read(&mut chunk).await?;
+        if n == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+}
+
+/// Read the rest of the answer into `buf` (to its close, at most
+/// [`MAX_INVOKE_BODY`] in all) within `wait`.
+async fn read_rest(s: &mut BoxIo, buf: &mut Vec<u8>, wait: Duration) -> Result<()> {
+    let cap = (MAX_INVOKE_BODY + MAX_HEAD).saturating_sub(buf.len()) as u64;
+    let mut rest = Vec::new();
+    let r = tokio::time::timeout(wait, s.take(cap).read_to_end(&mut rest)).await;
+    buf.extend_from_slice(&rest);
+    match r {
+        Err(_) => Err(Error::Transport("POST /api/invoke: no answer".into())),
+        Ok(Ok(_)) => Ok(()),
+        // a TLS peer that closes without close_notify: what came is the answer
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(()),
+        Ok(Err(e)) => Err(transport(e)),
+    }
+}
+
+/// A whole response in `buf` (interim `1xx` heads skipped): the invoke's
+/// result, or the gateway's refusal.
+fn bulk_answer(action: &str, buf: &[u8]) -> Result<Option<Value>> {
+    let mut at = 0;
+    let (st, body) = loop {
+        let n = head_end(&buf[at..])
+            .ok_or_else(|| Error::Transport(format!("POST /api/invoke {action}: not HTTP")))?;
+        let st = head_status(&buf[at..at + n])
+            .ok_or_else(|| Error::Transport(format!("POST /api/invoke {action}: no status")))?;
+        if (100..200).contains(&st) {
+            at += n;
+            continue;
+        }
+        break (st, &buf[at + n..]);
+    };
+    let v = from_slice::<Value>(body).unwrap_or(Value::Null);
+    if st == 200 {
+        return Ok(match v {
+            Value::Map(mut m) => m.remove("result").filter(|r| *r != Value::Null),
+            _ => None,
+        });
+    }
+    // `{status, message}` of the gateway, or only the HTTP status
+    let (code, text) = match &v {
+        Value::Map(m) => (
+            match m.get("status") {
+                Some(Value::UInt(c)) => u8::try_from(*c).ok(),
+                _ => None,
+            },
+            text_field(&v, "message"),
+        ),
+        _ => (None, None),
+    };
+    let status = match code {
+        Some(c) => StatusCode::from(c),
+        None => StatusCode::Known(match st {
+            401 | 403 => Status::PermissionDenied,
+            408 => Status::Timeout,
+            413 => Status::InvalidParameter,
+            429 => Status::RateLimited,
+            503 => Status::Busy,
+            _ => Status::InternalError,
+        }),
+    };
+    let text = text.unwrap_or_else(|| format!("HTTP {st}"));
+    let message = if st == 401 {
+        format!("POST /api/invoke {action}: {text}: the session ended, log in again")
+    } else {
+        format!("POST /api/invoke {action}: {text}")
+    };
+    Err(Error::Refused {
+        status,
+        message,
+        http: Some(st),
+    })
+}
+
+/// `POST /api/invoke?key=…&action=…` with `body` (the CBOR `args`) and
+/// `Expect: 100-continue`: the gateway checks the key, the file parameter, the
+/// level and the session before it asks for the body, so a refusal comes back
+/// without the body sent. Without an interim answer in [`CONTINUE_WAIT`] the
+/// body goes anyway.
+async fn bulk_invoke(b: &Bulk, key: &str, action: &str, body: &[u8]) -> Result<Option<Value>> {
+    let head = format!(
+        "POST /api/invoke?key={}&action={} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\
+         Content-Type: application/cbor\r\nContent-Length: {}\r\nAccept: application/cbor\r\n\
+         Expect: 100-continue\r\nAuthorization: Bearer {}\r\n\r\n",
+        query_value(key),
+        query_value(action),
+        b.ep.authority(),
+        body.len(),
+        b.session,
+    );
+    let mut s = b.ep.open().await?;
+    let sent = |what: &str, e: &dyn std::fmt::Display| {
+        Error::Transport(format!(
+            "POST /api/invoke {action}: {what} ({e}); log in again if the session ended, or try again"
+        ))
+    };
+    tokio::time::timeout(REQUEST_TIMEOUT, async {
+        s.write_all(head.as_bytes()).await?;
+        s.flush().await
+    })
+    .await
+    .map_err(|_| sent("the request head was not taken", &"timed out"))?
+    .map_err(|e| sent("the request head was not taken", &e))?;
+    let mut buf = Vec::new();
+    match tokio::time::timeout(CONTINUE_WAIT, read_head(&mut s, &mut buf)).await {
+        // `100 Continue`: the body is wanted
+        Ok(Ok(n)) if head_status(&buf[..n]) == Some(100) => {
+            buf.drain(..n);
+        }
+        // the answer before the body: a refusal (or an early result)
+        Ok(Ok(_)) => {
+            read_rest(&mut s, &mut buf, REQUEST_TIMEOUT).await?;
+            return bulk_answer(action, &buf);
+        }
+        Ok(Err(e)) => return Err(sent("no answer to the request head", &e)),
+        // no interim answer: send it anyway
+        Err(_) => {}
+    }
+    let write = tokio::time::timeout(BODY_TIMEOUT, async {
+        s.write_all(body).await?;
+        s.flush().await
+    })
+    .await;
+    if let Err(why) = match write {
+        Err(_) => Err(format!("not sent in {} s", BODY_TIMEOUT.as_secs())),
+        Ok(Err(e)) => Err(e.to_string()),
+        Ok(Ok(())) => Ok(()),
+    } {
+        // the gateway may have answered before it closed: that answer is the reason
+        if read_rest(&mut s, &mut buf, Duration::from_secs(2))
+            .await
+            .is_ok()
+            && head_end(&buf).is_some()
+        {
+            return bulk_answer(action, &buf);
+        }
+        let what = format!(
+            "the gateway closed the connection while {} bytes were sent",
+            body.len()
+        );
+        return Err(sent(&what, &why));
+    }
+    read_rest(&mut s, &mut buf, ANSWER_TIMEOUT).await?;
+    bulk_answer(action, &buf)
 }
 
 enum Pending {
@@ -441,6 +747,8 @@ pub struct Conn {
     pending: Table,
     next: AtomicU64,
     tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// `POST /api/invoke` for arguments over a frame; `None` on a raw pipe.
+    bulk: Option<Bulk>,
 }
 
 impl Drop for Conn {
@@ -550,6 +858,7 @@ fn outcome(frame: Value) -> Result<Option<Value>> {
     Err(Error::Refused {
         status: StatusCode::from(status),
         message,
+        http: None,
     })
 }
 
@@ -569,7 +878,9 @@ impl Stream {
 impl Conn {
     /// A connection over a byte stream that already carries the WebSocket
     /// protocol, without an HTTP handshake: the in-process pipe of the
-    /// gateway's own MCP endpoint (ADR 0041).
+    /// gateway's own MCP endpoint (ADR 0041). It has no `POST /api/invoke`:
+    /// an invoke whose arguments are over [`MAX_FRAME_ARGS`] is refused here
+    /// ([`Error::TooLarge`]).
     pub async fn from_raw<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(io: S) -> Self {
         let ws = WebSocketStream::from_raw_socket(
             io,
@@ -577,10 +888,13 @@ impl Conn {
             None,
         )
         .await;
-        Self::start(ws)
+        Self::start(ws, None)
     }
 
-    fn start<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(ws: WebSocketStream<S>) -> Self {
+    fn start<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+        ws: WebSocketStream<S>,
+        bulk: Option<Bulk>,
+    ) -> Self {
         let (mut sink, mut source) = ws.split();
         let (out, mut rx) = mpsc::unbounded_channel::<Message>();
         let pending: Table = Arc::new(Mutex::new(HashMap::new()));
@@ -646,6 +960,7 @@ impl Conn {
             pending,
             next: AtomicU64::new(1),
             tasks: vec![writer, reader],
+            bulk,
         }
     }
 
@@ -661,6 +976,16 @@ impl Conn {
             m.insert(k.to_owned(), v);
         }
         let bytes = to_vec(&Value::Map(m)).map_err(transport)?;
+        if bytes.len() > MAX_FRAME {
+            // the gateway would close the socket, and every stream on it
+            return Err(Error::TooLarge {
+                what: format!("{op} {key}"),
+                size: bytes.len(),
+                limit: MAX_FRAME,
+                hint: "a request over the WebSocket fits one frame; only an invoke of an \
+                       action with an `editor: file` parameter takes more (POST /api/invoke)",
+            });
+        }
         self.out
             .send(Message::Binary(bytes.into()))
             .map_err(|_| Error::Transport("connection closed".into()))
@@ -676,15 +1001,15 @@ impl Conn {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.lock().insert(id, Pending::Once(tx));
-        self.send(id, op, key, extra)?;
+        if let Err(e) = self.send(id, op, key, extra) {
+            self.lock().remove(&id);
+            return Err(e);
+        }
         let frame = tokio::time::timeout(REQUEST_TIMEOUT, rx)
             .await
             .map_err(|_| {
                 self.lock().remove(&id);
-                Error::Refused {
-                    status: StatusCode::Known(Status::Timeout),
-                    message: format!("{op} {key}: no answer"),
-                }
+                Error::refused(Status::Timeout, format!("{op} {key}: no answer"))
             })?
             .map_err(|_| Error::Transport("connection closed".into()))?;
         outcome(frame)
@@ -702,15 +1027,15 @@ impl Conn {
                 events: etx,
             },
         );
-        self.send(id, op, key, Vec::new())?;
+        if let Err(e) = self.send(id, op, key, Vec::new()) {
+            self.lock().remove(&id);
+            return Err(e);
+        }
         let frame = tokio::time::timeout(REQUEST_TIMEOUT, rx)
             .await
             .map_err(|_| {
                 self.lock().remove(&id);
-                Error::Refused {
-                    status: StatusCode::Known(Status::Timeout),
-                    message: format!("{op} {key}: no answer"),
-                }
+                Error::refused(Status::Timeout, format!("{op} {key}: no answer"))
             })?
             .map_err(|_| Error::Transport("connection closed".into()))?;
         outcome(frame)?;
@@ -763,7 +1088,35 @@ impl Conn {
             .map(|_| ())
     }
 
+    /// Run `action` on `key`; its result. Arguments over [`MAX_FRAME_ARGS`]
+    /// go by `POST /api/invoke` (only an action with an `editor: file`
+    /// parameter takes them, the gateway's refusal says so), at most
+    /// [`MAX_INVOKE_BODY`]; past that, or on a connection without that route
+    /// ([`Conn::from_raw`]), [`Error::TooLarge`] before anything is sent.
     pub async fn invoke(&self, key: &str, action: &str, args: Value) -> Result<Option<Value>> {
+        let body = to_vec(&args).map_err(transport)?;
+        if body.len() > MAX_FRAME_ARGS {
+            let what = format!("invoke {action} on {key}");
+            if body.len() > MAX_INVOKE_BODY {
+                return Err(Error::TooLarge {
+                    what,
+                    size: body.len(),
+                    limit: MAX_INVOKE_BODY,
+                    hint: "the gateway takes at most 64 MiB in one call; send the file in parts \
+                           (an action's `upload_part`/`restore_part`)",
+                });
+            }
+            let Some(b) = &self.bulk else {
+                return Err(Error::TooLarge {
+                    what,
+                    size: body.len(),
+                    limit: MAX_FRAME_ARGS,
+                    hint: "this connection has no POST /api/invoke (the gateway's own MCP \
+                           endpoint): send less, or use a client that logs in to the gateway",
+                });
+            };
+            return bulk_invoke(b, key, action, &body).await;
+        }
         self.request(
             "invoke",
             key,

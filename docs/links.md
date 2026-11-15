@@ -54,7 +54,11 @@ carries `editor: file`: a whole file (`install_zip`, `upload`, `import`)
 and also a part of one (`restore_part`, a file store's `upload_part`), a
 component (`put_artifact`), a profile (`profiles ▸ put`). In a generic
 action form it is a file picker. A `string` or `map` argument cannot take
-this route: keep it under 60 KiB, or take it as a file.
+this route: keep it under 60 KiB, or take it as a file. The gateway refuses
+it with "takes no file: … arguments under 60 KiB"; when an action needs more,
+give it a `binary` `editor: file` parameter beside the text one (as storage
+`import {data | file}`). Studio and the Rust client (`wyrm-agent`, the MCP
+connector) take the route on their own (ADR 0028 amendment 2).
 
 ### Names people read
 

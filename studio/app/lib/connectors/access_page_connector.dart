@@ -13,7 +13,6 @@ import 'package:business/redux/access/actions/set_tab_action.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/device/actions/remove_device_action.dart';
 import 'package:business/redux/device/actions/retrieve_user_devices_action.dart';
-import 'package:business/wyrm/decode/user_device.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/buttons/action_row.dart';
@@ -33,6 +32,7 @@ import '../common/every.dart';
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
 import '../common/unlock.dart';
+import '../mappers/device_mappers.dart';
 
 const _levels = ['none', 'list', 'read', 'write', 'config'];
 
@@ -110,9 +110,7 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
     final home = site.home ?? '';
     final sel = a.selected;
     final u = a.users.where((x) => x.name == sel).firstOrNull;
-    final devicesOfU = u == null
-        ? const <UserDevice>[]
-        : state.device.userDevices[u.name]?.unlock ?? const <UserDevice>[];
+    final devicesOfU = [...?state.device.userDevices[u?.name ?? '']];
     final sysReason = site.needs('config', '$home/sys');
     final roles = {
       for (final g in a.grants)
@@ -231,7 +229,7 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
                         title: dv.state == .removed
                             ? [
                                 dv.name,
-                                S.current.securityRemovedBy(dv.removedBy ?? ''),
+                                S.current.securityRemovedBy(dv.removedByUser),
                               ].join(' · ')
                             : dv.name,
                         description: S.current.deviceLine(

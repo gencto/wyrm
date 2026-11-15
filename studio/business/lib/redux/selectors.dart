@@ -54,9 +54,9 @@ import 'package:models/unlock_stage.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
+import 'package:wyrm_client/wyrm_client.dart' show GatewayDevice;
 
 import '../wyrm/approval.dart';
-import '../wyrm/decode/user_device.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
@@ -1537,10 +1537,11 @@ extension type SelectDevice(AppState _state) {
   StepUpRequest? get stepUp => _state.device.stepUp;
 
   /// Returns devices
-  IList<UserDevice> get devices => _state.device.devices;
+  IList<GatewayDevice> get devices => _state.device.devices;
 
   /// Returns userDevices
-  IMap<String, IList<UserDevice>> get userDevices => _state.device.userDevices;
+  IMap<String, IList<GatewayDevice>> get userDevices =>
+      _state.device.userDevices;
 
   /// Returns needPassword
   bool get needPassword => _state.device.needPassword;

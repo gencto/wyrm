@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$DeviceState {
 
- bool get available; KeyKind get kind; String? get name; String? get keyId; String? get deviceId; int get added; int get lastUsed; String? get keySite; bool get stale; int get lockAfter; bool get dontAsk; bool get offered; bool get noticed; DevicePolicyInfo? get policy; UnlockStage get stage; UnlockRefusal? get refusal; String? get reason; bool get reEnable; bool get autoPrompted; bool get locked; String? get lockError; StepUpRequest? get stepUp; IList<UserDevice> get devices; IMap<String, IList<UserDevice>> get userDevices; bool get needPassword; String? get securityError; String? get keyRole;
+ bool get available; KeyKind get kind; String? get name; String? get keyId; String? get deviceId; int get added; int get lastUsed; String? get keySite; bool get stale; int get lockAfter; bool get dontAsk; bool get offered; bool get noticed; DevicePolicyInfo? get policy; UnlockStage get stage; UnlockRefusal? get refusal; String? get reason; bool get reEnable; bool get autoPrompted; bool get locked; String? get lockError; StepUpRequest? get stepUp; IList<GatewayDevice> get devices; IMap<String, IList<GatewayDevice>> get userDevices; bool get needPassword; String? get securityError; String? get keyRole;
 /// Create a copy of DeviceState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,7 +51,7 @@ abstract mixin class $DeviceStateCopyWith<$Res>  {
   factory $DeviceStateCopyWith(DeviceState value, $Res Function(DeviceState) _then) = _$DeviceStateCopyWithImpl;
 @useResult
 $Res call({
- bool available, KeyKind kind, String? name, String? keyId, String? deviceId, int added, int lastUsed, String? keySite, bool stale, int lockAfter, bool dontAsk, bool offered, bool noticed, DevicePolicyInfo? policy, UnlockStage stage, UnlockRefusal? refusal, String? reason, bool reEnable, bool autoPrompted, bool locked, String? lockError, StepUpRequest? stepUp, IList<UserDevice> devices, IMap<String, IList<UserDevice>> userDevices, bool needPassword, String? securityError, String? keyRole
+ bool available, KeyKind kind, String? name, String? keyId, String? deviceId, int added, int lastUsed, String? keySite, bool stale, int lockAfter, bool dontAsk, bool offered, bool noticed, DevicePolicyInfo? policy, UnlockStage stage, UnlockRefusal? refusal, String? reason, bool reEnable, bool autoPrompted, bool locked, String? lockError, StepUpRequest? stepUp, IList<GatewayDevice> devices, IMap<String, IList<GatewayDevice>> userDevices, bool needPassword, String? securityError, String? keyRole
 });
 
 
@@ -93,8 +93,8 @@ as bool,locked: null == locked ? _self.locked : locked // ignore: cast_nullable_
 as bool,lockError: freezed == lockError ? _self.lockError : lockError // ignore: cast_nullable_to_non_nullable
 as String?,stepUp: freezed == stepUp ? _self.stepUp : stepUp // ignore: cast_nullable_to_non_nullable
 as StepUpRequest?,devices: null == devices ? _self.devices : devices // ignore: cast_nullable_to_non_nullable
-as IList<UserDevice>,userDevices: null == userDevices ? _self.userDevices : userDevices // ignore: cast_nullable_to_non_nullable
-as IMap<String, IList<UserDevice>>,needPassword: null == needPassword ? _self.needPassword : needPassword // ignore: cast_nullable_to_non_nullable
+as IList<GatewayDevice>,userDevices: null == userDevices ? _self.userDevices : userDevices // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<GatewayDevice>>,needPassword: null == needPassword ? _self.needPassword : needPassword // ignore: cast_nullable_to_non_nullable
 as bool,securityError: freezed == securityError ? _self.securityError : securityError // ignore: cast_nullable_to_non_nullable
 as String?,keyRole: freezed == keyRole ? _self.keyRole : keyRole // ignore: cast_nullable_to_non_nullable
 as String?,
@@ -158,8 +158,8 @@ class _DeviceState implements DeviceState {
 @override@JsonKey() final  bool locked;
 @override final  String? lockError;
 @override final  StepUpRequest? stepUp;
-@override@JsonKey() final  IList<UserDevice> devices;
-@override@JsonKey() final  IMap<String, IList<UserDevice>> userDevices;
+@override@JsonKey() final  IList<GatewayDevice> devices;
+@override@JsonKey() final  IMap<String, IList<GatewayDevice>> userDevices;
 @override@JsonKey() final  bool needPassword;
 @override final  String? securityError;
 @override final  String? keyRole;
@@ -196,7 +196,7 @@ abstract mixin class _$DeviceStateCopyWith<$Res> implements $DeviceStateCopyWith
   factory _$DeviceStateCopyWith(_DeviceState value, $Res Function(_DeviceState) _then) = __$DeviceStateCopyWithImpl;
 @override @useResult
 $Res call({
- bool available, KeyKind kind, String? name, String? keyId, String? deviceId, int added, int lastUsed, String? keySite, bool stale, int lockAfter, bool dontAsk, bool offered, bool noticed, DevicePolicyInfo? policy, UnlockStage stage, UnlockRefusal? refusal, String? reason, bool reEnable, bool autoPrompted, bool locked, String? lockError, StepUpRequest? stepUp, IList<UserDevice> devices, IMap<String, IList<UserDevice>> userDevices, bool needPassword, String? securityError, String? keyRole
+ bool available, KeyKind kind, String? name, String? keyId, String? deviceId, int added, int lastUsed, String? keySite, bool stale, int lockAfter, bool dontAsk, bool offered, bool noticed, DevicePolicyInfo? policy, UnlockStage stage, UnlockRefusal? refusal, String? reason, bool reEnable, bool autoPrompted, bool locked, String? lockError, StepUpRequest? stepUp, IList<GatewayDevice> devices, IMap<String, IList<GatewayDevice>> userDevices, bool needPassword, String? securityError, String? keyRole
 });
 
 
@@ -238,8 +238,8 @@ as bool,locked: null == locked ? _self.locked : locked // ignore: cast_nullable_
 as bool,lockError: freezed == lockError ? _self.lockError : lockError // ignore: cast_nullable_to_non_nullable
 as String?,stepUp: freezed == stepUp ? _self.stepUp : stepUp // ignore: cast_nullable_to_non_nullable
 as StepUpRequest?,devices: null == devices ? _self.devices : devices // ignore: cast_nullable_to_non_nullable
-as IList<UserDevice>,userDevices: null == userDevices ? _self.userDevices : userDevices // ignore: cast_nullable_to_non_nullable
-as IMap<String, IList<UserDevice>>,needPassword: null == needPassword ? _self.needPassword : needPassword // ignore: cast_nullable_to_non_nullable
+as IList<GatewayDevice>,userDevices: null == userDevices ? _self.userDevices : userDevices // ignore: cast_nullable_to_non_nullable
+as IMap<String, IList<GatewayDevice>>,needPassword: null == needPassword ? _self.needPassword : needPassword // ignore: cast_nullable_to_non_nullable
 as bool,securityError: freezed == securityError ? _self.securityError : securityError // ignore: cast_nullable_to_non_nullable
 as String?,keyRole: freezed == keyRole ? _self.keyRole : keyRole // ignore: cast_nullable_to_non_nullable
 as String?,

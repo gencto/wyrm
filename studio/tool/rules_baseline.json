@@ -112,10 +112,10 @@
     "ui/lib/tables/log_table.dart": 3
   },
   "connector-lines": {
-    "app/lib/connectors/access_page_connector.dart": 516,
+    "app/lib/connectors/access_page_connector.dart": 514,
     "app/lib/connectors/assistant_page_connector.dart": 1956,
     "app/lib/connectors/explorer_page_connector.dart": 2186,
-    "app/lib/connectors/flow_editor_page_connector.dart": 2621,
+    "app/lib/connectors/flow_editor_page_connector.dart": 2612,
     "app/lib/connectors/flows_page_connector.dart": 186,
     "app/lib/connectors/gallery_page_connector.dart": 31,
     "app/lib/connectors/history_page_connector.dart": 478,

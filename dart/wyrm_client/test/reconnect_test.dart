@@ -21,10 +21,10 @@ class FakeConn implements FrameTransport {
       });
 
   @override
-  void send(Map<String, Value> frame) {
-    final id = (frame['id'] as VInt).v;
-    final op = (frame['op'] as VStr).v;
-    final key = switch (frame['key']) { VStr(:final v) => v, _ => '' };
+  void send(FrameRequest frame) {
+    final id = frame.id;
+    final op = frame.op.wire;
+    final key = frame.key;
     server.ops.add('$op $key');
     if (server.held.contains(op)) return;
     switch (op) {
@@ -68,8 +68,8 @@ class FakeConn implements FrameTransport {
 class FakeServer {
   final ops = <String>[];
   final held = <String>{};
-  var children = ['a'];
-  var value = 1;
+  List<String> children = ['a'];
+  int value = 1;
   FakeConn? conn;
   int connects = 0;
 

@@ -39,23 +39,17 @@ void main() {
   });
 
   test('anything else is invalid with the field, not a fault', () {
-    expect(flowPermissionsOf(perms(99)), isA<Invalid<FlowPermissions>>());
-    expect(
-      flowPermissionsOf(perms('admin')),
-      const Invalid<FlowPermissions>(
-        'flow permissions',
-        'maxperm',
-        'not a known level',
-      ),
-    );
-    expect(
-      flowPermissionsOf(perms(const ['write'])),
-      const Invalid<FlowPermissions>(
-        'flow permissions',
-        'maxperm',
-        'not a code or a name',
-      ),
-    );
+    for (final bad in [99, 'admin', const ['write']]) {
+      expect(
+        flowPermissionsOf(perms(bad)),
+        const Invalid<FlowPermissions>(
+          'flow permissions',
+          'maxperm',
+          'not a level',
+        ),
+        reason: '$bad',
+      );
+    }
     expect(
       flowPermissionsOf(Value.from('write')),
       const Invalid<FlowPermissions>('flow permissions', '', 'not a map'),
