@@ -86,7 +86,9 @@ async fn record(c: WyrmClient, source: String, dir: PathBuf, max: u64) {
             .unwrap_or(0)
             > max << 20
         {
-            let _ = tokio::fs::rename(&path, dir.join("values.1.csv")).await;
+            if let Err(e) = tokio::fs::rename(&path, dir.join("values.1.csv")).await {
+                eprintln!("{}: not rotated: {e}", path.display());
+            }
         }
         let file = tokio::fs::OpenOptions::new()
             .create(true)

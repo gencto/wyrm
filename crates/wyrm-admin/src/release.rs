@@ -1894,7 +1894,13 @@ pub fn restore_control(
                 let _ = std::fs::remove_dir_all(&live);
             }
             if let Some(from) = moved_to {
-                let _ = std::fs::rename(&from, &live);
+                if let Err(e) = std::fs::rename(&from, &live) {
+                    tracing::error!(
+                        from = %from.display(),
+                        to = %live.display(),
+                        "restore: not put back: {e}"
+                    );
+                }
             }
         }
         let _ = std::fs::remove_dir_all(&stage);

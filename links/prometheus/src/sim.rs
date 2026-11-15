@@ -271,21 +271,27 @@ async fn serve(mut s: TcpStream, st: Shared) {
         }
         Fail::Error500 => {
             let msg = "exporter failed\n";
-            let _ = s
-                .write_all(
-                    format!("{}{msg}", reply("500 Internal Server Error", "", msg.len()))
-                        .as_bytes(),
-                )
-                .await;
+            // the client may have gone: nothing more to send either way
+            if s.write_all(
+                format!("{}{msg}", reply("500 Internal Server Error", "", msg.len())).as_bytes(),
+            )
+            .await
+            .is_err()
+            {
+                tracing::debug!("sim: the client left before the 500");
+            }
             return;
         }
         _ => {}
     }
     if !authorized {
         let msg = "unauthorized\n";
-        let _ = s
-            .write_all(format!("{}{msg}", reply("401 Unauthorized", "", msg.len())).as_bytes())
-            .await;
+        if s.write_all(format!("{}{msg}", reply("401 Unauthorized", "", msg.len())).as_bytes())
+            .await
+            .is_err()
+        {
+            tracing::debug!("sim: the client left before the 401");
+        }
         return;
     }
     match fail {
@@ -296,7 +302,9 @@ async fn serve(mut s: TcpStream, st: Shared) {
                 "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
                     .to_owned()
             };
-            let _ = s.write_all(head.as_bytes()).await;
+            if s.write_all(head.as_bytes()).await.is_err() {
+                return;
+            }
             let line = b"sim_filler 1\n";
             let mut sent = 0;
             while sent < oversize {
@@ -309,7 +317,12 @@ async fn serve(mut s: TcpStream, st: Shared) {
         }
         Fail::SlowBody => {
             let b = body.into_bytes();
-            let _ = s.write_all(reply("200 OK", "", b.len()).as_bytes()).await;
+            if s.write_all(reply("200 OK", "", b.len()).as_bytes())
+                .await
+                .is_err()
+            {
+                return;
+            }
             for chunk in b.chunks(8) {
                 if s.write_all(chunk).await.is_err() {
                     return;
@@ -321,14 +334,19 @@ async fn serve(mut s: TcpStream, st: Shared) {
             let (bytes, enc) = if gzip {
                 let mut z =
                     flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-                let _ = z.write_all(body.as_bytes());
-                (z.finish().unwrap_or_default(), "Content-Encoding: gzip\r\n")
+                // into memory: an error here is a bug, and the request gets no answer
+                let Ok(b) = z.write_all(body.as_bytes()).and_then(|()| z.finish()) else {
+                    tracing::error!("sim: gzip into memory failed");
+                    return;
+                };
+                (b, "Content-Encoding: gzip\r\n")
             } else {
                 (body.into_bytes(), "")
             };
             let head = reply("200 OK", enc, bytes.len()).replace("text/plain", ctype);
-            let _ = s.write_all(head.as_bytes()).await;
-            let _ = s.write_all(&bytes).await;
+            if s.write_all(head.as_bytes()).await.is_err() || s.write_all(&bytes).await.is_err() {
+                return;
+            }
         }
     }
     let _ = s.shutdown().await;

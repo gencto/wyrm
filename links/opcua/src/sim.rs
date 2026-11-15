@@ -422,7 +422,9 @@ impl Sim {
         let (rejected, trusted) = (self.pki_dir.join("rejected"), self.pki_dir.join("trusted"));
         let _ = std::fs::create_dir_all(&trusted);
         for e in std::fs::read_dir(&rejected).into_iter().flatten().flatten() {
-            let _ = std::fs::rename(e.path(), trusted.join(e.file_name()));
+            if let Err(err) = std::fs::rename(e.path(), trusted.join(e.file_name())) {
+                tracing::warn!(file = %e.path().display(), "sim: not trusted: {err}");
+            }
         }
     }
 
