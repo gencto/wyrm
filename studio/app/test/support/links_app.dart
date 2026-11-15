@@ -8,6 +8,7 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/session.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -16,6 +17,7 @@ import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../business/test/support/fake_wyrm.dart';
+import 'link_install_app.dart' show FakeFilePicker;
 
 export '../../../business/test/support/fake_wyrm.dart';
 
@@ -58,7 +60,7 @@ final class LinksFixture {
 }
 
 /// The last update of `bacnet` in a fixture.
-enum UpdateShown { none, checking, ok, rolledBack, failed, gone }
+enum UpdateShown { none, checking, checkingKept, ok, rolledBack, failed, gone }
 
 /// Links over a fake gateway: the site `plant` with four links (a built-in
 /// driver, an official package with an update, a custom WASM package and
@@ -88,6 +90,9 @@ class LinksApp {
   late final Store<AppState> store;
 
   FakeWyrmApi get api => login.session.api;
+
+  /// The system's file dialog.
+  final picker = FakeFilePicker();
 
   /// When the quarantine entry `field-gw` was first seen: five minutes
   /// before the test.
@@ -201,6 +206,9 @@ class LinksApp {
       ..invokes['$sys/packages/bacnet ▸ update'] = [
         Value.from({'success': true, 'message': 'updated'}),
       ]
+      ..invokes['$sys/links ▸ install_zip'] = [
+        Value.from({'success': true, 'message': 'telegram updated'}),
+      ]
       ..invokes['$sys/packages/bacnet ▸ rollback'] = [
         Value.from({'success': true, 'message': 'rolled back'}),
       ];
@@ -223,7 +231,7 @@ class LinksApp {
   /// `last_update` of `bacnet` for [UpdateShown].
   Map<String, Object?> get _lastUpdate => switch (fixture.update) {
     UpdateShown.none => const {},
-    UpdateShown.checking => const {
+    UpdateShown.checking || UpdateShown.checkingKept => const {
       'from': '0.2.0',
       'to': '0.3.0',
       'at': 1762912800,
@@ -330,6 +338,9 @@ class LinksApp {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     ignoreOverflow();
+    final was = FilePickerPlatform.instance;
+    FilePickerPlatform.instance = picker;
+    addTearDown(() => FilePickerPlatform.instance = was);
     await tester.runAsync(() async {
       await store.dispatchAndWait(SetGatewayAction('http://g'));
       await store.dispatchAndWait(SetUserAction('olena'));

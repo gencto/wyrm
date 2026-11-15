@@ -7,6 +7,7 @@ import 'package:ui/inputs/switch_row.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'links_page_words.dart';
+import 'support/link_install_app.dart' show packageZip;
 import 'support/links_app.dart';
 import 'support/words_dump.dart';
 
@@ -500,25 +501,147 @@ void main() {
       await app.leave(t);
     });
 
-    testWidgets("a link's dialogs open from its inspector", (t) async {
+    testWidgets("a link's dialogs open from its inspector, each its own", (
+      t,
+    ) async {
       final app = await shown(t);
       await app.tap(t, 'modbus');
-      for (final label in [
-        S.current.actViewLog,
-        S.current.actEditParams,
-        S.current.actParamsHistory,
-        S.current.actSecrets,
-        S.current.actGrant,
+      for (final (label, title) in [
+        (S.current.actViewLog, S.current.logOf('modbus')),
+        (S.current.actEditParams, S.current.editParamsOf('modbus')),
+        (S.current.actParamsHistory, S.current.historyOf('modbus')),
+        (S.current.actSecrets, S.current.actSecrets),
+        (S.current.actGrant, S.current.grantFor('modbus')),
       ]) {
         await app.tap(t, label);
-        expect(find.byType(Dialog), findsWidgets, reason: label);
+        expect(
+          find.descendant(of: find.byType(Dialog), matching: find.text(title)),
+          findsWidgets,
+          reason: label,
+        );
         await t.sendKeyEvent(LogicalKeyboardKey.escape);
         await app.settle(t);
         expect(find.byType(Dialog), findsNothing, reason: label);
       }
       // the backup dialog closes with its own buttons only
       await app.tap(t, S.current.actBackUp);
-      expect(find.byType(Dialog), findsWidgets);
+      expect(
+        find.descendant(
+          of: find.byType(Dialog),
+          matching: find.text(S.current.bakTitleLink('modbus')),
+        ),
+        findsWidgets,
+      );
+      await app.leave(t);
+    });
+
+    testWidgets('Update from file: a zip goes to install_zip of its link', (
+      t,
+    ) async {
+      final app = await shown(t);
+      await app.tap(t, 'telegram');
+      await app.tap(t, S.current.actUpdateFromFile);
+      await app.tap(t, S.current.updChooseArchive);
+      expect(app.picker.asked, [
+        ['zip'],
+      ]);
+      final call = app.calls('install_zip').single;
+      expect(call.key, '$sys/links');
+      expect(call.args!['name'], const VStr('telegram'));
+      expect(call.args!['zip'], VBytes(packageZip));
+      expect(call.args!['restore_point'], const VBool(true));
+      expect(call.args!['auto_rollback_s'], const VInt(120));
+      await app.leave(t);
+    });
+
+    testWidgets('a progress with a kept version: its second button rolls '
+        'back', (t) async {
+      final app = await shown(
+        t,
+        fixture: const LinksFixture(update: UpdateShown.checkingKept),
+      );
+      await app.tap(t, S.current.updTab);
+      await app.tap(t, 'bacnet');
+      await app.tap(t, S.current.updStopAndRollBack);
+      expectWordsOf(
+        'stop and roll back dialog',
+        app.dialogWords(t),
+        linksWords['stop and roll back dialog'] ?? const [],
+      );
+      await app.answer(t, S.current.updRollBack);
+      expect([for (final c in app.calls('rollback')) c.key], [
+        '$sys/packages/bacnet',
+      ]);
+      await app.leave(t);
+    });
+
+    testWidgets('a progress without a kept version: its second button '
+        'closes', (t) async {
+      final app = await shown(
+        t,
+        fixture: const LinksFixture(update: UpdateShown.checking),
+      );
+      await app.tap(t, S.current.updTab);
+      await app.tap(t, 'bacnet');
+      await app.tap(t, S.current.updStopAndRollBack);
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.text(S.current.updUpdating('bacnet')), findsNothing);
+      expect(app.calls('rollback'), isEmpty);
+      await app.leave(t);
+    });
+
+    testWidgets('a rolled-back result: its first button opens the log', (
+      t,
+    ) async {
+      final app = await shown(
+        t,
+        fixture: const LinksFixture(update: UpdateShown.rolledBack),
+      );
+      await app.tap(t, 'bacnet');
+      await app.tap(t, S.current.actVersions);
+      await app.tap(t, S.current.updOpenLog);
+      expect(
+        find.descendant(
+          of: find.byType(Dialog),
+          matching: find.text(S.current.logOf('bacnet')),
+        ),
+        findsWidgets,
+      );
+      await app.leave(t);
+    });
+
+    testWidgets('rights the new version asks for are accepted, then sent', (
+      t,
+    ) async {
+      final app = await shown(t);
+      app.api.invokes.remove('$sys/packages/bacnet ▸ update');
+      app.api.answers['$sys/packages/bacnet ▸ update'] = (args) => [
+        if (args?['accept'] case VBool(v: true))
+          Value.from({'success': true, 'message': 'updated'})
+        else
+          Value.from({
+            'success': false,
+            'message': 'asks for network 10.0.4.0/24:47808',
+          }),
+      ];
+      await app.tap(t, S.current.updTab);
+      await app.tap(t, 'bacnet');
+      await app.tap(t, S.current.updDo(1));
+      expectWordsOf(
+        'review asks',
+        app.words(t),
+        linksWords['review asks'] ?? const [],
+      );
+      await app.tap(t, S.current.updOptAccept);
+      await app.tap(t, S.current.updDo(1));
+      expect([for (final c in app.calls('update')) c.args], [
+        Value.from({'restore_point': true, 'auto_rollback_s': 120}),
+        Value.from({
+          'accept': true,
+          'restore_point': true,
+          'auto_rollback_s': 120,
+        }),
+      ]);
       await app.leave(t);
     });
   });
