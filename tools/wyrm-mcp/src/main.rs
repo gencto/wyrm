@@ -76,7 +76,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     // stderr only. rmcp logs whole requests (with approval tokens) at debug,
     // so its events are dropped below warn whatever RUST_LOG says (a more
     // specific directive such as `rmcp::service=debug` cannot re-enable them).
@@ -94,8 +94,9 @@ async fn main() {
     let cli = Cli::parse();
     if let Err(e) = run(cli).await {
         eprintln!("wyrm-mcp: {e}");
-        std::process::exit(1);
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
 }
 
 async fn run(cli: Cli) -> Result<(), Error> {

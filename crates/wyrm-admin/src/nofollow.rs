@@ -50,25 +50,23 @@ fn open_nofollow(path: &Path, _dir: bool) -> std::io::Result<File> {
 /// swapped for a symlink since the walk entered it: the held handle of the
 /// parent is what cannot be swapped.
 #[cfg(unix)]
-#[allow(
-    clippy::unnecessary_cast,
-    reason = "the widths of `st_dev` and `st_ino` differ between unix targets"
-)]
-fn same_entry(parent: &File, name: &std::ffi::OsStr, meta: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
+fn same_entry(parent: &File, name: &std::ffi::OsStr, file: &File) -> bool {
     use std::os::unix::io::AsRawFd;
-    match nix::sys::stat::fstatat(
+    // both sides from `stat(2)` itself: the same field types on every unix
+    // target (`dev_t` is `i32` on macOS, `u64` on Linux), so nothing is cast
+    let listed = nix::sys::stat::fstatat(
         Some(parent.as_raw_fd()),
         name,
         nix::fcntl::AtFlags::AT_SYMLINK_NOFOLLOW,
-    ) {
-        Ok(st) => st.st_dev as u64 == meta.dev() && st.st_ino as u64 == meta.ino(),
-        Err(_) => false,
+    );
+    match (listed, nix::sys::stat::fstat(file.as_raw_fd())) {
+        (Ok(a), Ok(b)) => a.st_dev == b.st_dev && a.st_ino == b.st_ino,
+        _ => false,
     }
 }
 
 #[cfg(not(unix))]
-fn same_entry(_: &File, _: &std::ffi::OsStr, _: &std::fs::Metadata) -> bool {
+fn same_entry(_: &File, _: &std::ffi::OsStr, _: &File) -> bool {
     true
 }
 
@@ -113,7 +111,7 @@ fn open_entry(
     if kind.is_symlink() || (dir && !kind.is_dir()) || (!dir && !kind.is_file()) {
         return Err(refused("not the file or directory that was listed"));
     }
-    if !same_entry(parent, name, &meta) {
+    if !same_entry(parent, name, &file) {
         return Err(refused("not an entry of the directory that was listed"));
     }
     Ok(Some(Entry { file, meta }))

@@ -262,12 +262,13 @@ enum Cmd {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     if let Err(e) = run(cli).await {
         eprintln!("error: {e}");
-        std::process::exit(1);
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
 }
 
 async fn run(cli: Cli) -> Result<(), Error> {

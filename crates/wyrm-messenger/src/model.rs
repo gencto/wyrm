@@ -891,11 +891,9 @@ impl User {
         let f = Form(m);
         let name = f.required("name")?;
         check_name(&name, "name")?;
-        let level = match f.required("level")?.as_str() {
-            "read" => Perm::Read,
-            "write" => Perm::Write,
-            _ => return Err("user: bad level".into()),
-        };
+        let level = Perm::from_name(&f.required("level")?)
+            .filter(|p| matches!(p, Perm::Read | Perm::Write))
+            .ok_or("user: bad level")?;
         let select = f.list("select")?;
         let status = UserStatus::from_name(&f.required("status")?).ok_or("user: bad status")?;
         let chat_id = match m.get("chat_id") {

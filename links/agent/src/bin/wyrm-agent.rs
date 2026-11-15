@@ -205,14 +205,15 @@ async fn main_r(a: Args) -> Result<bool, String> {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     let a = Args::parse();
+    // returned, not `process::exit`: the runtime shuts down and every `Drop` runs
     match main_r(a).await {
-        Ok(true) => {}
-        Ok(false) => std::process::exit(1),
+        Ok(true) => std::process::ExitCode::SUCCESS,
+        Ok(false) => std::process::ExitCode::from(1),
         Err(e) => {
             line(&json!({ "error": e }));
-            std::process::exit(2);
+            std::process::ExitCode::from(2)
         }
     }
 }
