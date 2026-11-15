@@ -19,6 +19,7 @@ import '../indicators/login_steps.dart';
 import '../indicators/status_dot.dart';
 import '../inputs/boxed_form_field.dart';
 import '../inputs/check_row.dart';
+import '../models/gateway_note.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../shell/window_bar.dart';
@@ -106,8 +107,9 @@ class LogInPage extends StatefulWidget {
   /// The gateway's last probe: good (answered), bad (no answer), neutral.
   final Tone gatewayTone;
 
-  /// `<host> · answered in <n> ms` or `No answer from <host>`, resolved.
-  final String? gatewayNote;
+  /// The status line: `<label> · answered in <n> ms`, `No answer from
+  /// <label>`, a picked row or the hint; its text is said here.
+  final GatewayNote? gatewayNote;
 
   /// The gateway is being probed: the spinner in the field.
   final bool checking;
@@ -572,7 +574,7 @@ class _LogInPageState extends State<LogInPage> {
         ),
         if (widget.gatewayNote case final note?)
           Text(
-            note,
+            note.text,
             style: TextStyle(
               fontSize: FontSizes.meta,
               color: bad ? c.badText : c.text4,

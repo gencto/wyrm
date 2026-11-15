@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/alerts/trust_card.dart';
 import 'package:ui/buttons/found_gateway_row.dart';
 import 'package:ui/containers/discover_panel.dart';
+import 'package:ui/models/gateway_note.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
@@ -87,10 +88,10 @@ Widget discover(String stage) {
         ? Tone.neutral
         : Tone.good,
     gatewayNote: trust
-        ? S.current.pickedFrom('lab')
+        ? const GatewayNote.picked('lab')
         : none
-        ? S.current.typeOrFind
-        : 'plant · answered in 12 ms',
+        ? const GatewayNote.typeOrFind()
+        : const GatewayNote.answered('plant', 12),
     remember: const FieldVm<bool>(value: true, onChanged: _none),
     onFind: () {},
     discover: trust

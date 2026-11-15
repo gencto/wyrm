@@ -57,6 +57,7 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/gateway_label.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
@@ -489,6 +490,14 @@ extension type SelectLogin(AppState _state) {
 
   /// Returns preloadLate
   IList<int> get preloadLate => _state.login.preloadLate;
+
+  /// The labels of the recent gateways and of the field's gateway by origin
+  /// (`gatewayKey`), host:port where a host alone is ambiguous
+  /// (`labelGateways`, docs/design/specs/login.md §3.2).
+  IMap<String, String> get gatewayLabels => labelGateways(
+    _state.login.recent,
+    _state.login.gateway ?? defaultGateway,
+  );
 }
 
 extension type SelectSession(AppState _state) {

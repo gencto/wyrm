@@ -70,6 +70,10 @@ void main() {
     (t) => shoot(t, 'login_welcome', login(stage: 'welcome')),
   );
   testWidgets(
+    'login, five recent gateways on one host',
+    (t) => shoot(t, 'login_one_host', loginOneHost()),
+  );
+  testWidgets(
     'login idle, reduced motion',
     (t) => shoot(t, 'login_idle_still', login(), reduced: true),
   );

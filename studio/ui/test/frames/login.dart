@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/alerts/unreachable_alert.dart';
 import 'package:ui/buttons/recent_chip.dart';
 import 'package:ui/containers/welcome_panel.dart';
+import 'package:ui/models/gateway_note.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
@@ -44,11 +45,15 @@ Widget login({
   String stage = 'idle',
   bool remember = true,
   bool? busy,
+  String gateway = 'https://plant.local:8446',
+  List<RecentChipVm>? recent,
+  GatewayNote? note,
+  Tone? gatewayTone,
 }) {
   final unreachable = stage == 'unreachable';
   final wrong = stage == 'wrong';
   return LogInPage(
-    gateway: _field('https://plant.local:8446'),
+    gateway: _field(gateway),
     user: _field('olena'),
     password: FieldVm(
       value: 'correct-horse',
@@ -62,11 +67,13 @@ Widget login({
     onPressedLogIn: () {},
     version: 'Studio 1.0 · English',
     standby: _field(null),
-    gatewayTone: unreachable ? Tone.bad : Tone.good,
-    gatewayNote: unreachable
-        ? 'No answer from plant'
-        : 'plant · answered in 12 ms',
-    recent: _recent(down: unreachable),
+    gatewayTone: gatewayTone ?? (unreachable ? Tone.bad : Tone.good),
+    gatewayNote:
+        note ??
+        (unreachable
+            ? const GatewayNote.noAnswer('plant')
+            : const GatewayNote.answered('plant', 12)),
+    recent: recent ?? _recent(down: unreachable),
     onRecent: _none,
     remember: FieldVm(value: remember, onChanged: _none),
     steps: _steps,
@@ -109,3 +116,29 @@ Widget login({
         : null,
   );
 }
+
+/// Five gateways on one computer (the demo's ports), labelled by
+/// `gatewayLabel` (docs/design/specs/login.md §3.2 "Gateway labels"): the
+/// one in the field does not answer.
+const oneHostLabels = [
+  '127.0.0.1:8444',
+  '127.0.0.1:8445',
+  '127.0.0.1:8446',
+  '127.0.0.1:18448',
+  '127.0.0.1:18449',
+];
+
+Widget loginOneHost() => login(
+  gateway: 'http://127.0.0.1:8446',
+  note: const GatewayNote.noAnswer('127.0.0.1:8446'),
+  gatewayTone: Tone.bad,
+  recent: [
+    for (final l in oneHostLabels)
+      RecentChipVm(
+        id: 'http://$l',
+        label: l,
+        tone: l.endsWith(':8446') ? Tone.bad : Tone.good,
+        current: l.endsWith(':8446'),
+      ),
+  ],
+);

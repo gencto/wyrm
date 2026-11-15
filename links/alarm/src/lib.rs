@@ -90,6 +90,13 @@ fn good(host: &dyn Host, v: Value) -> Sample {
     }
 }
 
+/// What a record knows of a key with no sample (a staleness deadline, a wait that ended
+/// without a kept sample): no value and quality `bad`, never `good` (docs/alarm.md §4
+/// "No sample").
+fn no_sample() -> (Value, Quality) {
+    (Value::Null, Quality::Bad)
+}
+
 fn args_of(args: Value) -> Result<Map, AppError> {
     match args {
         Value::Map(m) => Ok(m),
@@ -834,9 +841,9 @@ impl Alarm {
             return;
         };
         let Some(due) = p.due.take() else { return };
-        let (v, q) = p.last.clone().unwrap_or((Value::Null, Quality::Good));
         match due {
             Due::ToAlarm if p.in_alarm && p.record.is_none() => {
+                let (v, q) = p.last.clone().unwrap_or_else(no_sample);
                 let s = Sample {
                     v,
                     q,
@@ -853,9 +860,11 @@ impl Alarm {
             }
             Due::Stale if p.record.is_none() => {
                 p.in_alarm = true;
+                // the record says that no sample came: nothing fresh is known of the key
+                let (v, q) = no_sample();
                 let s = Sample {
-                    v: Value::Null,
-                    q: Quality::Good,
+                    v,
+                    q,
                     t: cx.now_us(),
                 };
                 self.make_record(cx, class, wid, key, &def, &s, now);
@@ -2015,6 +2024,8 @@ impl Alarm {
                             Value::UInt(u64::try_from(r.created).unwrap_or(0)),
                         ),
                         ("v".to_owned(), Value::Str(json)),
+                        // the row is the record itself, written by this link: not a
+                        // reading of the source, so its quality is known to be good
                         ("q".to_owned(), Value::UInt(Quality::Good.code().into())),
                     ])));
                 }
