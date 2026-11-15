@@ -24,8 +24,9 @@ use zeroize::Zeroizing;
 /// Largest HTTP body.
 const MAX_BODY: usize = 64 * 1024;
 /// Largest `POST /api/invoke` body: a link package zip or a WASM component
-/// (ADR 0011). WebSocket frames stay at 64 KiB.
-const MAX_INVOKE_BODY: usize = (64 << 20) + (64 << 10);
+/// (ADR 0011). WebSocket frames stay at 64 KiB. One value with the Rust
+/// client, which refuses a larger one before it sends it.
+const MAX_INVOKE_BODY: usize = wyrm_gateway_client::MAX_INVOKE_BODY;
 /// Longest wait for an invoke over HTTP: install actions fetch and unpack.
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Longest upload of a `POST /api/invoke` body: a slow sender cannot hold
@@ -708,8 +709,11 @@ async fn check_invoke(
         .values()
         .any(|p| p.editor.as_deref() == Some(wyrm_core::meta::EDITOR_FILE))
     {
+        // a `string` or `map` argument stays within a frame (ADR 0028 amendment)
         return Err(ApiError::bad(format!(
-            "{action} takes no file: invoke it over the WebSocket"
+            "{action} takes no file: invoke it over the WebSocket, with arguments under {} KiB; \
+             only a parameter with `editor: file` takes more",
+            wyrm_gateway_client::MAX_FRAME_ARGS >> 10
         )));
     }
     // The action's own level, before 64 MiB arrive (the link checks again).

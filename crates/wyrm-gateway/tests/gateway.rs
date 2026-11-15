@@ -1016,6 +1016,128 @@ async fn http_invoke_takes_large_arguments() {
     env.stop().await;
 }
 
+/// The Rust client (`wyrm-gateway-client`) sends arguments over a frame by
+/// `POST /api/invoke` with `Expect: 100-continue` (ADR 0028 amendment): a part
+/// reaches the link, the gateway's refusal comes back typed with its text
+/// before the body is sent, a size over the limit is refused before anything
+/// goes, and no frame over 64 KiB ever closes the socket.
+#[tokio::test(flavor = "multi_thread")]
+async fn rust_client_sends_large_arguments_by_http() {
+    use wyrm_gateway_client::{Error, MAX_FRAME_ARGS, MAX_INVOKE_BODY};
+    let env = Env::start("rustbulk", Duration::from_secs(600)).await;
+    let mut lc = LinkConfig::new(SITE, "upload");
+    lc.admin_keys = vec![env.gw.verifying_key()];
+    let up = wyrm_link_sdk::spawn::<Upload>(env.session.clone(), lc, ())
+        .await
+        .unwrap();
+    env.gw
+        .add_user("viewer2", "viewer pw 2", vec!["viewer".into()])
+        .unwrap();
+    env.gw
+        .add_user("op2", "operator pw 2", vec!["operator".into()])
+        .unwrap();
+    let url = format!("http://127.0.0.1:{}", env.addr.port());
+    let login = |u: &'static str, pw: &'static str| {
+        let url = url.clone();
+        async move {
+            wyrm_gateway_client::Gateway::login(&url, u, pw)
+                .await
+                .unwrap()
+                .connect()
+                .await
+                .unwrap()
+        }
+    };
+    let root = login("root", ADMIN_PW).await;
+    let node = format!("wy/{SITE}/downstream/upload");
+    let data = |n: usize| map([("data", Value::Bytes(vec![7u8; n]))]);
+
+    // small: a frame; large: POST /api/invoke, the same result
+    let r = root.invoke(&node, "put", data(10)).await.unwrap();
+    assert_eq!(r, Some(Value::UInt(10)));
+    for n in [MAX_FRAME_ARGS, 300 << 10, 4 << 20] {
+        let r = root.invoke(&node, "put", data(n)).await.unwrap();
+        assert_eq!(r, Some(Value::UInt(n as u64)), "{n} bytes");
+    }
+
+    // an action without a file parameter: the gateway's text, before 4 MiB go
+    let blob = map([("blob", Value::Bytes(vec![3u8; 4 << 20]))]);
+    let t0 = std::time::Instant::now();
+    let e = root.invoke(ROOT, "reset", blob).await.unwrap_err();
+    match &e {
+        Error::Refused {
+            status,
+            message,
+            http,
+        } => {
+            assert_eq!(*http, Some(400), "{e}");
+            assert_eq!(*status, Status::InvalidParameter.into(), "{e}");
+            assert!(message.contains("takes no file"), "{e}");
+            assert!(message.contains("editor: file"), "says what to do: {e}");
+        }
+        e => panic!("a typed refusal: {e:?}"),
+    }
+    assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+    // the action's level: a viewer is refused before the body goes
+    let viewer = login("viewer2", "viewer pw 2").await;
+    let e = viewer
+        .invoke(&node, "put", data(1 << 20))
+        .await
+        .unwrap_err();
+    assert!(e.is(Status::PermissionDenied), "{e}");
+    assert!(
+        matches!(
+            e,
+            Error::Refused {
+                http: Some(403),
+                ..
+            }
+        ),
+        "{e:?}"
+    );
+
+    // over the gateway's limit: refused here, nothing sent
+    let e = root
+        .invoke(&node, "put", data(MAX_INVOKE_BODY + 1))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(e, Error::TooLarge { limit, .. } if limit == MAX_INVOKE_BODY),
+        "{e:?}"
+    );
+    // a `set` or a `check` over a frame: refused here; the socket stays open
+    let e = root
+        .set(&format!("{ROOT}/p0"), Value::Str("x".repeat(70 << 10)))
+        .await
+        .unwrap_err();
+    assert!(e.is_too_large(), "{e:?}");
+    let e = root.check(&node, "put", data(70 << 10)).await.unwrap_err();
+    assert!(e.is_too_large(), "{e:?}");
+    assert!(!root.is_closed(), "no frame over 64 KiB was sent");
+    assert_eq!(
+        root.invoke(&node, "put", data(5)).await.unwrap(),
+        Some(Value::UInt(5))
+    );
+
+    // a session that ended: 401 comes back, not a reset while the body goes
+    let op = login("op2", "operator pw 2").await;
+    assert_eq!(
+        op.invoke(&node, "put", data(200 << 10)).await.unwrap(),
+        Some(Value::UInt(200 << 10))
+    );
+    env.gw.set_disabled("op2", true).unwrap();
+    let e = op.invoke(&node, "put", data(4 << 20)).await.unwrap_err();
+    match &e {
+        Error::Refused { http, message, .. } => {
+            assert_eq!(*http, Some(401), "{e}");
+            assert!(message.contains("log in again"), "{e}");
+        }
+        e => panic!("a typed refusal: {e:?}"),
+    }
+    up.stop().await;
+    env.stop().await;
+}
+
 /// When a link goes, grants that widen a role on its branch are revoked;
 /// neutral and restrictive ones stay (ADR 0006).
 #[test]
