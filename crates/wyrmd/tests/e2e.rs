@@ -12177,18 +12177,27 @@ async fn uploads_in_parts_through_the_gateway() {
         }
     };
 
-    // a backup of several hundred KiB: text that does not compress to nothing
+    // a backup larger than the broker's part size (4 MiB), as the owner's
+    // 5.8 MB one: text that does not compress to nothing
     let c = slow_client(&env).await;
     let storage = format!("wy/{SITE}/storage");
     let mut seed = sha2::Sha256::digest(b"gw-parts").to_vec();
-    for i in 0..40u64 {
+    for i in 0..320u64 {
         let mut text = String::with_capacity(30_000);
         while text.len() < 30_000 {
             seed = sha2::Sha256::digest(&seed).to_vec();
             text.push_str(&hex::encode(&seed));
         }
         let publish = args_map(&[("path", format!("v{i}").into()), ("value", text.into())]);
-        c.invoke_one(&storage, "publish", publish).await.unwrap();
+        // past the storage link's rate limit: a moment later
+        loop {
+            match c.invoke_one(&storage, "publish", publish.clone()).await {
+                Err(e) if e.is(wyrm_core::Status::RateLimited) => {
+                    tokio::time::sleep(Duration::from_millis(200)).await
+                }
+                r => break r.map(drop).unwrap(),
+            }
+        }
     }
     let backups = format!("wy/{SITE}/sys/backups");
     let id = backup_id(
@@ -12207,7 +12216,7 @@ async fn uploads_in_parts_through_the_gateway() {
     loop {
         let args = args_map(&[
             ("offset", Value::UInt(file.len() as u64)),
-            ("len", Value::UInt(256 << 10)),
+            ("len", Value::UInt(1 << 20)),
         ]);
         let Some(Value::Map(m)) = conn.invoke(&node, "download_part", args).await.unwrap() else {
             panic!("download_part: a map");
@@ -12220,11 +12229,6 @@ async fn uploads_in_parts_through_the_gateway() {
             break;
         }
     }
-    assert!(
-        file.len() > 256 << 10,
-        "{} bytes: more than one part",
-        file.len()
-    );
 
     // the restore of it, in the broker's own part size, as Studio sends it
     let begin = args_map(&[("size", Value::UInt(file.len() as u64))]);
@@ -12239,6 +12243,8 @@ async fn uploads_in_parts_through_the_gateway() {
         other => panic!("restore_begin: part_size {other:?}"),
     };
     assert!(part > 64 << 10, "a part is larger than a frame: {part}");
+    let full = file.len() > part + (200 << 10);
+    assert!(full, "{} bytes: a full part of {part} is sent", file.len());
     // one part of 200 KiB first, then the rest in the broker's part size
     let first = 200 << 10;
     let mut offset = 0usize;
