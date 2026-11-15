@@ -37,6 +37,25 @@ pub fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// Create `dir` (and its parents) and make it the owner's only (0700 on
+/// unix). `Err` names the directory when it cannot be made private: a
+/// directory meant for keys that stays open to others is a failure, never
+/// passed over.
+pub fn private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!("{}: cannot make it private (0700): {e}", dir.display()),
+            )
+        })?;
+    }
+    Ok(())
+}
+
 /// 32 random bytes, hex encoded: the plaintext link token.
 pub fn new_token() -> Result<Zeroizing<String>, Error> {
     let mut raw = Zeroizing::new([0u8; 32]);
@@ -351,6 +370,24 @@ pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A directory that others could read is made the owner's only.
+    #[cfg(unix)]
+    #[test]
+    fn a_private_dir_is_the_owners_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("wyrm-private-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        private_dir(&dir.join("pki")).unwrap();
+        private_dir(&dir).unwrap();
+        for d in [dir.clone(), dir.join("pki")] {
+            let mode = std::fs::metadata(&d).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "{}", d.display());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// ADR 0015: the downstream's request carries its key; the upstream
     /// signs `broker:<site>` for that key and nothing else.

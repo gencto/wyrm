@@ -715,12 +715,7 @@ async fn fetch_file(
         a.keep_file(data_dir, &entry.name);
     }
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-        }
+        secret::private_dir(parent).map_err(|e| e.to_string())?;
     }
     // a scratch name the listings leave out, then one rename
     let tmp = path.with_extension("tmp");
