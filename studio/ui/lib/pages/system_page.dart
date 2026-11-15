@@ -430,10 +430,7 @@ class SystemPage extends StatelessWidget {
         _ => _overview(context),
       };
       final main = Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 28,
-          vertical: AppSpacing.lg,
-        ),
+        padding: Insets.systemColumn,
         child: Column(
           crossAxisAlignment: .stretch,
           spacing: 24,

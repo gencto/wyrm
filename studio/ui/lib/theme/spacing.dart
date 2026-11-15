@@ -58,6 +58,20 @@ abstract final class Insets {
     vertical: 14,
   );
 
+  /// Inside a bordered panel of System: a value's tile, the Log toolbar
+  /// (board `System`).
+  static const panel = EdgeInsets.symmetric(
+    horizontal: AppSpacing.md,
+    vertical: 14,
+  );
+
+  /// Around System's main column, beside the attention panel (board
+  /// `System`: 28 at the sides).
+  static const systemColumn = EdgeInsets.symmetric(
+    horizontal: 28,
+    vertical: AppSpacing.lg,
+  );
+
   /// Around an Assistant card: indented past the avatar column (42) and
   /// apart from the next card.
   static const assistantCard = EdgeInsets.only(left: 42, bottom: 12);
