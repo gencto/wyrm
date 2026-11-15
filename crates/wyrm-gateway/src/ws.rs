@@ -36,7 +36,9 @@
 //! `meta` is the canonical `~meta` CBOR (spec 02) as a byte string, decoded
 //! with the SDK's `NodeMeta` codec. `status` is a spec-04 status code.
 //!
-//! Every request is checked against the user's grants first (`list`/`meta`/
+//! Every request is decoded once into an op with its fields, and checked
+//! against the user's grants first, by the one table of [`op`] (`Op::route`):
+//! (`list`/`meta`/
 //! `children` ≥ list, `subscribe` ≥ read on some part of the pattern,
 //! `history` ≥ read on the point, `set`
 //! ≥ write, `invoke` ≥ read with the action's own level left to the
@@ -45,6 +47,9 @@
 //! the level of every step it signs), then sent with a fresh `ptok`. Samples and children the user
 //! may not see are dropped before they reach the socket.
 
+mod decode;
+mod op;
+
 use crate::http::{bearer, ApiError, AppState};
 use crate::{AuditEvent, Gateway, Grants, Principal, Refusal};
 use axum::body::Bytes;
@@ -52,7 +57,9 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::{HeaderMap, Uri};
 use axum::response::{IntoResponse, Response};
+use decode::parse;
 use futures_util::{SinkExt, StreamExt};
+use op::{Once, Op, Run};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
@@ -257,16 +264,11 @@ struct Conn {
     human: bool,
 }
 
+/// One request frame, decoded: its op carries the fields it needs ([`op`]).
 struct Req {
     id: u64,
-    op: String,
     key: String,
-    value: Option<Value>,
-    action: Option<String>,
-    args: Option<Value>,
-    sub: Option<u64>,
-    /// `doc`: which document (`~state`, `~def`).
-    suffix: Option<String>,
+    op: Op,
 }
 
 /// One frame from a client, whatever carries it.
@@ -418,13 +420,13 @@ impl Conn {
         WyrmClient::new(self.session.clone()).with_tokens(Arc::new(self.gw.tokens_for(p)))
     }
 
-    fn deny(&self, p: &Principal, req: &Req) -> Value {
+    fn deny(&self, p: &Principal, id: u64, op: op::OpName, key: &str) -> Value {
         self.gw.audit(AuditEvent::Denied {
             user: p.name.clone(),
-            op: req.op.clone(),
-            key: req.key.clone(),
+            op: op.name().to_owned(),
+            key: key.to_owned(),
         });
-        err_frame(req.id, Status::PermissionDenied.code(), "permission denied")
+        err_frame(id, Status::PermissionDenied.code(), "permission denied")
     }
 
     /// Handle one frame. `false` = the session is no longer valid.
@@ -436,9 +438,8 @@ impl Conn {
     ) -> bool {
         let req = match parse(bytes) {
             Ok(r) => r,
-            Err((id, msg)) => {
-                self.send(err_frame(id, Status::InvalidMessage.code(), &msg))
-                    .await;
+            Err((id, status, msg)) => {
+                self.send(err_frame(id, status.code(), &msg)).await;
                 return true;
             }
         };
@@ -453,137 +454,98 @@ impl Conn {
             return false;
         };
         self.update_grants(p.grants.clone());
-        // one budget for all of the user's sockets (review GW-2); closing a stream is free
-        if req.op != "unsubscribe" && !self.gw.request_allowed(&p.name) {
+        let Req { id, key, op } = req;
+        let name = op.name();
+        let (right, run) = op.route();
+        // closing one of the caller's own streams needs no key, no right and no budget
+        let closing = matches!(run, Run::Close(_));
+        // one budget for all of the user's sockets (review GW-2)
+        if !closing && !self.gw.request_allowed(&p.name) {
             self.send(err_frame(
-                req.id,
+                id,
                 Status::RateLimited.code(),
                 "too many requests",
             ))
             .await;
             return true;
         }
-        if req.op == "unsubscribe" {
-            let reply = match req.sub.and_then(|s| streams.remove(&s)) {
-                Some(h) => {
-                    h.abort();
-                    ok_frame(req.id, None)
-                }
-                None => err_frame(req.id, Status::NotFound.code(), "no such stream"),
-            };
-            self.send(reply).await;
-            return true;
-        }
-        let pattern = req.op == "subscribe";
         // A downstream site is checked as the own site (ADR 0007); a write
         // carries a token for it, and it decides too (ADR 0018).
-        let own = self.gw.as_own(&req.key);
-        if let Err(msg) = check_key(self.gw.site(), &own, pattern) {
-            self.send(err_frame(req.id, Status::InvalidParameter.code(), &msg))
-                .await;
+        let own = self.gw.as_own(&key);
+        if !closing {
+            if let Err(msg) = check_key(self.gw.site(), &own, run == Run::Subscribe) {
+                self.send(err_frame(id, Status::InvalidParameter.code(), &msg))
+                    .await;
+                return true;
+            }
+        }
+        let history = || {
+            // at a watch key, as reading the point it records (ADR 0020, the DSA double
+            // check), else as its Get History; elsewhere as reading the point's value
+            if !key.starts_with(&format!("wy/{}/sys/history/", self.gw.site())) {
+                return p.grants.perm(&format!("{own}/~val")) >= Perm::Read;
+            }
+            let sites = self.gw.sites.borrow().clone();
+            match crate::overlay::point_of(&sites, &key) {
+                Some(point) => {
+                    p.grants.perm(&format!("{}/~val", self.gw.as_own(point))) >= Perm::Read
+                }
+                None => p.grants.perm(&format!("{own}/~act/get_history")) >= Perm::Config,
+            }
+        };
+        if !op::allowed(&right, &p.grants, &own, history) {
+            self.send(self.deny(&p, id, name, &key)).await;
             return true;
         }
-        let allowed = match req.op.as_str() {
-            "meta" | "children" | "list" => p.grants.perm(&format!("{own}/~meta")) >= Perm::List,
-            "subscribe" => p.grants.any(&format!("{own}/~val"), Perm::Read),
-            // as reading the point's value (spec 05 0.1.10); at a watch
-            // key, as reading the point it records (ADR 0020, the DSA
-            // double check), else as its Get History
-            "history"
-                if req
-                    .key
-                    .starts_with(&format!("wy/{}/sys/history/", self.gw.site())) =>
-            {
-                let sites = self.gw.sites.borrow().clone();
-                match crate::overlay::point_of(&sites, &req.key) {
-                    Some(point) => {
-                        p.grants.perm(&format!("{}/~val", self.gw.as_own(point))) >= Perm::Read
+        let subscribe = match run {
+            Run::Close(sub) => {
+                let reply = match streams.remove(&sub) {
+                    Some(h) => {
+                        h.abort();
+                        ok_frame(id, None)
                     }
-                    None => p.grants.perm(&format!("{own}/~act/get_history")) >= Perm::Config,
-                }
-            }
-            "history" => p.grants.perm(&format!("{own}/~val")) >= Perm::Read,
-            "set" => p.grants.perm(&format!("{own}/~set")) >= Perm::Write,
-            // a document of the node: as `list` on it, and the token the responder gets is
-            // for the document's own key (a restricted node asks `list` there)
-            "doc" => match req.suffix.as_deref() {
-                Some(s @ ("~state" | "~def")) => {
-                    p.grants.perm(&format!("{own}/~meta")) >= Perm::List
-                        && p.grants.perm(&format!("{own}/{s}")) >= Perm::List
-                }
-                _ => {
-                    self.send(err_frame(
-                        req.id,
-                        Status::InvalidParameter.code(),
-                        "suffix: ~state or ~def required",
-                    ))
-                    .await;
-                    return true;
-                }
-            },
-            "invoke" | "check" => match req.action.as_deref() {
-                Some(a) if wyrm_core::keyspace::validate_segment(a).is_ok() => {
-                    p.grants.perm(&format!("{own}/~act/{a}")) >= Perm::Read
-                }
-                _ => {
-                    self.send(err_frame(
-                        req.id,
-                        Status::InvalidParameter.code(),
-                        "action: valid segment required",
-                    ))
-                    .await;
-                    return true;
-                }
-            },
-            other => {
-                self.send(err_frame(
-                    req.id,
-                    Status::InvalidParameter.code(),
-                    &format!("unknown op {other:?}"),
-                ))
-                .await;
+                    None => err_frame(id, Status::NotFound.code(), "no such stream"),
+                };
+                self.send(reply).await;
                 return true;
             }
+            Run::Once(once) => {
+                let Ok(permit) = self.inflight.clone().try_acquire_owned() else {
+                    self.send(err_frame(id, Status::Busy.code(), "too many requests"))
+                        .await;
+                    return true;
+                };
+                let me = self.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    me.one_shot(p, id, key, once).await;
+                });
+                return true;
+            }
+            Run::List => false,
+            Run::Subscribe => true,
         };
-        if !allowed {
-            self.send(self.deny(&p, &req)).await;
+        if streams.contains_key(&id) {
+            self.send(err_frame(
+                id,
+                Status::InvalidParameter.code(),
+                "id of an open stream",
+            ))
+            .await;
             return true;
         }
-        if matches!(req.op.as_str(), "list" | "subscribe") {
-            if streams.contains_key(&req.id) {
-                self.send(err_frame(
-                    req.id,
-                    Status::InvalidParameter.code(),
-                    "id of an open stream",
-                ))
+        if streams.len() >= MAX_STREAMS {
+            self.send(err_frame(id, Status::Busy.code(), "too many streams"))
                 .await;
-                return true;
-            }
-            if streams.len() >= MAX_STREAMS {
-                self.send(err_frame(req.id, Status::Busy.code(), "too many streams"))
-                    .await;
-                return true;
-            }
-            let me = self.clone();
-            let id = req.id;
-            let h = if pattern {
-                tokio::spawn(async move { me.subscribe(p, req).await })
-            } else {
-                tokio::spawn(async move { me.list(p, req).await })
-            };
-            streams.insert(id, h);
             return true;
         }
-        let Ok(permit) = self.inflight.clone().try_acquire_owned() else {
-            self.send(err_frame(req.id, Status::Busy.code(), "too many requests"))
-                .await;
-            return true;
-        };
         let me = self.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            me.one_shot(p, req).await;
-        });
+        let h = if subscribe {
+            tokio::spawn(async move { me.subscribe(p, id, key).await })
+        } else {
+            tokio::spawn(async move { me.list(p, id, key).await })
+        };
+        streams.insert(id, h);
         true
     }
 
@@ -592,163 +554,157 @@ impl Conn {
     /// is refused with `confirm_required`. Only for a user who holds `config` there (anyone
     /// else is refused by the responder anyway); a node whose `~meta` cannot be read counts
     /// as `config`.
-    async fn needs_step_up(&self, p: &Principal, c: &WyrmClient, req: &Req) -> Option<Value> {
+    async fn needs_step_up(
+        &self,
+        p: &Principal,
+        c: &WyrmClient,
+        id: u64,
+        key: &str,
+        once: &Once,
+    ) -> Option<Value> {
         if !self.gw.step_up_on() || self.gw.confirmed(p) {
             return None;
         }
-        let own = self.gw.as_own(&req.key);
-        // a flow deploy is `config` (spec 06) and the gateway signs proofs for it
-        // ([`Conn::add_flow_proofs`]): asked whatever the node's meta or the user's grant says
-        let deploy = req.op == "invoke"
-            && req.action.as_deref() == Some("deploy")
-            && own == format!("wy/{}/dataflows", self.gw.site());
-        let at_config = match req.op.as_str() {
-            _ if deploy => true,
-            "set" if p.grants.perm(&format!("{own}/~set")) >= Perm::Config => {
-                match c.meta(&req.key).await {
-                    Ok(m) => m.writable == Some(wyrm_core::meta::Writable::Config),
-                    Err(_) => true,
-                }
+        let own = self.gw.as_own(key);
+        let mut what = BTreeMap::from([
+            ("op".to_owned(), Value::from(once.name().name())),
+            ("key".to_owned(), Value::from(key)),
+        ]);
+        let at_config = match once {
+            Once::Set(value) => {
+                what.insert("value".to_owned(), value.clone());
+                p.grants.perm(&format!("{own}/~set")) >= Perm::Config
+                    && match c.meta(key).await {
+                        Ok(m) => m.writable == Some(wyrm_core::meta::Writable::Config),
+                        Err(_) => true,
+                    }
             }
-            "invoke" => {
-                let action = req.action.as_deref().unwrap_or_default();
-                if p.grants.perm(&format!("{own}/~act/{action}")) < Perm::Config {
-                    return None;
+            Once::Invoke(call) => {
+                what.insert("action".to_owned(), Value::from(call.action.as_str()));
+                if let Some(args) = &call.args {
+                    what.insert("args".to_owned(), args.clone());
                 }
-                match c.meta_expanded(&req.key).await {
-                    Ok(m) => m
-                        .actions
-                        .as_ref()
-                        .and_then(|a| a.get(action))
-                        .is_none_or(|a| a.level.unwrap_or(Perm::Read) >= Perm::Config),
-                    Err(_) => true,
-                }
+                // a flow deploy is `config` (spec 06) and the gateway signs proofs for it
+                // ([`Conn::add_flow_proofs`]): asked whatever the node's meta or the user's
+                // grant says
+                let deploy =
+                    call.action == "deploy" && own == format!("wy/{}/dataflows", self.gw.site());
+                deploy
+                    || (p.grants.perm(&format!("{own}/~act/{}", call.action)) >= Perm::Config
+                        && match c.meta_expanded(key).await {
+                            Ok(m) => m
+                                .actions
+                                .as_ref()
+                                .and_then(|a| a.get(&call.action))
+                                .is_none_or(|a| a.level.unwrap_or(Perm::Read) >= Perm::Config),
+                            Err(_) => true,
+                        })
             }
-            _ => false,
+            // reads, and a check that runs nothing
+            Once::Meta | Once::Children | Once::History(_) | Once::Doc(_) | Once::Check(_) => false,
         };
         if !at_config {
             return None;
-        }
-        let mut what = BTreeMap::from([
-            ("op".to_owned(), Value::from(req.op.as_str())),
-            ("key".to_owned(), Value::from(req.key.as_str())),
-        ]);
-        for (k, v) in [
-            ("value", req.value.clone()),
-            ("action", req.action.clone().map(Value::Str)),
-            ("args", req.args.clone()),
-        ] {
-            if let Some(v) = v {
-                what.insert(k.to_owned(), v);
-            }
         }
         let refused = self.gw.step_up(p, &Value::Map(what)).err()?;
         self.gw.audit(AuditEvent::Denied {
             user: p.name.clone(),
             op: "confirm_required".into(),
-            key: req.key.clone(),
+            key: key.to_owned(),
         });
-        Some(refused_frame(req.id, refused))
+        Some(refused_frame(id, refused))
     }
 
-    async fn one_shot(&self, p: Principal, req: Req) {
+    async fn one_shot(&self, p: Principal, id: u64, key: String, once: Once) {
         let c = self.client(&p);
-        let id = req.id;
-        if let Some(frame) = self.needs_step_up(&p, &c, &req).await {
+        if let Some(frame) = self.needs_step_up(&p, &c, id, &key, &once).await {
             return self.send(frame).await;
         }
-        let frame = match req.op.as_str() {
-            "meta" => match c.meta(&req.key).await {
+        let frame = match once {
+            Once::Meta => match c.meta(&key).await {
                 Ok(mut m) => {
-                    crate::overlay::lay(&self.gw.sites.borrow(), &req.key, &mut m);
+                    crate::overlay::lay(&self.gw.sites.borrow(), &key, &mut m);
                     ok_frame(id, Some(meta_bytes(&m)))
                 }
                 Err(e) => client_err(id, &e),
             },
-            "history" => match wyrm_client::HistoryQuery::from_args(req.args.as_ref()) {
+            Once::History(args) => match wyrm_client::HistoryQuery::from_args(args.as_ref()) {
                 // the server decides how much one request may ask for (review GW-2)
-                Ok(q) => match c.history(&req.key, &crate::capped_history(q)).await {
+                Ok(q) => match c.history(&key, &crate::capped_history(q)).await {
                     Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
                     Err(e) => client_err(id, &e),
                 },
                 Err(e) => err_frame(id, e.status().code(), &e.to_string()),
             },
-            "children" => match c.children(&req.key).await {
+            Once::Children => match c.children(&key).await {
                 Ok(kids) => {
                     let g = self.grants.borrow().clone();
                     let sites = self.gw.sites.borrow().clone();
                     let kids = kids
                         .into_iter()
-                        .filter(|k| visible_child(&g, &self.gw.as_own(&req.key), &k.name))
-                        .map(|k| child_value(&laid(&sites, &req.key, k)))
+                        .filter(|k| visible_child(&g, &self.gw.as_own(&key), &k.name))
+                        .map(|k| child_value(&laid(&sites, &key, k)))
                         .collect();
                     ok_frame(id, Some(Value::Array(kids)))
                 }
                 Err(e) => client_err(id, &e),
             },
-            "doc" => {
-                match c
-                    .doc(&req.key, req.suffix.as_deref().unwrap_or_default())
-                    .await
-                {
-                    Ok(b) if b.len() > crate::approve::MAX_DOC => err_frame(
+            Once::Doc(suffix) => match c.doc(&key, suffix.name()).await {
+                Ok(b) if b.len() > crate::approve::MAX_DOC => err_frame(
+                    id,
+                    Status::ResourceExhausted.code(),
+                    "the document is larger than the gateway returns",
+                ),
+                Ok(b) => match from_slice::<Value>(&b) {
+                    Ok(v) => ok_frame(id, Some(v)),
+                    Err(_) => err_frame(
                         id,
-                        Status::ResourceExhausted.code(),
-                        "the document is larger than the gateway returns",
+                        Status::InvalidMessage.code(),
+                        "the document is not canonical CBOR",
                     ),
-                    Ok(b) => match from_slice::<Value>(&b) {
-                        Ok(v) => ok_frame(id, Some(v)),
-                        Err(_) => err_frame(
-                            id,
-                            Status::InvalidMessage.code(),
-                            "the document is not canonical CBOR",
-                        ),
-                    },
-                    Err(e) => client_err(id, &e),
-                }
-            }
-            "set" => match req.value {
-                None => err_frame(id, Status::InvalidParameter.code(), "value required"),
-                Some(v) => match c.set(&req.key, v).await {
-                    Ok(()) => ok_frame(id, None),
-                    Err(e) => client_err(id, &e),
                 },
+                Err(e) => client_err(id, &e),
+            },
+            Once::Set(v) => match c.set(&key, v).await {
+                Ok(()) => ok_frame(id, None),
+                Err(e) => client_err(id, &e),
             },
             // spec 05 0.2.33: the responder checks the call and does nothing; the caller
             // sends it only where the responder's root says `attr.check`
-            "check" => {
-                let action = req.action.unwrap_or_default();
-                let args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));
-                match c.invoke_check(&req.key, &action, args).await {
+            Once::Check(call) => {
+                match c
+                    .invoke_check(&key, &call.action, call.args_or_empty())
+                    .await
+                {
                     Ok(()) => ok_frame(id, None),
                     Err(e) => client_err(id, &e),
                 }
             }
-            "invoke" => {
-                let action = req.action.unwrap_or_default();
-                let mut args = req.args.unwrap_or_else(|| Value::Map(BTreeMap::new()));
+            Once::Invoke(call) => {
+                let mut args = call.args_or_empty();
+                let action = call.action;
                 // spec 05: the action's `timeout_ms` overrides the default
                 // wait (installs fetch and unpack for minutes).
-                let c = match action_timeout(&c, &req.key, &action).await {
+                let c = match action_timeout(&c, &key, &action).await {
                     Some(t) => c.with_timeout(t),
                     None => c,
                 };
                 // a deploy here or on a site below (ADR 0033: a downstream deploy got no proofs)
                 if action == "deploy"
-                    && self.gw.as_own(&req.key) == format!("wy/{}/dataflows", self.gw.site())
+                    && self.gw.as_own(&key) == format!("wy/{}/dataflows", self.gw.site())
                 {
-                    let site = req.key.split('/').nth(1).unwrap_or_default().to_owned();
+                    let site = key.split('/').nth(1).unwrap_or_default().to_owned();
                     self.add_flow_proofs(&c, &site, &mut args);
                 }
                 // a user approves steps of an agent's plan: the gateway signs them (ADR 0049)
                 if action == "approve" && crate::approve::asks_for_tokens(&args) {
-                    match self.approval_args(&p, &c, &req.key, &args).await {
+                    match self.approval_args(&p, &c, &key, &args).await {
                         Ok(signed) => args = signed,
                         Err(Approve::Client(e)) => return self.send(client_err(id, &e)).await,
                         Err(Approve::StepUp(r)) => return self.send(refused_frame(id, r)).await,
                     }
                 }
-                match c.invoke(&req.key, &action, args).await {
+                match c.invoke(&key, &action, args).await {
                     Err(e) => client_err(id, &e),
                     Ok(mut s) => {
                         let mut last: Option<Value> = None;
@@ -774,14 +730,12 @@ impl Conn {
                     }
                 }
             }
-            _ => err_frame(id, Status::InvalidParameter.code(), "unknown op"),
         };
         self.send(frame).await;
     }
 
-    async fn list(&self, p: Principal, req: Req) {
-        let id = req.id;
-        let mut s = match self.client(&p).list(&req.key).await {
+    async fn list(&self, p: Principal, id: u64, key: String) {
+        let mut s = match self.client(&p).list(&key).await {
             Ok(s) => s,
             Err(e) => return self.send(client_err(id, &e)).await,
         };
@@ -801,11 +755,11 @@ impl Conn {
                 Ok(()) = sites_rx.changed() => {
                     let new = sites_rx.borrow_and_update().clone();
                     let g = grants.borrow().clone();
-                    let parent = self.gw.as_own(&req.key);
+                    let parent = self.gw.as_own(&key);
                     for c in kids.values() {
-                        let k = format!("{}/{}", req.key, c.name);
+                        let k = format!("{}/{}", key, c.name);
                         if sites.get(&k) != new.get(&k) && visible_child(&g, &parent, &c.name) {
-                            let ev = event_frame(id, "changed", child_fields(&laid(&new, &req.key, c.clone())));
+                            let ev = event_frame(id, "changed", child_fields(&laid(&new, &key, c.clone())));
                             if self.out.send(Out::Frame(ev)).await.is_err() {
                                 return;
                             }
@@ -828,9 +782,9 @@ impl Conn {
                 _ => {}
             }
             let g = grants.borrow().clone();
-            let parent = self.gw.as_own(&req.key);
+            let parent = self.gw.as_own(&key);
             let see = |name: &str| visible_child(&g, &parent, name);
-            let lay = |c: Child| laid(&sites, &req.key, c);
+            let lay = |c: Child| laid(&sites, &key, c);
             let ev = match ev {
                 ListEvent::Refreshed(kids) => {
                     let kids = kids
@@ -868,8 +822,7 @@ impl Conn {
         self.send(event_frame(id, "closed", [])).await;
     }
 
-    async fn subscribe(&self, p: Principal, req: Req) {
-        let id = req.id;
+    async fn subscribe(&self, p: Principal, id: u64, key: String) {
         // The read filter runs before the client stream buffers anything: a
         // point the user may not read takes no memory (security review). It
         // is checked again below, as grants can change while a value waits.
@@ -877,7 +830,7 @@ impl Conn {
         let readable = move |key: &str| {
             filter.borrow().perm(&format!("{}/~val", gw.as_own(key))) >= Perm::Read
         };
-        let mut s = match self.client(&p).subscribe_filtered(&req.key, readable).await {
+        let mut s = match self.client(&p).subscribe_filtered(&key, readable).await {
             Ok(s) => s,
             Err(e) => return self.send(client_err(id, &e)).await,
         };
@@ -960,43 +913,6 @@ pub(crate) fn check_key(site: &str, key: &str, pattern: bool) -> Result<(), Stri
         }
     }
     Ok(())
-}
-
-fn parse(bytes: &[u8]) -> Result<Req, (u64, String)> {
-    let v: Value = from_slice(bytes).map_err(|e| (0, format!("frame: {e}")))?;
-    let Value::Map(mut m) = v else {
-        return Err((0, "frame must be a map".into()));
-    };
-    let Some(Value::UInt(id)) = m.get("id").cloned() else {
-        return Err((0, "id: uint required".into()));
-    };
-    let text = |m: &mut BTreeMap<String, Value>, k: &str| match m.remove(k) {
-        None => Ok(None),
-        Some(Value::Str(s)) => Ok(Some(s)),
-        Some(_) => Err((id, format!("{k}: text required"))),
-    };
-    let op = text(&mut m, "op")?.ok_or((id, "op required".to_owned()))?;
-    let key = text(&mut m, "key")?.unwrap_or_default();
-    if op != "unsubscribe" && key.is_empty() {
-        return Err((id, "key required".into()));
-    }
-    let action = text(&mut m, "action")?;
-    let suffix = text(&mut m, "suffix")?;
-    let sub = match m.remove("sub") {
-        None => None,
-        Some(Value::UInt(s)) => Some(s),
-        Some(_) => return Err((id, "sub: uint required".into())),
-    };
-    Ok(Req {
-        id,
-        op,
-        key,
-        value: m.remove("value"),
-        action,
-        args: m.remove("args"),
-        sub,
-        suffix,
-    })
 }
 
 fn map<const N: usize>(fields: [(&str, Value); N]) -> Value {
@@ -1144,11 +1060,34 @@ mod tests {
         ]))
         .unwrap();
         let r = parse(&f).unwrap();
-        assert_eq!((r.id, r.op.as_str()), (7, "set"));
-        assert_eq!(r.value, Some(Value::Float(1.5)));
+        assert_eq!(r.id, 7);
+        assert_eq!(
+            r.op,
+            Op::Set {
+                value: Value::Float(1.5)
+            }
+        );
         let bad = to_vec(&map([("id", Value::UInt(3)), ("op", Value::from("meta"))])).unwrap();
         assert_eq!(parse(&bad).err().unwrap().0, 3);
         assert!(parse(b"\xff").is_err());
+        // an op this gateway does not serve is refused at the frame, with its id
+        let unknown = to_vec(&map([
+            ("id", Value::UInt(4)),
+            ("op", Value::from("approve_all")),
+            ("key", Value::from("wy/s/downstream/m")),
+        ]))
+        .unwrap();
+        let (id, status, msg) = parse(&unknown).err().unwrap();
+        assert_eq!((id, status), (4, Status::InvalidParameter));
+        assert!(msg.contains("unknown op"), "{msg}");
+        // `unsubscribe` takes no key; any other op needs one
+        let close = to_vec(&map([
+            ("id", Value::UInt(5)),
+            ("op", Value::from("unsubscribe")),
+            ("sub", Value::UInt(2)),
+        ]))
+        .unwrap();
+        assert_eq!(parse(&close).unwrap().op, Op::Unsubscribe { sub: 2 });
     }
 
     /// The approve gate is the transport AND the principal's login (ADR 0049): a session
