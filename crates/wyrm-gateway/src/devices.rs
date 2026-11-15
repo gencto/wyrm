@@ -924,19 +924,18 @@ impl Gateway {
         } else {
             None
         };
-        let u = match (code, user) {
-            (None, Some(u)) => u,
-            // no user always has a code above ("password_changed")
-            (code, _) => {
-                let code = code.unwrap_or("password_changed");
-                self.audit(AuditEvent::DeviceRefused {
-                    user: Some(d.user.clone()),
-                    device: device.to_owned(),
-                    ip,
-                    code,
-                });
-                return Err(Refused::Code(code));
-            }
+        if let Some(code) = code {
+            self.audit(AuditEvent::DeviceRefused {
+                user: Some(d.user.clone()),
+                device: device.to_owned(),
+                ip,
+                code,
+            });
+            return Err(Refused::Code(code));
+        }
+        // no user always has a code above ("password_changed")
+        let Some(u) = user else {
+            return Err(Refused::Code("password_changed"));
         };
         self.limiter.succeeded(&limit_key(device), ip);
         self.store()
