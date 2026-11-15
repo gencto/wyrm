@@ -44,6 +44,12 @@ class AppColors extends ThemeExtension<AppColors> with _$AppColors {
     required this.badLine,
     required this.thumb,
     required this.thumbHover,
+    required this.noticeFill,
+    required this.noticeLine,
+    required this.refusalFill,
+    required this.emberBusy,
+    required this.heroGlow,
+    required this.heroEdge,
   });
 
   /// App background, workspace.
@@ -141,4 +147,25 @@ class AppColors extends ThemeExtension<AppColors> with _$AppColors {
 
   /// Scrollbar thumb under the pointer.
   final Color thumbHover;
+
+  /// A warning card's fill: the trust card, an unlock notice (the boards
+  /// `Discover…` and `Unlock…`).
+  final Color noticeFill;
+
+  /// A warning card's line, and the gateway field while its CA waits for
+  /// the check.
+  final Color noticeLine;
+
+  /// A refusal's fill: the unreachable alert, a signed-out notice, between
+  /// `ground0` and `badTint`.
+  final Color refusalFill;
+
+  /// The log-in and offer buttons while busy.
+  final Color emberBusy;
+
+  /// The warm centre of the log-in hero's radial gradient.
+  final Color heroGlow;
+
+  /// The quiet edges of the log-in hero's living tree.
+  final Color heroEdge;
 }

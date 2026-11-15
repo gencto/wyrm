@@ -13,7 +13,6 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/history_steps.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/hist_window.dart';
@@ -245,7 +244,7 @@ void main() {
   test('a point the viewer may not read is never queried', () async {
     final login = FakeLogin(
       session: FakeSession(
-        who: const WhoAmI(
+        who: identityOf(
           subject: 'user:olena',
           site: 'central',
           roles: ['operator'],

@@ -12,17 +12,20 @@ import 'package:business/redux/discovery/actions/find_gateways_action.dart';
 import 'package:business/redux/discovery/actions/pick_found_gateway_action.dart';
 import 'package:business/redux/discovery/actions/probe_range_action.dart';
 import 'package:business/redux/discovery/actions/trust_gateway_action.dart';
-import 'package:business/redux/services/gateway_browser/gateway_browser.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/discovery.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
+import 'package:models/trust_refusal.dart';
 import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/fake_discovery.dart';
 import 'support/fake_wyrm.dart';
 import 'support/test_tls.dart';
 
@@ -115,7 +118,7 @@ void main() {
         site: 'plant',
         hosts: IListConst(['10.0.7.11:8446']),
         url: 'https://10.0.7.11:8446',
-        role: 'standby',
+        role: BrokerRole.standby,
         seen: 1,
       );
       const active = FoundGateway(
@@ -567,6 +570,49 @@ void main() {
     });
   });
 
+  group('a reply that is not /api/info', () {
+    late HttpServer server;
+
+    setUp(() async {
+      server = await HttpServer.bind('127.0.0.1', 0)
+        ..listen((r) {
+          r.response
+            ..headers.contentType = ContentType('application', 'cbor')
+            // No `role`, `up` or `devices`: an older or a foreign server.
+            ..add(
+              const VMap({
+                'site': VStr('lab'),
+                'version': VStr('0.1.0'),
+                'tls': VBool(false),
+                'min_studio': VStr('1.0.0'),
+              }).toCbor(),
+            );
+          unawaited(r.response.close());
+        });
+    });
+
+    tearDown(() => server.close(force: true));
+
+    test('is refused naming its field, never read as defaults', () async {
+      const reader = HttpInfoReader();
+      await expectLater(
+        reader.readUnverified(Uri.parse('http://127.0.0.1:${server.port}')),
+        throwsA(
+          isA<InfoFailure>()
+              .having((f) => f.fault, 'fault', InfoFault.missing)
+              .having((f) => f.reason, 'reason', contains('GatewayInfo.')),
+        ),
+      );
+    });
+
+    test('gives the log-in page no policy', () async {
+      final info = await const GatewayLogin().info(
+        Uri.parse('http://127.0.0.1:${server.port}'),
+      );
+      expect(info, isNull);
+    });
+  });
+
   group('over TLS', () {
     late HttpServer server;
     late Uri byName;
@@ -591,6 +637,18 @@ void main() {
                   'ca_fp': VStr(caCode(caDer)),
                   'names': const VArray([VStr('gw.test'), VStr('127.0.0.1')]),
                   'min_studio': const VStr('1.0.0'),
+                  // Required since ADR 0050 decision 10, as the gateway
+                  // sends them (`crates/wyrm-gateway/src/lib.rs`).
+                  'role': const VStr('active'),
+                  'up': const VArray([]),
+                  'devices': const VMap({
+                    'enabled': VBool(false),
+                    'max_per_user': VInt(5),
+                    'password_every_days': VInt(30),
+                    'idle_lock_max_min': VInt(30),
+                    'step_up': VStr('none'),
+                    'allow_device_credential': VBool(false),
+                  }),
                 }).toCbor(),
               );
           } else {
@@ -770,107 +828,6 @@ Store<AppState> discoveryStore({
     gatewayInfo: info ?? FakeInfo(),
     browser: FakeBrowser(found),
     browseDuration: Duration.zero,
+    prompts: const PlainPrompts(),
   ),
 );
-
-/// A browse that finds [found] at once.
-final class FakeBrowser implements GatewayBrowserBackend {
-  FakeBrowser(this.found);
-
-  final List<Announcement> found;
-
-  @override
-  Stream<Announcement> browse() {
-    // Closed when the browse cancels it.
-    // ignore: close_sinks
-    late final StreamController<Announcement> c;
-    c = StreamController<Announcement>(
-      onListen: () {
-        found.forEach(c.add);
-      },
-    );
-    return c.stream;
-  }
-}
-
-/// `/api/info` as a test sets it up, by origin.
-final class FakeInfo implements GatewayInfoReader {
-  final _infos = <String, GatewayInfo>{};
-  final _failures = <String, InfoFailure>{};
-
-  /// Origins whose certificate the system trusts without a pin.
-  final trusted = <String>{};
-
-  /// Origins whose certificate chains to a CA of another code than the one
-  /// it sends.
-  final chainsTo = <String, String>{};
-
-  /// Every unverified read, by URL.
-  final unverified = <Uri>[];
-
-  Duration delay = Duration.zero;
-  var _now = 0;
-
-  /// The most reads at once.
-  var most = 0;
-
-  void serve(List<String> origins, GatewayInfo info) {
-    for (final o in origins) {
-      _infos[o] = info;
-    }
-  }
-
-  void fail(String origin, InfoFault fault) =>
-      _failures[origin] = InfoFailure(fault, fault.name);
-
-  Future<GatewayInfo> _answer(Uri base) async {
-    _now++;
-    if (_now > most) {
-      most = _now;
-    }
-    try {
-      await Future<void>.delayed(delay);
-      if (_failures[base.origin] case final f?) {
-        throw f;
-      }
-      return _infos[base.origin] ??
-          (throw const InfoFailure(InfoFault.noAnswer, 'timed out'));
-    } finally {
-      _now--;
-    }
-  }
-
-  @override
-  Future<GatewayInfo> read(
-    Uri base, {
-    required GatewayTrust trust,
-    String? connectTo,
-    Duration timeout = infoTimeout,
-  }) async {
-    final info = await _answer(base);
-    final pin = trust.pinOf(base);
-    final chain =
-        chainsTo[base.origin] ?? (info.ca == null ? null : caCode(info.ca!));
-    if (pin != null ? pin.code == chain : trusted.contains(base.origin)) {
-      return info;
-    }
-    throw const InfoFailure(InfoFault.untrusted, 'CERTIFICATE_VERIFY_FAILED');
-  }
-
-  @override
-  Future<GatewayInfo> readUnverified(
-    Uri base, {
-    String? connectTo,
-    Duration timeout = infoTimeout,
-  }) {
-    unverified.add(base);
-    return _answer(base);
-  }
-
-  @override
-  Future<bool> resolves(String host) async => true;
-
-  @override
-  Future<LocalNetwork?> localNetwork() async =>
-      const LocalNetwork('en0', '10.0.7.12');
-}

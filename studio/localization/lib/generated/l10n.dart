@@ -15969,6 +15969,106 @@ class S {
     );
   }
 
+  /// `{site} did not take the confirmation: the key no longer opens`
+  String stepUpKeyGone(Object site) {
+    return Intl.message(
+      '$site did not take the confirmation: the key no longer opens',
+      name: 'stepUpKeyGone',
+      desc: '',
+      args: [site],
+    );
+  }
+
+  /// `this device was removed`
+  String get refusalDeviceRemoved {
+    return Intl.message(
+      'this device was removed',
+      name: 'refusalDeviceRemoved',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the password changed`
+  String get refusalPasswordChanged {
+    return Intl.message(
+      'the password changed',
+      name: 'refusalPasswordChanged',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the password is due again`
+  String get refusalPasswordDue {
+    return Intl.message(
+      'the password is due again',
+      name: 'refusalPasswordDue',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `unlocking with a device is off on this gateway`
+  String get refusalDevicesOff {
+    return Intl.message(
+      'unlocking with a device is off on this gateway',
+      name: 'refusalDevicesOff',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `it asks for a confirmation first`
+  String get refusalConfirmRequired {
+    return Intl.message(
+      'it asks for a confirmation first',
+      name: 'refusalConfirmRequired',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `it asks for the password first`
+  String get refusalPasswordRequired {
+    return Intl.message(
+      'it asks for the password first',
+      name: 'refusalPasswordRequired',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `this user has too many devices`
+  String get refusalTooManyDevices {
+    return Intl.message(
+      'this user has too many devices',
+      name: 'refusalTooManyDevices',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `the password is wrong`
+  String get refusalBadPassword {
+    return Intl.message(
+      'the password is wrong',
+      name: 'refusalBadPassword',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The gateway refused: {reason}.`
+  String lockRefused(Object reason) {
+    return Intl.message(
+      'The gateway refused: $reason.',
+      name: 'lockRefused',
+      desc: '',
+      args: [reason],
+    );
+  }
+
   /// `Security`
   String get securityMenu {
     return Intl.message('Security', name: 'securityMenu', desc: '', args: []);

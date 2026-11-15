@@ -37,6 +37,7 @@ import 'package:models/link_revision.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_set.dart';
 import 'package:models/live_value.dart';
+import 'package:models/lock_error.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:models/log_read_error.dart';
@@ -75,6 +76,8 @@ import 'package:models/task_suggestion.dart';
 import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/trend_range.dart';
+import 'package:models/trust_refusal.dart';
+import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:models/user_info.dart';
@@ -90,6 +93,7 @@ import '../wyrm/decode/backup_job.dart';
 import '../wyrm/decode/broker_self_update.dart';
 import '../wyrm/decode/sys_status.dart';
 import '../wyrm/device_keys.dart';
+import '../wyrm/discovery.dart' show RangeFault, codeGroups;
 import '../wyrm/explorer.dart';
 import '../wyrm/features.dart';
 import '../wyrm/gateway_label.dart';
@@ -97,12 +101,14 @@ import '../wyrm/historian_stats.dart';
 import '../wyrm/history_trend.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
+import '../wyrm/log_in_page.dart';
 import '../wyrm/mappers/agent_task_mapper.dart';
 import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
 import '../wyrm/rights.dart';
+import '../wyrm/session.dart';
 import '../wyrm/shell.dart';
 import '../wyrm/sites.dart';
 import '../wyrm/task_facts.dart';
@@ -115,8 +121,11 @@ import 'backups/actions/retrieve_backups_action.dart';
 import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
+import 'device/actions/enable_device_action.dart';
 import 'device/actions/load_device_action.dart';
 import 'device/actions/set_device_unlock_action.dart';
+import 'device/actions/unlock_with_device_action.dart';
+import 'device/actions/unlock_with_password_action.dart';
 import 'discovery/actions/trust_gateway_action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
@@ -1055,6 +1064,98 @@ extension type SelectLogin(AppState _state) {
     _state.login.recent,
     _state.login.gateway ?? defaultGateway,
   );
+
+  /// The gateway field as a main and a standby (ADR 0036).
+  GatewayField get field => GatewayField.of(_state.login.gateway);
+
+  /// The field's main gateway as its chip and the status line name it
+  /// (`gatewayLabel`); what is typed while it is not a URL.
+  String get fieldLabel {
+    final f = field;
+    final uri = f.mainUri;
+    return uri == null ? f.main : gatewayLabels[uri.origin] ?? shortHost(uri);
+  }
+
+  /// The last probe of the field's main gateway, in milliseconds; null
+  /// before one, -1 without an answer.
+  int? get fieldProbe => switch (field.mainUri) {
+    final u? => _state.login.probes[u.origin],
+    null => null,
+  };
+
+  /// The field's gateway did not answer: the log-in or its probe.
+  bool get down =>
+      _state.login.failure == LoginFailure.unreachable || fieldProbe == -1;
+
+  /// The user of the form, as typed.
+  String get formUser => (_state.login.user ?? '').trim();
+
+  /// The field's gateway as its dot shows it.
+  FieldState get fieldState => SelectDiscovery(_state).pendingRow != null
+      ? FieldState.trustPending
+      : down
+      ? FieldState.down
+      : fieldProbe == null
+      ? FieldState.unknown
+      : FieldState.answered;
+
+  /// The status line under the field; null for none.
+  FieldNote? get fieldNote {
+    final picked = SelectDiscovery(_state).pickedInField;
+    final ms = fieldProbe;
+    return switch ((picked, down, ms)) {
+      (final p?, false, _) => FieldPicked(
+        p.site,
+        withStandby: p.standby != null,
+      ),
+      (_, true, _) => FieldNoAnswer(fieldLabel),
+      (_, false, null) => field.main.isEmpty ? const FieldEmpty() : null,
+      (_, false, final ms?) => FieldAnswered(fieldLabel, ms),
+    };
+  }
+
+  /// The key here can be tried: the gateway answers and a key is there.
+  bool get keyReady => !down && _state.device.keyId != null;
+
+  /// The site of the unlock form's TLS line: the key's site for an
+  /// `https` gateway; null for a plain one.
+  String? get keyTlsSite => field.https ? keySite : null;
+
+  /// The site a device key here is for: the key's own, else the field's
+  /// gateway by its short name.
+  String get keySite {
+    final uri = field.mainUri;
+    return _state.device.keySite ?? (uri == null ? field.main : shortHost(uri));
+  }
+
+  /// The recent gateways as their chips show them.
+  List<RecentGateway> get recentGateways => recentGatewaysOf(
+    _state.login.recent,
+    gatewayLabels,
+    _state.login.probes,
+    _state.login.gateway ?? defaultGateway,
+  );
+
+  /// What the footer's TLS line says of the field's gateway; null for a
+  /// plain one.
+  TlsLine? get tlsLine {
+    final uri = field.mainUri;
+    final pending = SelectDiscovery(_state).pendingRow;
+    final pin = uri == null ? null : _state.discovery.pins[uri.origin];
+    final short = uri == null ? field.main : shortHost(uri);
+    final site = _state.site;
+    final ours =
+        site.gateway != null &&
+        site.name != null &&
+        parseGateways(site.gateway!).firstOrNull?.origin == uri?.origin;
+    final https = uri?.isScheme('https') ?? false;
+    return switch ((pending, pin, https)) {
+      (final p?, _, _) => TlsNotTrusted(p.site),
+      (null, final p?, _) => TlsPinned(p.site.isEmpty ? short : p.site),
+      (null, null, true) => TlsCertificate(ours ? site.name! : short),
+      (null, null, false) => null,
+    };
+  }
 }
 
 extension type SelectSession(AppState _state) {
@@ -1181,6 +1282,17 @@ extension type SelectSite(AppState _state) {
 
   /// Returns viewedVia
   List<String> get viewedVia => viewedViaOf(_state);
+
+  /// The user logged in, by name (`user:olena@plant` → `olena`), else the
+  /// user of the log-in form.
+  String get userName =>
+      userNameOf(_state.site.user ?? _state.login.user ?? '');
+
+  /// The sites the switcher offers besides the one logged into.
+  List<String> get otherSites => [
+    for (final c in _state.site.choices)
+      if (c.site != (_state.site.name ?? '')) c.site,
+  ];
 }
 
 extension type SelectNodes(AppState _state) {
@@ -1268,6 +1380,15 @@ extension type SelectNodes(AppState _state) {
   /// Returns historyLoading
   bool get historyLoading =>
       _state.wait.isWaitingForType<RetrieveHistoryAction>();
+
+  /// How many links the first list of the viewed site's `downstream` holds.
+  int get linkCount {
+    final prefix = '${SelectSite(_state).root}/downstream/';
+    return _state.nodes.table.keys
+        .where((k) => k.startsWith(prefix))
+        .where((k) => !k.substring(prefix.length).contains('/'))
+        .length;
+  }
 
   /// Returns answers
   IMap<String, ActionAnswer> get answers => _state.nodes.answers;
@@ -2224,8 +2345,8 @@ extension type SelectDevice(AppState _state) {
   /// Returns refusal
   UnlockRefusal? get refusal => _state.device.refusal;
 
-  /// Returns reason
-  String? get reason => _state.device.reason;
+  /// Why the page fell back to the password, the key kept.
+  UnlockFallback? get fallback => _state.device.fallback;
 
   /// Returns reEnable
   bool get reEnable => _state.device.reEnable;
@@ -2236,8 +2357,8 @@ extension type SelectDevice(AppState _state) {
   /// Returns locked
   bool get locked => _state.device.locked;
 
-  /// Returns lockError
-  String? get lockError => _state.device.lockError;
+  /// Why the idle lock is still on after a try.
+  LockError? get lockError => _state.device.lockError;
 
   /// Returns stepUp
   StepUpRequest? get stepUp => _state.device.stepUp;
@@ -2278,6 +2399,16 @@ extension type SelectDevice(AppState _state) {
   /// told).
   int get lockMaxMin => _state.device.policy?.idleLockMaxMin ?? 30;
 
+  /// The device keys a user may have on the gateway (5 when not told).
+  int get maxPerUser => _state.device.policy?.maxPerUser ?? 5;
+
+  /// Every how many days the gateway asks for the password again (30 when
+  /// not told).
+  int get passwordEveryDays => _state.device.policy?.passwordEveryDays ?? 30;
+
+  /// The site the offer names: the one logged into, else the key's.
+  String get offerSite => _state.site.name ?? _state.device.keySite ?? '';
+
   /// This user's device records as rows of Account › Security at [now].
   IList<DeviceRow> rowsAt(DateTime now) => [
     for (final d in _state.device.devices)
@@ -2301,6 +2432,44 @@ extension type SelectDevice(AppState _state) {
 
   /// Returns passwordRefused
   bool get passwordRefused => _state.device.passwordRefused;
+
+  /// The key here can sign: a biometric, a key, not stale.
+  bool get keyUsable =>
+      _state.device.available &&
+      _state.device.keyId != null &&
+      !_state.device.stale;
+
+  /// The key or the password of the lock is being checked.
+  bool get isUnlocking =>
+      _state.wait.isWaitingForType<UnlockWithDeviceAction>() ||
+      _state.wait.isWaitingForType<UnlockWithPasswordAction>();
+
+  /// A key is being made and registered.
+  bool get isEnabling => _state.wait.isWaitingForType<EnableDeviceAction>();
+
+  /// `Turn <name> on again after I log in` is offered: after `changed`
+  /// and `signedOut`, not after `devices_off` (nothing to turn on) nor
+  /// `password_due` (the key stays), and only with a biometric here.
+  bool get offersReEnable {
+    final d = _state.device;
+    final after =
+        d.stage == UnlockStage.changed ||
+        (d.stage == UnlockStage.signedOut &&
+            d.refusal != UnlockRefusal.devicesOff &&
+            d.refusal != UnlockRefusal.passwordDue);
+    return after && d.available;
+  }
+
+  /// The footer names the key (`Key in … · added …`), not the TLS line:
+  /// a key that still stands.
+  bool get keyShown =>
+      _state.device.keyId != null &&
+      _state.device.stage != UnlockStage.changed &&
+      _state.device.stage != UnlockStage.signedOut;
+
+  /// When the key last unlocked; null for none (a password log-in).
+  DateTime? get lastUsedAt =>
+      _state.device.keyId == null ? null : momentOf(_state.device.lastUsed);
 }
 
 extension type SelectDiscovery(AppState _state) {
@@ -2325,8 +2494,8 @@ extension type SelectDiscovery(AppState _state) {
   /// Returns trustPending
   String? get trustPending => _state.discovery.trustPending;
 
-  /// Returns trustRefused
-  String? get trustRefused => _state.discovery.trustRefused;
+  /// Why the last trust pinned nothing.
+  TrustRefusal? get trustRefused => _state.discovery.trustRefused;
 
   /// Returns picked
   String? get picked => _state.discovery.picked;
@@ -2348,4 +2517,66 @@ extension type SelectDiscovery(AppState _state) {
 
   /// Returns probing
   bool get probing => _state.discovery.probing;
+
+  /// The row whose CA waits for the person's check; null for none.
+  FoundGateway? get pendingRow => switch (_state.discovery.trustPending) {
+    final p? => _state.discovery.found[p],
+    null => null,
+  };
+
+  /// The row picked; null for none.
+  FoundGateway? get pickedRow => switch (_state.discovery.picked) {
+    final p? => _state.discovery.found[p],
+    null => null,
+  };
+
+  /// The picked row while the gateway field still holds its URL.
+  FoundGateway? get pickedInField {
+    final row = pickedRow;
+    final field = GatewayField.of(_state.login.gateway).mainUri;
+    return row?.url != null &&
+            parseGateways(row!.url!).firstOrNull?.origin == field?.origin
+        ? row
+        : null;
+  }
+
+  /// The CA code of the row whose trust waits, in groups of 4: computed
+  /// here from the CA's bytes when the row was made, never the gateway's
+  /// claim.
+  List<String> get pendingCode => codeGroups(pendingRow?.code ?? '');
+
+  /// The host the pending row's certificate must name.
+  String get pendingHost => switch (pendingRow?.url) {
+    final u? => Uri.tryParse(u)?.host ?? '',
+    null => '',
+  };
+
+  /// The found rows at [now], usable first, then by site.
+  List<FoundRow> rowsAt(DateTime now) => foundRowsAt(
+    _state.discovery.found.values,
+    recent: _state.login.recent,
+    pins: _state.discovery.pins,
+    picked: _state.discovery.picked,
+    now: now,
+  );
+
+  /// The range *Probe a range* uses: what was typed, else the /24 around
+  /// this computer.
+  String get rangeText =>
+      _state.discovery.range ?? _state.discovery.subnet ?? '';
+
+  /// The port *Probe a range* uses until one is typed.
+  int get defaultProbePort => defaultProbePortOf(_state.login.gateway);
+
+  /// The port field as it reads: what was typed, else the default port.
+  String get portText => _state.discovery.rangePort ?? '$defaultProbePort';
+
+  /// What is wrong with the range; null when it can be probed.
+  RangeFault? get rangeFault => rangeFaultOf(rangeText);
+
+  /// The port to probe; null while what is typed is not one.
+  int? get probePort => switch (_state.discovery.rangePort) {
+    final typed? => probePortOf(typed),
+    null => defaultProbePort,
+  };
 }

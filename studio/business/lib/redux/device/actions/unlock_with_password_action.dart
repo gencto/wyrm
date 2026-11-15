@@ -1,6 +1,7 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/device_keys.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -22,7 +23,7 @@ class UnlockWithPasswordAction extends Action with NonReentrant, WaitingAction {
     try {
       await session.confirmWithPassword(password);
     } on WyrmException catch (e) {
-      return state.copyWith.device(lockError: e.code ?? e.message);
+      return state.copyWith.device(lockError: lockErrorOf(e));
     }
     deps.idleLock.arm(Duration(minutes: state.device.lockAfter));
     return state.copyWith.device(locked: false, lockError: null);

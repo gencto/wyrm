@@ -8,8 +8,29 @@ import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+
+/// The level a step-up change needs, its badge's word (the access levels
+/// keep their names in every language): coral for `config`, grey below.
+enum StepUpLevel {
+  none('none'),
+  list('list'),
+  read('read'),
+  write('write'),
+  config('config');
+
+  const StepUpLevel(this.word);
+
+  final String word;
+
+  /// The badge is coral.
+  bool get strong => switch (this) {
+    config => true,
+    none || list || read || write => false,
+  };
+}
 
 /// One change the step-up confirms: its level badge, what it does, its key.
 final class StepUpLineVm extends Equatable {
@@ -20,7 +41,7 @@ final class StepUpLineVm extends Equatable {
   });
 
   /// `config` (coral badge) or `write` (grey).
-  final String level;
+  final StepUpLevel level;
   final String text;
   final String key;
 
@@ -151,18 +172,13 @@ class _StepUpDialogState extends State<StepUpDialog> {
           shadowColor: Shades.dialogShadow,
           clipBehavior: .antiAlias,
           child: SizedBox(
-            width: 520,
+            width: AppSizes.stepUpDialog,
             child: Column(
               mainAxisSize: .min,
               crossAxisAlignment: .stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    22,
-                    AppSpacing.lg,
-                    6,
-                  ),
+                  padding: Insets.dialogHead,
                   child: Column(
                     crossAxisAlignment: .start,
                     spacing: 6,
@@ -187,12 +203,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   ),
                 ),
                 Container(
-                  margin: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    10,
-                    AppSpacing.lg,
-                    10,
-                  ),
+                  margin: Insets.dialogList,
                   decoration: BoxDecoration(
                     borderRadius: const BorderRadius.all(
                       Radius.circular(AppRadii.card),
@@ -208,12 +219,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                 ),
                 if (password)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      6,
-                      AppSpacing.lg,
-                      AppSpacing.none,
-                    ),
+                    padding: Insets.dialogRow,
                     child: BoxedFormField(
                       vm: FieldVm(
                         value: _typed,
@@ -231,13 +237,8 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   )
                 else
                   Container(
-                    margin: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      6,
-                      AppSpacing.lg,
-                      AppSpacing.none,
-                    ),
-                    padding: const EdgeInsets.all(14),
+                    margin: Insets.dialogRow,
+                    padding: Insets.panelBox,
                     decoration: BoxDecoration(
                       color: c.emberFill,
                       borderRadius: const BorderRadius.all(
@@ -249,8 +250,8 @@ class _StepUpDialogState extends State<StepUpDialog> {
                       spacing: 14,
                       children: [
                         Container(
-                          width: 48,
-                          height: 48,
+                          width: AppSizes.stepUpTile,
+                          height: AppSizes.stepUpTile,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
@@ -261,7 +262,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                           alignment: .center,
                           child: BiometricIcon(
                             glyph: vm.glyph,
-                            size: 26,
+                            size: AppSizes.stepUpGlyph,
                             compact: true,
                             color: c.emberSoft,
                           ),
@@ -283,11 +284,8 @@ class _StepUpDialogState extends State<StepUpDialog> {
                     ),
                   ),
                 Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: 18,
-                  ),
+                  margin: Insets.dialogFootGap,
+                  padding: Insets.dialogFoot,
                   decoration: BoxDecoration(
                     border: Border(top: BorderSide(color: c.ground3)),
                   ),
@@ -344,12 +342,9 @@ class _Line extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final config = vm.level == 'config';
+    final config = vm.level.strong;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 10,
-      ),
+      padding: Insets.cardRow,
       decoration: BoxDecoration(
         border: first ? null : Border(top: BorderSide(color: c.ground3)),
       ),
@@ -357,10 +352,7 @@ class _Line extends StatelessWidget {
         spacing: 10,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: 2,
-            ),
+            padding: Insets.levelBadge,
             decoration: BoxDecoration(
               color: config ? c.badTint : c.ground4,
               borderRadius: const BorderRadius.all(
@@ -368,7 +360,7 @@ class _Line extends StatelessWidget {
               ),
             ),
             child: Text(
-              vm.level,
+              vm.level.word,
               style: TextStyle(
                 fontSize: FontSizes.xs,
                 color: config ? c.badText : c.text3,

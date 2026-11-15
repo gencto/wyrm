@@ -1,12 +1,12 @@
 import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../buttons/log_in_button.dart';
 import '../indicators/biometric_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
 
@@ -122,17 +122,19 @@ class UnlockOffer extends StatelessWidget {
             ],
           ),
           Container(
-            width: 84,
-            height: 84,
+            width: AppSizes.offerTile,
+            height: AppSizes.offerTile,
             decoration: BoxDecoration(
               color: c.emberFill,
-              borderRadius: const BorderRadius.all(Radius.circular(24)),
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppRadii.offerGlyph),
+              ),
               border: Border.all(color: c.emberLine),
             ),
             alignment: .center,
             child: BiometricIcon(
               glyph: vm.glyph,
-              size: vm.glyph == .key ? 40 : 44,
+              size: vm.glyph == .key ? AppSizes.offerKey : AppSizes.offerGlyph,
               color: c.emberSoft,
             ),
           ),
@@ -169,10 +171,10 @@ class UnlockOffer extends StatelessWidget {
                   spacing: 10,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(top: 7),
+                      padding: Insets.bulletDot,
                       child: Container(
-                        width: 6,
-                        height: 6,
+                        width: AppSizes.dot,
+                        height: AppSizes.dot,
                         decoration: BoxDecoration(
                           color: dot(f.tone),
                           shape: BoxShape.circle,
@@ -259,7 +261,7 @@ class OfferButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Material(
-      color: busy ? LogInButton.busyFill : c.ember,
+      color: busy ? c.emberBusy : c.ember,
       clipBehavior: .antiAlias,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(AppRadii.card)),
@@ -272,7 +274,7 @@ class OfferButton extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 16,
+                fontSize: FontSizes.tallButton,
                 fontWeight: .w600,
                 color: c.onEmber,
               ),
@@ -308,7 +310,7 @@ class _Outlined extends StatelessWidget {
     child: InkWell(
       onTap: onPressed,
       child: SizedBox(
-        height: 42,
+        height: AppSizes.outlinedButton,
         child: Center(
           child: Text(
             label,

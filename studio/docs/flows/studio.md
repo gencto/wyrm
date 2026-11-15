@@ -261,24 +261,15 @@ sequenceDiagram
     actor User
     participant UI as StudioPage
     participant R1 as LockOverlayConnector
-    participant A1 as UnlockWithDeviceAction
+    participant A1 as LeaveOnLogOutAction
     participant ST as AppState
-    participant NAV as Router
 
     User->>UI: LockOverlay ▸ onUnlock
     UI->>R1: onUnlock()
-    R1->>+A1: dispatchAndWait
-    Note over A1: NonReentrant · WaitingAction · async
-    A1->>ST: copyWith(device.autoPrompted)
-    A1->>ST: dispatchSync(_Stage)
-    A1->>ST: dispatchSync(_Stage)
-    A1->>ST: dispatchSync(SetLoginProgressAction)
-    A1->>ST: dispatchSync(SetLoginProgressAction)
-    A1->>ST: dispatchSync(SetLoginProgressAction)
-    A1-->>-R1: ActionStatus
-    alt currentState().session.token == null
-        R1->>NAV: GoAction.replace LogInRoute
-    end
+    R1->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchSync(leave)
 ```
 
 ## LockOverlay ▸ onPassword
@@ -294,10 +285,9 @@ sequenceDiagram
 
     User->>UI: LockOverlay ▸ onPassword
     UI->>R1: onPassword()
-    R1->>+A1: dispatchAndWait
+    R1->>A1: dispatch
     Note over A1: NonReentrant · WaitingAction · async
     A1->>ST: copyWith(device.lockError)
-    A1-->>-R1: ActionStatus
 ```
 
 ## LockOverlay ▸ onLogOut
@@ -308,17 +298,15 @@ sequenceDiagram
     actor User
     participant UI as StudioPage
     participant R1 as LockOverlayConnector
-    participant A1 as LogOutAction
+    participant A1 as LeaveOnLogOutAction
     participant ST as AppState
-    participant NAV as Router
 
     User->>UI: LockOverlay ▸ onLogOut
     UI->>R1: onLogOut()
-    R1->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(login.password)
-    A1-->>-R1: ActionStatus
-    R1->>NAV: GoAction.replace LogInRoute
+    R1->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchSync(leave)
 ```
 
 ## LockOverlay ▸ onActivity
@@ -356,9 +344,9 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onRetryProblem` | `RetryProblemAction` | — |
 | `onLanguage` | `SetLanguageAction` | `language.locale` |
 | `onTheme` | `SetThemeModeAction` | `theme.mode` |
-| `LockOverlay ▸ onUnlock` | `UnlockWithDeviceAction`, `GoAction.replace` ? | `device.autoPrompted` |
+| `LockOverlay ▸ onUnlock` | `LeaveOnLogOutAction` | — |
 | `LockOverlay ▸ onPassword` | `UnlockWithPasswordAction` | `device.lockError` |
-| `LockOverlay ▸ onLogOut` | `LogOutAction`, `GoAction.replace` | `login.password` |
+| `LockOverlay ▸ onLogOut` | `LeaveOnLogOutAction` | — |
 | `LockOverlay ▸ onActivity` | `NoteActivityAction` | — |
 
 `?` marks a dispatch that only runs under a condition.

@@ -11,7 +11,6 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -33,7 +32,7 @@ class ScreenApp {
   ScreenApp({bool config = true, List<(String, String)>? grants})
     : login = FakeLogin(
         session: FakeSession(
-          who: WhoAmI(
+          who: identityOf(
             subject: 'user:olena',
             site: 'plant',
             roles: const ['admin'],
