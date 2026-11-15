@@ -230,6 +230,27 @@ use one stream (`?multistream=0`, `wyrmd::single_stream`): a subscriber on a
 fresh prefix and a query at once lost 37 and 168 of 200 queries with `auto`,
 none with one stream.
 
+**Found (2026-11-15):** after #94 the e2e failed in CI in four of five runs in
+a new way: every query to edge, and then every `list`, ended at once (1–7 ms)
+with no reply, while edge's liveliness said it was there. The test waited for
+edge's token to come back after its rebuild for central's signing keys, and
+then for `downstream/edge/connected`, which follows the same token. But a
+token is no sign of a route. When a router connects, central's router routes
+its liveliness tokens about one routing-tree computation before it routes
+queries to it (Zenoh 1.10.1 computes the trees on a worker with a 100 ms
+debounce, `TREES_COMPUTATION_DELAY_MS`). In that gap every query to edge ends
+with no reply, the two tries of a `~meta` read too. In a Linux container (4
+CPUs, six copies at once) a probe right at the token found the gap, 50–100 ms
+long, in 13 of 66 runs, and in none of 12 with the debounce set to 1000 ms
+(the computations then merge); the test failed 7 of 78 there, 0 of 48 with
+the change below (5 of them waited for the gap). A watch of 20 s after the gap saw no later loss, so it is not a second rebuild. macOS
+did not show it in 48 runs. The test now starts once a query to edge (on a key
+outside the measured ones) answers. Open: the same gap reaches a live list of
+`wy/<d>/downstream` from above (`wyrm-client` `on_child_liveliness`): when a
+link's token comes back with its broker, the list reads that link's `~meta`
+at once and can get the empty default. `connected` also turns true up to that
+gap early.
+
 ## 7. Config values cannot be changed in Metrics
 
 **Seen:** `Log Level : info` and `Allow All Links : false` cannot be edited.
