@@ -67,8 +67,19 @@ String keyAlias(String origin, String user) {
   return 'wyrm-${hash.substring(0, 32)}';
 }
 
-/// The state's [KeyKind] for the plugin's.
-KeyKind keyKindOf(DeviceKeyKind k) => KeyKind.values.byName(k.name);
+/// The state's [KeyKind] for the plugin's: one exhaustive switch, so a
+/// kind the plugin adds is a compile error here.
+KeyKind keyKindOf(DeviceKeyKind k) => switch (k) {
+  DeviceKeyKind.none => KeyKind.none,
+  DeviceKeyKind.touchId => KeyKind.touchId,
+  DeviceKeyKind.faceId => KeyKind.faceId,
+  DeviceKeyKind.opticId => KeyKind.opticId,
+  DeviceKeyKind.windowsHello => KeyKind.windowsHello,
+  DeviceKeyKind.fingerprint => KeyKind.fingerprint,
+  DeviceKeyKind.face => KeyKind.face,
+  DeviceKeyKind.iris => KeyKind.iris,
+  DeviceKeyKind.biometric => KeyKind.biometric,
+};
 
 /// A moment given in seconds since the Unix epoch; null for 0 (not known).
 DateTime? momentOf(int seconds) =>
@@ -176,36 +187,33 @@ String saidBy(WyrmException e) => e.code ?? e.message;
 
 /// The words of the OS prompts of the device key (unlock-discover.md §2):
 /// `ui`'s, handed to `AppDependencies` by `app`, so that `business` writes
-/// none (studio-rules §5). Each is called with the site and the user at
-/// the moment the prompt opens.
-final class DevicePrompts {
-  const DevicePrompts({
-    required this.unlock,
-    required this.enable,
-    required this.confirm,
-  });
-
-  /// No words: the site and the user as they are, for a store no words
-  /// were given to (tests).
-  static const plain = DevicePrompts(
-    unlock: _siteAndUser,
-    enable: _siteAndUser,
-    confirm: _site,
-  );
-
+/// none (studio-rules §5). Each is asked with the site and the user at the
+/// moment the prompt opens.
+abstract interface class DevicePrompts {
   /// A device login or an idle unlock.
-  final String Function(String site, String user) unlock;
+  String unlock(String site, String user);
 
   /// Making and registering a new key.
-  final String Function(String site, String user) enable;
+  String enable(String site, String user);
 
   /// A step-up of a refused request.
-  final String Function(String site) confirm;
+  String confirm(String site);
 }
 
-String _siteAndUser(String site, String user) => '$site · $user';
+/// No words: the site and the user as they are, for a store no words were
+/// given to (tests). The app always gives its own.
+final class PlainPrompts implements DevicePrompts {
+  const PlainPrompts();
 
-String _site(String site) => site;
+  @override
+  String unlock(String site, String user) => '$site · $user';
+
+  @override
+  String enable(String site, String user) => '$site · $user';
+
+  @override
+  String confirm(String site) => site;
+}
 
 /// The OS prompt gave no signature: what it gave instead.
 final class SignStopped implements Exception {

@@ -61,7 +61,7 @@ class AppDependencies {
     GatewayInfoReader? gatewayInfo,
     this._browser,
     this.browseDuration = browseFor,
-    this.prompts = DevicePrompts.plain,
+    this.prompts = const PlainPrompts(),
     this.clock = DateTime.now,
   }) : login =
            login ??

@@ -30,11 +30,20 @@ bool get isDesktop =>
     !kIsWeb;
 
 /// The words of the device key's OS prompts: `ui`'s, for `business`.
-const devicePrompts = DevicePrompts(
-  unlock: promptUnlock,
-  enable: promptEnable,
-  confirm: promptConfirm,
-);
+const DevicePrompts devicePrompts = _UiPrompts();
+
+final class _UiPrompts implements DevicePrompts {
+  const _UiPrompts();
+
+  @override
+  String unlock(String site, String user) => promptUnlock(site, user);
+
+  @override
+  String enable(String site, String user) => promptEnable(site, user);
+
+  @override
+  String confirm(String site) => promptConfirm(site);
+}
 
 Future<void> runEnv(Environment env) async {
   WidgetsFlutterBinding.ensureInitialized();

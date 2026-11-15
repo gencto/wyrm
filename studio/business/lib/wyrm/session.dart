@@ -401,6 +401,6 @@ List<Uri> parseGateways(String text) => [
   for (final part in text.split(','))
     if (part.trim() case final s when s.isNotEmpty)
       if (Uri.tryParse(s.contains('://') ? s : 'http://$s') case final u?
-          when u.host.isNotEmpty && (u.scheme == 'http' || u.scheme == 'https'))
+          when u.host.isNotEmpty && (u.isScheme('http') || u.isScheme('https')))
         u,
 ];

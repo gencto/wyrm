@@ -21,7 +21,7 @@ Store<AppState> newStore({
   required BaseKeyValueStorage settings,
   Persistor<AppState>? persistor,
   ErrorWording? wording,
-  DevicePrompts prompts = DevicePrompts.plain,
+  DevicePrompts prompts = const PlainPrompts(),
 }) {
   WaitAction.reducer = _waitReducer;
 
@@ -100,7 +100,7 @@ Future<String> setAsideSettings(String path) async {
 Future<Store<AppState>> createStore(
   Environment environment, {
   ErrorWording? wording,
-  DevicePrompts prompts = DevicePrompts.plain,
+  DevicePrompts prompts = const PlainPrompts(),
   String? directory,
 }) async {
   final settings = await openSettings(directory: directory);
