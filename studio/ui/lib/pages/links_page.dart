@@ -119,12 +119,7 @@ class LinksPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(
-        28,
-        28,
-        28,
-        40,
-      ),
+      padding: Insets.workspacePage,
       children: [
         PageHeader(
           title: title,
@@ -148,9 +143,9 @@ class LinksPage extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        Gaps.pageTabs,
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: 18),
+        Gaps.tabNote,
         Text(
           description,
           style: TextStyle(fontSize: FontSizes.md, color: c.text2),

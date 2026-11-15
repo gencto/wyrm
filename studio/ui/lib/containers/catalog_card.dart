@@ -6,6 +6,7 @@ import '../indicators/app_icon.dart';
 import '../models/link_run_mode.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One entry of the official list, as typed values: [CatalogCard] words
@@ -96,7 +97,7 @@ class CatalogCard extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(vm.id),
         borderRadius: Radii.card,
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: Insets.catalogCard,
           child: Column(
             crossAxisAlignment: .start,
             spacing: 8,
@@ -105,10 +106,7 @@ class CatalogCard extends StatelessWidget {
                 spacing: 8,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 2,
-                    ),
+                    padding: Insets.catalogTag,
                     decoration: BoxDecoration(
                       color: c.ground4,
                       borderRadius: Radii.chip,
@@ -158,10 +156,7 @@ class CatalogCard extends StatelessWidget {
                 spacing: 8,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
+                    padding: Insets.catalogChip,
                     decoration: BoxDecoration(
                       color: vm.builtIn ? c.ground4 : c.goodTint,
                       borderRadius: Radii.chip,
@@ -176,10 +171,7 @@ class CatalogCard extends StatelessWidget {
                   ),
                   if (vm.official)
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
+                      padding: Insets.catalogChip,
                       decoration: BoxDecoration(
                         color: c.emberFill,
                         borderRadius: Radii.chip,

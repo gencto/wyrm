@@ -20,6 +20,7 @@ import '../shell/window_bar.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'link_install_data.dart';
@@ -206,12 +207,7 @@ class LinkInstallPage extends StatelessWidget {
                     children: [
                       Container(
                         width: 220,
-                        padding: const EdgeInsets.fromLTRB(
-                          12,
-                          20,
-                          12,
-                          20,
-                        ),
+                        padding: Insets.wizardRail,
                         decoration: BoxDecoration(
                           color: c.ground1,
                           border: Border(right: BorderSide(color: c.line1)),
@@ -255,7 +251,7 @@ class LinkInstallPage extends StatelessWidget {
                       Expanded(child: center),
                       Container(
                         width: 280,
-                        padding: const EdgeInsets.all(20),
+                        padding: Insets.wizardAnswers,
                         decoration: BoxDecoration(
                           color: c.ground1,
                           border: Border(left: BorderSide(color: c.line1)),
@@ -350,13 +346,13 @@ class _Center extends StatelessWidget {
       children: [
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(30, 28, 30, 30),
+            padding: Insets.wizardStep,
             children: [
               Text(
                 S.current.stepOf(p._at, vm.steps.length),
                 style: mono(color: c.text3),
               ),
-              const SizedBox(height: 6),
+              Gaps.caption,
               Text(
                 _question,
                 style: Theme.of(context).textTheme.headlineSmall,
@@ -373,13 +369,13 @@ class _Center extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              Gaps.stepContent,
               ..._content(context, c),
             ],
           ),
         ),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+          padding: Insets.wizardFoot,
           decoration: BoxDecoration(
             border: Border(top: BorderSide(color: c.line1)),
           ),
@@ -414,7 +410,7 @@ class _Center extends StatelessWidget {
             selected: f == vm.from,
           ),
       ], page.onFrom),
-      const SizedBox(height: 18),
+      Gaps.stepGroup,
       if (_official) ..._catalog(c) else ..._bring(c),
     ],
     InstallStepKey.check => _check(c),
@@ -452,7 +448,7 @@ class _Center extends StatelessWidget {
         );
       },
     ),
-    const SizedBox(height: 14),
+    Gaps.closingNote,
     Text(
       S.current.catalogNote,
       style: TextStyle(fontSize: FontSizes.md, color: c.text3),
@@ -536,13 +532,16 @@ class _Center extends StatelessWidget {
       S.current.checkedHere,
       style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
     ),
-    const SizedBox(height: 10),
+    Gaps.sectionTitle,
     CheckList(rows: vm.checks),
     if (vm.manifest case final m?) ...[
-      const SizedBox(height: 18),
+      Gaps.stepGroup,
       SectionLabel(S.current.manifest),
       Gaps.sm,
-      SizedBox(height: 220, child: LogView(lines: m.split('\n'))),
+      SizedBox(
+        height: AppSizes.manifestView,
+        child: LogView(lines: m.split('\n')),
+      ),
     ],
   ];
 
@@ -565,13 +564,13 @@ class _Center extends StatelessWidget {
                 : S.current.packageSummary,
           ),
         ),
-        const SizedBox(height: 18),
+        Gaps.stepGroup,
       ],
       Text(
         S.current.onWhichBroker,
         style: const TextStyle(fontSize: FontSizes.lg, fontWeight: .w600),
       ),
-      const SizedBox(height: 10),
+      Gaps.sectionTitle,
       _cards([
         for (final b in vm.brokers)
           ChoiceCardVm(
@@ -588,12 +587,12 @@ class _Center extends StatelessWidget {
             dot: true,
           ),
       ], page.onBroker),
-      const SizedBox(height: 18),
+      Gaps.stepGroup,
       Text(
         S.current.howItRunsThere,
         style: const TextStyle(fontSize: FontSizes.lg, fontWeight: .w600),
       ),
-      const SizedBox(height: 10),
+      Gaps.sectionTitle,
       _cards([
         for (final m in vm.modes)
           ChoiceCardVm(
@@ -604,7 +603,7 @@ class _Center extends StatelessWidget {
             radio: true,
           ),
       ], page.onMode),
-      const SizedBox(height: 18),
+      Gaps.stepGroup,
       Align(
         alignment: .centerLeft,
         child: ConstrainedBox(
@@ -621,7 +620,7 @@ class _Center extends StatelessWidget {
           ),
         ),
       ),
-      const SizedBox(height: 6),
+      Gaps.caption,
       Text.rich(
         TextSpan(
           text: 'wy/${vm.broker}/downstream/',
@@ -639,14 +638,14 @@ class _Center extends StatelessWidget {
         style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
       ),
       if (vm.replaces) ...[
-        const SizedBox(height: 6),
+        Gaps.caption,
         Text(
           S.current.backupReplaces(name),
           style: TextStyle(fontSize: FontSizes.sm, color: c.warn),
         ),
       ],
       if (_backup) ...[
-        const SizedBox(height: 18),
+        Gaps.stepGroup,
         Align(
           alignment: .centerLeft,
           child: ConstrainedBox(
@@ -664,7 +663,7 @@ class _Center extends StatelessWidget {
         ),
       ],
       if (vm.offersAccept) ...[
-        const SizedBox(height: 18),
+        Gaps.stepGroup,
         Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
@@ -886,7 +885,7 @@ class _CatalogFilter extends StatelessWidget {
     borderRadius: Radii.pill,
     child: Container(
       height: _height,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: Insets.filterPill,
       decoration: BoxDecoration(
         color: selected ? c.ground4 : null,
         border: .all(color: selected ? c.line3 : c.line1),

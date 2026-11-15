@@ -50,4 +50,8 @@ abstract final class AppSizes {
 
   /// The plot of System's *Router traffic* (board `System`).
   static const double trafficPlot = 120;
+
+  /// The height of a package's manifest under its checks (Add a link ›
+  /// Check).
+  static const double manifestView = 220;
 }

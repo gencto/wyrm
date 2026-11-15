@@ -44,7 +44,7 @@ class AnswerList extends StatelessWidget {
           note,
           style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
         ),
-        const SizedBox(height: 10),
+        Gaps.listStart,
         for (final a in answers)
           Container(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),

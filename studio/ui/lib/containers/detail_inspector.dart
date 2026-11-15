@@ -135,12 +135,7 @@ class DetailInspector<T> extends StatelessWidget {
       child: ListView(
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(
-              20,
-              22,
-              20,
-              AppSpacing.md,
-            ),
+            padding: Insets.inspectorHead,
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -170,26 +165,21 @@ class DetailInspector<T> extends StatelessWidget {
           ),
           if (vm.facts.isNotEmpty)
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: Insets.inspectorFacts,
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
               child: FactGrid(facts: vm.facts, labelWidth: 74),
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              20,
-              18,
-              20,
-              20,
-            ),
+            padding: Insets.inspectorBody,
             child: Column(
               crossAxisAlignment: .stretch,
               spacing: 8,
               children: [
                 for (final g in vm.groups) ...[
                   Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: Insets.inspectorGroup,
                     child: SectionLabel(g.label),
                   ),
                   for (final a in g.actions)
@@ -197,10 +187,7 @@ class DetailInspector<T> extends StatelessWidget {
                 ],
                 if (vm.form case final f?) ...[
                   Padding(
-                    padding: const EdgeInsets.only(
-                      top: 6,
-                      bottom: 6,
-                    ),
+                    padding: Insets.inspectorForm,
                     child: SectionLabel(f.label),
                   ),
                   ActionForm(
@@ -229,7 +216,7 @@ class DetailInspector<T> extends StatelessWidget {
                 if (vm.footer case final n?)
                   Container(
                     margin: const EdgeInsets.only(top: AppSpacing.md),
-                    padding: const EdgeInsets.all(14),
+                    padding: Insets.inspectorFooter,
                     decoration: BoxDecoration(
                       color: c.ground2,
                       border: .all(color: c.line1),
