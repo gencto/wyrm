@@ -16,3 +16,4 @@ links/wasm/tests/app_fixture/Cargo.lock
 
 # Claude Code agent worktrees
 .claude/worktrees/
+__pycache__/
