@@ -1,4 +1,6 @@
 import 'package:app/connectors/security_dialog_connector.dart';
+import 'package:app/dialogs/security_dialogs.dart';
+import 'package:app/navigation/leave_on_log_out_action.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
@@ -6,6 +8,7 @@ import 'package:business/redux/device/actions/remove_device_action.dart';
 import 'package:business/redux/device/actions/retrieve_devices_action.dart';
 import 'package:business/redux/device/actions/set_device_unlock_action.dart';
 import 'package:business/redux/device/actions/set_lock_after_action.dart';
+import 'package:business/redux/device/actions/sign_out_everywhere_action.dart';
 import 'package:device_key/testing.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -211,6 +214,156 @@ void main() {
       a.reason,
       S.current.unlockEnablePrompt('plant', 'olena'),
     );
+  }, variant: mac);
+
+  /// The dialog opened as the avatar menu opens it, over a page, in
+  /// [locale]; returns the store.
+  Future<Store<AppState>> open(
+    WidgetTester t,
+    AppState state, {
+    List<ActionObserver<AppState>> seen = const [],
+    ValueNotifier<Locale>? locale,
+  }) async {
+    t.view
+      ..physicalSize = const Size(1400, 1100)
+      ..devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final store = Store<AppState>(
+      initialState: state,
+      actionObservers: seen,
+      dependencies: (s) => AppDependencies(
+        s,
+        InMemoryKeyValueStorage(),
+        login: FakeLogin(),
+        deviceKey: FakeDeviceKey(availability: DeviceKeyAvailability.none),
+      ),
+    );
+    final lang = locale ?? ValueNotifier(const Locale('en'));
+    // One theme for every build: only the locale changes on a switch.
+    final theme = darkTheme();
+    await t.pumpWidget(
+      StoreProvider<AppState>(
+        store: store,
+        child: ValueListenableBuilder(
+          valueListenable: lang,
+          builder: (_, l, _) => MaterialApp(
+            theme: theme,
+            locale: l,
+            supportedLocales: S.delegate.supportedLocales,
+            localizationsDelegates: const [
+              S.delegate,
+              ...GlobalMaterialLocalizations.delegates,
+            ],
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showSecurityDialog(context),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await t.pumpAndSettle();
+    await t.tap(find.text('open'));
+    await t.pumpAndSettle();
+    return store;
+  }
+
+  testWidgets('the password asked for goes with the unlock', (t) async {
+    final seen = _Seen();
+    await open(t, stateAt(DateTime.now(), wrongPassword: true), seen: [seen]);
+    seen.started.clear();
+    await t.enterText(find.byType(TextField), 'wyrm-demo-1');
+    await t.tap(find.text('Turn on'));
+    await t.pump();
+    final a = seen.started.whereType<SetDeviceUnlockAction>().single;
+    expect(a.on, isTrue);
+    expect(a.password, 'wyrm-demo-1');
+    expect(a.reason, S.current.unlockEnablePrompt('plant', 'olena'));
+  }, variant: mac);
+
+  testWidgets('Forget and Turn off remove their own device', (t) async {
+    final seen = _Seen();
+    await open(t, stateAt(DateTime.now()), seen: [seen]);
+    seen.started.clear();
+    await t.tap(find.text('Forget'));
+    await t.pump();
+    await t.tap(find.text('Turn off'));
+    await t.pump();
+    expect(
+      seen.started.whereType<RemoveDeviceAction>().map((a) => a.id),
+      ['d4', 'd1'],
+    );
+  }, variant: mac);
+
+  testWidgets('Sign out everywhere closes the dialog and is one action', (
+    t,
+  ) async {
+    final seen = _Seen();
+    final state = stateAt(DateTime.now());
+    // a session, so this test stays on the page; the step to log-in is
+    // test/leave_on_log_out_test.dart
+    await open(
+      t,
+      state.copyWith.session(token: 't'),
+      seen: [seen],
+    );
+    seen.started.clear();
+    await t.ensureVisible(find.text('Sign out everywhere'));
+    await t.tap(find.text('Sign out everywhere'));
+    await t.pumpAndSettle();
+    expect(find.text('Security'), findsNothing, reason: 'the dialog closed');
+    final leave = seen.started.whereType<LeaveOnLogOutAction>().single;
+    expect(leave.inner, isA<SignOutEverywhereAction>());
+  }, variant: mac);
+
+  testWidgets('busy: the switch and Sign out start nothing', (t) async {
+    final seen = _Seen();
+    final store = await open(t, stateAt(DateTime.now()), seen: [seen]);
+    store.dispatchSync(
+      WaitAction.add(SetDeviceUnlockAction(on: true, reason: '')),
+    );
+    await t.pumpAndSettle();
+    seen.started.clear();
+    await t.tap(
+      find
+          .byWidgetPredicate(
+            (w) => w is Semantics && (w.properties.toggled ?? false),
+          )
+          .first,
+    );
+    await t.ensureVisible(find.text('Sign out everywhere'));
+    await t.tap(find.text('Sign out everywhere'));
+    await t.pump();
+    expect(seen.started.whereType<SetDeviceUnlockAction>(), isEmpty);
+    expect(seen.started.whereType<LeaveOnLogOutAction>(), isEmpty);
+    expect(find.text('Security'), findsOneWidget, reason: 'still open');
+  }, variant: mac);
+
+  // The redraw does not wait for a store change: a locale change gives the
+  // app a localized Theme, and every widget that reads it is built again
+  // with the new S.current.
+  testWidgets('in Ukrainian, and a language switch redraws it', (t) async {
+    final locale = ValueNotifier(const Locale('en'));
+    await open(t, stateAt(DateTime.now()), locale: locale);
+    expect(find.text('Security'), findsOneWidget);
+    expect(find.text('Sign out everywhere'), findsOneWidget);
+
+    locale.value = const Locale('uk');
+    await t.pumpAndSettle();
+    expect(find.text('Security'), findsNothing);
+    expect(find.text('Безпека'), findsOneWidget);
+    expect(find.text('Вийти всюди'), findsOneWidget);
+    expect(find.text('Вимкнути'), findsOneWidget);
+    expect(find.text('Забути'), findsOneWidget);
+    expect(
+      find.textContaining(S.current.securityThisDevice),
+      findsOneWidget,
+    );
+    await S.load(const Locale('en'));
   }, variant: mac);
 }
 

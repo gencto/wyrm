@@ -12,15 +12,19 @@ import 'go_action.dart';
 /// It changes no state itself (`null`): [inner] notifies for what it
 /// changed, and the route change is the router's.
 class LeaveOnLogOutAction extends ReduxAction<AppState> {
-  LeaveOnLogOutAction(this.inner);
+  LeaveOnLogOutAction(this.inner, {ReduxAction<AppState> Function()? leave})
+    : leave = leave ?? (() => GoAction.replace(const LogInRoute()));
 
   final ReduxAction<AppState> inner;
+
+  /// The step to the log-in page (a test passes its own).
+  final ReduxAction<AppState> Function() leave;
 
   @override
   Future<AppState?> reduce() async {
     await dispatchAndWait(inner);
     if (state.session.token == null) {
-      dispatchSync(GoAction.replace(const LogInRoute()));
+      dispatchSync(leave());
     }
     return null;
   }
