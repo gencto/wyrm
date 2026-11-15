@@ -54,12 +54,23 @@ final _rules = <Rule>[
     'app/lib/connectors/',
   ], (t) => '\n'.allMatches(t).length),
   // 4. no BuildContext in connectors or business
-  Rule('context-in-connector', [
-    'app/lib/connectors/',
-    'app/lib/mappers/',
-    'app/lib/common/',
-    'business/lib/',
-  ], (t) => _matches(_code(t), RegExp(r'\bBuildContext\b'))),
+  Rule(
+    'context-in-connector',
+    [
+      'app/lib/connectors/',
+      'app/lib/mappers/',
+      'app/lib/common/',
+      'business/lib/',
+    ],
+    (t) {
+      // A connector's own `Widget build(BuildContext context)` is how a
+      // connector is a widget, not a context leaking into it (owner decision
+      // 2026-11-15): it is not counted.
+      final c = _code(t);
+      return _matches(c, RegExp(r'\bBuildContext\b')) -
+          _matches(c, RegExp(r'\bWidget\s+build\(\s*BuildContext\b'));
+    },
+  ),
   // 5. text belongs to localization and ui
   Rule('l10n-in-connector', [
     'app/lib/connectors/',
@@ -125,11 +136,13 @@ final _rules = <Rule>[
   ], _multiDispatch),
 ];
 
-/// Callback bodies (`(…) { … }` or `(…) async { … }`) with two or more
-/// dispatches: one intent is one action (rule 9).
+/// Callback bodies with two or more dispatches: one intent is one action
+/// (rule 9). A callback is a closure passed as an argument — positional or
+/// named, `(…) { … }` or `(…) async { … }` after `(`, `,` or `name:` — not a
+/// method body, an `if` or a `switch` block (owner decision 2026-11-15).
 int _multiDispatch(String text) {
   final c = _code(text);
-  final open = RegExp(r'\([^(){};]*\)\s*(?:async\s*)?\{');
+  final open = RegExp(r'(?:[(,]|\w\s*:)\s*\([^(){};]*\)\s*(?:async\s*)?\{');
   final call = RegExp(r'(?<![\w.])(?:\w+\.)?dispatch\w*\(');
   var n = 0;
   for (final m in open.allMatches(c)) {
