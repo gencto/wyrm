@@ -25,6 +25,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio_rustls::TlsConnector;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use wyrm_link_sdk::Secret;
 
 /// What the scrape asks for: OpenMetrics first, the text format next.
@@ -60,68 +61,23 @@ pub struct Url {
 
 impl Url {
     pub fn parse(s: &str) -> Result<Self, String> {
-        let s = s.trim();
-        let (tls, rest) = if let Some(r) = s.strip_prefix("https://") {
-            (true, r)
-        } else if let Some(r) = s.strip_prefix("http://") {
-            (false, r)
-        } else {
-            return Err("must start with http:// or https://".into());
-        };
-        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-        let authority = &rest[..end];
-        let mut target = rest[end..].to_owned();
-        if let Some(i) = target.find('#') {
-            target.truncate(i);
-        }
-        if !target.starts_with('/') {
-            target.insert(0, '/');
-        }
-        if authority.contains('@') {
-            return Err("no user info in the url: use username/password".into());
-        }
-        let (host, port) = if let Some(r) = authority.strip_prefix('[') {
-            let close = r.find(']').ok_or("unclosed [ in the host")?;
-            let host = &r[..close];
-            host.parse::<std::net::Ipv6Addr>()
-                .map_err(|_| "bad IPv6 address")?;
-            let port = match &r[close + 1..] {
-                "" => None,
-                p => Some(p.strip_prefix(':').ok_or("bad port")?),
-            };
-            (host, port)
-        } else {
-            match authority.rsplit_once(':') {
-                Some((h, p)) => (h, Some(p)),
-                None => (authority, None),
+        let u = HttpUrl::parse(s.trim(), SchemeCase::Lower).map_err(|e| {
+            match e {
+                UrlError::NoScheme | UrlError::Scheme => "must start with http:// or https://",
+                UrlError::Credentials => "no user info in the url: use username/password",
+                UrlError::Ipv6 => "bad IPv6 address",
+                UrlError::Port => "bad port",
+                UrlError::Chars => "spaces, control or non-ASCII characters in the url",
+                UrlError::NoHost | UrlError::Host => "bad host",
             }
-        };
-        let port = match port {
-            None => {
-                if tls {
-                    443
-                } else {
-                    80
-                }
-            }
-            Some(p) => p.parse::<u16>().ok().filter(|p| *p > 0).ok_or("bad port")?,
-        };
-        if host.is_empty()
-            || !host
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'))
-        {
-            return Err("bad host".into());
-        }
-        if target.bytes().any(|b| b <= b' ' || b == 0x7f) {
-            return Err("spaces or control characters in the path".into());
-        }
+            .to_owned()
+        })?;
         Ok(Self {
-            tls,
-            host: host.to_owned(),
-            port,
-            authority: authority.to_owned(),
-            target,
+            tls: u.tls,
+            host: u.url.host.text(),
+            port: u.port,
+            target: u.url.target(),
+            authority: u.url.authority,
         })
     }
 
@@ -561,6 +517,109 @@ pub fn auth_header(username: &str, password: &Secret, bearer: &Secret) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare.
+    fn old_parse(s: &str) -> Result<Url, String> {
+        let s = s.trim();
+        let (tls, rest) = if let Some(r) = s.strip_prefix("https://") {
+            (true, r)
+        } else if let Some(r) = s.strip_prefix("http://") {
+            (false, r)
+        } else {
+            return Err("must start with http:// or https://".into());
+        };
+        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let authority = &rest[..end];
+        let mut target = rest[end..].to_owned();
+        if let Some(i) = target.find('#') {
+            target.truncate(i);
+        }
+        if !target.starts_with('/') {
+            target.insert(0, '/');
+        }
+        if authority.contains('@') {
+            return Err("no user info in the url: use username/password".into());
+        }
+        let (host, port) = if let Some(r) = authority.strip_prefix('[') {
+            let close = r.find(']').ok_or("unclosed [ in the host")?;
+            let host = &r[..close];
+            host.parse::<std::net::Ipv6Addr>()
+                .map_err(|_| "bad IPv6 address")?;
+            let port = match &r[close + 1..] {
+                "" => None,
+                p => Some(p.strip_prefix(':').ok_or("bad port")?),
+            };
+            (host, port)
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) => (h, Some(p)),
+                None => (authority, None),
+            }
+        };
+        let port = match port {
+            None => {
+                if tls {
+                    443
+                } else {
+                    80
+                }
+            }
+            Some(p) => p.parse::<u16>().ok().filter(|p| *p > 0).ok_or("bad port")?,
+        };
+        if host.is_empty()
+            || !host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'))
+        {
+            return Err("bad host".into());
+        }
+        if target.bytes().any(|b| b <= b' ' || b == 0x7f) {
+            return Err("spaces or control characters in the path".into());
+        }
+        Ok(Url {
+            tls,
+            host: host.to_owned(),
+            port,
+            authority: authority.to_owned(),
+            target,
+        })
+    }
+
+    /// Review S4: every scrape URL the old parser took parses the same (the host in lower
+    /// case now; the `Host` header stays as written); what it refused stays refused.
+    #[test]
+    fn urls_parse_as_before() {
+        for s in [
+            "http://host:9100/metrics",
+            "https://example.org",
+            "http://[::1]:8080/m?x=1#frag",
+            "http://h?a=b",
+            "https://Prom.Example:9090/federate?match[]=up",
+            " http://10.0.0.1:9100/metrics ",
+        ] {
+            let mut old = old_parse(s).unwrap();
+            old.host = old.host.to_ascii_lowercase();
+            assert_eq!(Url::parse(s), Ok(old), "{s}");
+        }
+        for s in [
+            "ftp://h",
+            "http://u:p@h/",
+            "http://[::1/",
+            "http://[zz::1]/",
+            "http://h:0/",
+            "http://h:99999/",
+            "http://h/a b",
+            "http://",
+            "HTTP://h/",
+        ] {
+            assert!(old_parse(s).is_err(), "old took {s}");
+            assert!(Url::parse(s).is_err(), "{s}");
+        }
+        // refused now, taken before: raw non-ASCII or a backslash in the target, a sign
+        for s in ["http://h/é", "http://h/a\\b", "http://h:+80/"] {
+            assert!(Url::parse(s).is_err(), "{s}");
+        }
+    }
 
     #[test]
     fn urls() {
