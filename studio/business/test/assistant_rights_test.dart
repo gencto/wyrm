@@ -286,9 +286,10 @@ void main() {
 
   test('the drawer opens with the Explorer selection as a chip', () async {
     await logIn();
-    s
-      ..dispatchSync(SelectNodeAction('wy/central/downstream/modbus/tcp/plc1'))
-      ..dispatchSync(SetDrawerAction.toggle());
+    await s.dispatchAndWait(
+      SelectNodeAction('wy/central/downstream/modbus/tcp/plc1'),
+    );
+    s.dispatchSync(SetDrawerAction.toggle());
     expect(s.state.assistant.drawer, isTrue);
     expect(s.state.assistant.chips, ['wy/central/downstream/modbus/tcp/plc1']);
     s.dispatchSync(SetDrawerAction.toggle());
@@ -298,7 +299,9 @@ void main() {
   test('the trend of a point opens in Explorer: its node, the point, the '
       'History tab', () async {
     await logIn();
-    s.dispatchSync(OpenTrendAction('wy/central/downstream/modbus/tcp/ahu2/sp'));
+    await s.dispatchAndWait(
+      OpenTrendAction('wy/central/downstream/modbus/tcp/ahu2/sp'),
+    );
     expect(
       s.state.nodes.selectedNode,
       'wy/central/downstream/modbus/tcp/ahu2',

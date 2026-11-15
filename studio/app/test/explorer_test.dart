@@ -11,6 +11,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/forms/action_form.dart';
+import 'package:ui/indicators/arc_spinner.dart';
 import 'package:ui/trees/node_tree.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -471,6 +472,24 @@ void main() {
       expect(find.text('Add device…'), findsOneWidget);
     });
 
+    testWidgets('a menu waits for its meta; an answer asked over is dropped', (
+      t,
+    ) async {
+      final app = ExplorerApp();
+      await app.pump(t);
+      app.api.metaDelay = const Duration(seconds: 2);
+      // plc1's menu waits for plc1's meta: Actions ▾ spins
+      await t.tapAt(t.getCenter(text('plc1').first), buttons: kSecondaryButton);
+      await t.pump();
+      expect(find.byType(ArcSpinner), findsOneWidget);
+      // tcp's menu is asked before plc1's meta answers
+      await t.tapAt(t.getCenter(text('tcp').first), buttons: kSecondaryButton);
+      await app.settle(t);
+      expect(find.byType(ArcSpinner), findsNothing);
+      expect(find.text('Add device…'), findsOneWidget);
+      expect(find.text('Read registers…'), findsNothing);
+    });
+
     testWidgets('history ranges, audit on a node change', (t) async {
       final app = ExplorerApp();
       await app.pump(t);
@@ -486,7 +505,7 @@ void main() {
         '${(h.last.args! as VMap).v['from']}'.replaceAll('"', ''),
       );
       expect(
-        DateTime.now().toUtc().difference(from).inMinutes,
+        ExplorerApp.now.toUtc().difference(from).inMinutes,
         inInclusiveRange(24 * 60 - 1, 24 * 60 + 1),
       );
       await tab(t, app, 'Audit');

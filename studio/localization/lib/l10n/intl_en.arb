@@ -2124,5 +2124,11 @@
     "historyRange24h": "24 h",
     "historyRange7d": "7 d",
     "factVersionOf": "v{version}",
-    "@factVersionOf": {"placeholders": {"version": {"type": "int"}}}
+    "@factVersionOf": {"placeholders": {"version": {"type": "int"}}},
+    "levelNone": "none",
+    "levelList": "list",
+    "levelRead": "read",
+    "levelWrite": "write",
+    "levelConfig": "config",
+    "flowProblemUnknown": "error"
 }

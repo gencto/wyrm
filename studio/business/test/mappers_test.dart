@@ -85,7 +85,7 @@ void main() {
         ),
       );
 
-      expect(n.type, 'enum');
+      expect(n.type, TypeCode.enum_);
       expect(n.writable, Perm.config);
       expect(n.choices, ['info', 'debug']);
       expect(n.unit, '°C');

@@ -5,8 +5,10 @@ import '../alerts/read_fail.dart';
 import '../containers/action_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/fail_chip.dart';
+import '../indicators/level_badge.dart';
 import '../indicators/sample_mark.dart';
 import '../indicators/status_pill.dart';
+import '../indicators/value_type.dart';
 import '../models/disabled.dart';
 import '../models/tone.dart';
 
@@ -207,6 +209,8 @@ final class ExplorerSubtitleVm extends Equatable {
   final NodeKindTag kind;
   final String? driver;
   final String? deployedBy;
+
+  /// A flow's error; empty when it gives no words of its own.
   final String? problem;
   final String? unit;
   final String? host;
@@ -220,7 +224,8 @@ final class ExplorerSubtitleVm extends Equatable {
   String get text => [
     [?driver, kind.word].join(' '),
     if (deployedBy case final who?) S.current.deployedByWho(who),
-    ?problem,
+    if (problem case final p?)
+      if (p.isEmpty) S.current.flowProblemUnknown else p,
     if (unit case final u?) S.current.unitNumber(u),
     if (host case final h?)
       if (port case final p?) '$h:$p' else h,
@@ -277,7 +282,7 @@ final class ChildRowVm extends Equatable {
   final String key;
   final String name;
   final String? display;
-  final String? type;
+  final ValueType? type;
   final bool writable;
   final NodeKindTag? kind;
 
@@ -396,6 +401,7 @@ enum PointFieldWord {
   scale,
   offset,
   precision,
+  poll,
   writable,
   writableByMaster;
 
@@ -410,6 +416,7 @@ enum PointFieldWord {
     scale => S.current.fieldScale,
     offset => S.current.fieldOffset,
     precision => S.current.fieldPrecision,
+    poll => S.current.colPoll,
     writable => S.current.fieldWritable,
     writableByMaster => S.current.fieldWritableByMaster,
   };
@@ -534,7 +541,8 @@ final class AttributesSectionVm extends ExplorerSectionVm {
 final class DiagnosticsSectionVm extends ExplorerSectionVm {
   const DiagnosticsSectionVm(this.facts);
 
-  final List<(String, String, String)> facts;
+  /// (name, label, value); the value is null with none read (`—`).
+  final List<(String, String, String?)> facts;
 
   @override
   List<Object?> get props => [facts];
@@ -544,11 +552,11 @@ final class DiagnosticsSectionVm extends ExplorerSectionVm {
 final class PointFactsSectionVm extends ExplorerSectionVm {
   const PointFactsSectionVm({this.type, this.unit, this.level});
 
-  final String? type;
+  final ValueType? type;
   final String? unit;
 
   /// The level a set needs; null: read only.
-  final String? level;
+  final AccessLevel? level;
 
   @override
   List<Object?> get props => [type, unit, level];
@@ -607,7 +615,7 @@ final class WriteSectionVm extends ExplorerSectionVm {
 
   final String node;
   final List<ExplorerFieldVm> fields;
-  final String level;
+  final AccessLevel level;
 
   @override
   List<Object?> get props => [node, fields, level];
@@ -624,7 +632,7 @@ final class PublishSectionVm extends ExplorerSectionVm {
     this.time,
   });
 
-  final String? type;
+  final ValueType? type;
   final String? unit;
   final bool writable;
 
@@ -725,7 +733,7 @@ final class ActionInspectorVm extends ExplorerInspectorVm {
 
   /// A `config` action: staged, not run.
   final bool staged;
-  final String level;
+  final AccessLevel level;
   final String? result;
   final List<ParamFieldVm> fields;
   final String cli;
@@ -790,7 +798,7 @@ final class ExplorerMenuItemVm extends Equatable {
 
   final String name;
   final String label;
-  final String level;
+  final AccessLevel level;
 
   /// It opens a form (it has parameters): `…` after its label.
   final bool form;
@@ -838,4 +846,17 @@ final class ExplorerMenuVm extends Equatable {
 
   @override
   List<Object?> get props => [key, name, driver, kind, actions, groups];
+}
+
+/// The parameter [param] of the `edit` of [node] changed to [value]: a
+/// field of the inspector, staged at once.
+final class ParamEdit extends Equatable {
+  const ParamEdit(this.node, this.param, this.value);
+
+  final String node;
+  final String param;
+  final Object? value;
+
+  @override
+  List<Object?> get props => [node, param, value];
 }

@@ -9,7 +9,6 @@ import 'package:models/hist_point.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_state.dart';
 import 'package:models/live_value.dart';
-import 'package:models/modbus_area.dart';
 import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_kind.dart';
@@ -20,7 +19,6 @@ import 'package:models/point_register.dart';
 import 'package:models/quality.dart';
 import 'package:models/read_failure.dart';
 import 'package:models/staged_change.dart';
-import 'package:models/word_order.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm, TypeCode;
 
 import '../redux/app_state.dart';
@@ -28,6 +26,7 @@ import '../redux/nodes/actions/invoke_node_action.dart';
 import '../redux/nodes/actions/stage_point_edit_action.dart';
 import 'decode/decoded.dart';
 import 'decode/live_values.dart';
+import 'decode/point_edit.dart';
 import 'history_steps.dart';
 import 'kinds.dart';
 import 'labels.dart';
@@ -156,10 +155,17 @@ typedef ExplorerSubtitle = ({
 /// (`adding`: `not applied`).
 typedef ExplorerPointRow = ({
   String id,
-  String name,
+
+  /// Null: a point staged to be added with no name given.
+  String? name,
   String? display,
   PointRegister register,
-  String type,
+
+  /// The driver's data type (`f32_wswap`), when it names one.
+  String? dtype,
+
+  /// The value's type.
+  TypeCode? type,
   String? unit,
   num? poll,
 
@@ -186,8 +192,8 @@ typedef ExplorerChildRow = ({
   String name,
   String? display,
 
-  /// A value's type (`number`); null for a node.
-  String? type,
+  /// A value's type; null for a node.
+  TypeCode? type,
   bool writable,
 
   /// A node's kind; null for a value.
@@ -254,15 +260,15 @@ final class AttributesSection extends ExplorerSection {
 final class DiagnosticsSection extends ExplorerSection {
   const DiagnosticsSection(this.facts);
 
-  /// (name, label, value).
-  final List<(String, String, String)> facts;
+  /// (name, label, value); the value is null with none read.
+  final List<(String, String, String?)> facts;
 }
 
 /// A point with no `edit`: its type, unit and level, read only.
 final class PointFactsSection extends ExplorerSection {
   const PointFactsSection({this.type, this.unit, this.writable});
 
-  final String? type;
+  final TypeCode? type;
   final String? unit;
   final Perm? writable;
 }
@@ -319,7 +325,7 @@ final class PublishSection extends ExplorerSection {
     required this.value,
   });
 
-  final String? type;
+  final TypeCode? type;
   final String? unit;
   final bool writable;
   final LiveValue? sample;
@@ -508,6 +514,32 @@ typedef ExplorerTrendSpan = ({
   int windowEnd,
   int minWindow,
   bool following,
+});
+
+/// The point's trend (spec trend.md §4): its rows read for the range and
+/// the range and window over them.
+typedef ExplorerTrend = ({
+  String point,
+  String name,
+  String? display,
+  String? unit,
+
+  /// The point's `cfg.precision`, when it has one.
+  String? precision,
+  IList<HistPoint> rows,
+  ExplorerTrendSpan span,
+  bool loading,
+});
+
+/// The point in the value viewer, live: its key under the site, its sample.
+typedef ExplorerViewer = ({
+  String title,
+  LiveValue? sample,
+  String? unit,
+  List<String> choices,
+
+  /// The site is online: the sample is live, not the last one held.
+  bool connected,
 });
 
 /// Explorer's view of the state.
@@ -792,8 +824,8 @@ extension type ExplorerView(AppState _state) {
     if (v == null) {
       return null;
     }
-    final name = valueText(v.value, choices: choicesOf('$s/status'));
-    return DriverPill(name, DriverStatus.fromName(name));
+    final status = driverStatusSampleOf(v.value, choicesOf('$s/status'));
+    return DriverPill(status.name, status.status);
   }
 
   /// The line under the name.
@@ -885,27 +917,9 @@ extension type ExplorerView(AppState _state) {
   /// the header box).
   List<String> get pointOrder => [for (final p in shownPoints) p.key];
 
-  static PointRegister _registerOf(Map<String, String>? cfg) {
-    if (cfg == null) {
-      return const PointRegister.none();
-    }
-    if (cfg['addr'] case final a?) {
-      final table = cfg['table'];
-      return PointRegister.modbus(
-        addr: a,
-        area: table == null ? null : ModbusArea.fromWire(table),
-        table: table,
-      );
-    }
-    return switch (cfg['address']) {
-      final a? => PointRegister.address(a),
-      null => const PointRegister.none(),
-    };
-  }
-
   /// The register of the point [key] (`HR 10`, `Coil 1`; a `cfg.address`).
   PointRegister registerOf(String key) =>
-      _registerOf(_nodes.detail[key]?.cfg.unlock);
+      pointRegisterOf(_nodes.detail[key]?.cfg.unlock);
 
   num? _seconds(Object? v) => switch (v) {
     final num n => n,
@@ -939,8 +953,9 @@ extension type ExplorerView(AppState _state) {
       id: p.key,
       name: p.name,
       display: p.display ?? d?.display,
-      register: _registerOf(d?.cfg.unlock),
-      type: d?.cfg['dtype'] ?? p.type ?? '—',
+      register: pointRegisterOf(d?.cfg.unlock),
+      dtype: d?.cfg['dtype'],
+      type: p.type,
       unit: switch (p.unit ?? d?.unit ?? d?.cfg['unit']) {
         final u? when u.isNotEmpty => u,
         _ => null,
@@ -964,12 +979,13 @@ extension type ExplorerView(AppState _state) {
   /// A point staged to be added to the device: `not applied`.
   ExplorerPointRow _added(StagedChange c) => (
     id: c.id,
-    name: '${c.args['name'] ?? '—'}',
+    name: _text(c.args['name']),
     display: null,
-    register: _registerOf({
+    register: pointRegisterOf({
       for (final e in c.args.entries) e.key: '${e.value}',
     }),
-    type: '${c.args['dtype'] ?? '—'}',
+    dtype: _text(c.args['dtype']),
+    type: null,
     unit: switch (c.args['unit']) {
       final String u when u.isNotEmpty => u,
       _ => null,
@@ -986,6 +1002,13 @@ extension type ExplorerView(AppState _state) {
     stale: false,
     adding: true,
   );
+
+  /// A staged argument as text; null when it is not given.
+  static String? _text(Object? v) => switch (v) {
+    null => null,
+    final String t => t,
+    final Object o => '$o',
+  };
 
   static PointMark _markOf(LiveValue? v) => switch (v?.quality) {
     null => PointMark.none,
@@ -1032,10 +1055,10 @@ extension type ExplorerView(AppState _state) {
     ];
   }
 
-  /// What ⌘C copies: the value of the point in the inspector.
+  /// What ⌘C copies: the value of the point in the inspector; null with
+  /// no point or no value read.
   String? get pointValue => switch (_nodes.point) {
-    final p? =>
-      valueOf(_state.live.values[p], null, choices: choicesOf(p)) ?? '—',
+    final p? => valueOf(_state.live.values[p], null, choices: choicesOf(p)),
     null => null,
   };
 
@@ -1070,20 +1093,20 @@ extension type ExplorerView(AppState _state) {
 
   // ---- parameters and the inspector --------------------------------------
 
-  /// The fields of [key]'s `edit` [specs], the staged value in place of the
+  /// The fields of [key]'s `edit` [params], the staged value in place of the
   /// current one.
-  List<ExplorerField> _editFields(String key, Iterable<ParamSpec> specs) {
+  List<ExplorerField> _editFields(String key, Iterable<EditParam> params) {
     final staged = _state.changes.table[StagePointEditAction.idOf(key)]?.args;
     return [
-      for (final p in specs)
+      for (final (:spec, :param) in params)
         (
-          id: '$key/${p.name}',
-          code: p.name,
-          param: PointParam.fromWire(p.name),
-          label: labelOf(p.name, display: p.display),
-          spec: p,
-          value: staged?[p.name] ?? p.defaultValue,
-          description: p.description,
+          id: '$key/${spec.name}',
+          code: spec.name,
+          param: param,
+          label: labelOf(spec.name, display: spec.display),
+          spec: spec,
+          value: staged?[spec.name] ?? spec.defaultValue,
+          description: spec.description,
           missing: false,
         ),
     ];
@@ -1122,7 +1145,9 @@ extension type ExplorerView(AppState _state) {
       if (!noParams || kindOf(key) == NodeKind.device)
         ParamsSection(
           key: key,
-          fields: edit == null ? const [] : _editFields(key, edit.params),
+          fields: edit == null
+              ? const []
+              : _editFields(key, editParamsOf(edit)),
           cfg: edit != null
               ? const []
               : [
@@ -1140,7 +1165,7 @@ extension type ExplorerView(AppState _state) {
             (
               n.name,
               labelOf(n.name, display: n.display),
-              valueOf(_state.live.values[n.key], n.unit) ?? '—',
+              valueOf(_state.live.values[n.key], n.unit),
             ),
         ]),
     ];
@@ -1181,42 +1206,41 @@ extension type ExplorerView(AppState _state) {
       ];
     }
     final staged = _state.changes.table[StagePointEditAction.idOf(key)]?.args;
-    final specs = edit.params;
-    final poll = specs.where((p) => p.name == pollParam).firstOrNull;
-    final register = [
-      for (final p in specs)
-        if (PointParam.fromWire(p.name)?.group ?? PointParamGroup.register
-            case PointParamGroup.register when p.name != pollParam)
+    final params = editParamsOf(edit);
+    final poll = params
+        .where((p) => p.param == PointParam.poll)
+        .firstOrNull
+        ?.spec;
+    // A parameter the board does not name goes to Register.
+    final registerFields = _editFields(key, [
+      for (final p in params)
+        if ((p.param?.group ?? PointParamGroup.register) ==
+            PointParamGroup.register)
           p,
-    ];
-    final dtype = '${staged?['dtype'] ?? d?.cfg['dtype'] ?? ''}';
-    final registerFields = _editFields(key, register);
-    if (specs.any((p) => p.name == 'dtype')) {
+    ]);
+    if (params.any((p) => p.param == PointParam.dtype)) {
+      final dtype = '${staged?['dtype'] ?? d?.cfg['dtype'] ?? ''}';
       registerFields.insert(
-        registerFields.indexWhere((f) => f.code == 'dtype') + 1,
-        _missing(key, PointParam.wordOrder, value: WordOrder.of(dtype)),
+        registerFields.indexWhere((f) => f.param == PointParam.dtype) + 1,
+        _missing(key, PointParam.wordOrder, value: wordOrderOf(dtype)),
       );
     }
-    final pollNow = staged?[pollParam] ?? poll?.defaultValue;
+    final pollNow = staged?[PointParam.poll.wire] ?? poll?.defaultValue;
     final pollWas = poll?.defaultValue;
-    final group = [
-      for (final p in specs)
-        if (PointParam.fromWire(p.name) case final q?) (p, q),
-    ];
     return [
       RegisterSection(key, registerFields),
       ValueSection(key, [
         ..._editFields(key, [
-          for (final (p, q) in group)
-            if (q == PointParam.unit || q == PointParam.scale) p,
+          for (final p in params)
+            if (p.param == PointParam.unit || p.param == PointParam.scale) p,
         ]),
-        if (!specs.any((p) => p.name == PointParam.precision.wire))
+        if (!params.any((p) => p.param == PointParam.precision))
           _missing(key, PointParam.precision),
         ..._editFields(key, [
-          for (final (p, q) in group)
-            if (q.group == PointParamGroup.value &&
-                q != PointParam.unit &&
-                q != PointParam.scale)
+          for (final p in params)
+            if (p.param?.group == PointParamGroup.value &&
+                p.param != PointParam.unit &&
+                p.param != PointParam.scale)
               p,
         ]),
       ]),
@@ -1226,14 +1250,14 @@ extension type ExplorerView(AppState _state) {
           now: _seconds(pollNow),
           was: _seconds(pollWas),
           staged:
-              (staged?.containsKey(pollParam) ?? false) &&
+              (staged?.containsKey(PointParam.poll.wire) ?? false) &&
               _seconds(pollNow) != _seconds(pollWas),
         ),
       WriteSection(
         key,
         _editFields(key, [
-          for (final (p, q) in group)
-            if (q.group == PointParamGroup.write) p,
+          for (final p in params)
+            if (p.param?.group == PointParamGroup.write) p,
         ]),
         edit.level,
       ),
@@ -1270,7 +1294,6 @@ extension type ExplorerView(AppState _state) {
       final writable = pd?.writable ?? info?.writable;
       final choices = choicesOf(point);
       final type = pd?.type ?? info?.type;
-      final code = type == null ? null : TypeCode.fromWire(type);
       return PointInspector(
         key: point,
         name: point.split('/').last,
@@ -1286,8 +1309,8 @@ extension type ExplorerView(AppState _state) {
         sections: pointSections(point),
         edit: writable == null
             ? null
-            : switch (code) {
-                TypeCode.bool_ || TypeCode.number => code,
+            : switch (type) {
+                TypeCode.bool_ || TypeCode.number => type,
                 _ when choices.isNotEmpty => TypeCode.enum_,
                 _ => TypeCode.string,
               },
@@ -1483,8 +1506,42 @@ extension type ExplorerView(AppState _state) {
     );
   }
 
-  /// The rows of the trend (as read).
-  IList<HistPoint> get trendRows => _nodes.history;
+  /// The trend of the point whose history is on screen; null with none.
+  ExplorerTrend? get trend {
+    final point = _nodes.point;
+    if (point == null || _nodes.historyKey != point) {
+      return null;
+    }
+    final info = _nodes.table[point];
+    final detail = _nodes.detail[point];
+    final rows = _nodes.history;
+    return (
+      point: point,
+      name: point.split('/').last,
+      display: info?.display,
+      unit: detail?.unit ?? info?.unit,
+      precision: detail?.cfg['precision'],
+      rows: rows,
+      span: trendSpan,
+      loading: rows.isEmpty && _nodes.historyLoading,
+    );
+  }
+
+  /// The point in the value viewer (owner request 2026-11-09); null when
+  /// none is open.
+  ExplorerViewer? get viewer {
+    final key = _nodes.viewedPoint;
+    if (key == null) {
+      return null;
+    }
+    return (
+      title: key.startsWith('$root/') ? key.substring(root.length + 1) : key,
+      sample: _state.live.values[key],
+      unit: _nodes.detail[key]?.unit ?? _nodes.table[key]?.unit,
+      choices: choicesOf(key),
+      connected: _site.connected,
+    );
+  }
 
   /// The user may read the site's audit (`config` on `sys/audit`).
   bool get canAudit => _site.can(Perm.config.wire, '$root/sys/audit');

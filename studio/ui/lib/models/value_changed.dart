@@ -43,10 +43,6 @@ typedef RangeChanged<T> = void Function(T start, T end);
 /// row)`), a field of a node. The row is named by its id.
 typedef RowAction<O, R> = void Function(O owner, R row);
 
-/// The parameter [param] of the `edit` of [node] was changed to [value]:
-/// a field of the inspector, staged at once.
-typedef ParamEdited = void Function(String node, String param, Object? value);
-
 /// [item] asks for its menu at [at] (global): a tree row's `⋯`, a right
 /// click.
 typedef ItemAt<T> = void Function(T item, Offset at);

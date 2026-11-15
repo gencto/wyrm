@@ -1565,12 +1565,12 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             key: key,
             root: root,
             profile: info?.profile,
-            type: info?.type,
+            value: info?.type != null,
           ),
           hasChildren: opens,
           expanded: open,
           marked: used.contains(key),
-          tag: typed ? AppIcon.typeTag(info!.type) : null,
+          tag: typed ? AppIcon.typeTag(info!.type?.wire) : null,
           drag: typed ? 'key:$key' : null,
           value: !typed
               ? null

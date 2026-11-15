@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/sample_mark.dart';
+import '../indicators/value_type.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -81,11 +82,12 @@ final class NoRegisterVm extends RegisterVm {
 final class PointRowVm extends Equatable {
   const PointRowVm({
     required this.id,
-    required this.name,
     required this.mark,
+    this.name,
     this.display,
     this.register = const NoRegisterVm(),
-    this.type = '—',
+    this.dtype,
+    this.type,
     this.unit,
     this.poll,
     this.pollWas,
@@ -100,10 +102,15 @@ final class PointRowVm extends Equatable {
 
   /// The point's key.
   final String id;
-  final String name;
+
+  /// Null: a point staged with no name yet (`—`).
+  final String? name;
   final String? display;
   final RegisterVm register;
-  final String type;
+
+  /// The driver's data type (`f32_wswap`), shown before the value's type.
+  final String? dtype;
+  final ValueType? type;
   final String? unit;
 
   /// The poll rate in seconds; the staged one when [pollWas] is set.
@@ -135,6 +142,7 @@ final class PointRowVm extends Equatable {
     name,
     display,
     register,
+    dtype,
     type,
     unit,
     poll,
@@ -332,7 +340,7 @@ class PointsTable extends StatelessWidget {
                     padding: const EdgeInsets.only(right: AppSpacing.sm),
                     child: Text.rich(
                       TextSpan(
-                        text: r.name,
+                        text: r.name ?? '—',
                         style: mono(color: c.text1),
                         children: [
                           if (r.display case final d?)
@@ -367,7 +375,7 @@ class PointsTable extends StatelessWidget {
               style: mono(color: c.text2),
             ),
             Text(
-              r.type,
+              r.dtype ?? r.type?.word ?? '—',
               maxLines: 1,
               overflow: .ellipsis,
               style: mono(color: c.text3),

@@ -16,6 +16,7 @@ import '../containers/side_panels.dart';
 import '../forms/action_form.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../indicators/arc_spinner.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/key_line.dart';
 import '../indicators/key_text.dart';
@@ -24,6 +25,7 @@ import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../models/disabled.dart';
 import '../models/panels.dart';
+import '../models/submit.dart';
 import '../models/value_changed.dart';
 import '../overlays/log_view.dart';
 import '../overlays/node_menu.dart';
@@ -59,6 +61,7 @@ class ExplorerPage extends StatefulWidget {
     required this.onTapFlowEditor,
     this.onOpenMenu,
     this.menu,
+    this.menuOpening = false,
     this.onMenuShown,
     this.onMenuPick,
     this.onMark,
@@ -114,10 +117,9 @@ class ExplorerPage extends StatefulWidget {
     this.auditRows = const [],
     this.auditNote,
     this.inspector,
-    this.onSubmit,
+    this.submit,
     this.onReadAgain,
     this.onCloseInspector,
-    this.busy = false,
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
     this.viewer,
@@ -140,6 +142,9 @@ class ExplorerPage extends StatefulWidget {
 
   /// The node menu to show, once its node's `~meta` is read.
   final ExplorerMenuVm? menu;
+
+  /// A node menu waits for its node's `~meta`: Actions ▾ spins.
+  final bool menuOpening;
 
   /// The page took [menu] to show it.
   final VoidCallback? onMenuShown;
@@ -234,7 +239,7 @@ class ExplorerPage extends StatefulWidget {
   final List<ExplorerSectionVm> params;
 
   /// A field of a node's or a point's `edit` was changed: it is staged.
-  final ParamEdited? onParam;
+  final ValueChanged<ParamEdit>? onParam;
 
   final List<ActionCardGroupVm> actionGroups;
   final ValueChanged<String>? onAction;
@@ -264,7 +269,9 @@ class ExplorerPage extends StatefulWidget {
   final AuditNote? auditNote;
 
   final ExplorerInspectorVm? inspector;
-  final FormSubmit? onSubmit;
+
+  /// The inspector's form: Stage, Run now, a new value.
+  final SubmitVm? submit;
 
   /// `Read again` in the inspector's `read failed` mark: the key of the
   /// node whose reads failed.
@@ -273,7 +280,6 @@ class ExplorerPage extends StatefulWidget {
   /// Closes an action's form (the point and node inspectors have no close:
   /// they are part of the layout).
   final VoidCallback? onCloseInspector;
-  final bool busy;
 
   /// The tree and inspector widths the viewer chose (§1).
   final SidePanelWidths panels;
@@ -405,7 +411,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                 id: i.name,
                 label: '${i.label}${i.form ? '…' : ''}',
                 code: i.name,
-                level: i.level,
+                level: i.level.label,
                 danger: i.danger,
                 disabled: i.disabled,
               ),
@@ -577,7 +583,9 @@ class _ExplorerPageState extends State<ExplorerPage> {
               : value == null
               ? S.current.noParamReason(label.toLowerCase())
               : S.current.wordOrderReason),
-      onChanged: f.missing ? (_) {} : (v) => _w.onParam?.call(node, f.code, v),
+      onChanged: f.missing
+          ? (_) {}
+          : (v) => _w.onParam?.call(ParamEdit(node, f.code, v)),
     );
   }
 
@@ -606,7 +614,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
             mono: true,
           ),
         if (s.problem case final p?)
-          FactVm(label: S.current.factProblem, value: p),
+          FactVm(
+            label: S.current.factProblem,
+            value: p.isEmpty ? S.current.flowProblemUnknown : p,
+          ),
       ],
     ),
     ParamsSectionVm() => InspectorSectionVm(
@@ -628,15 +639,22 @@ class _ExplorerPageState extends State<ExplorerPage> {
       label: S.current.secDiagnostics,
       facts: [
         for (final (code, label, value) in s.facts)
-          FactVm(label: label, code: code, value: value, mono: true),
+          FactVm(label: label, code: code, value: value ?? '—', mono: true),
       ],
     ),
     PointFactsSectionVm() => InspectorSectionVm(
       label: S.current.secValue,
       facts: [
-        FactVm(label: S.current.colType, value: s.type ?? '—', mono: true),
+        FactVm(
+          label: S.current.colType,
+          value: s.type?.word ?? '—',
+          mono: true,
+        ),
         FactVm(label: S.current.colUnit, value: s.unit ?? '—'),
-        FactVm(label: S.current.colWrite, value: s.level ?? S.current.pointR),
+        FactVm(
+          label: S.current.colWrite,
+          value: s.level?.label ?? S.current.pointR,
+        ),
       ],
       text: S.current.noEditReason,
     ),
@@ -658,7 +676,8 @@ class _ExplorerPageState extends State<ExplorerPage> {
         note: s.staged ? S.current.stagedWas(rate(s.was)) : null,
         segments: [for (final r in s.rates) rate(r)],
         segment: i < 0 ? null : i,
-        onSegment: (i) => _w.onParam?.call(s.node, s.code, s.rates[i]),
+        onSegment: (i) =>
+            _w.onParam?.call(ParamEdit(s.node, s.code, s.rates[i])),
       );
     }(),
     WriteSectionVm() => InspectorSectionVm(
@@ -669,7 +688,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
             s.node,
             f,
             description: f.kind == .toggle
-                ? S.current.writableNeeds(s.level)
+                ? S.current.writableNeeds(s.level.label)
                 : null,
           ),
       ],
@@ -679,7 +698,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
       code: [
         (
           '~meta',
-          '{type: ${s.type ?? '—'}'
+          '{type: ${s.type?.word ?? '—'}'
               '${s.unit == null ? '' : ', unit: ${s.unit}'}, '
               'writable: ${s.writable}}',
         ),
@@ -932,7 +951,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   CellVm(
                     title: switch ((k.type, k.kind)) {
                       (final t?, _) => [
-                        t,
+                        t.word,
                         if (k.writable) S.current.pointRw,
                       ].join(' · '),
                       (null, final kind?) => kind.word,
@@ -1402,9 +1421,9 @@ class _ExplorerPageState extends State<ExplorerPage> {
                   ),
                 ],
                 submit: S.current.stage,
-                busy: _w.busy,
+                busy: _w.submit?.busy ?? false,
                 disabledReason: ins.readOnly?.text,
-                onSubmit: _w.onSubmit ?? (_) => null,
+                onSubmit: _w.submit?.onSubmit ?? (_) => null,
               ),
             ],
           ],
@@ -1426,7 +1445,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
               children: [
                 for (final t in [
                   if (ins.staged) S.current.tagStaged else S.current.tagRunsNow,
-                  S.current.tagNeeds(ins.level),
+                  S.current.tagNeeds(ins.level.label),
                   if (ins.result case final r?) S.current.returns(r),
                 ])
                   Container(
@@ -1452,9 +1471,9 @@ class _ExplorerPageState extends State<ExplorerPage> {
               key: ValueKey(ins.id),
               fields: ins.fields,
               submit: ins.staged ? S.current.stage : S.current.runNow,
-              busy: _w.busy,
+              busy: _w.submit?.busy ?? false,
               disabledReason: ins.disabled?.text,
-              onSubmit: _w.onSubmit ?? (_) => null,
+              onSubmit: _w.submit?.onSubmit ?? (_) => null,
             ),
             Text(
               ins.staged
@@ -1534,7 +1553,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
               label,
               style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
             ),
-            AppIcon('ui_chevron_down', size: 14, color: c.text1),
+            if (_w.menuOpening)
+              ArcSpinner(color: c.text1, size: 14)
+            else
+              AppIcon('ui_chevron_down', size: 14, color: c.text1),
           ],
         ),
       ),

@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$NodeDetail {
 
- String get key; String? get display; String? get profile; String? get type; String? get unit;/// The level a set needs; null when the value cannot be set.
+ String get key; String? get display; String? get profile; TypeCode? get type; String? get unit;/// The level a set needs; null when the value cannot be set.
  Perm? get writable; String? get invokable; IList<String> get choices; IList<ActionInfo> get actions;/// `cfg` and `attr`, each value as text.
  IMap<String, String> get cfg; IMap<String, String> get attr; bool get hasOverride; bool get hasHistory; int? get rev;
 /// Create a copy of NodeDetail
@@ -53,7 +53,7 @@ abstract mixin class $NodeDetailCopyWith<$Res>  {
   factory $NodeDetailCopyWith(NodeDetail value, $Res Function(NodeDetail) _then) = _$NodeDetailCopyWithImpl;
 @useResult
 $Res call({
- String key, String? display, String? profile, String? type, String? unit, Perm? writable, String? invokable, IList<String> choices, IList<ActionInfo> actions, IMap<String, String> cfg, IMap<String, String> attr, bool hasOverride, bool hasHistory, int? rev
+ String key, String? display, String? profile, TypeCode? type, String? unit, Perm? writable, String? invokable, IList<String> choices, IList<ActionInfo> actions, IMap<String, String> cfg, IMap<String, String> attr, bool hasOverride, bool hasHistory, int? rev
 });
 
 
@@ -76,7 +76,7 @@ key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
 as String?,type: freezed == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String?,unit: freezed == unit ? _self.unit : unit // ignore: cast_nullable_to_non_nullable
+as TypeCode?,unit: freezed == unit ? _self.unit : unit // ignore: cast_nullable_to_non_nullable
 as String?,writable: freezed == writable ? _self.writable : writable // ignore: cast_nullable_to_non_nullable
 as Perm?,invokable: freezed == invokable ? _self.invokable : invokable // ignore: cast_nullable_to_non_nullable
 as String?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable
@@ -104,7 +104,7 @@ class _NodeDetail implements NodeDetail {
 @override final  String key;
 @override final  String? display;
 @override final  String? profile;
-@override final  String? type;
+@override final  TypeCode? type;
 @override final  String? unit;
 /// The level a set needs; null when the value cannot be set.
 @override final  Perm? writable;
@@ -150,7 +150,7 @@ abstract mixin class _$NodeDetailCopyWith<$Res> implements $NodeDetailCopyWith<$
   factory _$NodeDetailCopyWith(_NodeDetail value, $Res Function(_NodeDetail) _then) = __$NodeDetailCopyWithImpl;
 @override @useResult
 $Res call({
- String key, String? display, String? profile, String? type, String? unit, Perm? writable, String? invokable, IList<String> choices, IList<ActionInfo> actions, IMap<String, String> cfg, IMap<String, String> attr, bool hasOverride, bool hasHistory, int? rev
+ String key, String? display, String? profile, TypeCode? type, String? unit, Perm? writable, String? invokable, IList<String> choices, IList<ActionInfo> actions, IMap<String, String> cfg, IMap<String, String> attr, bool hasOverride, bool hasHistory, int? rev
 });
 
 
@@ -173,7 +173,7 @@ key: null == key ? _self.key : key // ignore: cast_nullable_to_non_nullable
 as String,display: freezed == display ? _self.display : display // ignore: cast_nullable_to_non_nullable
 as String?,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
 as String?,type: freezed == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
-as String?,unit: freezed == unit ? _self.unit : unit // ignore: cast_nullable_to_non_nullable
+as TypeCode?,unit: freezed == unit ? _self.unit : unit // ignore: cast_nullable_to_non_nullable
 as String?,writable: freezed == writable ? _self.writable : writable // ignore: cast_nullable_to_non_nullable
 as Perm?,invokable: freezed == invokable ? _self.invokable : invokable // ignore: cast_nullable_to_non_nullable
 as String?,choices: null == choices ? _self.choices : choices // ignore: cast_nullable_to_non_nullable

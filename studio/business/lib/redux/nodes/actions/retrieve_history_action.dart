@@ -1,5 +1,4 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/history_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/hist_point.dart';
@@ -8,17 +7,14 @@ import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../problems/actions/add_problem_action.dart';
 
-/// Reads the recorded values of the point [key] over [range] (by default
-/// `nodes.historyRange`) into `nodes.history`. A point nobody records
+/// Reads the recorded values of the point [key] over `nodes.historyRange`
+/// into `nodes.history`. A point nobody records
 /// answers no rows (a watch in `sys/history` records it).
 class RetrieveHistoryAction extends Action with WaitingAction {
-  RetrieveHistoryAction(this.key, {this.limit = 2000, this.range});
+  RetrieveHistoryAction(this.key, {this.limit = 2000});
 
   final String key;
   final int limit;
-
-  /// The span read; null: the one on screen.
-  final HistoryRange? range;
 
   /// History's ranges by name (`historian.range`): `1h` → one hour, `24h`,
   /// `7d`, `15m`.
@@ -33,9 +29,7 @@ class RetrieveHistoryAction extends Action with WaitingAction {
 
   @override
   Future<AppState> reduce() async {
-    final from = DateTime.now().toUtc().subtract(
-      (range ?? nodes.historyRange).span,
-    );
+    final from = deps.clock().toUtc().subtract(nodes.historyRange.span);
     List<HistRow> rows;
     String? failed;
     try {
@@ -54,14 +48,14 @@ class RetrieveHistoryAction extends Action with WaitingAction {
         AddProblemAction(
           refusalOf(e, key: key, call: 'history').copyWith(
             quiet: true,
-            retry: () => RetrieveHistoryAction(key, limit: limit, range: range),
+            retry: () => RetrieveHistoryAction(key, limit: limit),
           ),
         ),
       );
     }
     return state.copyWith.nodes(
       historyKey: key,
-      historyAt: DateTime.now().toUtc(),
+      historyAt: deps.clock().toUtc(),
       // Another point starts on its whole range.
       historyWindow: key == nodes.historyKey ? nodes.historyWindow : null,
       historyFailed: failed,

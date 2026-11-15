@@ -17,9 +17,7 @@ class StageValueAction extends Action {
 
   /// The value as the inspector's form gives it: an enum by its name
   /// (staged as its index), the change's `from` the value read now.
-  StageValueAction.entered(this.key, this._value)
-    : was = null,
-      _entered = true;
+  StageValueAction.entered(this.key, this._value) : was = null, _entered = true;
 
   final String key;
   final Object? _value;

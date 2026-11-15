@@ -600,8 +600,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
           case 'trend':
             if (_touched(task).lastOrNull case final key?) {
               dispatchSync(SetDrawerAction(open: false));
-              dispatchSync(OpenTrendAction(key));
               dispatchSync(GoAction.navigate(const ExplorerRoute()));
+              await dispatchAndWait(OpenTrendAction(key));
             }
           case 'second':
             final s = task == null ? null : _second(task);
@@ -632,8 +632,8 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
             }
           case 'explorer':
             if (_node(task) case final node?) {
-              dispatchSync(SelectNodeAction(node));
               dispatchSync(GoAction.navigate(const ExplorerRoute()));
+              await dispatchAndWait(SelectNodeAction(node));
             }
           case 'save':
             if (task != null) {
@@ -1508,7 +1508,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
         key: k,
         root: root,
         profile: nodes.table[k]?.profile,
-        type: nodes.table[k]?.type,
+        value: nodes.table[k]?.type != null,
       ),
       detail: detail ?? _short(k),
     );

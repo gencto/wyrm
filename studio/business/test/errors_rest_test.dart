@@ -55,7 +55,7 @@ void main() {
     test('a list that fails marks the node and is a quiet problem with '
         'Try again; the list answering clears the mark', () async {
       api.metas[dev] = NodeMeta();
-      s.dispatchSync(SelectNodeAction(dev));
+      await s.dispatchAndWait(SelectNodeAction(dev));
       await Future<void>.delayed(Duration.zero);
       api.lists[dev]!.addError(WyrmException.of(Status.timeout, 'slow'));
       await Future<void>.delayed(Duration.zero);
@@ -79,7 +79,7 @@ void main() {
 
     test('a node the user may not list is empty, without a mark', () async {
       api.metas[dev] = NodeMeta();
-      s.dispatchSync(SelectNodeAction(dev));
+      await s.dispatchAndWait(SelectNodeAction(dev));
       await Future<void>.delayed(Duration.zero);
       api.lists[dev]!.addError(WyrmException.of(Status.permissionDenied, ''));
       await Future<void>.delayed(Duration.zero);
@@ -90,7 +90,7 @@ void main() {
     test('the meta of the selected node: no dialog, the mark, a toast; '
         'Read again reads it and clears the mark', () async {
       api.errors[dev] = WyrmException.of(Status.notAvailable, 'link is down');
-      s.dispatchSync(SelectNodeAction(dev));
+      await s.dispatchAndWait(SelectNodeAction(dev));
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
@@ -102,7 +102,7 @@ void main() {
 
       api.errors.remove(dev);
       api.metas[dev] = NodeMeta();
-      s.dispatchSync(RetryReadAction(dev));
+      await s.dispatchAndWait(RetryReadAction(dev));
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
@@ -133,7 +133,7 @@ void main() {
       );
 
       final before = _count(api, 'subscribe', key);
-      s.dispatchSync(RetryReadAction(key));
+      await s.dispatchAndWait(RetryReadAction(key));
       expect(_count(api, 'subscribe', key), before + 1);
 
       api.subs[key]!.add(
@@ -143,9 +143,9 @@ void main() {
       expect(s.state.live.failed, isEmpty);
     });
 
-    test('Read again on a node with no failed read does nothing', () {
+    test('Read again on a node with no failed read does nothing', () async {
       final before = api.calls.length;
-      s.dispatchSync(RetryReadAction(dev));
+      await s.dispatchAndWait(RetryReadAction(dev));
       expect(api.calls.length, before);
     });
   });

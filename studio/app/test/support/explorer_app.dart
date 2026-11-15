@@ -59,6 +59,7 @@ class ExplorerApp {
         InMemoryKeyValueStorage(),
         login: login,
         deviceKey: FakeDeviceKey(availability: DeviceKeyAvailability.none),
+        clock: () => now,
       ),
     );
     _broker();
@@ -73,6 +74,11 @@ class ExplorerApp {
   static const alarm = '$dev/alarm';
   static const flow = '$root/dataflows/tank';
   static const folder = '$root/storage/notes';
+
+  /// The time now, as the store's clock gives it: the newest history row
+  /// (11:59:30, local), so a history read ends there on every machine and
+  /// in every zone.
+  static final now = DateTime(2026, 11, 15, 11, 59, 30);
 
   /// When the points were last read: 12:00:03, local.
   static final at = DateTime(2026, 11, 15, 12, 0, 3);
@@ -268,14 +274,18 @@ class ExplorerApp {
     const NodeInfo(
       key: '$conn/status',
       name: 'status',
-      type: 'enum',
+      type: TypeCode.enum_,
       choices: IListConst(['connected', 'connecting', 'failed']),
     ),
-    const NodeInfo(key: '$conn/requests', name: 'requests', type: 'number'),
+    const NodeInfo(
+      key: '$conn/requests',
+      name: 'requests',
+      type: TypeCode.number,
+    ),
     const NodeInfo(
       key: '$conn/mirror',
       name: 'mirror',
-      type: 'number',
+      type: TypeCode.number,
       unit: 'bar',
       display: 'Mirrored pressure',
       writable: Perm.write,
@@ -291,7 +301,7 @@ class ExplorerApp {
       key: temp,
       name: 'temp',
       display: 'Boiler temperature',
-      type: 'number',
+      type: TypeCode.number,
       unit: '°C',
       writable: Perm.write,
       hasHistory: true,
@@ -299,11 +309,11 @@ class ExplorerApp {
     const NodeInfo(
       key: mode,
       name: 'mode',
-      type: 'enum',
+      type: TypeCode.enum_,
       choices: IListConst(['auto', 'manual']),
     ),
-    const NodeInfo(key: alarm, name: 'alarm', type: 'bool'),
-    const NodeInfo(key: '$dev/status', name: 'status', type: 'string'),
+    const NodeInfo(key: alarm, name: 'alarm', type: TypeCode.bool_),
+    const NodeInfo(key: '$dev/status', name: 'status', type: TypeCode.string),
     const NodeInfo(
       key: '$root/downstream/opc',
       name: 'opc',

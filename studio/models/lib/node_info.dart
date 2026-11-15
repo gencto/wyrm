@@ -1,6 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:wyrm_core/wyrm_core.dart' show Perm;
+import 'package:wyrm_core/wyrm_core.dart' show Perm, TypeCode;
 
 part 'node_info.freezed.dart';
 
@@ -16,7 +16,7 @@ abstract class NodeInfo with _$NodeInfo {
     String? display,
 
     /// TypeCode name (`number`, `bool`, `string`, …); null for a node.
-    String? type,
+    TypeCode? type,
     String? unit,
 
     /// The level a set needs (`write` or `config`); null when the value

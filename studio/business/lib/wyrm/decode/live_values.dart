@@ -1,6 +1,8 @@
+import 'package:models/driver_status.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/link_state.dart';
 
+import '../mappers/value_text.dart';
 import 'decoded.dart';
 
 // Live samples as Explorer reads them. `LiveValue.value` holds a sample as
@@ -28,8 +30,9 @@ Decoded<bool> brokerConnectedOf(Object? v) => switch (v) {
 
 /// A flow's `~val` (`{state, error, version, deployed_by, since}`) as a
 /// [FlowSummary] of the flow [id]: state 0 runs, 2 is an error (its
-/// `error`, else `error`), no state is a draft never deployed; no value at
-/// all is one too. `since` is µs since the epoch.
+/// `error` as the problem, empty when it gives none: `ui` words that), no
+/// state is a draft never deployed; no value at all is one too. `since` is
+/// µs since the epoch.
 Decoded<FlowSummary> flowSampleOf(
   String id,
   Object? v, {
@@ -60,8 +63,8 @@ Decoded<FlowSummary> flowSampleOf(
       },
       problem: state == 2
           ? switch (m['error']) {
-              final String e when e.isNotEmpty => e,
-              _ => 'error',
+              final String e => e,
+              _ => '',
             }
           : null,
       draft: state == null,
@@ -72,4 +75,15 @@ Decoded<FlowSummary> flowSampleOf(
           : DateTime.fromMicrosecondsSinceEpoch(since, isUtc: true),
     ),
   );
+}
+
+/// A connection's or a device's framework `status` (ADR 0004): an index
+/// into [choices] (its enum names) or a name. The name is the driver's own
+/// word, kept as it is; the state is the one this client knows by it.
+({String name, DriverStatus? status}) driverStatusSampleOf(
+  Object? v,
+  List<String> choices,
+) {
+  final name = valueText(v, choices: choices);
+  return (name: name, status: DriverStatus.fromName(name));
 }

@@ -45,11 +45,9 @@ import 'package:ui/forms/action_form.dart';
 import 'package:ui/indicators/app_icon.dart';
 import 'package:ui/indicators/fail_chip.dart';
 import 'package:ui/indicators/node_state.dart';
-import 'package:ui/indicators/sample_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
 import 'package:ui/models/disabled.dart';
-import 'package:ui/models/panels.dart';
-import 'package:ui/models/value_changed.dart';
+import 'package:ui/models/submit.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/tables/points_table.dart';
@@ -58,7 +56,6 @@ import 'package:ui/trees/tree_row.dart';
 import '../common/forms.dart';
 import '../common/side_panels.dart';
 import '../common/tab_visibility.dart';
-import '../common/trend.dart';
 import '../common/value_viewer.dart';
 import '../mappers/explorer_mappers.dart';
 import '../navigation/app_router.dart';
@@ -101,6 +98,7 @@ class ExplorerPageConnector extends StatelessWidget {
         onMarkRange: vm.onMarkRange,
         onOpenMenu: vm.onOpenMenu,
         menu: vm.menu,
+        menuOpening: vm.menuOpening,
         onMenuShown: vm.onMenuShown,
         onMenuPick: vm.onMenuPick,
         keyName: vm.keyName,
@@ -146,7 +144,7 @@ class ExplorerPageConnector extends StatelessWidget {
         range: vm.range,
         onHistoryRange: vm.onHistoryRange,
         trend: vm.trend,
-        onTrendWindow: vm.onTrendWindow,
+        onTrendWindow: (a, b) => vm.onTrendWindow((start: a, end: b)),
         onTrendReset: vm.onTrendReset,
         historyRows: vm.historyRows,
         historyNoPoint: vm.historyNoPoint,
@@ -154,12 +152,11 @@ class ExplorerPageConnector extends StatelessWidget {
         auditRows: vm.auditRows,
         auditNote: vm.auditNote,
         inspector: vm.inspector,
-        busy: vm.busy,
-        onSubmit: vm.onSubmit,
+        submit: vm.submit,
         onReadAgain: vm.onReadAgain,
         onCloseInspector: vm.onCloseInspector,
         panels: vm.panelWidths,
-        onPanelWidth: vm.onPanelWidth,
+        onPanelWidth: (side, w) => vm.onPanelWidth((side: side, width: w)),
         viewer: vm.viewer,
         viewerTables: viewerTables,
         onViewPoint: vm.onViewPoint,
@@ -287,7 +284,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
                   ActionCardVm(
                     id: c.action.name,
                     title: c.title,
-                    level: c.action.level.wire,
+                    level: c.action.level.access,
                     params: c.action.params.length,
                     result: c.action.result,
                     selected: c.selected,
@@ -307,7 +304,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         null => null,
       },
       range: nodes.historyRange.tag,
-      trend: history == null ? null : _trend(x, history.point),
+      trend: x.trend?.vm,
       historyRows: [
         for (final h in history?.rows ?? const <ExplorerHistoryRow>[])
           HistoryRowVm(time: h.time, value: h.value, mark: h.quality?.sample),
@@ -331,13 +328,17 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       copyKeys: x.copyKeys,
       pointValue: x.pointValue,
       menu: x.menu?.vm,
-      busy: nodes.isWaiting || changes.isWaiting,
+      menuOpening: nodes.menuOpening,
+      submit: SubmitVm(
+        busy: nodes.isWaiting || changes.isWaiting,
+        onSubmit: (values) => _submit(x.submit, values),
+      ),
       assistantOpen: assistant.drawer,
       panelWidths: WorkspacePanels.explorer.widths(panels.widths),
-      viewer: _pointViewer(x),
-      onShow: () => dispatchSync(ShowExplorerAction()),
+      viewer: x.viewer?.vm,
+      onShow: () => dispatch(ShowExplorerAction()),
       onHide: () => dispatchSync(HideExplorerAction()),
-      onSelect: (k) => dispatchSync(SelectNodeAction(k)),
+      onSelect: (k) => dispatch(SelectNodeAction(k)),
       onToggle: (k) => dispatchSync(ToggleNodeAction(k)),
       onMark: (k) => dispatchSync(MarkNodesAction.toggle(k)),
       onMarkRange: (k) => dispatchSync(MarkNodesAction.range(k, x.treeOrder)),
@@ -347,7 +348,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       onOpenMenu: (k) => dispatch(OpenNodeMenuAction(k)),
       onMenuShown: () => dispatchSync(CloseNodeMenuAction()),
       onMenuPick: (a) => dispatchSync(PickNodeActionAction(a)),
-      onPoint: (k) => dispatchSync(SelectPointAction.toggle(k)),
+      onPoint: (k) => dispatch(SelectPointAction.toggle(k)),
       onCheck: (k) => dispatchSync(CheckPointsAction.toggle(k)),
       onRange: (k) => dispatchSync(CheckPointsAction.range(k, x.pointOrder)),
       onCheckAll: () => dispatchSync(CheckPointsAction.all(x.pointOrder)),
@@ -358,20 +359,19 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         null => null,
       },
       onToggleAssistant: () => dispatchSync(SetDrawerAction.toggle()),
-      onTab: (t) => dispatchSync(OpenExplorerTabAction(t.tab)),
+      onTab: (t) => dispatch(OpenExplorerTabAction(t.tab)),
       onAction: (a) => dispatchSync(SetActionAction(a)),
-      onHistoryRange: (r) => dispatchSync(PickHistoryRangeAction(r.range)),
-      onTrendWindow: (a, b) => dispatchSync(ZoomHistoryAction(a, b)),
+      onHistoryRange: (r) => dispatch(PickHistoryRangeAction(r.range)),
+      onTrendWindow: (w) => dispatchSync(ZoomHistoryAction(w.start, w.end)),
       onTrendReset: () => dispatchSync(SetHistoryWindowAction(null)),
       onCloseInspector: () => dispatchSync(SetActionAction(null)),
-      onSubmit: (values) => _submit(x.submit, values),
-      onReadAgain: (key) => dispatchSync(RetryReadAction(key)),
+      onReadAgain: (key) => dispatch(RetryReadAction(key)),
       onTool: (t) => _onTool(x, t),
       onSetPoll: (s) => dispatchSync(StagePollAction(s)),
-      onParam: (key, param, v) =>
-          dispatchSync(StagePointEditAction(key, param, v)),
-      onPanelWidth: (side, w) => dispatchSync(
-        SetPanelWidthAction(WorkspacePanels.explorer.slot(side), w),
+      onParam: (e) =>
+          dispatchSync(StagePointEditAction(e.node, e.param, e.value)),
+      onPanelWidth: (p) => dispatchSync(
+        SetPanelWidthAction(WorkspacePanels.explorer.slot(p.side), p.width),
       ),
       onTapFlowEditor: (id) => dispatch(GoAction.push(FlowEditorRoute(id: id))),
       onViewPoint: switch (point) {
@@ -391,7 +391,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       key: r.key,
       root: explorer.root,
       profile: r.info?.profile,
-      type: r.info?.type,
+      value: r.info?.type != null,
     ),
     hasChildren: r.section || (r.info?.hasChildren ?? false),
     expanded: r.open,
@@ -485,67 +485,6 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         return null;
     }
   }
-
-  /// The point's trend (spec trend.md §4): one series of the raw rows read
-  /// for the range (≤ 2000), zoomed on them without reading again.
-  TrendVm _trend(ExplorerView x, String point) {
-    final span = x.trendSpan;
-    final info = nodes.table[point];
-    final rows = x.trendRows;
-    final detail = nodes.detail[point];
-    return TrendVm(
-      title: info?.display ?? point.split('/').last,
-      series: [
-        TrendSeriesVm(
-          id: point,
-          name: point.split('/').last,
-          label: info?.display ?? '',
-          color: TrendColor.byIndex(0),
-          unit: detail?.unit ?? info?.unit ?? '',
-          decimals: trendDecimals(rows, precision: detail?.cfg['precision']),
-          samples: trendSamples(rows),
-          overview: trendSamples(rows),
-        ),
-      ],
-      rangeStart: span.rangeStart,
-      rangeEnd: span.rangeEnd,
-      windowStart: span.windowStart,
-      windowEnd: span.windowEnd,
-      rollup: rollupText(null),
-      minWindow: span.minWindow,
-      endsNow: true,
-      following: span.following,
-      loading: rows.isEmpty && nodes.historyLoading,
-      card: false,
-      hint: false,
-      plotHeight: 180,
-      format: trendFormat(),
-    );
-  }
-
-  /// The viewer of the point `nodes.viewedPoint`, live (owner request
-  /// 2026-11-09): titled by its key under the site, its value whole with
-  /// unit and quality.
-  ValueViewerVm? _pointViewer(ExplorerView x) {
-    final key = nodes.viewedPoint;
-    if (key == null) {
-      return null;
-    }
-    final v = live.values[key];
-    final root = x.root;
-    return valueViewerOf(
-      title: key.startsWith('$root/') ? key.substring(root.length + 1) : key,
-      value: v?.value,
-      known: v != null,
-      unit: nodes.detail[key]?.unit ?? nodes.table[key]?.unit,
-      choices: x.choicesOf(key),
-      quality: switch (v) {
-        null => null,
-        _ when !site.connected => SampleMark.stale.vm(),
-        final s => s.quality.sample.vm(at: s.time),
-      },
-    );
-  }
 }
 
 /// What the page draws (compared) and what it starts (not compared).
@@ -589,7 +528,8 @@ class _Vm extends Vm {
     required this.copyKeys,
     required this.pointValue,
     required this.menu,
-    required this.busy,
+    required this.menuOpening,
+    required this.submit,
     required this.assistantOpen,
     required this.panelWidths,
     required this.viewer,
@@ -619,7 +559,6 @@ class _Vm extends Vm {
     required this.onTrendWindow,
     required this.onTrendReset,
     required this.onCloseInspector,
-    required this.onSubmit,
     required this.onReadAgain,
     required this.onTool,
     required this.onSetPoll,
@@ -668,7 +607,8 @@ class _Vm extends Vm {
            copyKeys,
            pointValue,
            menu,
-           busy,
+           menuOpening,
+           submit,
            assistantOpen,
            panelWidths,
            viewer,
@@ -717,7 +657,10 @@ class _Vm extends Vm {
   final List<String> copyKeys;
   final String? pointValue;
   final ExplorerMenuVm? menu;
-  final bool busy;
+  final bool menuOpening;
+
+  /// The inspector's form: whether it runs, what a submit does.
+  final SubmitVm submit;
 
   /// The Assistant drawer is open over the page (⌘J).
   final bool assistantOpen;
@@ -747,15 +690,14 @@ class _Vm extends Vm {
   final ValueChanged<ExplorerTabTag> onTab;
   final ValueChanged<String> onAction;
   final ValueChanged<HistoryRangeTag> onHistoryRange;
-  final RangeChanged<int> onTrendWindow;
+  final ValueChanged<({int start, int end})> onTrendWindow;
   final VoidCallback onTrendReset;
   final VoidCallback onCloseInspector;
-  final FormSubmit onSubmit;
   final ValueChanged<String> onReadAgain;
   final ValueChanged<ExplorerTool> onTool;
   final ValueChanged<double> onSetPoll;
-  final ParamEdited onParam;
-  final PanelResized onPanelWidth;
+  final ValueChanged<ParamEdit> onParam;
+  final ValueChanged<({PanelSide side, double width})> onPanelWidth;
   final ValueChanged<String> onTapFlowEditor;
   final VoidCallback? onViewPoint;
   final VoidCallback onCloseViewer;

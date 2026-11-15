@@ -42,5 +42,6 @@ abstract class NodesState with _$NodesState {
     @Default(IMapConst({})) IMap<String, ActionAnswer> answers,
     IList<String>? watching,
     String? menu,
+    String? menuAsked,
   }) = _NodesState;
 }

@@ -3,9 +3,18 @@ import 'package:business/wyrm/decode/audit_entry.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/hist_point.dart';
 import 'package:business/wyrm/decode/live_values.dart';
+import 'package:business/wyrm/decode/point_edit.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/action_info.dart';
+import 'package:models/driver_status.dart';
 import 'package:models/link_state.dart';
+import 'package:models/modbus_area.dart';
+import 'package:models/param_spec.dart';
+import 'package:models/point_param.dart';
+import 'package:models/point_register.dart';
 import 'package:models/quality.dart' as studio;
+import 'package:models/word_order.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 /// The shapes Explorer reads, decoded once (studio-rules §8): an audit
@@ -164,11 +173,69 @@ void main() {
         ),
       );
       expect(run.since?.microsecondsSinceEpoch, 1700000000000000);
+      // an error with no words of its own: an empty problem, `ui` words it
       final err = valid(flowSampleOf('f', {'state': 2}));
-      expect(err.problem, 'error');
+      expect(err.problem, '');
+      final said = valid(flowSampleOf('f', {'state': 2, 'error': 'boom'}));
+      expect(said.problem, 'boom');
       final draft = valid(flowSampleOf('f', null));
       expect(draft.draft, isTrue);
       expect(flowSampleOf('f', 'x'), isA<Invalid<Object?>>());
     });
+  });
+
+  group('point edit', () {
+    test('a register: modbus area and offset, an address, nothing', () {
+      expect(
+        pointRegisterOf({'table': 'holding', 'addr': '10'}),
+        const PointRegister.modbus(
+          addr: '10',
+          area: ModbusArea.holding,
+          table: 'holding',
+        ),
+      );
+      expect(
+        pointRegisterOf({'table': 'fifo', 'addr': '3'}),
+        const PointRegister.modbus(addr: '3', table: 'fifo'),
+      );
+      expect(
+        pointRegisterOf({'address': 'DB1.DBX0.0'}),
+        const PointRegister.address('DB1.DBX0.0'),
+      );
+      expect(pointRegisterOf({}), const PointRegister.none());
+      expect(pointRegisterOf(null), const PointRegister.none());
+    });
+
+    test("a data type's suffix sets its word order", () {
+      expect(wordOrderOf('f32'), WordOrder.abcd);
+      expect(wordOrderOf('f32_wswap'), WordOrder.cdab);
+      expect(wordOrderOf('u32_bswap'), WordOrder.badc);
+      expect(wordOrderOf('f64_wbswap'), WordOrder.dcba);
+    });
+
+    test('the parameters the board names, and the others', () {
+      final params = editParamsOf(
+        ActionInfo(
+          name: 'edit',
+          params: [
+            const ParamSpec(name: 'table'),
+            const ParamSpec(name: 'poll_s'),
+            const ParamSpec(name: 'own'),
+          ].lock,
+        ),
+      );
+      expect(params.map((p) => p.param), [
+        PointParam.table,
+        PointParam.poll,
+        null,
+      ]);
+    });
+  });
+
+  test("a driver's status: its name, and the state this client knows", () {
+    final s = driverStatusSampleOf(1, ['connected', 'Connecting', 'gone']);
+    expect((s.name, s.status), ('Connecting', DriverStatus.connecting));
+    final own = driverStatusSampleOf('warming', const []);
+    expect((own.name, own.status), ('warming', null));
   });
 }

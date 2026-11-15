@@ -17176,6 +17176,41 @@ class S {
       args: [version],
     );
   }
+
+  /// `none`
+  String get levelNone {
+    return Intl.message('none', name: 'levelNone', desc: '', args: []);
+  }
+
+  /// `list`
+  String get levelList {
+    return Intl.message('list', name: 'levelList', desc: '', args: []);
+  }
+
+  /// `read`
+  String get levelRead {
+    return Intl.message('read', name: 'levelRead', desc: '', args: []);
+  }
+
+  /// `write`
+  String get levelWrite {
+    return Intl.message('write', name: 'levelWrite', desc: '', args: []);
+  }
+
+  /// `config`
+  String get levelConfig {
+    return Intl.message('config', name: 'levelConfig', desc: '', args: []);
+  }
+
+  /// `error`
+  String get flowProblemUnknown {
+    return Intl.message(
+      'error',
+      name: 'flowProblemUnknown',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

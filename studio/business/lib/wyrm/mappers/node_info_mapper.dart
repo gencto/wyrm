@@ -14,7 +14,7 @@ NodeInfo nodeInfoOf(String parent, Child child) {
     key: '$parent/${child.name}',
     name: child.name,
     display: m.displayName,
-    type: m.ty?.wireName,
+    type: m.ty,
     unit: m.unit?.toString(),
     writable: writable,
     // spec 02 0.2.6: the triangle only where a child node exists

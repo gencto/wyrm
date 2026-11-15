@@ -17,17 +17,23 @@ import 'package:models/quality.dart';
 import 'package:models/read_failure.dart';
 import 'package:models/word_order.dart';
 import 'package:models/workspace.dart';
+import 'package:ui/charts/trend.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/fail_chip.dart';
+import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/indicators/node_state.dart';
 import 'package:ui/indicators/sample_mark.dart';
+import 'package:ui/indicators/value_type.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/tables/points_table.dart';
-import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
+import 'package:wyrm_client/wyrm_client.dart' show Perm, TypeCode;
 
 import '../common/forms.dart';
+import '../common/trend.dart';
+import '../common/value_viewer.dart';
 
 // Explorer's domain as `ui` draws it (studio-rules §3): one exhaustive
 // switch per domain enum, and the records of `business/lib/wyrm/explorer`
@@ -174,6 +180,7 @@ extension PointParamWord on PointParam {
     PointParam.scale => .scale,
     PointParam.offset => .offset,
     PointParam.precision => .precision,
+    PointParam.poll => .poll,
     PointParam.writable => .writable,
     PointParam.writableByMaster => .writableByMaster,
   };
@@ -230,7 +237,31 @@ extension ReachDisabled on Reach {
       final m? => NotThere(m),
       null => NoAction(action),
     },
-    LacksLevel(:final level, :final path) => NeedsLevel(level.wire, path),
+    LacksLevel(:final level, :final path) => NeedsLevel(level.access, path),
+  };
+}
+
+extension PermAccess on Perm {
+  AccessLevel get access => switch (this) {
+    Perm.none => .none,
+    Perm.list => .list,
+    Perm.read => .read,
+    Perm.write => .write,
+    Perm.config => .config,
+  };
+}
+
+extension TypeCodeValueType on TypeCode {
+  ValueType get valueType => switch (this) {
+    TypeCode.null_ => .null_,
+    TypeCode.number => .number,
+    TypeCode.string => .string,
+    TypeCode.bool_ => .bool_,
+    TypeCode.enum_ => .enum_,
+    TypeCode.map => .map,
+    TypeCode.array => .array,
+    TypeCode.binary => .binary,
+    TypeCode.dynamic_ => .dynamic_,
   };
 }
 
@@ -255,7 +286,8 @@ extension ExplorerPointRowVm on ExplorerPointRow {
     name: name,
     display: display,
     register: register.vm,
-    type: type,
+    dtype: dtype,
+    type: type?.valueType,
     unit: unit,
     poll: poll,
     pollWas: pollWas,
@@ -275,7 +307,7 @@ extension ExplorerChildRowVm on ExplorerChildRow {
     key: key,
     name: name,
     display: display,
-    type: type,
+    type: type?.valueType,
     writable: writable,
     kind: kind?.tag,
     value: value,
@@ -326,7 +358,11 @@ extension ExplorerSectionOf on ExplorerSection {
     AttributesSection(:final attr) => AttributesSectionVm(attr),
     DiagnosticsSection(:final facts) => DiagnosticsSectionVm(facts),
     PointFactsSection(:final type, :final unit, :final writable) =>
-      PointFactsSectionVm(type: type, unit: unit, level: writable?.wire),
+      PointFactsSectionVm(
+        type: type?.valueType,
+        unit: unit,
+        level: writable?.access,
+      ),
     RegisterSection(:final key, :final fields) => PointFieldsSectionVm(
       node: key,
       value: false,
@@ -349,7 +385,7 @@ extension ExplorerSectionOf on ExplorerSection {
     WriteSection(:final key, :final fields, :final level) => WriteSectionVm(
       node: key,
       fields: [for (final f in fields) f.vm],
-      level: level.wire,
+      level: level.access,
     ),
     PublishSection(
       :final type,
@@ -359,7 +395,7 @@ extension ExplorerSectionOf on ExplorerSection {
       :final value,
     ) =>
       PublishSectionVm(
-        type: type,
+        type: type?.valueType,
         unit: unit,
         writable: writable,
         value: value,
@@ -376,7 +412,7 @@ extension ExplorerInspectorOf on ExplorerInspector {
       title: a.title,
       keyName: '…/${a.key.split('/').last}/~act/${a.action.name}',
       staged: a.staged,
-      level: a.action.level.wire,
+      level: a.action.level.access,
       result: a.action.result,
       fields: paramFields(a.action.params),
       cli: a.cli,
@@ -426,7 +462,7 @@ extension ExplorerMenuOf on ExplorerMenu {
               ExplorerMenuItemVm(
                 name: i.action.name,
                 label: i.label,
-                level: i.action.level.wire,
+                level: i.action.level.access,
                 form: i.action.params.isNotEmpty,
                 danger: i.danger,
                 disabled: i.reach.disabled(),
@@ -434,5 +470,54 @@ extension ExplorerMenuOf on ExplorerMenu {
           ],
         ),
     ],
+  );
+}
+
+extension ExplorerTrendVm on ExplorerTrend {
+  /// One series of the raw rows read for the range (≤ 2000), zoomed on
+  /// them without reading again (spec trend.md §4).
+  TrendVm get vm => TrendVm(
+    title: display ?? name,
+    series: [
+      TrendSeriesVm(
+        id: point,
+        name: name,
+        label: display ?? '',
+        color: TrendColor.byIndex(0),
+        unit: unit ?? '',
+        decimals: trendDecimals(rows, precision: precision),
+        samples: trendSamples(rows),
+        overview: trendSamples(rows),
+      ),
+    ],
+    rangeStart: span.rangeStart,
+    rangeEnd: span.rangeEnd,
+    windowStart: span.windowStart,
+    windowEnd: span.windowEnd,
+    rollup: rollupText(null),
+    minWindow: span.minWindow,
+    endsNow: true,
+    following: span.following,
+    loading: loading,
+    card: false,
+    hint: false,
+    plotHeight: 180,
+    format: trendFormat(),
+  );
+}
+
+extension ExplorerViewerVm on ExplorerViewer {
+  /// Its value whole, with its unit and quality (stale offline).
+  ValueViewerVm get vm => valueViewerOf(
+    title: title,
+    value: sample?.value,
+    known: sample != null,
+    unit: unit,
+    choices: choices,
+    quality: switch (sample) {
+      null => null,
+      _ when !connected => SampleMark.stale.vm(),
+      final s => s.quality.sample.vm(at: s.time),
+    },
   );
 }

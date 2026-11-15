@@ -1,6 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:wyrm_core/wyrm_core.dart' show Perm;
+import 'package:wyrm_core/wyrm_core.dart' show Perm, TypeCode;
 
 import 'action_info.dart';
 
@@ -14,7 +14,7 @@ abstract class NodeDetail with _$NodeDetail {
     required String key,
     String? display,
     String? profile,
-    String? type,
+    TypeCode? type,
     String? unit,
     /// The level a set needs; null when the value cannot be set.
     Perm? writable,

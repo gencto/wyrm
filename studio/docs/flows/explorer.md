@@ -4,6 +4,33 @@
 
 `app/lib/connectors/explorer_page_connector.dart`
 
+## submit
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as ExplorerPage
+    participant VM as ExplorerPageConnector
+    participant A1 as StageInvokeAction
+    participant A2 as InvokeNodeAction
+    participant A3 as StageValueAction.entered
+    participant ST as AppState
+
+    User->>UI: submit
+    UI->>VM: submit()
+    VM->>A1: dispatchSync
+    A1->>ST: dispatchSync(AddChangesAction)
+    VM->>+A2: dispatchAndWait
+    Note over A2: WaitingAction · async
+    A2->>ST: copyWith(nodes.answers)
+    A2-->>-VM: ActionStatus
+    alt values.containsKey('value')
+        VM->>A3: dispatchSync
+        A3->>ST: dispatchSync(AddChangesAction)
+    end
+```
+
 ## onShow
 
 ```mermaid
@@ -17,10 +44,11 @@ sequenceDiagram
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.watching)
-    A1->>ST: dispatchSync(WatchKeysAction)
-    A1->>ST: dispatchAll([if (nodes.expanded.isEmpty) RetrieveNodesAction(), if (links.view.isEmpty) RetrieveLinksAction()])
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(WatchExplorerAction)
+    A1->>ST: dispatchAndWait(RetrieveNodesAction)
+    A1->>ST: dispatchAndWait(RetrieveLinksAction)
 ```
 
 ## onHide
@@ -54,10 +82,10 @@ sequenceDiagram
 
     User->>UI: onSelect
     UI->>VM: onSelect()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
-    A1->>ST: dispatchSync(ToggleNodeAction)
-    A1->>ST: dispatchAll([RetrieveNodeDetailAction(node, quiet: true), RetrieveDetailsAction([if (parts.length > 4) parts.sublist(0, parts.length - 1).join('/'), for (final n in state.nodes.table.values) if (n.key.startsWith('$node/') && !n.key.substring(node.length + 1).contains('/') && isPoint(n)) n.key]), if (asPoint) RetrieveHistoryAction(key), if (!same && state.nodes.tab == ExplorerTab.audit && site.can(Perm.config.wire, '${site.root}/sys/audit')) RetrieveAuditAction(node)])
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(ShowNodeAction)
+    A1->>ST: dispatchAndWait(a)
 ```
 
 ## onToggle
@@ -175,8 +203,10 @@ sequenceDiagram
     UI->>VM: onOpenMenu()
     VM->>A1: dispatch
     Note over A1: WaitingAction · async
-    A1->>ST: copyWith(nodes.menu)
-    A1->>ST: dispatchSync(SelectNodeAction)
+    A1->>ST: copyWith(nodes.menu, nodes.menuAsked)
+    A1->>ST: dispatchSync(SetMenuAskedAction)
+    A1->>ST: dispatchAndWait(SelectNodeAction)
+    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
 ```
 
 ## onMenuShown
@@ -226,9 +256,11 @@ sequenceDiagram
 
     User->>UI: onPoint
     UI->>VM: onPoint()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.point, nodes.anchor)
-    A1->>ST: dispatchAll([if (!nodes.detail.containsKey(k)) RetrieveDetailsAction([k]), if (nodes.tab == ExplorerTab.history) RetrieveHistoryAction(k)])
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(ShowPointAction)
+    A1->>ST: dispatchAndWait(RetrieveDetailsAction)
+    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
 ```
 
 ## onCheck
@@ -367,9 +399,11 @@ sequenceDiagram
 
     User->>UI: onTab
     UI->>VM: onTab()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.tab)
-    A1->>ST: dispatchAll([...switch (tab) {ExplorerTab.history => [if (nodes.point case final p?) RetrieveHistoryAction(p)], ExplorerTab.audit => [if (sel != null && site.can(Perm.config.wire, '${site.root}/sys/audit')) RetrieveAuditAction(sel)], ExplorerTab.points || ExplorerTab.children || ExplorerTab.params || ExplorerTab.actions => const <Action>[]}])
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(SetTabAction)
+    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
+    A1->>ST: dispatchAndWait(RetrieveAuditAction)
 ```
 
 ## onAction
@@ -402,9 +436,10 @@ sequenceDiagram
 
     User->>UI: onHistoryRange
     UI->>VM: onHistoryRange()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.historyRange, nodes.historyWindow)
-    A1->>ST: dispatchAll([if (nodes.point case final p?) RetrieveHistoryAction(p, range: range)])
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(SetHistoryRangeAction)
+    A1->>ST: dispatchAndWait(RetrieveHistoryAction)
 ```
 
 ## onTrendWindow
@@ -458,33 +493,6 @@ sequenceDiagram
     A1->>ST: copyWith(nodes.action)
 ```
 
-## onSubmit
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as ExplorerPage
-    participant VM as ExplorerPageConnector
-    participant A1 as StageInvokeAction
-    participant A2 as InvokeNodeAction
-    participant A3 as StageValueAction.entered
-    participant ST as AppState
-
-    User->>UI: onSubmit
-    UI->>VM: onSubmit()
-    VM->>A1: dispatchSync
-    A1->>ST: dispatchSync(AddChangesAction)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(nodes.answers)
-    A2-->>-VM: ActionStatus
-    alt values.containsKey('value')
-        VM->>A3: dispatchSync
-        A3->>ST: dispatchSync(AddChangesAction)
-    end
-```
-
 ## onReadAgain
 
 ```mermaid
@@ -498,8 +506,9 @@ sequenceDiagram
 
     User->>UI: onReadAgain
     UI->>VM: onReadAgain()
-    VM->>A1: dispatchSync
-    A1->>ST: dispatchAll([RetrieveNodeDetailAction(key, quiet: true)])
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(RetrieveNodeDetailAction)
 ```
 
 ## onTool
@@ -1205,13 +1214,15 @@ sequenceDiagram
         A5->>ST: copyWith(assistant.drawer)
         A5->>ST: dispatchSync(SetChipAction)
         A5->>ST: dispatchAndWait(LoadAssistantAction)
-        R1->>A6: dispatchSync
-        A6->>ST: copyWith(nodes.tab, nodes.point, nodes.anchor)
-        A6->>A9: dispatchSync
-        A6->>ST: dispatchSync(SetTabAction)
-        A6->>ST: dispatchSync(SelectPointAction)
-        A6->>ST: dispatchAll([RetrieveHistoryAction(key)])
         R1->>NAV: GoAction.navigate ExplorerRoute
+        R1->>+A6: dispatchAndWait
+        Note over A6: async
+        A6->>ST: dispatchSync(ShowNodeAction)
+        A6->>ST: dispatchSync(ShowPointAction)
+        A6->>ST: dispatchSync(SetTabAction)
+        A6->>ST: dispatchAndWait(a)
+        A6->>ST: dispatchAndWait(RetrieveHistoryAction)
+        A6-->>-R1: ActionStatus
     end
     alt copy
         R1->>A7: dispatchSync
@@ -1225,11 +1236,12 @@ sequenceDiagram
         A8-->>-R1: ActionStatus
     end
     alt _node(task)
-        R1->>A9: dispatchSync
-        A9->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
-        A9->>ST: dispatchSync(ToggleNodeAction)
-        A9->>ST: dispatchAll([RetrieveNodeDetailAction(node, quiet: true), RetrieveDetailsAction([if (parts.length > 4) parts.sublist(0, parts.length - 1).join('/'), for (final n in state.nodes.table.values) if (n.key.startsWith('$node/') && !n.key.substring(node.length + 1).contains('/') && isPoint(n)) n.key]), if (asPoint) RetrieveHistoryAction(key), if (!same && state.nodes.tab == ExplorerTab.audit && site.can(Perm.config.wire, '${site.root}/sys/audit')) RetrieveAuditAction(node)])
         R1->>NAV: GoAction.navigate ExplorerRoute
+        R1->>+A9: dispatchAndWait
+        Note over A9: async
+        A9->>ST: dispatchSync(ShowNodeAction)
+        A9->>ST: dispatchAndWait(a)
+        A9-->>-R1: ActionStatus
     end
     R1->>+A10: dispatchAndWait
     Note over A10: WaitingAction · async
@@ -1263,19 +1275,20 @@ _Not drawn — these files dispatch outside any interaction:_
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `ShowExplorerAction` | `nodes.watching` |
+| `submit` | `StageInvokeAction`, `InvokeNodeAction`, `StageValueAction.entered` ? | `nodes.answers` |
+| `onShow` | `ShowExplorerAction` | — |
 | `onHide` | `HideExplorerAction` | `nodes.watching` |
-| `onSelect` | `SelectNodeAction` | `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
+| `onSelect` | `SelectNodeAction` | — |
 | `onToggle` | `ToggleNodeAction` | `nodes.expanded` |
 | `onMark` | `MarkNodesAction.toggle` | `nodes.marked` |
 | `onMarkRange` | `MarkNodesAction.range` | `nodes.marked` |
 | `onTreeFilter` | `SetTreeFilterAction` | `nodes.treeFilter` |
 | `onPointFilter` | `SetPointFilterAction` | `nodes.pointFilter` |
 | `onNoteLink` | `GoAction.workspace` | — |
-| `onOpenMenu` | `OpenNodeMenuAction` | `nodes.menu` |
+| `onOpenMenu` | `OpenNodeMenuAction` | `nodes.menu, nodes.menuAsked` |
 | `onMenuShown` | `CloseNodeMenuAction` | `nodes.menu` |
 | `onMenuPick` | `PickNodeActionAction` | `nodes.tab, nodes.action, nodes.menu` |
-| `onPoint` | `SelectPointAction.toggle` | `nodes.point, nodes.anchor` |
+| `onPoint` | `SelectPointAction.toggle` | — |
 | `onCheck` | `CheckPointsAction.toggle` | `nodes.checked` |
 | `onRange` | `CheckPointsAction.range` | `nodes.checked` |
 | `onCheckAll` | `CheckPointsAction.all` | `nodes.checked` |
@@ -1283,13 +1296,12 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onCopy` | `CopyKeysAction` | `problems.notices` |
 | `onCopyValue` | `CopyValueAction` | `problems.notices` |
 | `onToggleAssistant` | `SetDrawerAction.toggle` | `assistant.drawer` |
-| `onTab` | `OpenExplorerTabAction` | `nodes.tab` |
+| `onTab` | `OpenExplorerTabAction` | — |
 | `onAction` | `SetActionAction` | `nodes.action` |
-| `onHistoryRange` | `PickHistoryRangeAction` | `nodes.historyRange, nodes.historyWindow` |
+| `onHistoryRange` | `PickHistoryRangeAction` | — |
 | `onTrendWindow` | `ZoomHistoryAction` | — |
 | `onTrendReset` | `SetHistoryWindowAction` | `nodes.historyWindow` |
 | `onCloseInspector` | `SetActionAction` | `nodes.action` |
-| `onSubmit` | `StageInvokeAction`, `InvokeNodeAction`, `StageValueAction.entered` ? | `nodes.answers` |
 | `onReadAgain` | `RetryReadAction` | — |
 | `onTool` | `InvokeNodeAction`, `SetActionAction`, `SetActionAction`, `RemoveCheckedAction` | `nodes.answers`, `nodes.action`, `nodes.checked, nodes.marked, nodes.point, nodes.anchor` |
 | `onSetPoll` | `StagePollAction` | — |
@@ -1325,7 +1337,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `AssistantDrawer ▸ onAsk` | `id != null && task?.state == .awaitingAnswer ? AnswerTaskAction(id, text: assistant.draft) : AskAgentAction(parent: task != null && task.replacedBy == null && mayFollow(task) ? id : null)` | — |
 | `AssistantDrawer ▸ onPanel` | `SetPanelAction`, `RetrieveAgentSecretsAction` ? | `assistant.panel`, `assistant.secrets` |
 | `AssistantDrawer ▸ onAddAgent` | `GoAction.push` | — |
-| `AssistantDrawer ▸ onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SetSelectedTaskAction` ?, `RetrieveTaskRecordAction` ?, `SetDrawerAction` ?, `OpenTrendAction` ?, `GoAction.navigate` ?, `ShowNoticeAction` ?, `PickSuggestionAction` ?, `SelectNodeAction` ?, `GoAction.navigate` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `tasks.selectedTask`, `assistant.docs`, `assistant.drawer`, `nodes.tab, nodes.point, nodes.anchor`, `problems.notices`, `assistant.rowPicks`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter` |
+| `AssistantDrawer ▸ onButton` | `ApproveTaskAction`, `RejectTaskAction` ?, `SetSelectedTaskAction` ?, `RetrieveTaskRecordAction` ?, `SetDrawerAction` ?, `GoAction.navigate` ?, `OpenTrendAction` ?, `ShowNoticeAction` ?, `PickSuggestionAction` ?, `GoAction.navigate` ?, `SelectNodeAction` ?, `SavePlanAction`, `ShowNoticeAction` ?, `AskAgentAction` ?, `CancelTaskAction` ? | `assistant.refusals`, `tasks.selectedTask`, `assistant.docs`, `assistant.drawer`, `problems.notices`, `assistant.rowPicks` |
 
 `?` marks a dispatch that only runs under a condition.
 

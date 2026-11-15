@@ -1,6 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
+import '../indicators/level_badge.dart';
+
 /// Why a control is shown disabled (docs/studio.md §2 rule 8: shown, never
 /// hidden); `ui` says it, as the control's tooltip or its line.
 sealed class Disabled extends Equatable {
@@ -13,16 +15,15 @@ sealed class Disabled extends Equatable {
   List<Object?> get props => [];
 }
 
-/// The user lacks [level] (its wire name) on [path] (the key under the
-/// site).
+/// The user lacks [level] on [path] (the key under the site).
 final class NeedsLevel extends Disabled {
   const NeedsLevel(this.level, this.path);
 
-  final String level;
+  final AccessLevel level;
   final String path;
 
   @override
-  String get text => S.current.needsLevelOn(level, path);
+  String get text => S.current.needsLevelOn(level.label, path);
 
   @override
   List<Object?> get props => [level, path];

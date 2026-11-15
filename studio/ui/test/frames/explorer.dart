@@ -4,10 +4,12 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/side_panels.dart';
 import 'package:ui/forms/param_form.dart';
+import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/indicators/node_state.dart';
 import 'package:ui/indicators/quality_mark.dart';
 import 'package:ui/indicators/sample_mark.dart';
 import 'package:ui/indicators/status_pill.dart';
+import 'package:ui/indicators/value_type.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/overlays/review_panel.dart';
 import 'package:ui/overlays/value_viewer.dart';
@@ -211,7 +213,7 @@ PointRowVm _p(
   name: n,
   display: l,
   register: a,
-  type: t,
+  dtype: t,
   unit: u,
   poll: poll,
   pollWas: was,
@@ -368,11 +370,11 @@ PointInspectorVm _pointInspector() => PointInspectorVm(
     ),
     WriteSectionVm(
       node: _node,
-      level: 'config',
+      level: AccessLevel.config,
       fields: [_f('writable', false, word: .writable, kind: ParamKind.toggle)],
     ),
     PublishSectionVm(
-      type: 'number',
+      type: ValueType.number,
       unit: '°C',
       writable: false,
       value: '64.1',
@@ -812,7 +814,7 @@ Widget explorerFolder() => _shell(
       ChildRowVm(
         key: '$_edge/storage/line1/fault',
         name: 'fault',
-        type: 'bool',
+        type: ValueType.bool_,
         writable: true,
         value: 'false',
       ),
@@ -820,7 +822,7 @@ Widget explorerFolder() => _shell(
         key: '$_edge/storage/line1/temp',
         name: 'temp',
         display: 'Line 1 air temp',
-        type: 'number',
+        type: ValueType.number,
         writable: true,
         value: '21.5 °C',
         selected: true,
@@ -838,7 +840,11 @@ Widget explorerFolder() => _shell(
       mark: .good,
       time: DateTime(2026, 11, 8, 8, 3, 19),
       sections: const [
-        PointFactsSectionVm(type: 'number', unit: '°C', level: 'write'),
+        PointFactsSectionVm(
+          type: ValueType.number,
+          unit: '°C',
+          level: AccessLevel.write,
+        ),
       ],
       edit: ParamKind.number,
       editValue: 21.5,
@@ -881,7 +887,7 @@ Widget explorerLongName() => _shell(
         name: _longName,
         display: _longDisplay,
         register: ModbusRegisterVm(addr: '40003', area: .holding),
-        type: 'f32_wbswap',
+        dtype: 'f32_wbswap',
         unit: '°C',
         poll: 1,
         value: '21.5',

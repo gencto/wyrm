@@ -23,8 +23,7 @@ final class ActionCardVm extends Equatable {
   final String id;
   final String title;
 
-  /// `read`, `write`, `config`.
-  final String level;
+  final AccessLevel level;
 
   /// How many parameters it takes; its result type, when it has one
   /// (`id · 4 parameters · returns rows`).
@@ -89,7 +88,7 @@ class ActionCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  LevelBadge(level: vm.level),
+                  LevelBadge.of(vm.level),
                 ],
               ),
               Text(

@@ -724,6 +724,9 @@ extension type SelectNodes(AppState _state) {
 
   /// A node menu waits for its node's `~meta`.
   bool get menuOpening => _state.wait.isWaitingForType<OpenNodeMenuAction>();
+
+  /// Returns menuAsked
+  String? get menuAsked => _state.nodes.menuAsked;
 }
 
 extension type SelectLive(AppState _state) {

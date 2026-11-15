@@ -44,7 +44,7 @@ void main() {
       cfg: {'unit': const VInt(1)},
     );
 
-    s.dispatchSync(SelectNodeAction(dev));
+    await s.dispatchAndWait(SelectNodeAction(dev));
     await Future<void>.delayed(Duration.zero);
 
     expect(s.state.nodes.selectedNode, dev);

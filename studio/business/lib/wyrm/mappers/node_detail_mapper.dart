@@ -11,7 +11,7 @@ NodeDetail nodeDetailOf(String key, NodeMeta m) => NodeDetail(
   key: key,
   display: m.displayName,
   profile: m.profileName,
-  type: m.ty?.wireName,
+  type: m.ty,
   unit: m.unit?.toString(),
   writable: _setLevel(m.writable),
   invokable: m.invokable?.wireName,

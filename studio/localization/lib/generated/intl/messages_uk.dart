@@ -484,7 +484,7 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m202(count) => "Вибрано: ${count}";
 
-  static String m203(level, path) => "needs ${level} on ${path}";
+  static String m203(level, path) => "потрібен рівень ${level} на ${path}";
 
   static String m204(level, have) => "Потрібно ${level} · у вас ${have}";
 
@@ -2251,6 +2251,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "flowDeployed": m153,
     "flowError": m154,
     "flowName": MessageLookupByLibrary.simpleMessage("Ідентифікатор потоку"),
+    "flowProblemUnknown": MessageLookupByLibrary.simpleMessage("помилка"),
     "flowPropertiesNote": MessageLookupByLibrary.simpleMessage(
       "Кожне поле має значення, вхід і вихід. Введіть значення або перетягніть на нього будь-який вихід, щоб зв’язати.",
     ),
@@ -2397,9 +2398,9 @@ class MessageLookup extends MessageLookupByLibrary {
       "Лінки синхронізації читають журнал змін історика, тож нічого не губиться, поки база недоступна.",
     ),
     "historyOf": m175,
-    "historyRange1h": MessageLookupByLibrary.simpleMessage("1 h"),
-    "historyRange24h": MessageLookupByLibrary.simpleMessage("24 h"),
-    "historyRange7d": MessageLookupByLibrary.simpleMessage("7 d"),
+    "historyRange1h": MessageLookupByLibrary.simpleMessage("1 год"),
+    "historyRange24h": MessageLookupByLibrary.simpleMessage("24 год"),
+    "historyRange7d": MessageLookupByLibrary.simpleMessage("7 д"),
     "historyUnavailable": MessageLookupByLibrary.simpleMessage(
       "історія недоступна",
     ),
@@ -2473,6 +2474,11 @@ class MessageLookup extends MessageLookupByLibrary {
     "letItIn": MessageLookupByLibrary.simpleMessage("Допустити"),
     "letOthersIn": MessageLookupByLibrary.simpleMessage("Допустити інших"),
     "letTheBrokerIn": MessageLookupByLibrary.simpleMessage("Допустити брокер"),
+    "levelConfig": MessageLookupByLibrary.simpleMessage("налаштування"),
+    "levelList": MessageLookupByLibrary.simpleMessage("перелік"),
+    "levelNone": MessageLookupByLibrary.simpleMessage("немає"),
+    "levelRead": MessageLookupByLibrary.simpleMessage("читання"),
+    "levelWrite": MessageLookupByLibrary.simpleMessage("запис"),
     "lightTheme": MessageLookupByLibrary.simpleMessage("Світла тема"),
     "linkName": MessageLookupByLibrary.simpleMessage("Назва лінка"),
     "linkOverTls": MessageLookupByLibrary.simpleMessage("лінк · через tls"),
@@ -2961,9 +2967,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "qRun": MessageLookupByLibrary.simpleMessage(
       "Де він працюватиме і під якою назвою?",
     ),
-    "qualityBad": MessageLookupByLibrary.simpleMessage("bad"),
-    "qualityGood": MessageLookupByLibrary.simpleMessage("good"),
-    "qualityUncertain": MessageLookupByLibrary.simpleMessage("uncertain"),
+    "qualityBad": MessageLookupByLibrary.simpleMessage("погана"),
+    "qualityGood": MessageLookupByLibrary.simpleMessage("добра"),
+    "qualityUncertain": MessageLookupByLibrary.simpleMessage("невизначена"),
     "quarantine": MessageLookupByLibrary.simpleMessage("Карантин"),
     "quarantineAndAdmission": MessageLookupByLibrary.simpleMessage(
       "Карантин і допуск",

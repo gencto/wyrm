@@ -1,25 +1,20 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-
-import '../../../wyrm/explorer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_links_action.dart';
-import '../../live/actions/watch_keys_action.dart';
 import 'retrieve_nodes_action.dart';
+import 'watch_explorer_action.dart';
 
-/// Explorer's tab is shown: its keys are watched (ADR 0037 rule 5: only keys
-/// on screen are subscribed) and kept in `nodes.watching`; the tree and the
-/// links are read when they never were.
+/// Explorer's tab is shown: its keys are watched at once
+/// ([WatchExplorerAction]); the tree and the links are read when they
+/// never were, in parallel, and this action ends when they have answered.
 class ShowExplorerAction extends Action {
   @override
-  AppState? reduce() {
-    final keys = ExplorerView(state).watchKeys;
-    dispatchSync(WatchKeysAction(keys), notify: false);
-    // started in parallel, each with its own wait
-    dispatchAll([
-      if (nodes.expanded.isEmpty) RetrieveNodesAction(),
-      if (links.view.isEmpty) RetrieveLinksAction(),
+  Future<AppState?> reduce() async {
+    dispatchSync(WatchExplorerAction());
+    await Future.wait([
+      if (nodes.expanded.isEmpty) dispatchAndWait(RetrieveNodesAction()),
+      if (links.view.isEmpty) dispatchAndWait(RetrieveLinksAction()),
     ]);
-    return state.copyWith.nodes(watching: keys.lock);
+    return null;
   }
 }
