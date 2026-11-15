@@ -123,7 +123,7 @@
     "app/lib/connectors/links_page_connector.dart": 1082,
     "app/lib/connectors/lock_overlay_connector.dart": 118,
     "app/lib/connectors/log_in_page_connector.dart": 985,
-    "app/lib/connectors/security_dialog_connector.dart": 106,
+    "app/lib/connectors/security_dialog_connector.dart": 103,
     "app/lib/connectors/sites_page_connector.dart": 688,
     "app/lib/connectors/splash_page_connector.dart": 15,
     "app/lib/connectors/step_up_dialog_connector.dart": 129,

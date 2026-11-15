@@ -57,6 +57,7 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/device_keys.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
@@ -1580,6 +1581,15 @@ extension type SelectDevice(AppState _state) {
   /// The longest idle lock the gateway allows, in minutes (30 when not
   /// told).
   int get lockMaxMin => _state.device.policy?.idleLockMaxMin ?? 30;
+
+  /// This user's device records as rows of Account › Security at [now].
+  IList<DeviceRow> rowsAt(DateTime now) => [
+    for (final d in _state.device.devices)
+      deviceRowOf(d, _state.device.deviceId, now),
+  ].lock;
+
+  /// When this computer's key was made; null when not known.
+  DateTime? get keyAddedAt => momentOf(_state.device.added);
 
   /// The unlock switch is being turned on or off.
   bool get isSettingUnlock =>

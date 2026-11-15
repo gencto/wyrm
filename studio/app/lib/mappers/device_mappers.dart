@@ -2,8 +2,7 @@ import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
 import 'package:ui/indicators/device_os.dart';
 import 'package:ui/indicators/unlock_method.dart';
-import 'package:wyrm_client/wyrm_client.dart'
-    show DevicePlatform, GatewayDevice;
+import 'package:wyrm_client/wyrm_client.dart' show DevicePlatform;
 
 // The domain's device enums as `ui` draws them: one exhaustive switch per
 // enum, used by every connector (studio-rules §3). A new domain value is a
@@ -46,9 +45,4 @@ extension KeyKindMethod on KeyKind {
     KeyKind.iris => .iris,
     KeyKind.biometric => .biometric,
   };
-}
-
-extension GatewayDeviceWho on GatewayDevice {
-  /// The user who removed this record (`user:` of the subject taken off).
-  String get removedByUser => (removedBy ?? '').replaceFirst('user:', '');
 }

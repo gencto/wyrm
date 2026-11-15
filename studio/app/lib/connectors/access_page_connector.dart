@@ -13,6 +13,7 @@ import 'package:business/redux/access/actions/set_tab_action.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/device/actions/remove_device_action.dart';
 import 'package:business/redux/device/actions/retrieve_user_devices_action.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/buttons/action_row.dart';
@@ -32,7 +33,6 @@ import '../common/every.dart';
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
 import '../common/unlock.dart';
-import '../mappers/device_mappers.dart';
 
 const _levels = ['none', 'list', 'read', 'write', 'config'];
 

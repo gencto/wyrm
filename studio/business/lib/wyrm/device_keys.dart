@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:device_key/device_key.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
+import 'package:models/device_tag.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/unlock_refusal.dart';
@@ -66,6 +67,63 @@ String keyAlias(String origin, String user) {
 
 /// The state's [KeyKind] for the plugin's.
 KeyKind keyKindOf(DeviceKeyKind k) => KeyKind.values.byName(k.name);
+
+/// A moment given in seconds since the Unix epoch; null for 0 (not known).
+DateTime? momentOf(int seconds) =>
+    seconds <= 0 ? null : DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+
+extension GatewayDeviceWho on GatewayDevice {
+  /// The user who removed this record (`user:` of the subject taken off).
+  String get removedByUser => (removedBy ?? '').replaceFirst('user:', '');
+}
+
+/// A device record as a row of Account › Security, with what is computed
+/// from it and the clock: whether it is this computer's (`own`), its
+/// `tag`, the days until its password is due, whether it was used within
+/// the last minute.
+typedef DeviceRow = ({
+  GatewayDevice device,
+  bool own,
+  DeviceTag? tag,
+  String removedBy,
+  int dueDays,
+  bool usedNow,
+  DateTime? lastUsed,
+  DateTime? added,
+});
+
+/// A use this recent is `used now` on this computer's own row.
+const _usedNowS = 60;
+
+/// A password due within this many days is tagged.
+const _dueSoonDays = 7;
+
+/// [d] as a row at [now]; [thisDeviceId] is this computer's device.
+DeviceRow deviceRowOf(GatewayDevice d, String? thisDeviceId, DateTime now) {
+  final own = d.thisSession || d.id == thisDeviceId;
+  final nowS = now.millisecondsSinceEpoch ~/ 1000;
+  final dueDays = d.passwordDueAt == 0
+      ? null
+      : ((d.passwordDueAt - nowS) / Duration.secondsPerDay).ceil();
+  return (
+    device: d,
+    own: own,
+    tag: switch (d.state) {
+      GatewayDeviceState.removed => DeviceTag.removed,
+      _ when own => DeviceTag.thisDevice,
+      GatewayDeviceState.signedOut => DeviceTag.signedOut,
+      GatewayDeviceState.active
+          when dueDays != null && dueDays <= _dueSoonDays =>
+        DeviceTag.passwordDue,
+      GatewayDeviceState.active => null,
+    },
+    removedBy: d.removedByUser,
+    dueDays: dueDays == null || dueDays < 0 ? 0 : dueDays,
+    usedNow: own && d.lastUsed > 0 && nowS - d.lastUsed < _usedNowS,
+    lastUsed: momentOf(d.lastUsed),
+    added: momentOf(d.added),
+  );
+}
 
 /// The device records of a list, newest use first.
 IList<GatewayDevice> newestFirst(List<GatewayDevice> ds) =>

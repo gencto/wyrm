@@ -36,16 +36,6 @@ void main() {
     );
   });
 
-  test('the user who removed a record, without the subject prefix', () {
-    const d = GatewayDevice(
-      id: 'd',
-      name: 'x',
-      platform: null,
-      removedBy: 'user:ivan',
-    );
-    expect(d.removedByUser, 'ivan');
-  });
-
   test('the method and the store follow the platform', () {
     expect(DevicePlatform.macos.os.method, 'Touch ID');
     expect(DevicePlatform.ios.os.method, 'Face ID');

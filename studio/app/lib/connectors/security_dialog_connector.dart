@@ -61,14 +61,11 @@ class _Factory extends VmFactory<AppState, SecurityDialogConnector, _Vm>
       site: site.name ?? '',
       os: hostPlatform().os,
       method: device.kind.method,
-      devices: [
-        for (final x in device.devices)
-          x.securityRow(thisDeviceId: device.deviceId, now: now),
-      ],
+      devices: [for (final r in device.rowsAt(now)) r.securityRow],
       biometricHere: device.available,
       unlockOn: device.unlockOn,
       unlockEnabled: device.unlockAllowed,
-      keyAdded: momentOf(device.added),
+      keyAdded: device.keyAddedAt,
       lockAfter: device.lockAfter,
       lockMax: device.lockMaxMin,
       confirmOn: device.confirmsConfig,
