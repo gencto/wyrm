@@ -25,6 +25,7 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tracing::debug;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 
 /// The TLS config type of [`tls_config`].
 pub use rustls::ClientConfig as TlsConfig;
@@ -45,51 +46,21 @@ pub struct Endpoint {
 
 impl Endpoint {
     pub fn parse(url: &str) -> Result<Self, String> {
-        let url = url.trim();
-        let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
-        let (tls, rest) = if lower.starts_with("https://") {
-            (true, &url[8..])
-        } else if lower.starts_with("http://") {
-            (false, &url[7..])
-        } else {
-            return Err("must start with http:// or https://".into());
-        };
-        let (authority, path) = match rest.find(['/', '?', '#']) {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, ""),
-        };
-        if authority.contains('@') {
-            return Err("no user or password in the URL".into());
-        }
-        if path.contains(['?', '#']) {
+        let u = HttpUrl::parse(url.trim(), SchemeCase::Any).map_err(|e| {
+            match e {
+                UrlError::NoScheme | UrlError::Scheme => "must start with http:// or https://",
+                UrlError::Credentials => "no user or password in the URL",
+                UrlError::Ipv6 => "bad IPv6 host",
+                UrlError::Port => "bad port",
+                UrlError::Chars => "spaces, control or non-ASCII characters in the URL",
+                UrlError::NoHost | UrlError::Host => "bad host",
+            }
+            .to_owned()
+        })?;
+        if u.url.query.is_some() || u.url.fragment.is_some() {
             return Err("no query or fragment in the URL".into());
         }
-        let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
-            let (h, after) = v6.split_once(']').ok_or("bad IPv6 host")?;
-            let port = match after {
-                "" => None,
-                p => Some(p.strip_prefix(':').ok_or("bad port")?),
-            };
-            (h, port)
-        } else {
-            match authority.rsplit_once(':') {
-                Some((h, p)) => (h, Some(p)),
-                None => (authority, None),
-            }
-        };
-        let port = match port {
-            None if tls => 443,
-            None => 80,
-            Some(p) => p.parse::<u16>().map_err(|_| "bad port".to_owned())?,
-        };
-        let host_ok = !host.is_empty()
-            && host
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'));
-        if !host_ok || port == 0 {
-            return Err("bad host".into());
-        }
-        let prefix = path.trim_end_matches('/').to_owned();
+        let prefix = u.url.path.trim_end_matches('/').to_owned();
         if let Some(b) = prefix
             .bytes()
             .find(|b| !b.is_ascii_graphic() || b"\\\"<>`{}|^".contains(b))
@@ -100,9 +71,9 @@ impl Endpoint {
             ));
         }
         Ok(Endpoint {
-            tls,
-            host: host.to_ascii_lowercase(),
-            port,
+            tls: u.tls,
+            host: u.url.host.text(),
+            port: u.port,
             prefix,
         })
     }
@@ -736,6 +707,112 @@ async fn drive<F: std::future::Future<Output = hyper::Result<()>>>(conn: F) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The parser before review S4, kept to compare.
+    fn old_parse(url: &str) -> Result<Endpoint, String> {
+        let url = url.trim();
+        let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+        let (tls, rest) = if lower.starts_with("https://") {
+            (true, &url[8..])
+        } else if lower.starts_with("http://") {
+            (false, &url[7..])
+        } else {
+            return Err("must start with http:// or https://".into());
+        };
+        let (authority, path) = match rest.find(['/', '?', '#']) {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, ""),
+        };
+        if authority.contains('@') {
+            return Err("no user or password in the URL".into());
+        }
+        if path.contains(['?', '#']) {
+            return Err("no query or fragment in the URL".into());
+        }
+        let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
+            let (h, after) = v6.split_once(']').ok_or("bad IPv6 host")?;
+            let port = match after {
+                "" => None,
+                p => Some(p.strip_prefix(':').ok_or("bad port")?),
+            };
+            (h, port)
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) => (h, Some(p)),
+                None => (authority, None),
+            }
+        };
+        let port = match port {
+            None if tls => 443,
+            None => 80,
+            Some(p) => p.parse::<u16>().map_err(|_| "bad port".to_owned())?,
+        };
+        let host_ok = !host.is_empty()
+            && host
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':'));
+        if !host_ok || port == 0 {
+            return Err("bad host".into());
+        }
+        let prefix = path.trim_end_matches('/').to_owned();
+        if let Some(b) = prefix
+            .bytes()
+            .find(|b| !b.is_ascii_graphic() || b"\\\"<>`{}|^".contains(b))
+        {
+            return Err(format!(
+                "character {:?} in the path (percent-encode it)",
+                b as char
+            ));
+        }
+        Ok(Endpoint {
+            tls,
+            host: host.to_ascii_lowercase(),
+            port,
+            prefix,
+        })
+    }
+
+    /// Review S4: every endpoint the old parser took parses the same; what it refused
+    /// stays refused.
+    #[test]
+    fn endpoints_parse_as_before() {
+        for s in [
+            "HTTPS://S3.Example.com/base/",
+            "http://[::1]:9000",
+            "https://s3.eu-west-1.amazonaws.com",
+            "http://127.0.0.1:9000/bucket",
+            " https://dav.example/remote.php/dav/files/u/ ",
+            "https://www.googleapis.com",
+            "http://minio_1:9000/",
+            "https://h/a%2Fb/",
+        ] {
+            assert_eq!(Endpoint::parse(s), old_parse(s), "{s}");
+        }
+        for s in [
+            "ftp://x",
+            "http://",
+            "http://u:p@h",
+            "http://h:0",
+            "http://h/?q",
+            "http://h/#f",
+            "http://h/a b",
+            "http://[::1",
+            "http://h:70000",
+            "http://h/a{b}",
+            "http://ü/",
+        ] {
+            assert!(old_parse(s).is_err(), "old took {s}");
+            assert!(Endpoint::parse(s).is_err(), "{s}");
+        }
+        for s in [
+            "http://h:+80/",
+            "http://h:/",
+            "http://a:b:80/",
+            "http://[::1%lo]/",
+        ] {
+            assert!(Endpoint::parse(s).is_err(), "{s}");
+        }
+    }
 
     #[test]
     fn endpoints() {
