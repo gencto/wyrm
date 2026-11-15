@@ -299,7 +299,7 @@ unsafe fn open_handle(
             std::ptr::null_mut()
         }
         Err(_) => {
-            // SAFETY: as above.
+            // SAFETY: `err` is null or an aligned, writable `char*` slot (contract); `set_err` checks null.
             unsafe { set_err(err, &format!("panic in {name}")) };
             std::ptr::null_mut()
         }
@@ -357,7 +357,7 @@ pub unsafe extern "C" fn wyrm_open_test_mock(
             std::ptr::null_mut()
         }
         Err(_) => {
-            // SAFETY: as above.
+            // SAFETY: `err` is null or an aligned, writable `char*` slot (contract); `set_err` checks null.
             unsafe { set_err(err, "panic in wyrm_open_test_mock") };
             std::ptr::null_mut()
         }

@@ -189,10 +189,8 @@ fn record(path: &str, m: &Map<String, Json>, limits: &Limits) -> Result<Rec> {
     let ty = match m.get("$type") {
         None => None,
         Some(Json::String(t)) => Some(
-            TYPES
-                .iter()
-                .copied()
-                .find(|c| c.name() == t)
+            wyrm_core::TypeCode::from_name(t)
+                .filter(|c| TYPES.contains(c))
                 .ok_or_else(|| bad("unknown $type"))?,
         ),
         Some(_) => return Err(bad("$type is not text")),

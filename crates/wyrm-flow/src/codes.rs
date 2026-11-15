@@ -9,23 +9,22 @@ use wyrm_core::status::StatusCode;
 use wyrm_core::{Quality, Status, StatusGroup, Value};
 
 /// The code of `v` when it is an unsigned integer that fits a `u8`, or the code of the
-/// entry of `all` whose wire name `v` is.
-fn code_of<T: Copy>(
+/// table entry whose wire name `v` is (`from_name` of its `wire_enum!`).
+fn code_of<T>(
     v: Option<&Value>,
-    all: &[T],
-    name: fn(T) -> &'static str,
+    from_name: fn(&str) -> Option<T>,
     code: fn(T) -> u8,
 ) -> Option<u8> {
     match v? {
         Value::UInt(u) => u8::try_from(*u).ok(),
-        Value::Str(s) => all.iter().copied().find(|x| name(*x) == s).map(code),
+        Value::Str(s) => from_name(s).map(code),
         _ => None,
     }
 }
 
 /// The quality `v` names, or `None` for anything that is not a valid code or name.
 pub fn quality(v: Option<&Value>) -> Option<Quality> {
-    let c = code_of(v, Quality::ALL, Quality::name, Quality::code)?;
+    let c = code_of(v, Quality::from_name, Quality::code)?;
     Quality::try_from(c).ok()
 }
 
@@ -37,7 +36,7 @@ pub fn quality_of(v: Option<&Value>) -> Quality {
 /// The status `v` names; anything else (also a missing field, and a user-defined or
 /// unknown code, which has no `Status`) is `internal_error`.
 pub fn status_of(v: Option<&Value>) -> Status {
-    match code_of(v, Status::ALL, Status::name, Status::code) {
+    match code_of(v, Status::from_name, Status::code) {
         Some(c) => Status::try_from(c).unwrap_or(Status::InternalError),
         None => Status::InternalError,
     }
@@ -48,7 +47,7 @@ pub fn status_of(v: Option<&Value>) -> Status {
 /// group (`ok`, a progress or a closed code) is `internal_error`: a failure never reads
 /// as a success.
 pub fn error_status_of(v: Option<&Value>) -> StatusCode {
-    let s = match code_of(v, Status::ALL, Status::name, Status::code) {
+    let s = match code_of(v, Status::from_name, Status::code) {
         Some(c) => StatusCode::from(c),
         None => StatusCode::Known(Status::InternalError),
     };

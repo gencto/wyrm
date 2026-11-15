@@ -533,7 +533,13 @@ enum Policy {
     },
     /// Arrival order, the oldest beyond the bound dropped
     /// (`subscribe_reliable`).
-    #[cfg_attr(not(feature = "advanced"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "advanced"),
+        allow(
+            dead_code,
+            reason = "made only by `subscribe_reliable` (feature `advanced`)"
+        )
+    )]
     Queue(VecDeque<ValEvent>),
 }
 

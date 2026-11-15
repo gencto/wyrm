@@ -244,7 +244,7 @@ impl Drop for Running {
 /// (ADR 0045).
 #[allow(
     clippy::too_many_arguments,
-    reason = "one argument per part of a run (ADR 0038, 0045); a struct for one call site would only rename them"
+    reason = "one argument per part of a run (ADR 0038, 0045), each passed as is by its two callers (deploy and preview)"
 )]
 pub fn start(
     def: &FlowDef,

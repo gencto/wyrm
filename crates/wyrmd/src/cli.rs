@@ -7,6 +7,7 @@
 
 use crate::{Config, Daemon, Error};
 use clap::{Parser, Subcommand};
+use std::process::ExitCode;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "WYRM broker")]
@@ -205,14 +206,14 @@ fn user_cmd(cfg: &Config, cmd: UserCmd) -> Result<(), Error> {
 /// Run `wyrmd` with the arguments of this process. `test`: a build that
 /// says it is another version (the update tests' second binary); `wyrmd`
 /// passes `None`.
-pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
+pub fn main(test: Option<crate::update::TestBuild>) -> Result<ExitCode, Error> {
     wyrm_admin::release::set_identity(crate::update::identity(test.as_ref()));
     let mut args = Args::parse();
     if matches!(args.cmd, Some(Cmd::Release(_))) {
         let Some(Cmd::Release(cmd)) = args.cmd.take() else {
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         };
-        return crate::update::release_cmd(cmd);
+        return crate::update::release_cmd(cmd).map(|()| ExitCode::SUCCESS);
     }
     match &args.cmd {
         Some(Cmd::ReleaseInfo) => {
@@ -220,7 +221,7 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
                 "{}",
                 serde_json::to_string(wyrm_admin::release::identity()).map_err(|e| e.to_string())?
             );
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Cmd::InstallLayout { prefix }) => {
             let me = &wyrm_admin::release::identity().version;
@@ -230,7 +231,7 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
                 l.guard().display(),
                 l.current().join(wyrm_admin::release::BIN).display()
             );
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         _ => {}
     }
@@ -250,20 +251,17 @@ pub fn main(test: Option<crate::update::TestBuild>) -> Result<(), Error> {
         .map_err(|e| format!("cannot start the runtime thread: {e}"))?
 }
 
-#[allow(
-    clippy::exit,
-    reason = "`wyrmd check` reports a failed store with exit code 1"
-)]
-async fn run(args: Args) -> Result<(), Error> {
+async fn run(args: Args) -> Result<ExitCode, Error> {
     if let Some(Cmd::Link { driver }) = &args.cmd {
-        return crate::run_link(driver).await;
+        return crate::run_link(driver).await.map(|()| ExitCode::SUCCESS);
     }
     if let Some(Cmd::Arbiter(ArbiterCmd::Serve { dir, listen })) = &args.cmd {
         return crate::arbiter::serve(dir, listen, async {
             stop_signal().await;
             tracing::info!("stopping");
         })
-        .await;
+        .await
+        .map(|()| ExitCode::SUCCESS);
     }
     let text = std::fs::read_to_string(&args.config)
         .map_err(|e| format!("{}: {e}", args.config.display()))?;
@@ -277,10 +275,14 @@ async fn run(args: Args) -> Result<(), Error> {
                 }
             }
             println!("ok");
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
-        Some(Cmd::UpdateGuard) => return crate::update::run_guard(&cfg),
-        Some(Cmd::GuardRefresh) => return crate::update::run_guard_refresh(&cfg),
+        Some(Cmd::UpdateGuard) => {
+            return crate::update::run_guard(&cfg).map(|()| ExitCode::SUCCESS)
+        }
+        Some(Cmd::GuardRefresh) => {
+            return crate::update::run_guard_refresh(&cfg).map(|()| ExitCode::SUCCESS)
+        }
         Some(Cmd::Ca {
             cmd: Some(CaCmd::Fingerprint),
         }) => {
@@ -293,7 +295,7 @@ async fn run(args: Args) -> Result<(), Error> {
             };
             let fp = wyrm_gateway::devices::ca_fingerprint(&der);
             println!("{}", wyrm_gateway::devices::grouped(&fp));
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Cmd::Ca { cmd: None }) => {
             let pki = wyrm_admin::secret::Pki::open_or_create(&cfg.data_dir.join("pki"))?;
@@ -305,14 +307,14 @@ async fn run(args: Args) -> Result<(), Error> {
                 eprintln!("{}: broker.pem and broker.key in {}", d.site, dir.display());
             }
             println!("{}", pki.ca_path().display());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
-        Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd),
-        Some(Cmd::Keys(cmd)) => return keys_cmd(&cfg, cmd),
+        Some(Cmd::User(cmd)) => return user_cmd(&cfg, cmd).map(|()| ExitCode::SUCCESS),
+        Some(Cmd::Keys(cmd)) => return keys_cmd(&cfg, cmd).map(|()| ExitCode::SUCCESS),
         Some(Cmd::Arbiter(ArbiterCmd::Issue { host, out })) => {
             crate::arbiter::issue(&cfg, &host, &out)?;
             println!("{}", out.display());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Cmd::Verify) => {
             let checks = crate::verify_state(&cfg);
@@ -340,9 +342,9 @@ async fn run(args: Args) -> Result<(), Error> {
                 bad |= !c.ok();
             }
             if bad {
-                std::process::exit(1);
+                return Ok(ExitCode::FAILURE);
             }
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Cmd::InitAnchors) => {
             if cfg.state_anchor_dir.is_none() {
@@ -352,7 +354,7 @@ async fn run(args: Args) -> Result<(), Error> {
             cfg.init_anchors = true;
             drop(Daemon::open(cfg, std::env::current_exe()?)?);
             println!("anchors written");
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         _ => {}
     }
@@ -379,8 +381,7 @@ async fn run(args: Args) -> Result<(), Error> {
             tracing::info!("stopping");
         })
         .await?;
-    exit_if_asked(&ctl);
-    Ok(())
+    Ok(asked_exit(&ctl).unwrap_or(ExitCode::SUCCESS))
 }
 
 /// The upstream sites of the configuration (the `up` TXT key).
@@ -396,26 +397,22 @@ fn own_exe() -> Result<std::path::PathBuf, Error> {
     Ok(exe.canonicalize().unwrap_or(exe))
 }
 
-/// A new version that gave its trial up ends with the code the guard and
-/// the supervisor read (ADR 0048 §2.5).
-#[allow(
-    clippy::exit,
-    reason = "the exit code is the answer the update guard and the supervisor read"
-)]
-fn exit_if_asked(ctl: &wyrm_admin::Control) {
-    if let Some(code) = ctl.exit_code() {
-        std::process::exit(code);
-    }
+/// The exit code a new version that gave its trial up ends with, for the
+/// guard and the supervisor to read (ADR 0048 §2.5); `None` when none is asked.
+fn asked_exit(ctl: &wyrm_admin::Control) -> Option<ExitCode> {
+    ctl.exit_code().map(exit_code)
+}
+
+/// `code` as the process exit code; one outside `0..=255` (none is defined)
+/// is a plain failure.
+fn exit_code(code: i32) -> ExitCode {
+    u8::try_from(code).map_or(ExitCode::FAILURE, ExitCode::from)
 }
 
 /// A broker of a standby pair (ADR 0036): follow the other broker until it
 /// is away, then run as the active one; a non-primary active steps down
 /// and follows again when the primary is back.
-#[allow(
-    clippy::exit,
-    reason = "a standby that gave its trial up ends with TRIAL_EXIT for the supervisor"
-)]
-async fn run_with_standby(cfg: Config) -> Result<(), Error> {
+async fn run_with_standby(cfg: Config) -> Result<ExitCode, Error> {
     use crate::standby::{follow_with, isolated, lease_lost, primary_is_back, Outcome};
     use std::sync::atomic::{AtomicBool, Ordering};
     let exe = own_exe()?;
@@ -433,12 +430,12 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
             r = follow_with(&cfg, arbiters.clone(), stop_signal()) => r?,
             // a standby in its trial that never followed again gives up
             _ = crate::update::standby_trial(&cfg.data_dir, &exe) => {
-                std::process::exit(wyrm_admin::release::TRIAL_EXIT);
+                return Ok(exit_code(wyrm_admin::release::TRIAL_EXIT));
             }
         };
         match followed {
             // `Update`: the new version is current; the supervisor starts it
-            Outcome::Stopped | Outcome::Update => return Ok(()),
+            Outcome::Stopped | Outcome::Update => return Ok(ExitCode::SUCCESS),
             Outcome::Takeover => {}
         }
         // `follow` took the lease (its send time is in the shared
@@ -489,7 +486,9 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
             })
             .await?;
         drop(announced);
-        exit_if_asked(&ctl);
+        if let Some(code) = asked_exit(&ctl) {
+            return Ok(code);
+        }
         drop(keeper);
         if let Some(a) = &arbiters {
             // stopped or stepped down: the lease is free for the other host
@@ -497,7 +496,7 @@ async fn run_with_standby(cfg: Config) -> Result<(), Error> {
             a.release().await;
         }
         if !demoted.load(Ordering::SeqCst) {
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
     }
 }
