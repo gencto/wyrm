@@ -1137,6 +1137,7 @@ mod tests {
         let gw = Gateway::open(cfg, b"test state key").unwrap();
         // nobody logs in: the principals are made from claims, so any password will do
         let pw: String = session::new_jti()
+            .unwrap()
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
@@ -1174,7 +1175,7 @@ mod tests {
                 roles: vec!["admin".into()],
                 exp: now + 60,
                 iat: now,
-                jti: session::new_jti(),
+                jti: session::new_jti().unwrap(),
                 gen,
                 amr,
                 auth_at: now,

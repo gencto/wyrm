@@ -31,6 +31,7 @@ mod limit;
 mod mcp;
 pub mod oauth;
 mod overlay;
+pub mod rng;
 pub mod roles;
 pub mod session;
 pub mod users;
@@ -480,7 +481,7 @@ impl Gateway {
             sites: Arc::new(watch::channel(Arc::default()).0),
             agent_links: RwLock::new(Vec::new()),
             per_user: Mutex::new(Default::default()),
-            nonces: Default::default(),
+            nonces: devices::Nonces::new().map_err(|e| Error::Config(e.to_string()))?,
             fresh: Default::default(),
             challenge_limit: limit::RequestLimiter::new(CHALLENGES_PER_MIN, LOGIN_WINDOW),
             info_limit: limit::RequestLimiter::new(INFO_PER_MIN, LOGIN_WINDOW),
@@ -544,8 +545,7 @@ impl Gateway {
             return None;
         }
         let now = session::now_s();
-        let mut raw = [0u8; 16];
-        getrandom::fill(&mut raw).ok()?;
+        let raw: [u8; 16] = crate::rng::bytes().ok()?;
         let ticket: String = raw.iter().map(|b| format!("{b:02x}")).collect();
         let exp = now + TICKET_TTL_S;
         let mut t = self.tickets.lock().unwrap_or_else(|p| p.into_inner());
@@ -971,7 +971,14 @@ impl Gateway {
         let (roles, gen) = self.verify_login(user, password, ip)?;
         // the device saw the password: its `password_due` starts again (ADR 0050)
         if let Some(d) = device {
-            self.password_seen(user, d);
+            self.password_seen(user, d).map_err(|e| {
+                tracing::error!(
+                    user,
+                    device = d,
+                    "login: the device's password time not saved: {e}"
+                );
+                LoginError::Unavailable
+            })?;
         }
         let iat = session::now_s();
         let exp = iat + self.cfg.session_ttl.as_secs().max(1);
@@ -980,7 +987,7 @@ impl Gateway {
             roles,
             exp,
             iat,
-            jti: session::new_jti(),
+            jti: session::new_jti().map_err(|_| LoginError::Unavailable)?,
             gen,
             amr: session::Amr::Password,
             auth_at: iat,
@@ -1071,6 +1078,8 @@ impl Gateway {
 enum LoginError {
     Invalid,
     RateLimited,
+    /// No randomness for the session id, or the user store refused a write.
+    Unavailable,
 }
 
 /// Read the 32-byte Ed25519 seed, or create it (0600) if the file is absent.
@@ -1088,8 +1097,7 @@ fn load_or_create_key(path: &Path) -> Result<SigningKey> {
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let mut seed = Zeroizing::new([0u8; 32]);
-            getrandom::fill(seed.as_mut())
-                .map_err(|e| Error::Config(format!("no randomness: {e}")))?;
+            crate::rng::fill(seed.as_mut()).map_err(|e| Error::Config(e.to_string()))?;
             write_private(path, seed.as_ref())?;
             info!(path = %path.display(), "gateway: new signing key");
             Ok(SigningKey::from_bytes(&seed))

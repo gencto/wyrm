@@ -690,14 +690,16 @@ pub fn sha256_file(path: &Path) -> Result<(String, u64), String> {
     Ok((hex::encode(h.finalize()), total))
 }
 
-fn sync_dir(dir: &Path) {
-    // a directory handle syncs on unix; elsewhere it is not needed
+/// Make the entries of `dir` durable: a rename is not on disk before its directory is.
+/// A directory handle syncs on unix; elsewhere it is not needed.
+fn sync_dir(dir: &Path) -> Result<(), String> {
     #[cfg(unix)]
-    if let Ok(d) = std::fs::File::open(dir) {
-        let _ = d.sync_all();
-    }
+    std::fs::File::open(dir)
+        .and_then(|d| d.sync_all())
+        .map_err(|e| io(dir, e))?;
     #[cfg(not(unix))]
     let _ = dir;
+    Ok(())
 }
 
 fn new_file(path: &Path, mode: u32) -> std::io::Result<std::fs::File> {
@@ -943,7 +945,7 @@ pub fn unpack(
         let _ = std::fs::remove_dir_all(&part);
         return Err(e);
     }
-    sync_dir(&part);
+    sync_dir(&part)?;
     let dest = versions.join(version);
     if dest.symlink_metadata().is_ok() {
         std::fs::remove_dir_all(&dest)
@@ -951,7 +953,7 @@ pub fn unpack(
             .map_err(|e| io(&dest, e))?;
     }
     std::fs::rename(&part, &dest).map_err(|e| io(&dest, e))?;
-    sync_dir(versions);
+    sync_dir(versions)?;
     Ok(dest.join(BIN))
 }
 
@@ -978,7 +980,7 @@ pub fn keep_release(
         f.write_all(bytes).map_err(|e| io(&path, e))?;
         f.sync_all().map_err(|e| io(&path, e))?;
     }
-    sync_dir(&dir);
+    sync_dir(&dir)?;
     Ok(())
 }
 
@@ -1131,7 +1133,7 @@ impl Layout {
         out.sync_all().map_err(|e| io(&tmp, e))?;
         drop(out);
         std::fs::rename(&tmp, &guard).map_err(|e| io(&guard, e))?;
-        sync_dir(&dir);
+        sync_dir(&dir)?;
         Ok(true)
     }
 
@@ -1242,7 +1244,7 @@ impl Layout {
             std::os::unix::fs::symlink(&target, &tmp).map_err(|e| io(&tmp, e))?;
             let cur = self.current();
             std::fs::rename(&tmp, &cur).map_err(|e| io(&cur, e))?;
-            sync_dir(&self.prefix);
+            sync_dir(&self.prefix)?;
             Ok(())
         }
         #[cfg(not(unix))]
@@ -1265,7 +1267,7 @@ impl Layout {
         out.sync_all().map_err(|e| io(&tmp, e))?;
         drop(out);
         std::fs::rename(&tmp, &guard).map_err(|e| io(&guard, e))?;
-        sync_dir(&dir);
+        sync_dir(&dir)?;
         Ok(())
     }
 
@@ -1450,7 +1452,7 @@ impl UpdateFile {
         let path = data_dir.join(STATE_FILE);
         let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
         crate::secret::write_private(&path, &bytes).map_err(|e| io(&path, e))?;
-        sync_dir(data_dir);
+        sync_dir(data_dir)?;
         Ok(())
     }
 
@@ -1880,7 +1882,7 @@ pub fn restore_control(
                 }
             }
             if let Some(parent) = live.parent() {
-                sync_dir(parent);
+                sync_dir(parent)?;
             }
         }
         Ok::<(), String>(())

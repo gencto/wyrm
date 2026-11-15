@@ -1242,7 +1242,7 @@ async fn a_socket_is_only_for_a_persons_login() {
         roles: vec!["admin".into()],
         exp: now + 600,
         iat: now,
-        jti: new_jti(),
+        jti: new_jti().unwrap(),
         gen: env.gw.user("root").unwrap().gen,
         amr: wyrm_gateway::Amr::OAuth,
         auth_at: now,

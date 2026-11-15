@@ -209,12 +209,11 @@ fn decode(v: &Value) -> Option<SessionClaims> {
     })
 }
 
-pub fn new_jti() -> [u8; 16] {
-    let mut j = [0u8; 16];
-    // A failing OS RNG leaves zeros; the MAC still binds the token, so this
-    // only weakens uniqueness, which nothing relies on for security.
-    let _ = getrandom::fill(&mut j);
-    j
+/// A new session id. Without randomness there is none: the login is refused
+/// (every session of a user would share a zero id, and the device
+/// registration purpose binds it).
+pub fn new_jti() -> Result<[u8; 16], crate::rng::NoRandomness> {
+    crate::rng::bytes()
 }
 
 /// Other signed tokens of the gateway (the OAuth tokens of the MCP endpoint, ADR 0041):

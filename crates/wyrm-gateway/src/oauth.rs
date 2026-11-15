@@ -174,7 +174,7 @@ pub(crate) struct OAuth {
 /// guessable codes: the caller refuses instead).
 fn random_b64(n: usize) -> Option<String> {
     let mut b = vec![0u8; n];
-    getrandom::fill(&mut b).ok()?;
+    crate::rng::fill(&mut b).ok()?;
     Some(URL_SAFE_NO_PAD.encode(b))
 }
 
@@ -355,7 +355,7 @@ impl OAuth {
         let iat = now_s();
         let exp = iat + ttl.as_secs().max(1);
         let mut jti = [0u8; 16];
-        getrandom::fill(&mut jti).ok()?;
+        crate::rng::fill(&mut jti).ok()?;
         let v = map([
             ("s", Value::from(sub)),
             ("g", Value::UInt(gen)),
@@ -779,6 +779,9 @@ pub(crate) async fn authorize_submit(
                 Some("too many failed logins: wait a minute"),
                 &user,
             )
+        }
+        Err(LoginError::Unavailable) => {
+            return error_page("the gateway cannot sign in now: try again")
         }
     };
     let consent = Consent {

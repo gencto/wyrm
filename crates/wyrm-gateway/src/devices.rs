@@ -420,16 +420,17 @@ pub(crate) struct Nonces {
     max_spent: usize,
 }
 
-impl Default for Nonces {
-    fn default() -> Self {
+impl Nonces {
+    /// A new MAC key from the OS. Without randomness the gateway does not start: a zero
+    /// key would let anyone mint valid challenges.
+    pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
         let mut key = Zeroizing::new([0u8; 32]);
-        // a failing OS RNG leaves a zero key: nonces then still expire and are single use
-        let _ = getrandom::fill(key.as_mut());
-        Self {
+        crate::rng::fill(key.as_mut())?;
+        Ok(Self {
             key,
             spent: Mutex::new(HashMap::new()),
             max_spent: MAX_SPENT,
-        }
+        })
     }
 }
 
@@ -458,7 +459,7 @@ impl Nonces {
         use hmac::Mac;
         let exp = now + CHALLENGE_TTL_S;
         let mut n = vec![0u8; 16];
-        getrandom::fill(&mut n).ok()?;
+        crate::rng::fill(&mut n).ok()?;
         n.extend(exp.to_be_bytes());
         let tag = self.mac(purpose, &n).finalize().into_bytes();
         n.extend(tag);
@@ -838,7 +839,7 @@ impl Gateway {
             return Err(self.bare("(new)", Some(&p.name), ip, "bad_registration"));
         }
         let mut raw = [0u8; 16];
-        getrandom::fill(&mut raw).map_err(|_| Refused::Busy)?;
+        crate::rng::fill(&mut raw).map_err(|_| Refused::Busy)?;
         let id = hex(&raw);
         {
             let mut store = self.store();
@@ -962,7 +963,7 @@ impl Gateway {
             roles: u.roles,
             exp,
             iat: now,
-            jti: session::new_jti(),
+            jti: session::new_jti().map_err(|_| Refused::Busy)?,
             gen: u.gen,
             amr: Amr::Device,
             auth_at: now,
@@ -1141,7 +1142,7 @@ impl Gateway {
     }
 
     /// A password login that names its device: the device saw the password now.
-    pub(crate) fn password_seen(&self, user: &str, device: &str) {
+    pub(crate) fn password_seen(&self, user: &str, device: &str) -> crate::Result<()> {
         let mut store = self.store();
         let ok = store
             .state()
@@ -1149,11 +1150,12 @@ impl Gateway {
             .get(device)
             .is_some_and(|d| d.user == user && d.removed.is_none());
         if ok {
-            let _ = store.apply(Op::DevicePassword {
+            store.apply(Op::DevicePassword {
                 id: device.to_owned(),
                 at: session::now_s(),
-            });
+            })?;
         }
+        Ok(())
     }
 }
 
@@ -1196,7 +1198,7 @@ mod tests {
 
     #[test]
     fn nonces_are_single_use_bound_and_expire() {
-        let n = Nonces::default();
+        let n = Nonces::new().unwrap();
         let login = |d: &str| Purpose::Login { device: d.into() };
         let (a, exp) = n.issue(&login("d1"), 100).unwrap();
         assert_eq!((a.len(), exp), (NONCE_LEN, 100 + CHALLENGE_TTL_S));
@@ -1210,7 +1212,7 @@ mod tests {
         );
         // another gateway process (another key), a changed byte, a stretched expiry
         let (b, _) = n.issue(&login("d1"), 200).unwrap();
-        assert!(!Nonces::default().take_ok(&b, &login("d1"), 201));
+        assert!(!Nonces::new().unwrap().take_ok(&b, &login("d1"), 201));
         let mut t = b.clone();
         t[3] ^= 1;
         assert!(!n.take_ok(&t, &login("d1"), 201));
@@ -1250,7 +1252,7 @@ mod tests {
     fn a_full_spent_table_is_busy_and_confirms_are_bound_to_their_request() {
         let n = Nonces {
             max_spent: 1,
-            ..Nonces::default()
+            ..Nonces::new().unwrap()
         };
         let login = || Purpose::Login {
             device: "d1".into(),
@@ -1260,7 +1262,7 @@ mod tests {
         assert_eq!(n.take(&a, &login(), 101), Spend::Ok);
         assert_eq!(n.take(&b, &login(), 101), Spend::Busy);
         assert_eq!(n.take(&[0; 3], &login(), 101), Spend::Refused);
-        let n = Nonces::default();
+        let n = Nonces::new().unwrap();
         let confirm = |request: [u8; 32]| Purpose::Confirm {
             user: "root".into(),
             jti: [1; 16],
@@ -1293,7 +1295,7 @@ mod tests {
     /// leaves secret fields out and is keyed.
     #[test]
     fn request_hashes_hold_no_secret() {
-        let n = Nonces::default();
+        let n = Nonces::new().unwrap();
         let req = |pw: &str| {
             map([
                 ("method", Value::from("POST")),
@@ -1307,7 +1309,7 @@ mod tests {
         );
         assert_ne!(
             n.request_hash(&req("x")),
-            Nonces::default().request_hash(&req("x")),
+            Nonces::new().unwrap().request_hash(&req("x")),
             "keyed per gateway"
         );
         let plain: [u8; 32] = Sha256::digest(wyrm_core::codec::to_vec(&req("x")).unwrap()).into();

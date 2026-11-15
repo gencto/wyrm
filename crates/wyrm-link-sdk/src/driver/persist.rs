@@ -148,10 +148,13 @@ impl Persist {
             f.sync_all().map_err(|e| e.to_string())?;
         }
         std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())?;
+        // the rename is durable only with its directory (a directory handle syncs on
+        // unix; Windows opens none and needs none)
+        #[cfg(unix)]
         if let Some(dir) = self.path.parent() {
-            if let Ok(d) = std::fs::File::open(dir) {
-                let _ = d.sync_all();
-            }
+            std::fs::File::open(dir)
+                .and_then(|d| d.sync_all())
+                .map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         Ok(())
     }
