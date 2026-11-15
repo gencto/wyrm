@@ -113,7 +113,7 @@ AppState withSites(AppState s, {String? selected}) => s.copyWith(
   site: s.site.copyWith(
     connected: true,
     choices: IList(const [
-      SiteChoice(site: 'plant', relation: 'this'),
+      SiteChoice(site: 'plant'),
       SiteChoice(site: 'central', relation: 'upstream'),
       SiteChoice(site: 'line1', relation: 'downstream'),
       SiteChoice(site: 'line3', relation: 'downstream', via: 'line1'),

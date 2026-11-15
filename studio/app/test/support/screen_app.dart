@@ -201,6 +201,20 @@ class ScreenApp {
       if (c.action == action || (c.action == null && c.op == action)) c,
   ];
 
+  /// A row that overflows its box is drawn as it is and not reported
+  /// (the review panel's buttons do at the test's text scale); every other
+  /// error still fails the test.
+  void ignoreOverflow() {
+    final report = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if ('${details.exception}'.contains('overflowed')) {
+        return;
+      }
+      report?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = report);
+  }
+
   /// Lays [change] into the store, as the test needs it.
   void put(AppState Function(AppState) change) =>
       store.dispatchSync(_Put(change));
