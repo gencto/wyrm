@@ -151,6 +151,44 @@ void main() {
       ),
     );
     testWidgets(
+      'Overview in Ukrainian, with the traffic ring',
+      (t) => expectWords(
+        t,
+        ukOverviewWords,
+        fixture: const SysFixture(samples: true),
+        locale: const Locale('uk'),
+      ),
+    );
+    testWidgets(
+      'Availability in Ukrainian, behind and a fork, the lease late',
+      (t) => expectWords(
+        t,
+        ukAvailabilityBothWords,
+        tab: SysTab.availability,
+        fixture: const SysFixture(standby: Standby.both, lease: 2),
+        locale: const Locale('uk'),
+      ),
+    );
+    testWidgets(
+      'Availability in Ukrainian, no standby',
+      (t) => expectWords(
+        t,
+        ukAvailabilityNoneWords,
+        tab: SysTab.availability,
+        fixture: const SysFixture(standby: Standby.none),
+        locale: const Locale('uk'),
+      ),
+    );
+    testWidgets(
+      'Log in Ukrainian',
+      (t) => expectWords(
+        t,
+        ukLogWords,
+        tab: SysTab.log,
+        locale: const Locale('uk'),
+      ),
+    );
+    testWidgets(
       'Maintenance in Ukrainian',
       (t) => expectWords(
         t,

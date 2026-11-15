@@ -6,7 +6,9 @@ import 'package:archive/archive.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/backups/actions/apply_restore_action.dart';
+import 'package:business/redux/backups/actions/back_up_action.dart';
 import 'package:business/redux/backups/actions/cancel_download_action.dart';
+import 'package:business/redux/backups/actions/change_backup_form_action.dart';
 import 'package:business/redux/backups/actions/check_restore_action.dart';
 import 'package:business/redux/backups/actions/close_backup_action.dart';
 import 'package:business/redux/backups/actions/create_backup_action.dart';
@@ -676,6 +678,57 @@ void main() {
 
       await s.dispatchAndWait(RemoveBackupAction('b1'));
       expect(invokes('remove').single.key, '$_b/b1');
+    });
+  });
+
+  group("one intent, one action (the dialog's steps)", () {
+    test('Back up leaves keys out when the passphrase cannot take them, '
+        'then makes the backup', () async {
+      api.invokes['$_b ▸ create'] = [
+        const VMap({'id': VStr('b2')}),
+      ];
+      s
+        ..dispatchSync(OpenBackupAction())
+        ..dispatchSync(SetBackupFormAction(toggle: 'keys'));
+      expect(s.state.backups.chosen.contains('keys'), isTrue);
+
+      await s.dispatchAndWait(BackUpAction(dropKeys: true));
+
+      final args = invokes('create').single.args!;
+      expect(
+        [for (final v in (args['sections']! as VArray).v) (v as VStr).v],
+        isNot(contains('keys')),
+      );
+      expect(s.state.backups.stage, 'job');
+    });
+
+    test('to a file store the host names one link for: that link, and its '
+        'connections read', () async {
+      api.children_['wy/central/downstream/files'] = [Child('s3', NodeMeta())];
+      s.dispatchSync(OpenBackupAction(job: 'b1'));
+
+      await s.dispatchAndWait(ChangeBackupFormAction.where('store'));
+
+      expect(s.state.backups.where, 'store');
+      expect(s.state.backups.sendLink, 'files');
+      expect(s.state.backups.connections, ['s3']);
+    });
+
+    test('an estimate that ends under another dialog is dropped', () async {
+      api.invokes['$_b ▸ estimate'] = [
+        const VMap({
+          'sections': VMap({'control': VInt(10)}),
+        }),
+      ];
+      api.delays['$_b ▸ estimate'] = const Duration(milliseconds: 50);
+      s.dispatchSync(OpenBackupAction());
+      final estimate = s.dispatchAndWait(EstimateBackupAction());
+      // closed, and the restore opened, before the answer
+      await s.dispatchAndWait(CloseBackupAction());
+      s.dispatchSync(OpenBackupAction(restore: true));
+      await estimate;
+      expect(s.state.backups.stage, 'restore');
+      expect(s.state.backups.estimate, isEmpty);
     });
   });
 

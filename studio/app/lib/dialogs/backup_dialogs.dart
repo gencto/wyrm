@@ -1,19 +1,17 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
-import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/backups/actions/apply_restore_action.dart';
+import 'package:business/redux/backups/actions/back_up_action.dart';
 import 'package:business/redux/backups/actions/cancel_download_action.dart';
 import 'package:business/redux/backups/actions/change_backup_form_action.dart';
 import 'package:business/redux/backups/actions/check_restore_action.dart';
 import 'package:business/redux/backups/actions/close_backup_action.dart';
 import 'package:business/redux/backups/actions/create_backup_action.dart';
-import 'package:business/redux/backups/actions/download_backup_action.dart';
 import 'package:business/redux/backups/actions/estimate_backup_action.dart';
-import 'package:business/redux/backups/actions/follow_restore_action.dart';
 import 'package:business/redux/backups/actions/open_backup_action.dart';
-import 'package:business/redux/backups/actions/remove_backup_action.dart';
+import 'package:business/redux/backups/actions/restore_action.dart';
 import 'package:business/redux/backups/actions/retrieve_backups_action.dart';
 import 'package:business/redux/backups/actions/send_backup_action.dart';
 import 'package:business/redux/backups/actions/set_backup_form_action.dart';
@@ -24,14 +22,13 @@ import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/backup_job.dart';
-import 'package:models/backup_kind.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
 import '../common/app_store.dart';
+import '../common/backup_file_actions.dart';
 import '../common/backup_sheets.dart';
-import '../common/files.dart';
-import '../navigation/app_router.dart';
+import '../navigation/leave_on_log_out_action.dart';
 
 /// The selectors over a state, for a dialog's converter.
 class _Sel with Selectors {
@@ -74,17 +71,19 @@ Future<void> showBackupDialog(
   }
   store.dispatchSync(OpenBackupAction(link: link, job: job, restore: restore));
   // A broker backup shows the size of each section, read while the dialog
-  // is open; the dialog is closed in the store once both have ended.
-  await Future.wait([
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _BackupDialog(store: store),
-    ),
-    if (link == null && job == null && !restore)
-      store.dispatchAndWait(EstimateBackupAction()),
-  ]);
+  // is open. The dialog is closed in the store as soon as it closes: an
+  // estimate that ends later is dropped (it was read for another opening),
+  // and it is awaited only after that.
+  final estimate = link == null && job == null && !restore
+      ? store.dispatchAndWait(EstimateBackupAction())
+      : null;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _BackupDialog(store: store),
+  );
   await store.dispatchAndWait(CloseBackupAction());
+  await estimate;
 }
 
 class _BackupDialog extends StatefulWidget {
@@ -99,6 +98,9 @@ class _BackupDialog extends StatefulWidget {
 class _BackupDialogState extends State<_BackupDialog> {
   /// Typed here, sent as an action argument, kept nowhere else.
   var _passphrase = '';
+
+  /// The stage last drawn: the passphrase is forgotten when it moves on.
+  late String? _stage = _store.state.backups.stage;
 
   Store<AppState> get _store => widget.store;
 
@@ -242,122 +244,86 @@ class _BackupDialogState extends State<_BackupDialog> {
     }
   }
 
-  Future<void> _primary() async {
+  /// The primary button: one action for the step on screen (studio-rules
+  /// §1, §9); the dialog only closes itself.
+  FutureOr<ActionStatus>? _primary() {
     final state = _store.state;
     switch (state.backups.stage) {
       case 'choose' || 'link':
         final d = _form(state);
-        // `keys` goes only with a passphrase the broker takes.
-        if (d.chosen.contains('keys') && !d.withKeys) {
-          _store.dispatchSync(SetBackupFormAction(toggle: 'keys'));
-        }
-        final status = await _store.dispatchAndWait(
-          CreateBackupAction(passphrase: _secret),
+        return _store.dispatch(
+          // `keys` goes only with a passphrase the broker takes.
+          BackUpAction(
+            dropKeys: d.chosen.contains('keys') && !d.withKeys,
+            passphrase: _secret,
+          ),
         );
-        if (status.isCompletedOk) {
-          _forget();
-        }
       case 'job':
         final d = _job(state);
         switch (d?.primary) {
           case 'download':
-            await _download(d!.job);
+            return _store.dispatch(
+              DownloadBackupFileAction(
+                d!.job,
+                folderTitle: S.current.bakChooseFolder(d.job.name),
+              ),
+            );
           case 'cancel':
-            _store.dispatchSync(CancelDownloadAction());
+            return _store.dispatch(CancelDownloadAction());
           case 'send':
-            await _store.dispatchAndWait(SendBackupAction(d!.job.id));
+            return _store.dispatch(SendBackupAction(d!.job.id));
           case 'remove':
-            await _remove();
+            return _remove();
           case 'show':
             _close();
         }
       case 'restore':
         final d = _restore(state);
         if (d.fileName == null) {
-          await _upload();
-        } else if (d.check == null) {
-          await _store.dispatchAndWait(
-            CheckRestoreAction(passphrase: _passphrase),
-          );
-        } else {
-          // Only the sections the mode and the session's rights take.
-          for (final s in d.chosen.difference(d.sent)) {
-            _store.dispatchSync(SetBackupFormAction(toggle: s));
-          }
-          final status = await _store.dispatchAndWait(
-            ApplyRestoreAction(passphrase: _passphrase),
-          );
-          if (status.isCompletedOk) {
-            // Sent; it is needed no more.
-            _forget();
-            if (_store.state.backups.stage == 'restarting') {
-              await _store.dispatchAndWait(FollowRestoreAction());
-            }
-          }
+          return _store.dispatch(UploadRestoreFileAction());
         }
+        if (d.check == null) {
+          return _store.dispatch(CheckRestoreAction(passphrase: _passphrase));
+        }
+        // Only the sections the mode and the session's rights take.
+        return _store.dispatch(
+          RestoreAction(
+            drop: d.chosen.difference(d.sent),
+            passphrase: _passphrase,
+          ),
+        );
       case 'lost':
         // The session is no longer the site's: log in again.
-        final router = AutoRouter.of(context);
         _close();
-        await _store.dispatchAndWait(LogOutAction());
-        await router.replaceAll([const LogInRoute()]);
+        return _store.dispatch(LeaveOnLogOutAction(LogOutAction()));
     }
+    return null;
   }
 
-  Future<void> _upload() async {
-    final f = await pickFile(extensions: const ['wyrm-backup']);
-    if (f == null) {
-      return;
-    }
-    try {
-      await _store.dispatchAndWait(
-        UploadRestoreAction(name: f.name, size: f.size, read: f.read),
-      );
-    } finally {
-      await f.close();
-    }
-  }
-
-  Future<void> _download(BackupJob job) async {
-    final file = await saveInto(
-      job.name,
-      fallback: job.kind == BackupKind.link
-          ? 'backup.wyrm-link'
-          : 'backup.wyrm-backup',
-      dialogTitle: S.current.bakChooseFolder(job.name),
-    );
-    if (file == null) {
-      return;
-    }
-    await _store.dispatchAndWait(
-      DownloadBackupAction(
-        job.id,
-        path: file.path,
-        sha256: job.sha256,
-        write: file.write,
-        onDone: file.commit,
-        onDiscard: file.discard,
-      ),
-    );
-  }
-
-  Future<void> _remove() async {
+  /// *Remove*: asked here, removed by the action, the dialog closed once
+  /// it is gone.
+  FutureOr<ActionStatus>? _remove() {
     final j = _job(_store.state)?.job;
     if (j == null) {
-      return;
+      return null;
     }
-    if (await ConfirmDialog.ask(
-      context,
-      title: S.current.bakRemoveTitle(j.name),
-      message: S.current.bakRemoveNote,
-      confirm: S.current.remove,
-      cancel: S.current.cancel,
-    )) {
-      final status = await _store.dispatchAndWait(RemoveBackupAction(j.id));
-      if (status.isCompletedOk && mounted) {
-        _close();
-      }
-    }
+    return _store.dispatch(
+      RemoveBackupAskedAction(
+        j.id,
+        ask: () => ConfirmDialog.ask(
+          context,
+          title: S.current.bakRemoveTitle(j.name),
+          message: S.current.bakRemoveNote,
+          confirm: S.current.remove,
+          cancel: S.current.cancel,
+        ),
+        removed: () {
+          if (mounted) {
+            _close();
+          }
+        },
+      ),
+    );
   }
 
   void _toggle(String id, {required bool on}) => _store.dispatchSync(
@@ -368,34 +334,31 @@ class _BackupDialogState extends State<_BackupDialog> {
     },
   );
 
-  Future<void> _pick(String group, String value) async {
+  /// A choice of the sheet: one action each.
+  FutureOr<ActionStatus>? _pick(String group, String value) {
     switch (group) {
       case 'history':
-        await _store.dispatchAndWait(
+        return _store.dispatch(
           ChangeBackupFormAction.estimate(
             SetBackupFormAction(historyDays: int.parse(value)),
           ),
         );
       case 'links':
-        await _store.dispatchAndWait(
+        return _store.dispatch(
           ChangeBackupFormAction.estimate(
             SetBackupFormAction(toggleLink: value),
           ),
         );
       case 'where':
-        _store.dispatchSync(SetBackupFormAction(where: value));
-        // One link the host lists: it is the choice.
-        final links = _store.state.backups.sendLinks;
-        if (value == 'store' && links.length == 1) {
-          await _pick('sendLink', links.first.link);
-        }
+        return _store.dispatch(ChangeBackupFormAction.where(value));
       case 'sendLink':
-        await _store.dispatchAndWait(ChangeBackupFormAction.sendLink(value));
+        return _store.dispatch(ChangeBackupFormAction.sendLink(value));
       case 'sendConnection':
-        _store.dispatchSync(SetBackupFormAction(sendConnection: value));
+        return _store.dispatch(SetBackupFormAction(sendConnection: value));
       case 'mode':
-        _store.dispatchSync(SetBackupFormAction(mode: value));
+        return _store.dispatch(SetBackupFormAction(mode: value));
     }
+    return null;
   }
 
   void _text(String id, String text) {
@@ -411,20 +374,24 @@ class _BackupDialogState extends State<_BackupDialog> {
     // The sheet is built here, not in the converter: it also reads the
     // passphrase's length from this widget's own state.
     converter: (s) => s.state,
+    // The step that needed the passphrase is done once the stage moves on
+    // (a backup made, a restore applied): it is kept no longer.
+    onDidChange: (_, _, state) {
+      if (state.backups.stage != _stage) {
+        _stage = state.backups.stage;
+        _forget();
+      }
+    },
     builder: (context, state) => TaskSheet(
       vm: _vm(state),
       dialog: true,
       width: 680,
-      onPrimary: () => unawaited(_primary()),
+      onPrimary: _primary,
       onSecondary: _close,
       onToggle: _toggle,
       onPick: _pick,
       onText: _text,
-      onAction: (a) {
-        if (a == 'remove') {
-          unawaited(_remove());
-        }
-      },
+      onAction: (a) => a == 'remove' ? _remove() : null,
     ),
   );
 }

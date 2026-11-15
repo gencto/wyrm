@@ -22,6 +22,7 @@ class OpenBackupAction extends Action {
 
   @override
   AppState reduce() => state.copyWith.backups(
+    opening: backups.opening + 1,
     stage: restore
         ? 'restore'
         : (job != null ? 'job' : (link == null ? 'choose' : 'link')),

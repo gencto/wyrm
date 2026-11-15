@@ -553,6 +553,10 @@ class SystemApp {
       if (c.action == action || (c.action == null && c.op == action)) c,
   ];
 
+  /// Lays [change] into the store, as the test needs it.
+  void put(AppState Function(AppState) change) =>
+      store.dispatchSync(_Put(change));
+
   /// The words of the toasts of success on screen (the failed reads of
   /// this fake broker are toasts of their own): each title, and its line.
   List<String> notices(WidgetTester tester) => [

@@ -1659,6 +1659,9 @@ extension type SelectBackups(AppState _state) {
 
   /// Returns saved
   IMap<String, String> get saved => _state.backups.saved;
+
+  /// Returns opening
+  int get opening => _state.backups.opening;
 }
 
 extension type SelectBrokerUpdate(AppState _state) {
