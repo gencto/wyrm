@@ -1,4 +1,3 @@
-import 'package:app/common/changes.dart';
 import 'package:app/connectors/assistant_page_connector.dart';
 import 'package:app/connectors/explorer_page_connector.dart';
 import 'package:app/navigation/app_router.dart';
@@ -399,8 +398,8 @@ void main() {
     );
     await app.settle(tester);
 
-    final card = changeCards(_Reader(app.store.state)).single;
-    expect(card.key_, _links);
+    final card = _Reader(app.store.state).changes.reviewCards.single.change;
+    expect(card.key, _links);
     expect(card.field, 'params · require_approval');
     expect(card.from, 'rev 2: require_approval write');
     expect(card.to, 'require_approval config');

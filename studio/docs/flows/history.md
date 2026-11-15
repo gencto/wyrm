@@ -4,7 +4,7 @@
 
 `app/lib/connectors/history_page_connector.dart`
 
-## onPanelWidth
+## screen.onToggle
 
 ```mermaid
 sequenceDiagram
@@ -12,13 +12,16 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as SetPanelWidthAction
+    participant A1 as PickTrendPointAction
     participant ST as AppState
 
-    User->>UI: onPanelWidth
-    UI->>VM: onPanelWidth()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(panels.widths)
+    User->>UI: screen.onToggle
+    UI->>VM: screen()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(PickPointAction)
+    A1->>ST: dispatchAndWait(RetrieveSeriesAction)
+    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
 ```
 
 ## onShow
@@ -29,30 +32,14 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as FollowHistoryAction
-    participant A2 as RetrieveSeriesAction
-    participant A3 as LoadTrendWindowAction
+    participant A1 as ShowHistoryAction
     participant ST as AppState
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(historian.follow)
-    A1->>ST: dispatchSync(FollowAction)
-    alt historian.points.isNotEmpty
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction · async
-        A2->>ST: copyWith(historian.series, historian.low, historian.high, historian.detail)
-        A2->>ST: dispatchAndWait(LoadTrendExtremesAction)
-        A2-->>-VM: ActionStatus
-    end
-    alt historian.window != null
-        VM->>+A3: dispatchAndWait
-        Note over A3: Debounce · WaitingAction · async
-        A3->>ST: copyWith(historian.detail)
-        A3->>ST: dispatchAndWait(LoadTrendExtremesAction)
-        A3-->>-VM: ActionStatus
-    end
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(FollowHistoryAction)
 ```
 
 ## onHide
@@ -91,7 +78,7 @@ sequenceDiagram
     A1->>ST: dispatchSync(FollowHistoryAction)
 ```
 
-## trendPoints.onToggle
+## onSpan
 
 ```mermaid
 sequenceDiagram
@@ -99,16 +86,15 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as PickTrendPointAction
+    participant A1 as PickRangeAction
     participant ST as AppState
 
-    User->>UI: trendPoints.onToggle
-    UI->>VM: trendPoints()
+    User->>UI: onSpan
+    UI->>VM: onSpan()
     VM->>A1: dispatch
     Note over A1: async
-    A1->>ST: dispatchSync(PickPointAction)
+    A1->>ST: dispatchSync(SetRangeAction)
     A1->>ST: dispatchAndWait(RetrieveSeriesAction)
-    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
 ```
 
 ## onPick
@@ -139,14 +125,13 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as SetTrendWindowAction
+    participant A1 as ZoomHistoryAction
     participant ST as AppState
 
     User->>UI: onTrendWindow
     UI->>VM: onTrendWindow()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(historian.window, historian.trendGen, historian.detail)
-    A1->>ST: dispatchAndWait(LoadTrendWindowAction)
+    A1->>ST: dispatchSync(SetTrendWindowAction)
 ```
 
 ## onTrendToggle
@@ -184,7 +169,7 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(LoadTrendWindowAction)
 ```
 
-## onRange
+## onPanelWidth
 
 ```mermaid
 sequenceDiagram
@@ -192,56 +177,27 @@ sequenceDiagram
     actor User
     participant UI as HistoryPage
     participant VM as HistoryPageConnector
-    participant A1 as SetRangeAction
-    participant A2 as RetrieveSeriesAction
+    participant A1 as SetPanelWidthAction
     participant ST as AppState
 
-    User->>UI: onRange
-    UI->>VM: onRange()
+    User->>UI: onPanelWidth
+    UI->>VM: onPanelWidth()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(historian.range, historian.window, historian.detail, historian.low, historian.high, historian.trendGen)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction · async
-    A2->>ST: copyWith(historian.series, historian.low, historian.high, historian.detail)
-    A2->>ST: dispatchAndWait(LoadTrendExtremesAction)
-    A2-->>-VM: ActionStatus
-```
-
-## onAction
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as HistoryPage
-    participant VM as HistoryPageConnector
-    participant A1 as RetrieveSeriesAction
-    participant ST as AppState
-
-    User->>UI: onAction
-    UI->>VM: onAction()
-    alt await _run(context, a, '$_base/${g?.name}') && historian.points.isNotEmpty
-        VM->>+A1: dispatchAndWait
-        Note over A1: WaitingAction · async
-        A1->>ST: copyWith(historian.series, historian.low, historian.high, historian.detail)
-        A1->>ST: dispatchAndWait(LoadTrendExtremesAction)
-        A1-->>-VM: ActionStatus
-    end
+    A1->>ST: copyWith(panels.widths)
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
-| `onShow` | `FollowHistoryAction`, `RetrieveSeriesAction` ?, `LoadTrendWindowAction` ? | `historian.follow`, `historian.series, historian.low, historian.high, historian.detail`, `historian.detail` |
+| `screen.onToggle` | `PickTrendPointAction` | — |
+| `onShow` | `ShowHistoryAction` | — |
 | `onHide` | `FollowHistoryAction` | `historian.follow` |
 | `onGroup` | `SetSelectedAction` | `historian.selected, historian.points, historian.series` |
-| `trendPoints.onToggle` | `PickTrendPointAction` | — |
+| `onSpan` | `PickRangeAction` | — |
 | `onPick` | `PickTrendPointAction` | — |
-| `onTrendWindow` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
+| `onTrendWindow` | `ZoomHistoryAction` | — |
 | `onTrendToggle` | `ToggleTrendSeriesAction` | `historian.hidden` |
 | `onTrendReset` | `SetTrendWindowAction` | `historian.window, historian.trendGen, historian.detail` |
-| `onRange` | `SetRangeAction`, `RetrieveSeriesAction` | `historian.range, historian.window, historian.detail, historian.low, historian.high, historian.trendGen`, `historian.series, historian.low, historian.high, historian.detail` |
-| `onAction` | `RetrieveSeriesAction` ? | `historian.series, historian.low, historian.high, historian.detail` |
+| `onPanelWidth` | `SetPanelWidthAction` | `panels.widths` |
 
 `?` marks a dispatch that only runs under a condition.
 

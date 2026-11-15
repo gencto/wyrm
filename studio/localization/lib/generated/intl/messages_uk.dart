@@ -2411,6 +2411,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "historyOf": m175,
     "historyRange1h": MessageLookupByLibrary.simpleMessage("1 год"),
     "historyRange24h": MessageLookupByLibrary.simpleMessage("24 год"),
+    "historyRange30d": MessageLookupByLibrary.simpleMessage("30 д"),
     "historyRange7d": MessageLookupByLibrary.simpleMessage("7 д"),
     "historyUnavailable": MessageLookupByLibrary.simpleMessage(
       "історія недоступна",
@@ -2846,6 +2847,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "passed": MessageLookupByLibrary.simpleMessage("пройшов"),
     "password": MessageLookupByLibrary.simpleMessage("Пароль"),
+    "passwordBlank": MessageLookupByLibrary.simpleMessage(
+      "Пароль не може бути порожнім або лише з пробілів.",
+    ),
     "pickAPoint": MessageLookupByLibrary.simpleMessage(
       "Виберіть точку в таблиці, щоб побачити її історію.",
     ),

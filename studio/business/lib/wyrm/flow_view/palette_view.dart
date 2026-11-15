@@ -18,7 +18,7 @@ import '../labels.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
 import '../mappers/value_text.dart';
-import '../needs_right.dart';
+import '../rights.dart';
 import 'off.dart';
 
 /// Which side of the flow a catalogue type is on: where a value comes from
@@ -262,7 +262,7 @@ IList<MyBlockEntry> myBlocksOf(
   Map<String, Map<String, Object?>> defs, {
   required IList<BlockInfo> library,
   required IList<FlowFrame> frames,
-  required NeedsRight? config,
+  required Lack? config,
 }) {
   final inside = frames.isNotEmpty;
   final lib = {for (final l in library) l.name: l};
@@ -306,7 +306,7 @@ IList<MyBlockEntry> myBlocksOf(
 IList<LibraryEntry> libraryOf(
   IList<BlockInfo> library, {
   required IList<FlowFrame> frames,
-  required NeedsRight? config,
+  required Lack? config,
 }) => [
   for (final l in library)
     LibraryEntry(

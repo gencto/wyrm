@@ -19,7 +19,7 @@ import '../decode/flow_def.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';
-import '../needs_right.dart';
+import '../rights.dart';
 import 'block_view.dart';
 import 'flow_live.dart';
 import 'inspector_view.dart';
@@ -404,7 +404,7 @@ final _treeKeys = Memo<List<String>>();
 final _tree = Memo<IList<TreeEntry>?>();
 final _follow = Memo<FlowFollow>();
 final _view = Memo<FlowView>();
-final _config = Memo<NeedsRight?>();
+final _config = Memo<Lack?>();
 final _deployOff = Memo<Off<DeployOffReason>?>();
 
 /// The flow editor of [s] for the route [routeId] (`newFlowId` for a new
@@ -423,7 +423,7 @@ FlowView flowViewOf(AppState s, String routeId) {
   final inside = fe.frames.isNotEmpty;
   final config = _config.of(
     [s.site],
-    () => site.needsRight(Perm.config, '$root/dataflows'),
+    () => site.lacks(Perm.config, '$root/dataflows'),
   );
 
   final blocks = _blocks.of(
@@ -495,7 +495,7 @@ FlowView flowViewOf(AppState s, String routeId) {
           deployed: base.deployed != null,
           differs: base.differs,
           engineId: engineIdOf(fe.frames, b.id),
-          write: site.needsRight(
+          write: site.lacks(
             Perm.write,
             '$root/dataflows/${fe.flowId ?? ''}',
           ),

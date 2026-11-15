@@ -1,11 +1,12 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/audit_line.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/user_info.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/access.dart';
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -18,22 +19,6 @@ class RetrieveAccessAction extends Action with WaitingAction {
 
   @override
   Future<AppState?> reduce() => readAccess(this);
-
-  static String _line(Value e) {
-    final m = toDart(e);
-    if (m is! Map<String, Object?>) {
-      return '$m';
-    }
-    final t = m['time'] ?? m['t'] ?? '';
-    final who = m['who'] ?? m['by'] ?? m['subject'] ?? '';
-    final what = [
-      m['op'] ?? m['event'] ?? '',
-      m['key'] ?? m['target'] ?? '',
-      m['action'] ?? '',
-    ].where((x) => '$x'.isNotEmpty).join(' ');
-    final rest = m['result'] ?? m['status'] ?? '';
-    return [t, who, what, rest].where((x) => '$x'.isNotEmpty).join('  ');
-  }
 }
 
 /// One read of Access: users, grants and the audit tail. Shared by the
@@ -71,35 +56,22 @@ Future<AppState?> readAccess(Action a) async {
     final rows = await a.deps.wyrm
         .invoke('$root/sys', 'get_permissions')
         .toList();
-    for (final r in rows) {
-      for (final g in switch (r) {
-        VArray(:final v) => v,
-        _ => [r],
-      }) {
-        grants.add(
-          RoleGrant(
-            subject: str(g['subject']) ?? '',
-            path: str(g['path']) ?? '',
-            level: str(g['level']) ?? '',
-            source: str(g['source']) ?? '',
-          ),
-        );
+    for (final r in recordsOf(rows)) {
+      if (roleGrantOf(r).orWarn('get_permissions') case final g?) {
+        grants.add(g);
       }
     }
   } on WyrmException {
     // No config on sys.
   }
-  final audit = <String>[];
+  final audit = <AuditLine>[];
   try {
     final rows = await a.deps.wyrm
         .invoke('$root/sys/audit', 'tail', Value.from({'n': 200}))
         .toList();
-    for (final r in rows) {
-      for (final e in switch (r) {
-        VArray(:final v) => v,
-        _ => [r],
-      }) {
-        audit.add(RetrieveAccessAction._line(e));
+    for (final r in recordsOf(rows)) {
+      if (auditLineOf(r).orWarn('audit tail') case final l?) {
+        audit.add(l);
       }
     }
   } on WyrmException {

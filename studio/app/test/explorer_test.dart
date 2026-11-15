@@ -82,9 +82,9 @@ void main() {
 
   /// A tab of the node on screen (the header has an `Actions` too).
   Future<void> tab(WidgetTester t, ExplorerApp app, String s) async {
-    await t.tap(
-      find.descendant(of: find.byType(SegmentedTabs), matching: text(s)).first,
-    );
+    // the tab bar, whatever its id type
+    final bar = find.byWidgetPredicate((w) => w is SegmentedTabs);
+    await t.tap(find.descendant(of: bar, matching: text(s)).first);
     await app.settle(t);
   }
 

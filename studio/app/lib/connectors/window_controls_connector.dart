@@ -1,6 +1,5 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
-import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/shell/window_controls.dart';
 import 'package:window_manager/window_manager.dart';
@@ -38,13 +37,7 @@ class WindowControlsConnector extends StatelessWidget {
                 top: 0,
                 right: 0,
                 child: WindowControls(
-                  vm: WindowControlsVm(
-                    maximized: vm.maximized,
-                    minimize: S.current.windowMinimize,
-                    maximize: S.current.windowMaximize,
-                    restore: S.current.windowRestore,
-                    close: S.current.windowClose,
-                  ),
+                  vm: WindowControlsVm(maximized: vm.maximized),
                   onMinimize: minimizeWindow,
                   onMaximize: zoomWindow,
                   onClose: closeWindow,
@@ -64,7 +57,7 @@ class _Factory extends VmFactory<AppState, WindowControlsConnector, _Vm>
   _Vm fromStore() => _Vm(
     maximized: window.maximized,
     filling: window.maximized || window.fullScreen,
-    // The tooltips follow the language.
+    // The buttons' names (WindowControls words them) follow the language.
     locale: language.locale,
   );
 }

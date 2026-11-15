@@ -14,7 +14,7 @@ import '../decode/block_cfg.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
 import '../mappers/flow_mapper.dart';
-import '../needs_right.dart';
+import '../rights.dart';
 import 'block_view.dart';
 import 'off.dart';
 
@@ -408,7 +408,7 @@ Off<RunOffReason>? runOffOf(
   required bool deployed,
   required bool differs,
   required String? engineId,
-  required NeedsRight? write,
+  required Lack? write,
 }) {
   if (!caps.trigger) {
     return const OffFor(RunOffReason.noBroker);

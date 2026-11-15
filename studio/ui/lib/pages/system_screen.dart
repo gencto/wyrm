@@ -469,7 +469,6 @@ class SystemScreen extends StatelessWidget {
       rangeEnd: w.rangeEnd,
       windowStart: w.windowStart,
       windowEnd: w.windowEnd,
-      rollup: S.current.trendRaw,
       minWindow: w.minWindow,
       endsNow: true,
       live: true,

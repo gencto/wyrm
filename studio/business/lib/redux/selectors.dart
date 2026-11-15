@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/access_tab.dart';
 import 'package:models/action_answer.dart';
 import 'package:models/agent_config.dart';
 import 'package:models/agent_params.dart';
@@ -9,6 +10,7 @@ import 'package:models/assistant_panel.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
+import 'package:models/audit_line.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
@@ -22,9 +24,11 @@ import 'package:models/flow_problem.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/grant.dart';
+import 'package:models/grant_source.dart';
 import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/history_call.dart';
 import 'package:models/history_range.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_target.dart';
@@ -59,6 +63,7 @@ import 'package:models/restore_check.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
 import 'package:models/site_choice.dart';
+import 'package:models/site_pick.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/standby_state.dart';
 import 'package:models/step_up_request.dart';
@@ -74,6 +79,7 @@ import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 import 'package:models/traffic_measure.dart';
 import 'package:models/traffic_sample.dart';
+import 'package:models/trend_range.dart';
 import 'package:models/trust_refusal.dart';
 import 'package:models/undo_tag.dart';
 import 'package:models/unlock_fallback.dart';
@@ -99,6 +105,8 @@ import '../wyrm/flow_view/flow_view.dart';
 import '../wyrm/flow_view/menu_view.dart';
 import '../wyrm/flow_view/prompt_view.dart';
 import '../wyrm/gateway_label.dart';
+import '../wyrm/historian_stats.dart';
+import '../wyrm/history_trend.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/log_in_page.dart';
@@ -108,9 +116,12 @@ import '../wyrm/mappers/flow_canvas.dart' show FieldEditError;
 import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
-import '../wyrm/needs_right.dart';
+import '../wyrm/rights.dart';
 import '../wyrm/session.dart';
+import '../wyrm/shell.dart';
+import '../wyrm/sites.dart';
 import '../wyrm/task_facts.dart';
+import '../wyrm/trend_window.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
 import 'assistant/actions/ask_agent_action.dart';
@@ -674,6 +685,9 @@ extension SelectComposites on Selectors {
   /// flag and `isWaitingForType<T>` tests `flag is T`, so the mixin answers for
   /// every action carrying it and nothing here names any of them.
   bool get isBusy => state.wait.isWaitingForType<BlockingAction>();
+
+  /// The workspaces reading again what they show.
+  ISet<Workspace> get refreshingWorkspaces => refreshingWorkspacesOf(state);
 
   /// [ws] is reading again data it already shows: stale while revalidate
   /// (docs/studio.md §6.7). The workspace keeps its content and the shell
@@ -1258,21 +1272,25 @@ extension type SelectSite(AppState _state) {
   /// trend never locks a series on a missing `/api/me`.
   bool mayRead(String key) => _state.site.grants.isEmpty || can('read', key);
 
+  /// What the user lacks for a control that needs [level] on [key], or
+  /// null when they have it (docs/studio.md §2 rule 8: shown, never
+  /// hidden); `ui` words it.
+  Lack? lacks(Perm level, String key) => can(level.wire, key)
+      ? null
+      : Lack(level, key.split('/').skip(2).join('/'));
+
   /// Why a control that needs [level] on [key] is disabled, or null when the
   /// user has it (docs/studio.md §2 rule 8: shown, never hidden).
   String? needs(String level, String key) => can(level, key)
       ? null
       : 'needs $level on ${key.split('/').skip(2).join('/')}';
 
-  /// What a control that needs [level] on [key] lacks, or null when the
-  /// user has it: [needs] as a typed value, worded by `ui`.
-  NeedsRight? needsRight(Perm level, String key) => can(level.wire, key)
-      ? null
-      : NeedsRight(level, key.split('/').skip(2).join('/'));
-
   /// The highest level the session may use (`/api/me` `max`); null from a
   /// gateway that does not send it.
   String? get max => _state.site.max;
+
+  /// Returns viewedVia
+  List<String> get viewedVia => viewedViaOf(_state);
 
   /// The user logged in, by name (`user:olena@plant` → `olena`), else the
   /// user of the log-in form.
@@ -1395,6 +1413,9 @@ extension type SelectNodes(AppState _state) {
 
   /// Returns menuAsked
   String? get menuAsked => _state.nodes.menuAsked;
+
+  /// Returns searchNodes
+  List<SearchNode> get searchNodes => searchNodesOf(_state);
 }
 
 extension type SelectLive(AppState _state) {
@@ -1573,7 +1594,25 @@ extension type SelectPeers(AppState _state) {
   IList<String> get view => _state.peers.view;
 
   /// Returns selectedPeer
-  String? get selectedPeer => _state.peers.selectedPeer;
+  SitePick? get selectedPeer => _state.peers.selectedPeer;
+
+  /// Returns sitesKeys
+  List<String> get sitesKeys => sitesKeysOf(_state);
+
+  /// Returns sitePicked
+  SitePick get sitePicked => sitePickedOf(_state);
+
+  /// Returns sitesWaiting
+  List<String> get sitesWaiting => sitesWaitingOf(_state);
+
+  /// Returns sitesLack
+  Lack? get sitesLack => sitesLackOf(_state);
+
+  /// Returns siteMap
+  List<SiteMapNode> get siteMap => siteMapOf(_state);
+
+  /// Returns siteDetail
+  SiteDetail? get siteDetail => siteDetailOf(_state);
 }
 
 extension type SelectFlows(AppState _state) {
@@ -1612,6 +1651,18 @@ extension type SelectFlows(AppState _state) {
       ),
     ),
   );
+
+  /// The flows in their list's order, live while Flows follows them.
+  List<FlowSummary> get shown {
+    final table = shownTable;
+    return [for (final id in _state.flows.view) ?table[id]];
+  }
+
+  /// The flow picked, live; null when none is.
+  FlowSummary? get picked => switch (_state.flows.selectedFlow) {
+    final id? => shownTable[id],
+    null => null,
+  };
 }
 
 extension type SelectFlowEditor(AppState _state) {
@@ -1881,6 +1932,12 @@ extension type SelectChanges(AppState _state) {
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<ApplyChangesAction>();
+
+  /// Returns reviewCards
+  List<ReviewCard> get reviewCards => reviewCardsOf(_state);
+
+  /// Returns reviewAudit
+  String get reviewAudit => reviewAuditOf(_state);
 }
 
 extension type SelectHistorian(AppState _state) {
@@ -1891,7 +1948,7 @@ extension type SelectHistorian(AppState _state) {
   String? get selected => _state.historian.selected;
 
   /// Returns range
-  String get range => _state.historian.range;
+  TrendRange get range => _state.historian.range;
 
   /// Returns series
   IMap<String, IList<HistPoint>> get series => _state.historian.series;
@@ -1953,6 +2010,24 @@ extension type SelectHistorian(AppState _state) {
   /// The trend's window is being read finer (the bar over the plot).
   bool get windowLoading =>
       _state.wait.isWaitingForType<LoadTrendWindowAction>();
+
+  /// Returns trendSpan
+  TrendSpan get trendSpan => historyRangeOf(_state);
+
+  /// Returns trend
+  HistoryTrend? get trend => historyTrendOf(_state);
+
+  /// Returns shownGroup
+  WatchGroup? get shownGroup => shownGroupOf(_state);
+
+  /// Returns pickedWatch
+  String? get pickedWatch => pickedWatchOf(_state);
+
+  /// Returns historianStats
+  HistorianStats get historianStats => historianStatsOf(_state);
+
+  /// The key of [node] for History's calls.
+  String keyOf(HistoryNode node) => historyKeyOf(_state, node);
 }
 
 extension type SelectAccess(AppState _state) {
@@ -1963,19 +2038,42 @@ extension type SelectAccess(AppState _state) {
   IList<RoleGrant> get grants => _state.access.grants;
 
   /// Returns audit
-  IList<String> get audit => _state.access.audit;
+  IList<AuditLine> get audit => _state.access.audit;
 
   /// Returns selected
   String? get selected => _state.access.selected;
 
   /// Returns tab
-  String get tab => _state.access.tab;
+  AccessTab get tab => _state.access.tab;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveAccessAction>();
 
   /// Returns shown
   bool get shown => _state.access.shown;
+
+  /// The user picked, as `/api/users` gives them; null when none is.
+  UserInfo? get pickedUser => _state.access.users
+      .where((u) => u.name == _state.access.selected)
+      .firstOrNull;
+
+  /// The grants of [user]'s roles.
+  List<RoleGrant> grantsOf(UserInfo user) => [
+    for (final g in _state.access.grants)
+      if (user.roles.contains(g.subject)) g,
+  ];
+
+  /// The roles a user may be given: the subjects of the gateway's grants,
+  /// or the four of a fresh gateway when it lists none.
+  List<String> get roleNames {
+    final roles = {
+      for (final g in _state.access.grants)
+        if (g.source == GrantSource.gateway) g.subject,
+    };
+    return roles.isEmpty
+        ? const ['admin', 'engineer', 'operator', 'viewer']
+        : roles.toList();
+  }
 }
 
 extension type SelectSystem(AppState _state) {
@@ -2086,6 +2184,12 @@ extension type SelectProblems(AppState _state) {
 
   /// Returns notices
   IList<StudioNotice> get notices => _state.problems.notices;
+
+  /// Returns pill
+  ProblemsCount? get pill => problemsCountOf(_state);
+
+  /// Returns shownToasts
+  List<Toast> get shownToasts => toastsOf(_state);
 }
 
 extension type SelectUpdates(AppState _state) {
@@ -2349,6 +2453,14 @@ extension type SelectDevice(AppState _state) {
   /// This user's device records as rows of Account › Security at [now].
   IList<DeviceRow> rowsAt(DateTime now) => [
     for (final d in _state.device.devices)
+      deviceRowOf(d, _state.device.deviceId, now),
+  ].lock;
+
+  /// The devices of [user] (Access › Users) as rows at [now].
+  IList<DeviceRow> userRowsAt(String user, DateTime now) => [
+    for (final d
+        in _state.device.userDevices[user] ??
+            const IListConst<GatewayDevice>([]))
       deviceRowOf(d, _state.device.deviceId, now),
   ].lock;
 

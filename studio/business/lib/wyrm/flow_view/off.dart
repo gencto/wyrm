@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-import '../needs_right.dart';
+import '../rights.dart';
 
 /// Why a control of the flow editor is off: one of the screen's own
 /// reasons (an enum of that control), or a right the user lacks.
@@ -22,12 +22,12 @@ final class OffFor<R extends Enum> extends Off<R> {
 final class OffNeeds<R extends Enum> extends Off<R> {
   const OffNeeds(this.right);
 
-  final NeedsRight right;
+  final Lack right;
 
   @override
   List<Object?> get props => [right];
 }
 
 /// [right] as an [Off], or null when nothing is lacking.
-Off<R>? offNeeds<R extends Enum>(NeedsRight? right) =>
+Off<R>? offNeeds<R extends Enum>(Lack? right) =>
     right == null ? null : OffNeeds<R>(right);

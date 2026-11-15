@@ -277,4 +277,19 @@ abstract final class AppSizes {
 
   /// The × that closes the flow editor, in its top bar.
   static const double flowEditorClose = 18;
+
+  /// The audit tail of Access, as tall as its tables are long.
+  static const double auditTail = 560;
+
+  /// A row of Access's users and grants: one line, roomier than a point's.
+  static const double accessRow = 48;
+
+  /// A dialog with a form of a few fields (Access's users and grants).
+  static const double formDialog = 520;
+
+  /// A dialog with a broker's own form (Sites' upstream and token).
+  static const double wideFormDialog = 640;
+
+  /// The token Sites shows once it is issued.
+  static const double tokenLog = 180;
 }

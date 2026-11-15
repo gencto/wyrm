@@ -58,6 +58,10 @@ abstract final class AppSpacing {
 
   /// Between the state, the buttons and the close of the top bar.
   static const double flowTopBarActions = 10;
+
+  /// Sites' map: the room around it, above it and between its legend and
+  /// its nodes.
+  static const double map = 18;
 }
 
 /// Ready-made gaps, so a layout reads as rhythm rather than arithmetic.
@@ -84,6 +88,16 @@ abstract final class Gaps {
 
   /// Between a flow inspector field's editor and its link button.
   static const Widget hFlowInspectorButtons = SizedBox(width: 6);
+
+  /// Between a workspace page's header and the table or tabs under it
+  /// (Flows, Access).
+  static const Widget underHeader = SizedBox(height: 20);
+
+  /// Between a page header and a second button under it (Sites' token).
+  static const Widget underButtons = SizedBox(height: 14);
+
+  /// Above Sites' map.
+  static const Widget aboveMap = SizedBox(height: AppSpacing.map);
 }
 
 /// Padding built from the same scale, and the paddings the canvas repeats,
@@ -339,6 +353,16 @@ abstract final class Insets {
 
   /// Above and below the flow editor's top bar.
   static const flowTopBar = EdgeInsets.symmetric(vertical: 6);
+
+  /// The scrolling body of a workspace page with a header (Flows, Access,
+  /// Sites): roomy at the sides and the top, more below the last row.
+  static const workspace = EdgeInsets.fromLTRB(28, 28, 28, 40);
+
+  /// Around Sites' map, inside its card.
+  static const map = EdgeInsets.all(AppSpacing.map);
+
+  /// Inside a banner across a page (Sites' connections waiting).
+  static const waiting = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
 
   // ---- the log-in page, the unlock, the lock and the step-up ----
 

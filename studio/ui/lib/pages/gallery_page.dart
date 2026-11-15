@@ -583,11 +583,11 @@ class ComponentKit extends StatelessWidget {
                 ),
                 SegmentedTabs(
                   tabs: const [
-                    TabItemVm(id: 'points', label: 'Points', count: '9'),
-                    TabItemVm(id: 'params', label: 'Parameters'),
-                    TabItemVm(id: 'history', label: 'History'),
+                    TabItemVm(id: _DemoTab.points, label: 'Points', count: '9'),
+                    TabItemVm(id: _DemoTab.params, label: 'Parameters'),
+                    TabItemVm(id: _DemoTab.history, label: 'History'),
                   ],
-                  selected: 'points',
+                  selected: _DemoTab.points,
                   onSelect: none,
                 ),
               ],
@@ -666,7 +666,7 @@ class ComponentKit extends StatelessWidget {
                 ),
                 ActionRow(
                   vm: const ActionRowVm(
-                    id: 'start',
+                    id: _DemoAct.start,
                     title: 'Start',
                     icon: 'action_play',
                     description: 'Run the link again',
@@ -676,7 +676,7 @@ class ComponentKit extends StatelessWidget {
                 ),
                 ActionRow(
                   vm: const ActionRowVm(
-                    id: 'remove',
+                    id: _DemoAct.remove,
                     title: 'Remove',
                     icon: 'action_trash',
                     description: 'Its id is retired',
@@ -685,9 +685,9 @@ class ComponentKit extends StatelessWidget {
                   ),
                   onTap: none,
                 ),
-                const ActionRow(
-                  vm: ActionRowVm(
-                    id: 'upgrade',
+                ActionRow(
+                  vm: const ActionRowVm(
+                    id: _DemoAct.upgrade,
                     title: 'Upgrade',
                     icon: 'action_up',
                     code: 'install_repo',
@@ -809,3 +809,9 @@ class IconGrid extends StatelessWidget {
     );
   }
 }
+
+/// The tabs of the gallery's tab bar.
+enum _DemoTab { points, params, history }
+
+/// The actions of the gallery's action rows.
+enum _DemoAct { start, remove, upgrade }

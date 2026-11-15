@@ -16,7 +16,7 @@ import 'package:business/wyrm/flow_view/viewer_view.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/needs_right.dart';
+import 'package:business/wyrm/rights.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/field_id.dart';
@@ -110,7 +110,7 @@ void main() {
       expect(
         v.deployOff,
         const OffNeeds<DeployOffReason>(
-          NeedsRight(Perm.config, 'dataflows'),
+          Lack(Perm.config, 'dataflows'),
         ),
       );
       expect(viewOf(stateOf(draft: moved)).deployOff, isNull);
@@ -230,10 +230,10 @@ void main() {
           deployed: true,
           differs: false,
           engineId: 's_ack_0',
-          write: const NeedsRight(Perm.write, 'dataflows/dvpsm-bot'),
+          write: const Lack(Perm.write, 'dataflows/dvpsm-bot'),
         ),
         const OffNeeds<RunOffReason>(
-          NeedsRight(Perm.write, 'dataflows/dvpsm-bot'),
+          Lack(Perm.write, 'dataflows/dvpsm-bot'),
         ),
       );
       expect(

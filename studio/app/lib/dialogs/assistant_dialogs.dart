@@ -157,7 +157,7 @@ Future<void> pickContextKey(BuildContext context) async {
     return;
   }
   final (:first, :rest) = read.chipChoices;
-  SearchEntryVm entry(String k, {String? detail}) {
+  SearchEntryVm<String> entry(String k, {String? detail}) {
     final info = read.nodes.table[k];
     return SearchEntryVm(
       id: k,

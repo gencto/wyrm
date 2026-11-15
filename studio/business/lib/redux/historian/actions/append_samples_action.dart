@@ -5,7 +5,6 @@ import 'package:models/live_value.dart';
 import '../../../wyrm/history_steps.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import '../../nodes/actions/retrieve_history_action.dart';
 
 /// New samples of subscribed keys ([changed], one batch of
 /// `LiveValuesService`) extend the trend of the points picked in History:
@@ -31,7 +30,7 @@ class AppendSamplesAction extends Action {
     if (historian.follow == null) {
       return null;
     }
-    final span = RetrieveHistoryAction.span(historian.range);
+    final span = historian.range.span;
     final bucket = stepDuration(stepFor(span))?.inMicroseconds;
     final series = _grow(historian.series, span, bucket);
     final d = historian.detail;

@@ -1,0 +1,195 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/node_info.dart';
+import 'package:models/staged_change.dart';
+import 'package:models/studio_error.dart';
+import 'package:models/studio_notice.dart';
+import 'package:models/workspace.dart';
+
+import '../redux/app_state.dart';
+import 'keys.dart';
+
+/// A staged change as the review panel shows it: whether the user's grants
+/// reach the level it needs, and the level they have on its key.
+final class ReviewCard {
+  const ReviewCard({
+    required this.change,
+    required this.allowed,
+    required this.have,
+  });
+
+  final StagedChange change;
+  final bool allowed;
+  final String have;
+}
+
+/// The problems pill: how many it counts and whether one is a fault of the
+/// broker or of Studio.
+final class ProblemsCount {
+  const ProblemsCount({
+    required this.count,
+    required this.bad,
+    required this.open,
+  });
+
+  final int count;
+  final bool bad;
+  final bool open;
+}
+
+/// A node the search palette finds: its key, the name it shows (its
+/// display name when it has one), and what its icon is drawn from.
+final class SearchNode {
+  const SearchNode({
+    required this.key,
+    required this.title,
+    this.profile,
+    this.value = false,
+  });
+
+  final String key;
+  final String title;
+  final String? profile;
+
+  /// The node holds a value.
+  final bool value;
+}
+
+/// A toast of the stack: a quiet failure or a notice.
+sealed class Toast {
+  const Toast();
+
+  /// From one counter for both, so the toasts keep the order they came in.
+  int get id;
+}
+
+/// A failure nobody was waiting for.
+final class ErrorToast extends Toast {
+  const ErrorToast(this.error);
+
+  final StudioError error;
+
+  @override
+  int get id => error.id;
+}
+
+/// Something that went well.
+final class NoticeToast extends Toast {
+  const NoticeToast(this.notice);
+
+  final StudioNotice notice;
+
+  @override
+  int get id => notice.id;
+}
+
+/// What the Studio shell shows, computed from the state.
+final class _Shell with Selectors {
+  _Shell(this.state);
+
+  @override
+  final AppState state;
+
+  /// The sites the viewed one is reached through (empty: the site logged
+  /// into, or one reached directly).
+  List<String> get viewedVia {
+    final home = site.name ?? '';
+    final viewed = site.viewed ?? home;
+    final here = site.choices.where((c) => c.site == viewed).firstOrNull;
+    return {
+      ?here?.via,
+      if (viewed != home) home,
+    }.toList();
+  }
+
+  /// The staged changes, with the level each needs checked against the
+  /// user's own grants.
+  List<ReviewCard> get reviewCards => [
+    for (final id in changes.view)
+      if (changes.table[id] case final c?)
+        ReviewCard(
+          change: c,
+          allowed: site.can(c.level, c.key),
+          have: site.levelOn(c.key),
+        ),
+  ];
+
+  /// `sys/audit/<link>` the applied writes are recorded in: the one link
+  /// the staged changes touch, or all of `sys/audit`.
+  String get reviewAudit {
+    final links = {
+      for (final id in changes.view)
+        if (changes.table[id] case final c?) ?linkOf(c.key),
+    };
+    return links.length == 1 ? 'sys/audit/${links.single}' : 'sys/audit';
+  }
+
+  /// The pill: hidden at 0, shown while the drawer is open (to close it).
+  ProblemsCount? get problemsCount {
+    final p = problems;
+    if (p.unread == 0 && !p.open) {
+      return null;
+    }
+    final n = p.open ? p.items.length : p.unread;
+    return ProblemsCount(
+      count: n,
+      bad: p.items.take(n).any((e) => e.kind == .broker || e.kind == .studio),
+      open: p.open,
+    );
+  }
+
+  /// The workspaces reading again what they show.
+  ISet<Workspace> get refreshingWorkspaces => {
+    for (final w in Workspace.values)
+      if (refreshing(w)) w,
+  }.lock;
+
+  /// The nodes the search palette finds (the first 400 the tree holds).
+  List<SearchNode> get searchNodes => [
+    for (final k in nodes.view.take(400))
+      SearchNode(
+        key: k,
+        // A node's display name when it has one; the key below it still
+        // finds it by name.
+        title: switch (nodes.table[k]) {
+          NodeInfo(:final display?, :final name)
+              when display.trim().isNotEmpty && display != name =>
+            display,
+          final n => n?.name ?? k,
+        },
+        profile: nodes.table[k]?.profile,
+        value: nodes.table[k]?.type != null,
+      ),
+  ];
+
+  /// The toasts, oldest first; none while the Problems drawer is open (the
+  /// same failures are listed there).
+  List<Toast> get toasts {
+    final p = problems;
+    if (p.open) {
+      return const [];
+    }
+    final failed = {for (final e in p.items) e.id: e};
+    return [
+      for (final id in p.toasts)
+        if (failed[id] case final e?) ErrorToast(e),
+      for (final n in p.notices) NoticeToast(n),
+    ]..sort((a, b) => a.id.compareTo(b.id));
+  }
+}
+
+// What the shell shows, as functions of the state: the selectors in
+// business/lib/redux/selectors.dart call them.
+List<String> viewedViaOf(AppState s) => _Shell(s).viewedVia;
+
+List<ReviewCard> reviewCardsOf(AppState s) => _Shell(s).reviewCards;
+
+String reviewAuditOf(AppState s) => _Shell(s).reviewAudit;
+
+ProblemsCount? problemsCountOf(AppState s) => _Shell(s).problemsCount;
+
+ISet<Workspace> refreshingWorkspacesOf(AppState s) =>
+    _Shell(s).refreshingWorkspaces;
+
+List<SearchNode> searchNodesOf(AppState s) => _Shell(s).searchNodes;
+
+List<Toast> toastsOf(AppState s) => _Shell(s).toasts;
