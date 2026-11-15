@@ -1,9 +1,13 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/plan_step.dart';
+import 'package:models/step_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/agent_task_mapper.dart';
+import '../../../wyrm/decode/agent_task.dart';
+import '../../../wyrm/decode/decoded.dart';
+import '../../../wyrm/failures.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'add_tasks_action.dart';
@@ -38,8 +42,20 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
       return null;
     }
     try {
-      final record = await deps.wyrm.doc('$agent/tasks/$id', '~state');
-      final task = agentTaskOf(id, record);
+      final key = '$agent/tasks/$id';
+      final record = await deps.wyrm.doc(key, '~state');
+      final task = switch (agentTaskOf(id, record)) {
+        Valid(:final value) => value,
+        // a record Studio cannot read is said, with the field: the task
+        // stays as it was, never an empty one
+        Invalid(:final field, :final reason) => throw StudioException.said(
+          ErrorKind.broker,
+          'The record of task $id is not one Studio reads: $field: $reason.',
+          key: key,
+          call: 'doc',
+          thing: id,
+        ),
+      };
       final plan = await _secrets(task.plan);
       // another site was viewed meanwhile: this is a task of its agent
       if (assistant.agent != agent) {
@@ -70,7 +86,7 @@ class RetrieveTaskRecordAction extends Action with WaitingAction, Sequential {
     final metas = <String, NodeMeta?>{};
     final out = <PlanStep>[];
     for (final s in plan) {
-      if (s.op != 'invoke' || s.args.isEmpty) {
+      if (s.kind != StepKind.invoke || s.args.isEmpty) {
         out.add(s);
         continue;
       }

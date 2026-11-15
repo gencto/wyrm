@@ -1,78 +1,17 @@
-// Calls deprecated wyrm_client shims until this file moves to the typed API
-// (dart/ PR "typed wire"; list in its body).
-// ignore_for_file: deprecated_member_use
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';
-import 'package:models/step_result.dart';
-import 'package:models/task_event.dart';
-import 'package:models/task_finding.dart';
-import 'package:models/task_option.dart';
-import 'package:models/task_question.dart';
+import 'package:models/step_check.dart';
+import 'package:models/step_kind.dart';
 import 'package:models/task_row.dart';
-import 'package:models/task_state.dart';
 import 'package:models/task_suggestion.dart';
 import 'package:wyrm_client/wyrm_client.dart' as wc;
-import 'package:wyrm_client/wyrm_client.dart'
-    hide TaskFinding, TaskRow, TaskSuggestion, replacedBy;
 
-import 'values.dart';
-
-/// `tasks/<id>` `~state` of the agent link as an [AgentTask]:
-/// `{state, ask, owner, plan[], plan_hash, parent?, log[], error?, tokens,
-/// suggestions[]?, replaced_by?, review?, reviewing?, findings[]?}` (ADR
-/// 0049 and its amendments; the last five read by `wyrm_client`'s own
-/// helpers). The
-/// plan's hash is made here from the plan as read, so an approval names
-/// the plan that is shown.
-AgentTask agentTaskOf(String id, Value v) => AgentTask(
-  id: id,
-  state: taskStateOf(str(v['state'])),
-  owner: str(v['owner']) ?? '',
-  ask: str(v['ask']) ?? str(v['task']) ?? '',
-  plan: switch (v['plan']) {
-    VArray(:final v) => [
-      for (final (i, s) in v.indexed) planStepOf(s, i + 1),
-    ].lock,
-    _ => const IListConst([]),
-  },
-  planHash: planHash(v['plan']),
-  questions: switch (v['questions']) {
-    VArray(:final v) => [for (final q in v) questionOf(q)].lock,
-    _ => const IListConst([]),
-  },
-  step: integer(v['step']) ?? 0,
-  parent: str(v['parent']),
-  log: switch (v['log']) {
-    VArray(:final v) => [for (final l in v) text(l) ?? '$l'].lock,
-    _ => const IListConst([]),
-  },
-  error: text(v['error']),
-  tokens: integer(v['tokens']) ?? 0,
-  suggestions: [
-    for (final s in wc.TaskSuggestion.of(v))
-      TaskSuggestion(
-        id: s.id,
-        label: s.label,
-        detail: s.detail,
-        changes: s.changes,
-        step: s.step,
-        rows: [
-          for (final r in s.rows)
-            TaskRow(key: r.key, label: r.label, detail: r.detail),
-        ].lock,
-      ),
-  ].lock,
-  replacedBy: wc.replacedBy(v),
-  review: wc.reviewOf(v),
-  reviewing: wc.isReviewing(v),
-  findings: [
-    for (final f in wc.TaskFinding.of(v))
-      TaskFinding(key: f.key, label: f.label, detail: f.detail),
-  ].lock,
-  findingsRefused: wc.findingsRefused(v).lock,
-  recorded: true,
-);
+// What is made from a decoded task (`decode/agent_task.dart`): the text of
+// a follow-up ask, the plan as a file for `wyrm-agent run`, the arguments a
+// file leaves out, how far a plan was checked.
 
 /// The text of the follow-up ask for [s] (what the person saw on the
 /// card) and the labels of the [picked] rows: as `wyrm_client` makes it.
@@ -91,46 +30,6 @@ wc.TaskSuggestion _wire(TaskSuggestion s) => wc.TaskSuggestion(
 wc.TaskRow _wireRow(TaskRow r) =>
     wc.TaskRow(key: r.key, label: r.label, detail: r.detail);
 
-/// The task states of the agent link (and the ones it adds later).
-TaskState taskStateOf(String? s) => switch (s) {
-  'awaiting_approval' || 'approval' || 'planned' => TaskState.awaitingApproval,
-  'awaiting_answer' => TaskState.awaitingAnswer,
-  'running' || 'approved' => TaskState.running,
-  'done' || 'completed' => TaskState.done,
-  'failed' || 'rejected' || 'cancelled' || 'canceled' => TaskState.failed,
-  _ => TaskState.planning,
-};
-
-/// A question of `~state.questions[]`: `{id, text, options: [{id, label,
-/// detail}], multiple, free_text, answer?}`; `answer` is the picked option
-/// ids (an array) or the person's own words (text).
-TaskQuestion questionOf(Value v) {
-  final answer = v['answer'];
-  return TaskQuestion(
-    id: str(v['id']) ?? '',
-    text: str(v['text']) ?? '',
-    options: switch (v['options']) {
-      VArray(:final v) => [
-        for (final o in v)
-          TaskOption(
-            id: str(o['id']) ?? '',
-            label: str(o['label']) ?? '',
-            detail: str(o['detail']) ?? '',
-          ),
-      ].lock,
-      _ => const IListConst([]),
-    },
-    multiple: boolean(v['multiple']) ?? false,
-    freeText: boolean(v['free_text']) ?? false,
-    answered: answer != null,
-    picked: switch (answer) {
-      VArray(:final v) => [for (final a in v) ?str(a)].lock,
-      _ => const IListConst([]),
-    },
-    words: str(answer),
-  );
-}
-
 /// The plan of [t] as a file for `wyrm-agent run` (`{"steps": […]}`,
 /// docs/agent.md): each step as it stands in the record, without what is
 /// said about it (number, level, check, reason, result). A secret argument
@@ -143,9 +42,9 @@ Map<String, Object?> planFile(AgentTask t) => {
     'secrets_left_out': left,
   'steps': [
     for (final s in t.plan)
-      switch (s.op) {
-        'set' => {'set': s.key, 'value': s.args['value']},
-        'invoke' => {
+      switch (s.kind) {
+        StepKind.set => {'set': s.key, 'value': s.args['value']},
+        StepKind.invoke => {
           'invoke': s.key,
           'action': s.action ?? '',
           'args': {
@@ -153,13 +52,13 @@ Map<String, Object?> planFile(AgentTask t) => {
               if (!withheld(s).contains(e.key)) e.key: e.value,
           },
         },
-        'wait' => {'wait': s.key, 'timeout_s': s.seconds ?? 10},
-        'expect' => {
+        StepKind.wait => {'wait': s.key, 'timeout_s': s.seconds ?? 10},
+        StepKind.expect => {
           'expect': s.key,
           ...s.args.unlock,
           'timeout_s': s.seconds ?? 10,
         },
-        _ => {'sleep_s': s.seconds ?? 0},
+        StepKind.sleep => {'sleep_s': s.seconds ?? 0},
       },
   ],
 };
@@ -185,78 +84,17 @@ List<String> withheld(PlanStep s) => [
 /// many against the live tree now, and how many only when they run
 /// (`check: at_run`: an earlier step makes their node).
 ({int now, int atRun}) planChecks(Iterable<PlanStep> plan) {
-  final changing = plan.where((s) => s.op == 'set' || s.op == 'invoke');
-  final atRun = changing.where((s) => s.check == 'at_run').length;
+  final changing = plan.where((s) => s.kind.changes);
+  final atRun = changing.where((s) => s.check == StepCheck.atRun).length;
   return (now: changing.length - atRun, atRun: atRun);
 }
 
-/// One step in the `wyrm-agent run` format: `{set, value}`,
-/// `{invoke, action, args}`, `{wait, timeout_s}`,
-/// `{expect, equals | min/max | changes, timeout_s}`, `{sleep_s}`, with
-/// `n, level, after?, approval, check, warn?, reason?, result?`. A step of
-/// an agent link older than ADR 0049 (`{op, key, args}`) still reads.
-PlanStep planStepOf(Value v, [int place = 0]) {
-  final op = ['set', 'invoke', 'wait', 'expect'].firstWhere(
-    (k) => v[k] is VStr,
-    orElse: () => v['sleep_s'] != null ? 'sleep' : (str(v['op']) ?? 'set'),
-  );
-  final args = switch (op) {
-    'set' when v['set'] != null => {'value': toDart(v['value'])},
-    'expect' => {
-      for (final k in ['equals', 'min', 'max', 'changes'])
-        if (v[k] != null) k: toDart(v[k]),
-    },
-    'wait' || 'sleep' => const <String, Object?>{},
-    _ => switch (toDart(v['args'])) {
-      final Map<String, Object?> m => m,
-      final Object o => {'value': o},
-      null => const <String, Object?>{},
-    },
-  };
-  final result = v['result'];
-  return PlanStep(
-    op: op,
-    key: str(v[op]) ?? str(v['node']) ?? str(v['key']) ?? '',
-    n: integer(v['n']) ?? place,
-    action: str(v['action']),
-    args: args.lock,
-    seconds: (number(v['timeout_s']) ?? number(v['sleep_s']))?.toDouble(),
-    level: str(v['level']) ?? 'write',
-    approval: boolean(v['approval']) ?? false,
-    check: str(v['check']) ?? 'now',
-    warn: str(v['warn']),
-    modelWarn: str(v['model_warn']),
-    after: switch (v['after']) {
-      VArray(:final v) => [for (final a in v) ?integer(a)].lock,
-      _ => const IListConst([]),
-    },
-    reason: str(v['reason']),
-    result: result == null
-        ? null
-        : StepResult(
-            status: str(result['status']) ?? 'ok',
-            message: str(result['message']) ?? '',
-            time: switch (integer(result['time'])) {
-              final int t when t > 0 => DateTime.fromMillisecondsSinceEpoch(
-                t * 1000,
-              ),
-              _ => null,
-            },
-          ),
-  );
-}
+/// A value of a step as it is sent, whole: text as it is, anything else as
+/// JSON.
+String argText(Object? v) => switch (v) {
+  final String s => s,
+  _ => jsonEncode(v, toEncodable: _bytes),
+};
 
-/// The conversation of a task asked in another session (or before a
-/// restart of Studio), from its record: the ask, then the log (`model: …`
-/// lines as the model's, `proposed …` and the like as what it did,
-/// `failed: …` as the error).
-List<TaskEvent> conversationOf(AgentTask t) => [
-  if (t.ask.isNotEmpty) TaskEvent(kind: 'ask', text: t.ask),
-  for (final l in t.log)
-    if (l.startsWith('model: '))
-      TaskEvent(kind: 'text', text: l.substring(7))
-    else if (l.startsWith('failed: '))
-      TaskEvent(kind: 'error', text: l.substring(8))
-    else if (!l.startsWith('asked by '))
-      TaskEvent(kind: 'note', text: l),
-];
+/// Binary in a value: its length (JSON has no bytes).
+Object? _bytes(Object? v) => v is Uint8List ? '<${v.length} bytes>' : '$v';

@@ -74,6 +74,7 @@ sequenceDiagram
     VM->>A1: dispatch
     A1->>ST: copyWith(site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant)
     A1->>ST: dispatchSync(UnwatchKeysAction)
+    A1->>ST: dispatchSync(UnwatchKeysAction)
     A1->>ST: dispatchSync(FollowHistoryAction)
     A1->>ST: dispatchSync(FollowFlowsAction)
     A1->>ST: dispatchSync(_MoveWatched)

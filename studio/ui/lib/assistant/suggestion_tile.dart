@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/tag_chip.dart';
@@ -6,17 +7,19 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
+import 'blocked.dart';
+import 'task_badge.dart';
 
 /// What [SuggestionTile] draws: one thing the model offers to ask next.
 final class SuggestionTileVm extends Equatable {
   const SuggestionTileVm({
     required this.id,
     required this.label,
+    required this.changes,
     this.detail = '',
-    this.tag,
-    this.tagTone = Tone.neutral,
     this.note,
-    this.disabledReason,
+    this.unattended,
+    this.blocked,
   });
 
   /// The suggestion's id in its task.
@@ -26,26 +29,55 @@ final class SuggestionTileVm extends Equatable {
   final String label;
   final String detail;
 
-  /// `1 change (the assistant's guess)`, `nothing (the assistant's guess)`.
-  final String? tag;
-  final Tone tagTone;
+  /// How many changes the model guesses the follow-up plans (0: none).
+  final int changes;
 
-  /// What picking it does beyond a new ask: `replaces this plan`.
-  final String? note;
+  /// What picking it does beyond a new ask; null: nothing more.
+  final TileNote? note;
+
+  /// The agent's mode when it lets a pick's plan write without a person
+  /// (`config`, `never`); the note then says so.
+  final AgentModeVm? unattended;
 
   /// Why it cannot be picked (rights, an ask in flight); null: it can.
-  final String? disabledReason;
+  final Blocked? blocked;
+
+  /// `1 change · its guess`, `nothing · its guess`.
+  String get tag => S.current.changesGuess(changes);
+  Tone get tagTone => changes == 0 ? Tone.neutral : Tone.ember;
+
+  /// `replaces this plan`, `a draft to copy · sends nothing`.
+  String? get noteText => switch (note) {
+    null => null,
+    TileNote.fix => unattended?.fixNote ?? S.current.fixReplaces,
+    TileNote.followUp => unattended?.caution ?? S.current.followUpTileNote,
+    TileNote.draft => S.current.draftTileNote,
+  };
+
+  String? get disabledReason => blocked?.text;
 
   @override
   List<Object?> get props => [
     id,
     label,
     detail,
-    tag,
-    tagTone,
+    changes,
     note,
-    disabledReason,
+    unattended,
+    blocked,
   ];
+}
+
+/// What picking a suggestion does beyond a new ask.
+enum TileNote {
+  /// A fix on a step: the new plan replaces this one.
+  fix,
+
+  /// A follow-up of a task that ended.
+  followUp,
+
+  /// The drawer's second tile while the plan waits: a draft to copy.
+  draft,
 }
 
 /// A way out, a fix or a follow-up the model offers (ADR 0049 amendment):
@@ -102,7 +134,7 @@ class SuggestionTile extends StatelessWidget {
                           color: c.text3,
                         ),
                       ),
-                    if (vm.note case final n?)
+                    if (vm.noteText case final n?)
                       Text(
                         n,
                         style: TextStyle(
@@ -113,10 +145,9 @@ class SuggestionTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (vm.tag case final t?)
-                TagChip(
-                  vm: TagChipVm(label: t, tone: vm.tagTone),
-                ),
+              TagChip(
+                vm: TagChipVm(label: vm.tag, tone: vm.tagTone),
+              ),
             ],
           ),
         ),

@@ -59,7 +59,7 @@ void main() {
 
     // step 1 ended and step 2 runs: the public value has numbers only, the
     // text comes from the record
-    app.api.docs['$agent/tasks/t-1 ~state'] = Value.from(
+    app.api.docs['$agent/tasks/t-1 ~state'] = taskRecord(
       planRecord(
         state: 'running',
         step: 2,
@@ -133,12 +133,12 @@ void main() {
     // the key the plan set and proved is watched while the tab shows it
     expect(app.store.state.live.watched.keys, contains(sp));
     var result = tester.widget<ResultCard>(find.byType(ResultCard)).vm;
-    expect(result.facts, [('modbus/tcp/ahu2/sp', '—')]);
+    expect(result.facts, [(key: sp, value: null)]);
 
     app.api.subs[sp]!.add(const ValSample(sp, Sample(VFloat(21.5), t: 1)));
     await app.settle(tester);
     result = tester.widget<ResultCard>(find.byType(ResultCard)).vm;
-    expect(result.facts, [('modbus/tcp/ahu2/sp', '21.5')]);
+    expect(result.facts, [(key: sp, value: '21.5')]);
 
     // leaving the tab's tree stops the watch
     await tester.pumpWidget(const SizedBox());
