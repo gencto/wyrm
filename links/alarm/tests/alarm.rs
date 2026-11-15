@@ -238,6 +238,37 @@ fn staleness_and_quality() {
     assert!(alarms(&mut h, map([("state", text("active"))])).is_empty());
 }
 
+/// A staleness record is made when no sample came: its `{quality}` is `bad`, never `good`
+/// (docs/alarm.md §4 "No sample"), before the first sample and after a good one alike.
+#[test]
+fn a_stale_record_is_never_of_good_quality() {
+    let mut h = started();
+    h.invoke("", "add_class", map([("id", text("c"))])).unwrap();
+    h.invoke(
+        "c",
+        "add_watch",
+        map([
+            ("source", text(temp())),
+            ("algorithm", text("staleness")),
+            ("stale_s", Value::UInt(10)),
+            ("message", text("{name}: {value} ({quality})")),
+        ]),
+    )
+    .unwrap();
+    // no sample since the start
+    h.advance(10_100);
+    let rows = open_alarms(&mut h);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["message"], text("temp: null (bad)"));
+    // a good sample ends it; the next silence is bad again, not the good sample's quality
+    h.deliver(&temp(), Value::UInt(7));
+    assert_eq!(open_alarms(&mut h)[0]["state"], text("normal"));
+    h.advance(10_100);
+    let rows = alarms(&mut h, map([("state", text("active"))]));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["message"], text("temp: null (bad)"));
+}
+
 #[test]
 fn subtree_watch_keeps_a_state_per_key_within_the_author_rights() {
     let mut h = started();

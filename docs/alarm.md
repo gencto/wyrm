@@ -110,6 +110,13 @@ Common fields: `type` (`alert`, `warning`, `fault`), `message` (a template:
   with a new `source` takes the editor's rights.
 - **Disable, remove, a new source:** the watch's active records go back to normal (nobody
   watches them any more).
+- **No sample:** a key that has no sample is never taken as `good`. Before its first sample a
+  `boolean`, `out_of_range` or `quality` watch judges nothing and makes no record (there is no
+  value and no quality to judge). A `staleness` watch on a point counts from the start, and its
+  record, before the first sample as after a later silence, has value `null` and quality `bad`
+  (`{value}` = `null`, `{quality}` = `bad`): it says that nothing fresh is known of the key, so
+  it never reports the quality of the last sample. A record made when a wait ends takes the
+  key's last sample; without one it is `null` / `bad` too.
 
 ## 5. Records
 
