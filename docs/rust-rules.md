@@ -412,6 +412,16 @@ hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), 4 `sha256_hex`.
 outside `wyrm-core` named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding
 `hex`, `sha256` or `digest`.
 
+**URLs.** A configured URL (an HTTP target, a file store, a sync target, an
+uplink, the gateway's origins and public URL, a release channel, a
+repository) is read by `wyrm_core::weburl` (`Url::parse`, `HttpUrl::parse`)
+and the place applies its policy to the typed parts. No `split_once("://")`
+or `strip_prefix("https://")` splitting by hand (review S4: fifteen
+splitters with different rules). Left as text on purpose: the secrets
+redactor (`wyrm-admin/src/secrets.rs`, it must take any text), WebDAV
+`href`s from a server, a messenger button's target (classified, checked by
+the chat platform) and Zenoh locators (`quic/host:port`, not URLs).
+
 ## 12. A secret parameter is a `Secret`
 
 **Rule.** A `#[param(secret)]` field has the type
