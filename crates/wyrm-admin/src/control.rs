@@ -1067,14 +1067,11 @@ impl Control {
             let Some(key) = self.requester_key_of(&d.id) else {
                 continue;
             };
-            for (path, code) in &d.grants {
-                let Ok(cap) = Perm::try_from(*code) else {
-                    continue;
-                };
+            for g in &d.grants {
                 out.push(wyrm_link_sdk::LimitedKey {
                     key,
-                    cap,
-                    scopes: vec![path.replace("{site}", &self.cfg.site)],
+                    cap: g.perm,
+                    scopes: vec![g.path.replace("{site}", &self.cfg.site)],
                     subject: Some(format!("link:{}", d.id)),
                 });
             }
@@ -1118,8 +1115,8 @@ impl Control {
     }
 
     /// The grants of a link for the link itself: `(path, permission)`, the
-    /// `{site}` placeholder expanded. Grants with an unknown code are left
-    /// out, as in the router ACL.
+    /// `{site}` placeholder expanded. (A grant with an unknown code never
+    /// gets here: the registry does not open with one.)
     ///
     /// A history sink's link also gets `read` on its sink's node (ADR 0026),
     /// so its host lets `next` out and its token carries the grant; it is
@@ -1128,12 +1125,7 @@ impl Control {
         let mut out: Vec<(String, Perm)> = def
             .grants
             .iter()
-            .filter_map(|(path, code)| {
-                Some((
-                    path.replace("{site}", &self.cfg.site),
-                    Perm::try_from(*code).ok()?,
-                ))
-            })
+            .map(|g| (g.path.replace("{site}", &self.cfg.site), g.perm))
             .collect();
         out.extend(
             self.registry()
@@ -2211,11 +2203,10 @@ fn link_reach(mut node: NodeMeta, def: &LinkDef) -> NodeMeta {
         let rows = def
             .grants
             .iter()
-            .map(|(path, code)| {
-                let level = Perm::try_from(*code).map_or("unknown", |p| p.name());
+            .map(|g| {
                 Value::Map(BTreeMap::from([
-                    ("path".to_owned(), Value::Str(path.clone())),
-                    ("level".to_owned(), Value::Str(level.to_owned())),
+                    ("path".to_owned(), Value::Str(g.path.clone())),
+                    ("level".to_owned(), Value::Str(g.perm.name().to_owned())),
                 ]))
             })
             .collect();
@@ -3698,9 +3689,8 @@ fn install_detail(def: &PackageDef, caps: Option<&wyrm_link_sdk::package::Capabi
     if let Some(c) = caps {
         d.push_str(&format!("; capabilities {}", c.describe()));
     }
-    for (path, code) in &def.requester {
-        let level = Perm::try_from(*code).map_or("?", |p| p.name());
-        d.push_str(&format!("; requester {path} {level}"));
+    for g in &def.requester {
+        d.push_str(&format!("; requester {} {}", g.path, g.perm.name()));
     }
     d
 }
@@ -4288,10 +4278,8 @@ impl Link for Admin {
                     .map(|(role, key, p)| perm_row("gateway", &role, &key, p.name()))
                     .collect();
                 for d in self.ctl.registry().links.values() {
-                    for (path, code) in &d.grants {
-                        if let Ok(p) = Perm::try_from(*code) {
-                            rows.push(perm_row("link", &d.id, path, p.name()));
-                        }
+                    for g in &d.grants {
+                        rows.push(perm_row("link", &d.id, &g.path, g.perm.name()));
                     }
                 }
                 rows.extend(acl_rows(&self.ctl.acl()));
@@ -4590,9 +4578,8 @@ impl Admin {
             if let Some(c) = app.as_ref().filter(|c| !c.net.is_empty()) {
                 asks.push(format!("network {}", c.net.join(", ")));
             }
-            for (path, code) in &def.requester {
-                let level = Perm::try_from(*code).map_or("?", |p| p.name());
-                asks.push(format!("{level} on {path}"));
+            for g in &def.requester {
+                asks.push(format!("{} on {}", g.perm.name(), g.path));
             }
             if !asks.is_empty() {
                 return Err(format!(
@@ -4685,12 +4672,11 @@ impl Admin {
             }
             // the grants the package asks for, shown and audited; one restart for all of them
             let mut changed = false;
-            for (path, code) in &def.requester {
-                let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
+            for g in &def.requester {
                 changed |= self
-                    .set_grant(link, path, level, sub)
+                    .set_grant(link, &g.path, g.perm, sub)
                     .map_err(|e| e.to_string())?;
-                message.push_str(&format!("; grant {path} {}", level.name()));
+                message.push_str(&format!("; grant {} {}", g.path, g.perm.name()));
             }
             if changed {
                 self.restart_for_grants(link, sub)
@@ -5941,7 +5927,7 @@ impl Admin {
         level: Perm,
         sub: &str,
     ) -> wyrm_link_sdk::Result<bool> {
-        let sorted = |mut g: Vec<(String, u8)>| {
+        let sorted = |mut g: Vec<crate::registry::LinkGrant>| {
             g.sort();
             g
         };

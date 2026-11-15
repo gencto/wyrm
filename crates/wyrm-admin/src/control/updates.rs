@@ -32,8 +32,8 @@ use super::{
     rejected, secret, str_param, Admin, BusyOwned, Control, INSTALL_TIMEOUT_MS,
 };
 use crate::registry::{
-    LinkDef, Op, Origin, PackageDef, PackageKind, PreviousDef, UpdateReport, UPDATE_CHECKING,
-    UPDATE_FAILED, UPDATE_OK, UPDATE_REPORT_KEYS, UPDATE_ROLLED_BACK,
+    LinkDef, LinkGrant, Op, Origin, PackageDef, PackageKind, PreviousDef, UpdateReport,
+    UPDATE_CHECKING, UPDATE_FAILED, UPDATE_OK, UPDATE_REPORT_KEYS, UPDATE_ROLLED_BACK,
 };
 use crate::restore_point as restore;
 use std::collections::{BTreeMap, BTreeSet};
@@ -1168,11 +1168,16 @@ fn missing_rights(
     link: &LinkDef,
     new: &PackageDef,
     app: Option<&Capabilities>,
-) -> (Vec<(String, u8)>, Vec<String>) {
+) -> (Vec<LinkGrant>, Vec<String>) {
     let grants = new
         .requester
         .iter()
-        .filter(|(path, level)| !link.grants.iter().any(|(p, l)| p == path && l >= level))
+        .filter(|w| {
+            !link
+                .grants
+                .iter()
+                .any(|g| g.path == w.path && g.perm >= w.perm)
+        })
         .cloned()
         .collect();
     let has: BTreeSet<String> = match decode_params(&link.params) {
@@ -1295,10 +1300,9 @@ impl Admin {
         let (mut granted, mut params_changed) = (false, false);
         for l in links {
             let (grants, net) = missing_rights(l, new, app);
-            for (path, code) in grants {
-                let level = Perm::try_from(code).map_err(|c| format!("level {c}"))?;
+            for g in grants {
                 granted |= self
-                    .set_grant(&l.id, &path, level, sub)
+                    .set_grant(&l.id, &g.path, g.perm, sub)
                     .map_err(|e| e.to_string())?;
             }
             if net.is_empty() {
@@ -1379,9 +1383,8 @@ impl Admin {
         let mut asks = BTreeSet::new();
         for l in &links {
             let (grants, net) = missing_rights(l, &def, app);
-            for (path, code) in grants {
-                let level = Perm::try_from(code).map_or("?", |p| p.name());
-                asks.insert(format!("{level} on {path}"));
+            for g in grants {
+                asks.insert(format!("{} on {}", g.perm.name(), g.path));
             }
             asks.extend(net.into_iter().map(|e| format!("network {e}")));
         }
@@ -2492,7 +2495,7 @@ mod tests {
     /// What the new version asks for and a link lacks.
     #[test]
     fn rights_a_link_lacks() {
-        let link = |grants: Vec<(String, u8)>, net: &str| LinkDef {
+        let link = |grants: Vec<LinkGrant>, net: &str| LinkDef {
             id: "l1".into(),
             driver: "pkg:pkg".into(),
             mode: crate::registry::Mode::Embedded,
@@ -2506,11 +2509,12 @@ mod tests {
             log_level: None,
             grants,
         };
-        let (read, write) = (Perm::Read.code(), Perm::Write.code());
+        let (read, write) = (Perm::Read, Perm::Write);
+        let g = LinkGrant::new;
         let mut new = package("1.1.0");
         new.requester = vec![
-            ("wy/{site}/downstream/a".into(), read),
-            ("wy/{site}/downstream/b".into(), write),
+            g("wy/{site}/downstream/a", read),
+            g("wy/{site}/downstream/b", write),
         ];
         let caps = Capabilities {
             net: vec!["10.0.0.1:502".into(), "10.0.0.2:502".into()],
@@ -2519,13 +2523,13 @@ mod tests {
         // a higher level covers a lower one; a lower one does not
         let l = link(
             vec![
-                ("wy/{site}/downstream/a".into(), write),
-                ("wy/{site}/downstream/b".into(), read),
+                g("wy/{site}/downstream/a", write),
+                g("wy/{site}/downstream/b", read),
             ],
             "10.0.0.1:502, 10.9.9.9:1",
         );
         let (grants, net) = missing_rights(&l, &new, Some(&caps));
-        assert_eq!(grants, [("wy/{site}/downstream/b".to_owned(), write)]);
+        assert_eq!(grants, [g("wy/{site}/downstream/b", write)]);
         assert_eq!(net, ["10.0.0.2:502"]);
         // nothing asked beyond what the link has
         let l = link(new.requester.clone(), "10.0.0.2:502,10.0.0.1:502");

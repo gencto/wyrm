@@ -675,9 +675,13 @@ pub(super) fn package_asks(p: &packages::Unpacked) -> Vec<String> {
             c.net.join(", ")
         ));
     }
-    for (path, code) in &p.def.requester {
-        let level = Perm::try_from(*code).map_or("?", |p| p.name());
-        asks.push(format!("package {}: {level} on {path}", p.def.name));
+    for g in &p.def.requester {
+        asks.push(format!(
+            "package {}: {} on {}",
+            p.def.name,
+            g.perm.name(),
+            g.path
+        ));
     }
     asks
 }
@@ -696,9 +700,8 @@ fn asks_of(def: &LinkDef, package: Option<&packages::Unpacked>) -> Vec<String> {
             asks.push(format!("network {net}"));
         }
     }
-    for (path, code) in &def.grants {
-        let level = Perm::try_from(*code).map_or("?", |p| p.name());
-        asks.push(format!("{level} on {path}"));
+    for g in &def.grants {
+        asks.push(format!("{} on {}", g.perm.name(), g.path));
     }
     asks
 }
@@ -826,9 +829,8 @@ impl Admin {
                 .validate(&r.def.driver, &params)
                 .map_err(|e| e.message)?;
         }
-        for (path, code) in &r.def.grants {
-            let level = Perm::try_from(*code).map_err(|c| format!("grant level {c}"))?;
-            crate::registry::check_grant(path, level).map_err(|e| format!("grant: {e}"))?;
+        for g in &r.def.grants {
+            crate::registry::check_grant(&g.path, g.perm).map_err(|e| format!("grant: {e}"))?;
         }
         if ctl.peers().downstream.contains(&id) || ctl.cfg.operators.contains(&id) {
             return Err(format!(
@@ -918,10 +920,9 @@ impl Admin {
             .map_err(|e| e.to_string())?;
         }
         let mut grants = false;
-        for (path, code) in &r.def.grants {
-            let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
+        for g in &r.def.grants {
             grants |= self
-                .set_grant(&id, path, level, sub)
+                .set_grant(&id, &g.path, g.perm, sub)
                 .map_err(|e| e.message)?;
         }
         if r.def.mode != Mode::External && (existing.is_some() || r.has_data) {
@@ -1478,7 +1479,10 @@ mod tests {
             display: None,
             granted: None,
             log_level: None,
-            grants: vec![("wy/{site}/downstream/plc".into(), Perm::Write.code())],
+            grants: vec![crate::registry::LinkGrant::new(
+                "wy/{site}/downstream/plc",
+                Perm::Write,
+            )],
         };
         assert_eq!(
             asks_of(&def, None),

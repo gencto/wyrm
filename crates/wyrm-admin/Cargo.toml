@@ -54,6 +54,8 @@ nix = { workspace = true, features = ["resource", "fs"] }
 
 [dev-dependencies]
 wat.workspace = true
+# the registry snapshot's layout (an older store opens unchanged)
+postcard.workspace = true
 # `test-util`: paused time for the peers' `connected` probes
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 

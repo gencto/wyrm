@@ -6629,6 +6629,7 @@ dependencies = [
  "hyper-util",
  "minicbor",
  "nix 0.29.0",
+ "postcard",
  "rcgen",
  "ring",
  "rustls",

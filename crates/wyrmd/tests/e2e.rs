@@ -13472,8 +13472,8 @@ async fn package_update_with_new_grants_needs_accept() {
     assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
     let reg = env.ctl.registry();
     assert_eq!(reg.packages["updpkg"].version, "2.0.0");
-    let read = wyrm_core::Perm::Read.code();
-    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    let read = wyrm_admin::registry::LinkGrant::new(grant, wyrm_core::Perm::Read);
+    assert_eq!(reg.links["u1"].grants, std::slice::from_ref(&read));
     drop(reg);
     upd_c2(&env, "c2 is still there on 2.0.0").await;
 
@@ -13485,7 +13485,7 @@ async fn package_update_with_new_grants_needs_accept() {
     assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
     let reg = env.ctl.registry();
     assert_eq!(reg.packages["updpkg"].version, "1.0.0");
-    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    assert_eq!(reg.links["u1"].grants, [read]);
     drop(reg);
     env.stop().await;
 }
