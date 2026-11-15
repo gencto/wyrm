@@ -386,6 +386,46 @@ calls, in `app/lib/connectors`, `app/lib/pages`, `app/lib/dialogs`.
 
 ---
 
+## Where the pieces are
+
+The shared parts the rules point to. Copy the reference connector,
+`app/lib/connectors/security_dialog_connector.dart`, with its widget
+`ui/lib/overlays/security_dialog.dart` and its test
+`app/test/security_dialog_test.dart`.
+
+| Rule | Piece | Where |
+| --- | --- | --- |
+| 1, 9 | one action that awaits its parts (`ReloadShownAction`); a business action, then navigation (`LeaveOnLogOutAction(inner)`) | `business/lib/redux/site/actions/`, `app/lib/navigation/` |
+| 2, 3 | a domain enum with `wire`/`fromWire` (`DevicePlatform`); a `ui` enum with tone, icon, label (`DeviceOs`, `UnlockMethod`, `SecurityTag`); one mapper extension per domain enum | `business/lib/wyrm/decode/`, `ui/lib/indicators/`, `app/lib/mappers/` |
+| 4 | a dialog opener that takes the context (`showSecurityDialog`) | `app/lib/dialogs/` |
+| 5 | `Formats.bytes/mebibytes/age/ago/shortDate/date/clock/clockSeconds/dateTime/minutesSeconds` | `localization/lib/formats.dart` |
+| 6 | `AppSpacing` (rhythm + `s1`…`s42`), `Insets` (`.top.sm`, `.h.md`), `AppRadii`/`Radii`, `FontSizes`, `AppText`, `Shades`, `AppSizes` | `ui/lib/theme/` |
+| 7 | `ItemChanged`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/value_changed.dart` |
+| 8 | `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)`; `flowPermissionsOf`, `userDeviceOf` | `business/lib/wyrm/decode/` |
+
+Three things the tools do not say:
+- A project typedef (`Toggled<T>`) in a connector's `_Vm` makes `frx doctor`
+  report it as a value left out of equality: it knows only Flutter's own
+  typedefs. In a `_Vm`, use `ValueChanged`/`VoidCallback`, or a `ui` model
+  (`ToggleVm`, `FieldVm`); the project typedefs are for widget parameters.
+- `multi-dispatch` reads a block body that holds several callbacks as one
+  callback. Write `fromStore` as an arrow (`=> _vm(...)`), as the reference
+  connector does.
+- `context-in-connector` counts the connector's own `build(BuildContext)`:
+  1 is the floor.
+
+To collapse a callback with several dispatches (rule 9):
+1. Name the intent and make one action for it (`frx add-action`). A step
+   that navigates stays in `app` (`LeaveOnLogOutAction`, `GoAction`).
+2. In its `reduce`, run the steps the screen must not show with
+   `notify: false`, and return one `copyWith` that sets every field.
+3. Start a load inside it with `dispatch(...)` when it has its own
+   `WaitingAction`; `await dispatchAndWait(...)` only when the next step
+   needs its result.
+4. Return `null` when nothing changed. A waiting action that no screen
+   draws sets `notifyBefore => false`.
+5. The callback becomes `() => dispatch(TheIntentAction(...))`.
+
 ## Before you call a Studio change done
 
 1. `dart run tool/check_rules.dart` — no count above the baseline.
