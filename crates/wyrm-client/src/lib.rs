@@ -867,8 +867,10 @@ const GAP_PAUSE_FIRST: Duration = Duration::from_millis(25);
 const GAP_PAUSE_MAX: Duration = Duration::from_millis(200);
 
 /// What a list of the links root learns from a link's root `~meta`.
-// moved once per link read; boxing would cost an allocation each
-#[allow(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "moved once per link read; boxing would cost an allocation each"
+)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LinkMeta {
     /// The link answered: its meta (empty if it refused the read).
