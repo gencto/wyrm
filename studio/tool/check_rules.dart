@@ -38,16 +38,28 @@ String _code(String text) => text
 
 final _rules = <Rule>[
   // 1. no `unawaited` around a dispatch
-  Rule(
-    'unawaited-dispatch',
-    ['app/lib/', 'business/lib/', 'ui/lib/'],
-    (t) => _matches(_code(t), RegExp(r'unawaited\(\s*(?:\w+\.)?dispatch\w*\(')),
-  ),
+  Rule('unawaited-dispatch', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
+    final c = _code(t);
+    return _matches(
+          c,
+          RegExp(r'unawaited\(\s*(?:\w+\.)?dispatch\w*(?:<[^>]*>)?\('),
+        ) +
+        // `dispatchAll([x])` of one action is `dispatch(x)` with its Future
+        // dropped where `discarded_futures` cannot see it (audit of #115)
+        _matches(c, RegExp(r'dispatchAll\w*\(\s*\[[^\],\[]*\]\s*\)'));
+  }),
   // 2. enums, not strings: switch arms and cases on string literals
   Rule('string-case', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
     final c = _code(t);
     return _matches(c, RegExp(r"'[^'\n]*'(?:\s*\|\|\s*'[^'\n]*')*\s*=>")) +
         _matches(c, RegExp(r"^\s*case\s+'[^'\n]*'", multiLine: true));
+  }, except: ['business/lib/wyrm/decode/']),
+  // 2. a closed set carried as text: string ids and records of strings
+  // (owner, 2026-11-15: `id: 'git'`, `List<(String, String)>`)
+  Rule('string-id', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
+    final c = _code(t);
+    return _matches(c, RegExp(r"\bid:\s*'")) +
+        _matches(c, RegExp(r'\((?:\s*String\??\s*,)+\s*String\??\s*,?\s*\)'));
   }, except: ['business/lib/wyrm/decode/']),
   // 3. connectors map, they do not compute: their size
   Rule('connector-lines', [
@@ -90,7 +102,7 @@ final _rules = <Rule>[
   // 7. callbacks have shared types
   Rule(
     'ad-hoc-callback',
-    ['app/lib/connectors/', 'app/lib/common/', 'ui/lib/'],
+    ['app/lib/', 'ui/lib/'],
     (t) => _matches(
       _code(t),
       RegExp(r'final\s+[\w<>?, ]+\s+Function\([^)]*\)\??\s+\w+;'),
@@ -108,6 +120,9 @@ final _rules = <Rule>[
             RegExp(r'\bas\s+(?:String|int|double|num|bool|Map|List)\b\??'),
           ) +
           _matches(c, RegExp(r'Map<Object\?,\s*Object\?>')) +
+          // a cast written as a pattern (`case final Map<String, Object?> m`)
+          // is the same untyped read (audit of #117)
+          _matches(c, RegExp(r'\bcase\s+final\s+(?:Map|List)<')) +
           _matches(c, RegExp(r'\btoDart\(')) +
           // the loose readers of values.dart, outside a decoder
           _matches(
@@ -143,7 +158,7 @@ final _rules = <Rule>[
 int _multiDispatch(String text) {
   final c = _code(text);
   final open = RegExp(r'(?:[(,]|\w\s*:)\s*\([^(){};]*\)\s*(?:async\s*)?\{');
-  final call = RegExp(r'(?<![\w.])(?:\w+\.)?dispatch\w*\(');
+  final call = RegExp(r'(?<![\w.])(?:\w+\.)?dispatch\w*(?:<[^>]*>)?\(');
   var n = 0;
   for (final m in open.allMatches(c)) {
     var depth = 1;
