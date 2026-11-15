@@ -16,3 +16,6 @@ minicbor.workspace = true
 
 [dev-dependencies]
 wasmparser.workspace = true
+
+[lints]
+workspace = true

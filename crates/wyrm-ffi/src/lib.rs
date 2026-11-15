@@ -27,6 +27,19 @@
 //!
 //! No panic crosses the boundary: every entry point catches unwinds and
 //! returns [`WYRM_ERR_PANIC`] (or null).
+//!
+//! # Unsafe code
+//! This is the one crate of the workspace that may use `unsafe` (a C ABI
+//! needs raw pointers and `#[no_mangle]`). Every unsafe operation sits in
+//! its own `unsafe {}` block, also inside an `unsafe fn`, with a
+//! `// SAFETY:` line that names the caller contract (the `# Safety` section
+//! of the function) it relies on. See docs/rust-rules.md, rule "Unsafe".
+
+#![allow(
+    unsafe_code,
+    reason = "a C ABI: raw pointers and #[no_mangle] entry points"
+)]
+#![deny(unsafe_op_in_unsafe_fn, clippy::undocumented_unsafe_blocks)]
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::{c_char, CStr, CString};
@@ -65,6 +78,16 @@ pub struct WyrmHandle {
     inner: Arc<Inner>,
 }
 
+// C calls the entry points from any thread, also two at once on one handle
+// (`wyrm_next_event` on a reader thread while another thread sends requests):
+// `handle()` hands out `&WyrmHandle` across threads and `wyrm_free` drops it
+// on whichever thread frees it. That is sound only while `WyrmHandle` is
+// `Send + Sync`; a field that is not (an `Rc`, a `RefCell`) must fail here.
+const _: () = {
+    const fn send_sync<T: Send + Sync>() {}
+    send_sync::<WyrmHandle>()
+};
+
 struct Inner {
     client: WyrmClient,
     tx: mpsc::Sender<Vec<u8>>,
@@ -88,7 +111,10 @@ unsafe fn text<'a>(p: *const c_char) -> Option<&'a str> {
     if p.is_null() {
         return None;
     }
-    CStr::from_ptr(p).to_str().ok()
+    // SAFETY: `p` is not null, and the caller promises a NUL-terminated
+    // string that stays unchanged for this call; every caller uses the
+    // borrow (or copies it) before it returns.
+    unsafe { CStr::from_ptr(p) }.to_str().ok()
 }
 
 /// # Safety
@@ -97,13 +123,23 @@ unsafe fn bytes<'a>(p: *const u8, len: usize) -> Option<&'a [u8]> {
     if p.is_null() {
         return (len == 0).then_some(&[]);
     }
-    Some(std::slice::from_raw_parts(p, len))
+    // SAFETY: `p` is not null and, by the caller's contract, readable for
+    // `len` bytes that do not change during the call (`u8` has alignment 1;
+    // a C object of `len` bytes cannot exceed `isize::MAX`).
+    Some(unsafe { std::slice::from_raw_parts(p, len) })
 }
 
 /// # Safety
 /// `h` is null or a live handle from `wyrm_open*`.
 unsafe fn handle<'a>(h: *const WyrmHandle) -> Option<&'a WyrmHandle> {
-    h.as_ref()
+    // SAFETY: null gives `None`; any other `h` is, by the caller's contract,
+    // a pointer from `Box::into_raw(Box::new(handle))` in `open_handle` or
+    // `wyrm_open_test_mock` (the only two places that hand one out; aligned,
+    // initialized) that `wyrm_free` has not freed and will not free while
+    // this borrow lives (no other thread frees a handle that is in use). The
+    // shared borrow may be used from several threads at once: `WyrmHandle`
+    // is `Sync` (asserted at compile time below).
+    unsafe { h.as_ref() }
 }
 
 /// # Safety
@@ -111,7 +147,9 @@ unsafe fn handle<'a>(h: *const WyrmHandle) -> Option<&'a WyrmHandle> {
 unsafe fn set_err(err: *mut *mut c_char, msg: &str) {
     if !err.is_null() {
         let s = CString::new(msg.replace('\0', " ")).unwrap_or_default();
-        *err = s.into_raw();
+        // SAFETY: `err` is not null and, by the caller's contract, an aligned,
+        // writable `char*` slot. The old value is not read or freed.
+        unsafe { *err = s.into_raw() };
     }
 }
 
@@ -162,13 +200,17 @@ pub unsafe extern "C" fn wyrm_open(
     site: *const c_char,
     err: *mut *mut c_char,
 ) -> *mut WyrmHandle {
-    open_handle(err, "wyrm_open", || {
-        let endpoint = text(endpoint).ok_or("endpoint: UTF-8 string required")?;
+    let open = || {
+        // SAFETY: `endpoint` is a NUL-terminated string (this function's contract).
+        let endpoint = unsafe { text(endpoint) }.ok_or("endpoint: UTF-8 string required")?;
         if is_tls(endpoint) {
             return Err(format!("{endpoint}: use wyrm_open_tls"));
         }
-        open_session(endpoint, None, signer(seed, site)?)
-    })
+        // SAFETY: `seed` is null or 32 bytes, `site` null or NUL-terminated (contract).
+        open_session(endpoint, None, unsafe { signer(seed, site) }?)
+    };
+    // SAFETY: `err` is null or a writable slot (this function's contract).
+    unsafe { open_handle(err, "wyrm_open", open) }
 }
 
 /// Like [`wyrm_open`], over mTLS (`tls/<host>:<port>`, the broker client
@@ -188,13 +230,16 @@ pub unsafe extern "C" fn wyrm_open_tls(
     site: *const c_char,
     err: *mut *mut c_char,
 ) -> *mut WyrmHandle {
-    open_handle(err, "wyrm_open_tls", || {
-        let endpoint = text(endpoint).ok_or("endpoint: UTF-8 string required")?;
+    let open = || {
+        // SAFETY: `endpoint` is a NUL-terminated string (this function's contract).
+        let endpoint = unsafe { text(endpoint) }.ok_or("endpoint: UTF-8 string required")?;
         if !endpoint.starts_with("tls/") {
             return Err(format!("{endpoint}: not a tls/ endpoint"));
         }
         let path = |p: *const c_char, what: &str| {
-            text(p)
+            // SAFETY: only called with `ca`, `cert` and `key`, which are
+            // NUL-terminated paths (contract); the text is copied at once.
+            unsafe { text(p) }
                 .map(std::path::PathBuf::from)
                 .ok_or_else(|| format!("{what}: UTF-8 path required"))
         };
@@ -203,8 +248,11 @@ pub unsafe extern "C" fn wyrm_open_tls(
             cert: path(cert, "cert")?,
             key: path(key, "key")?,
         };
-        open_session(endpoint, Some(&tls), signer(seed, site)?)
-    })
+        // SAFETY: `seed` is null or 32 bytes, `site` null or NUL-terminated (contract).
+        open_session(endpoint, Some(&tls), unsafe { signer(seed, site) }?)
+    };
+    // SAFETY: `err` is null or a writable slot (this function's contract).
+    unsafe { open_handle(err, "wyrm_open_tls", open) }
 }
 
 type Signer = Option<(ed25519_dalek::SigningKey, String)>;
@@ -215,10 +263,13 @@ unsafe fn signer(seed: *const u8, site: *const c_char) -> Result<Signer, String>
     if seed.is_null() {
         return Ok(None);
     }
-    let s: [u8; 32] = std::slice::from_raw_parts(seed, 32)
+    // SAFETY: `seed` is not null and, by the caller's contract, readable for
+    // 32 bytes during this call; they are copied into `s` at once.
+    let s: [u8; 32] = unsafe { std::slice::from_raw_parts(seed, 32) }
         .try_into()
         .map_err(|_| "seed: 32 bytes")?;
-    let site = text(site).ok_or("site: required with a seed")?;
+    // SAFETY: `site` is null or NUL-terminated (contract); copied below.
+    let site = unsafe { text(site) }.ok_or("site: required with a seed")?;
     Ok(Some((
         ed25519_dalek::SigningKey::from_bytes(&s),
         site.to_owned(),
@@ -256,11 +307,13 @@ unsafe fn open_handle(
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(h)) => Box::into_raw(Box::new(h)),
         Ok(Err(e)) => {
-            set_err(err, &e);
+            // SAFETY: `err` is null or a writable slot (contract).
+            unsafe { set_err(err, &e) };
             std::ptr::null_mut()
         }
         Err(_) => {
-            set_err(err, &format!("panic in {name}"));
+            // SAFETY: `err` is null or an aligned, writable `char*` slot (contract); `set_err` checks null.
+            unsafe { set_err(err, &format!("panic in {name}")) };
             std::ptr::null_mut()
         }
     }
@@ -312,11 +365,13 @@ pub unsafe extern "C" fn wyrm_open_test_mock(
     match r {
         Ok(Ok(h)) => Box::into_raw(Box::new(h)),
         Ok(Err(e)) => {
-            set_err(err, &e);
+            // SAFETY: `err` is null or a writable slot (this function's contract).
+            unsafe { set_err(err, &e) };
             std::ptr::null_mut()
         }
         Err(_) => {
-            set_err(err, "panic in wyrm_open_test_mock");
+            // SAFETY: `err` is null or an aligned, writable `char*` slot (contract); `set_err` checks null.
+            unsafe { set_err(err, "panic in wyrm_open_test_mock") };
             std::ptr::null_mut()
         }
     }
@@ -330,7 +385,8 @@ pub unsafe extern "C" fn wyrm_open_test_mock(
 #[no_mangle]
 pub unsafe extern "C" fn wyrm_shutdown(h: *const WyrmHandle) -> i32 {
     guard(|| {
-        let Some(h) = handle(h) else {
+        // SAFETY: `h` is null or a live handle (this function's contract).
+        let Some(h) = (unsafe { handle(h) }) else {
             return WYRM_ERR_ARG;
         };
         if h.inner.closed.swap(true, Ordering::SeqCst) {
@@ -377,8 +433,14 @@ pub unsafe extern "C" fn wyrm_free(h: *mut WyrmHandle) {
         return;
     }
     let _ = guard(|| {
-        wyrm_shutdown(h);
-        let b = Box::from_raw(h);
+        // SAFETY: `h` is a live handle (contract); the borrow ends inside the call.
+        unsafe { wyrm_shutdown(h) };
+        // SAFETY: `h` came from `Box::into_raw(Box::new(handle))` in
+        // `open_handle` or `wyrm_open_test_mock` (contract: a live handle), no
+        // other thread uses it any more, and the caller never passes it again,
+        // so this is the one owner and the one free, with the layout the box
+        // was allocated with.
+        let b = unsafe { Box::from_raw(h) };
         let WyrmHandle { rt, inner } = *b;
         drop(inner);
         rt.shutdown_background();
@@ -396,7 +458,13 @@ pub unsafe extern "C" fn wyrm_buf_free(p: *mut u8, len: usize) {
         return;
     }
     let _ = guard(|| {
-        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)));
+        // SAFETY: `p`/`len` are, by the caller's contract, exactly the pointer
+        // and length one `wyrm_next_event` call wrote, freed once. That call
+        // made them with `Box::into_raw` of a `Box<[u8]>` of `len` bytes
+        // (`Vec::into_boxed_slice` sized the allocation to `len`), so the
+        // rebuilt box has the layout it was allocated with. A wrong `len`
+        // breaks this; that is why the contract names it.
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)) });
         WYRM_OK
     });
 }
@@ -411,7 +479,10 @@ pub unsafe extern "C" fn wyrm_string_free(s: *mut c_char) {
         return;
     }
     let _ = guard(|| {
-        drop(CString::from_raw(s));
+        // SAFETY: `s` comes from `CString::into_raw` in `set_err` (contract) and
+        // is freed once; its NUL is the only one (`set_err` replaced the
+        // others), so the length `from_raw` finds is the allocated one.
+        drop(unsafe { CString::from_raw(s) });
         WYRM_OK
     });
 }
@@ -439,7 +510,8 @@ pub unsafe extern "C" fn wyrm_next_event(
     out_len: *mut usize,
 ) -> i32 {
     guard(|| {
-        let Some(h) = handle(h) else {
+        // SAFETY: `h` is a live handle (this function's contract).
+        let Some(h) = (unsafe { handle(h) }) else {
             return WYRM_ERR_ARG;
         };
         if out.is_null() || out_len.is_null() {
@@ -469,8 +541,13 @@ pub unsafe extern "C" fn wyrm_next_event(
             Ok(None) => WYRM_OK,
             Ok(Some(buf)) => {
                 let b = buf.into_boxed_slice();
-                *out_len = b.len();
-                *out = Box::into_raw(b).cast();
+                // SAFETY: `out_len` is not null (checked above) and, by the
+                // contract, an aligned, writable `size_t`.
+                unsafe { *out_len = b.len() };
+                // SAFETY: `out` is not null (checked above) and, by the
+                // contract, an aligned, writable `uint8_t*` slot. The caller
+                // now owns the buffer and frees it with `wyrm_buf_free`.
+                unsafe { *out = Box::into_raw(b).cast() };
                 WYRM_EVENT
             }
         }
@@ -480,15 +557,22 @@ pub unsafe extern "C" fn wyrm_next_event(
 // ---------- requests ----------
 
 /// Common request prologue: live handle, UTF-8 key.
+///
+/// # Safety
+/// `h` is null or a live handle; `key` is null or NUL-terminated.
 unsafe fn request<'a>(
     h: *const WyrmHandle,
     key: *const c_char,
 ) -> Result<(&'a WyrmHandle, String), i32> {
-    let h = handle(h).ok_or(WYRM_ERR_ARG)?;
+    // SAFETY: `h` is null or a live handle (contract).
+    let h = unsafe { handle(h) }.ok_or(WYRM_ERR_ARG)?;
     if h.inner.closed.load(Ordering::SeqCst) {
         return Err(WYRM_ERR_CLOSED);
     }
-    let key = text(key).filter(|k| !k.is_empty()).ok_or(WYRM_ERR_ARG)?;
+    // SAFETY: `key` is null or NUL-terminated (contract); copied below.
+    let key = unsafe { text(key) }
+        .filter(|k| !k.is_empty())
+        .ok_or(WYRM_ERR_ARG)?;
     Ok((h, key.to_owned()))
 }
 
@@ -498,7 +582,8 @@ unsafe fn request<'a>(
 /// `h` is a live handle; `key` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn wyrm_meta(h: *const WyrmHandle, id: u64, key: *const c_char) -> i32 {
-    guard(|| match request(h, key) {
+    // SAFETY: `h` is a live handle and `key` a NUL-terminated string (contract).
+    guard(|| match unsafe { request(h, key) } {
         Err(e) => e,
         Ok((h, key)) => {
             let inner = h.inner.clone();
@@ -520,7 +605,8 @@ pub unsafe extern "C" fn wyrm_meta(h: *const WyrmHandle, id: u64, key: *const c_
 /// `h` is a live handle; `key` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn wyrm_children(h: *const WyrmHandle, id: u64, key: *const c_char) -> i32 {
-    guard(|| match request(h, key) {
+    // SAFETY: `h` is a live handle and `key` a NUL-terminated string (contract).
+    guard(|| match unsafe { request(h, key) } {
         Err(e) => e,
         Ok((h, key)) => {
             let inner = h.inner.clone();
@@ -553,11 +639,13 @@ pub unsafe extern "C" fn wyrm_set(
     len: usize,
 ) -> i32 {
     guard(|| {
-        let (h, key) = match request(h, key) {
+        // SAFETY: `h` is a live handle and `key` a NUL-terminated string (contract).
+        let (h, key) = match unsafe { request(h, key) } {
             Ok(x) => x,
             Err(e) => return e,
         };
-        let Some(v) = bytes(value, len).and_then(|b| from_slice::<Value>(b).ok()) else {
+        // SAFETY: `value` is valid for `len` bytes (contract); decoded at once.
+        let Some(v) = unsafe { bytes(value, len) }.and_then(|b| from_slice::<Value>(b).ok()) else {
             return WYRM_ERR_ARG;
         };
         let inner = h.inner.clone();
@@ -588,11 +676,14 @@ pub unsafe extern "C" fn wyrm_history(
     len: usize,
 ) -> i32 {
     guard(|| {
-        let (h, key) = match request(h, key) {
+        // SAFETY: `h` is a live handle and `key` a NUL-terminated string (contract).
+        let (h, key) = match unsafe { request(h, key) } {
             Ok(x) => x,
             Err(e) => return e,
         };
-        let Some(args) = bytes(args, len).and_then(|b| from_slice::<Value>(b).ok()) else {
+        // SAFETY: `args` is valid for `len` bytes (contract); decoded at once.
+        let Some(args) = unsafe { bytes(args, len) }.and_then(|b| from_slice::<Value>(b).ok())
+        else {
             return WYRM_ERR_ARG;
         };
         let q = wyrm_client::HistoryQuery::from_args(Some(&args));
@@ -629,17 +720,20 @@ pub unsafe extern "C" fn wyrm_invoke(
     len: usize,
 ) -> i32 {
     guard(|| {
-        let (h, key) = match request(h, key) {
+        // SAFETY: `h` is a live handle and `key` a NUL-terminated string (contract).
+        let (h, key) = match unsafe { request(h, key) } {
             Ok(x) => x,
             Err(e) => return e,
         };
-        let Some(action) = text(action).map(str::to_owned) else {
+        // SAFETY: `action` is a NUL-terminated string (contract); copied at once.
+        let Some(action) = (unsafe { text(action) }).map(str::to_owned) else {
             return WYRM_ERR_ARG;
         };
         let args = if args.is_null() {
             Value::Map(BTreeMap::new())
         } else {
-            match bytes(args, len).and_then(|b| from_slice::<Value>(b).ok()) {
+            // SAFETY: `args` is not null, so valid for `len` bytes (contract).
+            match unsafe { bytes(args, len) }.and_then(|b| from_slice::<Value>(b).ok()) {
                 Some(v) => v,
                 None => return WYRM_ERR_ARG,
             }
@@ -684,7 +778,8 @@ pub unsafe extern "C" fn wyrm_invoke(
 /// `h` is a live handle; `key` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn wyrm_list(h: *const WyrmHandle, id: u64, key: *const c_char) -> i32 {
-    guard(|| match request(h, key) {
+    // SAFETY: `h` is a live handle and `key` a NUL-terminated string (contract).
+    guard(|| match unsafe { request(h, key) } {
         Err(e) => e,
         Ok((h, key)) => h.open_stream(id, move |inner| async move {
             let mut s = match inner.client.list(&key).await {
@@ -731,7 +826,8 @@ pub unsafe extern "C" fn wyrm_subscribe(
     id: u64,
     pattern: *const c_char,
 ) -> i32 {
-    guard(|| match request(h, pattern) {
+    // SAFETY: `h` is a live handle and `pattern` a NUL-terminated string (contract).
+    guard(|| match unsafe { request(h, pattern) } {
         Err(e) => e,
         Ok((h, key)) => h.open_stream(id, move |inner| async move {
             let mut s = match inner.client.subscribe(&key).await {
@@ -777,7 +873,8 @@ pub unsafe extern "C" fn wyrm_subscribe(
 #[no_mangle]
 pub unsafe extern "C" fn wyrm_unsubscribe(h: *const WyrmHandle, id: u64, sub: u64) -> i32 {
     guard(|| {
-        let Some(h) = handle(h) else {
+        // SAFETY: `h` is a live handle (this function's contract).
+        let Some(h) = (unsafe { handle(h) }) else {
             return WYRM_ERR_ARG;
         };
         if h.inner.closed.load(Ordering::SeqCst) {
@@ -872,7 +969,7 @@ fn event_frame<'a>(id: u64, ty: &str, fields: impl IntoIterator<Item = (&'a str,
 }
 
 fn meta_bytes(m: &NodeMeta) -> Value {
-    Value::Bytes(to_vec(m).unwrap_or_default())
+    Value::Bytes(wyrm_core::codec::encode_to_vec(m))
 }
 
 fn child_fields(c: &Child) -> [(&'static str, Value); 2] {

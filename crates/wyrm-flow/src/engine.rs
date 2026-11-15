@@ -252,11 +252,7 @@ struct State {
 type Shared = Arc<AsyncMutex<State>>;
 
 fn type_code(name: &str) -> TypeCode {
-    TypeCode::ALL
-        .iter()
-        .copied()
-        .find(|t| t.name() == name)
-        .unwrap_or(TypeCode::Dynamic)
+    TypeCode::from_name(name).unwrap_or(TypeCode::Dynamic)
 }
 
 /// `publish.meta` → node meta (`is`, `type`, `unit`, `attr`).
@@ -427,7 +423,7 @@ impl State {
                 .declare_node(&format!("{nodes}/{name}"), publish_meta(cfg))
                 .await?;
         }
-        let raw = wyrm_core::codec::to_vec(&f.def.raw).unwrap_or_default();
+        let raw = wyrm_core::codec::value_to_vec(&f.def.raw);
         self.ctx.set_doc(id, "~def", Some(raw))?;
         Ok(())
     }
@@ -456,13 +452,11 @@ impl State {
         let t = now_us();
         let recs = states
             .iter()
-            .filter_map(|(node, (hash, v))| {
-                wyrm_core::codec::to_vec(v).ok().map(|cbor| NodeStateRec {
-                    node: node.clone(),
-                    hash: *hash,
-                    t,
-                    cbor,
-                })
+            .map(|(node, (hash, v))| NodeStateRec {
+                node: node.clone(),
+                hash: *hash,
+                t,
+                cbor: wyrm_core::codec::value_to_vec(v),
             })
             .collect();
         if let Err(e) = self.host.apply(Op::PutStates {
@@ -523,7 +517,12 @@ impl State {
         );
         let flush = f.def.policy.state_flush;
         let backoff = f.def.policy.backoff_max.min(Duration::from_secs(5));
-        let f = self.flows.get_mut(id).expect("exists");
+        // `id` was found at the start, and `&mut self` keeps anyone from removing it
+        let Some(f) = self.flows.get_mut(id) else {
+            // dropping `run` aborts its node tasks (`impl Drop for Running`)
+            tracing::error!(flow = id, "removed while it started: its run is stopped");
+            return;
+        };
         match run {
             Ok(r) => {
                 f.run = Some(r);

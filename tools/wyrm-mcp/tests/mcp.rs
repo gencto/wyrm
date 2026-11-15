@@ -2,6 +2,15 @@
 //! the server on an isolated Zenoh session with the mock link, a small link
 //! with config-level points and actions, and the flow engine.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use base64::Engine as _;
 use rmcp::model::{CallToolRequestParams, ClientConfig, ReadResourceRequestParams};
 use rmcp::service::RunningService;

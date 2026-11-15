@@ -115,6 +115,12 @@ pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Option<String>
                 .or_insert_with(|| Json::Object(Map::new()))
             {
                 Json::Object(m) => m,
+                #[allow(
+                    clippy::unreachable,
+                    reason = "a node's own keys start with `$`, `@` or `?`, which \
+                              `keyspace::validate_segment` refuses in every child name, so \
+                              the entry of a child is always the object made for it"
+                )]
                 _ => unreachable!("children are objects"),
             };
         }
@@ -189,10 +195,8 @@ fn record(path: &str, m: &Map<String, Json>, limits: &Limits) -> Result<Rec> {
     let ty = match m.get("$type") {
         None => None,
         Some(Json::String(t)) => Some(
-            TYPES
-                .iter()
-                .copied()
-                .find(|c| c.name() == t)
+            wyrm_core::TypeCode::from_name(t)
+                .filter(|c| TYPES.contains(c))
                 .ok_or_else(|| bad("unknown $type"))?,
         ),
         Some(_) => return Err(bad("$type is not text")),

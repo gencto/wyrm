@@ -174,7 +174,7 @@ impl Ask {
 }
 
 fn level_of(name: &str) -> Option<Perm> {
-    Perm::ALL.iter().copied().find(|p| p.name() == name)
+    Perm::from_name(name)
 }
 
 /// The hash of a plan (`links/agent` `tools::plan_hash`): SHA-256, in hex, of the canonical
@@ -194,7 +194,7 @@ pub fn plan_hash(plan: &[Value]) -> Option<String> {
             _ => None,
         })
         .collect::<Option<Vec<_>>>()?;
-    let bytes = wyrm_core::codec::to_vec(&Value::Array(steps)).ok()?;
+    let bytes = wyrm_core::codec::value_to_vec(&Value::Array(steps));
     Some(
         Sha256::digest(&bytes)
             .iter()
@@ -571,7 +571,7 @@ mod tests {
         );
         // other arguments under the old hash
         let Value::Map(mut m) = honest else {
-            unreachable!()
+            panic!("the plan is a map")
         };
         let other = with(set(1, A, "write", true), "value", Value::Float(9999.0));
         m.insert("plan".into(), Value::Array(vec![other]));
@@ -652,7 +652,7 @@ mod tests {
         // task to approve, even if the record still said it waits
         let Value::Map(mut rec) = record("awaiting_approval", vec![set(1, A, "write", true)])
         else {
-            unreachable!()
+            panic!("the record is a map")
         };
         rec.insert("replaced_by".into(), Value::from("t2-2"));
         let replaced = Plan::parse(&Value::Map(rec), "s").unwrap();

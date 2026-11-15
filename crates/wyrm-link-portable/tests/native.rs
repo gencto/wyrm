@@ -1,6 +1,15 @@
 //! The native engine on the portable runtime (ADR 0023): tree, `set`, `invoke`, timers, the store,
 //! faults with restarts and the re-declare sweep, and requests within grants.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};

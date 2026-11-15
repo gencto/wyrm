@@ -4,7 +4,7 @@
 //! value, the root or a hidden path, more than `max_nodes`) by panicking, so a test fails where
 //! the real host would restart the instance.
 
-#![allow(dead_code)]
+#![allow(dead_code, reason = "shared by several test crates; each uses a part")]
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};

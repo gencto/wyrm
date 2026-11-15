@@ -1,6 +1,15 @@
 //! The storage link on the SDK harness: DSA `/data` actions, rights, limits
 //! and a restart from the same file.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

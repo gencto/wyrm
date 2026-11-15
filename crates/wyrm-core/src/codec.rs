@@ -21,6 +21,31 @@ pub fn to_vec<T: Encode<()>>(v: &T) -> Result<Vec<u8>> {
     minicbor::to_vec(v).map_err(|e| CodecError::Encode(e.to_string()))
 }
 
+/// A type whose `Encode` returns no error of its own: every arm only writes
+/// (`Value`, `NodeMeta` with its `ActionMeta`/`ParamMeta`, `Attachment`,
+/// `PtokClaims`). A new type joins only after its encoder is read for that.
+pub trait EncodesInto: Encode<()> {}
+impl EncodesInto for crate::Value {}
+impl EncodesInto for crate::NodeMeta {}
+impl EncodesInto for crate::Attachment {}
+impl EncodesInto for crate::PtokClaims {}
+
+/// Canonical CBOR of `v`. It cannot fail: the `Vec` writer is infallible and
+/// the encoder of an [`EncodesInto`] type has no error arm. Use it instead of
+/// `to_vec(v).unwrap_or_default()`, which would write empty bytes instead.
+#[allow(
+    clippy::expect_used,
+    reason = "an EncodesInto type into a Vec cannot fail to encode (see above)"
+)]
+pub fn encode_to_vec<T: EncodesInto>(v: &T) -> Vec<u8> {
+    minicbor::to_vec(v).expect("an EncodesInto type into a Vec always encodes")
+}
+
+/// Canonical CBOR of a [`Value`](crate::Value) built in memory ([`encode_to_vec`]).
+pub fn value_to_vec(v: &crate::Value) -> Vec<u8> {
+    encode_to_vec(v)
+}
+
 pub fn from_slice<'b, T: Decode<'b, ()>>(bytes: &'b [u8]) -> Result<T> {
     minicbor::decode(bytes).map_err(|e| CodecError::Decode(e.to_string()))
 }

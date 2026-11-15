@@ -12,6 +12,15 @@
 //! The events mix daily, weekday, hourly, monthly and yearly rules with all priorities, so
 //! windows overlap and precedence has work to do. Times are in `Europe/Kyiv`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "a benchmark run by hand: a failed step ends it, figures go to stdout"
+)]
+
 use std::time::{Duration, Instant};
 
 use jiff::civil::DateTime;

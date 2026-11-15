@@ -18,6 +18,15 @@
 //! work. `SimHost` (`tests/common`) applies each event's commands as the portable runtime does;
 //! its bookkeeping is in the numbers.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "a benchmark run by hand: a failed step ends it, figures go to stdout"
+)]
+
 #[path = "../tests/common/mod.rs"]
 mod common;
 

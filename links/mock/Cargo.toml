@@ -42,3 +42,6 @@ name = "mockdev"
 description = "Simulated devices on the driver framework: connections, devices and points from its own Add actions"
 bin = "wyrm-link-mockdev"
 features = ["process"]
+
+[lints]
+workspace = true

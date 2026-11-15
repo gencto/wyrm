@@ -127,7 +127,8 @@ pub fn all_threads_no_new_privs() -> std::io::Result<bool> {
     Ok(true)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use nix::sys::resource::{getrlimit, Resource};

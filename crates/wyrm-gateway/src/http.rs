@@ -497,6 +497,11 @@ async fn login(
             Status::RateLimited,
             "too many failed logins",
         )),
+        Err(LoginError::Unavailable) => Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            Status::Busy,
+            "the gateway cannot start a session now: try again",
+        )),
     }
 }
 

@@ -1,3 +1,12 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::time::Duration;
 use wyrm_core::{Perm, Quality, Sample, Status, Value};
 use wyrm_link_mock::{point_paths, Mock, MockConfig};

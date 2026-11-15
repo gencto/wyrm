@@ -49,3 +49,6 @@ name = "snmp"
 description = "SNMP v2c and v3 (USM: SHA-1/SHA-256, AES-128) agents: batched GET, GETBULK table columns, SET, walk"
 bin = "wyrm-link-snmp"
 features = ["process"]
+
+[lints]
+workspace = true

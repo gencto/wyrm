@@ -1,6 +1,11 @@
 //! HTTP JSON server for demos: `GET /api/data` with a power value that
 //! moves on every request, a writable `/api/resource`, redirects.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 use wyrm_link_http::sim::SimAuth;
 

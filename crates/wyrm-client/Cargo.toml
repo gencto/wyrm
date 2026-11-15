@@ -33,3 +33,6 @@ ed25519-dalek.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 # two sessions over loopback TCP (tests/stall.rs)
 zenoh = { workspace = true, features = ["transport_tcp"] }
+
+[lints]
+workspace = true

@@ -2,6 +2,11 @@
 //! scrape, gauges that drift once per second, a histogram and a summary
 //! (see `wyrm_link_prometheus::sim`).
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 use std::time::Duration;
 use wyrm_link_prometheus::sim::Fail;

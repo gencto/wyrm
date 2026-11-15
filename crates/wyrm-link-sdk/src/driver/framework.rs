@@ -1388,7 +1388,10 @@ impl<D: Driver> Framework<D> {
         if entry.is_some_and(|e| e.folders.contains(rest)) {
             return Ok(At::Folder(conn, dev, rest.to_vec()));
         }
-        let (id, folder) = rest.split_last().expect("not empty");
+        // `rest` has one segment or more: `[c, d]` matched above
+        let Some((id, folder)) = rest.split_last() else {
+            return Err(LinkError::not_found(parts.join("/")));
+        };
         match entry.and_then(|e| e.points.get(id)) {
             Some(p) if p.folder == folder => Ok(At::Point(conn, dev, id)),
             None if folder.is_empty() => Ok(At::Point(conn, dev, id)),
@@ -1601,7 +1604,7 @@ impl<D: Driver> Framework<D> {
                     .in_current_span(),
                 );
                 let (tickers, tick_stop) = self.start_tickers(&devs, &tx, &view, 0, server).await;
-                self.conns.get_mut(name).expect("exists").run = Some(ConnRun {
+                let run = ConnRun {
                     tx,
                     acting,
                     note,
@@ -1613,7 +1616,13 @@ impl<D: Driver> Framework<D> {
                     tick_stop,
                     book,
                     flusher,
-                });
+                };
+                // `name` was found above, and `&mut self` keeps anyone from removing it;
+                // were it gone, its run must not outlive it
+                match self.conns.get_mut(name) {
+                    Some(c) => c.run = Some(run),
+                    None => stop_run(run).await,
+                }
             }
         }
     }
@@ -1778,12 +1787,17 @@ impl<D: Driver> Framework<D> {
             // the new plan before its next request.
             let _ = run.tx.try_send(Req::Serve);
         }
-        self.conns.get_mut(conn).expect("exists").run = Some(ConnRun {
+        let run = ConnRun {
             tickers,
             tick_stop,
             gen,
             ..run
-        });
+        };
+        // as in `bring_up`: the entry is there, and a run never outlives it
+        match self.conns.get_mut(conn) {
+            Some(c) => c.run = Some(run),
+            None => stop_run(run).await,
+        }
     }
 
     fn export(&self) -> Value {
@@ -2368,7 +2382,10 @@ impl<D: Driver> Owner<D> {
 
 /// The connection owner: opens the transport, serves requests in order,
 /// reconnects with capped, jittered backoff.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the owner task takes what it owns by value: one argument per channel and view"
+)]
 async fn owner<D: Driver>(
     ctx: LinkCtx,
     conn: String,
@@ -3451,10 +3468,14 @@ fn rebase(path: &[String], from: &[String], to: &[String]) -> Folder {
 
 /// `<id>_<n>` with the smallest `n` ≥ 2 that `taken` does not refuse.
 fn fresh_id(id: &str, taken: impl Fn(&str) -> bool) -> String {
-    (2u64..)
-        .map(|n| format!("{id}_{n}"))
-        .find(|c| !taken(c))
-        .expect("a free id")
+    let mut n = 2u64;
+    loop {
+        let c = format!("{id}_{n}");
+        if !taken(&c) {
+            return c;
+        }
+        n += 1;
+    }
 }
 
 /// A stand-in for a secret left out of an import, so that every other
@@ -4072,7 +4093,11 @@ impl<D: Driver> Framework<D> {
                     .collect();
                 check_new::<D>(&new_ids, &new_folders)?;
                 for id in &new_ids {
-                    let p = points.get_mut(id).expect("loaded");
+                    // every new id was loaded into `points` above
+                    let Some(p) = points.get_mut(id) else {
+                        error!(point = %id, "import: a new point is not among the loaded ones");
+                        continue;
+                    };
                     let at = format!("{devpath}/{}", child(&p.folder, id).join("/"));
                     p.slot.note_reenter(&at, &reenter);
                 }

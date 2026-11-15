@@ -11,6 +11,15 @@
 //! guests of `wyrm-wasm-host`); a real component comes from a guest
 //! toolchain for the WIT world `wyrm:link/driver`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "an example run by hand: a failed step ends it, output goes to stdout"
+)]
+
 #[path = "../../../crates/wyrm-wasm-host/tests/guests/mod.rs"]
 mod guests;
 

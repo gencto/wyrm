@@ -1,5 +1,10 @@
 //! WebDAV simulator for demos: one collection in memory, basic auth.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]

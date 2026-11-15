@@ -7,6 +7,18 @@ use ring::rand::{SecureRandom, SystemRandom};
 
 const AAD: &[u8] = b"wyrm-seal";
 
+/// Sealing failed: the OS gave no randomness for the nonce (a repeated nonce
+/// would break the cipher, so nothing is sealed), or the cipher refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("seal: no randomness for the nonce, or the cipher refused")]
+pub struct SealError;
+
+impl From<ring::error::Unspecified> for SealError {
+    fn from(_: ring::error::Unspecified) -> Self {
+        SealError
+    }
+}
+
 fn cipher(key: &[u8; 32]) -> Option<LessSafeKey> {
     UnboundKey::new(&CHACHA20_POLY1305, key)
         .ok()
@@ -15,7 +27,7 @@ fn cipher(key: &[u8; 32]) -> Option<LessSafeKey> {
 
 /// Seal `plain` under `key` with a fresh random nonce:
 /// `nonce | ciphertext | tag`.
-pub fn seal(key: &[u8; 32], plain: &[u8]) -> Vec<u8> {
+pub fn seal(key: &[u8; 32], plain: &[u8]) -> Result<Vec<u8>, SealError> {
     seal_aad(key, AAD, plain)
 }
 
@@ -26,24 +38,21 @@ pub fn open(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// [`seal`] bound to `aad`: it must be the same for [`open_aad`].
-pub(crate) fn seal_aad(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Vec<u8> {
+pub(crate) fn seal_aad(key: &[u8; 32], aad: &[u8], plain: &[u8]) -> Result<Vec<u8>, SealError> {
     let mut nonce = [0u8; NONCE_LEN];
-    SystemRandom::new()
-        .fill(&mut nonce)
-        .expect("system randomness");
+    SystemRandom::new().fill(&mut nonce)?;
     let mut out = Vec::with_capacity(NONCE_LEN + plain.len() + 16);
     out.extend_from_slice(&nonce);
     out.extend_from_slice(plain);
     let mut body = out.split_off(NONCE_LEN);
-    let c = cipher(key).expect("32-byte key");
+    let c = cipher(key).ok_or(SealError)?;
     c.seal_in_place_append_tag(
         Nonce::assume_unique_for_key(nonce),
         Aad::from(aad),
         &mut body,
-    )
-    .expect("seal");
+    )?;
     out.extend_from_slice(&body);
-    out
+    Ok(out)
 }
 
 pub(crate) fn open_aad(key: &[u8; 32], aad: &[u8], sealed: &[u8]) -> Option<Vec<u8>> {
@@ -67,7 +76,7 @@ mod tests {
     #[test]
     fn seal_roundtrip_and_tamper() {
         let key = [9u8; 32];
-        let sealed = seal(&key, b"secret state");
+        let sealed = seal(&key, b"secret state").unwrap();
         assert_eq!(open(&key, &sealed).as_deref(), Some(&b"secret state"[..]));
         assert_eq!(open(&[8u8; 32], &sealed), None, "other key");
         for i in 0..sealed.len() {

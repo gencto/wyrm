@@ -937,7 +937,9 @@ async fn sync_history(
             store.write(&rows).map_err(|e| e.to_string())?;
         }
         let full = page.rows.len() >= replication::MAX_HISTORY_ROWS;
-        let c = at.as_mut().expect("set above");
+        let Some(c) = at.as_mut() else {
+            return Err("no history cursor".into());
+        };
         if page.next != after {
             store
                 .set_sink_seq(&sink, Some(page.next))

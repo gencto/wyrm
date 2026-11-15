@@ -2,6 +2,15 @@
 //! through the real wire format (`TestHarness`: in-memory Zenoh session,
 //! real HTTP on loopback).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};

@@ -2,6 +2,15 @@
 //! connections, with a report of what could not be mapped. The fixture and
 //! the Java sources it follows: `fixtures/dsa-nodes.{json,md}`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use serde_json::{json, Value as Json};
 use std::collections::BTreeMap;
 use std::time::Duration;

@@ -270,7 +270,9 @@ impl NodeTree {
             };
             return Ok(Changed { node: true, parent });
         }
-        let (parent, name) = split_parent(path).expect("root always exists");
+        // only the root has no parent, and the root always exists
+        let (parent, name) = split_parent(path)
+            .ok_or_else(|| LinkError::not_found(format!("parent of {path} not declared")))?;
         let p = self
             .nodes
             .get_mut(parent)

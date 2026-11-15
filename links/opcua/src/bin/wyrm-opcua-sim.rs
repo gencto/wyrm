@@ -4,6 +4,11 @@
 //! and Basic256Sha256 (Sign, SignAndEncrypt), anonymous or
 //! `operator`/`sim-password`.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 use std::path::PathBuf;
 use wyrm_link_opcua::sim;

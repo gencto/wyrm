@@ -154,6 +154,24 @@ wyrm-link-slack = { path = "links/slack" }
 # Label matchers of links/prometheus: linear-time regexes, no backreferences.
 regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"] }
 
+# Rules every member follows (`lints.workspace = true`); docs/rust-rules.md says why.
+# An exception is `#[allow(lint, reason = "…")]` at the narrowest item, never here.
+# Test code may unwrap, expect, panic and print (clippy.toml `allow-*-in-tests`).
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+exit = "deny"
+allow_attributes_without_reason = "deny"
+print_stdout = "deny"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

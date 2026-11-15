@@ -1524,9 +1524,7 @@ impl Uplink {
             .ups
             .get(name)
             .ok_or_else(|| AppError::new(Status::NotFound, name))?;
-        let Value::Map(mut m) = up.def.to_value() else {
-            unreachable!()
-        };
+        let mut m = up.def.to_map();
         for k in ["name", "kind", "from_config"] {
             m.remove(k);
         }
@@ -1733,7 +1731,9 @@ impl App for Uplink {
                 } else {
                     host.store_put(&store::secret_key(&name), pw.as_bytes())?;
                 }
-                let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
+                let Some(up) = self.ups.get_mut(&name) else {
+                    return Err(AppError::new(Status::NotFound, name));
+                };
                 up.restart(host);
                 up.show(host, now);
                 self.arm(host, &name);
@@ -1741,7 +1741,9 @@ impl App for Uplink {
             }
             "test_connection" => {
                 let site = self.site.clone();
-                let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
+                let Some(up) = self.ups.get_mut(&name) else {
+                    return Err(AppError::new(Status::NotFound, name));
+                };
                 let (ok, message) = match up.test(host, now, site.as_deref()) {
                     Ok(m) => (true, m),
                     Err(m) => (false, m),
@@ -1773,7 +1775,9 @@ impl App for Uplink {
                 if moved {
                     host.store_delete(&store::secret_key(&name));
                 }
-                let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
+                let Some(up) = self.ups.get_mut(&name) else {
+                    return Err(AppError::new(Status::NotFound, name));
+                };
                 up.def = def;
                 up.rights = Some(rights);
                 up.readable.clear();
@@ -1796,7 +1800,9 @@ impl App for Uplink {
                 // the new subscriptions, and the edit cleared what the upstream had sent
                 self.unsubscribe_all(host, &name, &old_select);
                 self.subscribe_all(host, &name);
-                let up = self.ups.get_mut(&name).unwrap_or_else(|| unreachable!());
+                let Some(up) = self.ups.get_mut(&name) else {
+                    return Err(AppError::new(Status::NotFound, name));
+                };
                 up.show(host, now);
                 self.arm(host, &name);
                 Ok(Value::Null)

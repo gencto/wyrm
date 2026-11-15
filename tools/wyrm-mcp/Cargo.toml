@@ -44,3 +44,6 @@ rmcp = { workspace = true, features = ["client"] }
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-link-mock.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "io-util"] }
+
+[lints]
+workspace = true

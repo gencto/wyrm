@@ -170,11 +170,12 @@ pub(crate) struct OAuth {
     codes: Mutex<HashMap<String, Code>>,
 }
 
-fn random_b64(n: usize) -> String {
+/// `n` random bytes in base64url; `None` without randomness (a failing OS RNG would give
+/// guessable codes: the caller refuses instead).
+fn random_b64(n: usize) -> Option<String> {
     let mut b = vec![0u8; n];
-    // a failing OS RNG would give guessable codes: refuse instead
-    getrandom::fill(&mut b).expect("OS random source");
-    URL_SAFE_NO_PAD.encode(b)
+    crate::rng::fill(&mut b).ok()?;
+    Some(URL_SAFE_NO_PAD.encode(b))
 }
 
 fn map<const N: usize>(kv: [(&str, Value); N]) -> Value {
@@ -260,7 +261,10 @@ impl OAuth {
 
     /// `host` and `host:port` of the public URL, for the MCP endpoint's `Host` check.
     pub(crate) fn hosts(&self) -> Vec<String> {
-        let (_, auth, _) = split_url(&self.issuer).expect("checked at start");
+        // checked at start; a broken one gives no host, so every Host check fails
+        let Some((_, auth, _)) = split_url(&self.issuer) else {
+            return Vec::new();
+        };
         let host = host_of(auth).to_owned();
         let mut v = vec![auth.to_owned()];
         if host != auth {
@@ -320,16 +324,17 @@ impl OAuth {
         Ok(name)
     }
 
-    fn new_code(&self, c: Code) -> Option<String> {
+    /// A new single-use code for `c`, or why there is none.
+    fn new_code(&self, c: Code) -> Result<String, &'static str> {
         let mut m = self.codes.lock().unwrap_or_else(|p| p.into_inner());
         let now = now_s();
         m.retain(|_, c| c.exp > now);
         if m.len() >= CODES_MAX {
-            return None;
+            return Err("too many sign-ins in progress: try again in a minute");
         }
-        let code = random_b64(32);
+        let code = random_b64(32).ok_or("no randomness on the gateway host: try again")?;
         m.insert(code.clone(), c);
-        Some(code)
+        Ok(code)
     }
 
     fn take_code(&self, code: &str) -> Option<Code> {
@@ -337,7 +342,9 @@ impl OAuth {
         m.remove(code).filter(|c| c.exp > now_s())
     }
 
-    fn mint(&self, kind: u8, g: &Granted<'_>, ttl: Duration) -> (String, u64) {
+    /// A sealed token and its expiry; `None` without randomness for its id (a failing OS
+    /// RNG would repeat token ids: the caller refuses).
+    fn mint(&self, kind: u8, g: &Granted<'_>, ttl: Duration) -> Option<(String, u64)> {
         let Granted {
             sub,
             gen,
@@ -348,7 +355,7 @@ impl OAuth {
         let iat = now_s();
         let exp = iat + ttl.as_secs().max(1);
         let mut jti = [0u8; 16];
-        getrandom::fill(&mut jti).expect("OS random source");
+        crate::rng::fill(&mut jti).ok()?;
         let v = map([
             ("s", Value::from(sub)),
             ("g", Value::UInt(gen)),
@@ -364,7 +371,7 @@ impl OAuth {
                 Value::from(if kind == KIND_REFRESH { client_id } else { "" }),
             ),
         ]);
-        (self.sealer.seal(kind, &v), exp)
+        Some((self.sealer.seal(kind, &v), exp))
     }
 
     fn open_token(&self, kind: u8, token: &str) -> Option<(Access, String)> {
@@ -773,12 +780,15 @@ pub(crate) async fn authorize_submit(
                 &user,
             )
         }
+        Err(LoginError::Unavailable) => {
+            return error_page("the gateway cannot sign in now: try again")
+        }
     };
     let consent = Consent {
         write: f.write.is_some(),
         config: f.write.is_some() && f.config.is_some(),
     };
-    let Some(code) = o.new_code(Code {
+    let code = match o.new_code(Code {
         client_id: f.q.client_id.clone(),
         redirect_uri: f.q.redirect_uri.clone(),
         challenge: f.q.code_challenge.clone(),
@@ -787,8 +797,9 @@ pub(crate) async fn authorize_submit(
         consent,
         client: name.clone(),
         exp: now_s() + CODE_TTL_S,
-    }) else {
-        return error_page("too many sign-ins in progress: try again in a minute");
+    }) {
+        Ok(code) => code,
+        Err(why) => return error_page(why),
     };
     st.gw.audit(crate::AuditEvent::McpGranted {
         user: user.clone(),
@@ -910,8 +921,16 @@ pub(crate) async fn token(
         client: &client,
         client_id: &client_id,
     };
-    let (access, exp) = o.mint(KIND_ACCESS, &g, o.cfg.access_ttl);
-    let (refresh, _) = o.mint(KIND_REFRESH, &g, o.cfg.refresh_ttl);
+    let (Some((access, exp)), Some((refresh, _))) = (
+        o.mint(KIND_ACCESS, &g, o.cfg.access_ttl),
+        o.mint(KIND_REFRESH, &g, o.cfg.refresh_ttl),
+    ) else {
+        return oauth_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "temporarily_unavailable",
+            "no randomness on the gateway host",
+        );
+    };
     json(
         StatusCode::OK,
         serde_json::json!({
@@ -995,28 +1014,32 @@ mod tests {
             write: true,
             config: false,
         };
-        let (a, _) = o.mint(
-            KIND_ACCESS,
-            &Granted {
-                sub: "olena",
-                gen: 3,
-                consent: c,
-                client: "Claude",
-                client_id: "cid",
-            },
-            Duration::from_secs(60),
-        );
-        let (r, _) = o.mint(
-            KIND_REFRESH,
-            &Granted {
-                sub: "olena",
-                gen: 3,
-                consent: c,
-                client: "Claude",
-                client_id: "cid",
-            },
-            Duration::from_secs(60),
-        );
+        let (a, _) = o
+            .mint(
+                KIND_ACCESS,
+                &Granted {
+                    sub: "olena",
+                    gen: 3,
+                    consent: c,
+                    client: "Claude",
+                    client_id: "cid",
+                },
+                Duration::from_secs(60),
+            )
+            .unwrap();
+        let (r, _) = o
+            .mint(
+                KIND_REFRESH,
+                &Granted {
+                    sub: "olena",
+                    gen: 3,
+                    consent: c,
+                    client: "Claude",
+                    client_id: "cid",
+                },
+                Duration::from_secs(60),
+            )
+            .unwrap();
         let got = o.access(&a).unwrap();
         assert_eq!((got.sub.as_str(), got.gen, got.consent), ("olena", 3, c));
         assert!(o.access(&r).is_none(), "a refresh token is no access token");

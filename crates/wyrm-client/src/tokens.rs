@@ -16,7 +16,7 @@ pub trait TokenSource: Send + Sync + 'static {
 /// `0x01 || cbor(claims) || ed25519(version || claims)`.
 pub fn sign(key: &SigningKey, claims: &PtokClaims) -> Vec<u8> {
     let mut tok = vec![PTOK_VERSION];
-    tok.extend(wyrm_core::codec::to_vec(claims).expect("claims always encode"));
+    tok.extend(wyrm_core::codec::encode_to_vec(claims));
     let sig = key.sign(&tok);
     tok.extend(sig.to_bytes());
     tok

@@ -51,3 +51,6 @@ capabilities = { store_mb = 16 }
 [[bench]]
 name = "cold_start"
 harness = false
+
+[lints]
+workspace = true

@@ -686,7 +686,7 @@ async fn bulk_invoke(b: &Bulk, key: &str, action: &str, body: &[u8]) -> Result<O
         s.flush().await
     })
     .await
-    .map_err(|_| sent("the request head was not taken", &"timed out"))?
+    .map_err(|elapsed| sent("the request head was not taken", &elapsed))?
     .map_err(|e| sent("the request head was not taken", &e))?;
     let mut buf = Vec::new();
     match tokio::time::timeout(CONTINUE_WAIT, read_head(&mut s, &mut buf)).await {

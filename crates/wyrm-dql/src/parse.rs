@@ -544,7 +544,9 @@ fn sources(arg: &str) -> Result<Vec<Pattern>, String> {
 fn path_root(arg: &str) -> Result<Pattern, String> {
     let key = arg.trim();
     check_key(key)?;
-    let (parent, name) = key.rsplit_once('/').expect("a full key has segments");
+    let Some((parent, name)) = key.rsplit_once('/') else {
+        return Err(format!("{key}: a node below a section"));
+    };
     if parent.split('/').count() < 3 {
         return Err(format!("{key}: a node below a section"));
     }

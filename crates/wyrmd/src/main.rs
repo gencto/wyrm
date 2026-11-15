@@ -1,3 +1,3 @@
-fn main() -> Result<(), wyrmd::Error> {
+fn main() -> Result<std::process::ExitCode, wyrmd::Error> {
     wyrmd::cli::main(None)
 }

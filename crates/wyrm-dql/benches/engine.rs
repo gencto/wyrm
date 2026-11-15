@@ -6,6 +6,15 @@
 //!    the table (no values yet: columns stay null until samples come);
 //! 2. **per sample**: the cost of one sample on a full table (the row is evaluated again).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "a benchmark run by hand: a failed step ends it, figures go to stdout"
+)]
+
 use std::collections::BTreeMap;
 use std::time::Instant;
 

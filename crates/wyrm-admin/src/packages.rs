@@ -415,10 +415,8 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             .map_err(|e| e.to_string())?;
     }
     for g in &m.requester {
-        let level = wyrm_core::Perm::ALL
-            .iter()
-            .copied()
-            .find(|p| p.name() == g.level && *p != wyrm_core::Perm::None)
+        let level = wyrm_core::Perm::from_name(&g.level)
+            .filter(|p| *p != wyrm_core::Perm::None)
             .ok_or_else(|| format!("requester level {:?}: list, read or write", g.level))?;
         crate::registry::check_grant(&g.path, level).map_err(|e| format!("requester: {e}"))?;
         // A package names the branches it needs; a whole root (every link,

@@ -674,6 +674,10 @@ fn sig_path(file: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+#[allow(
+    clippy::print_stdout,
+    reason = "`wyrmd release`, a command line: what it prints is its result"
+)]
 pub fn release_cmd(cmd: ReleaseCmd) -> Result<(), Error> {
     use ed25519_dalek::SigningKey;
     let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));

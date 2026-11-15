@@ -566,7 +566,9 @@ impl Session {
                     priv_params,
                 };
                 let mut out = msg::encode_v3(pdu.request_id, flags, &usm, &data);
-                let mac = v3.auth.sign(&e.auth_key, &out.bytes);
+                let mac = v3.auth.sign(&e.auth_key, &out.bytes).ok_or_else(|| {
+                    Fail::Error(DriverError::Transport("the auth key was refused".into()))
+                })?;
                 let at = out.auth_at;
                 out.bytes[at..at + mac.len()].copy_from_slice(&mac);
                 Ok(out.bytes)
@@ -1024,7 +1026,7 @@ mod tests {
         };
         let mut out = msg::encode_v3(msg_id, msg::FLAG_AUTH, &usm, &scoped);
         let key = Auth::Sha256.localized_key(KEY_PASS, ENGINE);
-        let mac = Auth::Sha256.sign(&key, &out.bytes);
+        let mac = Auth::Sha256.sign(&key, &out.bytes).unwrap();
         out.bytes[out.auth_at..out.auth_at + mac.len()].copy_from_slice(&mac);
         out.bytes
     }
