@@ -115,3 +115,41 @@ jobs:
           for p in app ui business models storage localization device_key; do
             if [ -d "$p/test" ]; then (cd "$p" && flutter test); fi
           done
+  studio-goldens:
+    # The goldens of ui/test/goldens are drawn and compared on macOS only (text
+    # renders differently elsewhere; each golden test skips off macOS), so the
+    # `studio` job on Linux never compares them. This job does.
+    runs-on: macos-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          # Pinned in studio/pubspec.yaml (`environment.flutter`).
+          flutter-version-file: studio/pubspec.yaml
+          cache: true
+      - run: flutter pub get
+      - run: dart run build_runner build --workspace
+      - name: Goldens
+        working-directory: studio/ui
+        # The runner's text anti-aliasing differs from a developer's Mac by at
+        # most 0.34 % of a golden's pixels (measured 2026-11-15); see
+        # studio/ui/test/flutter_test_config.dart. Locally goldens compare
+        # exactly.
+        env:
+          GOLDEN_TOLERANCE: "0.005"
+        run: flutter test test/goldens
+      - name: Golden differences
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: golden-failures
+          path: studio/ui/test/goldens/failures/
+          retention-days: 7

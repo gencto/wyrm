@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,7 +33,45 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     }
     await loader.load();
   }
+  // CI's macOS runner draws text with slightly different anti-aliasing than
+  // a developer's Mac (measured 2026-11-15: at most 0.34 % of the pixels of
+  // a golden, macOS 26 runner against macOS 27). `GOLDEN_TOLERANCE` (a
+  // fraction, set only by the `studio-goldens` CI job) lets that noise pass
+  // while a broken layout — a missing panel, a moved block — still fails.
+  // Without it, as on a developer's machine, goldens compare exactly.
+  final tolerance = double.tryParse(
+    Platform.environment['GOLDEN_TOLERANCE'] ?? '',
+  );
+  if (tolerance != null && goldenFileComparator is LocalFileComparator) {
+    goldenFileComparator = _TolerantComparator(
+      (goldenFileComparator as LocalFileComparator).basedir,
+      tolerance,
+    );
+  }
   await testMain();
+}
+
+/// Passes a golden whose pixels differ by at most [tolerance] (a fraction).
+final class _TolerantComparator extends LocalFileComparator {
+  _TolerantComparator(Uri basedir, this.tolerance)
+    : super(basedir.resolve('golden_test.dart'));
+
+  final double tolerance;
+
+  @override
+  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
+    final result = await GoldenFileComparator.compareLists(
+      imageBytes,
+      await getGoldenBytes(golden),
+    );
+    if (result.passed || result.diffPercent <= tolerance) {
+      result.dispose();
+      return true;
+    }
+    final error = await generateFailureOutput(result, golden, basedir);
+    result.dispose();
+    throw FlutterError(error);
+  }
 }
 
 /// `ui/assets/fonts`, from the package or from the workspace root.
