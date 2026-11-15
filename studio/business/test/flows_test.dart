@@ -182,6 +182,25 @@ void main() {
       );
       expect(s.state.flowEditor.draft, held);
       expect(s.state.flowEditor.version, 3);
+
+      // Another flow that does not read: the one held goes, and nothing
+      // is there to deploy under its id.
+      api.invokes['wy/central/dataflows/other ▸ history'] = [
+        Value.from([
+          {'edges': 'a.out'},
+        ]),
+      ];
+      final other = await s.dispatchAndWait(LoadFlowAction('other'));
+      expect(other.originalError, isA<StudioException>());
+      expect(s.state.flowEditor.flowId, 'other');
+      expect(s.state.flowEditor.draft, isNull);
+      expect(s.state.flowEditor.deployed, isNull);
+      await s.dispatchAndWait(DeployFlowAction());
+      expect(
+        api.calls.where((c) => c.action == 'deploy'),
+        isEmpty,
+        reason: 'no draft, no deploy',
+      );
     });
 
     test(

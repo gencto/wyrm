@@ -14,6 +14,7 @@ import '../../common/action.dart';
 import '../../flows/actions/retrieve_block_types_action.dart';
 import '../../flows/actions/retrieve_flows_action.dart';
 import '../models/flow_editor_state.dart';
+import 'unload_flow_action.dart';
 
 /// Opens [id] in the editor: the block catalogue (`dataflows` ▸
 /// `node_types`, from the session's cache `flows.blockTypes` when it holds
@@ -52,16 +53,13 @@ class LoadFlowAction extends Action {
         await askOne(api, key, 'history'),
       )) {
         Valid(:final value) => value,
-        // A definition Studio cannot read is said, with the field: the
-        // editor keeps what it had, never an empty draft a deploy would
-        // write over the flow.
-        Invalid(:final field, :final reason) => throw StudioException.said(
-          ErrorKind.broker,
-          'The definition of flow $id is not one Studio reads: '
-          '$field: $reason.',
-          key: key,
-          call: 'history',
-          thing: id,
+        // A definition Studio cannot read is said, with the field. The
+        // same flow keeps what it had; another flow drops the one held
+        // (so it is not drawn or deployed under this id) and gets no
+        // draft: never an empty one a deploy would write over the flow.
+        Invalid(:final field, :final reason) => throw _unreadable(
+          key,
+          '$field: $reason',
         ),
       };
       if (read != null) {
@@ -114,6 +112,21 @@ class LoadFlowAction extends Action {
             ? const LibraryOff.unread()
             : held.libraryOff,
       ),
+    );
+  }
+
+  /// Why flow [id] does not open; another flow held before goes first
+  /// (that state is the one the screen keeps, so it is drawn).
+  StudioException _unreadable(String key, String why) {
+    if (flowEditor.flowId != id) {
+      dispatchSync(UnloadFlowAction(id));
+    }
+    return StudioException.said(
+      ErrorKind.broker,
+      'The definition of flow $id is not one Studio reads: $why.',
+      key: key,
+      call: 'history',
+      thing: id,
     );
   }
 }
