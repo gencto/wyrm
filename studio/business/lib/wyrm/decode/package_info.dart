@@ -92,7 +92,7 @@ PackageInfo packageLiveOf(
         ok(liveInt(kept?['keep_until'], _package, 'previous.keep_until')) ?? 0,
     previousChangesState:
         ok(_bool(kept?['changes_state'], 'previous.changes_state')) ?? false,
-    lastUpdate: ok(updateReportOf(value('last_update'))),
+    lastUpdate: ok(updateReportOf(value('last_update'), where: where)),
   );
 }
 
@@ -104,14 +104,19 @@ Decoded<bool?> _bool(Object? v, String field) => switch (v) {
 
 /// `sys/packages/<name>/last_update` (a map as plain Dart, or the wire
 /// value of a read) as an [UpdateReport]; none for the empty map of a
-/// package never updated, or no value.
-Decoded<UpdateReport?> updateReportOf(Object? v) {
+/// package never updated, or no value; [Invalid] when it is no map.
+///
+/// Each field is read on its own: one of another type is left at its
+/// default **and logged** with its field and [where]; a `result` this
+/// client does not know is [UpdateResult.unknown] with the broker's word,
+/// never a dropped report.
+Decoded<UpdateReport?> updateReportOf(Object? v, {required String where}) {
   final Map<String, Object?> m;
   switch (v) {
     case null || VNull():
       return const Valid(null);
     case final Value wire:
-      return updateReportOf(_plain(wire));
+      return updateReportOf(_plain(wire), where: where);
     case final Map<Object?, Object?> map:
       m = {for (final e in map.entries) '${e.key}': e.value};
     default:
@@ -120,77 +125,63 @@ Decoded<UpdateReport?> updateReportOf(Object? v) {
   if (m.isEmpty) {
     return const Valid(null);
   }
-  final texts = <String, String>{};
-  for (final f in ['from', 'to', 'result', 'reason']) {
-    switch (m[f]) {
-      case null:
-        texts[f] = '';
-      case final String s:
-        texts[f] = s;
-      default:
-        return Invalid(_report, f, 'not a text');
-    }
-  }
-  final counts = <String, int>{};
-  for (final f in ['at', 'kept', 'new', 'gone']) {
-    switch (liveInt(m[f], _report, f)) {
-      case Valid(:final value):
-        counts[f] = value ?? 0;
-      case final Invalid<int?> i:
-        return Invalid(_report, i.field, i.reason);
-    }
-  }
-  final lists = <String, IList<String>>{};
-  for (final f in ['new_keys', 'gone_keys', 'links']) {
-    switch (m[f]) {
-      case null:
-        lists[f] = const IListConst([]);
-      case final List<Object?> l when l.every((e) => e is String):
-        lists[f] = l.cast<String>().lock;
-      default:
-        return Invalid(_report, f, 'not a list of texts');
-    }
-  }
-  final flags = <String, bool>{};
-  for (final f in ['changes_state', 'restore_point']) {
-    switch (m[f]) {
-      case null:
-        flags[f] = false;
-      case final bool b:
-        flags[f] = b;
-      default:
-        return Invalid(_report, f, 'not a bool');
-    }
-  }
-  final result = switch (texts['result']!) {
-    '' => null,
-    final w => UpdateResult.fromWire(w),
+  T? warned<T>(String field, String reason) =>
+      Invalid<T>(_report, field, reason).orWarn(where);
+  String text(String f) => switch (m[f]) {
+    null => '',
+    final String s => s,
+    _ => warned<String>(f, 'not a text') ?? '',
   };
-  if (result == null && texts['result']!.isNotEmpty) {
-    return const Invalid(_report, 'result', 'not a known result');
-  }
+  int count(String f) => liveInt(m[f], _report, f).orWarn(where) ?? 0;
+  IList<String> texts(String f) => switch (m[f]) {
+    null => const IListConst([]),
+    final List<Object?> l => [
+      for (final e in l)
+        if (e is String) e else ?warned<String>(f, 'not a text in the list'),
+    ].lock,
+    _ => warned<IList<String>>(f, 'not a list') ?? const IListConst([]),
+  };
+  bool flag(String f) => switch (m[f]) {
+    null => false,
+    final bool b => b,
+    _ => warned<bool>(f, 'not a bool') ?? false,
+  };
+  final word = text('result');
+  final result = switch (word) {
+    '' => null,
+    final w =>
+      UpdateResult.fromWire(w) ??
+          (warned<UpdateResult>('result', 'not a known result') ??
+              UpdateResult.unknown),
+  };
   return Valid(
     UpdateReport(
-      from: texts['from']!,
-      to: texts['to']!,
-      at: counts['at']!,
+      from: text('from'),
+      to: text('to'),
+      at: count('at'),
       result: result,
-      kept: counts['kept']!,
-      added: counts['new']!,
-      gone: counts['gone']!,
-      newKeys: lists['new_keys']!,
-      goneKeys: lists['gone_keys']!,
-      reason: texts['reason']!,
-      links: lists['links']!,
-      changesState: flags['changes_state']!,
-      restorePoint: flags['restore_point']!,
+      resultWord: word,
+      kept: count('kept'),
+      added: count('new'),
+      gone: count('gone'),
+      newKeys: texts('new_keys'),
+      goneKeys: texts('gone_keys'),
+      reason: text('reason'),
+      links: texts('links'),
+      changesState: flag('changes_state'),
+      restorePoint: flag('restore_point'),
     ),
   );
 }
 
 /// `sys/links/<id>/restore_points` (a list as plain Dart): its rows, in
-/// the broker's order; none when no value arrived.
-Decoded<List<RestorePoint>> restorePointsOf(Object? v) {
+/// the broker's order; none when no value arrived; [Invalid] when it is no
+/// list. A row that is not one is left out **and logged** with [where];
+/// the others stay.
+Decoded<List<RestorePoint>> restorePointsOf(
+  Object? v, {
+  required String where,
+}) {
   if (v == null) {
     return const Valid([]);
   }
@@ -200,21 +191,25 @@ Decoded<List<RestorePoint>> restorePointsOf(Object? v) {
   final points = <RestorePoint>[];
   for (final e in v) {
     if (e is! Map<Object?, Object?>) {
-      return const Invalid(_points, '', 'a row is not a map');
+      const Invalid<RestorePoint>(
+        _points,
+        '',
+        'a row is not a map',
+      ).orWarn(where);
+      continue;
     }
-    final at = liveInt(e['at'], _points, 'at');
-    final size = liveInt(e['size'], _points, 'size');
+    final at = liveInt(e['at'], _points, 'at').orWarn(where);
+    final size = liveInt(e['size'], _points, 'size').orWarn(where);
     final version = liveText(e['version'], _points, 'version');
-    for (final d in <Decoded<Object?>>[at, size, version]) {
-      if (d case Invalid(:final field, :final reason)) {
-        return Invalid(_points, field, reason);
-      }
+    if (at == null || size == null || version is Invalid) {
+      version.orWarn(where);
+      continue;
     }
     points.add(
       RestorePoint(
-        at: (at as Valid<int?>).value ?? 0,
+        at: at,
         version: (version as Valid<String?>).value ?? '',
-        size: (size as Valid<int?>).value ?? 0,
+        size: size,
       ),
     );
   }

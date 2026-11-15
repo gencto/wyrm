@@ -7,7 +7,11 @@ enum UpdateResult implements WireName {
   checking('checking'),
   ok('ok'),
   rolledBack('rolled_back'),
-  failed('failed');
+  failed('failed'),
+
+  /// A result this client does not know: the broker's own word is kept
+  /// beside it (`UpdateReport.resultWord`) and shown as such.
+  unknown('unknown');
 
   const UpdateResult(this.wire);
 

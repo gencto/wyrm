@@ -19,27 +19,33 @@ import 'package:wyrm_client/wyrm_client.dart';
 /// field a refusal names. Each shape decodes once, typed; a value of
 /// another shape names its field.
 void main() {
+  List<String> warnings() {
+    final seen = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => seen.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    return seen;
+  }
+
   group('sysVerdictOf', () {
     test('the last row counts: success and message, kept verbatim', () {
       expect(
         sysVerdictOf([
           Value.from({'success': false, 'message': 'first'}),
           Value.from({'success': true, 'message': 'link modbus installed'}),
-        ]),
-        const Valid(
-          SysVerdict(success: true, message: 'link modbus installed'),
-        ),
+        ], where: 't'),
+        const SysVerdict(success: true, message: 'link modbus installed'),
       );
     });
 
     test('no row, or a null one, is no success', () {
       expect(
-        sysVerdictOf(const []),
-        const Valid(SysVerdict(success: false)),
+        sysVerdictOf(const [], where: 't'),
+        const SysVerdict(success: false),
       );
       expect(
-        sysVerdictOf(const [VNull()]),
-        const Valid(SysVerdict(success: false)),
+        sysVerdictOf(const [VNull()], where: 't'),
+        const SysVerdict(success: false),
       );
     });
 
@@ -47,31 +53,38 @@ void main() {
       expect(
         sysVerdictOf([
           Value.from({'message': 'done'}),
-        ]),
-        const Valid(SysVerdict(success: true, message: 'done')),
+        ], where: 't'),
+        const SysVerdict(success: true, message: 'done'),
       );
     });
 
     test('an answer that is no map: the action ran, said nothing more', () {
       expect(
-        sysVerdictOf(const [VStr('ok')]),
-        const Valid(SysVerdict(success: true)),
+        sysVerdictOf(const [VStr('ok')], where: 't'),
+        const SysVerdict(success: true),
       );
     });
 
-    test('a success or a message of another type names its field', () {
+    test('a failure is a failure whatever its message; each bad field is '
+        'logged', () {
+      final seen = warnings();
       expect(
         sysVerdictOf([
-          Value.from({'success': 'yes'}),
-        ]),
-        const Invalid<SysVerdict>('sys verdict', 'success', 'not a bool'),
+          Value.from({'success': false, 'message': 3}),
+        ], where: 'install_zip on plant'),
+        const SysVerdict(success: false),
       );
       expect(
         sysVerdictOf([
-          Value.from({'success': true, 'message': 3}),
-        ]),
-        const Invalid<SysVerdict>('sys verdict', 'message', 'not a text'),
+          Value.from({'success': 'yes', 'message': 'odd'}),
+        ], where: 'install_zip on plant'),
+        const SysVerdict(success: false, message: 'odd'),
+        reason: 'an answer that does not say it succeeded did not',
       );
+      expect(seen, [
+        'install_zip on plant: sys verdict.message: not a text',
+        'install_zip on plant: sys verdict.success: not a bool',
+      ]);
     });
   });
 
@@ -169,10 +182,23 @@ void main() {
 
   group('sysRunOf', () {
     test('no answer is a run that said nothing; a map is its verdict', () {
-      expect(sysRunOf(const VNull()), const Valid(SysVerdict(success: true)));
       expect(
-        sysRunOf(Value.from({'success': false, 'message': 'asks for net'})),
-        const Valid(SysVerdict(success: false, message: 'asks for net')),
+        sysRunOf(const VNull(), where: 't'),
+        const SysVerdict(success: true),
+      );
+      expect(
+        sysRunOf(
+          Value.from({'success': false, 'message': 'asks for net'}),
+          where: 't',
+        ),
+        const SysVerdict(success: false, message: 'asks for net'),
+      );
+    });
+
+    test('a failed run with a message of another type stays a failure', () {
+      expect(
+        sysRunOf(Value.from({'success': false, 'message': 7}), where: 't'),
+        const SysVerdict(success: false),
       );
     });
   });

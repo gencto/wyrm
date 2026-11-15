@@ -25,6 +25,7 @@ class RollbackPackageAction extends Action with NonReentrant, WaitingAction {
     final key = '${site.root}/sys/packages/$name';
     final before = updateReportOf(
       await readValue(deps.wyrm, '$key/last_update'),
+      where: '$key/last_update',
     ).orWarn('$key/last_update');
     // While a check runs, the report it wrote is the one to wait past.
     final seen = before == null || before.result == UpdateResult.checking
@@ -39,7 +40,7 @@ class RollbackPackageAction extends Action with NonReentrant, WaitingAction {
     return state.copyWith.updates(
       view: UpdateView.follow,
       seenAt: seen,
-      message: sysRunOf(answer).orWarn('$key ▸ rollback')?.message,
+      message: sysRunOf(answer, where: '$key ▸ rollback').message,
     );
   }
 }

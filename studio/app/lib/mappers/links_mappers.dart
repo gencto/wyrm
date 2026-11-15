@@ -60,6 +60,7 @@ extension UpdateResultUi on UpdateResult {
     UpdateResult.ok => LinkUpdateEnd.ok,
     UpdateResult.rolledBack => LinkUpdateEnd.rolledBack,
     UpdateResult.failed => LinkUpdateEnd.failed,
+    UpdateResult.unknown => LinkUpdateEnd.unknown,
   };
 }
 
@@ -83,6 +84,7 @@ extension UpdateReportUi on UpdateReport {
     to: to,
     at: _at(at),
     end: result?.ui,
+    endWord: resultWord,
     kept: kept,
     added: added,
     gone: gone,

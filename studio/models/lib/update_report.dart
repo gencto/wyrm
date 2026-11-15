@@ -18,6 +18,10 @@ abstract class UpdateReport with _$UpdateReport {
 
     /// None when the broker says none.
     UpdateResult? result,
+
+    /// The broker's own word for [result], kept for a result this client
+    /// does not know ([UpdateResult.unknown]).
+    @Default('') String resultWord,
     @Default(0) int kept,
     @Default(0) int added,
     @Default(0) int gone,

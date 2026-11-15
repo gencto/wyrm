@@ -1106,43 +1106,45 @@ class MessageLookup extends MessageLookupByLibrary {
 
   static String m468(package) => "${package} update rolled back";
 
-  static String m469(package) => "Updating ${package}";
+  static String m469(result) => "The broker ended it as “${result}”";
 
-  static String m470(package) => "Versions of ${package}";
+  static String m470(package) => "Updating ${package}";
 
-  static String m471(version) => "What is new in ${version}";
+  static String m471(package) => "Versions of ${package}";
 
-  static String m472(v) => "Version ${v} · deployed";
+  static String m472(version) => "What is new in ${version}";
 
-  static String m473(site) => "via ${site}";
+  static String m473(v) => "Version ${v} · deployed";
 
-  static String m474(delimiter, header) =>
+  static String m474(site) => "via ${site}";
+
+  static String m475(delimiter, header) =>
       "Read as the block reads it: delimiter ${delimiter}, ${header}";
 
-  static String m475(keys) => "${keys} saves · Esc cancels";
+  static String m476(keys) => "${keys} saves · Esc cancels";
 
-  static String m476(keys) => "${keys} saves · Esc discards the changes";
+  static String m477(keys) => "${keys} saves · Esc discards the changes";
 
-  static String m477(n, who) => "${n} waiting to be let in: ${who}";
+  static String m478(n, who) => "${n} waiting to be let in: ${who}";
 
-  static String m478(value) => "was ${value}";
+  static String m479(value) => "was ${value}";
 
-  static String m479(n) => "Watch groups · ${n}";
+  static String m480(n) => "Watch groups · ${n}";
 
-  static String m480(mode) =>
+  static String m481(mode) =>
       "With require_approval “${mode}”, the plan of a pick runs its write steps without a person. The tag is the assistant\'s guess, not a check. Read a tile before you pick it.";
 
-  static String m481(user) => "Welcome, ${user}";
+  static String m482(user) => "Welcome, ${user}";
 
-  static String m482(value) => "would run on ${value}";
+  static String m483(value) => "would run on ${value}";
 
-  static String m483(value) => "would send ${value}";
+  static String m484(value) => "would send ${value}";
 
-  static String m484(value) => "would write ${value}";
+  static String m485(value) => "would write ${value}";
 
-  static String m485(level) => "Turning this on needs ${level} level";
+  static String m486(level) => "Turning this on needs ${level} level";
 
-  static String m486(site) => "wyrmd on ${site}";
+  static String m487(site) => "wyrmd on ${site}";
 
   final messages = _notInlinedMessages(_notInlinedMessages);
   static Map<String, Function> _notInlinedMessages(_) => <String, Function>{
@@ -2407,6 +2409,9 @@ class MessageLookup extends MessageLookupByLibrary {
     "insPoint": MessageLookupByLibrary.simpleMessage("Point"),
     "insStorage": MessageLookupByLibrary.simpleMessage("Storage"),
     "install": MessageLookupByLibrary.simpleMessage("Install"),
+    "installNoWords": MessageLookupByLibrary.simpleMessage(
+      "The broker gave no reason.",
+    ),
     "installRailNote": MessageLookupByLibrary.simpleMessage(
       "Installing needs config on sys (the admin role). Nothing is installed before you press Install.",
     ),
@@ -4266,6 +4271,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "updPillDone": MessageLookupByLibrary.simpleMessage("done"),
     "updPillFailed": MessageLookupByLibrary.simpleMessage("failed"),
     "updPillRolledBack": MessageLookupByLibrary.simpleMessage("rolled back"),
+    "updPillUnknown": MessageLookupByLibrary.simpleMessage("unknown"),
     "updPointBeforeRestore": m452,
     "updPointBeforeUpdate": m453,
     "updPoints": MessageLookupByLibrary.simpleMessage("Restore points"),
@@ -4327,16 +4333,20 @@ class MessageLookup extends MessageLookupByLibrary {
     "updTitleDone": m467,
     "updTitleRolledBack": m468,
     "updTogether": MessageLookupByLibrary.simpleMessage("updated together"),
-    "updUpdating": m469,
+    "updUnknownResult": m469,
+    "updUnknownResultNote": MessageLookupByLibrary.simpleMessage(
+      "Studio does not know this result. The broker\'s log says more.",
+    ),
+    "updUpdating": m470,
     "updUpdatingButton": MessageLookupByLibrary.simpleMessage("Updating…"),
     "updUpdatingSub": MessageLookupByLibrary.simpleMessage(
       "Values of its links pause while each restarts.",
     ),
-    "updVersionsOf": m470,
+    "updVersionsOf": m471,
     "updWhatChanges": MessageLookupByLibrary.simpleMessage(
       "What changes for the broker",
     ),
-    "updWhatIsNew": m471,
+    "updWhatIsNew": m472,
     "updWorking": MessageLookupByLibrary.simpleMessage("installing"),
     "updating": MessageLookupByLibrary.simpleMessage("Updating…"),
     "upstream": MessageLookupByLibrary.simpleMessage("upstream"),
@@ -4356,8 +4366,8 @@ class MessageLookup extends MessageLookupByLibrary {
     "valuesPreview": MessageLookupByLibrary.simpleMessage(
       "a preview of the draft; nothing is written",
     ),
-    "versionDeployed": m472,
-    "viaSite": m473,
+    "versionDeployed": m473,
+    "viaSite": m474,
     "viewValue": MessageLookupByLibrary.simpleMessage("View value"),
     "viewerBadBool": MessageLookupByLibrary.simpleMessage("true or false"),
     "viewerBadJson": MessageLookupByLibrary.simpleMessage(
@@ -4373,7 +4383,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "viewerCsvRefused": MessageLookupByLibrary.simpleMessage(
       "The block refuses this text (parse_error): it has no row, or it passes a bound of a table.",
     ),
-    "viewerCsvRules": m474,
+    "viewerCsvRules": m475,
     "viewerCsvWired": MessageLookupByLibrary.simpleMessage(
       "A wire feeds the delimiter or the header: the table uses the values they hold now.",
     ),
@@ -4393,24 +4403,24 @@ class MessageLookup extends MessageLookupByLibrary {
       "Read only: the block computes this output.",
     ),
     "viewerSave": MessageLookupByLibrary.simpleMessage("Save"),
-    "viewerSaveHint": m475,
+    "viewerSaveHint": m476,
     "viewerTabTable": MessageLookupByLibrary.simpleMessage("As table"),
     "viewerTabText": MessageLookupByLibrary.simpleMessage("Text"),
-    "viewerTableHint": m476,
+    "viewerTableHint": m477,
     "waitingInQuarantine": MessageLookupByLibrary.simpleMessage(
       "Waiting in quarantine",
     ),
-    "waitingToBeLetIn": m477,
-    "wasValue": m478,
+    "waitingToBeLetIn": m478,
+    "wasValue": m479,
     "wasWord": MessageLookupByLibrary.simpleMessage("was"),
     "watchGroup": MessageLookupByLibrary.simpleMessage("Watch group"),
-    "watchGroups": m479,
-    "waysCaution": m480,
+    "watchGroups": m480,
+    "waysCaution": m481,
     "waysNote": MessageLookupByLibrary.simpleMessage(
       "A pick is a new ask. Its plan is checked and waits for your approval, step by step.",
     ),
     "waysOut": MessageLookupByLibrary.simpleMessage("Ways out"),
-    "welcomeUser": m481,
+    "welcomeUser": m482,
     "whatItRead": MessageLookupByLibrary.simpleMessage("What it read"),
     "whyAnnounce": MessageLookupByLibrary.simpleMessage(
       "The broker may have gateway.announce off (hardened sites), or its gateway listens on loopback only.",
@@ -4470,10 +4480,10 @@ class MessageLookup extends MessageLookupByLibrary {
     "wordOrderReason": MessageLookupByLibrary.simpleMessage(
       "Set by the data type: its _wswap, _bswap or _wbswap suffix.",
     ),
-    "wouldRun": m482,
-    "wouldSend": m483,
-    "wouldWrite": m484,
-    "writableNeeds": m485,
+    "wouldRun": m483,
+    "wouldSend": m484,
+    "wouldWrite": m485,
+    "writableNeeds": m486,
     "wrongPassword": MessageLookupByLibrary.simpleMessage(
       "User or password is wrong. Ask an administrator to reset it; the gateway never sends it by mail.",
     ),
@@ -4485,7 +4495,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "wsLinks": MessageLookupByLibrary.simpleMessage("Links"),
     "wsSites": MessageLookupByLibrary.simpleMessage("Sites"),
     "wsSystem": MessageLookupByLibrary.simpleMessage("System"),
-    "wyrmdOn": m486,
+    "wyrmdOn": m487,
     "yes": MessageLookupByLibrary.simpleMessage("yes"),
     "youTag": MessageLookupByLibrary.simpleMessage("YOU"),
     "yourAnswers": MessageLookupByLibrary.simpleMessage("Your answers"),

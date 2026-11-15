@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/sys_verdict.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -58,6 +57,7 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
       final key = '$root/sys/packages/$name';
       final before = updateReportOf(
         await readValue(deps.wyrm, '$key/last_update'),
+        where: '$key/last_update',
       ).orWarn('$key/last_update');
       final seen = before?.at ?? 0;
       // The restore point is decided for each package: one that changes
@@ -99,9 +99,7 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
         dispatchSync(_Review(name));
         rethrow;
       }
-      final verdict =
-          sysRunOf(answer).orWarn('$key ▸ update') ??
-          const SysVerdict(success: true);
+      final verdict = sysRunOf(answer, where: '$key ▸ update');
       message = verdict.message;
       if (!verdict.success) {
         if (updates.package != name) {
@@ -128,7 +126,10 @@ class UpdatePackageAction extends Action with NonReentrant, WaitingAction {
   Future<void> _settled(String key, int seen) async {
     final until = DateTime.now().add(const Duration(seconds: 700));
     while (DateTime.now().isBefore(until)) {
-      final r = updateReportOf(await readValue(deps.wyrm, key)).orWarn(key);
+      final r = updateReportOf(
+        await readValue(deps.wyrm, key),
+        where: key,
+      ).orWarn(key);
       if (r != null && r.result != UpdateResult.checking && r.at != seen) {
         return;
       }

@@ -19,7 +19,6 @@ import 'package:business/wyrm/decode/package_info.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:models/package_info.dart';
-import 'package:models/restore_point.dart';
 import 'package:models/update_result.dart';
 import 'package:models/update_view.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -115,7 +114,7 @@ void main() {
     final points = restorePointsOf([
       {'at': 20, 'version': '0.4.2', 'size': 3000},
       {'at': 10, 'version': '', 'size': 10},
-    ]).orWarn('test')!;
+    ], where: 'test').orWarn('test')!;
     expect(points.map((p) => p.at), [20, 10]);
     expect(points.last.version, '');
   });
@@ -137,21 +136,55 @@ void main() {
     );
     expect(p.updateAvailable, isFalse);
     expect(p.latest, '0.2.0');
-    expect(p.lastUpdate, isNull);
     expect(warnings, [
       'sys/packages/x: package.update_available: not a bool',
       'sys/packages/x: last update.result: not a known result',
     ]);
-    expect(
-      restorePointsOf([
-        {'at': 'yesterday'},
-      ]),
-      const Invalid<List<RestorePoint>>(
-        'restore points',
-        'at',
-        'not a whole number',
-      ),
-    );
+    // A result this client does not know is kept, typed, with its word.
+    expect(p.lastUpdate!.result, UpdateResult.unknown);
+    expect(p.lastUpdate!.resultWord, 'exploded');
+  });
+
+  test('a field of the report of another type is left at its default and '
+      'logged; the report stays', () {
+    final warnings = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    final r = updateReportOf({
+      'from': '0.4.1',
+      'to': '0.4.2',
+      'at': 'soon',
+      'result': 'ok',
+      'gone_keys': ['modbus/a', 3],
+    }, where: 'sys/packages/modbus/last_update').orWarn('test')!;
+    expect(r.result, UpdateResult.ok);
+    expect(r.to, '0.4.2');
+    expect(r.at, 0);
+    expect(r.goneKeys, ['modbus/a']);
+    const where = 'sys/packages/modbus/last_update';
+    expect(warnings, [
+      '$where: last update.at: not a whole number',
+      '$where: last update.gone_keys: not a text in the list',
+    ]);
+  });
+
+  test('a restore point that is not one is left out and logged; the '
+      'others stay', () {
+    final warnings = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    final points = restorePointsOf([
+      {'at': 'yesterday', 'size': 1},
+      'not a row',
+      {'at': 10, 'version': '0.4.2', 'size': 10},
+    ], where: 'sys/links/modbus/restore_points').orWarn('test')!;
+    expect(points.map((p) => p.at), [10]);
+    expect(warnings, [
+      'sys/links/modbus/restore_points: restore points.at: not a whole number',
+      'sys/links/modbus/restore_points: restore points.: a row is not a map',
+    ]);
   });
 
   test('sys/links gives updates_available as an attribute', () async {
@@ -233,6 +266,18 @@ void main() {
       expect(s.state.updates.asks, isNull);
     },
   );
+
+  test('a failed update whose message is no text is still a failure', () async {
+    api.invokes['$_pkg ▸ update'] = [
+      const VMap({'success': VBool(false), 'message': VInt(3)}),
+    ];
+    s.dispatchSync(OpenUpdateAction('modbus'));
+
+    await s.dispatchAndWait(UpdatePackageAction());
+
+    expect(s.state.updates.view, UpdateView.review);
+    expect(s.state.updates.asks, isNull);
+  });
 
   test('a refusal goes back to the review and fails the action', () async {
     api.errors['$_pkg ▸ update'] = WyrmException.of(Status.busy, 'checking');

@@ -258,7 +258,7 @@ final class QuarantineData extends Equatable {
 enum LinkUpdateStage { review, progress, result, points }
 
 /// How the last update of a package ended, as drawn.
-enum LinkUpdateEnd { checking, ok, rolledBack, failed }
+enum LinkUpdateEnd { checking, ok, rolledBack, failed, unknown }
 
 /// What the primary button of the update sheet does.
 enum LinkUpdateNext { update, file, rollback, log, open }
@@ -270,6 +270,7 @@ final class LinkUpdateReport extends Equatable {
     required this.to,
     required this.at,
     this.end,
+    this.endWord = '',
     this.kept = 0,
     this.added = 0,
     this.gone = 0,
@@ -284,6 +285,10 @@ final class LinkUpdateReport extends Equatable {
   final String to;
   final DateTime at;
   final LinkUpdateEnd? end;
+
+  /// The broker's own word for [end], said when it is
+  /// [LinkUpdateEnd.unknown].
+  final String endWord;
   final int kept;
   final int added;
   final int gone;
@@ -299,6 +304,7 @@ final class LinkUpdateReport extends Equatable {
     to,
     at,
     end,
+    endWord,
     kept,
     added,
     gone,

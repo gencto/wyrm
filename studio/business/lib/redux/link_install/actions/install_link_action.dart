@@ -60,9 +60,7 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
       final rows = await deps.wyrm
           .invoke('wy/$broker/sys/links', action, installArgsOf(request))
           .toList();
-      answer =
-          sysVerdictOf(rows).orWarn('$action on $broker') ??
-          const SysVerdict(success: false);
+      answer = sysVerdictOf(rows, where: '$action on $broker');
     } on WyrmException catch (e) {
       answer = SysVerdict(
         success: false,

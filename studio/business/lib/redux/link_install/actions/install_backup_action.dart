@@ -70,10 +70,10 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
             installArgsOf(request),
           )
           .toList();
-      answer =
-          sysVerdictOf(rows)
-              .orWarn('${LinkInstallCall.backup.wire} on $broker') ??
-          const SysVerdict(success: false);
+      answer = sysVerdictOf(
+        rows,
+        where: '${LinkInstallCall.backup.wire} on $broker',
+      );
     } on WyrmException catch (e) {
       answer = SysVerdict(
         success: false,

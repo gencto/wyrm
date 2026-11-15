@@ -11411,6 +11411,41 @@ class S {
     );
   }
 
+  /// `unknown`
+  String get updPillUnknown {
+    return Intl.message('unknown', name: 'updPillUnknown', desc: '', args: []);
+  }
+
+  /// `The broker ended it as “{result}”`
+  String updUnknownResult(String result) {
+    return Intl.message(
+      'The broker ended it as “$result”',
+      name: 'updUnknownResult',
+      desc: '',
+      args: [result],
+    );
+  }
+
+  /// `Studio does not know this result. The broker's log says more.`
+  String get updUnknownResultNote {
+    return Intl.message(
+      'Studio does not know this result. The broker\'s log says more.',
+      name: 'updUnknownResultNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker gave no reason.`
+  String get installNoWords {
+    return Intl.message(
+      'The broker gave no reason.',
+      name: 'installNoWords',
+      desc: '',
+      args: [],
+    );
+  }
+
   /// `failed`
   String get updPillFailed {
     return Intl.message('failed', name: 'updPillFailed', desc: '', args: []);

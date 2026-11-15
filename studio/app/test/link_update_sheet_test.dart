@@ -227,6 +227,22 @@ void main() {
     expect(d.next, UpdateNext.log);
   });
 
+  test('a result this client does not know is said as the broker said it', () {
+    final d = _data(
+      _pkg(
+        last: _report(UpdateResult.unknown).copyWith(resultWord: 'quarantined'),
+      ),
+      follow: true,
+    );
+    expect(d.stage, UpdateStage.result);
+    final vm = sheet(d);
+    expect(vm.pill, S.current.updPillUnknown);
+    final banner = vm.blocks.whereType<SheetBanner>().single;
+    expect(banner.title, S.current.updUnknownResult('quarantined'));
+    expect(banner.tone, Tone.warn);
+    expect(d.next, UpdateNext.open);
+  });
+
   test('failed keeps the new version and offers the rollback', () {
     final d = _data(
       _pkg(last: _report(UpdateResult.failed), previous: '0.4.2'),

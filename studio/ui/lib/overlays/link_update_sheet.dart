@@ -211,6 +211,11 @@ TaskSheetVm _result(LinkUpdateData d, VoidCallback? onRollBack) {
       l.updFailed(r.to),
       r.reason.isEmpty ? l.updFailedNote : r.reason,
     ),
+    LinkUpdateEnd.unknown => (
+      Tone.warn,
+      l.updUnknownResult(r.endWord),
+      r.reason.isEmpty ? l.updUnknownResultNote : r.reason,
+    ),
     _ when r.gone > 0 => (Tone.warn, l.updRuns(r.to), r.reason),
     _ => (Tone.good, l.updRuns(r.to), l.updRunsNote(r.links.join(', '))),
   };
@@ -224,6 +229,7 @@ TaskSheetVm _result(LinkUpdateData d, VoidCallback? onRollBack) {
     pill: switch (r.end) {
       LinkUpdateEnd.rolledBack => l.updPillRolledBack,
       LinkUpdateEnd.failed => l.updPillFailed,
+      LinkUpdateEnd.unknown => l.updPillUnknown,
       _ => l.updPillDone,
     },
     pillTone: tone,

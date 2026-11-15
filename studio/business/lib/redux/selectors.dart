@@ -1011,6 +1011,7 @@ extension LinksTables on Selectors {
             id:
                 restorePointsOf(
                   _live('links/$id/restore_points'),
+                  where: 'sys/links/$id/restore_points',
                 ).orWarn('sys/links/$id/restore_points') ??
                 const [],
         },
