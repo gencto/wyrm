@@ -18,6 +18,7 @@ pub mod ptok;
 pub mod status;
 pub mod time;
 pub mod value;
+pub mod weburl;
 pub mod wire;
 
 pub use attachment::Attachment;
