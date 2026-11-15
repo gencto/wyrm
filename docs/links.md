@@ -822,6 +822,37 @@ A stream holds its buffer only while it lives: dropping it undeclares its
 subscribers, cancels the query of an `invoke`, and frees the buffer at
 once; Zenoh's later replies to that query are dropped on arrival.
 
+### A link that has just appeared
+
+A link's liveliness token can arrive before queries to the link do. When a
+router connects (a downstream broker, also after its rebuild), the router
+above routes the new router's tokens about one routing-tree computation
+before it routes queries to it (Zenoh 1.10.1 debounces that computation by
+100 ms). In that gap every query toward it ends at once with no reply
+(`docs/backlog.md` §6). `wyrm-client` follows these rules:
+
+- A read under a link (`meta`, `children`, `resolve` of
+  `wy/<site>/downstream/<link>/…`) that has no reply while the link's token
+  is there is sent again after 25 ms, then 50, 100 and 200 ms, until it has
+  an answer, the token is gone (`disconnected`), or the timeout is spent
+  (`timeout`). A key without a link token gets two tries, so a key that no
+  queryable serves still fails at once.
+- A list of the links root (`wy/<site>/downstream`) lists a link only with
+  the meta the link answered, in `Refreshed` and in `Added`. It never lists
+  a link with an empty default meta because of a missing reply.
+- A link whose token is there but which gives no reply through a whole read
+  is not listed yet. The list reads it again after 1 s, doubled up to 30 s,
+  and sends `Added` when it answers. If its token goes first, the list sends
+  nothing for it. `children` of the links root leaves such a link out.
+- A link that answers the read with a refusal (`permission_denied`, a meta
+  that does not decode) is listed with an empty meta: the link is there, and
+  its name is all the reader may see.
+
+A requester that reads a peer's own sections (`wy/<d>/sys`, `storage`,
+`dataflows`) right after the peer connects has no link token to wait on.
+Wait for `downstream/<d>/connected` (`docs/operations.md`, "Several sites")
+before the first read.
+
 ## 11. Logs
 
 - `sys/links/<id>` ▸ **Get Log** `{lines, level, filter}` shows the link's

@@ -4822,6 +4822,178 @@ async fn first_queries_across_peers_answer() {
     c_task.await.unwrap().unwrap();
 }
 
+/// The route gap (backlog item 6, 2026-11-15) as a client above sees it.
+/// Edge connects to central and reconnects once more after its rebuild for
+/// central's signing keys; each time, central routes edge's tokens about one
+/// tree computation before it routes queries to edge. A live list of
+/// `wy/edge/downstream` open at central through all of it lists edge's link
+/// only with the meta the link answered, never with an empty default; and
+/// `downstream/edge/connected` turns true only when a query to edge answers
+/// at once. The gap is not on every run (in a Linux container 13 of 66
+/// reconnects showed it, on macOS none of 48): this test guards the rule,
+/// the unit tests of `wyrm-client` and `wyrm-admin` prove it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_live_list_from_above_never_lists_an_empty_link() {
+    use std::sync::Mutex;
+    let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
+    let admin = hex::encode(key.verifying_key().to_bytes());
+    let (c_dir, e_dir) = (temp_dir("gap-central"), temp_dir("gap-edge"));
+    let (c_tcp, c_quic, e_tcp) = (free_port(), free_port(), free_port());
+    let central = Config::from_json5(&format!(
+        r#"{{ site: "central", data_dir: "{}", listen: ["tcp/127.0.0.1:{c_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ listen: "quic/127.0.0.1:{c_quic}", downstream: [{{ site: "edge" }}] }} }}"#,
+        c_dir.display(),
+    ))
+    .unwrap();
+    let up = upstream_entry("central", c_quic, &c_dir, "edge");
+    let edge = Config::from_json5(&format!(
+        r#"{{ site: "edge", data_dir: "{}", listen: ["tcp/127.0.0.1:{e_tcp}"],
+              admin_keys: ["{admin}"],
+              peers: {{ upstream: [{up}] }},
+              links: {{ mock: {{ driver: "mock", params: {{ points: 2, rate_hz: 5, depth: 1, fanout: 1 }} }} }} }}"#,
+        e_dir.display(),
+    ))
+    .unwrap();
+    let exe: PathBuf = env!("CARGO_BIN_EXE_wyrmd").into();
+    let central = open_daemon(central, exe.clone()).unwrap();
+    let edge = open_daemon(edge, exe).unwrap();
+    let edge_ctl = edge.control();
+    let (c_stop, c_rx) = oneshot::channel::<()>();
+    let (e_stop, e_rx) = oneshot::channel::<()>();
+    let c_task = tokio::spawn(central.run_until(async {
+        let _ = c_rx.await;
+    }));
+    let c = WyrmClient::new(loopback_session(c_tcp).await).with_timeout(Duration::from_secs(5));
+    // central's own nodes answer once its admin runs
+    eventually("central's peer node", 20, || async {
+        c.meta("wy/central/downstream/edge").await.ok()
+    })
+    .await;
+
+    // Everything is watched before edge runs, so no reconnect is missed.
+    let mut list = c.list("wy/edge/downstream").await.unwrap();
+    let events: Arc<Mutex<Vec<ListEvent>>> = Arc::default();
+    let list_task = {
+        let events = events.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = list.next().await {
+                events.lock().unwrap().push(ev);
+            }
+        })
+    };
+    let mut connected = c
+        .subscribe("wy/central/downstream/edge/connected")
+        .await
+        .unwrap();
+    // per `false → true`: did a query to edge sent at once answer?
+    let probes: Arc<Mutex<Vec<Result<Duration, String>>>> = Arc::default();
+    let probe_task = {
+        let (probes, session) = (probes.clone(), c.session().clone());
+        tokio::spawn(async move {
+            let mut was = false;
+            while let Some(ev) = connected.next().await {
+                let ValEvent::Sample { sample, .. } = ev else {
+                    continue;
+                };
+                let now = sample.v == Value::Bool(true);
+                if now && !was {
+                    let started = std::time::Instant::now();
+                    let first = match session
+                        .get("wy/edge/sys/~meta")
+                        .consolidation(zenoh::query::ConsolidationMode::None)
+                        .timeout(Duration::from_secs(3))
+                        .await
+                    {
+                        Ok(r) => match r.recv_async().await {
+                            Ok(reply) if reply.result().is_ok() => Ok(started.elapsed()),
+                            Ok(_) => Err(format!("an error reply after {:?}", started.elapsed())),
+                            Err(_) => Err(format!("no reply after {:?}", started.elapsed())),
+                        },
+                        Err(e) => Err(e.to_string()),
+                    };
+                    probes.lock().unwrap().push(first);
+                }
+                was = now;
+            }
+        })
+    };
+
+    let edge_token = c
+        .session()
+        .liveliness()
+        .declare_subscriber("wy/edge/sys/broker")
+        .history(true)
+        .await
+        .unwrap();
+    let e_task = tokio::spawn(edge.run_until(async {
+        let _ = e_rx.await;
+    }));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let mut gone_with_keys = false;
+    loop {
+        let s = tokio::time::timeout_at(deadline, edge_token.recv_async())
+            .await
+            .expect("edge back after learning central's keys")
+            .unwrap();
+        let learned = edge_ctl.registry().signers.contains_key("central");
+        match s.kind() {
+            zenoh::sample::SampleKind::Delete if learned => gone_with_keys = true,
+            zenoh::sample::SampleKind::Put if gone_with_keys => break,
+            _ => {}
+        }
+    }
+    drop(edge_token);
+    // the link is listed again after the reconnect, and `connected` is back
+    eventually("mock listed again after edge's rebuild", 30, || async {
+        let evs = events.lock().unwrap();
+        let removed = evs
+            .iter()
+            .rposition(|e| *e == ListEvent::Removed("mock".into()));
+        let added = evs
+            .iter()
+            .rposition(|e| matches!(e, ListEvent::Added(ch) if ch.name == "mock"));
+        matches!((removed, added), (Some(r), Some(a)) if a > r).then_some(())
+    })
+    .await;
+    eventually("connected twice", 30, || async {
+        (probes.lock().unwrap().len() >= 2).then_some(())
+    })
+    .await;
+
+    let evs = events.lock().unwrap().clone();
+    let listed: Vec<&wyrm_client::Child> = evs
+        .iter()
+        .flat_map(|e| match e {
+            ListEvent::Refreshed(kids) => kids.iter().collect(),
+            ListEvent::Added(ch) | ListEvent::Changed(ch) => vec![ch],
+            _ => vec![],
+        })
+        .collect();
+    assert!(!listed.is_empty(), "{evs:#?}");
+    for ch in listed {
+        assert_ne!(ch.meta, wyrm_core::NodeMeta::default(), "{evs:#?}");
+        assert!(
+            // a link's own meta has its `rev`; the empty default has none
+            ch.meta.rev.is_some(),
+            "a link listed without the meta it answered: {ch:?}"
+        );
+    }
+    let probes = probes.lock().unwrap().clone();
+    assert!(
+        probes.iter().all(|p| p.is_ok()),
+        "`connected` true before queries reach edge: {probes:?}"
+    );
+
+    list_task.abort();
+    probe_task.abort();
+    let _ = c.session().close().await;
+    let _ = c_stop.send(());
+    let _ = e_stop.send(());
+    e_task.await.unwrap().unwrap();
+    c_task.await.unwrap().unwrap();
+}
+
 /// Iteration 5: the user gateway runs in wyrmd. The first admin comes from
 /// the environment; a login is audited; the gateway's per-user tokens are
 /// accepted by links and by the admin, within each user's grants.

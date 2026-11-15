@@ -572,6 +572,15 @@ restart of the upstream therefore costs the downstream nothing but a gap in
 what the upstream saw live. The same holds the other way round: the upstream
 shows the downstream site as not connected and serves everything else.
 
+`downstream/<d>/connected` (and `upstream/<u>/connected` on the other side)
+is true when queries reach the peer, not only when its broker token
+`wy/<peer>/sys/broker` is there. After the token comes, the broker sends a
+probe to the peer's `sys/signing_keys` (3 s timeout; 50 ms between probes,
+doubled up to 5 s) and sets `connected` when a probe has an answer. A router
+that has just connected has its token routed before queries to it are, so
+the token alone can be true up to about 100 ms before any query answers
+(`docs/backlog.md` §6). When the token goes, `connected` is false at once.
+
 ## 3. Back up and restore
 
 Everything the broker owns is under `data_dir`. What cannot be regenerated:

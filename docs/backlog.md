@@ -245,11 +245,38 @@ long, in 13 of 66 runs, and in none of 12 with the debounce set to 1000 ms
 (the computations then merge); the test failed 7 of 78 there, 0 of 48 with
 the change below (5 of them waited for the gap). A watch of 20 s after the gap saw no later loss, so it is not a second rebuild. macOS
 did not show it in 48 runs. The test now starts once a query to edge (on a key
-outside the measured ones) answers. Open: the same gap reaches a live list of
-`wy/<d>/downstream` from above (`wyrm-client` `on_child_liveliness`): when a
-link's token comes back with its broker, the list reads that link's `~meta`
-at once and can get the empty default. `connected` also turns true up to that
-gap early.
+outside the measured ones) answers. Open then: the same gap reaches a live
+list of `wy/<d>/downstream` from above (`wyrm-client` `on_child_liveliness`):
+when a link's token comes back with its broker, the list reads that link's
+`~meta` at once and can get the empty default. `connected` also turns true up
+to that gap early.
+
+**Done (2026-11-15):** decided (ADR 0029) and built:
+- A read under a link (`wy/<site>/downstream/<link>/…`) that has no reply
+  while the link's token is there is sent again after a pause of 25 ms,
+  doubled up to 200 ms, until it has an answer, the token is gone
+  (`disconnected`), or the timeout is spent (`read_through_gap`). The token
+  proves that the responder exists, so a no-reply right after it is the gap.
+  Other keys keep two tries: a key that no queryable serves fails at once.
+- Zenoh's own `"Timeout"` error reply (a query that timed out) is now no
+  reply (`timeout` or `disconnected`, spec 05), not `internal_error`.
+- A list of the links root lists a link only with the meta the link
+  answered. A link that keeps silent through a whole read is left out and
+  read again (1 s, doubled up to 30 s) until it answers or its token goes;
+  a link that refuses the read is listed with an empty meta
+  (`docs/links.md`, "A link that has just appeared").
+- `downstream/<d>/connected` and `upstream/<u>/connected` mean that queries
+  reach the peer: the token is there and a probe of the peer's
+  `sys/signing_keys` has an answer (`wyrm_admin::peers::follow`).
+Tests: `crates/wyrm-client/tests/route_gap.rs` (a fake link that drops or
+holds its first queries; all four fail on the old code),
+`wyrm-client` `gap_tests` and `wyrm-admin` `peers::tests` on paused time,
+e2e `a_live_list_from_above_never_lists_an_empty_link`. Other places that
+see a token before a route: the process link `hello` and the standby's polls
+retry anyway; `follow_signers` loses one 10 s round; the flow `liveliness`
+source and `live_tokens` (`*_connected` counts) report tokens, not routes;
+reads of a peer's own sections (`wy/<d>/sys`, `storage`, `dataflows`) have
+no link token, so they keep two tries and can still fail once in the gap.
 
 ## 7. Config values cannot be changed in Metrics
 
