@@ -276,6 +276,9 @@ class FakeSession implements WyrmSession {
   /// The users `/api/users` answers, by name.
   final userTable = <String, GatewayUser>{};
 
+  /// The password each user was given last, as it was sent.
+  final passwords = <String, String>{};
+
   @override
   Future<List<GatewayUser>> users() async => userTable.values.toList();
 
@@ -288,6 +291,7 @@ class FakeSession implements WyrmSession {
     api.calls.add(Call('add_user', name));
     api.guard('user:$name');
     userTable[name] = GatewayUser(name, roles);
+    passwords[name] = password;
   }
 
   @override
@@ -298,7 +302,8 @@ class FakeSession implements WyrmSession {
       userTable[name] = GatewayUser(name, roles);
 
   @override
-  Future<void> setUserPassword(String name, String password) async {}
+  Future<void> setUserPassword(String name, String password) async =>
+      passwords[name] = password;
 
   @override
   Future<void> setUserDisabled(String name, {required bool disabled}) async =>

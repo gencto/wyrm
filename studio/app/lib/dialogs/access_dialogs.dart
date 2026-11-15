@@ -38,6 +38,13 @@ enum AccessField {
     _ => '',
   };
 
+  /// The secret the form gave for this field, exactly as typed (a
+  /// password's spaces are part of it).
+  String secretIn(Map<String, Object?> values) => switch (values[id]) {
+    final String s => s,
+    _ => '',
+  };
+
   /// The roles the form gave for this field: its text split at commas.
   List<String> rolesIn(Map<String, Object?> values) => [
     for (final s in textIn(values).split(','))
@@ -53,14 +60,22 @@ class _Sel with Selectors {
   final AppState state;
 }
 
+/// A password the form refuses before it is sent: empty or only spaces.
+FieldRefusal? _blankPassword(Map<String, Object?> v) =>
+    AccessField.password.secretIn(v).trim().isEmpty
+    ? FieldRefusal(S.current.passwordBlank, field: AccessField.password.id)
+    : null;
+
 /// A form of Access in a panel: its [fields], submitted as the one action
-/// [make] builds of what was typed. The gateway names the user `user`.
+/// [make] builds of what was typed, unless [refuse] says what is wrong
+/// with it first. The gateway names the user `user`.
 Future<void> _form(
   BuildContext context,
   String title,
   List<ParamFieldVm> fields,
-  ReduxAction<AppState> Function(Map<String, Object?> values) make,
-) {
+  ReduxAction<AppState> Function(Map<String, Object?> values) make, {
+  FieldRefusal? Function(Map<String, Object?> values)? refuse,
+}) {
   final store = AppStore.of(context);
   return showDialog<void>(
     context: context,
@@ -70,15 +85,17 @@ Future<void> _form(
       child: ActionForm(
         fields: fields,
         submit: title,
-        onSubmit: (v) => sendForm(
-          store.dispatchAndWait(make(v)),
-          fields: {'user': AccessField.name.id},
-          onOk: () {
-            if (dialog.mounted) {
-              Navigator.of(dialog).pop();
-            }
-          },
-        ),
+        onSubmit: (v) =>
+            refuse?.call(v) ??
+            sendForm(
+              store.dispatchAndWait(make(v)),
+              fields: {'user': AccessField.name.id},
+              onOk: () {
+                if (dialog.mounted) {
+                  Navigator.of(dialog).pop();
+                }
+              },
+            ),
       ),
     ),
   );
@@ -120,10 +137,11 @@ Future<void> addUser(BuildContext context) {
     ],
     (v) => SaveUserAction(
       AccessField.name.textIn(v),
-      password: AccessField.password.textIn(v),
+      password: AccessField.password.secretIn(v),
       roles: AccessField.roles.rolesIn(v),
       isNew: true,
     ),
+    refuse: _blankPassword,
   );
 }
 
@@ -216,8 +234,9 @@ Future<void> _change(
         [_secret(AccessField.password)],
         (v) => SaveUserAction(
           u.name,
-          password: AccessField.password.textIn(v),
+          password: AccessField.password.secretIn(v),
         ),
+        refuse: _blankPassword,
       );
     case UserChange.disabled:
       await store.dispatchAndWait(

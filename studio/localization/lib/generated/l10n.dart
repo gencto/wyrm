@@ -17263,6 +17263,16 @@ class S {
   String get historyRange30d {
     return Intl.message('30 d', name: 'historyRange30d', desc: '', args: []);
   }
+
+  /// `A password cannot be empty or only spaces.`
+  String get passwordBlank {
+    return Intl.message(
+      'A password cannot be empty or only spaces.',
+      name: 'passwordBlank',
+      desc: '',
+      args: [],
+    );
+  }
 }
 
 class AppLocalizationDelegate extends LocalizationsDelegate<S> {

@@ -2841,6 +2841,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "passed": MessageLookupByLibrary.simpleMessage("пройшов"),
     "password": MessageLookupByLibrary.simpleMessage("Пароль"),
+    "passwordBlank": MessageLookupByLibrary.simpleMessage(
+      "Пароль не може бути порожнім або лише з пробілів.",
+    ),
     "pickAPoint": MessageLookupByLibrary.simpleMessage(
       "Виберіть точку в таблиці, щоб побачити її історію.",
     ),

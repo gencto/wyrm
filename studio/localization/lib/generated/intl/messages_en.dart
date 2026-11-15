@@ -2801,6 +2801,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "passed": MessageLookupByLibrary.simpleMessage("passed"),
     "password": MessageLookupByLibrary.simpleMessage("Password"),
+    "passwordBlank": MessageLookupByLibrary.simpleMessage(
+      "A password cannot be empty or only spaces.",
+    ),
     "pickAPoint": MessageLookupByLibrary.simpleMessage(
       "Select a point in the table to see its history.",
     ),

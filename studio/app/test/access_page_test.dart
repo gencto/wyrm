@@ -137,10 +137,12 @@ void main() {
     await tap(t, app, onPage('Add a user'));
     words.check('add user dialog', app.words(t, find.byType(Dialog)));
     await type(t, 0, 'petro');
-    await type(t, 1, 'pw-1');
+    await type(t, 1, ' pw 1 ');
     await type(t, 2, 'viewer, operator');
     await tap(t, app, inDialog.last);
     expect(app.session.userTable['petro']?.roles, ['viewer', 'operator']);
+    // a password is sent as typed, its spaces too
+    expect(app.session.passwords['petro'], ' pw 1 ');
     expect(find.byType(Dialog), findsNothing);
     expect(onPage('petro'), findsOneWidget);
     await app.leave(t);
@@ -159,9 +161,22 @@ void main() {
 
     await tap(t, app, onPage('Set password'));
     words.check('password dialog', app.words(t, find.byType(Dialog)));
-    await type(t, 0, 'new-pw');
+    // only spaces: refused in the form, nothing sent
+    await type(t, 0, '   ');
+    await tap(t, app, inDialog.last);
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.text('A password cannot be empty or only spaces.'),
+      ),
+      findsOneWidget,
+    );
+    expect(app.session.passwords.containsKey('ivan'), isFalse);
+    await type(t, 0, ' new pw ');
     await tap(t, app, inDialog.last);
     expect(find.byType(Dialog), findsNothing);
+    expect(app.session.passwords['ivan'], ' new pw ');
 
     // (the fake gateway's roles call keeps no `disabled`)
     expect(app.session.userTable['ivan']?.disabled, isFalse);
