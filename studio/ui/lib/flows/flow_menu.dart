@@ -6,6 +6,8 @@ import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'shortcut_card.dart';
 
@@ -109,7 +111,7 @@ class FlowMenu extends StatefulWidget {
   /// ⌘ glyphs or `Ctrl+`; null: this machine's.
   final bool? mac;
 
-  static const width = 260.0;
+  static const double width = AppSizes.flowMenu;
 
   /// Shows the menu at [at] (global) and returns the command picked.
   static Future<FlowCommand?> show(
@@ -172,7 +174,7 @@ class _FlowMenuState extends State<FlowMenu> {
       child: SizedBox(
         width: FlowMenu.width,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: Insets.flowMenu,
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -202,11 +204,11 @@ class _FlowMenuState extends State<FlowMenu> {
                 }
               },
         child: Container(
-          height: 34,
+          height: AppSizes.flowMenuItem,
           color: isFields && _fields ? c.ground4 : null,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: Insets.flowMenuItem,
           child: Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Expanded(
                 child: Text(
@@ -224,14 +226,18 @@ class _FlowMenuState extends State<FlowMenu> {
                 ),
               ),
               if (isFields)
-                AppIcon('ui_chevron_right', size: 14, color: c.text3)
+                AppIcon(
+                  'ui_chevron_right',
+                  size: AppSizes.flowMenuChevron,
+                  color: c.text3,
+                )
               else if (hint.isNotEmpty)
                 Row(
                   mainAxisSize: .min,
-                  spacing: 1,
+                  spacing: AppSpacing.flowKeyGlyphs,
                   children: [
                     for (final t in KeyGlyph.tokens(hint))
-                      KeyGlyph(t, color: c.text4, size: 12),
+                      KeyGlyph(t, color: c.text4, size: FontSizes.sm),
                   ],
                 ),
             ],
@@ -242,7 +248,8 @@ class _FlowMenuState extends State<FlowMenu> {
         mainAxisSize: .min,
         crossAxisAlignment: .stretch,
         children: [
-          if (i.divider) Divider(height: 9, color: c.line1),
+          if (i.divider)
+            Divider(height: AppSizes.flowMenuDivider, color: c.line1),
           if (enabled) row else Tooltip(message: reason, child: row),
         ],
       );
@@ -259,14 +266,14 @@ class _FlowMenuState extends State<FlowMenu> {
                 widget.onPin(f.id, on: !on);
               },
         child: Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          height: AppSizes.flowMenuField,
+          padding: Insets.flowMenuField,
           child: Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Container(
-                width: 16,
-                height: 16,
+                width: AppSizes.flowMenuTick,
+                height: AppSizes.flowMenuTick,
                 alignment: .center,
                 decoration: BoxDecoration(
                   color: on ? (locked ? c.ground4 : c.emberTint) : null,
@@ -278,7 +285,7 @@ class _FlowMenuState extends State<FlowMenu> {
                 child: on
                     ? AppIcon(
                         'ui_check',
-                        size: 12,
+                        size: AppSizes.flowMenuTickIcon,
                         color: locked ? c.text4 : c.emberSoft,
                       )
                     : null,
@@ -309,18 +316,13 @@ class _FlowMenuState extends State<FlowMenu> {
     return Row(
       mainAxisSize: .min,
       crossAxisAlignment: .start,
-      spacing: 4,
+      spacing: AppSpacing.xs,
       children: [
         panel([
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              14,
-              6,
-              14,
-              6,
-            ),
+            padding: Insets.flowMenuTitle,
             child: Row(
-              spacing: 8,
+              spacing: AppSpacing.sm,
               children: [
                 Flexible(
                   flex: 3,
@@ -347,15 +349,10 @@ class _FlowMenuState extends State<FlowMenu> {
         ]),
         if (_fields && vm.fields.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(top: 40),
+            padding: Insets.flowMenuFields,
             child: panel([
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  12,
-                  6,
-                  12,
-                  6,
-                ),
+                padding: Insets.flowMenuFieldsTitle,
                 child: Text(
                   S.current.fmFieldsTitle.toUpperCase(),
                   style: TextStyle(

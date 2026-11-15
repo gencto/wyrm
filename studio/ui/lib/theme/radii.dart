@@ -32,6 +32,15 @@ abstract final class AppRadii {
 
   /// A status pill.
   static const double pill = 999;
+
+  /// The top of a flow block's header, inside the block's border.
+  static const double flowBlockHeader = 7;
+
+  /// A command input of a flow block, drawn as a button.
+  static const double flowCommand = 5;
+
+  /// The marquee that selects flow blocks.
+  static const double flowMarquee = 2;
 }
 
 /// The same tokens as ready `BorderRadius`, so a widget does not restate
@@ -48,4 +57,13 @@ abstract final class Radii {
   static const panel = BorderRadius.all(Radius.circular(AppRadii.panel));
   static const dialog = BorderRadius.all(Radius.circular(AppRadii.dialog));
   static const pill = BorderRadius.all(Radius.circular(AppRadii.pill));
+  static const flowBlockHeader = BorderRadius.vertical(
+    top: Radius.circular(AppRadii.flowBlockHeader),
+  );
+  static const flowCommand = BorderRadius.all(
+    Radius.circular(AppRadii.flowCommand),
+  );
+  static const flowMarquee = BorderRadius.all(
+    Radius.circular(AppRadii.flowMarquee),
+  );
 }

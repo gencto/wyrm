@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -192,7 +193,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       bool code = true,
       Key? key,
     }) => Container(
-      height: 34,
+      height: AppSizes.flowField,
       padding: Insets.control,
       alignment: .centerLeft,
       decoration: BoxDecoration(
@@ -204,7 +205,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
         key: key,
         controller: controller,
         style: code
-            ? mono(size: 12, color: c.text1)
+            ? mono(size: FontSizes.sm, color: c.text1)
             : TextStyle(fontSize: FontSizes.md, color: c.text1),
         decoration:
             InputDecoration.collapsed(
@@ -224,7 +225,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       List<TextEditingController>? defaults,
     }) => Column(
       crossAxisAlignment: .stretch,
-      spacing: 6,
+      spacing: AppSpacing.flowLines,
       children: [
         label(title),
         if (list.isEmpty)
@@ -234,7 +235,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
           ),
         for (final (i, p) in list.indexed)
           Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Expanded(flex: 5, child: field(names[i])),
               if (defaults != null)
@@ -248,7 +249,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                   p.detail,
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: mono(size: 11, color: c.text4),
+                  style: mono(size: FontSizes.xs, color: c.text4),
                 ),
               ),
             ],
@@ -262,17 +263,20 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
         side: BorderSide(color: c.line2),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 640),
+        constraints: const BoxConstraints(
+          maxWidth: AppSizes.flowBlockDialogWidth,
+          maxHeight: AppSizes.flowBlockDialogMaxHeight,
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.flowDialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
-            spacing: 14,
+            spacing: AppSpacing.flowDialogSections,
             children: [
               Column(
                 crossAxisAlignment: .start,
-                spacing: 4,
+                spacing: AppSpacing.xs,
                 children: [
                   Text(
                     vm.title,
@@ -288,11 +292,11 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: .stretch,
-                    spacing: 14,
+                    spacing: AppSpacing.flowDialogSections,
                     children: [
                       Column(
                         crossAxisAlignment: .stretch,
-                        spacing: 6,
+                        spacing: AppSpacing.flowLines,
                         children: [
                           label(vm.nameLabel),
                           field(_name, key: const ValueKey('block-name')),
@@ -300,7 +304,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                       ),
                       Column(
                         crossAxisAlignment: .stretch,
-                        spacing: 6,
+                        spacing: AppSpacing.flowLines,
                         children: [
                           label(vm.descriptionLabel),
                           field(_description, code: false),
@@ -324,7 +328,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                 ),
               Row(
                 mainAxisAlignment: .end,
-                spacing: 10,
+                spacing: AppSpacing.flowDialogButtons,
                 children: [
                   Button.quiet(
                     label: vm.cancelLabel,
@@ -416,17 +420,17 @@ class _NameDialogState extends State<NameDialog> {
         side: BorderSide(color: c.line2),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
+        constraints: const BoxConstraints(maxWidth: AppSizes.flowNameDialog),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: Insets.flowDialog,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
-            spacing: 12,
+            spacing: AppSpacing.flowNameDialog,
             children: [
               Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
               Container(
-                height: 36,
+                height: AppSizes.flowNameField,
                 padding: Insets.control,
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
@@ -460,7 +464,7 @@ class _NameDialogState extends State<NameDialog> {
                 ),
               Row(
                 mainAxisAlignment: .end,
-                spacing: 10,
+                spacing: AppSpacing.flowDialogButtons,
                 children: [
                   Button.quiet(
                     label: widget.cancel,

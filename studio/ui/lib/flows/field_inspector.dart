@@ -9,7 +9,9 @@ import '../indicators/lines_text.dart';
 import '../models/value_changed.dart';
 import '../overlays/confirm_dialog.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/motion.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
@@ -327,18 +329,13 @@ class FieldInspector extends StatelessWidget {
         children: [
           ?header,
           Container(
-            padding: const EdgeInsets.fromLTRB(
-              18,
-              AppSpacing.md,
-              18,
-              12,
-            ),
+            padding: Insets.flowInspectorHead,
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
             child: Column(
               crossAxisAlignment: .start,
-              spacing: 4,
+              spacing: AppSpacing.xs,
               children: [
                 Text(
                   (s?.label ?? kindLabel).toUpperCase(),
@@ -351,7 +348,11 @@ class FieldInspector extends StatelessWidget {
                 ),
                 Text(
                   s?.title ?? title,
-                  style: mono(size: 18, weight: .w600, color: c.text1),
+                  style: mono(
+                    size: FontSizes.flowInspectorTitle,
+                    weight: .w600,
+                    color: c.text1,
+                  ),
                 ),
                 if (s == null && note.isNotEmpty)
                   Text(
@@ -363,16 +364,13 @@ class FieldInspector extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 18,
-                vertical: 10,
-              ),
+              padding: Insets.flowInspectorList,
               children: s != null
                   ? _summary(context, s)
                   : [
                       for (final (label, onTap) in links)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
+                          padding: Insets.flowInspectorLink,
                           child: Align(
                             alignment: .centerLeft,
                             child: Button.quiet(
@@ -386,10 +384,9 @@ class FieldInspector extends StatelessWidget {
                         if (r.group.isNotEmpty &&
                             (i == 0 || rows[i - 1].group != r.group))
                           Padding(
-                            padding: EdgeInsets.only(
-                              top: i == AppSpacing.none ? 2 : 14,
-                              bottom: 2,
-                            ),
+                            padding: i == 0
+                                ? Insets.flowInspectorFirstGroup
+                                : Insets.flowInspectorGroup,
                             child: Text(
                               r.group.toUpperCase(),
                               style: TextStyle(
@@ -437,18 +434,13 @@ class FieldInspector extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.fromLTRB(
-              18,
-              14,
-              18,
-              18,
-            ),
+            padding: Insets.flowInspectorFoot,
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
             ),
             child: Column(
               crossAxisAlignment: .start,
-              spacing: 6,
+              spacing: AppSpacing.flowLines,
               children: [
                 for (final f in footer)
                   Text(
@@ -472,7 +464,9 @@ class FieldInspector extends StatelessWidget {
     return [
       for (final (k, v) in s.facts)
         Container(
-          constraints: const BoxConstraints(minHeight: 36),
+          constraints: const BoxConstraints(
+            minHeight: AppSizes.flowInspectorFact,
+          ),
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: c.ground3)),
@@ -481,7 +475,7 @@ class FieldInspector extends StatelessWidget {
             crossAxisAlignment: .start,
             children: [
               SizedBox(
-                width: 104,
+                width: AppSizes.flowInspectorLabel,
                 child: Text(
                   k,
                   style: TextStyle(fontSize: FontSizes.md, color: c.text4),
@@ -507,7 +501,7 @@ class FieldInspector extends StatelessWidget {
             color: c.text4,
           ),
         ),
-        const SizedBox(height: 6),
+        Gaps.flowInspectorLabel,
         for (final p in s.problems)
           InkWell(
             onTap: p.block == null ? null : () => onProblem(p.block!),
@@ -515,16 +509,16 @@ class FieldInspector extends StatelessWidget {
               Radius.circular(AppRadii.segment),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
+              padding: Insets.flowInspectorProblem,
               child: Row(
                 crossAxisAlignment: .start,
-                spacing: 8,
+                spacing: AppSpacing.sm,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: Insets.flowInspectorProblemDot,
                     child: Container(
-                      width: 6,
-                      height: 6,
+                      width: AppSizes.flowDot,
+                      height: AppSizes.flowDot,
                       decoration: BoxDecoration(
                         shape: .circle,
                         color: c.bad,
@@ -612,13 +606,13 @@ class _Row extends StatelessWidget {
       children: [
         if (hasPin)
           SizedBox(
-            width: 18,
-            height: 32,
+            width: AppSizes.flowInspectorPin,
+            height: AppSizes.flowControl,
             child: Tooltip(
               message: vm.pinLocked
                   ? pinLockedLabel
                   : (pinned ? unpinLabel : pinLabel),
-              waitDuration: const Duration(milliseconds: 400),
+              waitDuration: Motion.flowPinTipWait,
               child: InkWell(
                 key: ValueKey('pin-${vm.id}'),
                 borderRadius: const BorderRadius.all(
@@ -629,7 +623,7 @@ class _Row extends StatelessWidget {
                   alignment: .centerLeft,
                   child: AppIcon(
                     'ui_pin',
-                    size: 14,
+                    size: AppSizes.flowPinIcon,
                     color: !pinned
                         ? c.muted
                         : (vm.pinLocked ? c.good : c.emberSoft),
@@ -639,7 +633,9 @@ class _Row extends StatelessWidget {
             ),
           ),
         SizedBox(
-          width: hasPin ? 86 : 104,
+          width: hasPin
+              ? AppSizes.flowInspectorPinnedLabel
+              : AppSizes.flowInspectorLabel,
           child: Tooltip(
             message: vm.hint,
             child: Column(
@@ -657,7 +653,7 @@ class _Row extends StatelessWidget {
                     vm.engine,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: mono(size: 10, color: c.text4),
+                    style: mono(size: FontSizes.flowDetail, color: c.text4),
                   ),
               ],
             ),
@@ -673,7 +669,7 @@ class _Row extends StatelessWidget {
                   mainAxisSize: .min,
                   crossAxisAlignment: .start,
                   children: [
-                    const SizedBox(height: 6),
+                    Gaps.flowInspectorEditorTop,
                     _editor(context),
                     Padding(
                       padding: const EdgeInsets.symmetric(
@@ -687,13 +683,17 @@ class _Row extends StatelessWidget {
                   ],
                 ),
         ),
-        const SizedBox(width: 6),
+        Gaps.hFlowInspectorButtons,
         SizedBox(
-          width: 28,
-          height: 32,
+          width: AppSizes.flowInspectorButton,
+          height: AppSizes.flowControl,
           child: bound
               ? _LinkMenu(
-                  icon: AppIcon('ui_bind', size: 16, color: c.emberSoft),
+                  icon: AppIcon(
+                    'ui_bind',
+                    size: AppSizes.flowInspectorIcon,
+                    color: c.emberSoft,
+                  ),
                   items: [
                     if (vm.sourceBlock case final from?
                         when onGoToSource != null)
@@ -706,26 +706,34 @@ class _Row extends StatelessWidget {
                   child: Opacity(
                     opacity: takes ? 1 : 0.35,
                     child: Center(
-                      child: AppIcon('ui_bind', size: 16, color: c.text4),
+                      child: AppIcon(
+                        'ui_bind',
+                        size: AppSizes.flowInspectorIcon,
+                        color: c.text4,
+                      ),
                     ),
                   ),
                 ),
         ),
         if (onView case final view?)
           SizedBox(
-            width: 28,
-            height: 32,
+            width: AppSizes.flowInspectorButton,
+            height: AppSizes.flowControl,
             child: IconButton(
               tooltip: viewLabel,
               padding: EdgeInsets.zero,
               onPressed: () => view(vm.id),
-              icon: AppIcon('ui_view', size: 16, color: c.text3),
+              icon: AppIcon(
+                'ui_view',
+                size: AppSizes.flowInspectorIcon,
+                color: c.text3,
+              ),
             ),
           ),
       ],
     );
     Widget row(bool lit) => Container(
-      constraints: const BoxConstraints(minHeight: 44),
+      constraints: const BoxConstraints(minHeight: AppSizes.flowInspectorRow),
       decoration: BoxDecoration(
         color: lit ? c.ember.withValues(alpha: 0.12) : null,
         border: Border(bottom: BorderSide(color: c.ground3)),
@@ -736,12 +744,7 @@ class _Row extends StatelessWidget {
               children: [
                 head(),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.none,
-                    AppSpacing.none,
-                    6,
-                    AppSpacing.sm,
-                  ),
+                  padding: Insets.flowInspectorWideEditor,
                   child: _editor(context),
                 ),
               ],
@@ -775,7 +778,7 @@ class _Row extends StatelessWidget {
         // A bound field: the value that comes in, read only, in the
         // accent colour in a frame; the wire on the canvas shows its source.
         return Container(
-          height: 32,
+          height: AppSizes.flowControl,
           padding: Insets.control,
           decoration: BoxDecoration(
             color: c.ground3,
@@ -785,13 +788,13 @@ class _Row extends StatelessWidget {
             ),
           ),
           child: Row(
-            spacing: 8,
+            spacing: AppSpacing.sm,
             children: [
               Expanded(
                 child: LinesText(
                   vm.value.isEmpty ? '—' : vm.value,
                   onOpen: open,
-                  style: mono(size: 12, color: c.emberNew),
+                  style: mono(size: FontSizes.sm, color: c.emberNew),
                 ),
               ),
               // A value of several lines needs the room for its first
@@ -800,7 +803,7 @@ class _Row extends StatelessWidget {
                 Text(
                   boundLabel,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: FontSizes.flowDetail,
                     color: vm.writes ? c.emberSoft : c.good,
                   ),
                 ),
@@ -809,7 +812,7 @@ class _Row extends StatelessWidget {
         );
       case FieldEditorVm.choice:
         return Container(
-          height: 32,
+          height: AppSizes.flowControl,
           decoration: box,
           padding: Insets.control,
           child: DropdownButtonHideUnderline(
@@ -818,8 +821,12 @@ class _Row extends StatelessWidget {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon('ui_chevron_down', size: 16, color: c.text4),
-              style: mono(size: 12, color: c.text1),
+              icon: AppIcon(
+                'ui_chevron_down',
+                size: AppSizes.flowChoiceChevron,
+                color: c.text4,
+              ),
+              style: mono(size: FontSizes.sm, color: c.text1),
               items: [
                 for (final ch in vm.choices)
                   DropdownMenuItem(
@@ -835,7 +842,7 @@ class _Row extends StatelessWidget {
         return Align(
           alignment: .centerLeft,
           child: SizedBox(
-            height: 32,
+            height: AppSizes.flowControl,
             child: FittedBox(
               child: Switch(
                 key: ValueKey('toggle-${vm.id}'),
@@ -872,12 +879,9 @@ class _Row extends StatelessWidget {
         // The value, and under it where it goes: each has the whole cell,
         // so a time or an error's text is not cut by `not bound`.
         return ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 32),
+          constraints: const BoxConstraints(minHeight: AppSizes.flowControl),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: AppSpacing.xs,
-            ),
+            padding: Insets.flowInspectorOutput,
             child: Column(
               mainAxisAlignment: .center,
               crossAxisAlignment: .start,
@@ -886,14 +890,14 @@ class _Row extends StatelessWidget {
                   LinesText(
                     vm.value,
                     onOpen: open,
-                    style: mono(size: 12, color: c.text1),
+                    style: mono(size: FontSizes.sm, color: c.text1),
                   ),
                 if (vm.targets.isNotEmpty)
                   Text(
                     vm.targets,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: mono(size: 10, color: c.text4),
+                    style: mono(size: FontSizes.flowDetail, color: c.text4),
                   ),
               ],
             ),
@@ -902,13 +906,13 @@ class _Row extends StatelessWidget {
       case FieldEditorVm.run:
         // Off, it says why under the button, not only in its tooltip.
         return Padding(
-          padding: EdgeInsets.symmetric(
-            vertical: vm.disabledReason == null ? AppSpacing.none : 6,
-          ),
+          padding: vm.disabledReason == null
+              ? EdgeInsets.zero
+              : Insets.flowInspectorRunWhy,
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .start,
-            spacing: 4,
+            spacing: AppSpacing.xs,
             children: [
               Button.secondary(
                 key: ValueKey('run-${vm.id}'),
@@ -967,7 +971,7 @@ class _Row extends StatelessWidget {
         );
       case FieldEditorVm.sample:
         return SizedBox(
-          height: 32,
+          height: AppSizes.flowControl,
           child: Padding(
             padding: Insets.control,
             child: Align(
@@ -975,7 +979,7 @@ class _Row extends StatelessWidget {
               child: LinesText(
                 vm.value,
                 onOpen: open,
-                style: mono(size: 12, color: c.text3),
+                style: mono(size: FontSizes.sm, color: c.text3),
               ),
             ),
           ),
@@ -1038,7 +1042,7 @@ class _DurationEditorState extends State<_DurationEditor> {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Row(
-      spacing: 6,
+      spacing: AppSpacing.flowRowParts,
       children: [
         Expanded(
           child: _TextEditor(
@@ -1048,8 +1052,8 @@ class _DurationEditorState extends State<_DurationEditor> {
           ),
         ),
         Container(
-          height: 32,
-          width: 64,
+          height: AppSizes.flowControl,
+          width: AppSizes.flowUnitBox,
           decoration: widget.decoration,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: DropdownButtonHideUnderline(
@@ -1058,8 +1062,12 @@ class _DurationEditorState extends State<_DurationEditor> {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon('ui_chevron_down', size: 14, color: c.text4),
-              style: mono(size: 12, color: c.text1),
+              icon: AppIcon(
+                'ui_chevron_down',
+                size: AppSizes.flowDropChevron,
+                color: c.text4,
+              ),
+              style: mono(size: FontSizes.sm, color: c.text1),
               items: [
                 for (final u in _units.keys)
                   DropdownMenuItem(value: u, child: Text(u)),
@@ -1123,13 +1131,12 @@ class _TextEditorState extends State<_TextEditor> {
     // lines here: a one-line field would drop them at the next key.
     final lines = _controller.text.contains('\n');
     return Container(
-      height: lines ? null : 32,
-      constraints: lines ? const BoxConstraints(minHeight: 32) : null,
+      height: lines ? null : AppSizes.flowControl,
+      constraints: lines
+          ? const BoxConstraints(minHeight: AppSizes.flowControl)
+          : null,
       decoration: widget.decoration,
-      padding: EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: lines ? 6 : AppSpacing.none,
-      ),
+      padding: lines ? Insets.flowTextEditorLines : Insets.control,
       alignment: .centerLeft,
       child: TextField(
         key: lines ? const ValueKey('text-editor-lines') : null,
@@ -1144,7 +1151,7 @@ class _TextEditorState extends State<_TextEditor> {
             setState(() {});
           }
         },
-        style: mono(size: 12, color: c.text1),
+        style: mono(size: FontSizes.sm, color: c.text1),
         decoration:
             const InputDecoration.collapsed(
               hintText: '',
@@ -1179,7 +1186,7 @@ class _LinkMenu extends StatelessWidget {
         for (final (i, (label, _)) in items.indexed)
           PopupMenuItem(
             value: i,
-            height: 36,
+            height: AppSizes.flowLinkMenuItem,
             child: Text(
               label,
               style: TextStyle(fontSize: FontSizes.md, color: c.text1),

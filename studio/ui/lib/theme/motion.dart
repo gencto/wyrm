@@ -43,6 +43,21 @@ abstract final class Motion {
 
   /// §5 the form fading out before the welcome.
   static const fadeOut = Duration(milliseconds: 200);
+
+  // The flow editor (studio/docs/design/specs/flow-editor.md).
+
+  /// Before the tooltip of a palette entry or a canvas tool shows.
+  static const flowTipWait = Duration(milliseconds: 500);
+
+  /// Before a flow block field's engine name shows as its tooltip.
+  static const flowFieldTipWait = Duration(milliseconds: 600);
+
+  /// Before the tooltip of an inspector field's pin shows.
+  static const flowPinTipWait = Duration(milliseconds: 400);
+
+  /// The longest time between the two clicks of a double click on a
+  /// block's row.
+  static const flowDoubleClick = Duration(milliseconds: 400);
 }
 
 /// The system asks for less motion: every loop stops at its rest frame.

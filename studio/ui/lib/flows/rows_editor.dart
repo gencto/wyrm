@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -142,7 +143,7 @@ class _RowsEditorState extends State<RowsEditor> {
       final v = _rows[row][col.key] ?? '';
       if (col.choices.isNotEmpty) {
         return Container(
-          height: 32,
+          height: AppSizes.flowControl,
           decoration: widget.decoration,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: DropdownButtonHideUnderline(
@@ -152,8 +153,12 @@ class _RowsEditorState extends State<RowsEditor> {
               isExpanded: true,
               isDense: true,
               dropdownColor: c.ground3,
-              icon: AppIcon('ui_chevron_down', size: 14, color: c.text4),
-              style: mono(size: 12, color: c.text1),
+              icon: AppIcon(
+                'ui_chevron_down',
+                size: AppSizes.flowDropChevron,
+                color: c.text4,
+              ),
+              style: mono(size: FontSizes.sm, color: c.text1),
               items: [
                 for (final ch in col.choices)
                   DropdownMenuItem(
@@ -171,7 +176,7 @@ class _RowsEditorState extends State<RowsEditor> {
         () => TextEditingController(text: v),
       );
       return Container(
-        height: 32,
+        height: AppSizes.flowControl,
         decoration: widget.decoration,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
         alignment: .centerLeft,
@@ -181,7 +186,7 @@ class _RowsEditorState extends State<RowsEditor> {
           onChanged: (x) => _set(row, col.key, x),
           autocorrect: false,
           enableSuggestions: false,
-          style: mono(size: 12, color: c.text1),
+          style: mono(size: FontSizes.sm, color: c.text1),
           decoration: const InputDecoration.collapsed(hintText: '').copyWith(
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
@@ -195,7 +200,7 @@ class _RowsEditorState extends State<RowsEditor> {
       node: _focus,
       child: Column(
         crossAxisAlignment: .stretch,
-        spacing: 6,
+        spacing: AppSpacing.flowLines,
         children: [
           if (_rows.isEmpty)
             Text(
@@ -204,7 +209,7 @@ class _RowsEditorState extends State<RowsEditor> {
             )
           else
             Row(
-              spacing: 6,
+              spacing: AppSpacing.flowRowParts,
               children: [
                 for (final col in cols)
                   Expanded(
@@ -220,12 +225,12 @@ class _RowsEditorState extends State<RowsEditor> {
             ),
           for (var r = 0; r < _rows.length; r++)
             Row(
-              spacing: 6,
+              spacing: AppSpacing.flowRowParts,
               children: [
                 for (final col in cols) Expanded(child: cell(r, col)),
                 SizedBox(
-                  width: 24,
-                  height: 32,
+                  width: AppSizes.flowRowsRemove,
+                  height: AppSizes.flowControl,
                   child: Tooltip(
                     message: widget.vm.removeLabel,
                     child: InkWell(
@@ -235,7 +240,11 @@ class _RowsEditorState extends State<RowsEditor> {
                       ),
                       onTap: () => _remove(r),
                       child: Center(
-                        child: AppIcon('ui_close', size: 14, color: c.text4),
+                        child: AppIcon(
+                          'ui_close',
+                          size: AppSizes.flowRowsRemoveIcon,
+                          color: c.text4,
+                        ),
                       ),
                     ),
                   ),
