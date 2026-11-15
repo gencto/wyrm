@@ -1,6 +1,15 @@
 //! The scheduler app through `SimHost`: tree, schedules and events, the store, the wake heap,
 //! the clock watchdog and the bounds (ADR 0022, plan Task 3).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 mod common;
 
 use common::*;

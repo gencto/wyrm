@@ -37,3 +37,6 @@ wit-component.workspace = true
 [dev-dependencies]
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 zip.workspace = true
+
+[lints]
+workspace = true

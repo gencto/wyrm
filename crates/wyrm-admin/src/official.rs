@@ -13,6 +13,12 @@ use wyrm_link_sdk::official::{self, Official};
 pub const EMBEDDED: &str = include_str!("../../../links/official.json");
 
 /// The manifest this broker was built with.
+#[allow(
+    clippy::expect_used,
+    reason = "build-time data (`include_str!` of links/official.json): the unit test \
+              `the_embedded_manifest_is_valid` calls this very function, so a file that \
+              does not parse fails CI before it ships"
+)]
 pub fn embedded() -> &'static Official {
     static CELL: std::sync::OnceLock<Official> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {

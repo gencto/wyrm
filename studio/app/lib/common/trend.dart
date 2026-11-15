@@ -2,37 +2,15 @@ import 'package:business/wyrm/history_steps.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 import 'package:models/hist_point.dart';
-import 'package:models/hist_window.dart';
 import 'package:ui/charts/trend.dart';
+
+// Moved to where they belong; the connectors still find them here.
+export 'package:business/wyrm/trend_window.dart' show trendWindow;
+export 'package:ui/charts/trend_format.dart' show trendFormat;
 
 /// What the three trends of Studio (History, Explorer, System) share on the
 /// connector side (spec trend.md §5): times in the viewer's zone and
 /// language, rows as samples, and the words for what a plot draws.
-
-String _two(int n) => n.toString().padLeft(2, '0');
-
-/// Times in local time, weekday and month names from the locale's words.
-TrendFormat trendFormat() {
-  final days = S.current.trendWeekdays.split(',');
-  final months = S.current.trendMonths.split(',');
-  String wd(DateTime t) => days[(t.weekday - 1) % days.length];
-  return TrendFormat(
-    locale: '${S.current.trendWeekdays} ${DateTime.now().timeZoneOffset}',
-    clock: (t) {
-      final l = t.toLocal();
-      return '${_two(l.hour)}:${_two(l.minute)}';
-    },
-    clockSeconds: (t) {
-      final l = t.toLocal();
-      return '${_two(l.hour)}:${_two(l.minute)}:${_two(l.second)}';
-    },
-    day: (t) {
-      final l = t.toLocal();
-      return '${wd(l)} ${l.day} ${months[(l.month - 1) % months.length]}';
-    },
-    weekday: (t) => wd(t.toLocal()),
-  );
-}
 
 /// `15 min avg`, `1 h avg`, `raw`.
 String rollupText(String? step) {
@@ -98,21 +76,6 @@ int trendDecimals(Iterable<HistPoint> rows, {Object? precision}) {
     }
   }
   return 0;
-}
-
-/// The window the user chose on a trend over [rangeStart]…[rangeEnd] (µs),
-/// as the store keeps it: null for the whole range, an open end while it
-/// reaches the range's end (it follows now).
-HistWindow? trendWindow(int start, int end, int rangeStart, int rangeEnd) {
-  const slack = 1000000; // 1 s
-  final toEnd = end >= rangeEnd - slack;
-  if (start <= rangeStart + slack && toEnd) {
-    return null;
-  }
-  return HistWindow(
-    span: Duration(microseconds: end - start),
-    end: toEnd ? null : DateTime.fromMicrosecondsSinceEpoch(end, isUtc: true),
-  );
 }
 
 /// The finer rows read for [from]…[to] (µs) cover the window

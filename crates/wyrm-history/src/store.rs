@@ -95,8 +95,7 @@ pub struct ChangeLimit {
 
 /// The stored bytes of one sample: canonical CBOR `[v, q]`.
 pub fn encode_row(v: &Value, q: Quality) -> Vec<u8> {
-    // Encoding a Value into a Vec cannot fail.
-    codec::to_vec(&Value::Array(vec![v.clone(), Value::UInt(q.code().into())])).unwrap_or_default()
+    codec::value_to_vec(&Value::Array(vec![v.clone(), Value::UInt(q.code().into())]))
 }
 
 fn decode_row(t: u64, bytes: &[u8]) -> Option<Row> {

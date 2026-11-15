@@ -1,5 +1,14 @@
 //! The gdrive link against its simulator.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::{EncodePrivateKey, LineEnding};
 use std::sync::OnceLock;

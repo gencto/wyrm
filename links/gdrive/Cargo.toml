@@ -55,3 +55,6 @@ name = "gdrive"
 description = "Google Drive: a folder or shared drive as a tree, folders, uploads, downloads"
 bin = "wyrm-link-gdrive"
 features = ["process"]
+
+[lints]
+workspace = true

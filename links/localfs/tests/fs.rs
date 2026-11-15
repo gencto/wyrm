@@ -1,5 +1,14 @@
 //! The localfs link on a temporary directory.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::{Path, PathBuf};
 use wyrm_core::{Status, Value};
 use wyrm_filestore::testkit::{

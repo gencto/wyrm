@@ -55,3 +55,6 @@ name = "prometheus"
 description = "Prometheus / OpenMetrics scrape: series selectors as points (aggregates, rates, histogram quantiles)"
 bin = "wyrm-link-prometheus"
 features = ["process"]
+
+[lints]
+workspace = true

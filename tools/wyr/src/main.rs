@@ -6,11 +6,14 @@
 //! (mock link), `record`/`replay` (flows on recorded samples), `tree`,
 //! `watch` (= `sub`). See `tools/wyr/README.md`.
 
+#![allow(clippy::print_stdout, reason = "a CLI: what it prints is its result")]
+
 /// `println!` that exits quietly when stdout is closed (`wyr … | head`).
 macro_rules! out {
     ($($t:tt)*) => {{
         use std::io::Write as _;
         if writeln!(std::io::stdout(), $($t)*).is_err() {
+            #[allow(clippy::exit, reason = "a closed stdout (`wyr … | head`) ends the CLI quietly")]
             std::process::exit(0);
         }
     }};
@@ -259,12 +262,13 @@ enum Cmd {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     if let Err(e) = run(cli).await {
         eprintln!("error: {e}");
-        std::process::exit(1);
+        return std::process::ExitCode::FAILURE;
     }
+    std::process::ExitCode::SUCCESS
 }
 
 async fn run(cli: Cli) -> Result<(), Error> {
@@ -433,7 +437,13 @@ async fn run(cli: Cli) -> Result<(), Error> {
         | Cmd::Repo { .. }
         | Cmd::Replay { .. }
         | Cmd::Sim { .. } => {
-            unreachable!("handled above")
+            #[allow(
+                clippy::unreachable,
+                reason = "the first `match cli.cmd` of this function returns for each of these"
+            )]
+            {
+                unreachable!("handled above")
+            }
         }
     }
 }
@@ -619,11 +629,7 @@ fn approval_token(
     if ttl_s == 0 || ttl_s > 900 {
         return Err("ttl-s: 1..=900".into());
     }
-    let perm = wyrm_core::Perm::ALL
-        .iter()
-        .copied()
-        .find(|p| p.name() == perm)
-        .ok_or("perm: none|list|read|write|config")?;
+    let perm = wyrm_core::Perm::from_name(perm).ok_or("perm: none|list|read|write|config")?;
     let mut src = SigningTokens::new(key, site)
         .subject(subject)
         .max(perm)

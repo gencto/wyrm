@@ -1,6 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'backup_kind.dart';
+import 'backup_sealed.dart';
+import 'backup_status.dart';
+
 part 'backup_job.freezed.dart';
 
 @freezed
@@ -10,15 +14,14 @@ abstract class BackupJob with _$BackupJob {
   const factory BackupJob({
     required String id,
 
-    /// `full`, `link`, `pre-update` or `pre-restore`.
-    @Default('full') String kind,
+    @Default(BackupKind.full) BackupKind kind,
 
     /// The file name.
     @Default('') String name,
     @Default(IListConst([])) IList<String> sections,
 
-    /// How its secrets are sealed: `none`, `passphrase` or `broker`.
-    @Default('none') String sealed,
+    /// How its secrets are sealed.
+    @Default(BackupSealed.none) BackupSealed sealed,
 
     /// The link of a link backup.
     @Default('') String link,
@@ -26,8 +29,7 @@ abstract class BackupJob with _$BackupJob {
     /// Who made it.
     @Default('') String by,
 
-    /// `running`, `done` or `failed`.
-    @Default('') String status,
+    @Default(BackupStatus.unknown) BackupStatus status,
 
     /// Percent.
     @Default(0) int progress,
@@ -37,14 +39,12 @@ abstract class BackupJob with _$BackupJob {
     @Default(0) int size,
     @Default('') String sha256,
 
-    /// ISO 8601, UTC.
-    @Default('') String created,
-    @Default('') String expires,
+    DateTime? created,
+    DateTime? expires,
     @Default('') String error,
     @Default('') String sentTo,
 
-    /// `sending`, `done` or `failed`; empty when never sent.
-    @Default('') String sendStatus,
+    @Default(BackupSendStatus.none) BackupSendStatus sendStatus,
     @Default(0) int sendProgress,
     @Default('') String sendError,
   }) = _BackupJob;

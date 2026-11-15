@@ -223,7 +223,7 @@ impl KeyAlg {
 }
 
 fn array(items: Vec<Value>) -> Vec<u8> {
-    wyrm_core::codec::to_vec(&Value::Array(items)).expect("arrays always encode")
+    wyrm_core::codec::value_to_vec(&Value::Array(items))
 }
 
 /// What a device signs to log in: `["wyrm-device-login/1", site, origin, user, device,
@@ -345,6 +345,13 @@ pub(crate) enum Refused {
     NotFound,
 }
 
+impl From<crate::rng::NoRandomness> for Refused {
+    fn from(_: crate::rng::NoRandomness) -> Self {
+        // logged where it happened (`rng::fill`); the client may try again
+        Refused::Busy
+    }
+}
+
 /// What a nonce may be used for; it is part of the nonce's MAC, never stored.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Purpose {
@@ -420,23 +427,29 @@ pub(crate) struct Nonces {
     max_spent: usize,
 }
 
-impl Default for Nonces {
-    fn default() -> Self {
+impl Nonces {
+    /// A new MAC key from the OS. Without randomness the gateway does not start: a zero
+    /// key would let anyone mint valid challenges.
+    pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
         let mut key = Zeroizing::new([0u8; 32]);
-        // a failing OS RNG leaves a zero key: nonces then still expire and are single use
-        let _ = getrandom::fill(key.as_mut());
-        Self {
+        crate::rng::fill(key.as_mut())?;
+        Ok(Self {
             key,
             spent: Mutex::new(HashMap::new()),
             max_spent: MAX_SPENT,
-        }
+        })
     }
 }
 
 impl Nonces {
+    /// HMAC-SHA256 under this gateway's nonce key.
+    fn keyed(&self) -> hmac::Hmac<Sha256> {
+        wyrm_core::mac::hmac_sha256(self.key.as_ref())
+    }
+
     fn mac(&self, purpose: &Purpose, head: &[u8]) -> hmac::Hmac<Sha256> {
         use hmac::Mac;
-        let mut m = hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key");
+        let mut m = self.keyed();
         m.update(b"wyrm-device-nonce/1");
         m.update(&purpose.bytes());
         m.update(head);
@@ -447,8 +460,7 @@ impl Nonces {
     pub(crate) fn issue(&self, purpose: &Purpose, now: u64) -> Option<(Vec<u8>, u64)> {
         use hmac::Mac;
         let exp = now + CHALLENGE_TTL_S;
-        let mut n = vec![0u8; 16];
-        getrandom::fill(&mut n).ok()?;
+        let mut n = crate::rng::bytes::<16>().ok()?.to_vec();
         n.extend(exp.to_be_bytes());
         let tag = self.mac(purpose, &n).finalize().into_bytes();
         n.extend(tag);
@@ -464,14 +476,19 @@ impl Nonces {
             return Spend::Refused;
         }
         let (head, tag) = nonce.split_at(24);
-        let exp = u64::from_be_bytes(head[16..24].try_into().expect("8 bytes"));
+        let Some(exp) = head.get(16..24).and_then(|b| <[u8; 8]>::try_from(b).ok()) else {
+            return Spend::Refused;
+        };
+        let exp = u64::from_be_bytes(exp);
         if exp <= now || exp > now + CHALLENGE_TTL_S {
             return Spend::Refused;
         }
         if self.mac(purpose, head).verify_slice(tag).is_err() {
             return Spend::Refused;
         }
-        let id: [u8; 16] = head[..16].try_into().expect("16 bytes");
+        let Some(id) = head.get(..16).and_then(|b| <[u8; 16]>::try_from(b).ok()) else {
+            return Spend::Refused;
+        };
         let mut spent = self.spent.lock().unwrap_or_else(|p| p.into_inner());
         if spent.len() >= self.max_spent {
             spent.retain(|_, e| *e > now);
@@ -497,9 +514,9 @@ impl Nonces {
     /// can test a guess against it, and a new password is never in it.
     pub(crate) fn request_hash(&self, request: &Value) -> [u8; 32] {
         use hmac::Mac;
-        let mut m = hmac::Hmac::<Sha256>::new_from_slice(self.key.as_ref()).expect("any key");
+        let mut m = self.keyed();
         m.update(b"wyrm-step-up-request/1");
-        m.update(&wyrm_core::codec::to_vec(&without_secrets(request)).unwrap_or_default());
+        m.update(&wyrm_core::codec::value_to_vec(&without_secrets(request)));
         m.finalize().into_bytes().into()
     }
 }
@@ -769,7 +786,10 @@ impl Gateway {
 
     /// `POST /api/devices`: register a key of `p`'s device. The key signs a `register`
     /// challenge of this session, so it is a valid key the device holds.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the HTTP request; a struct for one call site would only rename them"
+    )]
     pub(crate) fn register_device(
         &self,
         p: &Principal,
@@ -820,7 +840,7 @@ impl Gateway {
             return Err(self.bare("(new)", Some(&p.name), ip, "bad_registration"));
         }
         let mut raw = [0u8; 16];
-        getrandom::fill(&mut raw).map_err(|_| Refused::Busy)?;
+        crate::rng::fill(&mut raw)?;
         let id = hex(&raw);
         {
             let mut store = self.store();
@@ -859,7 +879,10 @@ impl Gateway {
     /// `POST /api/device/login`. Order: limiter, nonce (spent), record, origin and
     /// signature, then the coded refusals; a good login mints the claims a password login
     /// would (same roles, same generation), with `amr: dev`.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the HTTP request; a struct for one call site would only rename them"
+    )]
     pub(crate) fn device_login(
         &self,
         device: &str,
@@ -912,7 +935,10 @@ impl Gateway {
             });
             return Err(Refused::Code(code));
         }
-        let u = user.expect("checked above");
+        // no user always has a code above ("password_changed")
+        let Some(u) = user else {
+            return Err(Refused::Code("password_changed"));
+        };
         self.limiter.succeeded(&limit_key(device), ip);
         self.store()
             .apply(Op::DeviceUsed {
@@ -938,7 +964,7 @@ impl Gateway {
             roles: u.roles,
             exp,
             iat: now,
-            jti: session::new_jti(),
+            jti: session::new_jti()?,
             gen: u.gen,
             amr: Amr::Device,
             auth_at: now,
@@ -948,7 +974,10 @@ impl Gateway {
     }
 
     /// `POST /api/device/confirm`: a step-up of `p`'s session with one of `p`'s devices.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per part of the HTTP request; a struct for one call site would only rename them"
+    )]
     pub(crate) fn confirm_device(
         &self,
         p: &Principal,
@@ -1114,7 +1143,7 @@ impl Gateway {
     }
 
     /// A password login that names its device: the device saw the password now.
-    pub(crate) fn password_seen(&self, user: &str, device: &str) {
+    pub(crate) fn password_seen(&self, user: &str, device: &str) -> crate::Result<()> {
         let mut store = self.store();
         let ok = store
             .state()
@@ -1122,11 +1151,12 @@ impl Gateway {
             .get(device)
             .is_some_and(|d| d.user == user && d.removed.is_none());
         if ok {
-            let _ = store.apply(Op::DevicePassword {
+            store.apply(Op::DevicePassword {
                 id: device.to_owned(),
                 at: session::now_s(),
-            });
+            })?;
         }
+        Ok(())
     }
 }
 
@@ -1169,7 +1199,7 @@ mod tests {
 
     #[test]
     fn nonces_are_single_use_bound_and_expire() {
-        let n = Nonces::default();
+        let n = Nonces::new().unwrap();
         let login = |d: &str| Purpose::Login { device: d.into() };
         let (a, exp) = n.issue(&login("d1"), 100).unwrap();
         assert_eq!((a.len(), exp), (NONCE_LEN, 100 + CHALLENGE_TTL_S));
@@ -1183,7 +1213,7 @@ mod tests {
         );
         // another gateway process (another key), a changed byte, a stretched expiry
         let (b, _) = n.issue(&login("d1"), 200).unwrap();
-        assert!(!Nonces::default().take_ok(&b, &login("d1"), 201));
+        assert!(!Nonces::new().unwrap().take_ok(&b, &login("d1"), 201));
         let mut t = b.clone();
         t[3] ^= 1;
         assert!(!n.take_ok(&t, &login("d1"), 201));
@@ -1223,7 +1253,7 @@ mod tests {
     fn a_full_spent_table_is_busy_and_confirms_are_bound_to_their_request() {
         let n = Nonces {
             max_spent: 1,
-            ..Nonces::default()
+            ..Nonces::new().unwrap()
         };
         let login = || Purpose::Login {
             device: "d1".into(),
@@ -1233,7 +1263,7 @@ mod tests {
         assert_eq!(n.take(&a, &login(), 101), Spend::Ok);
         assert_eq!(n.take(&b, &login(), 101), Spend::Busy);
         assert_eq!(n.take(&[0; 3], &login(), 101), Spend::Refused);
-        let n = Nonces::default();
+        let n = Nonces::new().unwrap();
         let confirm = |request: [u8; 32]| Purpose::Confirm {
             user: "root".into(),
             jti: [1; 16],
@@ -1266,7 +1296,7 @@ mod tests {
     /// leaves secret fields out and is keyed.
     #[test]
     fn request_hashes_hold_no_secret() {
-        let n = Nonces::default();
+        let n = Nonces::new().unwrap();
         let req = |pw: &str| {
             map([
                 ("method", Value::from("POST")),
@@ -1280,7 +1310,7 @@ mod tests {
         );
         assert_ne!(
             n.request_hash(&req("x")),
-            Nonces::default().request_hash(&req("x")),
+            Nonces::new().unwrap().request_hash(&req("x")),
             "keyed per gateway"
         );
         let plain: [u8; 32] = Sha256::digest(wyrm_core::codec::to_vec(&req("x")).unwrap()).into();

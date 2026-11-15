@@ -34,3 +34,6 @@ wyrm-admin.workspace = true
 ed25519-dalek.workspace = true
 zenoh = { workspace = true, features = ["transport_tcp", "transport_tls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true

@@ -46,7 +46,7 @@ impl Persist {
             );
             return None;
         };
-        let boot = Sha256::digest(wyrm_core::codec::to_vec(bootstrap).unwrap_or_default()).to_vec();
+        let boot = Sha256::digest(wyrm_core::codec::value_to_vec(bootstrap)).to_vec();
         Some(Self {
             path: dir.join(FILE),
             key: zeroize::Zeroizing::new(key),
@@ -92,7 +92,13 @@ impl Persist {
         };
         let plain = zeroize::Zeroizing::new(plain);
         let mut out = MAGIC.to_vec();
-        out.extend(seal::seal(&self.key, &plain));
+        match seal::seal(&self.key, &plain) {
+            Ok(sealed) => out.extend(sealed),
+            Err(e) => {
+                warn!(file = %self.path.display(), "connections not saved: {e}");
+                return;
+            }
+        }
         let tmp = self.path.with_extension("tmp");
         let write = || -> std::io::Result<()> {
             let mut o = std::fs::OpenOptions::new();

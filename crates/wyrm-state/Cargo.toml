@@ -9,6 +9,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+# `mac::hmac_sha256`: the WAL chain and snapshot MACs
+wyrm-core.workspace = true
 minicbor.workspace = true
 serde.workspace = true
 postcard.workspace = true
@@ -20,3 +22,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 crc32c.workspace = true
+
+[lints]
+workspace = true

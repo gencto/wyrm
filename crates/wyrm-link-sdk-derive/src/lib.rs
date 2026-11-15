@@ -220,7 +220,12 @@ fn expand_params(input: &DeriveInput) -> syn::Result<Tokens> {
     let params = quote!(::wyrm_link_sdk::driver::params);
     let (mut specs, mut reads, mut writes) = (Vec::new(), Vec::new(), Vec::new());
     for f in &fields.named {
-        let ident = f.ident.as_ref().expect("named field");
+        let Some(ident) = f.ident.as_ref() else {
+            return Err(syn::Error::new_spanned(
+                f,
+                "#[derive(Params)] needs named fields",
+            ));
+        };
         let ty = &f.ty;
         let a = field_attrs(&f.attrs)?;
         let kind = kind_of(ty, a.is_enum)?;

@@ -1,6 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:models/traffic_sample.dart';
 
+import '../../../wyrm/decode/traffic_sample.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../live/actions/unwatch_keys_action.dart';
@@ -14,7 +14,7 @@ import '../../live/actions/watch_keys_action.dart';
 /// broker has published a new one (one per metrics interval). The ring
 /// holds at most one hour; another site starts another ring.
 class SampleTrafficAction extends Action {
-  /// The rate keys under `sys`, in the order of [TrafficSample]'s fields.
+  /// The rate keys under `sys`, in the order of a traffic sample's fields.
   static const keys = [
     'messages_in_per_second',
     'messages_out_per_second',
@@ -50,33 +50,18 @@ class SampleTrafficAction extends Action {
     if (root == null) {
       return null;
     }
-    final values = [for (final k in _watch(root)) live.values[k]];
-    if (values.any((v) => v == null || v.value is! num)) {
-      return null;
-    }
-    final time = values
-        .map((v) => v!.time)
-        .reduce((a, b) => a.isAfter(b) ? a : b);
+    final sample = trafficSampleOf([
+      for (final k in _watch(root)) (k, live.values[k]),
+    ]).orWarn('traffic of $root');
     final last = system.samples.lastOrNull;
-    if (last != null && !time.isAfter(last.time)) {
+    if (sample == null || (last != null && !sample.time.isAfter(last.time))) {
       return null;
     }
-    double n(int i) => (values[i]!.value! as num).toDouble();
-    final from = time.subtract(_keep);
+    final from = sample.time.subtract(_keep);
     return state.copyWith.system(
       samples: system.samples
           .removeWhere((s) => s.time.isBefore(from))
-          .add(
-            TrafficSample(
-              time: time,
-              messagesIn: n(0),
-              messagesOut: n(1),
-              framesIn: n(2),
-              framesOut: n(3),
-              dataIn: n(4),
-              dataOut: n(5),
-            ),
-          ),
+          .add(sample),
     );
   }
 }

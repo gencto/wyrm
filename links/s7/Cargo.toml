@@ -41,3 +41,6 @@ name = "s7"
 description = "Siemens S7-300/400/1200/1500 PLCs over S7comm (ISO-on-TCP): batched Read Var, Write Var with read-back"
 bin = "wyrm-link-s7"
 features = ["process"]
+
+[lints]
+workspace = true

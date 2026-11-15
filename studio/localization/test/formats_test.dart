@@ -60,4 +60,40 @@ void main() {
     expect(Formats.age(const Duration(minutes: 5)), '5 хв тому');
     expect(Formats.shortDate(DateTime(2026, 11, 3)), '3 лис');
   });
+
+  test('count: thousands separated, rounded, signed', () {
+    expect(Formats.count(0), '0');
+    expect(Formats.count(999), '999');
+    expect(Formats.count(18402), '18,402');
+    expect(Formats.count(1234567.4), '1,234,567');
+    expect(Formats.count(-3), '-3');
+  });
+
+  test('figure: one decimal below 100 without .0, counted above', () {
+    expect(Formats.figure(3.42), '3.4');
+    expect(Formats.figure(7), '7');
+    expect(Formats.figure(99.96), '100');
+    expect(Formats.figure(412.5), '413');
+    expect(Formats.figure(1490.5), '1,491');
+  });
+
+  test('mebibyteFigure: MiB as a figure, GiB with one decimal from 1024', () {
+    expect(Formats.mebibyteFigure(842.3), (figure: '842', unit: 'MiB'));
+    expect(Formats.mebibyteFigure(42.3), (figure: '42.3', unit: 'MiB'));
+    expect(Formats.mebibyteFigure(18432), (figure: '18.0', unit: 'GiB'));
+    expect(Formats.mebibyteText(310), '310 MiB');
+  });
+
+  test('utcMinute and utcClockSeconds write UTC whatever the zone', () {
+    final t = DateTime.utc(2026, 11, 4, 21, 58, 7);
+    expect(Formats.utcMinute(t), '2026-11-04 21:58 UTC');
+    expect(Formats.utcMinute(t.toLocal()), '2026-11-04 21:58 UTC');
+    expect(Formats.utcClockSeconds(t.toLocal()), '21:58:07');
+  });
+
+  test('runFor: the two largest units', () {
+    expect(Formats.runFor(const Duration(seconds: 533000)), '6 d 4 h');
+    expect(Formats.runFor(const Duration(hours: 3, minutes: 12)), '3 h 12 min');
+    expect(Formats.runFor(const Duration(minutes: 5, seconds: 40)), '5 min');
+  });
 }

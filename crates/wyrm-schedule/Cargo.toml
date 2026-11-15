@@ -16,3 +16,6 @@ jiff = { workspace = true, features = ["std", "tzdb-bundle-always"] }
 [[bench]]
 name = "eval"
 harness = false
+
+[lints]
+workspace = true

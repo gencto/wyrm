@@ -1007,7 +1007,8 @@ fn len<T>(w: &[T]) -> u16 {
     u16::try_from(w.len()).unwrap_or(u16::MAX)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod pty_tests {
     use super::*;
     use crate::ModbusDriver;

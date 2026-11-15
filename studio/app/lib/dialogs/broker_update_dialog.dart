@@ -10,9 +10,9 @@ import 'package:business/redux/broker_update/actions/update_broker_action.dart';
 import 'package:business/redux/system/actions/set_tab_action.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/system_tab.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/task_sheet.dart';
-import 'package:ui/pages/system_page.dart';
 
 import '../common/app_store.dart';
 import '../common/broker_update_sheets.dart';
@@ -25,38 +25,27 @@ class _Sel with Selectors {
   final AppState state;
 }
 
-/// What the broker says of its own update, from the live values of `sys`
-/// (ADR 0048 §2.4): `version`, `latest`, `update_state`, `update_last`, and
-/// the attribute-like value `update_mode`.
+/// What the broker update dialog is built from: what the broker says of
+/// its own update (ADR 0048 §2.4, the selector `selfUpdate`), the dialog's
+/// own state, the gateway socket and how long it has been lost.
 BrokerUpdateData brokerUpdateIn(AppState state, {int lostSeconds = 0}) {
   final s = _Sel(state);
-  final sys = '${s.site.root}/sys';
-  Object? value(String k) => s.live.values['$sys/$k']?.value;
-  String text(String k, String or) => switch (value(k)) {
-    final String v when v.isNotEmpty => v,
-    _ => or,
-  };
+  final u = s.selfUpdate;
   return BrokerUpdateData(
     site: s.site.viewed ?? '',
-    version: text('version', ''),
-    latest: text('latest', ''),
+    version: u.version,
+    latest: u.latest,
     follow: s.brokerUpdate.stage == 'follow',
-    mode: text('update_mode', 'self'),
-    updateState: text('update_state', 'none'),
-    last: switch (value('update_last')) {
-      final Map<String, Object?> m => {
-        for (final e in m.entries)
-          if (e.value != null) e.key: '${e.value}',
-      },
-      _ => const {},
-    },
+    mode: u.mode,
+    updateState: u.state,
+    last: u.last,
     connected: s.site.connected,
     lostSeconds: lostSeconds,
     confirm: s.brokerUpdate.confirm,
     busy:
         state.wait.isWaitingForType<UpdateBrokerAction>() ||
         state.wait.isWaitingForType<RollbackBrokerUpdateAction>(),
-    reason: s.site.needs('config', sys),
+    reason: s.sysConfigReason,
   );
 }
 
@@ -136,7 +125,7 @@ class _BrokerUpdateDialogState extends State<_BrokerUpdateDialog> {
           await _store.dispatchAndWait(RollbackBrokerUpdateAction());
         }
       case .rolledBack:
-        _store.dispatchSync(SetTabAction(SystemPage.logTab));
+        _store.dispatchSync(SetTabAction(SystemTab.log));
         _close();
       case .external:
         // The navigator's own context outlives this dialog.

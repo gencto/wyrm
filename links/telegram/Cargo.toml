@@ -44,3 +44,6 @@ description = "Telegram bots (ADR 0039): templates, recipients, paired chat user
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 2, call_ms = 10000 }
+
+[lints]
+workspace = true

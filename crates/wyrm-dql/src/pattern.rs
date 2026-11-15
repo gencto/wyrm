@@ -95,22 +95,20 @@ impl Pattern {
     }
 
     fn anchored(all: Vec<Seg>) -> Self {
-        let fixed = all.iter().take_while(|s| matches!(s, Seg::Lit(_))).count();
-        let (top, mut segs) = if fixed == all.len() {
-            // no wildcard: the node's children
-            (all, vec![Seg::Star])
-        } else {
-            let rest = all[fixed..].to_vec();
-            (all[..fixed].to_vec(), rest)
-        };
-        let top = top
+        // the literal head is the top; the rest (from the first wildcard) the segments
+        let lits: Vec<&str> = all
             .iter()
-            .map(|s| match s {
-                Seg::Lit(l) => l.as_str(),
-                _ => unreachable!("top is literal"),
+            .map_while(|s| match s {
+                Seg::Lit(l) => Some(l.as_str()),
+                _ => None,
             })
-            .collect::<Vec<_>>()
-            .join("/");
+            .collect();
+        let top = lits.join("/");
+        let mut segs = match all.get(lits.len()..) {
+            // no wildcard: the node's children
+            Some([]) | None => vec![Seg::Star],
+            Some(rest) => rest.to_vec(),
+        };
         // `**/**` is `**`
         segs.dedup_by(|a, b| *a == Seg::DStar && *b == Seg::DStar);
         Self { top, segs }

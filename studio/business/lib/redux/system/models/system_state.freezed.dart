@@ -15,7 +15,8 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$SystemState {
 
- IList<LogLine> get log; String? get logLevel; String? get filter; String get tab; String get measure; String? get source; int get lines; bool get auto; bool get shown; String? get logError; IList<TrafficSample> get samples; String? get trafficRoot; IList<ProfileInfo> get profiles; String? get profilesNote; int? get aclSeen; IMap<String, String> get about; IMap<String, String> get units; String? get around; HistWindow? get trafficWindow;
+ IList<LogLine> get log;/// The Log toolbar's level (`get_log` `level`); none: the broker's.
+ LogLevel? get logLevel; String? get filter; SystemTab get tab; TrafficMeasure get measure; String? get source; int get lines; bool get auto; bool get shown; LogReadError? get logError; IList<TrafficSample> get samples; String? get trafficRoot; IList<ProfileInfo> get profiles; String? get profilesNote; int? get aclSeen; IMap<String, String> get about; IMap<String, String> get units; String? get around; HistWindow? get trafficWindow;
 /// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,11 +52,11 @@ abstract mixin class $SystemStateCopyWith<$Res>  {
   factory $SystemStateCopyWith(SystemState value, $Res Function(SystemState) _then) = _$SystemStateCopyWithImpl;
 @useResult
 $Res call({
- IList<LogLine> log, String? logLevel, String? filter, String tab, String measure, String? source, int lines, bool auto, bool shown, String? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
+ IList<LogLine> log, LogLevel? logLevel, String? filter, SystemTab tab, TrafficMeasure measure, String? source, int lines, bool auto, bool shown, LogReadError? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
 });
 
 
-$HistWindowCopyWith<$Res>? get trafficWindow;
+$LogReadErrorCopyWith<$Res>? get logError;$HistWindowCopyWith<$Res>? get trafficWindow;
 
 }
 /// @nodoc
@@ -72,15 +73,15 @@ class _$SystemStateCopyWithImpl<$Res>
   return _then(SystemState(
 log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<LogLine>,logLevel: freezed == logLevel ? _self.logLevel : logLevel // ignore: cast_nullable_to_non_nullable
-as String?,filter: freezed == filter ? _self.filter : filter // ignore: cast_nullable_to_non_nullable
+as LogLevel?,filter: freezed == filter ? _self.filter : filter // ignore: cast_nullable_to_non_nullable
 as String?,tab: null == tab ? _self.tab : tab // ignore: cast_nullable_to_non_nullable
-as String,measure: null == measure ? _self.measure : measure // ignore: cast_nullable_to_non_nullable
-as String,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
+as SystemTab,measure: null == measure ? _self.measure : measure // ignore: cast_nullable_to_non_nullable
+as TrafficMeasure,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as String?,lines: null == lines ? _self.lines : lines // ignore: cast_nullable_to_non_nullable
 as int,auto: null == auto ? _self.auto : auto // ignore: cast_nullable_to_non_nullable
 as bool,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,logError: freezed == logError ? _self.logError : logError // ignore: cast_nullable_to_non_nullable
-as String?,samples: null == samples ? _self.samples : samples // ignore: cast_nullable_to_non_nullable
+as LogReadError?,samples: null == samples ? _self.samples : samples // ignore: cast_nullable_to_non_nullable
 as IList<TrafficSample>,trafficRoot: freezed == trafficRoot ? _self.trafficRoot : trafficRoot // ignore: cast_nullable_to_non_nullable
 as String?,profiles: null == profiles ? _self.profiles : profiles // ignore: cast_nullable_to_non_nullable
 as IList<ProfileInfo>,profilesNote: freezed == profilesNote ? _self.profilesNote : profilesNote // ignore: cast_nullable_to_non_nullable
@@ -93,6 +94,18 @@ as HistWindow?,
   ));
 }
 /// Create a copy of SystemState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$LogReadErrorCopyWith<$Res>? get logError {
+    if (_self.logError == null) {
+    return null;
+  }
+
+  return $LogReadErrorCopyWith<$Res>(_self.logError!, (value) {
+    return _then(_self.copyWith(logError: value));
+  });
+}/// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
 @override
 @pragma('vm:prefer-inline')
@@ -113,19 +126,20 @@ $HistWindowCopyWith<$Res>? get trafficWindow {
 
 
 class _SystemState implements SystemState {
-  const _SystemState({this.log = const IListConst([]), this.logLevel, this.filter, this.tab = 'overview', this.measure = 'messages', this.source, this.lines = 200, this.auto = true, this.shown = false, this.logError, this.samples = const IListConst([]), this.trafficRoot, this.profiles = const IListConst([]), this.profilesNote, this.aclSeen, this.about = const IMapConst({}), this.units = const IMapConst({}), this.around, this.trafficWindow});
+  const _SystemState({this.log = const IListConst([]), this.logLevel, this.filter, this.tab = SystemTab.overview, this.measure = TrafficMeasure.messages, this.source, this.lines = 200, this.auto = true, this.shown = false, this.logError, this.samples = const IListConst([]), this.trafficRoot, this.profiles = const IListConst([]), this.profilesNote, this.aclSeen, this.about = const IMapConst({}), this.units = const IMapConst({}), this.around, this.trafficWindow});
   
 
 @override@JsonKey() final  IList<LogLine> log;
-@override final  String? logLevel;
+/// The Log toolbar's level (`get_log` `level`); none: the broker's.
+@override final  LogLevel? logLevel;
 @override final  String? filter;
-@override@JsonKey() final  String tab;
-@override@JsonKey() final  String measure;
+@override@JsonKey() final  SystemTab tab;
+@override@JsonKey() final  TrafficMeasure measure;
 @override final  String? source;
 @override@JsonKey() final  int lines;
 @override@JsonKey() final  bool auto;
 @override@JsonKey() final  bool shown;
-@override final  String? logError;
+@override final  LogReadError? logError;
 @override@JsonKey() final  IList<TrafficSample> samples;
 @override final  String? trafficRoot;
 @override@JsonKey() final  IList<ProfileInfo> profiles;
@@ -168,11 +182,11 @@ abstract mixin class _$SystemStateCopyWith<$Res> implements $SystemStateCopyWith
   factory _$SystemStateCopyWith(_SystemState value, $Res Function(_SystemState) _then) = __$SystemStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<LogLine> log, String? logLevel, String? filter, String tab, String measure, String? source, int lines, bool auto, bool shown, String? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
+ IList<LogLine> log, LogLevel? logLevel, String? filter, SystemTab tab, TrafficMeasure measure, String? source, int lines, bool auto, bool shown, LogReadError? logError, IList<TrafficSample> samples, String? trafficRoot, IList<ProfileInfo> profiles, String? profilesNote, int? aclSeen, IMap<String, String> about, IMap<String, String> units, String? around, HistWindow? trafficWindow
 });
 
 
-@override $HistWindowCopyWith<$Res>? get trafficWindow;
+@override $LogReadErrorCopyWith<$Res>? get logError;@override $HistWindowCopyWith<$Res>? get trafficWindow;
 
 }
 /// @nodoc
@@ -189,15 +203,15 @@ class __$SystemStateCopyWithImpl<$Res>
   return _then(_SystemState(
 log: null == log ? _self.log : log // ignore: cast_nullable_to_non_nullable
 as IList<LogLine>,logLevel: freezed == logLevel ? _self.logLevel : logLevel // ignore: cast_nullable_to_non_nullable
-as String?,filter: freezed == filter ? _self.filter : filter // ignore: cast_nullable_to_non_nullable
+as LogLevel?,filter: freezed == filter ? _self.filter : filter // ignore: cast_nullable_to_non_nullable
 as String?,tab: null == tab ? _self.tab : tab // ignore: cast_nullable_to_non_nullable
-as String,measure: null == measure ? _self.measure : measure // ignore: cast_nullable_to_non_nullable
-as String,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
+as SystemTab,measure: null == measure ? _self.measure : measure // ignore: cast_nullable_to_non_nullable
+as TrafficMeasure,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as String?,lines: null == lines ? _self.lines : lines // ignore: cast_nullable_to_non_nullable
 as int,auto: null == auto ? _self.auto : auto // ignore: cast_nullable_to_non_nullable
 as bool,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,logError: freezed == logError ? _self.logError : logError // ignore: cast_nullable_to_non_nullable
-as String?,samples: null == samples ? _self.samples : samples // ignore: cast_nullable_to_non_nullable
+as LogReadError?,samples: null == samples ? _self.samples : samples // ignore: cast_nullable_to_non_nullable
 as IList<TrafficSample>,trafficRoot: freezed == trafficRoot ? _self.trafficRoot : trafficRoot // ignore: cast_nullable_to_non_nullable
 as String?,profiles: null == profiles ? _self.profiles : profiles // ignore: cast_nullable_to_non_nullable
 as IList<ProfileInfo>,profilesNote: freezed == profilesNote ? _self.profilesNote : profilesNote // ignore: cast_nullable_to_non_nullable
@@ -211,6 +225,18 @@ as HistWindow?,
 }
 
 /// Create a copy of SystemState
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$LogReadErrorCopyWith<$Res>? get logError {
+    if (_self.logError == null) {
+    return null;
+  }
+
+  return $LogReadErrorCopyWith<$Res>(_self.logError!, (value) {
+    return _then(_self.copyWith(logError: value));
+  });
+}/// Create a copy of SystemState
 /// with the given fields replaced by the non-null parameter values.
 @override
 @pragma('vm:prefer-inline')

@@ -122,7 +122,7 @@ impl Historian {
 fn status_att(status: Status, err: Option<String>) -> Vec<u8> {
     let mut a = Attachment::with_status(status);
     a.err = err;
-    codec::to_vec(&a).unwrap_or_default()
+    codec::encode_to_vec(&a)
 }
 
 /// Answer `get <point>/~val?history=…` on `key_exprs` until the session

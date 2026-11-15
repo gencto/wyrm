@@ -127,13 +127,14 @@ impl Auth {
         }
     }
 
-    /// The MAC of `msg` (its auth parameters zeroed), truncated.
-    pub fn sign(self, key: &[u8], msg: &[u8]) -> Vec<u8> {
+    /// The MAC of `msg` (its auth parameters zeroed), truncated; `None` if the MAC
+    /// refuses the key.
+    pub fn sign(self, key: &[u8], msg: &[u8]) -> Option<Vec<u8>> {
         let full = match self {
             Auth::Sha1 => mac::<Hmac<Sha1>>(key, msg),
             Auth::Sha256 => mac::<Hmac<Sha256>>(key, msg),
-        };
-        full[..self.mac_len()].to_vec()
+        }?;
+        full.get(..self.mac_len()).map(<[u8]>::to_vec)
     }
 
     /// Check `tag` against the MAC of `msg` (constant time).
@@ -174,12 +175,12 @@ fn localize<D: Digest>(passphrase: &[u8], engine_id: &[u8]) -> Zeroizing<Vec<u8>
     Zeroizing::new(h.finalize().to_vec())
 }
 
-fn mac<M: Mac + hmac::digest::KeyInit>(key: &[u8], msg: &[u8]) -> Vec<u8> {
-    // HMAC takes a key of any length.
-    let mut m = <M as hmac::digest::KeyInit>::new_from_slice(key)
-        .unwrap_or_else(|_| <M as hmac::digest::KeyInit>::new(&Default::default()));
+/// `None` when the MAC refuses the key (never for HMAC, which takes every length): the
+/// message is then not signed, never signed under a zero key.
+fn mac<M: Mac + hmac::digest::KeyInit>(key: &[u8], msg: &[u8]) -> Option<Vec<u8>> {
+    let mut m = <M as hmac::digest::KeyInit>::new_from_slice(key).ok()?;
     m.update(msg);
-    m.finalize().into_bytes().to_vec()
+    Some(m.finalize().into_bytes().to_vec())
 }
 
 fn verify<M: Mac + hmac::digest::KeyInit>(key: &[u8], msg: &[u8], tag: &[u8]) -> bool {
@@ -256,13 +257,13 @@ mod tests {
     #[test]
     fn macs_are_truncated_and_verified() {
         let key = Auth::Sha1.localized_key(b"maplesyrup", b"engine");
-        let tag = Auth::Sha1.sign(&key, b"message");
+        let tag = Auth::Sha1.sign(&key, b"message").unwrap();
         assert_eq!(tag.len(), 12);
         assert!(Auth::Sha1.verify(&key, b"message", &tag));
         assert!(!Auth::Sha1.verify(&key, b"messagf", &tag));
         assert!(!Auth::Sha1.verify(&key, b"message", &tag[..11]));
         let key = Auth::Sha256.localized_key(b"maplesyrup", b"engine");
-        let tag = Auth::Sha256.sign(&key, b"message");
+        let tag = Auth::Sha256.sign(&key, b"message").unwrap();
         assert_eq!(tag.len(), 24);
         assert!(Auth::Sha256.verify(&key, b"message", &tag));
         assert!(!Auth::Sha256.verify(&key[1..], b"message", &tag));

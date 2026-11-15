@@ -14,6 +14,7 @@ import 'package:models/agent_task.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quality.dart' as m;
+import 'package:models/quarantine_kind.dart';
 import 'package:models/task_state.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -158,7 +159,7 @@ void main() {
 
     expect(q.cn, 'broker:plant');
     expect(q.node, 'broker_plant');
-    expect(q.kind, 'broker');
+    expect(q.kind, QuarantineKind.broker);
     expect(q.via, ['site_a', 'site_b']);
     expect(q.key, 'ab12');
     expect(q.firstSeen, DateTime.utc(2026, 11, 8, 3, 32, 40));

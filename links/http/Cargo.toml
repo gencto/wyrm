@@ -55,3 +55,6 @@ name = "http"
 description = "HTTP/REST JSON APIs: one request per device, JSONPath selectors as points, JSON writes"
 bin = "wyrm-link-http"
 features = ["process"]
+
+[lints]
+workspace = true

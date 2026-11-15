@@ -1,5 +1,10 @@
 //! S3 simulator for demos: one bucket in memory, SigV4 checked.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]

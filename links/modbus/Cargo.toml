@@ -55,3 +55,6 @@ name = "modbus"
 description = "Modbus TCP and RTU (over TCP or serial) devices: FC1-4 batched reads, FC5/6/15/16/22 writes; slave mode serving the tree (TCP, serial RTU)"
 bin = "wyrm-link-modbus"
 features = ["process"]
+
+[lints]
+workspace = true

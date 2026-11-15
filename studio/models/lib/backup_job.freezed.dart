@@ -15,17 +15,13 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$BackupJob {
 
- String get id;/// `full`, `link`, `pre-update` or `pre-restore`.
- String get kind;/// The file name.
- String get name; IList<String> get sections;/// How its secrets are sealed: `none`, `passphrase` or `broker`.
- String get sealed;/// The link of a link backup.
+ String get id; BackupKind get kind;/// The file name.
+ String get name; IList<String> get sections;/// How its secrets are sealed.
+ BackupSealed get sealed;/// The link of a link backup.
  String get link;/// Who made it.
- String get by;/// `running`, `done` or `failed`.
- String get status;/// Percent.
+ String get by; BackupStatus get status;/// Percent.
  int get progress; String get step;/// Bytes.
- int get size; String get sha256;/// ISO 8601, UTC.
- String get created; String get expires; String get error; String get sentTo;/// `sending`, `done` or `failed`; empty when never sent.
- String get sendStatus; int get sendProgress; String get sendError;
+ int get size; String get sha256; DateTime? get created; DateTime? get expires; String get error; String get sentTo; BackupSendStatus get sendStatus; int get sendProgress; String get sendError;
 /// Create a copy of BackupJob
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -61,7 +57,7 @@ abstract mixin class $BackupJobCopyWith<$Res>  {
   factory $BackupJobCopyWith(BackupJob value, $Res Function(BackupJob) _then) = _$BackupJobCopyWithImpl;
 @useResult
 $Res call({
- String id, String kind, String name, IList<String> sections, String sealed, String link, String by, String status, int progress, String step, int size, String sha256, String created, String expires, String error, String sentTo, String sendStatus, int sendProgress, String sendError
+ String id, BackupKind kind, String name, IList<String> sections, BackupSealed sealed, String link, String by, BackupStatus status, int progress, String step, int size, String sha256, DateTime? created, DateTime? expires, String error, String sentTo, BackupSendStatus sendStatus, int sendProgress, String sendError
 });
 
 
@@ -78,26 +74,26 @@ class _$BackupJobCopyWithImpl<$Res>
 
 /// Create a copy of BackupJob
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? kind = null,Object? name = null,Object? sections = null,Object? sealed = null,Object? link = null,Object? by = null,Object? status = null,Object? progress = null,Object? step = null,Object? size = null,Object? sha256 = null,Object? created = null,Object? expires = null,Object? error = null,Object? sentTo = null,Object? sendStatus = null,Object? sendProgress = null,Object? sendError = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? kind = null,Object? name = null,Object? sections = null,Object? sealed = null,Object? link = null,Object? by = null,Object? status = null,Object? progress = null,Object? step = null,Object? size = null,Object? sha256 = null,Object? created = freezed,Object? expires = freezed,Object? error = null,Object? sentTo = null,Object? sendStatus = null,Object? sendProgress = null,Object? sendError = null,}) {
   return _then(BackupJob(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as BackupKind,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
 as IList<String>,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
-as String,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
+as BackupSealed,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
 as String,by: null == by ? _self.by : by // ignore: cast_nullable_to_non_nullable
 as String,status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
-as String,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
+as BackupStatus,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
 as int,step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as String,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
 as int,sha256: null == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
-as String,created: null == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
-as String,expires: null == expires ? _self.expires : expires // ignore: cast_nullable_to_non_nullable
-as String,error: null == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
+as String,created: freezed == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
+as DateTime?,expires: freezed == expires ? _self.expires : expires // ignore: cast_nullable_to_non_nullable
+as DateTime?,error: null == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as String,sentTo: null == sentTo ? _self.sentTo : sentTo // ignore: cast_nullable_to_non_nullable
 as String,sendStatus: null == sendStatus ? _self.sendStatus : sendStatus // ignore: cast_nullable_to_non_nullable
-as String,sendProgress: null == sendProgress ? _self.sendProgress : sendProgress // ignore: cast_nullable_to_non_nullable
+as BackupSendStatus,sendProgress: null == sendProgress ? _self.sendProgress : sendProgress // ignore: cast_nullable_to_non_nullable
 as int,sendError: null == sendError ? _self.sendError : sendError // ignore: cast_nullable_to_non_nullable
 as String,
   ));
@@ -111,36 +107,32 @@ as String,
 
 
 class _BackupJob implements BackupJob {
-  const _BackupJob({required this.id, this.kind = 'full', this.name = '', this.sections = const IListConst([]), this.sealed = 'none', this.link = '', this.by = '', this.status = '', this.progress = 0, this.step = '', this.size = 0, this.sha256 = '', this.created = '', this.expires = '', this.error = '', this.sentTo = '', this.sendStatus = '', this.sendProgress = 0, this.sendError = ''});
+  const _BackupJob({required this.id, this.kind = BackupKind.full, this.name = '', this.sections = const IListConst([]), this.sealed = BackupSealed.none, this.link = '', this.by = '', this.status = BackupStatus.unknown, this.progress = 0, this.step = '', this.size = 0, this.sha256 = '', this.created, this.expires, this.error = '', this.sentTo = '', this.sendStatus = BackupSendStatus.none, this.sendProgress = 0, this.sendError = ''});
   
 
 @override final  String id;
-/// `full`, `link`, `pre-update` or `pre-restore`.
-@override@JsonKey() final  String kind;
+@override@JsonKey() final  BackupKind kind;
 /// The file name.
 @override@JsonKey() final  String name;
 @override@JsonKey() final  IList<String> sections;
-/// How its secrets are sealed: `none`, `passphrase` or `broker`.
-@override@JsonKey() final  String sealed;
+/// How its secrets are sealed.
+@override@JsonKey() final  BackupSealed sealed;
 /// The link of a link backup.
 @override@JsonKey() final  String link;
 /// Who made it.
 @override@JsonKey() final  String by;
-/// `running`, `done` or `failed`.
-@override@JsonKey() final  String status;
+@override@JsonKey() final  BackupStatus status;
 /// Percent.
 @override@JsonKey() final  int progress;
 @override@JsonKey() final  String step;
 /// Bytes.
 @override@JsonKey() final  int size;
 @override@JsonKey() final  String sha256;
-/// ISO 8601, UTC.
-@override@JsonKey() final  String created;
-@override@JsonKey() final  String expires;
+@override final  DateTime? created;
+@override final  DateTime? expires;
 @override@JsonKey() final  String error;
 @override@JsonKey() final  String sentTo;
-/// `sending`, `done` or `failed`; empty when never sent.
-@override@JsonKey() final  String sendStatus;
+@override@JsonKey() final  BackupSendStatus sendStatus;
 @override@JsonKey() final  int sendProgress;
 @override@JsonKey() final  String sendError;
 
@@ -176,7 +168,7 @@ abstract mixin class _$BackupJobCopyWith<$Res> implements $BackupJobCopyWith<$Re
   factory _$BackupJobCopyWith(_BackupJob value, $Res Function(_BackupJob) _then) = __$BackupJobCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String kind, String name, IList<String> sections, String sealed, String link, String by, String status, int progress, String step, int size, String sha256, String created, String expires, String error, String sentTo, String sendStatus, int sendProgress, String sendError
+ String id, BackupKind kind, String name, IList<String> sections, BackupSealed sealed, String link, String by, BackupStatus status, int progress, String step, int size, String sha256, DateTime? created, DateTime? expires, String error, String sentTo, BackupSendStatus sendStatus, int sendProgress, String sendError
 });
 
 
@@ -193,26 +185,26 @@ class __$BackupJobCopyWithImpl<$Res>
 
 /// Create a copy of BackupJob
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? kind = null,Object? name = null,Object? sections = null,Object? sealed = null,Object? link = null,Object? by = null,Object? status = null,Object? progress = null,Object? step = null,Object? size = null,Object? sha256 = null,Object? created = null,Object? expires = null,Object? error = null,Object? sentTo = null,Object? sendStatus = null,Object? sendProgress = null,Object? sendError = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? kind = null,Object? name = null,Object? sections = null,Object? sealed = null,Object? link = null,Object? by = null,Object? status = null,Object? progress = null,Object? step = null,Object? size = null,Object? sha256 = null,Object? created = freezed,Object? expires = freezed,Object? error = null,Object? sentTo = null,Object? sendStatus = null,Object? sendProgress = null,Object? sendError = null,}) {
   return _then(_BackupJob(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as BackupKind,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,sections: null == sections ? _self.sections : sections // ignore: cast_nullable_to_non_nullable
 as IList<String>,sealed: null == sealed ? _self.sealed : sealed // ignore: cast_nullable_to_non_nullable
-as String,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
+as BackupSealed,link: null == link ? _self.link : link // ignore: cast_nullable_to_non_nullable
 as String,by: null == by ? _self.by : by // ignore: cast_nullable_to_non_nullable
 as String,status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
-as String,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
+as BackupStatus,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
 as int,step: null == step ? _self.step : step // ignore: cast_nullable_to_non_nullable
 as String,size: null == size ? _self.size : size // ignore: cast_nullable_to_non_nullable
 as int,sha256: null == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
-as String,created: null == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
-as String,expires: null == expires ? _self.expires : expires // ignore: cast_nullable_to_non_nullable
-as String,error: null == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
+as String,created: freezed == created ? _self.created : created // ignore: cast_nullable_to_non_nullable
+as DateTime?,expires: freezed == expires ? _self.expires : expires // ignore: cast_nullable_to_non_nullable
+as DateTime?,error: null == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
 as String,sentTo: null == sentTo ? _self.sentTo : sentTo // ignore: cast_nullable_to_non_nullable
 as String,sendStatus: null == sendStatus ? _self.sendStatus : sendStatus // ignore: cast_nullable_to_non_nullable
-as String,sendProgress: null == sendProgress ? _self.sendProgress : sendProgress // ignore: cast_nullable_to_non_nullable
+as BackupSendStatus,sendProgress: null == sendProgress ? _self.sendProgress : sendProgress // ignore: cast_nullable_to_non_nullable
 as int,sendError: null == sendError ? _self.sendError : sendError // ignore: cast_nullable_to_non_nullable
 as String,
   ));

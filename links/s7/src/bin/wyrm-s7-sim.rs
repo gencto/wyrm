@@ -2,6 +2,11 @@
 //! DB1.DBD2 (REAL) holds 21.5, DB1.DBX6.0 toggles every second,
 //! DB1.DBB8 holds a STRING[16] "WYRM", MW10 holds 1234.
 
+#![allow(
+    clippy::print_stdout,
+    reason = "a simulator CLI: it prints where it listens"
+)]
+
 use clap::Parser;
 use std::time::Duration;
 

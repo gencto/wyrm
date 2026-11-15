@@ -1,6 +1,15 @@
 //! Gateway end to end: mock link + gateway on one isolated Zenoh session,
 //! raw HTTP/1.1 over TCP and a WebSocket client, CBOR everywhere.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use futures_util::{SinkExt, StreamExt};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -1234,7 +1243,7 @@ async fn a_socket_is_only_for_a_persons_login() {
         roles: vec!["admin".into()],
         exp: now + 600,
         iat: now,
-        jti: new_jti(),
+        jti: new_jti().unwrap(),
         gen: env.gw.user("root").unwrap().gen,
         amr: wyrm_gateway::Amr::OAuth,
         auth_at: now,

@@ -2,6 +2,15 @@
 //! behaviours, custom blocks and the blocks of the second set. A mock link is the data source
 //! and the command target; the engine is on `wy/test/dataflows`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

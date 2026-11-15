@@ -3,6 +3,15 @@
 //! `wyrmd_next`), the install layout, the guard, and this test in
 //! the place of the supervisor (`ExecStartPre` the guard, `ExecStart`
 //! `<prefix>/current/wyrmd`, `Restart=always`).
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
 #![cfg(unix)]
 
 use std::collections::BTreeMap;

@@ -7388,6 +7388,16 @@ class S {
     );
   }
 
+  /// `The answer is not a log ({detail}).`
+  String sysLogInvalid(String detail) {
+    return Intl.message(
+      'The answer is not a log ($detail).',
+      name: 'sysLogInvalid',
+      desc: '',
+      args: [detail],
+    );
+  }
+
   /// `Around (UTC)`
   String get sysAround {
     return Intl.message('Around (UTC)', name: 'sysAround', desc: '', args: []);

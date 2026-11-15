@@ -2,6 +2,15 @@
 //! wire format (`TestHarness`: in-memory Zenoh session, sockets on
 //! loopback).
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable,
+    clippy::print_stdout,
+    reason = "test code: a failed step fails the test"
+)]
+
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;

@@ -467,6 +467,10 @@ impl Dql {
                         args,
                     } => (call, cx.host.invoke(&key, &action, args)),
                     Effect::Set { call, key, value } => (call, cx.host.set(&key, value)),
+                    #[allow(
+                        clippy::unreachable,
+                        reason = "the arm above binds `sink` only as Invoke or Set"
+                    )]
                     _ => unreachable!("a sink"),
                 };
                 match r {

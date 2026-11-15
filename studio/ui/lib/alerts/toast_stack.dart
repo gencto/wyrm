@@ -10,6 +10,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
 import '../theme/typography.dart';
+import 'system_toast.dart';
 
 /// One toast: a quiet failure, or something that went well (`good`).
 ///
@@ -18,24 +19,43 @@ import '../theme/typography.dart';
 final class ToastVm extends Equatable {
   const ToastVm({
     required this.id,
-    required this.title,
+    required this._title,
     this.tone = Tone.warn,
-    this.line = '',
+    this._line = '',
     this.details = false,
     this.retry = false,
     this.seconds = 8,
     this.stays,
-  });
+  }) : words = null;
+
+  /// A toast of System, worded here from [words], in `good`, gone after
+  /// 3 s.
+  const ToastVm.system({
+    required this.id,
+    required SysToastVm this.words,
+  }) : _title = '',
+       _line = '',
+       tone = Tone.good,
+       details = false,
+       retry = false,
+       seconds = 3,
+       stays = null;
 
   final int id;
-  final String title;
+  final String _title;
+  final String _line;
+
+  /// What a toast of System says, typed (worded by [title] and [line]).
+  final SysToastVm? words;
+
+  String get title => words?.title ?? _title;
 
   /// The tone of the mark: `warn`, `bad`, `neutral`, or `good` for a
   /// success.
   final Tone tone;
 
   /// One line under the title: `timeout: the device did not answer.`
-  final String line;
+  String get line => words?.line ?? _line;
 
   /// It has a *Details* link (a failure does, a success does not).
   final bool details;
@@ -53,9 +73,10 @@ final class ToastVm extends Equatable {
   @override
   List<Object?> get props => [
     id,
-    title,
+    _title,
     tone,
-    line,
+    _line,
+    words,
     details,
     retry,
     seconds,

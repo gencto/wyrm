@@ -104,3 +104,8 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { workspace = true, features = ["std"] }
 rcgen.workspace = true
 wyrm-wasm-host.workspace = true
+# `release::testkit` for tests/update.rs
+wyrm-admin = { workspace = true, features = ["testkit"] }
+
+[lints]
+workspace = true

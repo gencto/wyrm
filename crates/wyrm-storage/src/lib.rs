@@ -380,7 +380,7 @@ impl Storage {
         let rec = if value {
             let names: Vec<&str> = TYPES.iter().map(|t| t.name()).collect();
             let ty = choice(args, "type", &names)?
-                .and_then(|n| TYPES.iter().copied().find(|t| t.name() == n))
+                .and_then(|n| TypeCode::from_name(n).filter(|t| TYPES.contains(t)))
                 .ok_or_else(|| LinkError::invalid_parameter("type: required"))?;
             let editor = choice(args, "editor", &EDITORS)?
                 .filter(|e| *e != EDITORS[0])

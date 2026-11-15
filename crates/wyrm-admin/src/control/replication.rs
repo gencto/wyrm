@@ -806,14 +806,15 @@ impl Control {
                 let len = len.clamp(1, PART_LEN);
                 match read_part(d, &name, offset, len) {
                     Ok((total, part, digest)) => {
+                        let sealed = match wyrm_link_sdk::seal::seal(file_key, &part) {
+                            Ok(s) => s,
+                            Err(e) => return error_value(&e.to_string()),
+                        };
                         let mut m = BTreeMap::from([
                             ("name".to_owned(), Value::from(name)),
                             ("offset".to_owned(), Value::UInt(offset)),
                             ("total".to_owned(), Value::UInt(total)),
-                            (
-                                "sealed".to_owned(),
-                                Value::Bytes(wyrm_link_sdk::seal::seal(file_key, &part)),
-                            ),
+                            ("sealed".to_owned(), Value::Bytes(sealed)),
                         ]);
                         if let Some(d) = digest {
                             m.insert("sha256".to_owned(), Value::Bytes(d));

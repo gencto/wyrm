@@ -41,3 +41,6 @@ name = "bacnet"
 description = "BACnet/IP devices: Who-Is discovery, ReadPropertyMultiple batched reads, WriteProperty with priorities"
 bin = "wyrm-link-bacnet"
 features = ["process"]
+
+[lints]
+workspace = true

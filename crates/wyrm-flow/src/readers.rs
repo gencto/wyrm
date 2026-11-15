@@ -95,7 +95,7 @@ fn history_query(
     let at = |us: i64| {
         u64::try_from(us)
             .map(wyrm_client::TimeUs)
-            .map_err(|_| format!("time_range: {us} is before 1970"))
+            .map_err(|e| format!("time_range: {us} is before 1970 ({e})"))
     };
     let rollup = text("rollup");
     let window = text("window");

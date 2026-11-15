@@ -1858,9 +1858,7 @@ impl<C: Chat> Messenger<C> {
                     .recipients
                     .get(*name)
                     .ok_or_else(|| AppError::new(Status::NotFound, (*name).to_owned()))?;
-                let Value::Map(base) = r.to_value() else {
-                    return Ok(());
-                };
+                let base = r.to_map();
                 Recipient::parse(name, kind, &Self::merged(base, &m, &["name"]))
                     .map_err(invalid)?;
             }
@@ -1870,9 +1868,7 @@ impl<C: Chat> Messenger<C> {
                     .templates
                     .get(*name)
                     .ok_or_else(|| AppError::new(Status::NotFound, (*name).to_owned()))?;
-                let Value::Map(base) = t.to_value() else {
-                    return Ok(());
-                };
+                let base = t.to_map();
                 let t = Template::parse(name, kind, &Self::merged(base, &m, &["name"]))
                     .map_err(invalid)?;
                 values_readable(&t)?;
@@ -2200,9 +2196,7 @@ impl<C: Chat> Messenger<C> {
                     .recipients
                     .get(name)
                     .ok_or_else(|| AppError::new(Status::NotFound, name.to_owned()))?;
-                let Value::Map(base) = r.to_value() else {
-                    unreachable!()
-                };
+                let base = r.to_map();
                 let fields = Self::merged(base, &m, &["name"]);
                 let r = Recipient::parse(name, kind, &fields).map_err(invalid)?;
                 store::put(host, &store::item('r', bot, name), &r.to_value())?;
@@ -2233,9 +2227,7 @@ impl<C: Chat> Messenger<C> {
                     .templates
                     .get(name)
                     .ok_or_else(|| AppError::new(Status::NotFound, name.to_owned()))?;
-                let Value::Map(base) = t.to_value() else {
-                    unreachable!()
-                };
+                let base = t.to_map();
                 let fields = Self::merged(base, &m, &["name"]);
                 let t = Template::parse(name, kind, &fields).map_err(invalid)?;
                 let rights = caller_rights(who, "a template")?;

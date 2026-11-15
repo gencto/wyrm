@@ -175,7 +175,7 @@ impl Store {
         m.insert("v".to_owned(), Value::Bytes(value.to_vec()));
         let plain =
             Zeroizing::new(wyrm_core::codec::to_vec(&Value::Map(m)).map_err(|e| e.to_string())?);
-        let sealed = seal::seal(k, &plain);
+        let sealed = seal::seal(k, &plain).map_err(|e| e.to_string())?;
         let path = dir.join(file_name(key));
         let tmp = path.with_extension(TMP);
         {

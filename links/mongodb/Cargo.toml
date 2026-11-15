@@ -47,3 +47,6 @@ description = "History sync to MongoDB (ADR 0026)"
 kind = "wasm"
 features = ["process"]
 capabilities = { store_mb = 1 }
+
+[lints]
+workspace = true
