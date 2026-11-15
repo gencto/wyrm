@@ -1,0 +1,628 @@
+{
+ "edges": [
+  [
+   "c_status.out",
+   "e_status.in"
+  ],
+  [
+   "e_status.on_edge",
+   "s_status_0.trigger"
+  ],
+  [
+   "d_mode.out",
+   "s_status_0.arg.mode"
+  ],
+  [
+   "d_i1.out",
+   "s_status_0.arg.i1"
+  ],
+  [
+   "d_s1.out",
+   "s_status_0.arg.s1"
+  ],
+  [
+   "d_a1.out",
+   "s_status_0.arg.a1"
+  ],
+  [
+   "d_b1.out",
+   "s_status_0.arg.b1"
+  ],
+  [
+   "d_c1.out",
+   "s_status_0.arg.c1"
+  ],
+  [
+   "d_i2.out",
+   "s_status_0.arg.i2"
+  ],
+  [
+   "d_s2.out",
+   "s_status_0.arg.s2"
+  ],
+  [
+   "d_a2.out",
+   "s_status_0.arg.a2"
+  ],
+  [
+   "d_b2.out",
+   "s_status_0.arg.b2"
+  ],
+  [
+   "d_c2.out",
+   "s_status_0.arg.c2"
+  ],
+  [
+   "d_ig.out",
+   "s_status_0.arg.ig"
+  ],
+  [
+   "d_sg.out",
+   "s_status_0.arg.sg"
+  ],
+  [
+   "d_g1.out",
+   "s_status_0.arg.g1"
+  ],
+  [
+   "d_g2.out",
+   "s_status_0.arg.g2"
+  ],
+  [
+   "d_g3.out",
+   "s_status_0.arg.g3"
+  ],
+  [
+   "d_p1.out",
+   "s_status_0.arg.p1"
+  ],
+  [
+   "d_p2.out",
+   "s_status_0.arg.p2"
+  ],
+  [
+   "d_p3.out",
+   "s_status_0.arg.p3"
+  ],
+  [
+   "d_al.out",
+   "s_status_0.arg.al"
+  ],
+  [
+   "zero.out",
+   "r_status.in"
+  ],
+  [
+   "e_status.on_edge",
+   "r_status.trigger"
+  ],
+  [
+   "c_u.out",
+   "e_u.in"
+  ],
+  [
+   "e_u.on_edge",
+   "s_u_0.trigger"
+  ],
+  [
+   "d_a1.out",
+   "s_u_0.arg.a1"
+  ],
+  [
+   "d_b1.out",
+   "s_u_0.arg.b1"
+  ],
+  [
+   "d_c1.out",
+   "s_u_0.arg.c1"
+  ],
+  [
+   "d_a2.out",
+   "s_u_0.arg.a2"
+  ],
+  [
+   "d_b2.out",
+   "s_u_0.arg.b2"
+  ],
+  [
+   "d_c2.out",
+   "s_u_0.arg.c2"
+  ],
+  [
+   "d_i1.out",
+   "s_u_0.arg.i1"
+  ],
+  [
+   "d_i2.out",
+   "s_u_0.arg.i2"
+  ],
+  [
+   "d_ig.out",
+   "s_u_0.arg.ig"
+  ],
+  [
+   "d_ag.out",
+   "s_u_0.arg.ag"
+  ],
+  [
+   "d_bg.out",
+   "s_u_0.arg.bg"
+  ],
+  [
+   "d_cg.out",
+   "s_u_0.arg.cg"
+  ],
+  [
+   "d_u1.out",
+   "s_u_0.arg.u1"
+  ],
+  [
+   "d_u2.out",
+   "s_u_0.arg.u2"
+  ],
+  [
+   "d_m2.out",
+   "s_u_0.arg.m2"
+  ],
+  [
+   "d_umin.out",
+   "s_u_0.arg.umin"
+  ],
+  [
+   "d_umax.out",
+   "s_u_0.arg.umax"
+  ],
+  [
+   "d_cs.out",
+   "s_u_0.arg.cs"
+  ],
+  [
+   "d_ss.out",
+   "s_u_0.arg.ss"
+  ],
+  [
+   "zero.out",
+   "r_u.in"
+  ],
+  [
+   "e_u.on_edge",
+   "r_u.trigger"
+  ],
+  [
+   "c_log.out",
+   "e_log.in"
+  ],
+  [
+   "e_log.on_edge",
+   "s_log_0.trigger"
+  ],
+  [
+   "d_lg.out",
+   "s_log_0.arg.lg"
+  ],
+  [
+   "zero.out",
+   "r_log.in"
+  ],
+  [
+   "e_log.on_edge",
+   "r_log.trigger"
+  ],
+  [
+   "c_ack.out",
+   "e_ack.in"
+  ],
+  [
+   "e_ack.on_edge",
+   "s_ack_0.trigger"
+  ],
+  [
+   "zero.out",
+   "r_ack.in"
+  ],
+  [
+   "e_ack.on_edge",
+   "r_ack.trigger"
+  ],
+  [
+   "c_group2_to_in2.out",
+   "e_group2_to_in2.in"
+  ],
+  [
+   "e_group2_to_in2.on_edge",
+   "s_group2_to_in2_0.trigger"
+  ],
+  [
+   "d_s2.out",
+   "s_group2_to_in2_0.arg.s2"
+  ],
+  [
+   "d_a2.out",
+   "s_group2_to_in2_0.arg.a2"
+  ],
+  [
+   "d_b2.out",
+   "s_group2_to_in2_0.arg.b2"
+  ],
+  [
+   "d_c2.out",
+   "s_group2_to_in2_0.arg.c2"
+  ],
+  [
+   "zero.out",
+   "r_group2_to_in2.in"
+  ],
+  [
+   "e_group2_to_in2.on_edge",
+   "r_group2_to_in2.trigger"
+  ],
+  [
+   "c_confirm.out",
+   "e_confirm.in"
+  ],
+  [
+   "e_confirm.on_edge",
+   "s_confirm_0.trigger"
+  ],
+  [
+   "v_confirm_0.out",
+   "w_confirm_0.in"
+  ],
+  [
+   "e_confirm.on_edge",
+   "w_confirm_0.trigger"
+  ],
+  [
+   "zero.out",
+   "r_confirm.in"
+  ],
+  [
+   "e_confirm.on_edge",
+   "r_confirm.trigger"
+  ],
+  [
+   "c_cancel.out",
+   "e_cancel.in"
+  ],
+  [
+   "e_cancel.on_edge",
+   "s_cancel_0.trigger"
+  ],
+  [
+   "zero.out",
+   "r_cancel.in"
+  ],
+  [
+   "e_cancel.on_edge",
+   "r_cancel.trigger"
+  ]
+ ],
+ "id": "dvpsm-bot",
+ "nodes": {
+  "c_ack": {
+   "key": "storage/dvpsm/cmd/ack",
+   "type": "subscribe"
+  },
+  "c_cancel": {
+   "key": "storage/dvpsm/cmd/cancel",
+   "type": "subscribe"
+  },
+  "c_confirm": {
+   "key": "storage/dvpsm/cmd/confirm",
+   "type": "subscribe"
+  },
+  "c_group2_to_in2": {
+   "key": "storage/dvpsm/cmd/group2_to_in2",
+   "type": "subscribe"
+  },
+  "c_log": {
+   "key": "storage/dvpsm/cmd/log",
+   "type": "subscribe"
+  },
+  "c_status": {
+   "key": "storage/dvpsm/cmd/status",
+   "type": "subscribe"
+  },
+  "c_u": {
+   "key": "storage/dvpsm/cmd/u",
+   "type": "subscribe"
+  },
+  "d_a1": {
+   "key": "storage/dvpsm/in1/l1",
+   "type": "subscribe"
+  },
+  "d_a2": {
+   "key": "storage/dvpsm/in2/l1",
+   "type": "subscribe"
+  },
+  "d_ag": {
+   "key": "storage/dvpsm/gen/l1",
+   "type": "subscribe"
+  },
+  "d_al": {
+   "key": "storage/dvpsm/alarms_active",
+   "type": "subscribe"
+  },
+  "d_b1": {
+   "key": "storage/dvpsm/in1/l2",
+   "type": "subscribe"
+  },
+  "d_b2": {
+   "key": "storage/dvpsm/in2/l2",
+   "type": "subscribe"
+  },
+  "d_bg": {
+   "key": "storage/dvpsm/gen/l2",
+   "type": "subscribe"
+  },
+  "d_c1": {
+   "key": "storage/dvpsm/in1/l3",
+   "type": "subscribe"
+  },
+  "d_c2": {
+   "key": "storage/dvpsm/in2/l3",
+   "type": "subscribe"
+  },
+  "d_cg": {
+   "key": "storage/dvpsm/gen/l3",
+   "type": "subscribe"
+  },
+  "d_cs": {
+   "key": "storage/dvpsm/setpoints/confirm_s",
+   "type": "subscribe"
+  },
+  "d_g1": {
+   "key": "storage/dvpsm/group1/source",
+   "type": "subscribe"
+  },
+  "d_g2": {
+   "key": "storage/dvpsm/group2/source",
+   "type": "subscribe"
+  },
+  "d_g3": {
+   "key": "storage/dvpsm/group3/source",
+   "type": "subscribe"
+  },
+  "d_i1": {
+   "key": "storage/dvpsm/in1/icon",
+   "type": "subscribe"
+  },
+  "d_i2": {
+   "key": "storage/dvpsm/in2/icon",
+   "type": "subscribe"
+  },
+  "d_ig": {
+   "key": "storage/dvpsm/gen/icon",
+   "type": "subscribe"
+  },
+  "d_lg": {
+   "key": "storage/dvpsm/log",
+   "type": "subscribe"
+  },
+  "d_m2": {
+   "key": "storage/dvpsm/in2/min_1h",
+   "type": "subscribe"
+  },
+  "d_mode": {
+   "key": "storage/dvpsm/mode",
+   "type": "subscribe"
+  },
+  "d_p1": {
+   "key": "storage/dvpsm/ats1/pos",
+   "type": "subscribe"
+  },
+  "d_p2": {
+   "key": "storage/dvpsm/ats2/pos",
+   "type": "subscribe"
+  },
+  "d_p3": {
+   "key": "storage/dvpsm/ats3/pos",
+   "type": "subscribe"
+  },
+  "d_s1": {
+   "key": "storage/dvpsm/in1/state",
+   "type": "subscribe"
+  },
+  "d_s2": {
+   "key": "storage/dvpsm/in2/state",
+   "type": "subscribe"
+  },
+  "d_sg": {
+   "key": "storage/dvpsm/gen/state",
+   "type": "subscribe"
+  },
+  "d_ss": {
+   "key": "storage/dvpsm/setpoints/stable_s",
+   "type": "subscribe"
+  },
+  "d_u1": {
+   "key": "storage/dvpsm/in1/unbalance",
+   "type": "subscribe"
+  },
+  "d_u2": {
+   "key": "storage/dvpsm/in2/unbalance",
+   "type": "subscribe"
+  },
+  "d_umax": {
+   "key": "storage/dvpsm/setpoints/umax",
+   "type": "subscribe"
+  },
+  "d_umin": {
+   "key": "storage/dvpsm/setpoints/umin",
+   "type": "subscribe"
+  },
+  "e_ack": {
+   "type": "rising_edge"
+  },
+  "e_cancel": {
+   "type": "rising_edge"
+  },
+  "e_confirm": {
+   "type": "rising_edge"
+  },
+  "e_group2_to_in2": {
+   "type": "rising_edge"
+  },
+  "e_log": {
+   "type": "rising_edge"
+  },
+  "e_status": {
+   "type": "rising_edge"
+  },
+  "e_u": {
+   "type": "rising_edge"
+  },
+  "r_ack": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/ack",
+   "type": "set"
+  },
+  "r_cancel": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/cancel",
+   "type": "set"
+  },
+  "r_confirm": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/confirm",
+   "type": "set"
+  },
+  "r_group2_to_in2": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/group2_to_in2",
+   "type": "set"
+  },
+  "r_log": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/log",
+   "type": "set"
+  },
+  "r_status": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/status",
+   "type": "set"
+  },
+  "r_u": {
+   "auto_run": false,
+   "path": "storage/dvpsm/cmd/u",
+   "type": "set"
+  },
+  "s_ack_0": {
+   "action": "send",
+   "args": {
+    "text": "✅ Тривогу підтверджено: owner. Ескалацію скасовано.",
+    "to": "owner"
+   },
+   "path": "downstream/telegram-process/dvpsm",
+   "type": "invoke"
+  },
+  "s_cancel_0": {
+   "action": "send",
+   "args": {
+    "text": "✖️ Команду скасовано.",
+    "to": "owner"
+   },
+   "path": "downstream/telegram-process/dvpsm",
+   "type": "invoke"
+  },
+  "s_confirm_0": {
+   "action": "send",
+   "args": {
+    "text": "✅ <b>Виконано (демо).</b> АВР №2 → ввід №2, підтверджено контактом положення.",
+    "to": "owner"
+   },
+   "path": "downstream/telegram-process/dvpsm",
+   "type": "invoke"
+  },
+  "s_group2_to_in2_0": {
+   "action": "send",
+   "args": {
+    "a2": null,
+    "b2": null,
+    "c2": null,
+    "elapsed": "2:40",
+    "s2": null
+   },
+   "path": "downstream/telegram-process/dvpsm/templates/confirm_cmd",
+   "type": "invoke"
+  },
+  "s_log_0": {
+   "action": "send",
+   "args": {
+    "lg": null
+   },
+   "path": "downstream/telegram-process/dvpsm/templates/log",
+   "type": "invoke"
+  },
+  "s_status_0": {
+   "action": "send",
+   "args": {
+    "a1": null,
+    "a2": null,
+    "al": null,
+    "b1": null,
+    "b2": null,
+    "c1": null,
+    "c2": null,
+    "g1": null,
+    "g2": null,
+    "g3": null,
+    "i1": null,
+    "i2": null,
+    "ig": null,
+    "mode": null,
+    "p1": null,
+    "p2": null,
+    "p3": null,
+    "s1": null,
+    "s2": null,
+    "sg": null
+   },
+   "path": "downstream/telegram-process/dvpsm/templates/status",
+   "type": "invoke"
+  },
+  "s_u_0": {
+   "action": "send",
+   "args": {
+    "a1": null,
+    "a2": null,
+    "ag": null,
+    "b1": null,
+    "b2": null,
+    "bg": null,
+    "c1": null,
+    "c2": null,
+    "cg": null,
+    "cs": null,
+    "i1": null,
+    "i2": null,
+    "ig": null,
+    "m2": null,
+    "ss": null,
+    "u1": null,
+    "u2": null,
+    "umax": null,
+    "umin": null
+   },
+   "path": "downstream/telegram-process/dvpsm/templates/voltages",
+   "type": "invoke"
+  },
+  "v_confirm_0": {
+   "type": "const",
+   "value": "Ввід №2"
+  },
+  "w_confirm_0": {
+   "auto_run": false,
+   "path": "storage/dvpsm/group2/source",
+   "type": "set"
+  },
+  "zero": {
+   "type": "const",
+   "value": 0
+  }
+ },
+ "permissions": {
+  "maxperm": 3
+ },
+ "version": 2
+}

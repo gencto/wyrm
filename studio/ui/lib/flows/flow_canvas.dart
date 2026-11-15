@@ -107,6 +107,7 @@ class FlowCanvas extends StatefulWidget {
     this.controller,
     this.help = false,
     this.mac,
+    this.view,
     this.dropChoice,
     this.prompt,
     this.onPromptSave,
@@ -181,6 +182,11 @@ class FlowCanvas extends StatefulWidget {
 
   /// ⌘ glyphs in the card and the menu; null: this machine's.
   final bool? mac;
+
+  /// What the canvas shows (the flow's id, and the block opened inside
+  /// it): when it changes and its blocks do not all show, the view fits
+  /// them (spec §25). Null: never fitted by itself.
+  final String? view;
 
   /// The smallest canvas: an empty or small flow still has room to grow.
   static const size = Size(3000, 2000);
@@ -346,6 +352,16 @@ class _FlowCanvasState extends State<FlowCanvas> {
   /// The shortcut card is open.
   late bool _help = widget.help;
 
+  /// Fit every block into the view when the blocks next change (after
+  /// Tidy up).
+  var _fitNext = false;
+
+  /// The last [FlowCanvas.view] shown with its blocks: fitted once.
+  String? _opened;
+
+  /// The legend and the tools along the bottom: a fit leaves them room.
+  final GlobalKey<State<StatefulWidget>> _bar = GlobalKey();
+
   TransformationController get _ctl =>
       widget.controller ?? (_own ??= TransformationController());
 
@@ -353,7 +369,40 @@ class _FlowCanvasState extends State<FlowCanvas> {
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_onKey);
+    _fitLater();
   }
+
+  @override
+  void didUpdateWidget(FlowCanvas old) {
+    super.didUpdateWidget(old);
+    _fitLater();
+  }
+
+  /// After this frame (when the view has its size): a flow just opened
+  /// whose blocks do not all show is fitted to the view (spec §25); after
+  /// Tidy up every flow is.
+  void _fitLater() {
+    final view = widget.view;
+    final opened = view != null && view != _opened && widget.blocks.isNotEmpty;
+    final tidied = _fitNext && !identical(widget.blocks, _tidiedFrom);
+    if (!opened && !tidied) {
+      return;
+    }
+    if (opened) {
+      _opened = view;
+    }
+    if (tidied) {
+      _fitNext = false;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && (tidied || !_allShown())) {
+        _fit();
+      }
+    });
+  }
+
+  /// The blocks when Tidy up was asked: the next ones are its result.
+  List<FlowBlockVm>? _tidiedFrom;
 
   @override
   void didChangeDependencies() {
@@ -458,10 +507,40 @@ class _FlowCanvasState extends State<FlowCanvas> {
 
   Offset? _viewPoint(Offset global) => _viewBox?.globalToLocal(global);
 
-  /// Shows every block, at 100 % at most.
-  void _fit() {
+  /// The part of the view the blocks may use: all of it but the legend
+  /// and the tools along the bottom.
+  Rect? get _room {
     final box = _viewBox;
-    if (widget.blocks.isEmpty || box == null) {
+    if (box == null) {
+      return null;
+    }
+    final bar = _bar.currentContext?.size?.height ?? 0;
+    return Offset.zero &
+        Size(box.size.width, math.max(1, box.size.height - bar - 16));
+  }
+
+  /// Whether every block shows whole in [_room] now.
+  bool _allShown() {
+    final room = _room;
+    if (room == null) {
+      return true;
+    }
+    return widget.blocks.every(
+      (b) =>
+          room.contains(
+            MatrixUtils.transformPoint(_ctl.value, b.rect.topLeft),
+          ) &&
+          room.contains(
+            MatrixUtils.transformPoint(_ctl.value, b.rect.bottomRight),
+          ),
+    );
+  }
+
+  /// Shows every block above the legend, at 100 % at most. A flow too
+  /// large even at the smallest zoom shows from its top-left corner.
+  void _fit() {
+    final room = _room;
+    if (widget.blocks.isEmpty || room == null) {
       _zoomTo(1);
       return;
     }
@@ -470,9 +549,19 @@ class _FlowCanvasState extends State<FlowCanvas> {
         .reduce((a, b) => a.expandToInclude(b))
         .inflate(40);
     final s = math
-        .min(box.size.width / all.width, box.size.height / all.height)
+        .min(room.width / all.width, room.height / all.height)
         .clamp(FlowCanvas.minScale, 1.0);
-    _setView(s, box.size.center(.zero) - all.center * s);
+    double place(double roomLength, double start, double length) =>
+        length * s <= roomLength
+        ? (roomLength - length * s) / 2 - start * s
+        : -start * s;
+    _setView(
+      s,
+      Offset(
+        place(room.width, all.left, all.width),
+        place(room.height, all.top, all.height),
+      ),
+    );
   }
 
   // ---------- keys ----------
@@ -583,6 +672,11 @@ class _FlowCanvasState extends State<FlowCanvas> {
           .deploy ||
           .createCustomBlock ||
           .editCustomBlock:
+        widget.onCommand?.call(command);
+      case .tidy:
+        // The blocks move: show them all once they have.
+        _fitNext = true;
+        _tidiedFrom = widget.blocks;
         widget.onCommand?.call(command);
       // Gestures of the pointer and the menu's own entries: not keys.
       case .marquee ||
@@ -1256,6 +1350,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
               bottom: 16,
               right: 16,
               child: Row(
+                key: _bar,
                 crossAxisAlignment: .end,
                 spacing: 8,
                 children: [

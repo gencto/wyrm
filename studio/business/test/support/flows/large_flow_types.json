@@ -1,0 +1,324 @@
+[
+ {
+  "category": "Sources",
+  "description": "One value, once at start.",
+  "inputs": [],
+  "outputs": [
+   "out"
+  ],
+  "params": [
+   {
+    "description": "The value.",
+    "echo": true,
+    "name": "value",
+    "required": true,
+    "type": "dynamic"
+   }
+  ],
+  "port_types": {
+   "out": "any",
+   "value": "any"
+  },
+  "type": "const"
+ },
+ {
+  "category": "Outputs",
+  "description": "The action block: runs an action of a node with its arguments, on trigger, on a changed argument (auto_run), every interval_ms or when in arrives (a command: the deployer proves the right, ADR 0008).",
+  "dyn_inputs": {
+   "default": [],
+   "keys": true,
+   "param": "args",
+   "prefix": "arg."
+  },
+  "echo_inputs": true,
+  "inputs": [
+   "in",
+   "trigger",
+   "in.interval_ms",
+   "in.auto_run",
+   "in.enabled"
+  ],
+  "outputs": [
+   "out",
+   "result",
+   "sent",
+   "ok",
+   "error",
+   "running",
+   "last_run"
+  ],
+  "params": [
+   {
+    "description": "The node: downstream/<link>/… or storage/…",
+    "echo": true,
+    "name": "path",
+    "required": true,
+    "type": "string"
+   },
+   {
+    "description": "The action's name.",
+    "echo": true,
+    "name": "action",
+    "required": true,
+    "type": "string"
+   },
+   {
+    "description": "Its arguments: each key is a field with the port arg.<name>; the value is the argument's constant until a sample replaces it (\"$in\": the last value on in).",
+    "echo": true,
+    "name": "args",
+    "required": false,
+    "type": "map"
+   },
+   {
+    "choices": [
+     "any",
+     "rising",
+     "falling",
+     "change"
+    ],
+    "default": "any",
+    "description": "For in: every sample, a rising or falling bool, or a change.",
+    "echo": true,
+    "name": "on",
+    "required": false,
+    "type": "string"
+   },
+   {
+    "default": false,
+    "description": "Run on samples of bad quality too.",
+    "echo": true,
+    "name": "allow_bad",
+    "required": false,
+    "type": "bool"
+   },
+   {
+    "default": 0,
+    "description": "Runs every this many milliseconds, first one full period after the start; 0: off (default), else 100 … 86 400 000.",
+    "echo": true,
+    "name": "interval_ms",
+    "port": "in.interval_ms",
+    "required": false,
+    "type": "number"
+   },
+   {
+    "default": false,
+    "description": "Run when an argument changes on its port (default false).",
+    "echo": true,
+    "name": "auto_run",
+    "port": "in.auto_run",
+    "required": false,
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "description": "false: nothing runs it (default true).",
+    "echo": true,
+    "name": "enabled",
+    "port": "in.enabled",
+    "required": false,
+    "type": "bool"
+   },
+   {
+    "default": false,
+    "description": "WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).",
+    "echo": true,
+    "name": "run_on_start",
+    "required": false,
+    "type": "bool"
+   }
+  ],
+  "port_types": {
+   "action": "any",
+   "allow_bad": "bool",
+   "args": "map",
+   "auto_run": "bool",
+   "enabled": "bool",
+   "error": "map",
+   "in": "any",
+   "in.auto_run": "bool",
+   "in.enabled": "bool",
+   "in.interval_ms": "number",
+   "interval_ms": "number",
+   "last_run": "number",
+   "ok": "map",
+   "on": "any",
+   "out": "any",
+   "path": "any",
+   "result": "any",
+   "run_on_start": "bool",
+   "running": "bool",
+   "sent": "map",
+   "trigger": "any"
+  },
+  "trigger": true,
+  "type": "invoke"
+ },
+ {
+  "category": "Logic",
+  "description": "An event when in becomes true.",
+  "echo_inputs": true,
+  "inputs": [
+   "in"
+  ],
+  "outputs": [
+   "on_edge"
+  ],
+  "params": [],
+  "port_types": {
+   "in": "any",
+   "on_edge": "map"
+  },
+  "type": "rising_edge",
+  "values": true
+ },
+ {
+  "category": "Outputs",
+  "description": "Writes in to a point: when in changes (auto_run), on trigger, every interval_ms (a command: the deployer proves the right, ADR 0008).",
+  "echo_inputs": true,
+  "inputs": [
+   "in",
+   "trigger",
+   "in.interval_ms",
+   "in.auto_run",
+   "in.enabled"
+  ],
+  "outputs": [
+   "sent",
+   "ok",
+   "error",
+   "running",
+   "last_run"
+  ],
+  "params": [
+   {
+    "description": "The point: downstream/<link>/… or storage/…",
+    "echo": true,
+    "name": "path",
+    "required": true,
+    "type": "string"
+   },
+   {
+    "choices": [
+     "change",
+     "any"
+    ],
+    "default": "change",
+    "description": "With auto_run: every sample, or a changed value only.",
+    "echo": true,
+    "name": "on",
+    "required": false,
+    "type": "string"
+   },
+   {
+    "default": 0,
+    "description": "With on change: a smaller change is not written.",
+    "echo": true,
+    "name": "deadband",
+    "required": false,
+    "type": "number"
+   },
+   {
+    "default": false,
+    "description": "Write values of bad quality too.",
+    "echo": true,
+    "name": "allow_bad",
+    "required": false,
+    "type": "bool"
+   },
+   {
+    "default": 0,
+    "description": "Runs every this many milliseconds, first one full period after the start; 0: off (default), else 100 … 86 400 000.",
+    "echo": true,
+    "name": "interval_ms",
+    "port": "in.interval_ms",
+    "required": false,
+    "type": "number"
+   },
+   {
+    "default": true,
+    "description": "Write when in brings a value (default true); false: only on trigger and interval_ms.",
+    "echo": true,
+    "name": "auto_run",
+    "port": "in.auto_run",
+    "required": false,
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "description": "false: nothing runs it (default true).",
+    "echo": true,
+    "name": "enabled",
+    "port": "in.enabled",
+    "required": false,
+    "type": "bool"
+   },
+   {
+    "default": false,
+    "description": "WARNING: true runs this command once every time the flow starts: at each deploy, hot swap, reload and broker restart (default false: a start never runs a command).",
+    "echo": true,
+    "name": "run_on_start",
+    "required": false,
+    "type": "bool"
+   }
+  ],
+  "port_types": {
+   "allow_bad": "bool",
+   "auto_run": "bool",
+   "deadband": "number",
+   "enabled": "bool",
+   "error": "map",
+   "in": "any",
+   "in.auto_run": "bool",
+   "in.enabled": "bool",
+   "in.interval_ms": "number",
+   "interval_ms": "number",
+   "last_run": "number",
+   "ok": "map",
+   "on": "any",
+   "path": "any",
+   "run_on_start": "bool",
+   "running": "bool",
+   "sent": "map",
+   "trigger": "any"
+  },
+  "trigger": true,
+  "type": "set"
+ },
+ {
+  "category": "Sources",
+  "description": "The value of a point (its ~val) as it changes: numbers, text, any value the point has. To know whether a node is there at all, use liveliness. in.key names another point inside key_scope.",
+  "inputs": [
+   "in.key"
+  ],
+  "outputs": [
+   "out",
+   "error"
+  ],
+  "params": [
+   {
+    "description": "A point of this site: downstream/<link>/…, storage/… or wy/<site>/… (may be absent when in.key brings it).",
+    "echo": true,
+    "name": "key",
+    "port": "in.key",
+    "required": true,
+    "scope": "key_scope",
+    "type": "string"
+   },
+   {
+    "description": "The keys in.key may name, a key expression: downstream/<link>/** (required when in.key is wired; the deployer must read all of it).",
+    "echo": true,
+    "name": "key_scope",
+    "required": false,
+    "type": "string"
+   }
+  ],
+  "port_types": {
+   "error": "any",
+   "in.key": "any",
+   "key": "any",
+   "key_scope": "any",
+   "out": "any"
+  },
+  "type": "subscribe"
+ }
+]

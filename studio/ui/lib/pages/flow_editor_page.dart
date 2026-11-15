@@ -583,6 +583,8 @@ class FlowEditorPage extends StatelessWidget {
         onMove: onMove,
         onDrop: onDrop,
         legend: legend,
+        // A flow, or a block opened inside it, fits the view when it opens.
+        view: [flowLabel, ...crumbs].join('/'),
         onSelectMany: onSelectMany,
         onCommand: (command, {at}) => unawaited(
           _command(context, command, deployOn: deployOn, at: at),

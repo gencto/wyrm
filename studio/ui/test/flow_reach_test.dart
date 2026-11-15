@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_legend.dart';
+import 'package:ui/flows/flow_menu.dart';
+import 'package:ui/flows/shortcut_card.dart';
 
 import 'frames/harness.dart';
 
@@ -41,15 +43,25 @@ void main() {
 
   Widget canvas(
     TransformationController ctl,
-    List<String> picked,
-  ) => frame(
+    List<String> picked, {
+    List<FlowBlockVm>? blocks,
+    String? view,
+    double width = 1000,
+    void Function(FlowCommand c, {Offset? at})? onCommand,
+  }) => frame(
     SizedBox(
-      width: 1000,
+      width: width,
       height: 700,
       child: FlowCanvas(
-        blocks: tall,
+        blocks: blocks ?? tall,
         wires: const [],
         controller: ctl,
+        view: view,
+        onCommand: onCommand,
+        menu: (ids, block, row) => const FlowMenuVm(
+          title: 'canvas',
+          items: [FlowMenuItemVm(.tidy)],
+        ),
         legend: const FlowLegendVm(
           reads: 'reads a value',
           writes: 'writes to a device',
@@ -148,4 +160,128 @@ void main() {
     await tester.pump();
     expect(picked, [last.id]);
   });
+
+  /// Three columns of 10 blocks: 1 440 high, it shows whole at about 40 %.
+  final big = [
+    for (final b in tall)
+      if (int.parse(b.id.split('_').last) < 10) b,
+  ];
+
+  double scaleOf(TransformationController c) => c.value.entry(0, 0);
+
+  /// Whether every block of [blocks] shows whole above the legend.
+  bool allShown(WidgetTester tester, List<FlowBlockVm> blocks) {
+    final view = tester.getRect(find.byType(FlowCanvas));
+    final legend = tester.getTopLeft(find.byType(FlowLegend)).dy;
+    return blocks.every((b) {
+      final r = tester.getRect(find.byKey(ValueKey(b.id)));
+      return r.left >= view.left &&
+          r.right <= view.right &&
+          r.top >= view.top &&
+          r.bottom <= legend;
+    });
+  }
+
+  testWidgets('a flow that does not show whole is fitted when it opens, '
+      'above the legend', (tester) async {
+    screen(tester);
+    final ctl = TransformationController();
+    addTearDown(ctl.dispose);
+    await tester.pumpWidget(canvas(ctl, [], blocks: big, view: 'big'));
+    await tester.pump();
+    expect(scaleOf(ctl), lessThan(1));
+    expect(scaleOf(ctl), greaterThan(FlowCanvas.minScale));
+    expect(allShown(tester, big), isTrue);
+  });
+
+  testWidgets('a flow that shows whole stays at 100 %', (tester) async {
+    screen(tester);
+    final ctl = TransformationController();
+    addTearDown(ctl.dispose);
+    final small = [
+      for (final b in big)
+        if (b.y < 300 && b.x < 400) b,
+    ];
+    await tester.pumpWidget(canvas(ctl, [], blocks: small, view: 'small'));
+    await tester.pump();
+    expect(scaleOf(ctl), 1);
+    expect(ctl.value, Matrix4.identity());
+  });
+
+  testWidgets('a flow too large for the smallest zoom shows from its '
+      'top-left corner', (tester) async {
+    screen(tester);
+    final ctl = TransformationController();
+    addTearDown(ctl.dispose);
+    await tester.pumpWidget(canvas(ctl, [], view: 'tall'));
+    await tester.pump();
+    expect(scaleOf(ctl), FlowCanvas.minScale);
+    final first = tester.getRect(find.byKey(ValueKey(tall.first.id)));
+    final view = tester.getRect(find.byType(FlowCanvas));
+    expect(first.top, greaterThanOrEqualTo(view.top));
+    expect(first.left, greaterThanOrEqualTo(view.left));
+  });
+
+  testWidgets('the same view is fitted once; Tidy up fits after the blocks '
+      'move', (tester) async {
+    screen(tester);
+    final ctl = TransformationController();
+    addTearDown(ctl.dispose);
+    final commands = <FlowCommand>[];
+    void onCommand(FlowCommand c, {Offset? at}) => commands.add(c);
+    await tester.pumpWidget(
+      canvas(ctl, [], blocks: big, view: 'big', onCommand: onCommand),
+    );
+    await tester.pump();
+    // The user zooms in: a rebuild of the same flow keeps it.
+    ctl.value = Matrix4.identity();
+    await tester.pumpWidget(
+      canvas(ctl, [], blocks: [...big], view: 'big', onCommand: onCommand),
+    );
+    await tester.pump();
+    expect(ctl.value, Matrix4.identity());
+
+    // Tidy up from the menu of the empty canvas goes out as a command;
+    // the next blocks fit.
+    await tester.tapAt(
+      const Offset(930, 50),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tidy up'));
+    await tester.pumpAndSettle();
+    expect(commands, [FlowCommand.tidy]);
+    final moved = [for (final b in big) b.at(b.x + 2000, b.y)];
+    await tester.pumpWidget(
+      canvas(ctl, [], blocks: moved, view: 'big', onCommand: onCommand),
+    );
+    await tester.pump();
+    expect(scaleOf(ctl), lessThan(1));
+    expect(allShown(tester, moved), isTrue);
+  });
+
+  for (final width in [900.0, 480.0]) {
+    testWidgets('the legend and the tools are the board size at a canvas '
+        '${width.round()} wide', (tester) async {
+      tester.view.physicalSize = Size(width, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final ctl = TransformationController();
+      addTearDown(ctl.dispose);
+      await tester.pumpWidget(canvas(ctl, [], width: width));
+      final legend = tester.getSize(find.byType(FlowLegend));
+      final zoom = tester.getSize(find.byKey(const ValueKey('flow-zoom')));
+      final help = tester.getSize(find.byKey(const ValueKey('flow-help')));
+      // ignore: avoid_print, the sizes go to the PR.
+      print('canvas $width: legend $legend, zoom $zoom, help $help');
+      // Board: text 12, padding 8 x 12, one line where it fits; the
+      // zoom and ? are 34 high.
+      expect(zoom.height, 34);
+      expect(help, const Size(34, 34));
+      expect(legend.height, lessThanOrEqualTo(width >= 900 ? 36 : 120));
+      final text = tester.widget<Text>(find.text('reads a value'));
+      expect(text.style?.fontSize, 12);
+    });
+  }
 }
