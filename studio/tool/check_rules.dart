@@ -46,7 +46,12 @@ final _rules = <Rule>[
         ) +
         // `dispatchAll([x])` of one action is `dispatch(x)` with its Future
         // dropped where `discarded_futures` cannot see it (audit of #115)
-        _matches(c, RegExp(r'dispatchAll\w*\(\s*\[[^\],\[]*\]\s*\)'));
+        _matches(
+          c,
+          RegExp(r'dispatchAll\w*\(\s*\[(?!\s*(?:for|if)\b)[^\],\[]*\]\s*\)'),
+        ) +
+        // a list built by `for`/`if` can hold one action just the same
+        _matches(c, RegExp(r'dispatchAll\w*\(\s*\[\s*(?:for|if)\b'));
   }),
   // 2. enums, not strings: switch arms and cases on string literals
   Rule('string-case', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
@@ -59,7 +64,15 @@ final _rules = <Rule>[
   Rule('string-id', ['app/lib/', 'business/lib/', 'ui/lib/'], (t) {
     final c = _code(t);
     return _matches(c, RegExp(r"\bid:\s*'")) +
-        _matches(c, RegExp(r'\((?:\s*String\??\s*,)+\s*String\??\s*,?\s*\)'));
+        _matches(c, RegExp(r'\((?:\s*String\??\s*,)+\s*String\??\s*,?\s*\)')) +
+        // the same pair with named fields (`({String key, String scope})`):
+        // a record of two or more strings, every field a String
+        _matches(
+          c,
+          RegExp(
+            r'\(\{(?:\s*String\??\s+\w+\s*,)+\s*String\??\s+\w+\s*,?\s*\}\)',
+          ),
+        );
   }, except: ['business/lib/wyrm/decode/']),
   // 3. connectors map, they do not compute: their size
   Rule('connector-lines', [
@@ -112,7 +125,9 @@ final _rules = <Rule>[
   // 8. one typed decode boundary
   Rule(
     'untyped-wire',
-    ['app/lib/', 'business/lib/'],
+    // `ui/lib` too: a cast moved out of a connector into a widget is the same
+    // untyped read (audit of #123)
+    ['app/lib/', 'business/lib/', 'ui/lib/'],
     (t) {
       final c = _code(t);
       return _matches(

@@ -57,16 +57,21 @@
   "string-id": {
     "app/lib/common/backup_sheets.dart": 15,
     "app/lib/common/broker_update_sheets.dart": 1,
-    "app/lib/connectors/flow_editor_page_connector.dart": 10,
+    "app/lib/connectors/assistant_page_connector.dart": 1,
+    "app/lib/connectors/flow_editor_page_connector.dart": 11,
     "app/lib/dialogs/assistant_dialogs.dart": 1,
     "app/lib/dialogs/profile_dialog.dart": 1,
+    "app/lib/mappers/assistant_mappers.dart": 1,
     "business/lib/redux/flow_editor/actions/add_block_action.dart": 1,
     "business/lib/redux/nodes/actions/stage_invoke_action.dart": 1,
+    "business/lib/redux/selectors.dart": 2,
     "business/lib/redux/site/actions/retrieve_sites_action.dart": 1,
-    "business/lib/wyrm/mappers/flow_blocks.dart": 3,
+    "business/lib/redux/tasks/actions/save_plan_action.dart": 1,
+    "business/lib/wyrm/mappers/flow_blocks.dart": 4,
     "business/lib/wyrm/mappers/flow_canvas.dart": 9,
     "business/lib/wyrm/mappers/flow_fields.dart": 8,
     "business/lib/wyrm/mappers/flow_mapper.dart": 3,
+    "ui/lib/assistant/result_card.dart": 1,
     "ui/lib/assistant/rights_panel.dart": 1,
     "ui/lib/containers/inspector_sections.dart": 2,
     "ui/lib/flows/field_inspector.dart": 2,
@@ -74,6 +79,7 @@
     "ui/lib/flows/flow_canvas.dart": 3,
     "ui/lib/overlays/task_sheet.dart": 1,
     "ui/lib/overlays/value_viewer.dart": 2,
+    "ui/lib/pages/assistant_page.dart": 1,
     "ui/lib/pages/gallery_page.dart": 10,
     "ui/lib/pages/system_screen.dart": 7,
     "ui/lib/trees/node_tree.dart": 2
@@ -257,7 +263,14 @@
     "business/lib/wyrm/mappers/table_value.dart": 7,
     "business/lib/wyrm/mappers/value_text.dart": 1,
     "business/lib/wyrm/package_check.dart": 8,
-    "business/lib/wyrm/transfer.dart": 6
+    "business/lib/wyrm/transfer.dart": 6,
+    "ui/lib/forms/param_form.dart": 2,
+    "ui/lib/indicators/value_type.dart": 1,
+    "ui/lib/overlays/step_up_screen.dart": 1,
+    "ui/lib/overlays/value_viewer.dart": 1,
+    "ui/lib/pages/log_in_data.dart": 1,
+    "ui/lib/tables/table_edits.dart": 8,
+    "ui/lib/tables/table_grid.dart": 1
   },
   "multi-dispatch": {
     "app/lib/connectors/flow_editor_page_connector.dart": 1
