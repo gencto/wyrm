@@ -139,7 +139,7 @@ class _Factory extends VmFactory<AppState, LinkInstallPageConnector, _Vm>
         modes: [for (final m in installModes) m.ui],
         nameError: installNameProblem?.ui,
         replaces: installReplaces,
-        rights: [...?li.rights?.map((r) => r.fact)],
+        rights: [...?li.rights?.map((r) => r.ui)],
         result: li.phase?.ui,
         message: li.message,
         hold: installBlock?.ui,

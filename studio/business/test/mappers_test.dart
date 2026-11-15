@@ -11,8 +11,8 @@ import 'package:business/wyrm/mappers/quarantine_entry_mapper.dart';
 import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:models/agent_task.dart';
-import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_origin.dart';
 import 'package:models/link_state.dart';
@@ -119,8 +119,9 @@ void main() {
             },
           ),
         ),
+        where: 'test',
         state: linkStateSampleOf(2).orWarn('test'),
-      ).orWarn('test')!;
+      );
 
       expect(l.id, 'modbus');
       expect(l.driver, 'modbus');
@@ -138,20 +139,33 @@ void main() {
       expect(linkStateSampleOf('failed'), const Valid(LinkState.failed));
     });
 
-    test('a mode, an origin or a text of another kind names its field', () {
-      NodeMeta meta(Map<String, Value> attr) => NodeMeta(attr: attr);
-      expect(
-        linkInfoOf('x', meta({'mode': const VStr('teleport')})),
-        const Invalid<LinkInfo>('link', 'mode', 'not a known mode'),
+    test('an attribute it cannot read is left at its default and logged, '
+        'the others stay', () {
+      final warnings = <String>[];
+      final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+      addTearDown(sub.cancel);
+      Logger.root.level = Level.ALL;
+      final l = linkInfoOf(
+        'x',
+        NodeMeta(
+          attr: {
+            'mode': const VStr('teleport'),
+            'origin': const VStr('moon'),
+            'driver': const VInt(3),
+            'package': const VStr('acme'),
+          },
+        ),
+        where: 'sys/links/x',
       );
-      expect(
-        linkInfoOf('x', meta({'origin': const VStr('moon')})),
-        const Invalid<LinkInfo>('link', 'origin', 'not a known origin'),
-      );
-      expect(
-        linkInfoOf('x', meta({'driver': const VInt(3)})),
-        const Invalid<LinkInfo>('link', 'driver', 'not a text'),
-      );
+      expect(l.mode, LinkMode.embedded);
+      expect(l.origin, LinkOrigin.config);
+      expect(l.driver, '');
+      expect(l.package, 'acme');
+      expect(warnings, [
+        'sys/links/x: link.driver: not a text',
+        'sys/links/x: link.mode: not a known name',
+        'sys/links/x: link.origin: not a known name',
+      ]);
     });
   });
 
@@ -193,7 +207,8 @@ void main() {
           },
         ),
       ),
-    ).orWarn('test')!;
+      where: 'test',
+    );
 
     expect(p.version, '0.1.0');
     expect(p.kind, PackageKind.process);

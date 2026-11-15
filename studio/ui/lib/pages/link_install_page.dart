@@ -548,7 +548,8 @@ class _Center extends StatelessWidget {
   List<Widget> _target(AppColors c) {
     final name = vm.name ?? '';
     final rights = [
-      ...vm.rights,
+      for (final r in vm.rights)
+        FactVm(label: r.kind, value: r.detail, mono: true),
       if (vm.rights.isEmpty && vm.result == InstallResult.failed)
         if (vm.message case final m?)
           FactVm(label: S.current.brokerSays, value: m),

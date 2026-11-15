@@ -12,10 +12,10 @@ import 'package:models/package_check_result.dart';
 import 'package:models/package_method.dart';
 import 'package:models/requested_right.dart';
 import 'package:ui/containers/catalog_card.dart';
-import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/indicators/check_list.dart';
 import 'package:ui/models/link_run_mode.dart';
 import 'package:ui/pages/link_install_data.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 // Add a link: one exhaustive map per domain enum to the `ui` enum that
 // draws it, both ways where a control reports a `ui` value back
@@ -141,7 +141,23 @@ extension PackageCheckUi on PackageCheck {
 }
 
 extension RequestedRightUi on RequestedRight {
-  FactVm get fact => FactVm(label: what, value: detail, mono: true);
+  InstallRightVm get ui => switch (this) {
+    RightNetwork(:final hosts) => NetworkRightVm(hosts),
+    RightStore(:final mib) => SizeRightVm(mib, store: true),
+    RightMemory(:final mib) => SizeRightVm(mib, store: false),
+    RightCall(:final ms) => CallRightVm(ms),
+    RightGrant(:final level, :final path) => GrantRightVm(level.ui, path),
+  };
+}
+
+extension PermGrantUi on Perm {
+  InstallGrantLevel get ui => switch (this) {
+    Perm.none => InstallGrantLevel.none,
+    Perm.list => InstallGrantLevel.list,
+    Perm.read => InstallGrantLevel.read,
+    Perm.write => InstallGrantLevel.write,
+    Perm.config => InstallGrantLevel.config,
+  };
 }
 
 extension CatalogItemUi on CatalogItem {

@@ -46,8 +46,11 @@ void main() {
       );
       expect(r.name, 'acme-meter');
       expect(r.kind, LinkMode.process);
-      expect(r.rights, const [
-        RequestedRight(what: 'read', detail: 'on wy/{site}/downstream/modbus'),
+      expect(r.rights, [
+        const RequestedRight.grant(
+          level: Perm.read,
+          path: 'wy/{site}/downstream/modbus',
+        ),
       ]);
       expect(r.manifest, contains('"wyrm_link": 1'));
     });
@@ -128,8 +131,8 @@ void main() {
         PackageCheckResult.ok,
       );
       expect(r.rights, const [
-        RequestedRight(what: 'network', detail: '10.0.5.0/24:502'),
-        RequestedRight(what: 'store', detail: '1 MiB'),
+        RequestedRight.network(['10.0.5.0/24:502']),
+        RequestedRight.store(1),
       ]);
     });
   });

@@ -13,63 +13,47 @@ const _shape = 'link';
 ///
 /// The admin's `view=list` sends no `attr`, so each link's meta is read on
 /// its own. The state is a value of its own (`sys/links/<id>/state`,
-/// [linkStateSampleOf]); [state] is it when known. An attribute of another
-/// type, or a mode or an origin this client does not know, is [Invalid]
-/// with its field.
-Decoded<LinkInfo> linkInfoOf(String id, NodeMeta m, {LinkState? state}) {
-  final texts = <String, String?>{};
-  for (final f in [
-    'driver',
-    'mode',
-    'package',
-    'version',
-    'source',
-    'sha256',
-    'device',
-    'address',
-    'cn',
-    'origin',
-  ]) {
-    switch (m.attr?[f]) {
-      case null || VNull():
-        texts[f] = null;
-      case VStr(:final v):
-        texts[f] = v;
-      default:
-        return Invalid(_shape, f, 'not a text');
-    }
-  }
-  final mode = switch (texts['mode']) {
-    null => LinkMode.embedded,
-    final w => LinkMode.fromWire(w),
+/// [linkStateSampleOf]); [state] is it when known. Each attribute is
+/// decoded on its own: one of another type, or a mode or an origin this
+/// client does not know, is left at its default **and logged** with its
+/// field and [where]; the others stay.
+LinkInfo linkInfoOf(
+  String id,
+  NodeMeta m, {
+  required String where,
+  LinkState? state,
+}) {
+  String? text(String f) => attrText(m, f).orWarn(where);
+  E? named<E>(String f, E? Function(String) fromWire) => switch (text(f)) {
+    null => null,
+    final w => switch (fromWire(w)) {
+      final e? => e,
+      null => Invalid<E>(_shape, f, 'not a known name').orWarn(where),
+    },
   };
-  if (mode == null) {
-    return const Invalid(_shape, 'mode', 'not a known mode');
-  }
-  final origin = switch (texts['origin']) {
-    null => LinkOrigin.config,
-    final w => LinkOrigin.fromWire(w),
-  };
-  if (origin == null) {
-    return const Invalid(_shape, 'origin', 'not a known origin');
-  }
-  return Valid(
-    LinkInfo(
-      id: id,
-      driver: texts['driver'] ?? '',
-      mode: mode,
-      state: state ?? LinkState.installed,
-      package: texts['package'],
-      version: texts['version'],
-      source: texts['source'],
-      sha256: texts['sha256'],
-      device: texts['device'] ?? texts['address'],
-      certificateCn: texts['cn'],
-      note: m.displayName,
-      origin: origin,
-    ),
+  return LinkInfo(
+    id: id,
+    driver: text('driver') ?? '',
+    mode: named('mode', LinkMode.fromWire) ?? LinkMode.embedded,
+    state: state ?? LinkState.installed,
+    package: text('package'),
+    version: text('version'),
+    source: text('source'),
+    sha256: text('sha256'),
+    device: text('device') ?? text('address'),
+    certificateCn: text('cn'),
+    note: m.displayName,
+    origin: named('origin', LinkOrigin.fromWire) ?? LinkOrigin.config,
   );
 }
+
+/// The text attribute [field] of [m]: none when absent; [Invalid] when it
+/// is not a text.
+Decoded<String?> attrText(NodeMeta m, String field) => switch (m.attr?[field]) {
+  null || VNull() => const Valid(null),
+  VStr(:final v) => Valid(v),
+  _ => Invalid(_shape, field, 'not a text'),
+};
 
 /// `attr.updates_available` of `sys/links` (ADR 0048 §1): how many links
 /// run a package with a newer version; none from a broker before it.

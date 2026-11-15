@@ -11,6 +11,9 @@ import 'package:models/package_check.dart';
 import 'package:models/package_check_result.dart';
 import 'package:models/requested_right.dart';
 
+import 'decode/decoded.dart';
+import 'decode/requested_rights.dart';
+
 /// The link protocol of this Studio's brokers (`LINK_PROTOCOL`).
 const linkProtocol = 1;
 
@@ -225,30 +228,25 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
     );
     checks.add(_skip('World', 'read from the component by the broker'));
   }
-  final rights = [
-    if (json['capabilities'] case final Map<String, Object?> c) ...[
-      if (c['net'] case final List<Object?> n when n.isNotEmpty)
-        RequestedRight(what: 'network', detail: n.join(', ')),
-      if (c['store_mb'] case final s?)
-        RequestedRight(what: 'store', detail: '$s MiB'),
-      if (c['memory_mb'] case final m?)
-        RequestedRight(what: 'memory', detail: '$m MiB'),
-      if (c['call_ms'] case final t?)
-        RequestedRight(what: 'call', detail: '$t ms'),
-    ],
-    if (json['requester'] case final List<Object?> r)
-      for (final g in r)
-        if (g case {'path': final p, 'level': final l})
-          RequestedRight(what: '$l', detail: 'on $p'),
-  ];
-  checks.add(
-    rights.isEmpty
-        ? _ok('Rights asked', 'none')
-        : _ok(
-            'Rights asked',
-            [for (final r in rights) '${r.what} ${r.detail}'].join('; '),
-          ),
-  );
+  final asked = requestedRightsOf(json['capabilities'], json['requester']);
+  final List<RequestedRight> rights;
+  switch (asked) {
+    case Valid(:final value):
+      rights = value;
+    case Invalid(:final field, :final reason):
+      rights = const [];
+      checks.add(_bad('Rights asked', '$field: $reason'));
+  }
+  if (asked is Valid) {
+    checks.add(
+      rights.isEmpty
+          ? _ok('Rights asked', 'none')
+          : _ok(
+              'Rights asked',
+              [for (final r in rights) rightText(r)].join('; '),
+            ),
+    );
+  }
   return (
     checks: checks,
     manifest: pretty,

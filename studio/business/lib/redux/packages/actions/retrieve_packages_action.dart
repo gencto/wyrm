@@ -23,11 +23,9 @@ class RetrievePackagesAction extends Action with WaitingAction {
     final list = await Future.wait([
       for (final c in names)
         metaOf(api, '$base/${c.name}').then(
-          // a package whose meta this client cannot read is listed by its
-          // name, and the field at fault is logged
-          (m) =>
-              packageInfoOf(c.name, m).orWarn('$base/${c.name}') ??
-              PackageInfo(name: c.name),
+          // an attribute this client cannot read is left at its default
+          // and logged with its field; the package keeps the rest
+          (m) => packageInfoOf(c.name, m, where: '$base/${c.name}'),
         ),
     ]);
     return state.copyWith.packages(

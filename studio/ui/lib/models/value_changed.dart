@@ -80,20 +80,6 @@ final class ToggleVm<T> extends Equatable {
   List<Object?> get props => [selected];
 }
 
-/// What a widget over a fixed set of typed items (an action card of an
-/// inspector) reports when one is picked: one callback for every item, the
-/// items keyed by their typed id (data-driven-widgets, "Out of the model").
-/// Its own type so a widget generic in the id can hold it.
-///
-/// No `props`: it is behaviour only.
-final class PickVm<T> {
-  const PickVm(this.onPick);
-
-  // Contravariant T in a callback param, safe here — same as FieldVm.
-  // ignore: unsafe_variance
-  final ValueChanged<T> onPick;
-}
-
 /// View-model for a form field: the current [value], a fire-and-forget
 /// [onChanged], an optional [validator] (the form runs it on submit), and an
 /// optional [error] for server/async errors injected onto the field.

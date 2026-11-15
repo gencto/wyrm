@@ -963,12 +963,11 @@ extension LinksTables on Selectors {
     ],
     () => {
       for (final MapEntry(:key, :value) in packages.table.entries)
-        key:
-            packageLiveOf(
-              value,
-              (leaf) => _live('packages/$key/$leaf'),
-            ).orWarn('sys/packages/$key') ??
-            value,
+        key: packageLiveOf(
+          value,
+          (leaf) => _live('packages/$key/$leaf'),
+          where: 'sys/packages/$key',
+        ),
     },
   );
 

@@ -329,7 +329,7 @@
     "business/lib/wyrm/mappers/quarantine_entry_mapper.dart": 7,
     "business/lib/wyrm/mappers/table_value.dart": 7,
     "business/lib/wyrm/mappers/value_text.dart": 1,
-    "business/lib/wyrm/package_check.dart": 11,
+    "business/lib/wyrm/package_check.dart": 8,
     "business/lib/wyrm/session.dart": 3,
     "business/lib/wyrm/transfer.dart": 6
   },

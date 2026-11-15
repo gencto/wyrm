@@ -685,7 +685,7 @@ void main() {
       expect(c.id, 'params:$sys/links/modbus');
       expect(c.key, '$sys/links/modbus');
       expect(c.from, 'rev 3');
-      expect(c.args?['params'], {'poll_s': 2});
+      expect(c.args['params'], {'poll_s': 2});
       await app.leave(t);
     });
 

@@ -2,7 +2,6 @@ import 'package:equatable/equatable.dart';
 import 'package:localization/localization.dart';
 
 import '../containers/catalog_card.dart';
-import '../containers/fact_grid.dart';
 import '../indicators/check_list.dart';
 import '../models/link_run_mode.dart';
 import '../shell/window_bar.dart';
@@ -156,6 +155,90 @@ enum InstallHold {
   needsConfig,
 }
 
+/// A level a package's grant asks for.
+enum InstallGrantLevel {
+  none('none'),
+  list('list'),
+  read('read'),
+  write('write'),
+  config('config');
+
+  const InstallGrantLevel(this.code);
+
+  /// The level's own name, as the manifest writes it.
+  final String code;
+}
+
+/// One right a custom package asks for, as typed values; the rights card
+/// says each as its kind and what it covers, in the manifest's own terms
+/// (`network` `10.0.5.0/24:502`, `read` `on wy/{site}/…`).
+sealed class InstallRightVm extends Equatable {
+  const InstallRightVm();
+
+  /// The kind, in the manifest's own word.
+  String get kind;
+
+  /// What it covers.
+  String get detail;
+
+  @override
+  List<Object?> get props => [kind, detail];
+}
+
+/// The hosts and nets it may reach.
+final class NetworkRightVm extends InstallRightVm {
+  const NetworkRightVm(this.hosts);
+
+  final List<String> hosts;
+
+  @override
+  String get kind => 'network';
+
+  @override
+  String get detail => hosts.join(', ');
+}
+
+/// A size in MiB: its store ([store]) or its memory.
+final class SizeRightVm extends InstallRightVm {
+  const SizeRightVm(this.mib, {required this.store});
+
+  final int mib;
+  final bool store;
+
+  @override
+  String get kind => store ? 'store' : 'memory';
+
+  @override
+  String get detail => '$mib MiB';
+}
+
+/// The time of one call, in ms.
+final class CallRightVm extends InstallRightVm {
+  const CallRightVm(this.ms);
+
+  final int ms;
+
+  @override
+  String get kind => 'call';
+
+  @override
+  String get detail => '$ms ms';
+}
+
+/// A grant: [level] on the keys of [path].
+final class GrantRightVm extends InstallRightVm {
+  const GrantRightVm(this.level, this.path);
+
+  final InstallGrantLevel level;
+  final String path;
+
+  @override
+  String get kind => level.code;
+
+  @override
+  String get detail => 'on $path';
+}
+
 /// A broker a link can go to: the site, its host when known, and why it
 /// cannot take the link (null: it can).
 final class InstallBrokerVm extends Equatable {
@@ -275,7 +358,7 @@ final class LinkInstallVm extends Equatable {
   final List<LinkRunMode> modes;
   final InstallNameError? nameError;
   final bool replaces;
-  final List<FactVm> rights;
+  final List<InstallRightVm> rights;
 
   /// The last step: where the install is, and the broker's words.
   final InstallResult? result;

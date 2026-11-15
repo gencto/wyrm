@@ -2,10 +2,13 @@ import 'package:business/wyrm/decode/broker_text.dart';
 import 'package:business/wyrm/decode/catalog_rows.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/install_field.dart';
+import 'package:business/wyrm/decode/link_params.dart';
+import 'package:business/wyrm/decode/requested_rights.dart';
 import 'package:business/wyrm/decode/sys_verdict.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:models/install_field.dart';
+import 'package:models/requested_right.dart';
 import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -162,6 +165,100 @@ void main() {
       expect(installFieldOf('url', git: true), InstallField.git);
       expect(installFieldOf('ref', git: true), InstallField.ref);
       expect(installFieldOf('driver', git: false), isNull);
+    });
+  });
+
+  group('sysRunOf', () {
+    test('no answer is a run that said nothing; a map is its verdict', () {
+      expect(sysRunOf(const VNull()), const Valid(SysVerdict(success: true)));
+      expect(
+        sysRunOf(Value.from({'success': false, 'message': 'asks for net'})),
+        const Valid(SysVerdict(success: false, message: 'asks for net')),
+      );
+    });
+  });
+
+  group('brokerBoolOf', () {
+    test('a bool, none, or another type named', () {
+      expect(
+        brokerBoolOf(const VBool(true), 'p', 'f'),
+        const Valid<bool?>(true),
+      );
+      expect(brokerBoolOf(null, 'p', 'f'), const Valid<bool?>(null));
+      expect(
+        brokerBoolOf(const VStr('yes'), 'p', 'f'),
+        const Invalid<bool?>('p', 'f', 'not a bool'),
+      );
+    });
+  });
+
+  group('linkParamsOf', () {
+    test('one JSON object, JSON that is no object, or no JSON', () {
+      expect(
+        switch (linkParamsOf('{"poll_s": 2}')) {
+          ParamsObject(:final params) => params,
+          _ => null,
+        },
+        {'poll_s': 2},
+      );
+      expect(linkParamsOf('[1]'), isA<ParamsNotObject>());
+      expect(
+        switch (linkParamsOf('{"poll_s": ')) {
+          ParamsNotJson(:final detail) => detail,
+          _ => null,
+        },
+        isNotEmpty,
+      );
+    });
+  });
+
+  group('requestedRightsOf', () {
+    test('the capabilities and the grants, typed', () {
+      expect(
+        requestedRightsOf(
+          {
+            'net': ['10.0.5.0/24:502'],
+            'store_mb': 1,
+            'memory_mb': 64,
+            'call_ms': 200,
+          },
+          [
+            {'path': 'wy/{site}/downstream/modbus', 'level': 'read'},
+          ],
+        ).orWarn('test'),
+        [
+          const RequestedRight.network(['10.0.5.0/24:502']),
+          const RequestedRight.store(1),
+          const RequestedRight.memory(64),
+          const RequestedRight.call(200),
+          const RequestedRight.grant(
+            level: Perm.read,
+            path: 'wy/{site}/downstream/modbus',
+          ),
+        ],
+      );
+      expect(requestedRightsOf(null, null).orWarn('test'), isEmpty);
+    });
+
+    test('a field of another type names it', () {
+      expect(
+        requestedRightsOf({'store_mb': '1'}, null),
+        const Invalid<List<RequestedRight>>(
+          'package manifest',
+          'capabilities.store_mb',
+          'not a whole number',
+        ),
+      );
+      expect(
+        requestedRightsOf(null, [
+          {'path': 'x', 'level': 'admin'},
+        ]),
+        const Invalid<List<RequestedRight>>(
+          'package manifest',
+          'requester.level',
+          'not a level',
+        ),
+      );
     });
   });
 }

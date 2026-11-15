@@ -17,6 +17,7 @@ import 'package:business/redux/updates/actions/update_package_action.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/package_info.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:models/package_info.dart';
 import 'package:models/restore_point.dart';
 import 'package:models/update_result.dart';
@@ -84,7 +85,8 @@ void main() {
         },
         _ => null,
       },
-    ).orWarn('test')!;
+      where: 'test',
+    );
     expect(p.version, '0.4.2');
     expect(p.latest, '0.5.0');
     expect(p.updateAvailable, isTrue);
@@ -103,7 +105,8 @@ void main() {
       (leaf) => leaf == 'previous' || leaf == 'last_update'
           ? <String, Object?>{}
           : null,
-    ).orWarn('test')!;
+      where: 'test',
+    );
     expect(p.previous, isNull);
     expect(p.lastUpdate, isNull);
   });
@@ -117,31 +120,28 @@ void main() {
     expect(points.last.version, '');
   });
 
-  test('a leaf of another type names its field', () {
-    expect(
-      packageLiveOf(
-        const PackageInfo(name: 'x'),
-        (leaf) => switch (leaf) {
-          'update_available' => 'yes',
-          _ => null,
-        },
-      ),
-      const Invalid<PackageInfo>('package', 'update_available', 'not a bool'),
+  test('a leaf of another type is left out and logged, the others stay', () {
+    final warnings = <String>[];
+    final sub = decodeLog.onRecord.listen((r) => warnings.add(r.message));
+    addTearDown(sub.cancel);
+    Logger.root.level = Level.ALL;
+    final p = packageLiveOf(
+      const PackageInfo(name: 'x', latest: '0.1.0'),
+      (leaf) => switch (leaf) {
+        'update_available' => 'yes',
+        'latest' => '0.2.0',
+        'last_update' => {'result': 'exploded'},
+        _ => null,
+      },
+      where: 'sys/packages/x',
     );
-    expect(
-      packageLiveOf(
-        const PackageInfo(name: 'x'),
-        (leaf) => switch (leaf) {
-          'last_update' => {'result': 'exploded'},
-          _ => null,
-        },
-      ),
-      const Invalid<PackageInfo>(
-        'package',
-        'last_update.result',
-        'not a known result',
-      ),
-    );
+    expect(p.updateAvailable, isFalse);
+    expect(p.latest, '0.2.0');
+    expect(p.lastUpdate, isNull);
+    expect(warnings, [
+      'sys/packages/x: package.update_available: not a bool',
+      'sys/packages/x: last update.result: not a known result',
+    ]);
     expect(
       restorePointsOf([
         {'at': 'yesterday'},

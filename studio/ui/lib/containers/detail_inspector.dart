@@ -6,7 +6,6 @@ import '../forms/action_form.dart';
 import '../forms/param_form.dart';
 import '../indicators/key_text.dart';
 import '../indicators/status_pill.dart';
-import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
@@ -112,12 +111,16 @@ class DetailInspector<T> extends StatelessWidget {
     this.busy = false,
     this.width = 340,
     super.key,
-  }) : _onAction = PickVm(onAction);
+  }) : _taps = [
+         for (final g in vm.groups)
+           [for (final a in g.actions) () => onAction(a.id)],
+       ];
 
   final DetailInspectorVm<T> vm;
 
-  /// An action card tapped, by its id.
-  final PickVm<T> _onAction;
+  /// What a tap on each action card reports, group by group: `onAction`
+  /// with the card's id, resolved once here.
+  final List<List<VoidCallback>> _taps;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
@@ -177,13 +180,13 @@ class DetailInspector<T> extends StatelessWidget {
               crossAxisAlignment: .stretch,
               spacing: 8,
               children: [
-                for (final g in vm.groups) ...[
+                for (final (i, g) in vm.groups.indexed) ...[
                   Padding(
                     padding: Insets.inspectorGroup,
                     child: SectionLabel(g.label),
                   ),
-                  for (final a in g.actions)
-                    ActionRow(vm: a, onTap: () => _onAction.onPick(a.id)),
+                  for (final (j, a) in g.actions.indexed)
+                    ActionRow(vm: a, onTap: _taps[i][j]),
                 ],
                 if (vm.form case final f?) ...[
                   Padding(

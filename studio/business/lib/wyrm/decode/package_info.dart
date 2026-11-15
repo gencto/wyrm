@@ -14,35 +14,31 @@ const _report = 'last update';
 const _points = 'restore points';
 
 /// The full `~meta` of `sys/packages/<name>` (`wy:package`) as a
-/// [PackageInfo]; a field of another type, or a kind this client does not
-/// know, is [Invalid] with its field.
-Decoded<PackageInfo> packageInfoOf(String name, NodeMeta m) {
-  final texts = <String, String?>{};
-  for (final f in ['version', 'kind', 'source', 'sha256']) {
-    switch (m.attr?[f]) {
-      case null || VNull():
-        texts[f] = null;
-      case VStr(:final v):
-        texts[f] = v;
-      default:
-        return Invalid(_package, f, 'not a text');
-    }
-  }
-  final kind = switch (texts['kind']) {
-    null => PackageKind.process,
-    final w => PackageKind.fromWire(w),
+/// [PackageInfo]. Each attribute is decoded on its own: one of another
+/// type, or a kind this client does not know, is left at its default
+/// **and logged** with its field and [where].
+PackageInfo packageInfoOf(String name, NodeMeta m, {required String where}) {
+  String? text(String f) => switch (m.attr?[f]) {
+    null || VNull() => null,
+    VStr(:final v) => v,
+    _ => Invalid<String>(_package, f, 'not a text').orWarn(where),
   };
-  if (kind == null) {
-    return const Invalid(_package, 'kind', 'not a known kind');
-  }
-  return Valid(
-    PackageInfo(
-      name: name,
-      version: texts['version'] ?? '',
-      kind: kind,
-      source: texts['source'],
-      sha256: texts['sha256'],
-    ),
+  return PackageInfo(
+    name: name,
+    version: text('version') ?? '',
+    kind: switch (text('kind')) {
+      null => PackageKind.process,
+      final w =>
+        PackageKind.fromWire(w) ??
+            const Invalid<PackageKind>(
+              _package,
+              'kind',
+              'not a known kind',
+            ).orWarn(where) ??
+            PackageKind.process,
+    },
+    source: text('source'),
+    sha256: text('sha256'),
   );
 }
 
@@ -60,69 +56,43 @@ const packageLeaves = [
 
 /// [p] with the live values of `sys/packages/<name>`: [value] gives the
 /// live value of a leaf of [packageLeaves] as plain Dart, or null when
-/// none arrived yet (the meta's stays). A leaf of another shape is
-/// [Invalid] with its name.
-Decoded<PackageInfo> packageLiveOf(
+/// none arrived yet (the meta's stays). Each leaf is decoded on its own:
+/// one of another shape is left out **and logged** with its name and
+/// [where]; the others stay.
+PackageInfo packageLiveOf(
   PackageInfo p,
-  Object? Function(String leaf) value,
-) {
-  final Map<String, Object?>? kept;
-  switch (value('previous')) {
-    case null:
-      kept = null;
-    case final Map<Object?, Object?> m:
-      kept = m.isEmpty
-          ? null
-          : {for (final e in m.entries) '${e.key}': e.value};
-    default:
-      return const Invalid(_package, 'previous', 'not a map');
-  }
-  final report = updateReportOf(value('last_update'));
-  final UpdateReport? last;
-  switch (report) {
-    case Valid(:final value):
-      last = value;
-    case Invalid(:final field, :final reason):
-      return Invalid(_package, 'last_update.$field', reason);
-  }
-  final version = liveText(value('version'), _package, 'version');
-  final latest = liveText(value('latest'), _package, 'latest');
-  final available = _bool(value('update_available'), 'update_available');
-  final changes = _bool(value('changes_state'), 'changes_state');
-  final format = liveInt(value('state'), _package, 'state');
-  final previous = liveText(kept?['version'], _package, 'previous.version');
-  final until = liveInt(kept?['keep_until'], _package, 'previous.keep_until');
-  final back = _bool(kept?['changes_state'], 'previous.changes_state');
-  for (final d in <Decoded<Object?>>[
-    version,
-    latest,
-    available,
-    changes,
-    format,
-    previous,
-    until,
-    back,
-  ]) {
-    if (d case Invalid(:final field, :final reason)) {
-      return Invalid(_package, field, reason);
-    }
-  }
-  T? v<T>(Decoded<T?> d) => (d as Valid<T?>).value;
-  return Valid(
-    p.copyWith(
-      version: switch (v(version)) {
-        final s? when s.isNotEmpty => s,
-        _ => p.version,
-      },
-      latest: v(latest) ?? p.latest,
-      updateAvailable: v(available) ?? p.updateAvailable,
-      changesState: v(changes) ?? p.changesState,
-      state: v(format) ?? p.state,
-      previous: v(previous),
-      keepUntil: v(until) ?? 0,
-      previousChangesState: v(back) ?? false,
-      lastUpdate: last,
+  Object? Function(String leaf) value, {
+  required String where,
+}) {
+  T? ok<T>(Decoded<T?> d) => d.orWarn(where);
+  final kept = switch (value('previous')) {
+    null => null,
+    final Map<Object?, Object?> m when m.isEmpty => null,
+    final Map<Object?, Object?> m => {
+      for (final e in m.entries) '${e.key}': e.value,
+    },
+    _ => ok(
+      const Invalid<Map<String, Object?>>(_package, 'previous', 'not a map'),
     ),
+  };
+  return p.copyWith(
+    version: switch (ok(liveText(value('version'), _package, 'version'))) {
+      final s? when s.isNotEmpty => s,
+      _ => p.version,
+    },
+    latest: ok(liveText(value('latest'), _package, 'latest')) ?? p.latest,
+    updateAvailable:
+        ok(_bool(value('update_available'), 'update_available')) ??
+        p.updateAvailable,
+    changesState:
+        ok(_bool(value('changes_state'), 'changes_state')) ?? p.changesState,
+    state: ok(liveInt(value('state'), _package, 'state')) ?? p.state,
+    previous: ok(liveText(kept?['version'], _package, 'previous.version')),
+    keepUntil:
+        ok(liveInt(kept?['keep_until'], _package, 'previous.keep_until')) ?? 0,
+    previousChangesState:
+        ok(_bool(kept?['changes_state'], 'previous.changes_state')) ?? false,
+    lastUpdate: ok(updateReportOf(value('last_update'))),
   );
 }
 

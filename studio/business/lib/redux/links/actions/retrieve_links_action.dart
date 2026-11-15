@@ -31,11 +31,9 @@ class RetrieveLinksAction extends Action with WaitingAction {
     final links = await Future.wait([
       for (final c in ids)
         metaOf(api, '$base/${c.name}').then(
-          // a link whose meta this client cannot read is listed by its id,
-          // and the field at fault is logged
-          (m) =>
-              linkInfoOf(c.name, m).orWarn('$base/${c.name}') ??
-              LinkInfo(id: c.name),
+          // an attribute this client cannot read is left at its default
+          // and logged with its field; the link keeps the rest
+          (m) => linkInfoOf(c.name, m, where: '$base/${c.name}'),
         ),
     ]);
     final version = await readValue(api, '$root/sys/version');
