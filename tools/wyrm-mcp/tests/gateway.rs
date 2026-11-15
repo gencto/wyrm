@@ -93,6 +93,7 @@ impl ClientHandler for TestClient {
 }
 
 struct Env {
+    gw: Arc<Gateway>,
     url: String,
     ca: PathBuf,
     stop: Option<oneshot::Sender<()>>,
@@ -151,6 +152,7 @@ impl Env {
             .await
             .unwrap();
         Self {
+            gw,
             url: format!("https://localhost:{}", addr.port()),
             ca,
             stop: Some(stop),
@@ -419,7 +421,12 @@ async fn read_only_and_allow_config_and_a_wrong_password() {
 async fn a_large_file_argument_goes_by_http() {
     use base64::Engine as _;
     let env = Env::start("bulk").await;
-    let mcp = env.mcp("claude", "operator password", false, false).await;
+    // a password made at run time (none in the source)
+    let pw = format!("bulk-{:x}", std::process::id());
+    env.gw
+        .add_user("bulk", &pw, vec!["operator".into()])
+        .unwrap();
+    let mcp = env.mcp("bulk", &pw, false, false).await;
     let n = 300usize << 10;
     let b64 = base64::engine::general_purpose::STANDARD.encode(vec![5u8; n]);
     let args = json!({ "data": { "$bytes": b64 } });

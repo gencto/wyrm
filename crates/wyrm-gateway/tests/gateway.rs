@@ -21,6 +21,13 @@ use wyrm_link_sdk::{LinkConfig, LinkHandle};
 const ROOT: &str = "wy/test/downstream/mock";
 const ADMIN_PW: &str = "admin password";
 
+/// Nanoseconds since the Unix epoch (for passwords made at run time).
+fn now_ns() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos())
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("wyrm-gateway-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
@@ -1030,17 +1037,20 @@ async fn rust_client_sends_large_arguments_by_http() {
     let up = wyrm_link_sdk::spawn::<Upload>(env.session.clone(), lc, ())
         .await
         .unwrap();
+    // passwords made at run time (none in the source)
+    let pw = |u: &str| format!("{u}-{:x}-{:x}", std::process::id(), now_ns());
+    let (viewer_pw, op_pw) = (pw("viewer2"), pw("op2"));
     env.gw
-        .add_user("viewer2", "viewer pw 2", vec!["viewer".into()])
+        .add_user("viewer2", &viewer_pw, vec!["viewer".into()])
         .unwrap();
     env.gw
-        .add_user("op2", "operator pw 2", vec!["operator".into()])
+        .add_user("op2", &op_pw, vec!["operator".into()])
         .unwrap();
     let url = format!("http://127.0.0.1:{}", env.addr.port());
-    let login = |u: &'static str, pw: &'static str| {
+    let login = |u: &'static str, pw: String| {
         let url = url.clone();
         async move {
-            wyrm_gateway_client::Gateway::login(&url, u, pw)
+            wyrm_gateway_client::Gateway::login(&url, u, &pw)
                 .await
                 .unwrap()
                 .connect()
@@ -1048,7 +1058,7 @@ async fn rust_client_sends_large_arguments_by_http() {
                 .unwrap()
         }
     };
-    let root = login("root", ADMIN_PW).await;
+    let root = login("root", ADMIN_PW.to_owned()).await;
     let node = format!("wy/{SITE}/downstream/upload");
     let data = |n: usize| map([("data", Value::Bytes(vec![7u8; n]))]);
 
@@ -1079,7 +1089,7 @@ async fn rust_client_sends_large_arguments_by_http() {
     }
     assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
     // the action's level: a viewer is refused before the body goes
-    let viewer = login("viewer2", "viewer pw 2").await;
+    let viewer = login("viewer2", viewer_pw).await;
     let e = viewer
         .invoke(&node, "put", data(1 << 20))
         .await
@@ -1120,7 +1130,7 @@ async fn rust_client_sends_large_arguments_by_http() {
     );
 
     // a session that ended: 401 comes back, not a reset while the body goes
-    let op = login("op2", "operator pw 2").await;
+    let op = login("op2", op_pw).await;
     assert_eq!(
         op.invoke(&node, "put", data(200 << 10)).await.unwrap(),
         Some(Value::UInt(200 << 10))
