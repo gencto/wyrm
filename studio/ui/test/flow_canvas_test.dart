@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
@@ -56,7 +57,6 @@ void main() {
   const blocks = [
     FlowBlockVm(
       id: 'a',
-      title: 'a',
       x: 40,
       y: 40,
       rows: [
@@ -72,7 +72,6 @@ void main() {
     ),
     FlowBlockVm(
       id: 'b',
-      title: 'b',
       x: 400,
       y: 40,
       rows: [
@@ -93,11 +92,10 @@ void main() {
           outMark: PortMark.free,
         ),
       ],
-      variadic: VariadicVm(label: '2 inputs'),
+      variadic: VariadicVm(.inputs, count: 2),
     ),
     FlowBlockVm(
       id: 'c',
-      title: 'c',
       x: 400,
       y: 300,
       rows: [
@@ -114,6 +112,10 @@ void main() {
     ),
   ];
   const wires = [FlowWireVm('a', 'out', 'b', 'in.input_max')];
+
+  /// The row the canvas reports, by its key (as the app finds its field).
+  String rowOf(RowRef r) =>
+      blocks.firstWhere((b) => b.id == r.block).rows[r.row].id;
 
   // The selection lives outside the canvas, as in the app: the harness
   // keeps it and hands the blocks back marked.
@@ -136,21 +138,19 @@ void main() {
               ],
               wires: wires,
               controller: controller,
-              onSelectMany: (ids, {required add, required toggle}) =>
-                  setState(() {
-                    if (toggle) {
-                      for (final id in ids) {
-                        if (!selected.remove(id)) {
-                          selected.add(id);
-                        }
-                      }
-                    } else {
-                      selected = {if (add) ...selected, ...ids};
+              onSelectMany: (s) => setState(() {
+                if (s.toggle) {
+                  for (final id in s.ids) {
+                    if (!selected.remove(id)) {
+                      selected.add(id);
                     }
-                  }),
-              onCommand: (c, {at}) => commands.add((c, at)),
-              onPin: (b, f, {required pinned}) => pins.add((b, f, pinned)),
-              onViewField: (b, r) => viewed.add((b, r)),
+                  }
+                } else {
+                  selected = {if (s.add) ...selected, ...s.ids};
+                }
+              }),
+              onCommand: (c) => commands.add((c.command, c.at)),
+              onViewField: (r) => viewed.add((r.block, rowOf(r))),
               menu: QueryVm(
                 (ask) => FlowMenuVm(
                   block: ask.block,
@@ -166,45 +166,56 @@ void main() {
                       off: FlowOff(.needsBroker),
                     ),
                   ],
-                  fields: ask.block == null
-                      ? const []
-                      : const [
-                          FlowPinVm(id: 'p:a', label: 'Alpha', pinned: true),
-                          FlowPinVm(id: 'p:b', label: 'Beta', pinned: false),
-                          FlowPinVm(
-                            id: 'p:c',
-                            label: 'Gamma',
-                            pinned: true,
-                            locked: true,
-                          ),
-                        ],
-                  unpin: switch (ask.row) {
-                    final row? => FlowPinVm(
-                      id: row,
+                  fields: switch (ask.block) {
+                    null => const [],
+                    final b => [
+                      FlowPinVm(
+                        label: 'Alpha',
+                        pinned: true,
+                        onPin: (on) => pins.add((b, 'p:a', on)),
+                      ),
+                      FlowPinVm(
+                        label: 'Beta',
+                        pinned: false,
+                        onPin: (on) => pins.add((b, 'p:b', on)),
+                      ),
+                      FlowPinVm(
+                        label: 'Gamma',
+                        pinned: true,
+                        locked: true,
+                        onPin: (on) => pins.add((b, 'p:c', on)),
+                      ),
+                    ],
+                  },
+                  unpin: switch ((ask.block, ask.row)) {
+                    (final b?, final row?) => FlowPinVm(
                       label: 'Row',
                       pinned: true,
+                      onPin: (on) => pins.add((b, rowOf(RowRef(b, row)), on)),
                     ),
-                    null => null,
+                    _ => null,
                   },
                 ),
               ),
-              actions: FlowBlockActions(
-                onSelect: (id) => setState(() => selected = {id}),
-                onBind: (f, b, p) => bound.add((f, b, p)),
-                onRebind: (ob, op, b, p) => rebound.add((ob, op, b, p)),
-                onUnbind: (b, r) => unbound.add((b, r)),
-                onResize: (b, {required add}) => resized.add((b, add)),
-                refusal: (from, block, row, {replacing}) =>
-                    row.startsWith('out:') ? 'Outputs cannot be bound' : null,
+              onSelect: (id) => setState(() => selected = {id}),
+              onBind: (w) => bound.add((w.from, w.block, w.port)),
+              onRebind: (w) => rebound.add(
+                (w.from.block, w.from.port, w.to.block, w.to.port),
+              ),
+              onUnbind: (r) => unbound.add((r.block, rowOf(r))),
+              onResize: (r) => resized.add((r.block, r.add)),
+              refusal: QueryVm(
+                (ask) =>
+                    ask.row.id.startsWith('out:') ? const RefuseOutput() : null,
               ),
               onClear: () => setState(() {
                 selected = {};
                 cleared++;
               }),
-              onMove: (to, {required nudge}) {
-                nudges.add(nudge);
+              onMove: (m) {
+                nudges.add(m.nudge);
                 moved.addAll([
-                  for (final e in to.entries) (e.key, e.value.dx, e.value.dy),
+                  for (final e in m.to.entries) (e.key, e.value.dx, e.value.dy),
                 ]);
               },
             ),

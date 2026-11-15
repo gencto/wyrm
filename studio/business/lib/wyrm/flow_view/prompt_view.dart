@@ -25,6 +25,7 @@ final class ScopePromptView extends Equatable {
   const ScopePromptView({
     required this.block,
     required this.row,
+    required this.place,
     required this.value,
     required this.suggestions,
   });
@@ -32,12 +33,16 @@ final class ScopePromptView extends Equatable {
   final String block;
   final FieldId row;
 
+  /// Where [row] stands among the block's rows on the canvas; -1: it does
+  /// not show (the prompt stands under the first).
+  final int place;
+
   /// The scope it starts with: the block's own, else the suggested one.
   final String value;
   final IList<String> suggestions;
 
   @override
-  List<Object?> get props => [block, row, value, suggestions];
+  List<Object?> get props => [block, row, place, value, suggestions];
 }
 
 /// The scope prompt of block [block] of [blocks] (with its [rows], the
@@ -57,9 +62,11 @@ ScopePromptView? scopePromptOf(
   final own = b.textOf(keyed.scope);
   final suggested = scopeSuggestion(b.textOf(keyed.key), site: siteOf(root));
   final onBlock = rows[b.id]?.any((f) => f.id == keyed.scopeField) ?? false;
+  final row = onBlock ? keyed.scopeField : keyed.keyField;
   return ScopePromptView(
     block: b.id,
-    row: onBlock ? keyed.scopeField : keyed.keyField,
+    row: row,
+    place: rows[b.id]?.indexWhere((f) => f.id == row) ?? -1,
     value: own == null || own.trim().isEmpty ? suggested : own,
     suggestions: {
       suggested,

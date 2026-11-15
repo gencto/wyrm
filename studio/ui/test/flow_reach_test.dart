@@ -4,6 +4,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
+import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_legend.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/shortcut_card.dart';
@@ -48,7 +49,7 @@ void main() {
     List<FlowBlockVm>? blocks,
     String? view,
     double width = 1000,
-    void Function(FlowCommand c, {Offset? at})? onCommand,
+    ValueChanged<CanvasCommand>? onCommand,
   }) => frame(
     SizedBox(
       width: width,
@@ -66,16 +67,12 @@ void main() {
           ),
         ),
         legend: true,
-        actions: FlowBlockActions(
-          onSelect: picked.add,
-          onBind: (_, _, _) {},
-          onRebind: (_, _, _, _) {},
-          onUnbind: (_, _) {},
-          onResize: (_, {required add}) {},
-          refusal: (_, _, _, {replacing}) => null,
-        ),
+        onSelect: picked.add,
+        onBind: (_) {},
+        onRebind: (_) {},
+        onUnbind: (_) {},
         onClear: () {},
-        onMove: (_, {required nudge}) {},
+        onMove: (_) {},
       ),
     ),
   );
@@ -237,7 +234,7 @@ void main() {
     final ctl = TransformationController();
     addTearDown(ctl.dispose);
     final commands = <FlowCommand>[];
-    void onCommand(FlowCommand c, {Offset? at}) => commands.add(c);
+    void onCommand(CanvasCommand c) => commands.add(c.command);
     await tester.pumpWidget(
       canvas(ctl, [], blocks: big, view: 'big', onCommand: onCommand),
     );

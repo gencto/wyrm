@@ -757,7 +757,7 @@ class _Row extends StatelessWidget {
     // A wire dragged out of the canvas and let go here binds the field.
     return FieldDropZone(
       drop: FieldDrop(vm.id, onDrop: (from) => onBind(vm.id, from)),
-      builder: (context, lit) => row(lit),
+      builder: (context, lit, _) => row(lit),
     );
   }
 

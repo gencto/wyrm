@@ -177,6 +177,15 @@ final class FlowView extends Equatable {
   /// A block is selected: Remove block is on.
   bool get removable => selected != null;
 
+  /// The field that stands at place [row] among block [block]'s rows on the
+  /// canvas (what the canvas reports a row by); null when there is none.
+  FieldId? rowAt(String block, int row) {
+    final rows = blocks.where((b) => b.id == block).firstOrNull?.rows;
+    return rows == null || row < 0 || row >= rows.length
+        ? null
+        : rows[row].id;
+  }
+
   @override
   List<Object?> get props => [
     root,

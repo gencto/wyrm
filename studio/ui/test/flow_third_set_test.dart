@@ -144,14 +144,13 @@ void main() {
   ) async {
     await show(
       tester,
-      Center(
+      const Center(
         child: FlowBlockView(
-          vm: const FlowBlockVm(
+          vm: FlowBlockVm(
             id: 'page',
-            title: 'page',
             x: 0,
             y: 0,
-            type: 'table_page',
+            caption: ['table_page'],
             rows: [
               FieldRowVm(
                 id: 'in:next',
@@ -171,13 +170,6 @@ void main() {
                 outMark: PortMark.free,
               ),
             ],
-          ),
-          actions: FlowBlockActions(
-            onSelect: (_) {},
-            onBind: (_, _, _) {},
-            onRebind: (_, _, _, _) {},
-            onUnbind: (_, _) {},
-            onResize: (_, {required add}) {},
           ),
         ),
       ),

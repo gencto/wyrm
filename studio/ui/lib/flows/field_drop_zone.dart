@@ -34,12 +34,12 @@ FieldDrop? fieldDropAt(Offset global, int viewId) {
 }
 
 /// Wraps a field that takes a wire dragged from the canvas; [builder] draws
-/// it lit while the wire is over it.
+/// it, lit (its value true) while the wire is over it.
 class FieldDropZone extends StatelessWidget {
   const FieldDropZone({required this.drop, required this.builder, super.key});
 
   final FieldDrop drop;
-  final Widget Function(BuildContext context, bool lit) builder;
+  final ValueWidgetBuilder<bool> builder;
 
   @override
   Widget build(BuildContext context) => MetaData(
@@ -47,7 +47,7 @@ class FieldDropZone extends StatelessWidget {
     behavior: .translucent,
     child: ValueListenableBuilder<String?>(
       valueListenable: fieldDropHover,
-      builder: (context, hover, _) => builder(context, hover == drop.id),
+      builder: (context, hover, _) => builder(context, hover == drop.id, null),
     ),
   );
 }

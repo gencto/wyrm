@@ -6,7 +6,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
-import 'package:ui/flows/flow_block_view.dart';
 import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_status.dart';
@@ -36,7 +35,7 @@ void main() {
   group('the scope prompt', () {
     const vm = ScopePromptVm(
       block: 'level',
-      row: 'p:key_scope',
+      row: 1,
       value: 'downstream/modbus/line1/**',
       suggestions: ['downstream/modbus/line1/**', 'storage/**'],
     );
@@ -98,16 +97,16 @@ void main() {
         FlowCanvas(
           blocks: page.blocks,
           wires: page.wires,
-          actions: FlowBlockActions(
-            onSelect: (_) {},
-            onBind: (_, _, _) {},
-            onRebind: (_, _, _, _) {},
-            onUnbind: (_, _) {},
-            onResize: (_, {required add}) {},
-            onRowAction: (b, r) => asked.add((b, r)),
-          ),
+          onSelect: (_) {},
+          onBind: (_) {},
+          onRebind: (_) {},
+          onUnbind: (_) {},
+          onRowAction: (r) => asked.add((
+            r.block,
+            page.blocks.firstWhere((b) => b.id == r.block).rows[r.row].id,
+          )),
           onClear: () {},
-          onMove: (_, {required nudge}) {},
+          onMove: (_) {},
           prompt: page.prompt,
         ),
       );
@@ -233,9 +232,12 @@ void main() {
           tree: rows(dropped, writable: writable),
           blocks: const [],
           wires: const [],
-          blockActions: base.blockActions,
+          onSelect: base.onSelect,
+          onBind: base.onBind,
+          onRebind: base.onRebind,
+          onUnbind: base.onUnbind,
           onClear: () {},
-          onMove: (_, {required nudge}) {},
+          onMove: (_) {},
           onFieldChanged: (_, _) {},
           onFieldUnbind: (_) {},
           onFieldBind: (_, _) {},
@@ -444,16 +446,13 @@ void main() {
         FlowCanvas(
           blocks: page.blocks,
           wires: page.wires,
-          actions: FlowBlockActions(
-            onSelect: (_) {},
-            onBind: (_, _, _) {},
-            onRebind: (_, _, _, _) {},
-            onUnbind: (_, _) {},
-            onResize: (_, {required add}) {},
-            onOpen: opened.add,
-          ),
+          onSelect: (_) {},
+          onBind: (_) {},
+          onRebind: (_) {},
+          onUnbind: (_) {},
+          onOpen: opened.add,
           onClear: () {},
-          onMove: (_, {required nudge}) {},
+          onMove: (_) {},
         ),
       );
       await tester.tap(find.byKey(const ValueKey('open-mean21')));
@@ -480,9 +479,12 @@ void main() {
           palette: const [],
           blocks: const [],
           wires: const [],
-          blockActions: base.blockActions,
+          onSelect: base.onSelect,
+          onBind: base.onBind,
+          onRebind: base.onRebind,
+          onUnbind: base.onUnbind,
           onClear: () {},
-          onMove: (_, {required nudge}) {},
+          onMove: (_) {},
           onFieldChanged: (_, _) {},
           onFieldUnbind: (_) {},
           onFieldBind: (_, _) {},

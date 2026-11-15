@@ -16,6 +16,7 @@ import '../theme/radii.dart';
 import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'bind_refusal.dart';
 import 'block_palette.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
@@ -33,8 +34,7 @@ final class FlowWireVm extends Equatable {
     this.to,
     this.toPort, {
     this.writes = false,
-    this.warning,
-    this.warningNote = '',
+    this.firesAtDeploy = false,
   });
 
   final String from;
@@ -46,10 +46,9 @@ final class FlowWireVm extends Equatable {
   /// ember; everything else reads a value: teal.
   final bool writes;
 
-  /// A chip on the wire (`fires at deploy`: a parameter's echo into a
-  /// device sends at start, ADR 0038 §6), with [warningNote] as its tooltip.
-  final String? warning;
-  final String warningNote;
+  /// A `fires at deploy` chip on the wire: a parameter's echo into a device
+  /// sends at start (ADR 0038 §6); its tooltip says so.
+  final bool firesAtDeploy;
 
   @override
   List<Object?> get props => [
@@ -58,8 +57,7 @@ final class FlowWireVm extends Equatable {
     to,
     toPort,
     writes,
-    warning,
-    warningNote,
+    firesAtDeploy,
   ];
 }
 
@@ -102,13 +100,19 @@ class FlowCanvas extends StatefulWidget {
   const FlowCanvas({
     required this.blocks,
     required this.wires,
-    required this.actions,
+    required this.onSelect,
+    required this.onBind,
+    required this.onRebind,
+    required this.onUnbind,
     required this.onClear,
     required this.onMove,
+    this.onResize,
+    this.refusal,
+    this.onOpen,
+    this.onRowAction,
     this.onSelectMany,
     this.onCommand,
     this.menu,
-    this.onPin,
     this.onViewField,
     this.legend = false,
     this.controller,
@@ -131,39 +135,53 @@ class FlowCanvas extends StatefulWidget {
 
   final List<FlowBlockVm> blocks;
   final List<FlowWireVm> wires;
-  final FlowBlockActions actions;
+
+  /// A block clicked (or picked up): selected alone.
+  final ValueChanged<String> onSelect;
+
+  /// A wire let go on an input that takes it.
+  final ValueChanged<WireDropped> onBind;
+
+  /// A picked-up wire let go on another input.
+  final ValueChanged<WireMoved> onRebind;
+
+  /// Double click or Alt-click on a bound input, or its wire picked up and
+  /// let go on the empty canvas.
+  final ValueChanged<RowRef> onUnbind;
+
+  /// − or + of a block's variable inputs.
+  final ValueChanged<BlockResized>? onResize;
+
+  /// Why a row does not take the wire dragged over it; null: it does.
+  final QueryVm<BindAsk, BindRefusalVm?>? refusal;
+
+  /// `Open inside` of a custom block's instance (its id).
+  final ValueChanged<String>? onOpen;
+
+  /// The pencil of a row (the scope of a key).
+  final ValueChanged<RowRef>? onRowAction;
 
   /// A click on the empty canvas.
   final VoidCallback onClear;
 
-  /// Blocks let go at their new top-left corners, on the grid: a drag of
-  /// the selection, or (`nudge`) a step of the arrow keys.
-  final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
+  /// Blocks let go at their new top-left corners, on the grid.
+  final ValueChanged<BlocksMoved> onMove;
 
-  /// A marquee or Select all: the ids alone, added (`add`) or switched
-  /// in and out (`toggle`).
-  final void Function(
-    Set<String> ids, {
-    required bool add,
-    required bool toggle,
-  })?
-  onSelectMany;
+  /// A marquee or Select all.
+  final ValueChanged<BlocksSelected>? onSelectMany;
 
   /// A command the canvas does not do by itself (copy, paste, delete,
-  /// undo, deploy, …), from a key or from the context menu; `at` is where
-  /// a paste lands (the pointer, in canvas coordinates).
-  final void Function(FlowCommand command, {Offset? at})? onCommand;
+  /// undo, deploy, …), from a key or from the context menu.
+  final ValueChanged<CanvasCommand>? onCommand;
 
   /// The context menu for a right click: on a block (and its row) with
-  /// the selection's ids, or on the empty canvas (both null).
+  /// the selection's ids, or on the empty canvas (both null). Its fields
+  /// pin and unpin themselves ([FlowPinVm.onPin]).
   final QueryVm<FlowMenuAsk, FlowMenuVm>? menu;
 
-  /// A tick of the menu's `Fields ▸` checklist, or `Unpin from block`.
-  final void Function(String block, String field, {required bool pinned})?
-  onPin;
-
-  /// `V` over a row: opens its value in the viewer.
-  final RowAction<String, String>? onViewField;
+  /// `V` over a row, or the mark of a value of several lines: opens its
+  /// value in the viewer.
+  final ValueChanged<RowRef>? onViewField;
 
   /// The legend of the wires and ports, bottom-left.
   final bool legend;
@@ -294,20 +312,46 @@ final class _Move extends _Press {
   var at = <String, Offset>{};
 }
 
+/// A row of a block as the canvas holds it while the pointer works: the
+/// block, the row's place among its rows and its key (what draws it lit).
+final class _Spot {
+  const _Spot(this.block, this.index, this.key);
+
+  final String block;
+  final int index;
+  final String key;
+
+  RowRef get ref => RowRef(block, index);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _Spot && other.block == block && other.key == key;
+
+  @override
+  int get hashCode => Object.hash(block, key);
+}
+
+/// The input a picked-up wire leaves: its end and its row.
+final class _Picked {
+  const _Picked(this.end, this.spot);
+
+  final PortRefVm end;
+  final _Spot spot;
+}
+
 final class _Wire extends _Press {
   _Wire(super.down, this.from, {this.picked});
 
   /// The output the wire comes from.
   final FieldRefVm from;
 
-  /// The input a picked-up wire leaves: block, port and row.
-  final (String, String, String)? picked;
+  /// The input a picked-up wire leaves.
+  final _Picked? picked;
   Offset pointer = Offset.zero;
 
-  /// The row under the pointer: block and row id; with [refusal] when it
-  /// refuses.
-  (String, String)? over;
-  String? refusal;
+  /// The row under the pointer; with [refusal] when it refuses.
+  _Spot? over;
+  BindRefusalVm? refusal;
 
   /// The field outside the canvas under the pointer.
   FieldDrop? outside;
@@ -315,10 +359,10 @@ final class _Wire extends _Press {
 
 /// A press that only selects (a field with nothing to drag, the body).
 final class _Tap extends _Press {
-  _Tap(super.down, this.block, this.row);
+  _Tap(super.down, [this.spot]);
 
-  final String block;
-  final String? row;
+  /// The row pressed; null: the block's body.
+  final _Spot? spot;
 }
 
 class _FlowCanvasState extends State<FlowCanvas> {
@@ -328,11 +372,12 @@ class _FlowCanvasState extends State<FlowCanvas> {
   _Press? _press;
   ModalRoute<Object?>? _route;
 
-  /// The last click on a row, for a double click: block, row, when.
-  (String, String, Duration)? _lastClick;
+  /// The last click on a row, for a double click: the row, and when.
+  _Spot? _lastClick;
+  Duration _lastClickAt = Duration.zero;
 
-  /// The bound field under the pointer: block and row id.
-  (String, String)? _hover;
+  /// The bound field under the pointer.
+  _Spot? _hover;
 
   /// Where the mouse was last, on the screen: where a paste lands.
   Offset? _pointer;
@@ -623,13 +668,15 @@ class _FlowCanvasState extends State<FlowCanvas> {
         } else if (_press != null) {
           _cancel();
         } else {
-          widget.onCommand?.call(.escape);
+          widget.onCommand?.call(const CanvasCommand(.escape));
         }
       case .selectAll:
         widget.onSelectMany?.call(
-          {for (final b in widget.blocks) b.id},
-          add: false,
-          toggle: false,
+          BlocksSelected(
+            {for (final b in widget.blocks) b.id},
+            add: false,
+            toggle: false,
+          ),
         );
       case .nudgeLeft:
         _nudge(-1, 0);
@@ -652,10 +699,10 @@ class _FlowCanvasState extends State<FlowCanvas> {
         final b = p == null ? null : _blockAt(_blocks, _local(p));
         final i = p == null ? null : b?.rowAt(_local(p));
         if (b != null && i != null) {
-          widget.onViewField?.call(b.id, b.rows[i].id);
+          widget.onViewField?.call(RowRef(b.id, i));
         }
       case .paste:
-        widget.onCommand?.call(.paste, at: at ?? _pasteAt());
+        widget.onCommand?.call(CanvasCommand(.paste, at: at ?? _pasteAt()));
       case .copy ||
           .cut ||
           .duplicate ||
@@ -666,12 +713,12 @@ class _FlowCanvasState extends State<FlowCanvas> {
           .deploy ||
           .createCustomBlock ||
           .editCustomBlock:
-        widget.onCommand?.call(command);
+        widget.onCommand?.call(CanvasCommand(command));
       case .tidy:
         // The blocks move: show them all once they have.
         _fitNext = true;
         _tidiedFrom = widget.blocks;
-        widget.onCommand?.call(command);
+        widget.onCommand?.call(CanvasCommand(command));
       // Gestures of the pointer and the menu's own entries: not keys.
       case .marquee ||
           .addToSelection ||
@@ -710,13 +757,15 @@ class _FlowCanvasState extends State<FlowCanvas> {
     final far = HardwareKeyboard.instance.isShiftPressed;
     final step = FlowCanvas.grid * (far ? FlowCanvas.farNudge : 1);
     final delta = _inside(moving, Offset(dx * step, dy * step));
-    widget.onMove({
-      for (final b in moving)
-        b.id: Offset(
-          FlowCanvas.snap(b.x + delta.dx),
-          FlowCanvas.snap(b.y + delta.dy),
-        ),
-    }, nudge: true);
+    widget.onMove(
+      BlocksMoved({
+        for (final b in moving)
+          b.id: Offset(
+            FlowCanvas.snap(b.x + delta.dx),
+            FlowCanvas.snap(b.y + delta.dy),
+          ),
+      }, nudge: true),
+    );
   }
 
   /// [delta] shortened so that every block of [moving] stays on the canvas.
@@ -759,7 +808,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
     final b = _blockAt(_blocks, p);
     final i = b?.rowAt(p);
     final next = b != null && i != null && _bound(b.rows[i])
-        ? (b.id, b.rows[i].id)
+        ? _Spot(b.id, i, b.rows[i].id)
         : null;
     if (next != _hover) {
       setState(() => _hover = next);
@@ -772,12 +821,12 @@ class _FlowCanvasState extends State<FlowCanvas> {
     if (h == null) {
       return null;
     }
-    final port = byId[h.$1]?.rows
-        .where((r) => r.id == h.$2)
+    final port = byId[h.block]?.rows
+        .where((r) => r.id == h.key)
         .firstOrNull
         ?.inPort;
     return widget.wires
-        .where((w) => w.to == h.$1 && w.toPort == port)
+        .where((w) => w.to == h.block && w.toPort == port)
         .firstOrNull;
   }
 
@@ -819,12 +868,14 @@ class _FlowCanvasState extends State<FlowCanvas> {
       return;
     }
     if (flowGestureHeld(.addToSelection, .click)) {
-      widget.onSelectMany?.call({b.id}, add: false, toggle: true);
+      widget.onSelectMany?.call(
+        BlocksSelected({b.id}, add: false, toggle: true),
+      );
       return;
     }
     final many = b.selected && _selected.length > 1;
     if (!b.selected) {
-      widget.actions.onSelect(b.id);
+      widget.onSelect(b.id);
     }
     if (b.onHeader(p)) {
       _press = _Move(
@@ -841,13 +892,13 @@ class _FlowCanvasState extends State<FlowCanvas> {
     }
     final i = b.rowAt(p);
     if (i == null) {
-      _press = _Tap(e.position, b.id, null);
+      _press = _Tap(e.position);
       return;
     }
     final r = b.rows[i];
     if (_bound(r) && flowGestureHeld(.unbind, .click)) {
       _press = null;
-      widget.actions.onUnbind(b.id, r.id);
+      widget.onUnbind(RowRef(b.id, i));
       return;
     }
     if (_bound(r) && (b.onLeftPort(p) || r.outPort == null)) {
@@ -858,7 +909,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
         _press = _Wire(
           e.position,
           FieldRefVm(w.from, w.fromPort),
-          picked: (b.id, r.inPort!, r.id),
+          picked: _Picked(PortRefVm(b.id, r.inPort!), _Spot(b.id, i, r.id)),
         )..pointer = p;
         return;
       }
@@ -870,7 +921,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
       )..pointer = p;
       return;
     }
-    _press = _Tap(e.position, b.id, r.id);
+    _press = _Tap(e.position, _Spot(b.id, i, r.id));
   }
 
   /// A writable point let go at [global]: `Read` or `Write` where it
@@ -914,27 +965,18 @@ class _FlowCanvasState extends State<FlowCanvas> {
     final i = b?.rowAt(p);
     var ids = _selected;
     if (b != null && !b.selected) {
-      widget.actions.onSelect(b.id);
+      widget.onSelect(b.id);
       ids = {b.id};
     }
-    final row = b == null || i == null ? null : b.rows[i].id;
-    final picked = await FlowMenu.show(
-      context,
-      at: global,
-      vm: menu.ask(FlowMenuAsk(ids, block: b?.id, row: row)),
-      onPin: (field, {required on}) {
-        if (b != null) {
-          widget.onPin?.call(b.id, field, pinned: on);
-        }
-      },
+    final vm = menu.ask(
+      FlowMenuAsk(ids, block: b?.id, row: b == null ? null : i),
     );
+    final picked = await FlowMenu.show(context, at: global, vm: vm);
     if (!mounted || picked == null) {
       return;
     }
     if (picked == FlowCommand.unpin) {
-      if (b != null && row != null) {
-        widget.onPin?.call(b.id, row, pinned: false);
-      }
+      vm.unpin?.onPin?.call(false);
       return;
     }
     _run(picked, at: p);
@@ -1004,17 +1046,14 @@ class _FlowCanvasState extends State<FlowCanvas> {
       final i = b?.rowAt(p);
       if (b != null && i != null) {
         final r = b.rows[i];
+        final spot = _Spot(b.id, i, r.id);
         final picked = w.picked;
-        final same = picked != null && picked.$1 == b.id && picked.$3 == r.id;
         w
-          ..over = (b.id, r.id)
-          ..refusal = same
+          ..over = spot
+          ..refusal = picked?.spot == spot
               ? null
-              : widget.actions.refusal(
-                  w.from,
-                  b.id,
-                  r.id,
-                  replacing: picked == null ? null : (picked.$1, picked.$2),
+              : widget.refusal?.ask(
+                  BindAsk(w.from, spot.ref, r, replacing: picked?.end),
                 );
       }
     }
@@ -1040,7 +1079,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
         if (hit.isEmpty && !add && !toggle) {
           widget.onClear();
         } else {
-          widget.onSelectMany?.call(hit, add: add, toggle: toggle);
+          widget.onSelectMany?.call(
+            BlocksSelected(hit, add: add, toggle: toggle),
+          );
         }
       case _Move(dragging: true, :final anchor, :final origins, :final at):
         final from = origins[anchor];
@@ -1051,30 +1092,32 @@ class _FlowCanvasState extends State<FlowCanvas> {
           final delta =
               Offset(FlowCanvas.snap(to.dx), FlowCanvas.snap(to.dy)) - from;
           if (delta != Offset.zero) {
-            widget.onMove({
-              for (final MapEntry(:key, :value) in origins.entries)
-                key: value + delta,
-            }, nudge: false);
+            widget.onMove(
+              BlocksMoved({
+                for (final MapEntry(:key, :value) in origins.entries)
+                  key: value + delta,
+              }, nudge: false),
+            );
           }
         }
       case _Move(:final anchor, :final narrow):
         if (narrow) {
-          widget.actions.onSelect(anchor);
+          widget.onSelect(anchor);
         }
-      case _Wire(dragging: false, picked: (final block, _, final row)):
-        _click(block, row);
-      case _Wire(dragging: false, :final from):
+      case _Wire(dragging: false, picked: _Picked(:final spot)):
+        _click(spot);
+      case _Wire(dragging: false):
         final b = _blockAt(_blocks, p);
         final i = b?.rowAt(p);
         if (b != null && i != null) {
-          _click(b.id, b.rows[i].id);
+          _click(_Spot(b.id, i, b.rows[i].id));
         } else {
-          _click(from.block, '');
+          _lastClick = null;
         }
       case _Wire():
         _drop(press);
-      case _Tap(:final block, :final row?):
-        _click(block, row);
+      case _Tap(:final spot?):
+        _click(spot);
       case _Tap():
         break;
     }
@@ -1092,53 +1135,51 @@ class _FlowCanvasState extends State<FlowCanvas> {
       // Let go on the canvas, not on a field: a picked-up wire unbinds.
       final onBlock = _blockAt(_blocks, w.pointer) != null;
       if (picked != null && !onBlock) {
-        widget.actions.onUnbind(picked.$1, picked.$3);
+        widget.onUnbind(picked.spot.ref);
       }
       return;
     }
     if (w.refusal != null) {
       return;
     }
-    final (block, rowId) = over;
     final row = _blocks
-        .where((b) => b.id == block)
+        .where((b) => b.id == over.block)
         .firstOrNull
         ?.rows
-        .where((r) => r.id == rowId)
+        .where((r) => r.id == over.key)
         .firstOrNull;
     final inPort = row?.inPort;
     if (inPort == null) {
       return;
     }
+    final to = PortRefVm(over.block, inPort);
     if (picked == null) {
-      widget.actions.onBind(w.from, block, inPort);
-    } else if (picked.$1 != block || picked.$2 != inPort) {
-      widget.actions.onRebind(picked.$1, picked.$2, block, inPort);
+      widget.onBind(WireDropped(w.from, over.block, inPort));
+    } else if (picked.end != to) {
+      widget.onRebind(WireMoved(picked.end, to));
     }
   }
 
-  /// A click on row [row] of [block]; the second within 400 ms on a bound
-  /// input unbinds it.
-  void _click(String block, String row) {
+  /// A click on row [spot]; the second within 400 ms on a bound input
+  /// unbinds it.
+  void _click(_Spot spot) {
     final now = Duration(microseconds: DateTime.now().microsecondsSinceEpoch);
     final last = _lastClick;
-    _lastClick = (block, row, now);
-    if (last == null ||
-        last.$1 != block ||
-        last.$2 != row ||
-        row.isEmpty ||
-        now - last.$3 > Motion.flowDoubleClick) {
+    final lastAt = _lastClickAt;
+    _lastClick = spot;
+    _lastClickAt = now;
+    if (last != spot || now - lastAt > Motion.flowDoubleClick) {
       return;
     }
     _lastClick = null;
     final r = widget.blocks
-        .where((b) => b.id == block)
+        .where((b) => b.id == spot.block)
         .firstOrNull
         ?.rows
-        .where((r) => r.id == row)
+        .where((r) => r.id == spot.key)
         .firstOrNull;
     if (r != null && _bound(r)) {
-      widget.actions.onUnbind(block, row);
+      widget.onUnbind(spot.ref);
     }
   }
 
@@ -1183,7 +1224,10 @@ class _FlowCanvasState extends State<FlowCanvas> {
     final picked = wire?.picked;
     final wires = [
       for (final w in widget.wires)
-        if (picked == null || w.to != picked.$1 || w.toPort != picked.$2) w,
+        if (picked == null ||
+            w.to != picked.end.block ||
+            w.toPort != picked.end.port)
+          w,
     ];
     final selected = {
       for (final b in blocks)
@@ -1303,11 +1347,16 @@ class _FlowCanvasState extends State<FlowCanvas> {
                               child: FlowBlockView(
                                 key: ValueKey(b.id),
                                 vm: b,
-                                actions: widget.actions,
-                                lit: wire?.over?.$1 == b.id
-                                    ? wire!.over!.$2
+                                onOpen: widget.onOpen == null
+                                    ? null
+                                    : () => widget.onOpen!(b.id),
+                                onResize: widget.onResize,
+                                onView: widget.onViewField,
+                                onRowAction: widget.onRowAction,
+                                lit: wire?.over?.block == b.id
+                                    ? wire!.over!.key
                                     : (hovered?.from == b.id ? source : null),
-                                light: wire?.over?.$1 == b.id
+                                light: wire?.over?.block == b.id
                                     ? light
                                     : RowLight.source,
                               ),
@@ -1331,14 +1380,17 @@ class _FlowCanvasState extends State<FlowCanvas> {
                             ),
                           ),
                           for (final w in wires)
-                            if (w.warning case final text?)
+                            if (w.firesAtDeploy)
                               if (_mid(byId, w) case final m?)
                                 Positioned(
                                   left: m.dx - AppSizes.flowWarnChipWidth / 2,
                                   top: m.dy - AppSizes.flowWarnChip / 2,
                                   width: AppSizes.flowWarnChipWidth,
                                   child: Center(
-                                    child: _WarnChip(text, w.warningNote),
+                                    child: _WarnChip(
+                                      S.current.firesAtDeploy,
+                                      S.current.firesAtStartNote,
+                                    ),
                                   ),
                                 ),
                           if (marquee != null)
@@ -1359,7 +1411,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
                             Positioned(
                               left: wire!.pointer.dx + 14,
                               top: wire.pointer.dy + 12,
-                              child: IgnorePointer(child: _Refusal(why)),
+                              child: IgnorePointer(
+                                child: _Refusal(why.label),
+                              ),
                             ),
                         ],
                       ),
@@ -1457,7 +1511,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
     if (b == null) {
       return const Offset(24, 24);
     }
-    final i = b.rows.indexWhere((r) => r.id == ask.row);
+    final i = ask.row;
     final under = Offset(
       b.x,
       b.y +
@@ -1481,9 +1535,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
       return null;
     }
     var p2 = w.pointer;
-    if (w.over case (final block, final row) when w.refusal == null) {
-      final b = byId[block];
-      final r = b?.rows.where((r) => r.id == row).firstOrNull;
+    if (w.over case final over? when w.refusal == null) {
+      final b = byId[over.block];
+      final r = b?.rows.where((r) => r.id == over.key).firstOrNull;
       if (r?.inPort case final port?) {
         p2 = b!.portAt(port, output: false) ?? p2;
       }

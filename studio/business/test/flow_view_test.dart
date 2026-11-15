@@ -366,6 +366,13 @@ void main() {
     final p = viewOf(s).prompt!;
     expect(p.block, 'c_ack');
     expect(p.row, const FieldId.param('key'));
+    // The canvas reports a row by its place: the prompt's row is found
+    // there again.
+    final v = viewOf(s);
+    expect(p.place, isNonNegative);
+    expect(v.rowAt('c_ack', p.place), p.row);
+    expect(v.rowAt('c_ack', 99), isNull);
+    expect(v.rowAt('nothing', 0), isNull);
     expect(p.value, 'storage/dvpsm/cmd/**');
     expect(p.suggestions, contains('downstream/**'));
     expect(SelectFlowEditor(s).scopeProblem(''), ScopeProblem.empty);

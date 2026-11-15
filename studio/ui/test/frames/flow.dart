@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
@@ -30,32 +31,24 @@ import 'package:ui/trees/json_tree.dart';
 
 const _m = 16.0;
 
-const _actions = FlowBlockActions(
-  onSelect: _id,
-  onBind: _bindField,
-  onRebind: _four,
-  onUnbind: _two,
-  onResize: _resize,
-  refusal: _refusal,
-);
-
 /// Rows of the boards that are outputs only: a wire over one is refused.
 const _outputsOnly = {'output', 'result', 'state', 't1', 't2', 'out'};
 
-String? _refusal(
-  FieldRefVm _,
-  String _,
-  String row, {
-  (String, String)? replacing,
-}) => _outputsOnly.contains(row) ? 'Outputs cannot be bound' : null;
+final _refusal = QueryVm<BindAsk, BindRefusalVm?>(
+  (ask) => _outputsOnly.contains(ask.row.id) ? const RefuseOutput() : null,
+);
 
 void _id(String _) {}
 void _tab(PaletteTabVm _) {}
-void _four(String _, String _, String _, String _) {}
-void _bindField(FieldRefVm _, String _, String _) {}
 void _two(String _, String _) {}
 void _place(Place _) {}
-void _resize(String _, {required bool add}) {}
+void _rowRef(RowRef _) {}
+void _bindWire(WireDropped _) {}
+void _moveWire(WireMoved _) {}
+void _resize(BlockResized _) {}
+void _moved(BlocksMoved _) {}
+void _selected(BlocksSelected _) {}
+void _command(CanvasCommand _) {}
 
 List<PaletteEntryVm> _blocks() => const [
   PaletteEntryVm(
@@ -189,6 +182,7 @@ FieldRowVm _r(
   ValueTone tone = ValueTone.plain,
   bool target = false,
   String? label,
+  GhostKindVm? ghost,
 }) {
   PortMark mark(String s) => switch (s) {
     'free' => PortMark.free,
@@ -207,6 +201,7 @@ FieldRowVm _r(
     inMark: mark(ins),
     outMark: mark(outs),
     dropTarget: target,
+    ghost: ghost,
   );
 }
 
@@ -214,7 +209,7 @@ List<FlowBlockVm> _bindBlocks(String selected, {int cases = 2}) => [
   FlowBlockVm(
     id: 'plcL',
     title: 'plc1',
-    type: 'tcp-boiler',
+    caption: const ['tcp-boiler'],
     kind: BlockKindVm.node,
     x: 30 + _m,
     y: 40 + _m,
@@ -230,7 +225,7 @@ List<FlowBlockVm> _bindBlocks(String selected, {int cases = 2}) => [
   FlowBlockVm(
     id: 'tank',
     title: 'tankInfo',
-    type: 'v3',
+    caption: const ['v3'],
     kind: BlockKindVm.my,
     x: 30 + _m,
     y: 270 + _m,
@@ -260,17 +255,16 @@ List<FlowBlockVm> _bindBlocks(String selected, {int cases = 2}) => [
       _r('output', '100', ins: '', outs: 'bound'),
     ],
     variadic: VariadicVm(
-      label: '$cases cases',
+      VariadicKindVm.pairs,
+      count: cases,
       canRemove: cases > 1,
       canAdd: cases < 4,
-      removeLabel: 'Remove last case',
-      addLabel: 'Add a case',
     ),
   ),
   FlowBlockVm(
     id: 'script',
     title: 'script',
-    type: 'rhai',
+    caption: const ['rhai'],
     x: 320 + _m,
     y: (cases > 2 ? 560 : 500) + _m,
     selected: selected == 'script',
@@ -284,7 +278,7 @@ List<FlowBlockVm> _bindBlocks(String selected, {int cases = 2}) => [
   FlowBlockVm(
     id: 'plcR',
     title: 'plc1',
-    type: 'writes',
+    caption: const ['writes'],
     kind: BlockKindVm.node,
     x: 650 + _m,
     y: 80 + _m,
@@ -298,7 +292,7 @@ List<FlowBlockVm> _bindBlocks(String selected, {int cases = 2}) => [
   FlowBlockVm(
     id: 'pub',
     title: 'publish',
-    type: 'storage',
+    caption: const ['storage'],
     kind: BlockKindVm.sink,
     x: 650 + _m,
     y: (cases > 2 ? 560 : 500) + _m,
@@ -352,9 +346,14 @@ FlowEditorPage _bind({
   paletteClosed: const {'Sources', 'Sinks', 'Code · WASM'},
   blocks: blocks ?? _bindBlocks(selected ?? '', cases: cases),
   wires: wires ?? _bindWires,
-  blockActions: _actions,
+  onSelect: _id,
+  onBind: _bindWire,
+  onRebind: _moveWire,
+  onUnbind: _rowRef,
+  onResize: _resize,
+  refusal: _refusal,
   onClear: () {},
-  onMove: (_, {required nudge}) {},
+  onMove: _moved,
   inspectorKind: kind,
   inspectorTitle: title,
   inspectorNote: note,
@@ -369,10 +368,9 @@ FlowEditorPage _bind({
   viewer: viewer,
   viewerTables: tables,
   onCloseViewer: () {},
-  onSelectMany: (_, {required add, required toggle}) {},
-  onCommand: (_, {at}) {},
-  onPin: (_, _, {required pinned}) {},
-  onViewField: (_, _) {},
+  onSelectMany: _selected,
+  onCommand: _command,
+  onViewField: _rowRef,
   onFieldPin: pins ? (_, {required on}) {} : null,
   onSaveViewer: _id,
   validateViewer: (text) =>
@@ -394,7 +392,7 @@ FlowEditorPage _bind({
 FlowMenuVm _menu(
   Set<String> ids,
   String? block,
-  String? row,
+  int? row,
   List<FlowBlockVm> blocks,
   Set<String> hidden,
 ) {
@@ -402,10 +400,10 @@ FlowMenuVm _menu(
   final one = ids.length == 1 && b != null;
   final none = ids.isEmpty ? const FlowOff(.nothingSelected) : null;
   FlowPinVm pin(String id, String label, {bool bound = false}) => FlowPinVm(
-    id: id,
     label: label,
     pinned: !hidden.contains(id),
     locked: bound,
+    onPin: (_) {},
   );
   final fields = [
     if (one)
@@ -422,13 +420,13 @@ FlowMenuVm _menu(
       for (final id in hidden) pin(id, _label(id)),
   ];
   return FlowMenuVm(
-    block: one ? b.title : null,
+    block: one ? b.heading : null,
     blockType: one ? (b.type.isEmpty ? 'case' : b.type) : null,
     count: ids.length,
     flow: 'tank-level',
     blocksInFlow: blocks.length,
     fields: fields,
-    unpin: row == null ? null : fields.where((f) => f.id == row).firstOrNull,
+    unpin: row == null || row >= fields.length ? null : fields[row],
     items: [
       FlowMenuItemVm(.cut, off: none),
       FlowMenuItemVm(.copy, off: none),
@@ -479,7 +477,7 @@ FlowEditorPage flowPins() {
             title: b.title,
             x: b.x,
             y: b.y,
-            type: b.type,
+            caption: b.caption,
             kind: b.kind,
             width: b.width,
             selected: true,
@@ -774,7 +772,7 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
     FlowBlockVm(
       id: 'tank',
       title: 'tank',
-      type: 'modbus/tcp-tank',
+      caption: const ['modbus/tcp-tank'],
       kind: BlockKindVm.node,
       x: 30 + _m,
       y: 120 + _m,
@@ -788,7 +786,7 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
     FlowBlockVm(
       id: 'scale',
       title: 'scale',
-      type: 'scale',
+      caption: const ['scale'],
       x: 320 + _m,
       y: 40 + _m,
       rows: [
@@ -801,7 +799,7 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
     FlowBlockVm(
       id: 'if',
       title: 'if',
-      type: 'op >',
+      caption: const ['op >'],
       x: 320 + _m,
       y: 300 + _m,
       rows: [
@@ -809,12 +807,12 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
         _r('b', '90'),
         _r('out', 'true', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+      variadic: const VariadicVm(.inputs, count: 2, canRemove: false),
     ),
     FlowBlockVm(
       id: 'pub',
       title: 'publish',
-      type: 'storage',
+      caption: const ['storage'],
       kind: BlockKindVm.sink,
       x: 640 + _m,
       y: 40 + _m,
@@ -827,7 +825,7 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
     FlowBlockVm(
       id: 'act',
       title: 'stop_pump',
-      type: 'modbus/tcp-tank',
+      caption: const ['modbus/tcp-tank'],
       kind: BlockKindVm.action,
       x: 640 + _m,
       y: 280 + _m,
@@ -848,9 +846,14 @@ FlowEditorPage flowTreeDrag() => FlowEditorPage(
     FlowWireVm('scale', 'out', 'if', 'a'),
     FlowWireVm('if', 'out', 'act', 'run when', writes: true),
   ],
-  blockActions: _actions,
+  onSelect: _id,
+  onBind: _bindWire,
+  onRebind: _moveWire,
+  onUnbind: _rowRef,
+  onResize: _resize,
+  refusal: _refusal,
   onClear: () {},
-  onMove: (_, {required nudge}) {},
+  onMove: _moved,
   inspectorKind: 'Action',
   inspectorTitle: 'stop_pump',
   inspectorNote: 'Dragged from the tree. Runs when run when turns true; ok, code and message come back.',
@@ -939,7 +942,7 @@ FlowEditorPage flowScale({required bool range}) {
       FlowBlockVm(
         id: 'raw',
         title: 'raw',
-        type: 'plc/tank',
+        caption: const ['plc/tank'],
         kind: BlockKindVm.node,
         x: 40 + _m,
         y: 80 + _m,
@@ -949,7 +952,7 @@ FlowEditorPage flowScale({required bool range}) {
       FlowBlockVm(
         id: 'pct',
         title: 'pct',
-        type: 'scale',
+        caption: const ['scale'],
         x: 320 + _m,
         y: 60 + _m,
         selected: true,
@@ -958,7 +961,7 @@ FlowEditorPage flowScale({required bool range}) {
       FlowBlockVm(
         id: 'show',
         title: 'show',
-        type: 'publish',
+        caption: const ['publish'],
         kind: BlockKindVm.sink,
         x: 640 + _m,
         y: 100 + _m,
@@ -1044,7 +1047,7 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'greeting',
     title: 'greeting',
-    type: 'string',
+    caption: const ['string'],
     x: 40 + _m,
     y: 60 + _m,
     selected: selected == 'greeting',
@@ -1055,7 +1058,7 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'who',
     title: 'who',
-    type: 'string',
+    caption: const ['string'],
     x: 40 + _m,
     y: 180 + _m,
     selected: selected == 'who',
@@ -1064,7 +1067,7 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'limit',
     title: 'limit',
-    type: 'number',
+    caption: const ['number'],
     x: 40 + _m,
     y: 320 + _m,
     selected: selected == 'limit',
@@ -1073,7 +1076,7 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'armed',
     title: 'armed',
-    type: 'bool',
+    caption: const ['bool'],
     x: 40 + _m,
     y: 440 + _m,
     selected: selected == 'armed',
@@ -1082,7 +1085,7 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'text',
     title: 'text',
-    type: 'concat',
+    caption: const ['concat'],
     x: 340 + _m,
     y: 80 + _m,
     selected: selected == 'text',
@@ -1104,12 +1107,12 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
       _r('strict', 'false', label: 'Strict'),
       _r('out', 'Hello, tank 3', ins: '', outs: 'bound'),
     ],
-    variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+    variadic: const VariadicVm(.inputs, count: 2, canRemove: false),
   ),
   FlowBlockVm(
     id: 'cmd',
     title: 'cmd',
-    type: 'scale',
+    caption: const ['scale'],
     x: 340 + _m,
     y: 340 + _m,
     selected: selected == 'cmd',
@@ -1123,20 +1126,21 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'show',
     title: 'show',
-    type: 'publish',
+    caption: const ['publish'],
     kind: BlockKindVm.sink,
     x: 660 + _m,
     y: 100 + _m,
     width: 210,
-    tag: preview ? 'preview' : null,
+    preview: preview,
     rows: [
       _r('node', 'banner', ins: '', outs: '', label: 'Value name'),
       _r(
         'in',
-        preview ? 'would write Hello, tank 3' : 'Hello, tank 3',
+        'Hello, tank 3',
         outs: '',
         ins: 'bound',
         tone: preview ? ValueTone.ghost : ValueTone.bound,
+        ghost: preview ? GhostKindVm.write : null,
         label: 'Value',
       ),
     ],
@@ -1144,19 +1148,20 @@ List<FlowBlockVm> _textBlocks(String selected, {bool preview = false}) => [
   FlowBlockVm(
     id: 'knob',
     title: 'knob',
-    type: 'mockdev/bench/rig1',
+    caption: const ['mockdev/bench/rig1'],
     kind: BlockKindVm.node,
     x: 660 + _m,
     y: 360 + _m,
     width: 210,
-    tag: preview ? 'preview' : null,
+    preview: preview,
     rows: [
       _r(
         'in',
-        preview ? 'would write 70.7' : '25.3',
+        preview ? '70.7' : '25.3',
         ins: 'write',
         outs: '',
         tone: preview ? ValueTone.ghost : ValueTone.bound,
+        ghost: preview ? GhostKindVm.write : null,
         label: 'knob',
       ),
     ],
@@ -1283,7 +1288,7 @@ FlowEditorPage flowCase() => _bind(
     FlowBlockVm(
       id: 'level',
       title: 'level',
-      type: 'plc/tank',
+      caption: const ['plc/tank'],
       kind: BlockKindVm.node,
       x: 40 + _m,
       y: 80 + _m,
@@ -1293,7 +1298,7 @@ FlowEditorPage flowCase() => _bind(
     FlowBlockVm(
       id: 'tier',
       title: 'tier',
-      type: 'case',
+      caption: const ['case'],
       x: 320 + _m,
       y: 60 + _m,
       selected: true,
@@ -1307,16 +1312,12 @@ FlowEditorPage flowCase() => _bind(
         _r('else', 'low', label: 'Else'),
         _r('out', 'high', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(
-        label: '2 cases',
-        addLabel: 'Add a case',
-        removeLabel: 'Remove the last case',
-      ),
+      variadic: const VariadicVm(.pairs, count: 2),
     ),
     FlowBlockVm(
       id: 'show',
       title: 'show',
-      type: 'publish',
+      caption: const ['publish'],
       kind: BlockKindVm.sink,
       x: 640 + _m,
       y: 100 + _m,
@@ -1432,7 +1433,7 @@ FlowEditorPage flowOperand() => _bind(
     FlowBlockVm(
       id: 'unit',
       title: 'unit',
-      type: 'number',
+      caption: const ['number'],
       x: 40 + _m,
       y: 120 + _m,
       rows: [_r('value', '2', outs: 'bound')],
@@ -1440,7 +1441,7 @@ FlowEditorPage flowOperand() => _bind(
     FlowBlockVm(
       id: 'tag',
       title: 'tag',
-      type: 'concat',
+      caption: const ['concat'],
       x: 320 + _m,
       y: 80 + _m,
       selected: true,
@@ -1456,12 +1457,12 @@ FlowEditorPage flowOperand() => _bind(
         _r('strict', 'false', label: 'Strict'),
         _r('out', 'AHU-2', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+      variadic: const VariadicVm(.inputs, count: 2, canRemove: false),
     ),
     FlowBlockVm(
       id: 'show',
       title: 'show',
-      type: 'publish',
+      caption: const ['publish'],
       kind: BlockKindVm.sink,
       x: 640 + _m,
       y: 100 + _m,
@@ -1715,18 +1716,16 @@ FlowEditorPage _wave2({
   onTreeQuery: _id,
   blocks: blocks,
   wires: wires,
-  blockActions: const FlowBlockActions(
-    onSelect: _id,
-    onBind: _bindField,
-    onRebind: _four,
-    onUnbind: _two,
-    onResize: _resize,
-    refusal: _refusal,
-    onOpen: _id,
-    onRowAction: _two,
-  ),
+  onSelect: _id,
+  onBind: _bindWire,
+  onRebind: _moveWire,
+  onUnbind: _rowRef,
+  onResize: _resize,
+  refusal: _refusal,
+  onOpen: _id,
+  onRowAction: _rowRef,
   onClear: () {},
-  onMove: (_, {required nudge}) {},
+  onMove: _moved,
   inspectorKind: kind,
   inspectorTitle: title.isEmpty ? (selected ?? '') : title,
   inspectorNote: note,
@@ -1740,10 +1739,9 @@ FlowEditorPage _wave2({
   onRemove: selected == null || selected.startsWith('~') ? null : () {},
   onView: _id,
   onCloseViewer: () {},
-  onSelectMany: (_, {required add, required toggle}) {},
-  onCommand: (_, {at}) {},
-  onPin: (_, _, {required pinned}) {},
-  onViewField: (_, _) {},
+  onSelectMany: _selected,
+  onCommand: _command,
+  onViewField: _rowRef,
   onFieldPin: (_, {required on}) {},
   onRun: _id,
   menu: QueryVm(_menu2),
@@ -1779,7 +1777,7 @@ FlowBlockVm _var(String id, String type, String value, double x, double y) =>
     FlowBlockVm(
       id: id,
       title: id,
-      type: type,
+      caption: [type],
       x: x + _m,
       y: y + _m,
       rows: [_r('value', value, outs: 'bound', label: 'Value')],
@@ -1797,7 +1795,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
     FlowBlockVm(
       id: 'path',
       title: 'path',
-      type: 'concat',
+      caption: const ['concat'],
       x: 300 + _m,
       y: 40 + _m,
       rows: [
@@ -1812,12 +1810,12 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
         _r('strict', 'false', label: 'Strict'),
         _r('out', 'downstream/modbus/line1/pump1', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+      variadic: const VariadicVm(.inputs, count: 2, canRemove: false),
     ),
     FlowBlockVm(
       id: 'level',
       title: 'level',
-      type: 'modbus/line1',
+      caption: const ['modbus/line1'],
       kind: BlockKindVm.node,
       x: 600 + _m,
       y: 60 + _m,
@@ -1836,8 +1834,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
           label: 'Scope',
           name: 'key_scope',
           value: 'downstream/modbus/line1/**',
-          action: 'action_edit',
-          actionTip: 'Edit the scope',
+          editScope: true,
         ),
         _r('pump1', '41.5 %', ins: '', outs: 'bound'),
         _r('error', '', ins: '', label: 'Error'),
@@ -1846,7 +1843,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
     FlowBlockVm(
       id: 'pub',
       title: 'publish',
-      type: 'publish',
+      caption: const ['publish'],
       kind: BlockKindVm.sink,
       x: 880 + _m,
       y: 80 + _m,
@@ -1865,7 +1862,7 @@ FlowEditorPage flowKeyScope({bool asking = false}) => _wave2(
   prompt: asking
       ? const ScopePromptVm(
           block: 'level',
-          row: 'p:key_scope',
+          row: 1,
           value: 'downstream/modbus/line1/**',
           suggestions: [
             'downstream/modbus/line1/**',
@@ -1921,7 +1918,7 @@ List<FlowBlockVm> _actionBlocks({bool preview = false}) => [
   FlowBlockVm(
     id: 'alarm',
     title: 'alarm',
-    type: 'rising_edge',
+    caption: const ['rising_edge'],
     x: 30 + _m,
     y: 220 + _m,
     rows: [
@@ -1932,20 +1929,21 @@ List<FlowBlockVm> _actionBlocks({bool preview = false}) => [
   FlowBlockVm(
     id: 'ramp1',
     title: 'ramp1',
-    type: 'pump · ramp',
+    caption: const ['pump', 'ramp'],
     kind: BlockKindVm.action,
     x: 340 + _m,
     y: 80 + _m,
     width: 210,
     selected: true,
-    tag: preview ? 'preview' : null,
+    preview: preview,
     rows: [
       _r('target', '40', ins: 'write', tone: ValueTone.bound),
       _r(
         'trigger',
-        preview ? 'would send {…}' : '',
+        preview ? '{…}' : '',
         ins: 'write',
         tone: preview ? ValueTone.ghost : ValueTone.plain,
+        ghost: preview ? GhostKindVm.send : null,
         label: 'Trigger',
       ),
       _r('ok', preview ? '' : '14:03:28', ins: '', label: 'Ok'),
@@ -1955,7 +1953,7 @@ List<FlowBlockVm> _actionBlocks({bool preview = false}) => [
   FlowBlockVm(
     id: 'pub',
     title: 'publish',
-    type: 'publish',
+    caption: const ['publish'],
     kind: BlockKindVm.sink,
     x: 640 + _m,
     y: 160 + _m,
@@ -2315,7 +2313,7 @@ List<FlowBlockVm> _customBlocks({bool selected = true}) => [
   FlowBlockVm(
     id: 'a',
     title: 'a',
-    type: 'modbus/line1',
+    caption: const ['modbus/line1'],
     kind: BlockKindVm.node,
     x: 30 + _m,
     y: 60 + _m,
@@ -2325,7 +2323,7 @@ List<FlowBlockVm> _customBlocks({bool selected = true}) => [
   FlowBlockVm(
     id: 'b',
     title: 'b',
-    type: 'modbus/line1',
+    caption: const ['modbus/line1'],
     kind: BlockKindVm.node,
     x: 30 + _m,
     y: 180 + _m,
@@ -2335,12 +2333,12 @@ List<FlowBlockVm> _customBlocks({bool selected = true}) => [
   FlowBlockVm(
     id: 'mean21',
     title: 'mean21',
-    type: 'mean2',
+    caption: const ['mean2'],
     kind: BlockKindVm.my,
     x: 320 + _m,
     y: 80 + _m,
     selected: selected,
-    link: 'Open inside',
+    openable: true,
     rows: [
       _r('first', '41.5', ins: 'bound', tone: ValueTone.bound),
       _r('second', '43.5', ins: 'bound', tone: ValueTone.bound),
@@ -2351,7 +2349,7 @@ List<FlowBlockVm> _customBlocks({bool selected = true}) => [
   FlowBlockVm(
     id: 'pub',
     title: 'publish',
-    type: 'publish',
+    caption: const ['publish'],
     kind: BlockKindVm.sink,
     x: 620 + _m,
     y: 100 + _m,
@@ -2505,7 +2503,7 @@ FlowEditorPage flowCustomInside() => _wave2(
   blocks: [
     FlowBlockVm(
       id: '~in',
-      title: 'Inputs',
+      boundary: BoundaryVm.inputs,
       kind: BlockKindVm.my,
       x: 20 + _m,
       y: 60 + _m,
@@ -2516,16 +2514,12 @@ FlowEditorPage flowCustomInside() => _wave2(
         _r('second', '', ins: '', outs: 'bound'),
         _r('n', '2', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(
-        label: '3 ports',
-        addLabel: 'Add a port',
-        removeLabel: 'Remove the last port',
-      ),
+      variadic: const VariadicVm(.ports, count: 3),
     ),
     FlowBlockVm(
       id: 'sum',
       title: 'sum',
-      type: 'add',
+      caption: const ['add'],
       x: 220 + _m,
       y: 40 + _m,
       rows: [
@@ -2545,12 +2539,12 @@ FlowEditorPage flowCustomInside() => _wave2(
         ),
         _r('out', '85', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+      variadic: const VariadicVm(.inputs, count: 2, canRemove: false),
     ),
     FlowBlockVm(
       id: 'half',
       title: 'half',
-      type: 'divide',
+      caption: const ['divide'],
       x: 480 + _m,
       y: 60 + _m,
       rows: [
@@ -2558,21 +2552,17 @@ FlowEditorPage flowCustomInside() => _wave2(
         _r('in.1', '2', ins: 'bound', tone: ValueTone.bound, label: 'Input 2'),
         _r('out', '42.5', ins: '', outs: 'bound'),
       ],
-      variadic: const VariadicVm(label: '2 inputs', canRemove: false),
+      variadic: const VariadicVm(.inputs, count: 2, canRemove: false),
     ),
     FlowBlockVm(
       id: '~out',
-      title: 'Outputs',
+      boundary: BoundaryVm.outputs,
       kind: BlockKindVm.my,
       x: 730 + _m,
       y: 80 + _m,
       width: 150,
       rows: [_r('out', '42.5', ins: 'bound', outs: '', tone: ValueTone.bound)],
-      variadic: const VariadicVm(
-        label: '1 port',
-        addLabel: 'Add a port',
-        removeLabel: 'Remove the last port',
-      ),
+      variadic: const VariadicVm(.ports, count: 1),
     ),
   ],
   wires: const [
@@ -2677,7 +2667,7 @@ FlowEditorPage flowCsvLines() => _bind(
     FlowBlockVm(
       id: 'csv1',
       title: 'csv1',
-      type: 'table_from_csv',
+      caption: const ['table_from_csv'],
       x: 340 + _m,
       y: 80 + _m,
       width: 240,
@@ -2772,7 +2762,7 @@ FlowEditorPage flowLarge() {
         FlowBlockVm(
           id: id,
           title: id,
-          type: type,
+          caption: [type],
           kind: switch (role) {
             'node' => BlockKindVm.node,
             'action' => BlockKindVm.action,

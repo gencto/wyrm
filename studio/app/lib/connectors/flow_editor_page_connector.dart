@@ -13,7 +13,6 @@ import 'package:business/redux/flow_editor/actions/edit_scope_action.dart';
 import 'package:business/redux/flow_editor/actions/flow_edit_action.dart';
 import 'package:business/redux/flow_editor/actions/follow_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/leave_block_action.dart';
-import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/new_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/open_flow_editor_action.dart';
 import 'package:business/redux/flow_editor/actions/open_instance_action.dart';
@@ -36,9 +35,7 @@ import 'package:business/redux/flow_editor/actions/unbind_field_action.dart';
 import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/decode/block_cfg.dart';
-import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/flow_val.dart';
-import 'package:business/wyrm/flow_view/flow_live.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
 import 'package:business/wyrm/flow_view/menu_view.dart';
 import 'package:business/wyrm/flow_view/prompt_view.dart';
@@ -47,7 +44,6 @@ import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
-import 'package:business/wyrm/mappers/value_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -62,11 +58,9 @@ import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/palette_entry.dart';
 import 'package:models/palette_tab.dart';
-import 'package:models/param_spec.dart';
 import 'package:models/port_end.dart';
-import 'package:models/undo_kind.dart';
-import 'package:models/undo_tag.dart';
 import 'package:ui/containers/side_panels.dart';
+import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
 import 'package:ui/flows/field_inspector.dart';
@@ -77,7 +71,6 @@ import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/flow_status.dart';
 import 'package:ui/flows/rows_editor.dart';
 import 'package:ui/flows/scope_prompt.dart';
-import 'package:ui/flows/shortcut_card.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/models/disabled.dart';
 import 'package:ui/models/query.dart';
@@ -93,9 +86,6 @@ import '../common/window.dart';
 import '../mappers/flow_editor_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
-
-/// A value with no time: what the definition says a field holds.
-final _typedTime = DateTime.fromMicrosecondsSinceEpoch(0, isUtc: true);
 
 @RoutePage()
 class FlowEditorPageConnector extends StatelessWidget {
@@ -149,26 +139,23 @@ class FlowEditorPageConnector extends StatelessWidget {
       paletteTab: vm.paletteTab,
       onPaletteTab: vm.onPaletteTab,
       palette: vm.palette.unlock,
-      blocks: vm.blocks,
-      wires: vm.wires,
-      blockActions: FlowBlockActions(
-        onSelect: vm.onSelect,
-        onBind: vm.onBind,
-        onRebind: vm.onRebind,
-        onUnbind: vm.onUnbind,
-        onResize: vm.onResize,
-        refusal: vm.refusal,
-        onOpen: vm.onOpen,
-        onRowAction: vm.onRowAction,
-        onView: vm.onViewField,
-      ),
+      blocks: vm.blocks.unlock,
+      wires: vm.wires.unlock,
+      onSelect: vm.onSelect,
+      onBind: vm.onBind,
+      onRebind: vm.onRebind,
+      onUnbind: vm.onUnbind,
+      onResize: vm.onResize,
+      refusal: vm.refusal,
+      onOpen: vm.onOpen,
+      onRowAction: vm.onRowAction,
       onClear: vm.onClear,
       onMove: vm.onMove,
       nameField: vm.nameField,
       inspectorKind: vm.inspectorKind,
       inspectorTitle: vm.inspectorTitle,
       inspectorNote: vm.inspectorNote,
-      inspectorRows: vm.inspectorRows,
+      inspectorRows: vm.inspectorRows.unlock,
       summary: vm.summary,
       onFieldChanged: vm.onFieldChanged,
       onFieldUnbind: vm.onFieldUnbind,
@@ -185,7 +172,6 @@ class FlowEditorPageConnector extends StatelessWidget {
       onSelectMany: vm.onSelectMany,
       onCommand: vm.onCommand,
       menu: vm.menu,
-      onPin: vm.onPin,
       onViewField: vm.onViewField,
       onFieldPin: vm.onFieldPin,
       onSaveViewer: vm.onSaveViewer,
@@ -202,47 +188,28 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
 
   @override
   _Vm fromStore() {
-    final root = site.root ?? '';
+    final route = connector.id;
+    final view = flowEditor.view(route);
+    final base = flowBaseOf(state, route);
+    final root = base.root;
     final ed = flowEditor;
     // What the canvas shows: the flow, or the inside of a custom block.
-    final d = ed.draft;
-    // The flow itself, with every inside view folded back into it: what
-    // validate, preview and deploy read.
-    final flow = ed.root;
-    final caps = ed.caps;
-    final types = {for (final t in ed.allTypes) t.type: t};
-    final isNew = connector.id == newFlowId;
-    final id = flow?.id ?? '';
+    final d = base.draft;
+    // The flow itself, with every inside view folded back into it.
+    final flow = base.flow;
+    final caps = base.caps;
+    final types = base.types;
+    final isNew = base.isNew;
+    final id = base.id;
     final sel = ed.selectedBlock;
     final b = sel == null ? null : d?.blocks[sel];
-    final deployed = ed.deployed;
-    final differs =
-        flow != null &&
-        (deployed == null || defOf(flow, 0) != defOf(deployed, 0));
+    final differs = base.differs;
     final problems = ed.problems;
     final edges = d?.edges ?? const IListConst<FlowEdge>([]);
     final blocks = d?.blocks ?? const IMapConst<String, FlowBlock>({});
-    final previewing = _previewing;
-    final fields = {
-      for (final x in blocks.values)
-        x.id: fieldsOf(
-          types[x.type],
-          x,
-          edges: edges,
-          actionParams: _actionParams(root, x),
-        ),
-    };
+    final previewing = previewingOf(state, base);
+    final fields = base.fields;
     final keyedSel = b == null ? null : scopedKeyOf(types[b.type]);
-    // Rows a block draws: its pinned fields (spec §12): the user's choice,
-    // else the type's default, and always a field a wire touches.
-    final rows = {
-      for (final x in blocks.values)
-        x.id: [
-          for (final f in fields[x.id]!)
-            if (fieldPinned(x, f, edges)) f,
-        ],
-    };
-    final selection = ed.selection;
     // The field the viewer shows: its block and its field.
     final viewed = switch (ed.viewedField) {
       FieldAt(:final block, :final row) when blocks[block] != null => (
@@ -251,14 +218,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       ),
       _ => null,
     };
-    LiveValue? Function(String) look(FlowBlock x) =>
-        _live(x, root, fields, previewing: previewing, differs: differs);
+    final live = flowLiveOf(state, base, previewing: previewing);
+    LiveValue? Function(String) look(FlowBlock x) => live.of(x);
     String inLabelOf(String block, String port) =>
         fields[block]?.where((f) => f.inPort == port).firstOrNull?.label ??
         port;
 
-    final route = connector.id;
-    final view = flowEditor.view(route);
+    // The canvas reports a row by its place: the field there, as drawn.
+    FieldId? rowAt(RowRef r) => view.rowAt(r.block, r.row);
     return _Vm(
       window: windowBar(fullScreen: window.fullScreen),
       follow: view.follow,
@@ -293,9 +260,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       checkScope: QueryVm(
         (scope) => SelectFlowEditor(currentState()).scopeProblem(scope)?.vm,
       ),
-      onRowAction: (block, row) {
-        if (RowId.fromKey(row) case final r?) {
-          dispatchSync(EditScopeAction(block, r));
+      onRowAction: (r) {
+        if (rowAt(r) case final row?) {
+          dispatchSync(EditScopeAction(r.block, row));
         }
       },
       onOpen: (block) => dispatchSync(OpenInstanceAction(block)),
@@ -335,47 +302,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             c.vm((p) => _place(EnginePick(c.type), p)),
         ].lock,
       },
-      blocks: [
-        for (final x in blocks.values)
-          _block(
-            x,
-            types[x.type],
-            rows[x.id]!,
-            d!,
-            look(x),
-            selection.contains(x.id),
-            previewing: previewing,
-          ),
-      ],
-      wires: [
-        for (final e in edges)
-          () {
-            final writes =
-                writesTo(blocks[e.to]?.type) && e.to != blockOutputsId;
-            // A parameter's echo and a variable's value send at start: into
-            // a device they write at every deploy (ADR 0038 §6,
-            // `blocks.rs`).
-            final fromParam =
-                fields[e.from]
-                    ?.where((f) => f.sends(e.fromPort))
-                    .firstOrNull
-                    ?.kind ==
-                FieldKind.param;
-            return FlowWireVm(
-              e.from,
-              e.fromPort,
-              e.to,
-              e.toPort,
-              writes: writes,
-              // Only `in` acts on a value sent at start; a trigger, an
-              // argument and a behaviour never do (ADR 0040 §2).
-              warning: writes && fromParam && e.toPort == 'in'
-                  ? S.current.firesAtDeploy
-                  : null,
-              warningNote: S.current.firesAtStartNote,
-            );
-          }(),
-      ],
+      blocks: [for (final x in view.blocks) x.vm].lock,
+      wires: [for (final w in view.wires) w.vm].lock,
       nameField: isNew
           ? ParamFieldVm(
               id: 'flow-id',
@@ -411,7 +339,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         _ => types[b.type]?.description ?? '',
       },
       inspectorRows: b == null
-          ? const []
+          ? const IListConst([])
           : [
               if (formOf(b, edges) case final form?)
                 InspectorRowVm(
@@ -444,7 +372,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                       locked: fieldBound(b, f, edges),
                     )
                     .inGroup(_groupLabel(groupOf(types[b.type], b, f))),
-            ],
+            ].lock,
       summary: b == null
           ? _summary(root, id, flow, problems, previewing: previewing)
           : null,
@@ -480,18 +408,13 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onClose: () => dispatch(GoAction.pop()),
       onPaletteTab: (t) => dispatchSync(ShowPaletteTabAction(t.tab)),
       onClear: () => dispatchSync(SetSelectedBlockAction(null)),
-      onMove: (to, {required nudge}) => dispatchSync(
-        MoveBlocksAction({
-          for (final MapEntry(:key, :value) in to.entries)
-            key: (value.dx, value.dy),
-        }, tag: nudge ? const UndoTag(UndoKind.nudge) : null),
-      ),
+      onMove: (m) => dispatchSync(m.action),
       onSelect: (x) => dispatchSync(SetSelectedBlockAction(x)),
-      onSelectMany: (ids, {required add, required toggle}) =>
-          dispatchSync(SelectBlocksAction(ids, add: add, toggle: toggle)),
-      onCommand: (command, {at}) {
-        if (command.edit case final e?) {
-          dispatchSync(FlowEditAction(e, x: at?.dx, y: at?.dy));
+      onSelectMany: (s) =>
+          dispatchSync(SelectBlocksAction(s.ids, add: s.add, toggle: s.toggle)),
+      onCommand: (c) {
+        if (c.command.edit case final e?) {
+          dispatchSync(FlowEditAction(e, x: c.at?.dx, y: c.at?.dy));
         }
       },
       menu: QueryVm(
@@ -501,27 +424,28 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               MenuAsk(
                 ask.ids.lock,
                 block: ask.block,
-                row: switch (ask.row) {
-                  final r? => RowId.fromKey(r),
-                  null => null,
+                row: switch ((ask.block, ask.row)) {
+                  (final b?, final r?) => view.rowAt(b, r),
+                  _ => null,
                 },
               ),
             )
-            .vm,
+            .vm(
+              (field) => (on) {
+                if (ask.block case final b?) {
+                  dispatchSync(SetFieldPinAction(b, field, pinned: on));
+                }
+              },
+            ),
       ),
-      onPin: (block, field, {required pinned}) {
-        if (FieldId.fromKey(field) case final id?) {
-          dispatchSync(SetFieldPinAction(block, id, pinned: pinned));
-        }
-      },
       onFieldPin: (field, {required on}) {
         if ((sel, FieldId.fromKey(field)) case (final at?, final id?)) {
           dispatchSync(SetFieldPinAction(at, id, pinned: on));
         }
       },
-      onViewField: (block, row) {
-        if (RowId.fromKey(row) case final id?) {
-          dispatchSync(SetViewedFieldAction(FieldAt(block, id)));
+      onViewField: (r) {
+        if (rowAt(r) case final row?) {
+          dispatchSync(SetViewedFieldAction(FieldAt(r.block, row)));
         }
       },
       onSaveViewer: (text) {
@@ -541,47 +465,33 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           FieldEditError.toggle => S.current.viewerBadBool,
         };
       },
-      onBind: (from, to, port) =>
-          dispatchSync(ConnectPortsAction(from.block, from.port, to, port)),
-      onUnbind: (block, row) {
-        if (RowId.fromKey(row) case final r?) {
-          dispatchSync(UnbindFieldAction(block, r));
-        }
-      },
-      onRebind: (oldBlock, oldPort, block, port) => dispatchSync(
-        RebindFieldAction(PortEnd(oldBlock, oldPort), PortEnd(block, port)),
+      onBind: (w) => dispatchSync(
+        ConnectPortsAction(w.from.block, w.from.port, w.block, w.port),
       ),
-      refusal: (from, block, row, {replacing}) {
-        final to = fields[block]?.where((f) => f.id.key == row).firstOrNull;
-        if (d == null || to == null) {
-          return null;
+      onUnbind: (r) {
+        if (rowAt(r) case final row?) {
+          dispatchSync(UnbindFieldAction(r.block, row));
         }
-        final r = bindRefusal(
-          types,
-          d,
-          fromBlock: from.block,
-          fromPort: from.port,
-          toBlock: block,
-          to: to,
-          replacing: replacing == null
-              ? null
-              : PortEnd(replacing.$1, replacing.$2),
-        );
-        return switch (r?.reason) {
-          null => null,
-          BindRefusal.output => S.current.refuseOutput,
-          BindRefusal.noInput => S.current.refuseNoInput(to.label),
-          BindRefusal.self => S.current.refuseSelf,
-          BindRefusal.type => S.current.refuseType(
-            r!.from?.wire ?? '',
-            r.to?.wire ?? '',
-          ),
-          BindRefusal.loop => S.current.refuseLoop,
-          BindRefusal.needsBroker => S.current.refuseNeedsBroker(to.label),
-        };
       },
-      onResize: (block, {required add}) =>
-          dispatchSync(ResizeBlockAction(block, add: add)),
+      onRebind: (w) => dispatchSync(RebindFieldAction(w.from.end, w.to.end)),
+      refusal: QueryVm(
+        (ask) => switch (rowAt(ask.to)) {
+          final row? =>
+            SelectFlowEditor(currentState())
+                .refusal(
+                  route,
+                  WireAsk(
+                    ask.from.end,
+                    ask.to.block,
+                    row,
+                    replacing: ask.replacing?.end,
+                  ),
+                )
+                ?.vm,
+          null => null,
+        },
+      ),
+      onResize: (r) => dispatchSync(ResizeBlockAction(r.block, add: r.add)),
       onFieldChanged: (row, text) {
         if ((sel, RowId.fromKey(row)) case (final at?, final r?)) {
           dispatchSync(TypeFieldAction(at, r, text));
@@ -627,39 +537,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     outputs: r.outputs,
     defaults: r.defaults,
   );
-
-  /// Whether the draft's values come from its preview: it runs otherwise
-  /// than the deployed version (its layout aside), the broker has a
-  /// preview, and the preview has answered (until then the watch's values
-  /// stay, so the first edit does not blank every field).
-  bool get _previewing {
-    final ed = flowEditor;
-    final d = ed.root;
-    final dep = ed.deployed;
-    return d != null &&
-        ed.previewOff == null &&
-        (ed.previewPorts.isNotEmpty ||
-            ed.previewSinks.isNotEmpty ||
-            ed.previewError != null) &&
-        (dep == null || previewDefOf(dep) != previewDefOf(d));
-  }
-
-  /// The parameters of the action an `invoke` block runs, from its node's
-  /// `~meta` (read once, `nodes.detail`); none while it is not read.
-  Iterable<ParamSpec> _actionParams(String root, FlowBlock b) {
-    if (b.type.known != KnownBlock.invoke) {
-      return const [];
-    }
-    final path = pointOf(b);
-    final name = b.cfgAction;
-    return path == null
-        ? const []
-        : nodes.detail[fullKey(root, path)]?.actions
-                  .where((a) => a.name == name)
-                  .firstOrNull
-                  ?.params ??
-              const [];
-  }
 
   /// The id the engine knows block [id] of the canvas by: its own in the
   /// flow, `<instance>/<inner>` inside a custom block. Null inside a
@@ -714,298 +591,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     ScopeProblem.otherSite => S.current.scopeOtherSite,
     ScopeProblem.segment => S.current.scopeSegment,
   };
-
-  /// The values of [b]'s fields, by key of [portKey].
-  ///
-  /// While the draft runs as a preview ([previewing]) every block reads the
-  /// preview's values; else a block the deployed version has unchanged
-  /// reads the watch's, and the point a `subscribe` reads or a `set` writes
-  /// its tree value.
-  ///
-  /// The engine records a port only from its first sample after the watch
-  /// or the preview opened (ADR 0038 §6), so a slow point or a value sent
-  /// once at start shows nothing there. What such a field holds is still
-  /// known, and is shown: an input bound by a wire of the draft holds the
-  /// value of its source field; a field's echo (a variable's `Value`, a
-  /// parameter) what comes into it, else its typed value; an input's echo
-  /// what came in.
-  LiveValue? Function(String) _live(
-    FlowBlock b,
-    String root,
-    Map<String, List<FlowField>> fields, {
-    required bool previewing,
-    required bool differs,
-    int hops = 0,
-  }) {
-    final ed = flowEditor;
-    final d = ed.draft;
-    final inside = ed.frames.isNotEmpty;
-    // Inside a custom block the nodes run under an instance: their rows
-    // are `<instance>/<inner>`; opened from the palette they do not run.
-    final eid = _engineId(b.id);
-    final dep = inside ? null : ed.deployed?.blocks[b.id];
-    final same = inside
-        ? !differs
-        : dep != null && dep.type == b.type && sameCfg(dep.cfg, b.cfg);
-    final ports = eid == null
-        ? null
-        : (previewing ? ed.previewPorts : (same ? ed.ports : null));
-    final point = isPoint(b.type) ? pointOf(b) : null;
-    final flow = ed.root?.id ?? '';
-    final pub = previewing || !same || inside
-        ? null
-        : publishedKey(root, flow, b);
-    final tree = pub != null
-        ? live.values[pub]
-        : (point == null ? null : live.values[fullKey(root, point)]);
-    final inPrefix = portKey(PortSide.input, b.id, '');
-    final outPrefix = portKey(PortSide.output, b.id, '');
-    final instance = d != null && isInstance(b.type);
-    LiveValue? look(String k) {
-      final at = eid == null ? null : engineKeyOf(d, b, eid, k);
-      final v = at == null ? null : ports?[at];
-      if (v != null) {
-        return v;
-      }
-      if (tree != null &&
-          (k == portKey(PortSide.output, b.id, 'out') &&
-                  b.type.known != KnownBlock.set ||
-              k == portKey(PortSide.input, b.id, 'in') &&
-                  (b.type.known == KnownBlock.set ||
-                      b.type.known == KnownBlock.publish))) {
-        return tree;
-      }
-      if (d == null || hops > 6) {
-        return null;
-      }
-      if (k.startsWith(inPrefix)) {
-        final port = k.substring(inPrefix.length);
-        final wire = d.edges
-            .where((e) => e.to == b.id && e.toPort == port)
-            .firstOrNull;
-        final src = wire == null ? null : d.blocks[wire.from];
-        if (wire == null || src == null) {
-          // An unbound operand holds its typed constant (ADR 0038 §7).
-          final f = fields[b.id]
-              ?.where((f) => f.operand && f.inPort == port)
-              .firstOrNull;
-          // An instance's input holds its own constant, else the block's
-          // default.
-          final constant = f == null
-              ? null
-              : (instance
-                    ? instanceValueOf(d, b, port)
-                    : operandValueOf(b, port));
-          return constant == null
-              ? null
-              : LiveValue(time: _typedTime, value: constant);
-        }
-        return _live(
-          src,
-          root,
-          fields,
-          previewing: previewing,
-          differs: differs,
-          hops: hops + 1,
-        )(portKey(PortSide.output, src.id, wire.fromPort));
-      }
-      if (!k.startsWith(outPrefix)) {
-        return null;
-      }
-      final port = k.substring(outPrefix.length);
-      if (!previewing && same) {
-        // An output wired straight into a publish block sent what that
-        // block last published.
-        for (final e in ed.deployed?.edges ?? const IListConst<FlowEdge>([])) {
-          final to = ed.deployed?.blocks[e.to];
-          final key = to == null ? null : publishedKey(root, flow, to);
-          if (e.from == b.id && e.fromPort == port && key != null) {
-            if (live.values[key] case final v?) {
-              return v;
-            }
-          }
-        }
-      }
-      final f = fields[b.id]
-          ?.where((f) => f.sends(port) && f.kind != FieldKind.output)
-          .firstOrNull;
-      if (f == null) {
-        return null;
-      }
-      final inPort = f.inPort;
-      if (inPort != null &&
-          d.edges.any((e) => e.to == b.id && e.toPort == inPort)) {
-        return look(portKey(PortSide.input, b.id, inPort));
-      }
-      if (f.kind == FieldKind.input) {
-        return inPort == null
-            ? null
-            : look(portKey(PortSide.input, b.id, inPort));
-      }
-      if (ports?[portKey(PortSide.param, b.id, f.name)] case final v?) {
-        return v;
-      }
-      final typed = b.cfg[f.name] ?? f.spec?.defaultValue;
-      return typed == null ? null : LiveValue(time: _typedTime, value: typed);
-    }
-
-    return look;
-  }
-
-  FlowBlockVm _block(
-    FlowBlock b,
-    NodeType? t,
-    List<FlowField> rows,
-    FlowDraft d,
-    LiveValue? Function(String) live,
-    bool selected, {
-    required bool previewing,
-  }) {
-    final role = roleOf(b.type);
-    final writes = writesTo(b.type);
-    final root = site.root ?? '';
-    final point = pointOf(b);
-    final keyed = scopedKeyOf(t);
-    final behaves = behavesOf(t);
-    // The row a sink's ghost stands on: its value's, else its trigger's.
-    final trigger = FieldId.input(EnginePort.trigger.wire);
-    final ghostRow = rows.any((f) => f.inPort == EnginePort.in_.wire)
-        ? FieldId.input(EnginePort.in_.wire)
-        : (rows.any((f) => f.id == trigger) ? trigger : rows.firstOrNull?.id);
-    // What a sink would write in the preview (nothing is written).
-    final ghost = previewing && isSink(b.type)
-        ? flowEditor.previewSinks[_engineId(b.id) ?? b.id]
-        : null;
-    // The draft no longer runs: the preview's last values, greyed.
-    final stale = previewing && flowEditor.previewError != null;
-    final info = point == null ? null : nodes.table[fullKey(root, point)];
-    final v = variadicOf(t, b);
-    return FlowBlockVm(
-      id: b.id,
-      title: switch (b.id) {
-        blockInputsId => S.current.blockInputs,
-        blockOutputsId => S.current.blockOutputs,
-        final x => x,
-      },
-      type: switch (role) {
-        BlockRole.node => connectionOf(point, parent: true),
-        // The action block names what it runs: `tcp-tank · ramp`.
-        BlockRole.action => [
-          connectionOf(point, parent: false).split('/').last,
-          if (b.cfgAction case final a? when behaves) a,
-        ].where((x) => x.isNotEmpty).join(' · '),
-        BlockRole.custom => blockNameOf(b.type) ?? '',
-        _ => b.type.wire,
-      },
-      kind: switch (role) {
-        BlockRole.node => BlockKindVm.node,
-        BlockRole.logic => BlockKindVm.logic,
-        BlockRole.sink => BlockKindVm.sink,
-        BlockRole.action => BlockKindVm.action,
-        BlockRole.custom => BlockKindVm.my,
-      },
-      link: isInstance(b.type) && flowEditor.caps.blocks
-          ? S.current.openInside
-          : null,
-      x: b.x,
-      y: b.y,
-      // The inputs and outputs blocks of an inside view are narrow: names.
-      width: isBoundary(b.id) ? 160 : blockWidthOf(role),
-      selected: selected,
-      tag: ghost == null ? null : S.current.previewTag,
-      rows: [
-        for (final f in rows)
-          () {
-            final value = fieldValue(
-              b,
-              f,
-              d,
-              live,
-              unit: info?.unit,
-              choices: info?.choices.unlock ?? const [],
-            );
-            final group = groupOf(t, b, f);
-            final wouldDo = ghost != null && f.id == ghostRow
-                ? (b.type.known == KnownBlock.invoke
-                      ? (behaves
-                            ? S.current.wouldSend(valueText(ghost.value))
-                            : S.current.wouldRun(valueText(ghost.value)))
-                      : S.current.wouldWrite(
-                          valueText(
-                            ghost.value,
-                            unit: info?.unit,
-                            choices: info?.choices.unlock ?? const [],
-                          ),
-                        ))
-                : null;
-            return FieldRowVm(
-              id: f.id.key,
-              label: f.label,
-              name: f.name,
-              // An event reads when it fired, not its map; a run its time.
-              value:
-                  wouldDo ??
-                  switch (f.name) {
-                    // A command is a button: it shows no value.
-                    _ when f.command => '',
-                    _ when group == FieldGroup.events =>
-                      eventText(live(portKey(PortSide.output, b.id, f.name))) ??
-                          '',
-                    'last_run' when behaves => lastRunText(value.raw) ?? '',
-                    _ => value.text,
-                  },
-              // The scope is typed in its prompt: the pencil opens it.
-              action: f.name == keyed?.scope ? 'action_edit' : null,
-              actionTip: S.current.scopeEdit,
-              command: f.command,
-              tone: switch (value) {
-                _ when wouldDo != null => ValueTone.ghost,
-                FieldValue(bad: true) => ValueTone.bad,
-                FieldValue(live: true) when stale => ValueTone.stale,
-                FieldValue(bound: true) => ValueTone.bound,
-                _ => ValueTone.plain,
-              },
-              inPort: f.inPort,
-              outPort: f.outPort,
-              outAliases: f.outAliases,
-              inMark: f.inPort == null
-                  ? PortMark.none
-                  : (!value.bound
-                        ? PortMark.free
-                        : (writes ? PortMark.write : PortMark.bound)),
-              outMark: f.outPort == null
-                  ? PortMark.none
-                  : (d.edges.any((e) => e.from == b.id && f.sends(e.fromPort))
-                        ? PortMark.bound
-                        : PortMark.free),
-            );
-          }(),
-      ],
-      variadic: isBoundary(b.id)
-          ? VariadicVm(
-              label: S.current.portsCount(rows.length),
-              canRemove: rows.isNotEmpty,
-              addLabel: S.current.addPort,
-              removeLabel: S.current.removePort,
-            )
-          : v == null
-          ? null
-          // A pair of inputs (`case`) or a case with its output (`router`).
-          : (v.step == 2 || v.outPrefix != null
-                ? VariadicVm(
-                    label: S.current.pairsCount(v.names.length ~/ v.step),
-                    canRemove: v.removes.isNotEmpty,
-                    addLabel: S.current.addPair,
-                    removeLabel: S.current.removePair,
-                  )
-                : VariadicVm(
-                    label: S.current.inputsCount(v.names.length),
-                    canRemove: v.removes.isNotEmpty,
-                    addLabel: S.current.addInput,
-                    removeLabel: S.current.removeInput,
-                  )),
-    );
-  }
 
   /// `modbus/tcp-tank` of `downstream/modbus/tcp-tank/level` (the parent of a
   /// point, or a node itself), without `downstream`.
@@ -1482,7 +1067,6 @@ class _Vm extends Vm {
     required this.onSelectMany,
     required this.onCommand,
     required this.menu,
-    required this.onPin,
     required this.onFieldPin,
     required this.onViewField,
     required this.onSaveViewer,
@@ -1507,6 +1091,7 @@ class _Vm extends Vm {
            checkBlock,
            checkScope,
            menu,
+           refusal,
            blocks,
            wires,
            nameField,
@@ -1543,7 +1128,7 @@ class _Vm extends Vm {
   final ValueChanged<String> onPromptSave;
   final VoidCallback onPromptCancel;
   final QueryVm<String, ScopeProblemVm?> checkScope;
-  final void Function(String block, String row) onRowAction;
+  final ValueChanged<RowRef> onRowAction;
   final ValueChanged<String> onOpen;
   final ValueChanged<String> onRun;
 
@@ -1561,51 +1146,35 @@ class _Vm extends Vm {
   final Disabled? deployOff;
   final PaletteTabVm paletteTab;
   final IList<PaletteEntryVm> palette;
-  final List<FlowBlockVm> blocks;
-  final List<FlowWireVm> wires;
+  final IList<FlowBlockVm> blocks;
+  final IList<FlowWireVm> wires;
   final ParamFieldVm? nameField;
   final String inspectorKind;
   final String inspectorTitle;
   final String inspectorNote;
-  final List<InspectorRowVm> inspectorRows;
+  final IList<InspectorRowVm> inspectorRows;
   final FlowSummaryVm? summary;
   final VoidCallback onDeploy;
   final VoidCallback onValidate;
   final VoidCallback onClose;
   final ValueChanged<PaletteTabVm> onPaletteTab;
   final VoidCallback onClear;
-  final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
+  final ValueChanged<BlocksMoved> onMove;
   final ValueChanged<String> onSelect;
-  final void Function(
-    Set<String> ids, {
-    required bool add,
-    required bool toggle,
-  })
-  onSelectMany;
-  final void Function(FlowCommand command, {Offset? at}) onCommand;
+  final ValueChanged<BlocksSelected> onSelectMany;
+  final ValueChanged<CanvasCommand> onCommand;
   final QueryVm<FlowMenuAsk, FlowMenuVm> menu;
-  final void Function(String block, String field, {required bool pinned}) onPin;
   final void Function(String field, {required bool on}) onFieldPin;
-  final void Function(String block, String row) onViewField;
+  final ValueChanged<RowRef> onViewField;
   final ValueChanged<String> onSaveViewer;
   final String? Function(String text) validateViewer;
-  final void Function(FieldRefVm from, String block, String toPort) onBind;
-  final void Function(String block, String rowId) onUnbind;
-  final void Function(
-    String oldBlock,
-    String oldPort,
-    String block,
-    String toPort,
-  )
-  onRebind;
-  final String? Function(
-    FieldRefVm from,
-    String block,
-    String rowId, {
-    (String, String)? replacing,
-  })
-  refusal;
-  final void Function(String block, {required bool add}) onResize;
+  final ValueChanged<WireDropped> onBind;
+  final ValueChanged<RowRef> onUnbind;
+  final ValueChanged<WireMoved> onRebind;
+
+  /// Why a row does not take a dragged wire: answered from the state then.
+  final QueryVm<BindAsk, BindRefusalVm?> refusal;
+  final ValueChanged<BlockResized> onResize;
   final void Function(String id, String value) onFieldChanged;
   final ValueChanged<String> onFieldUnbind;
   final void Function(String id, FieldRefVm from) onFieldBind;

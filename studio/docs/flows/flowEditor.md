@@ -141,7 +141,7 @@ sequenceDiagram
 
     User->>UI: onRowAction
     UI->>VM: onRowAction()
-    alt RowId.fromKey(row)
+    alt rowAt(r)
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(SetScopePromptAction)
     end
@@ -380,13 +380,11 @@ sequenceDiagram
     actor User
     participant UI as FlowEditorPage
     participant VM as FlowEditorPageConnector
-    participant A1 as MoveBlocksAction
-    participant ST as AppState
+    participant A1 as m.action
 
     User->>UI: onMove
     UI->>VM: onMove()
     VM->>A1: dispatchSync
-    A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
 ```
 
 ## onSelect
@@ -436,7 +434,7 @@ sequenceDiagram
 
     User->>UI: onCommand
     UI->>VM: onCommand()
-    alt command.edit
+    alt c.command.edit
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(CopyBlocksAction)
         A1->>ST: dispatchSync(CopyBlocksAction)
@@ -452,7 +450,7 @@ sequenceDiagram
     end
 ```
 
-## onPin
+## menu
 
 ```mermaid
 sequenceDiagram
@@ -463,9 +461,9 @@ sequenceDiagram
     participant A1 as SetFieldPinAction
     participant ST as AppState
 
-    User->>UI: onPin
-    UI->>VM: onPin()
-    alt FieldId.fromKey(field)
+    User->>UI: menu
+    UI->>VM: menu()
+    alt ask.block
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     end
@@ -503,7 +501,7 @@ sequenceDiagram
 
     User->>UI: onViewField
     UI->>VM: onViewField()
-    alt RowId.fromKey(row)
+    alt rowAt(r)
         VM->>A1: dispatchSync
         A1->>ST: copyWith(flowEditor.viewedField)
     end
@@ -563,7 +561,7 @@ sequenceDiagram
 
     User->>UI: onUnbind
     UI->>VM: onUnbind()
-    alt RowId.fromKey(row)
+    alt rowAt(r)
         VM->>A1: dispatchSync
         A1->>ST: dispatchSync(DisconnectEdgeAction)
     end
@@ -758,11 +756,11 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onClose` | `GoAction.pop` | — |
 | `onPaletteTab` | `ShowPaletteTabAction` | `flowEditor.palette` |
 | `onClear` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
-| `onMove` | `MoveBlocksAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `onMove` | `m.action` | — |
 | `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onSelectMany` | `SelectBlocksAction` | `flowEditor.selection, flowEditor.selectedBlock` |
 | `onCommand` | `FlowEditAction` ? | — |
-| `onPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
+| `menu` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onFieldPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onViewField` | `SetViewedFieldAction` ? | `flowEditor.viewedField` |
 | `onSaveViewer` | `TypeFieldAction` ? | — |

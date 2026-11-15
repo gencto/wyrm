@@ -49,7 +49,7 @@
     "app/lib/common/backup_sheets.dart": 15,
     "app/lib/common/broker_update_sheets.dart": 1,
     "app/lib/common/update_sheets.dart": 3,
-    "app/lib/connectors/flow_editor_page_connector.dart": 3,
+    "app/lib/connectors/flow_editor_page_connector.dart": 2,
     "app/lib/connectors/link_install_page_connector.dart": 13,
     "app/lib/connectors/links_page_connector.dart": 6,
     "app/lib/dialogs/assistant_dialogs.dart": 1,
@@ -66,8 +66,6 @@
     "ui/lib/containers/answer_list.dart": 1,
     "ui/lib/containers/inspector_sections.dart": 2,
     "ui/lib/flows/field_inspector.dart": 2,
-    "ui/lib/flows/flow_block_view.dart": 2,
-    "ui/lib/flows/flow_canvas.dart": 3,
     "ui/lib/overlays/task_sheet.dart": 1,
     "ui/lib/overlays/value_viewer.dart": 2,
     "ui/lib/pages/gallery_page.dart": 10,
@@ -79,7 +77,7 @@
     "app/lib/connectors/access_page_connector.dart": 117,
     "app/lib/connectors/assistant_page_connector.dart": 887,
     "app/lib/connectors/explorer_page_connector.dart": 704,
-    "app/lib/connectors/flow_editor_page_connector.dart": 1626,
+    "app/lib/connectors/flow_editor_page_connector.dart": 1192,
     "app/lib/connectors/flows_page_connector.dart": 92,
     "app/lib/connectors/gallery_page_connector.dart": 31,
     "app/lib/connectors/history_page_connector.dart": 124,
@@ -108,7 +106,7 @@
     "app/lib/common/update_sheets.dart": 4,
     "app/lib/common/validators.dart": 1,
     "app/lib/common/value_viewer.dart": 4,
-    "app/lib/connectors/flow_editor_page_connector.dart": 90,
+    "app/lib/connectors/flow_editor_page_connector.dart": 65,
     "app/lib/connectors/link_install_page_connector.dart": 112,
     "app/lib/connectors/links_page_connector.dart": 166
   },
@@ -200,7 +198,7 @@
     "ui/lib/trees/tree_row.dart": 4
   },
   "ad-hoc-callback": {
-    "app/lib/connectors/flow_editor_page_connector.dart": 16,
+    "app/lib/connectors/flow_editor_page_connector.dart": 6,
     "app/lib/connectors/link_install_page_connector.dart": 1,
     "app/lib/connectors/links_page_connector.dart": 3,
     "app/lib/navigation/go_action.dart": 1,
@@ -209,13 +207,9 @@
     "ui/lib/charts/trend.dart": 4,
     "ui/lib/containers/side_panels.dart": 1,
     "ui/lib/dialogs/error_dialog.dart": 1,
-    "ui/lib/flows/field_drop_zone.dart": 1,
-    "ui/lib/flows/flow_block_view.dart": 3,
-    "ui/lib/flows/flow_canvas.dart": 4,
     "ui/lib/forms/base_form.dart": 1,
     "ui/lib/overlays/search_palette.dart": 1,
-    "ui/lib/overlays/value_viewer.dart": 3,
-    "ui/lib/pages/flow_editor_page.dart": 4
+    "ui/lib/overlays/value_viewer.dart": 3
   },
   "untyped-wire": {
     "app/lib/common/value_viewer.dart": 6,

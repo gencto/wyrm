@@ -355,7 +355,6 @@ void main() {
           child: FlowBlockView(
             vm: const FlowBlockVm(
               id: 'csv1',
-              title: 'csv1',
               x: 0,
               y: 0,
               rows: [
@@ -367,13 +366,9 @@ void main() {
                 ),
               ],
             ),
-            actions: FlowBlockActions(
-              onSelect: (_) {},
-              onBind: (_, _, _) {},
-              onRebind: (_, _, _, _) {},
-              onUnbind: (_, _) {},
-              onResize: (_, {required add}) {},
-              onView: (b, r) => viewed.add('$b/$r'),
+            // The app finds the field by the row's place; here, its key.
+            onView: (r) => viewed.add(
+              '${r.block}/${['in:in'][r.row]}',
             ),
           ),
         ),

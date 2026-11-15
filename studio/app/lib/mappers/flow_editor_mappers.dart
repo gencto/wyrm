@@ -1,19 +1,28 @@
 import 'package:business/redux/common/action.dart';
 import 'package:business/redux/flow_editor/actions/drop_point_on_input_action.dart';
+import 'package:business/redux/flow_editor/actions/move_blocks_action.dart';
 import 'package:business/redux/flow_editor/actions/pick_palette_entry_action.dart';
+import 'package:business/wyrm/flow_view/block_view.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
 import 'package:business/wyrm/flow_view/menu_view.dart';
 import 'package:business/wyrm/flow_view/off.dart';
 import 'package:business/wyrm/flow_view/palette_view.dart';
 import 'package:business/wyrm/flow_view/prompt_view.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
+import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:flutter/foundation.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_edit.dart';
 import 'package:models/palette_entry.dart';
 import 'package:models/palette_tab.dart';
 import 'package:models/port_end.dart';
+import 'package:models/undo_kind.dart';
+import 'package:models/undo_tag.dart';
+import 'package:ui/flows/bind_refusal.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
+import 'package:ui/flows/flow_block_view.dart';
+import 'package:ui/flows/flow_canvas.dart';
 import 'package:ui/flows/flow_intents.dart';
 import 'package:ui/flows/flow_menu.dart';
 import 'package:ui/flows/flow_status.dart';
@@ -328,14 +337,15 @@ extension TreeEntryVm on TreeEntry {
 
 /// The canvas menu as `ui` draws it.
 extension FlowMenuViewVm on FlowMenuView {
-  FlowMenuVm get vm => FlowMenuVm(
+  /// [pin] pins a field of the menu's block (true) or takes it off.
+  FlowMenuVm vm(ValueChanged<bool> Function(FieldId field) pin) => FlowMenuVm(
     block: block,
     blockType: blockType,
     count: count,
     flow: flow,
     blocksInFlow: blocksInFlow,
-    fields: [for (final f in fields) f.vm],
-    unpin: unpin?.vm,
+    fields: [for (final f in fields) f.vm(pin(f.id))],
+    unpin: unpin?.vm(pin(unpin!.id)),
     items: [
       for (final i in items)
         FlowMenuItemVm(
@@ -352,8 +362,8 @@ extension FlowMenuViewVm on FlowMenuView {
 }
 
 extension MenuPinViewVm on MenuPinView {
-  FlowPinVm get vm =>
-      FlowPinVm(id: id.key, label: label, pinned: pinned, locked: locked);
+  FlowPinVm vm(ValueChanged<bool> onPin) =>
+      FlowPinVm(label: label, pinned: pinned, locked: locked, onPin: onPin);
 }
 
 /// What `Create custom block…` proposes.
@@ -375,8 +385,155 @@ extension CustomPortViewVm on CustomPortView {
 extension ScopePromptViewVm on ScopePromptView {
   ScopePromptVm get vm => ScopePromptVm(
     block: block,
-    row: row.key,
+    row: place,
     value: value,
     suggestions: suggestions.unlock,
   );
+}
+
+// ---------- the canvas ----------
+
+/// What a block is, as its header chip says it.
+extension BlockRoleVm on BlockRole {
+  BlockKindVm get vm => switch (this) {
+    BlockRole.node => BlockKindVm.node,
+    BlockRole.logic => BlockKindVm.logic,
+    BlockRole.sink => BlockKindVm.sink,
+    BlockRole.action => BlockKindVm.action,
+    BlockRole.custom => BlockKindVm.my,
+  };
+}
+
+/// The inputs or outputs block of an inside view.
+extension BoundaryVmOf on Boundary {
+  BoundaryVm get vm => switch (this) {
+    Boundary.inputs => BoundaryVm.inputs,
+    Boundary.outputs => BoundaryVm.outputs,
+  };
+}
+
+/// What a sink would do in the preview.
+extension GhostKindVmOf on GhostKind {
+  GhostKindVm get vm => switch (this) {
+    GhostKind.send => GhostKindVm.send,
+    GhostKind.run => GhostKindVm.run,
+    GhostKind.write => GhostKindVm.write,
+  };
+}
+
+/// How a row's value is drawn.
+extension RowToneVm on RowTone {
+  ValueTone get vm => switch (this) {
+    RowTone.plain => ValueTone.plain,
+    RowTone.bound => ValueTone.bound,
+    RowTone.bad => ValueTone.bad,
+    RowTone.stale => ValueTone.stale,
+    RowTone.ghost => ValueTone.ghost,
+  };
+}
+
+/// A port's mark.
+extension PortMarkKindVm on PortMarkKind {
+  PortMark get vm => switch (this) {
+    PortMarkKind.none => PortMark.none,
+    PortMarkKind.free => PortMark.free,
+    PortMarkKind.bound => PortMark.bound,
+    PortMarkKind.write => PortMark.write,
+  };
+}
+
+/// What − and + change.
+extension VariadicKindVmOf on VariadicKind {
+  VariadicKindVm get vm => switch (this) {
+    VariadicKind.ports => VariadicKindVm.ports,
+    VariadicKind.pairs => VariadicKindVm.pairs,
+    VariadicKind.inputs => VariadicKindVm.inputs,
+  };
+}
+
+extension VariadicViewVm on VariadicView {
+  VariadicVm get vm => VariadicVm(kind.vm, count: count, canRemove: canRemove);
+}
+
+/// A row of a block on the canvas; its key is its field's id written out
+/// (the widgets' identity, never read back).
+extension RowViewVm on RowView {
+  FieldRowVm get vm => FieldRowVm(
+    id: id.key,
+    label: label,
+    name: name,
+    value: value,
+    ghost: ghost?.vm,
+    tone: tone.vm,
+    inPort: inPort,
+    outPort: outPort,
+    outAliases: outAliases.unlock,
+    inMark: inMark.vm,
+    outMark: outMark.vm,
+    editScope: editScope,
+    command: command,
+  );
+}
+
+/// A block on the canvas.
+extension BlockViewVm on BlockView {
+  FlowBlockVm get vm => FlowBlockVm(
+    id: id,
+    boundary: boundary?.vm,
+    caption: caption.unlock,
+    kind: role.vm,
+    x: x,
+    y: y,
+    width: width,
+    selected: selected,
+    preview: ghost,
+    openable: openable,
+    rows: [for (final r in rows) r.vm],
+    variadic: variadic?.vm,
+  );
+}
+
+/// A wire on the canvas.
+extension WireViewVm on WireView {
+  FlowWireVm get vm => FlowWireVm(
+    from,
+    fromPort,
+    to,
+    toPort,
+    writes: writes,
+    firesAtDeploy: firesAtDeploy,
+  );
+}
+
+/// Why a row does not take a dragged wire.
+extension WireRefusalVm on WireRefusal {
+  BindRefusalVm get vm => switch (refused.reason) {
+    BindRefusal.output => const RefuseOutput(),
+    BindRefusal.noInput => RefuseNoInput(label),
+    BindRefusal.self => const RefuseSelf(),
+    BindRefusal.type => RefuseType(
+      refused.from?.wire ?? '',
+      refused.to?.wire ?? '',
+    ),
+    BindRefusal.loop => const RefuseLoop(),
+    BindRefusal.needsBroker => RefuseNeedsBroker(label),
+  };
+}
+
+/// The output end a wire is dragged from.
+extension FieldRefEnd on FieldRefVm {
+  PortEnd get end => PortEnd(block, port);
+}
+
+/// The input end of a wire.
+extension PortRefEnd on PortRefVm {
+  PortEnd get end => PortEnd(block, port);
+}
+
+/// Blocks let go at new corners, as the move they are (a nudge is one step
+/// of the undo history with the next nudges).
+extension BlocksMovedAction on BlocksMoved {
+  MoveBlocksAction get action => MoveBlocksAction({
+    for (final MapEntry(:key, :value) in to.entries) key: (value.dx, value.dy),
+  }, tag: nudge ? const UndoTag(UndoKind.nudge) : null);
 }

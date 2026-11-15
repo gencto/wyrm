@@ -4,7 +4,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../models/disabled.dart';
-import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
@@ -37,14 +36,12 @@ final class FlowMenuItemVm extends Equatable {
 /// One field of the block in the `Fields ▸` checklist.
 final class FlowPinVm extends Equatable {
   const FlowPinVm({
-    required this.id,
     required this.label,
     required this.pinned,
     this.locked = false,
+    this.onPin,
   });
 
-  /// The field's id within its block.
-  final String id;
   final String label;
 
   /// Whether it is a row of the block now.
@@ -53,11 +50,14 @@ final class FlowPinVm extends Equatable {
   /// Bound: it cannot be taken off (`bound`).
   final bool locked;
 
+  /// Pins it to the block (true) or takes it off; null: it cannot change.
+  final ValueChanged<bool>? onPin;
+
   /// Why it cannot be taken off; null: it can.
   String? get lockedReason => locked ? S.current.fmBound : null;
 
   @override
-  List<Object?> get props => [id, label, pinned, locked];
+  List<Object?> get props => [label, pinned, locked, onPin != null];
 }
 
 /// What a [FlowMenu] shows: the block, the selection or the canvas it was
@@ -124,7 +124,9 @@ final class FlowMenuAsk extends Equatable {
 
   final Set<String> ids;
   final String? block;
-  final String? row;
+
+  /// The row's place among [block]'s rows.
+  final int? row;
 
   @override
   List<Object?> get props => [ids, block, row];
@@ -134,13 +136,12 @@ final class FlowMenuAsk extends Equatable {
 /// node menu: the name of what it was opened on over its commands, each
 /// with its shortcut on the right ([flowHintOf]). `Fields ▸`
 /// opens a checklist beside it: a tick pins a field to the block or takes
-/// it off, and the menu stays open. [onPick] gets a command, [onPin] a
-/// field and whether it is pinned now.
+/// it off ([FlowPinVm.onPin]), and the menu stays open. [onPick] gets a
+/// command.
 class FlowMenu extends StatefulWidget {
   const FlowMenu({
     required this.vm,
     required this.onPick,
-    required this.onPin,
     this.fieldsOpen = false,
     this.mac,
     super.key,
@@ -148,7 +149,6 @@ class FlowMenu extends StatefulWidget {
 
   final FlowMenuVm vm;
   final ValueChanged<FlowCommand> onPick;
-  final Toggled<String> onPin;
 
   /// Whether the `Fields ▸` checklist is open at first.
   final bool fieldsOpen;
@@ -163,7 +163,6 @@ class FlowMenu extends StatefulWidget {
     BuildContext context, {
     required Offset at,
     required FlowMenuVm vm,
-    required Toggled<String> onPin,
   }) => showDialog<FlowCommand>(
     context: context,
     barrierColor: Colors.transparent,
@@ -180,7 +179,6 @@ class FlowMenu extends StatefulWidget {
               constraints: BoxConstraints(maxHeight: size.height - 16),
               child: FlowMenu(
                 vm: vm,
-                onPin: onPin,
                 onPick: (c) => Navigator.of(context).pop(c),
               ),
             ),
@@ -198,9 +196,9 @@ class _FlowMenuState extends State<FlowMenu> {
   late bool _fields = widget.fieldsOpen;
 
   /// The ticks as the user set them while the menu is open.
-  late final Map<String, bool> _pinned = {
-    for (final f in widget.vm.fields) f.id: f.pinned,
-  };
+  late final List<bool> _pinned = [
+    for (final f in widget.vm.fields) f.pinned,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -300,15 +298,16 @@ class _FlowMenuState extends State<FlowMenu> {
       );
     }
 
-    Widget field(FlowPinVm f) {
-      final on = _pinned[f.id] ?? f.pinned;
+    Widget field(int i, FlowPinVm f) {
+      final on = _pinned[i];
       final locked = f.lockedReason != null;
+      final onPin = f.onPin;
       final row = InkWell(
-        onTap: locked
+        onTap: locked || onPin == null
             ? null
             : () {
-                setState(() => _pinned[f.id] = !on);
-                widget.onPin(f.id, on: !on);
+                setState(() => _pinned[i] = !on);
+                onPin(!on);
               },
         child: Container(
           height: AppSizes.flowMenuField,
@@ -408,7 +407,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   ),
                 ),
               ),
-              for (final f in vm.fields) field(f),
+              for (final (i, f) in vm.fields.indexed) field(i, f),
             ]),
           ),
       ],

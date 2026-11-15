@@ -21,9 +21,10 @@ final class ScopePromptVm extends Equatable {
     this.suggestions = const [],
   });
 
-  /// The block whose key is bound, and the row the prompt points at.
+  /// The block whose key is bound, and the place among its rows of the
+  /// row the prompt points at (under the first when it does not show).
   final String block;
-  final String row;
+  final int row;
 
   /// The scope the field starts with: the block's own, else a suggestion.
   final String value;

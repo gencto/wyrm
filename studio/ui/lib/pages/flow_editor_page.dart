@@ -6,11 +6,13 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../containers/fault_boundary.dart';
 import '../containers/side_panels.dart';
+import '../flows/bind_refusal.dart';
 import '../flows/block_palette.dart';
 import '../flows/custom_block_dialog.dart';
 import '../flows/field_inspector.dart';
 import '../flows/flow_block_view.dart';
 import '../flows/flow_canvas.dart';
+import '../flows/flow_intents.dart';
 import '../flows/flow_menu.dart';
 import '../flows/flow_status.dart';
 import '../flows/scope_prompt.dart';
@@ -47,7 +49,10 @@ class FlowEditorPage extends StatelessWidget {
     required this.palette,
     required this.blocks,
     required this.wires,
-    required this.blockActions,
+    required this.onSelect,
+    required this.onBind,
+    required this.onRebind,
+    required this.onUnbind,
     required this.onClear,
     required this.onMove,
     required this.onFieldChanged,
@@ -77,10 +82,13 @@ class FlowEditorPage extends StatelessWidget {
     this.onView,
     this.onCloseViewer,
     this.window = const WindowBarVm(),
+    this.onResize,
+    this.refusal,
+    this.onOpen,
+    this.onRowAction,
     this.onSelectMany,
     this.onCommand,
     this.menu,
-    this.onPin,
     this.onViewField,
     this.onFieldPin,
     this.onSaveViewer,
@@ -148,28 +156,43 @@ class FlowEditorPage extends StatelessWidget {
   final VoidCallback? onOpenInside;
 
   /// A marquee or Select all on the canvas.
-  final void Function(
-    Set<String> ids, {
-    required bool add,
-    required bool toggle,
-  })?
-  onSelectMany;
+  final ValueChanged<BlocksSelected>? onSelectMany;
 
   /// A command of the canvas (copy, paste at `at`, delete, undo, …). The
-  /// page itself answers two: `searchPalette` puts the cursor in the
-  /// palette's search field, `deploy` asks first and then calls
-  /// [onDeploy].
-  final void Function(FlowCommand command, {Offset? at})? onCommand;
+  /// page itself answers some: `searchPalette` puts the cursor in the
+  /// palette's search field, `createCustomBlock` asks the block first,
+  /// `deploy` asks first and then calls [onDeploy].
+  final ValueChanged<CanvasCommand>? onCommand;
 
   /// The context menu of a block, of the selection or of the canvas.
   final QueryVm<FlowMenuAsk, FlowMenuVm>? menu;
 
-  /// A field pinned to its block or taken off it, from the context menu.
-  final void Function(String block, String field, {required bool pinned})?
-  onPin;
-
   /// `V` over a row of the canvas: opens its value in the viewer.
-  final RowAction<String, String>? onViewField;
+  final ValueChanged<RowRef>? onViewField;
+
+  /// A block of the canvas clicked: selected alone.
+  final ValueChanged<String> onSelect;
+
+  /// A wire let go on an input that takes it.
+  final ValueChanged<WireDropped> onBind;
+
+  /// A picked-up wire let go on another input.
+  final ValueChanged<WireMoved> onRebind;
+
+  /// A bound input of the canvas unbound.
+  final ValueChanged<RowRef> onUnbind;
+
+  /// − or + of a block's variable inputs.
+  final ValueChanged<BlockResized>? onResize;
+
+  /// Why a row does not take the wire dragged over it.
+  final QueryVm<BindAsk, BindRefusalVm?>? refusal;
+
+  /// `Open inside` of an instance on the canvas.
+  final ValueChanged<String>? onOpen;
+
+  /// The pencil of a canvas row (the scope of a key).
+  final ValueChanged<RowRef>? onRowAction;
 
   /// The pin of an inspector row (a field of the selected block).
   final Toggled<String>? onFieldPin;
@@ -223,9 +246,8 @@ class FlowEditorPage extends StatelessWidget {
 
   final List<FlowBlockVm> blocks;
   final List<FlowWireVm> wires;
-  final FlowBlockActions blockActions;
   final VoidCallback onClear;
-  final void Function(Map<String, Offset> to, {required bool nudge}) onMove;
+  final ValueChanged<BlocksMoved> onMove;
 
   /// The id field of a new flow.
   final ParamFieldVm? nameField;
@@ -499,7 +521,7 @@ class FlowEditorPage extends StatelessWidget {
         onCreateBlock?.call(made);
       }
     } else if (command != FlowCommand.deploy) {
-      onCommand?.call(command, at: at);
+      onCommand?.call(CanvasCommand(command, at: at));
     } else if (deployOn) {
       final yes = await ConfirmDialog.ask(
         context,
@@ -540,18 +562,24 @@ class FlowEditorPage extends StatelessWidget {
       child: FlowCanvas(
         blocks: blocks,
         wires: wires,
-        actions: blockActions,
+        onSelect: onSelect,
+        onBind: onBind,
+        onRebind: onRebind,
+        onUnbind: onUnbind,
+        onResize: onResize,
+        refusal: refusal,
+        onOpen: onOpen,
+        onRowAction: onRowAction,
         onClear: onClear,
         onMove: onMove,
         legend: true,
         // A flow, or a block opened inside it, fits the view when it opens.
         view: [_flowLabel, ...crumbs].join('/'),
         onSelectMany: onSelectMany,
-        onCommand: (command, {at}) => unawaited(
-          _command(context, command, deployOn: deployOn, at: at),
+        onCommand: (c) => unawaited(
+          _command(context, c.command, deployOn: deployOn, at: c.at),
         ),
         menu: menu,
-        onPin: onPin,
         onViewField: onViewField,
         prompt: prompt,
         onPromptSave: onPromptSave,
