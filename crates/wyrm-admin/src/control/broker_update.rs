@@ -286,12 +286,18 @@ fn asset_url(channel: &str, asset: &Asset) -> Result<String, String> {
     if !asset.url.is_empty() {
         return Ok(asset.url.clone());
     }
-    let base = channel.split(['?', '#']).next().unwrap_or(channel);
-    let (dir, _) = base
+    // the channel's directory: its scheme, authority and path up to the last `/`
+    let u =
+        wyrm_core::weburl::Url::parse(channel).map_err(|_| "updates.channel: the URL of a file")?;
+    let dir = u
+        .path
         .rsplit_once('/')
-        .filter(|(d, _)| d.contains("://") && !d.ends_with(':') && !d.ends_with('/'))
+        .map(|(d, _)| d)
         .ok_or("updates.channel: the URL of a file")?;
-    Ok(format!("{dir}/{}", asset.file))
+    Ok(format!(
+        "{}://{}{dir}/{}",
+        u.scheme, u.authority, asset.file
+    ))
 }
 
 /// The control-plane WAL stores and their key files, relative to `data_dir`.

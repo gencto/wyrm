@@ -5,6 +5,7 @@
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use zip::write::SimpleFileOptions;
 
 const CLONE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -26,14 +27,15 @@ fn valid_ref(r: &str) -> bool {
 /// credentials in the URL: it is kept as the package source (registry,
 /// `sys/packages`, audit), so a token in it would be on show.
 pub fn check_url(url: &str, allow_file: bool) -> Result<(), String> {
-    let ok = url.starts_with("https://") || (allow_file && url.starts_with("file://"));
-    let authority = url
-        .split_once("://")
-        .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
-        .unwrap_or("");
-    if authority.contains('@') {
-        return Err("url: no credentials in the URL (only public repositories)".into());
-    }
+    // `file://` has no host for the URL parser: it is the dev profile's alone
+    let file = allow_file && url.starts_with("file://") && !url.contains('@');
+    let ok = match HttpUrl::parse(url, SchemeCase::Lower) {
+        Err(UrlError::Credentials) => {
+            return Err("url: no credentials in the URL (only public repositories)".into())
+        }
+        Ok(u) => u.tls,
+        Err(_) => file,
+    };
     if !ok || url.contains(char::is_whitespace) || url.len() > 512 {
         return Err(format!(
             "url {url}: https:// only{}",
@@ -193,6 +195,65 @@ pub fn zip_dir(dir: &Path) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The check before review S4, kept to compare.
+    fn old_check_url(url: &str, allow_file: bool) -> Result<(), String> {
+        let ok = url.starts_with("https://") || (allow_file && url.starts_with("file://"));
+        let authority = url
+            .split_once("://")
+            .map(|(_, rest)| rest.split('/').next().unwrap_or(""))
+            .unwrap_or("");
+        if authority.contains('@') {
+            return Err("url: no credentials in the URL (only public repositories)".into());
+        }
+        if !ok || url.contains(char::is_whitespace) || url.len() > 512 {
+            return Err(format!(
+                "url {url}: https:// only{}",
+                if allow_file {
+                    " (or file:// in dev)"
+                } else {
+                    ""
+                }
+            ));
+        }
+        Ok(())
+    }
+
+    /// Review S4: every clone URL the old check took is taken, and what it refused stays
+    /// refused; a credential in a `file://` URL is refused too.
+    #[test]
+    fn urls_check_as_before() {
+        for (s, dev) in [
+            ("https://git.example/x.git", false),
+            ("https://github.com/acme/links.git", false),
+            ("https://git.example:8443/a/b", true),
+            ("file:///tmp/x", true),
+        ] {
+            assert_eq!(
+                check_url(s, dev).is_ok(),
+                old_check_url(s, dev).is_ok(),
+                "{s}"
+            );
+            assert!(check_url(s, dev).is_ok(), "{s}");
+        }
+        for (s, dev) in [
+            ("file:///tmp/x", false),
+            ("-c x", true),
+            ("ssh://git@h/x", true),
+            ("https://user:tok3n@git.example/x.git", false),
+            ("http://git.example/x.git", true),
+            ("https://git.example/a b", false),
+            ("HTTPS://git.example/x", false),
+        ] {
+            assert!(old_check_url(s, dev).is_err(), "old took {s}");
+            assert!(check_url(s, dev).is_err(), "{s}");
+        }
+        // refused now, taken before: a host that is no host, a bad port
+        for s in ["https://[x/y", "https://h:99999/x", "https:///x"] {
+            assert!(old_check_url(s, false).is_ok(), "{s}");
+            assert!(check_url(s, false).is_err(), "{s}");
+        }
+    }
 
     #[test]
     fn refs_and_urls() {

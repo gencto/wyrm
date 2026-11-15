@@ -300,7 +300,7 @@ impl Release {
         if self.date.len() > 32 || self.notes.len() > 512 {
             return Err("date or notes: too long".into());
         }
-        if !self.notes.is_empty() && !self.notes.starts_with("https://") {
+        if !self.notes.is_empty() && !https_url(&self.notes) {
             return Err("notes: an https:// URL".into());
         }
         if self.schemas.len() > 16 || self.schemas.keys().any(|k| !plain_name(k, 32)) {
@@ -331,7 +331,7 @@ impl Release {
                     a.size
                 ));
             }
-            if !a.url.is_empty() && (!a.url.starts_with("https://") || a.url.len() > 1024) {
+            if !a.url.is_empty() && (!https_url(&a.url) || a.url.len() > 1024) {
                 return Err(format!("target {t}: url: https:// only"));
             }
         }
@@ -1365,6 +1365,11 @@ wyrm_core::name_enum! {
         /// The broker updated while it follows.
         Standby => "standby",
     }
+}
+
+/// `s` is an `https://` URL ([`wyrm_core::weburl`]).
+fn https_url(s: &str) -> bool {
+    wyrm_core::weburl::HttpUrl::parse(s, wyrm_core::weburl::SchemeCase::Lower).is_ok_and(|u| u.tls)
 }
 
 /// `data_dir/update.json`: one update of the broker, from the moment the old
