@@ -558,7 +558,6 @@ mod tests {
         View {
             inv,
             params,
-            items: Vec::new(),
             now_us: 0,
             ins: &super::super::NO_INPUTS,
         }

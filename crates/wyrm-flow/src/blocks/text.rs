@@ -446,7 +446,6 @@ mod tests {
             &View {
                 inv: &x,
                 params: &params,
-                items: Vec::new(),
                 now_us: 0,
                 ins: &super::super::NO_INPUTS,
             },
