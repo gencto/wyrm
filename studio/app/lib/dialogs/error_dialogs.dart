@@ -28,6 +28,7 @@ import '../common/app_store.dart';
 import '../errors.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+import '../navigation/go_after_action.dart';
 
 /// How an error dialog was closed.
 enum _Closed { primary, secondary, dismissed }
@@ -196,11 +197,14 @@ Future<void> _show(
       }
     case _Closed.secondary:
       if (e.kind == .rights) {
-        // Access, on the user's own line.
-        store
-          ..dispatchSync(access_slice.SetTabAction(AccessTab.users))
-          ..dispatchSync(SetSelectedAction(store.state.site.user))
-          ..dispatchSync(GoAction.navigate(const AccessRoute()));
+        // Access, on the user's own line: one action, the tab and the
+        // user in one state, then the route.
+        await store.dispatchAndWait(
+          GoAfterAction(const AccessRoute(), [
+            access_slice.SetTabAction(AccessTab.users),
+            SetSelectedAction(store.state.site.user),
+          ]),
+        );
       }
     case _Closed.dismissed:
       break;
