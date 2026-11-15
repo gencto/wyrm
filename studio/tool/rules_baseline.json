@@ -134,6 +134,9 @@
     "app/lib/connectors/window_controls_connector.dart": 82
   },
   "context-in-connector": {
+    "app/lib/common/app_store.dart": 1,
+    "app/lib/common/every.dart": 1,
+    "app/lib/common/tab_visibility.dart": 1,
     "app/lib/connectors/access_page_connector.dart": 3,
     "app/lib/connectors/assistant_page_connector.dart": 7,
     "app/lib/connectors/explorer_page_connector.dart": 5,
@@ -156,6 +159,15 @@
     "app/lib/connectors/window_controls_connector.dart": 1
   },
   "l10n-in-connector": {
+    "app/lib/common/backup_sheets.dart": 37,
+    "app/lib/common/broker_update_sheets.dart": 5,
+    "app/lib/common/changes.dart": 2,
+    "app/lib/common/flow_state.dart": 4,
+    "app/lib/common/trend.dart": 4,
+    "app/lib/common/unlock.dart": 1,
+    "app/lib/common/update_sheets.dart": 4,
+    "app/lib/common/validators.dart": 1,
+    "app/lib/common/value_viewer.dart": 4,
     "app/lib/connectors/access_page_connector.dart": 67,
     "app/lib/connectors/assistant_page_connector.dart": 218,
     "app/lib/connectors/explorer_page_connector.dart": 183,
