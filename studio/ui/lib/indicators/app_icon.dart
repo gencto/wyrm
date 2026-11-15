@@ -21,15 +21,15 @@ class AppIcon extends StatelessWidget {
 
   /// The one `node_` glyph of a node's kind (board *Icons* "What a node is"),
   /// the same in every tree, search result and breadcrumb. [key] is the
-  /// node's full key under the site [root] (`wy/<site>`), [profile] its `is`
-  /// and [type] its value type (null for a node that is not a value).
+  /// node's full key under the site [root] (`wy/<site>`), [profile] its `is`;
+  /// [value]: it is a value (it has a type).
   static String nodeName({
     required String key,
     required String root,
     String? profile,
-    String? type,
+    bool value = false,
   }) {
-    if (type != null) {
+    if (value) {
       return 'node_point';
     }
     if (key == root) {

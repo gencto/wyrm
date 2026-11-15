@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
@@ -10,6 +11,19 @@ import 'app_icon.dart';
 final class FailChipVm extends Equatable {
   const FailChipVm({required this.label, this.tip});
 
+  /// `read failed`, the sentence of each [reads] as its tooltip.
+  factory FailChipVm.reads(List<ReadFailed> reads, {bool tip = true}) =>
+      FailChipVm(
+        label: S.current.readFailed,
+        tip: tip ? [for (final r in reads) r.line].join('\n') : null,
+      );
+
+  /// `history unavailable`, the reason as its tooltip.
+  factory FailChipVm.history(String reason) => FailChipVm(
+    label: S.current.historyUnavailable,
+    tip: S.current.historyUnavailableTip(reason),
+  );
+
   /// `read failed`, `history unavailable`.
   final String label;
 
@@ -18,6 +32,27 @@ final class FailChipVm extends Equatable {
 
   @override
   List<Object?> get props => [label, tip];
+}
+
+/// What of a node could not be read (docs/design/specs/errors.md §4).
+enum ReadWhat { value, list, meta }
+
+/// A read that failed, and why (the status's wire name: `timeout`).
+final class ReadFailed extends Equatable {
+  const ReadFailed(this.what, this.reason);
+
+  final ReadWhat what;
+  final String reason;
+
+  /// `Reading the value failed: timeout. Details in Problems.`
+  String get line => switch (what) {
+    ReadWhat.value => S.current.readFailedTip(reason),
+    ReadWhat.list => S.current.listFailedTip(reason),
+    ReadWhat.meta => S.current.metaFailedTip(reason),
+  };
+
+  @override
+  List<Object?> get props => [what, reason];
 }
 
 /// The chip beside a row's name when reading its value failed (board

@@ -610,14 +610,13 @@ void main() {
           ]),
         ];
       await _pump(t, app, selected: 't-1');
-      app.store
-        ..dispatchSync(SelectPointAction(_valve))
-        ..dispatchSync(
-          SetLiveValuesAction({
-            _tcp: LiveValue(value: 1, time: now),
-            _valve: LiveValue(value: 0, quality: q.Quality.bad, time: now),
-          }),
-        );
+      await app.store.dispatchAndWait(SelectPointAction(_valve));
+      app.store.dispatchSync(
+        SetLiveValuesAction({
+          _tcp: LiveValue(value: 1, time: now),
+          _valve: LiveValue(value: 0, quality: q.Quality.bad, time: now),
+        }),
+      );
       await _drawer(t, app);
       _check(t, 'drawer, found');
     });
@@ -628,7 +627,7 @@ void main() {
         max: 'write',
       )..task('t-1', found());
       await _pump(t, app, selected: 't-1');
-      app.store.dispatchSync(SelectPointAction(_valve));
+      await app.store.dispatchAndWait(SelectPointAction(_valve));
       await _drawer(t, app);
       _check(t, 'drawer, no audit');
     });
@@ -944,7 +943,7 @@ void main() {
         ),
       ];
       await _pump(t, app, selected: 't-1');
-      app.store.dispatchSync(SelectPointAction(_valve));
+      await app.store.dispatchAndWait(SelectPointAction(_valve));
       await _drawer(t, app);
       final trend = t.widget<Trend>(find.byType(Trend)).vm;
       final card = t.widget<FoundCard>(find.byType(FoundCard));

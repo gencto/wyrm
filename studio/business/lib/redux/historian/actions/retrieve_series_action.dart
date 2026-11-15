@@ -5,6 +5,7 @@ import 'package:models/hist_point.dart';
 import 'package:models/node_detail.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/hist_point.dart';
 import '../../../wyrm/history_steps.dart';
 import '../../../wyrm/mappers/node_detail_mapper.dart';
 import '../../app_state.dart';
@@ -44,7 +45,7 @@ class RetrieveSeriesAction extends Action with WaitingAction {
           window: step,
           limit: step == null ? rawLimit : 1000,
         );
-        return [for (final r in rows) histPoint(r)].lock;
+        return [for (final r in rows) histPointOf(r)].lock;
       } on WyrmException {
         return const IListConst([]);
       }

@@ -5,6 +5,7 @@ import 'package:models/staged_change.dart';
 import '../../../wyrm/failures.dart';
 import '../../../wyrm/points.dart';
 import '../../app_state.dart';
+import '../../changes/models/changes_state.dart';
 import '../../common/action.dart';
 
 /// Stages one parameter of the point [key]'s `edit` action (poll, register,
@@ -23,8 +24,21 @@ class StagePointEditAction extends Action {
   static String idOf(String key) => 'edit:$key';
 
   @override
-  AppState? reduce() {
-    final edit = nodes.detail[key]?.actions
+  AppState? reduce() => switch (staged(state, key, param, value)) {
+    final c? => state.copyWith(changes: c),
+    null => null,
+  };
+
+  /// The staged changes of [s] with the parameter [param] of the point
+  /// [key]'s `edit` set to [value] (several edits make one state:
+  /// `StagePollAction`). Null when nothing changes.
+  static ChangesState? staged(
+    AppState s,
+    String key,
+    String param,
+    Object? value,
+  ) {
+    final edit = s.nodes.detail[key]?.actions
         .where((a) => a.name == 'edit')
         .firstOrNull;
     if (edit == null) {
@@ -35,6 +49,7 @@ class StagePointEditAction extends Action {
         call: 'edit',
       );
     }
+    final changes = s.changes;
     final current = {for (final p in edit.params) p.name: p.defaultValue};
     final id = idOf(key);
     final before = changes.table[id];
@@ -44,10 +59,12 @@ class StagePointEditAction extends Action {
         if (!_same(args[p.name], current[p.name])) p.name,
     ];
     if (changed.isEmpty) {
-      return state.copyWith.changes(
-        table: changes.table.remove(id),
-        view: changes.view.remove(id),
-      );
+      return before == null
+          ? null
+          : changes.copyWith(
+              table: changes.table.remove(id),
+              view: changes.view.remove(id),
+            );
     }
     final change = StagedChange(
       id: id,
@@ -56,14 +73,14 @@ class StagePointEditAction extends Action {
       field: changed.map(editFieldName).join(', '),
       from: [for (final p in changed) editFieldText(p, current[p])].join(', '),
       to: [for (final p in changed) editFieldText(p, args[p])].join(', '),
-      level: edit.level,
+      level: edit.level.wire,
       action: 'edit',
       args: {
         for (final e in args.entries)
           if (e.value != null) e.key: e.value,
       }.lock,
     );
-    return state.copyWith.changes(
+    return changes.copyWith(
       table: changes.table.add(id, change),
       view: before == null ? changes.view.add(id) : changes.view,
       message: null,

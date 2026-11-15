@@ -1,16 +1,14 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/action_answer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import '../../links/actions/retrieve_link_history_action.dart';
 import 'retrieve_node_detail_action.dart';
 
 /// Runs [action] on [key] with [args] now (not staged: an action that does
-/// something, not an edit) and keeps its answer rows, as indented JSON, in
-/// `nodes.results['<key> ▸ <action>']`.
+/// something, not an edit) and keeps its answer, a table or JSON lines, in
+/// `nodes.answers['<key> ▸ <action>']`.
 ///
 /// A refusal is a user error with the broker's own message; an answer
 /// `{success: false, message}` is one too.
@@ -50,9 +48,9 @@ class InvokeNodeAction extends Action with WaitingAction {
       requireSuccess(r, key, action);
     }
     return state.copyWith.nodes(
-      results: state.nodes.results.add(
+      answers: state.nodes.answers.add(
         resultId(key, action),
-        [for (final r in rows) prettyJson(toDart(r))].lock,
+        actionAnswerOf(rows),
       ),
     );
   }

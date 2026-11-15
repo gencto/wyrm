@@ -10,7 +10,6 @@ import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
-import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/peers/actions/add_upstream_action.dart';
 import 'package:business/redux/peers/actions/authorize_broker_action.dart';
 import 'package:business/redux/peers/actions/issue_site_token_action.dart';
@@ -39,6 +38,7 @@ import 'package:ui/pages/sites_page.dart';
 
 import '../common/forms.dart';
 import '../common/tab_visibility.dart';
+import '../navigation/explore_action.dart';
 
 @RoutePage()
 class SitesPageConnector extends StatelessWidget {
@@ -543,8 +543,7 @@ class _Factory extends VmFactory<AppState, SitesPageConnector, _Vm>
         dispatchSync(ViewSiteAction(name));
         AutoTabsRouter.of(context).setActiveIndex(0);
       case 'platform':
-        dispatchSync(SelectNodeAction('$_root/downstream/uplink/$name'));
-        AutoTabsRouter.of(context).setActiveIndex(0);
+        await dispatchAndWait(ExploreAction('$_root/downstream/uplink/$name'));
       case 'deauthorize':
         if (await ConfirmDialog.ask(
           context,

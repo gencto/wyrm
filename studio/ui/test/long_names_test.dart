@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/containers/inspector.dart';
 import 'package:ui/overlays/node_menu.dart';
@@ -10,6 +11,9 @@ import 'frames/harness.dart';
 /// be 50 characters: no title, header or label may overflow
 /// (docs/design/specs/explorer.md §3). A RenderFlex overflow fails these.
 void main() {
+  // Explorer says its own words (studio-rules §5).
+  setUpAll(() => S.load(const Locale('en')));
+
   for (final width in [1440.0, 1100.0, 900.0, 760.0]) {
     testWidgets('Explorer with a long name at $width', (tester) async {
       tester.view.physicalSize = Size(width, 800);

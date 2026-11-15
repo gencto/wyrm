@@ -1,3 +1,5 @@
+import 'package:models/history_range.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -6,7 +8,7 @@ import '../../common/action.dart';
 class SetHistoryRangeAction extends Action {
   SetHistoryRangeAction(this.historyRange);
 
-  final String historyRange;
+  final HistoryRange historyRange;
 
   @override
   AppState reduce() =>

@@ -144,7 +144,7 @@ sequenceDiagram
     participant A3 as AddUpstreamAction
     participant A4 as SetTabAction
     participant A5 as ViewSiteAction
-    participant A6 as SelectNodeAction
+    participant A6 as ExploreAction
     participant A7 as DeauthorizeLinkAction
     participant A8 as RetrievePeersAction
     participant A9 as RejectQuarantineAction
@@ -177,12 +177,11 @@ sequenceDiagram
     A5->>ST: dispatchSync(FollowFlowsAction)
     A5->>ST: dispatchSync(_MoveWatched)
     A5->>ST: dispatchAndWait(RetrieveLinksAction)
-    VM->>A6: dispatchSync
-    A6->>ST: copyWith(nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter)
-    A6->>ST: dispatchSync(ToggleNodeAction)
-    A6->>A2: dispatchAndWait
-    A6->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A6->>ST: dispatchAndWait(RetrieveHistoryAction)
+    VM->>+A6: dispatchAndWait
+    Note over A6: async
+    A6->>ST: dispatchSync(GoAction.workspace)
+    A6->>ST: dispatchAndWait(SelectNodeAction)
+    A6-->>-VM: ActionStatus
     alt await ConfirmDialog.ask(context, title: S.current.deauthorizeTitle(name), message: S.current.deauthorizeBrokerNote, confirm: S.current.actDeauthorize, cancel: S.current.cancel)
         VM->>+A7: dispatchAndWait
         Note over A7: WaitingAction · async
@@ -228,7 +227,7 @@ sequenceDiagram
 | `onReview` | `SetTabAction` | `links.tab` |
 | `onConnect` | `RetrieveNodeDetailAction`, `AddUpstreamAction` | `nodes.detail` |
 | `onToken.onSubmit` | `IssueSiteTokenAction` | `nodes.results` |
-| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `SelectNodeAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant`, `nodes.selectedNode, nodes.action, nodes.point, nodes.anchor, nodes.checked, nodes.pointFilter`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
+| `onAction` | `IssueSiteTokenAction`, `RetrieveNodeDetailAction`, `AddUpstreamAction`, `SetTabAction`, `SetTabAction`, `ViewSiteAction`, `ExploreAction`, `DeauthorizeLinkAction` ?, `RetrievePeersAction` ?, `RejectQuarantineAction` ? | `nodes.results`, `nodes.detail`, `links.tab`, `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant`, `peers.table, peers.view`, `quarantine.table, quarantine.view, quarantine.selectedEntry` |
 | `onSubmit` | `AuthorizeBrokerAction` | — |
 
 `?` marks a dispatch that only runs under a condition.

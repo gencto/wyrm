@@ -17,5 +17,8 @@ abstract class FlowSummary with _$FlowSummary {
     @Default(0) int blocks,
     String? description,
     @Default(false) bool running,
+
+    /// Since when it is in its state (`~val.since`), when the value says.
+    DateTime? since,
   }) = _FlowSummary;
 }
