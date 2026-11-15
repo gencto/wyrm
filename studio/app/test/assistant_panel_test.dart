@@ -1,10 +1,10 @@
-import 'package:app/common/changes.dart';
 import 'package:app/connectors/assistant_page_connector.dart';
 import 'package:app/connectors/explorer_page_connector.dart';
 import 'package:app/navigation/app_router.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/assistant/actions/set_drawer_action.dart';
+import 'package:business/wyrm/shell.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
@@ -399,8 +399,8 @@ void main() {
     );
     await app.settle(tester);
 
-    final card = changeCards(_Reader(app.store.state)).single;
-    expect(card.key_, _links);
+    final card = _Reader(app.store.state).reviewCards.single.change;
+    expect(card.key, _links);
     expect(card.field, 'params · require_approval');
     expect(card.from, 'rev 2: require_approval write');
     expect(card.to, 'require_approval config');

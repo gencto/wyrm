@@ -2,6 +2,7 @@ import 'package:business/redux/app_state.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/site_choice.dart';
 import 'package:models/site_pick.dart';
+import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'screen_app.dart';
@@ -115,9 +116,13 @@ AppState withSites(AppState s, {SitePick? selected}) => s.copyWith(
     connected: true,
     choices: IList(const [
       SiteChoice(site: 'plant'),
-      SiteChoice(site: 'central', relation: 'upstream'),
-      SiteChoice(site: 'line1', relation: 'downstream'),
-      SiteChoice(site: 'line3', relation: 'downstream', via: 'line1'),
+      SiteChoice(site: 'central', relation: SiteRelation.upstream),
+      SiteChoice(site: 'line1', relation: SiteRelation.downstream),
+      SiteChoice(
+        site: 'line3',
+        relation: SiteRelation.downstream,
+        via: 'line1',
+      ),
     ]),
   ),
   peers: s.peers.copyWith(selectedPeer: selected),

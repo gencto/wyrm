@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/install_target.dart';
+import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -50,7 +51,7 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
     final sites = [
       viewed,
       for (final c in site.choices)
-        if (c.relation == 'downstream' && c.site != viewed) c.site,
+        if (c.relation == SiteRelation.downstream && c.site != viewed) c.site,
     ];
     final targets = await Future.wait([
       for (final s in sites)

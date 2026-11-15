@@ -6,7 +6,6 @@
     "app/lib/connectors/lock_overlay_connector.dart": 1,
     "app/lib/connectors/log_in_page_connector.dart": 8,
     "app/lib/connectors/step_up_dialog_connector.dart": 2,
-    "app/lib/connectors/studio_page_connector.dart": 3,
     "app/lib/connectors/toast_stack_connector.dart": 1,
     "app/lib/dialogs/error_dialogs.dart": 3,
     "app/lib/dialogs/link_dialogs.dart": 3,
@@ -62,7 +61,6 @@
     "app/lib/connectors/links_page_connector.dart": 30,
     "app/lib/connectors/lock_overlay_connector.dart": 1,
     "app/lib/connectors/step_up_dialog_connector.dart": 1,
-    "app/lib/connectors/studio_page_connector.dart": 5,
     "app/lib/dialogs/backup_dialogs.dart": 19,
     "app/lib/dialogs/link_dialogs.dart": 1,
     "app/lib/errors.dart": 16,
@@ -91,7 +89,6 @@
     "app/lib/connectors/link_install_page_connector.dart": 13,
     "app/lib/connectors/links_page_connector.dart": 6,
     "app/lib/connectors/log_in_page_connector.dart": 1,
-    "app/lib/connectors/studio_page_connector.dart": 5,
     "app/lib/dialogs/assistant_dialogs.dart": 1,
     "app/lib/dialogs/link_dialogs.dart": 5,
     "app/lib/dialogs/profile_dialog.dart": 1,
@@ -137,7 +134,7 @@
     "app/lib/connectors/sites_page_connector.dart": 89,
     "app/lib/connectors/splash_page_connector.dart": 15,
     "app/lib/connectors/step_up_dialog_connector.dart": 129,
-    "app/lib/connectors/studio_page_connector.dart": 508,
+    "app/lib/connectors/studio_page_connector.dart": 188,
     "app/lib/connectors/system_page_connector.dart": 293,
     "app/lib/connectors/toast_stack_connector.dart": 80,
     "app/lib/connectors/top_level_page_connector.dart": 52,
@@ -145,13 +142,11 @@
   },
   "context-in-connector": {
     "app/lib/common/app_store.dart": 1,
-    "app/lib/connectors/links_page_connector.dart": 3,
-    "app/lib/connectors/studio_page_connector.dart": 1
+    "app/lib/connectors/links_page_connector.dart": 3
   },
   "l10n-in-connector": {
     "app/lib/common/backup_sheets.dart": 37,
     "app/lib/common/broker_update_sheets.dart": 5,
-    "app/lib/common/changes.dart": 2,
     "app/lib/common/flow_state.dart": 4,
     "app/lib/common/unlock.dart": 1,
     "app/lib/common/update_sheets.dart": 4,
@@ -163,7 +158,6 @@
     "app/lib/connectors/lock_overlay_connector.dart": 1,
     "app/lib/connectors/log_in_page_connector.dart": 75,
     "app/lib/connectors/step_up_dialog_connector.dart": 1,
-    "app/lib/connectors/studio_page_connector.dart": 41,
     "app/lib/connectors/toast_stack_connector.dart": 5,
     "app/lib/connectors/window_controls_connector.dart": 4
   },
@@ -285,7 +279,6 @@
     "app/lib/connectors/flow_editor_page_connector.dart": 25,
     "app/lib/connectors/link_install_page_connector.dart": 1,
     "app/lib/connectors/links_page_connector.dart": 3,
-    "app/lib/connectors/studio_page_connector.dart": 1,
     "app/lib/navigation/go_action.dart": 1,
     "app/lib/navigation/leave_on_log_out_action.dart": 1,
     "app/lib/start_fault_app.dart": 1,
@@ -299,8 +292,7 @@
     "ui/lib/forms/base_form.dart": 1,
     "ui/lib/overlays/search_palette.dart": 1,
     "ui/lib/overlays/value_viewer.dart": 3,
-    "ui/lib/pages/flow_editor_page.dart": 7,
-    "ui/lib/shell/studio_shell.dart": 1
+    "ui/lib/pages/flow_editor_page.dart": 7
   },
   "untyped-wire": {
     "app/lib/common/value_viewer.dart": 6,
@@ -361,7 +353,6 @@
     "app/lib/connectors/link_install_page_connector.dart": 4,
     "app/lib/connectors/links_page_connector.dart": 1,
     "app/lib/connectors/lock_overlay_connector.dart": 1,
-    "app/lib/connectors/log_in_page_connector.dart": 2,
-    "app/lib/connectors/studio_page_connector.dart": 1
+    "app/lib/connectors/log_in_page_connector.dart": 2
   }
 }

@@ -13,6 +13,7 @@ import 'package:models/link_info.dart';
 import 'package:models/node_info.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/site_choice.dart';
+import 'package:models/site_relation.dart';
 import 'package:models/staged_change.dart';
 import 'package:models/studio_error.dart';
 import 'package:ui/overlays/account_menu.dart';
@@ -48,8 +49,12 @@ void main() {
             connected: true,
             choices: IList(const [
               SiteChoice(site: 'plant'),
-              SiteChoice(site: 'central', relation: 'upstream'),
-              SiteChoice(site: 'line3', relation: 'downstream', via: 'line1'),
+              SiteChoice(site: 'central', relation: SiteRelation.upstream),
+              SiteChoice(
+                site: 'line3',
+                relation: SiteRelation.downstream,
+                via: 'line1',
+              ),
             ]),
           ),
           links: s.links.copyWith(
@@ -128,6 +133,9 @@ void main() {
     await app.settle(t);
     await app.go(t, const FlowsRoute());
     expect(app.top, FlowsRoute.name);
+
+    // the palette, whatever its id type
+    final palette = find.byWidgetPredicate((w) => w is SearchPalette);
 
     List<String> shell() => [
       ...app.words(t, find.byType(TopBar)),
@@ -211,10 +219,10 @@ void main() {
     await t.sendKeyEvent(LogicalKeyboardKey.keyK);
     await t.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await app.settle(t);
-    words.check('search', app.words(t, find.byType(SearchPalette)));
+    words.check('search', app.words(t, palette));
     await t.tap(
       find.descendant(
-        of: find.byType(SearchPalette),
+        of: palette,
         matching: find.text('Access'),
       ),
     );
@@ -227,13 +235,13 @@ void main() {
     await app.settle(t);
     await t.enterText(
       find.descendant(
-        of: find.byType(SearchPalette),
+        of: palette,
         matching: find.byType(TextField),
       ),
       'downstream/plc1/t9',
     );
     await app.settle(t);
-    words.check('search go to', app.words(t, find.byType(SearchPalette)));
+    words.check('search go to', app.words(t, palette));
     await t.tap(find.text('Go to downstream/plc1/t9'));
     await app.settle(t);
     expect(app.top, ExplorerRoute.name);
@@ -244,8 +252,12 @@ void main() {
       (s) => s.copyWith.site(
         choices: IList(const [
           SiteChoice(site: 'plant'),
-          SiteChoice(site: 'central', relation: 'upstream'),
-          SiteChoice(site: 'line3', relation: 'downstream', via: 'line1'),
+          SiteChoice(site: 'central', relation: SiteRelation.upstream),
+          SiteChoice(
+            site: 'line3',
+            relation: SiteRelation.downstream,
+            via: 'line1',
+          ),
         ]),
       ),
     );

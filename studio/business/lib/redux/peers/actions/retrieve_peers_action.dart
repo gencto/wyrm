@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
+import 'package:models/site_relation.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -69,7 +70,9 @@ class RetrievePeersAction extends Action with WaitingAction {
       }
     }
     for (final c in site.choices) {
-      if (c.relation == 'downstream' && c.via != null && c.via != viewed) {
+      if (c.relation == SiteRelation.downstream &&
+          c.via != null &&
+          c.via != viewed) {
         peers.add(
           Peer(
             site: c.site,

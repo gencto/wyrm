@@ -313,7 +313,7 @@ void main() {
 
     await tester.tap(find.text('+ from Explorer'));
     await tester.pumpAndSettle();
-    final palette = find.byType(SearchPalette);
+    final palette = find.byWidgetPredicate((w) => w is SearchPalette);
     expect(palette, findsOneWidget);
     expect(find.text('Boiler PLC'), findsOneWidget);
     expect(find.text('modbus/tcp/plc1/valve'), findsWidgets);
@@ -363,7 +363,7 @@ void main() {
     expect(app.store.state.assistant.chips, hasLength(16));
     await tester.tap(find.text('+ from Explorer'));
     await tester.pumpAndSettle();
-    expect(find.byType(SearchPalette), findsNothing);
+    expect(find.byWidgetPredicate((w) => w is SearchPalette), findsNothing);
     expect(
       find.byTooltip(
         '16 keys are attached, the most one ask takes. Remove one first.',
@@ -484,7 +484,7 @@ void main() {
     final titles = [
       for (final e in tester.widgetList<Text>(
         find.descendant(
-          of: find.byType(SearchPalette),
+          of: find.byWidgetPredicate((w) => w is SearchPalette),
           matching: find.byType(Text),
         ),
       ))
