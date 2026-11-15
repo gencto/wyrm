@@ -619,14 +619,12 @@
     "crates/wyrm-link-sdk/src/driver/framework.rs": 1,
     "crates/wyrm-link-sdk/src/harness.rs": 1,
     "crates/wyrm-messenger/src/testkit.rs": 1,
-    "crates/wyrm-storage/src/json.rs": 1,
     "crates/wyrmd/src/cli.rs": 1,
     "crates/wyrmd/src/update.rs": 1,
     "examples/links/portable/src/lib.rs": 1,
     "links/agent/src/bin/wyrm-agent.rs": 1,
     "links/alarm/src/lib.rs": 2,
     "links/bacnet/src/bin/wyrm-bacnet-sim.rs": 1,
-    "links/dql/src/lib.rs": 1,
     "links/gdrive/src/bin/wyrm-gdrive-sim.rs": 1,
     "links/http/src/bin/wyrm-http-sim.rs": 1,
     "links/modbus/src/bin/wyrm-modbus-sim.rs": 1,
@@ -637,7 +635,7 @@
     "links/s7/src/bin/wyrm-s7-sim.rs": 1,
     "links/snmp/src/bin/wyrm-snmp-sim.rs": 1,
     "links/webdav/src/bin/wyrm-webdav-sim.rs": 1,
-    "tools/wyr/src/main.rs": 3
+    "tools/wyr/src/main.rs": 2
   },
   "A2-short-reason": {},
   "clippy::cast_possible_truncation": {

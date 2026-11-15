@@ -986,9 +986,16 @@ impl Control {
             info: json_map([("rev", tree.rev.into()), ("nodes", tree.put.len().into())]),
             files: vec![st.bytes("storage/tree.cbor", &bytes)?],
         };
-        if let Some(text) = wyrm_storage::json::export("", &tree.put, 256 << 20) {
-            s.files
-                .push(st.bytes("storage/export.json", text.as_bytes())?);
+        // the JSON is a copy for people; `tree.cbor` is what a restore reads. One that is
+        // not made is said in the section (and the log), never left out without a word.
+        match wyrm_storage::json::export("", &tree.put, 256 << 20) {
+            Ok(text) => s
+                .files
+                .push(st.bytes("storage/export.json", text.as_bytes())?),
+            Err(e) => {
+                tracing::warn!("backup: storage/export.json not made: {e}");
+                s.info.insert("export_json".into(), e.to_string().into());
+            }
         }
         Ok(s)
     }

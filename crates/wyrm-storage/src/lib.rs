@@ -465,11 +465,13 @@ impl Storage {
         self.folder(path)?;
         json::export(path, &self.store.subtree(path), self.limits.export_bytes)
             .map(Value::Str)
-            .ok_or_else(|| {
-                LinkError::new(
-                    Status::OutOfRange,
-                    format!("export: more than {} bytes", self.limits.export_bytes),
-                )
+            .map_err(|e| match e {
+                json::ExportError::TooLarge(_) => {
+                    LinkError::new(Status::OutOfRange, format!("export: {e}"))
+                }
+                json::ExportError::FieldName(_) => {
+                    LinkError::new(Status::InternalError, format!("export: {e}"))
+                }
             })
     }
 

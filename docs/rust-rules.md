@@ -57,8 +57,9 @@ restructure so the type says it: a `let … else`, a slice pattern, an array fro
 an `Infallible` future. A lookup that "cannot" miss returns its error or logs
 (`tracing::error!`), never a silent `continue`. `expect`/`unreachable!` stay
 only where the code is provably right and no type can say it, with
-`#[allow(…, reason = "…")]` that gives the proof (today: `encode_to_vec`, the
-embedded manifest, three `unreachable!`). An HMAC is made with
+`#[allow(…, reason = "…")]` that gives the proof (today: `encode_to_vec` and
+the embedded manifest; the last three `unreachable!` went by a restructure on
+2026-11-15). An HMAC is made with
 `wyrm_core::mac::hmac_sha256` (infallible); an RNG failure is never an
 `expect`: the function returns `None`/`Err` and its caller refuses (rule 10).
 

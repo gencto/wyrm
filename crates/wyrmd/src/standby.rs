@@ -857,8 +857,16 @@ fn keep_storage(storage: &wyrm_storage::Store, put: &[(String, wyrm_storage::Rec
         return;
     }
     let nodes: Vec<(String, wyrm_storage::Rec)> = ours.into_iter().collect();
-    let Some(text) = wyrm_storage::json::export("", &nodes, usize::MAX) else {
-        return;
+    let text = match wyrm_storage::json::export("", &nodes, usize::MAX) {
+        Ok(text) => text,
+        Err(e) => {
+            // the active's tree replaces it all the same: said, never in silence
+            tracing::error!(
+                paths = differs,
+                "standby: the storage tree differs from the active's and is not kept: {e}"
+            );
+            return;
+        }
     };
     let path = a.dir.join("storage.json");
     let r = std::fs::create_dir_all(&a.dir).and_then(|()| std::fs::write(&path, text));
