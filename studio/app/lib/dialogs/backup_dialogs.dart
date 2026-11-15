@@ -21,10 +21,10 @@ import 'package:business/redux/backups/actions/upload_restore_action.dart';
 import 'package:business/redux/live/actions/unwatch_keys_action.dart';
 import 'package:business/redux/live/actions/watch_keys_action.dart';
 import 'package:business/redux/session/actions/log_out_action.dart';
-import 'package:business/wyrm/mappers/backup_mapper.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_kind.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
@@ -42,17 +42,8 @@ class _Sel with Selectors {
 }
 
 /// The backup [id] of [state] with its live values, or null.
-BackupJob? backupJobIn(AppState state, String? id) {
-  final s = _Sel(state);
-  final j = id == null ? null : s.backups.table[id];
-  final root = s.site.root;
-  return j == null
-      ? null
-      : backupLive(
-          j,
-          (leaf) => s.live.values['$root/sys/backups/$id/$leaf']?.value,
-        );
-}
+BackupJob? backupJobIn(AppState state, String? id) =>
+    id == null ? null : _Sel(state).backupJob(id);
 
 /// The session reaches the viewed site through an upstream broker: the
 /// broker then refuses `keys`, a passphrase and a restore that replaces.
@@ -327,7 +318,9 @@ class _BackupDialogState extends State<_BackupDialog> {
   Future<void> _download(BackupJob job) async {
     final file = await saveInto(
       job.name,
-      fallback: job.kind == 'link' ? 'backup.wyrm-link' : 'backup.wyrm-backup',
+      fallback: job.kind == BackupKind.link
+          ? 'backup.wyrm-link'
+          : 'backup.wyrm-backup',
       dialogTitle: S.current.bakChooseFolder(job.name),
     );
     if (file == null) {

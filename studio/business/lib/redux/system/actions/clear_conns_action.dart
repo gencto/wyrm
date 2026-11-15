@@ -1,15 +1,18 @@
 import 'package:async_redux/async_redux.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/system_notice.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/cleared_links.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_links_action.dart';
+import '../../problems/actions/show_notice_action.dart';
 
 /// `sys` ▸ `clear_conns` (config): the broker forgets the runtime external
 /// links that are not connected and answers their ids ([removed]; nothing
-/// when there were none). Their ids are retired. The links are read again.
+/// when there were none). Their ids are retired. The links are read again,
+/// and a toast says which went (System › Maintenance asks first).
 class ClearConnsAction extends Action with NonReentrant, WaitingAction {
   @override
   Action again() => ClearConnsAction();
@@ -20,15 +23,13 @@ class ClearConnsAction extends Action with NonReentrant, WaitingAction {
   @override
   Future<AppState?> reduce() async {
     final rows = await invokeAll(deps.wyrm, '${site.root}/sys', 'clear_conns');
-    removed = [
-      for (final r in rows)
-        ...switch (r) {
-          VArray() => strings(r),
-          VStr(:final v) => [v],
-          _ => const <String>[],
-        },
-    ];
+    removed =
+        clearedLinksOf(rows).orWarn('clear_conns of ${site.viewed}') ??
+        const [];
     await dispatchAndWait(RetrieveLinksAction(quiet: true));
+    await dispatchAndWait(
+      ShowNoticeAction.system(SystemNotice.cleared(removed.lock)),
+    );
     return null;
   }
 }

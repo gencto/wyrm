@@ -1,7 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/sys_about.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -30,11 +30,12 @@ class RetrieveSysAboutAction extends Action with WaitingAction {
         if (c.meta.ty != null)
           api.meta('$root/sys/${c.name}').then<void>(
             (m) {
-              if (str(m.attr?['description']) case final d?) {
+              final a = sysAboutOf(m).orWarn('$root/sys/${c.name}');
+              if (a?.description case final d?) {
                 about['$root/sys/${c.name}'] = d;
               }
-              if (m.unit case final u?) {
-                units['$root/sys/${c.name}'] = '$u';
+              if (a?.unit case final u?) {
+                units['$root/sys/${c.name}'] = u;
               }
             },
             onError: (Object _) {},

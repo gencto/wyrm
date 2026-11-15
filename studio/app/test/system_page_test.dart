@@ -19,10 +19,11 @@ void main() {
     SysTab tab = SysTab.overview,
     bool config = true,
     Locale locale = const Locale('en'),
+    bool toasts = true,
   }) async {
     await S.load(locale);
     final app = SystemApp(fixture: fixture, config: config);
-    await app.pump(t, tab: tab, locale: locale);
+    await app.pump(t, tab: tab, locale: locale, toasts: toasts);
     return app;
   }
 
@@ -40,6 +41,7 @@ void main() {
       tab: tab,
       config: config,
       locale: locale,
+      toasts: false,
     );
     expect(app.words(t), expected);
     await app.leave(t);
@@ -295,7 +297,7 @@ void main() {
       '2026-11-12T02:01:40Z WARN wyrm_admin::supervisor '
       'link bacnet stopped: fuel limit reached',
     );
-    expect(app.notices, [S.current.sysLogCopied(2)]);
+    expect(app.notices(t), [S.current.sysLogCopied(2)]);
     await app.leave(t);
   });
 
@@ -303,8 +305,8 @@ void main() {
     final app = await shown(t, tab: SysTab.log);
     await t.tap(find.text('Save as .log'));
     await app.settle(t);
-    expect(app.notices.first, S.current.sysLogNotSaved);
-    expect(app.notices, hasLength(2), reason: 'the title and the error');
+    expect(app.notices(t).first, S.current.sysLogNotSaved);
+    expect(app.notices(t), hasLength(2), reason: 'the title and the error');
     await app.leave(t);
   });
 
@@ -370,7 +372,7 @@ void main() {
     await t.tap(find.text(S.current.sysClearConfirm));
     await app.settle(t);
     expect(app.calls('clear_conns'), hasLength(1));
-    expect(app.notices, [S.current.sysCleared('field-x')]);
+    expect(app.notices(t), [S.current.sysCleared('field-x')]);
     await app.leave(t);
   });
 
@@ -381,7 +383,7 @@ void main() {
     await t.tap(find.text(S.current.cancel));
     await app.settle(t);
     expect(app.calls('clear_conns'), isEmpty);
-    expect(app.notices, isEmpty);
+    expect(app.notices(t), isEmpty);
     await app.leave(t);
   });
 
@@ -398,7 +400,7 @@ void main() {
     final call = app.calls('remove').single;
     expect(call.key, '$sys/profiles');
     expect(call.args, Value.from({'name': 'acme:ahu'}));
-    expect(app.notices, [S.current.sysProfileRemoved('acme:ahu')]);
+    expect(app.notices(t), [S.current.sysProfileRemoved('acme:ahu')]);
     await app.leave(t);
   });
 
@@ -411,7 +413,7 @@ void main() {
     );
     await app.settle(t);
     expect(app.clipboard, 'wyrmd -c /etc/wyrm/wyrmd.json5 verify');
-    expect(app.notices, [S.current.sysCommandCopied]);
+    expect(app.notices(t), [S.current.sysCommandCopied]);
     await app.leave(t);
   });
 
@@ -427,7 +429,7 @@ void main() {
         'https://github.com/gencto/wyrm/blob/main/docs/operations.md'
         '#warm-standby-adr-0036-option-3-stage-a';
     expect(app.clipboard, url);
-    expect(app.notices, [S.current.sysGuideCopied(url)]);
+    expect(app.notices(t), [S.current.sysGuideCopied(url)]);
     await app.leave(t);
   });
 

@@ -6,8 +6,11 @@ part 'log_line.freezed.dart';
 @freezed
 abstract class LogLine with _$LogLine {
   const factory LogLine({
-    /// As the broker wrote it (ISO 8601, UTC).
+    /// As the broker wrote it (ISO 8601, UTC): what Copy and Save write.
     @Default('') String time,
+
+    /// [time] read; null when it is not a time.
+    DateTime? at,
 
     /// `error`, `warn`, `info`, `debug`, `trace`.
     @Default('') String level,

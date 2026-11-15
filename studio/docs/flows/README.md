@@ -39,9 +39,6 @@ flowchart LR
     assistant -->|"onAddAgent"| linkInstall
     assistant ==>|"onButton (navigate) [_touched(task).lastOrNull]"| explorer
     assistant ==>|"onButton (navigate) [_node(task)]"| explorer
-    system -->|"onTile"| gallery
-    system -->|"onAttention"| gallery
-    system -->|"onElsewhere"| gallery
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
     linkInstall -.->|"onResultAction"| frxBack
@@ -49,7 +46,7 @@ flowchart LR
     flowEditor ==>|"onLogo (navigate)"| explorer
 
     classDef frxEntry stroke-dasharray: 5 3
-    class logIn,studio frxEntry
+    class logIn,gallery,studio frxEntry
 ```
 
 Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it, when there is exactly one). Thick: a hop that replaces the stack. `⚡` marks navigation dispatched from a reducer rather than the view-model. A dashed border means nothing pushes that screen — you arrive by path, deep link or a guard redirect.

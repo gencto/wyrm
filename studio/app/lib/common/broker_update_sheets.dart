@@ -1,4 +1,6 @@
 import 'package:localization/localization.dart';
+import 'package:models/broker_self_update.dart';
+import 'package:models/self_update_state.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
@@ -14,9 +16,9 @@ final class BrokerUpdateData {
     required this.version,
     required this.latest,
     this.follow = false,
-    this.mode = 'self',
-    this.updateState = 'none',
-    this.last = const {},
+    this.mode = SelfUpdateMode.self,
+    this.updateState = SelfUpdateState.none,
+    this.last = const UpdateLast(),
     this.connected = true,
     this.lostSeconds = 0,
     this.confirm = '',
@@ -35,17 +37,15 @@ final class BrokerUpdateData {
   /// The dialog follows `update_state`, else it is the review.
   final bool follow;
 
-  /// `updates.mode`: `self`, or `external` (a container, a distribution
-  /// package): the broker cannot replace itself.
-  final String mode;
+  /// `updates.mode`: by itself, or from outside (a container, a
+  /// distribution package): the broker cannot replace itself then.
+  final SelfUpdateMode mode;
 
-  /// `sys/update_state`: `none`, `staged`, `trial`, `confirmed`,
-  /// `rolled_back`.
-  final String updateState;
+  /// `sys/update_state`.
+  final SelfUpdateState updateState;
 
-  /// `sys/update_last`: `from`, `to`, `at`, `reason`, `down_s`,
-  /// `links_back`, `links`, `back_s`, `rollback_until`, as texts.
-  final Map<String, String> last;
+  /// `sys/update_last`: the last update's facts.
+  final UpdateLast last;
 
   /// The gateway socket is up.
   final bool connected;
@@ -59,21 +59,25 @@ final class BrokerUpdateData {
   final String? reason;
 
   BrokerUpdateStage get stage {
-    if (mode == 'external') {
+    if (mode == SelfUpdateMode.external) {
       return .external;
     }
     if (!follow) {
       return .review;
     }
     return switch (updateState) {
-      'confirmed' when connected => .confirmed,
-      'rolled_back' when connected => .rolledBack,
-      _ => .restarting,
+      SelfUpdateState.confirmed when connected => .confirmed,
+      SelfUpdateState.rolledBack when connected => .rolledBack,
+      SelfUpdateState.none ||
+      SelfUpdateState.staged ||
+      SelfUpdateState.trial ||
+      SelfUpdateState.confirmed ||
+      SelfUpdateState.rolledBack => .restarting,
     };
   }
 
-  String get from => last['from'] ?? version;
-  String get to => last['to'] ?? latest;
+  String get from => last.from ?? version;
+  String get to => last.to ?? latest;
 }
 
 /// The broker update dialog at its stage.
@@ -146,7 +150,7 @@ TaskSheetVm _restarting(BrokerUpdateData d) {
   final l = S.current;
   // Before the restart the steps are the action's; after it, what
   // `update_state` says once the socket is back.
-  final back = d.connected && d.updateState == 'trial';
+  final back = d.connected && d.updateState == SelfUpdateState.trial;
   SheetStepState after(bool done, bool now) =>
       done ? .done : (now ? .now : .todo);
   return TaskSheetVm(
@@ -181,7 +185,7 @@ TaskSheetVm _restarting(BrokerUpdateData d) {
 
 TaskSheetVm _confirmed(BrokerUpdateData d) {
   final l = S.current;
-  String fact(String k) => d.last[k] ?? '—';
+  String fact(String? v) => v ?? '—';
   return TaskSheetVm(
     title: l.bupUpdated(d.site),
     pill: d.to,
@@ -195,19 +199,19 @@ TaskSheetVm _confirmed(BrokerUpdateData d) {
         FactVm(label: l.bupFactVersion, value: '${d.from} → ${d.to}'),
         FactVm(
           label: l.bupFactDown,
-          value: l.bupSeconds(fact('down_s')),
+          value: l.bupSeconds(fact(d.last.downS)),
         ),
         FactVm(
           label: l.bupFactLinks,
           value: l.bupLinksBack(
-            fact('links_back'),
-            fact('links'),
-            fact('back_s'),
+            fact(d.last.linksBack),
+            fact(d.last.links),
+            fact(d.last.backS),
           ),
         ),
         FactVm(
           label: l.bupFactRollBack,
-          value: l.bupRollBackUntil(fact('rollback_until')),
+          value: l.bupRollBackUntil(fact(d.last.rollbackUntil)),
         ),
         FactVm(label: l.bupFactAudit, value: 'update_start, update_confirmed'),
       ]),
@@ -236,7 +240,7 @@ TaskSheetVm _rolledBack(BrokerUpdateData d) {
       ),
       SheetFacts([
         FactVm(label: l.bupFactTried, value: d.to),
-        FactVm(label: l.bupFactReason, value: d.last['reason'] ?? '—'),
+        FactVm(label: l.bupFactReason, value: d.last.reason ?? '—'),
         FactVm(label: l.bupFactNow, value: d.from),
         FactVm(label: l.bupFactAudit, value: 'update_rollback'),
       ]),

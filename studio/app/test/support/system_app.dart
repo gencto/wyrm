@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app/common/app_store.dart';
 import 'package:app/connectors/system_page_connector.dart';
+import 'package:app/connectors/toast_stack_connector.dart';
 import 'package:app/navigation/app_router.dart';
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
@@ -23,6 +24,8 @@ import 'package:models/peer.dart';
 import 'package:models/peer_kind.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/traffic_sample.dart';
+import 'package:ui/alerts/toast_stack.dart';
+import 'package:ui/models/tone.dart';
 import 'package:ui/pages/system_page.dart';
 import 'package:ui/theme/common.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -419,10 +422,14 @@ class SystemApp {
 
   /// Logs in, lays the site's tables and values in, shows System in
   /// [locale] and opens [tab] as the user does, with its label.
+  ///
+  /// With [toasts] the toasts are drawn over it, as the shell draws them
+  /// ([notices] reads them).
   Future<void> pump(
     WidgetTester tester, {
     SysTab tab = SysTab.overview,
     Locale locale = const Locale('en'),
+    bool toasts = false,
   }) async {
     await _prepare(tester);
     await tester.pumpWidget(
@@ -438,7 +445,19 @@ class SystemApp {
               S.delegate,
               ...GlobalMaterialLocalizations.delegates,
             ],
-            home: const Scaffold(body: SystemPageConnector()),
+            home: Scaffold(
+              body: Stack(
+                children: [
+                  const SystemPageConnector(),
+                  if (toasts)
+                    const Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: ToastStackConnector(),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -533,12 +552,11 @@ class SystemApp {
       if (c.action == action || (c.action == null && c.op == action)) c,
   ];
 
-  /// The titles and details of the notices (toasts) so far.
-  List<String> get notices => [
-    for (final n in store.state.problems.notices) ...[
-      n.title,
-      ?n.detail,
-    ],
+  /// The words of the toasts of success on screen (the failed reads of
+  /// this fake broker are toasts of their own): each title, and its line.
+  List<String> notices(WidgetTester tester) => [
+    for (final v in tester.widget<ToastStack>(find.byType(ToastStack)).toasts)
+      if (v.tone == Tone.good) ...[v.title, if (v.line.isNotEmpty) v.line],
   ];
 }
 

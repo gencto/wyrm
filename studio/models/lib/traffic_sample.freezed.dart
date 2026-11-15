@@ -89,8 +89,8 @@ as double,
 /// @nodoc
 
 
-class _TrafficSample implements TrafficSample {
-  const _TrafficSample({required this.time, this.messagesIn = 0, this.messagesOut = 0, this.framesIn = 0, this.framesOut = 0, this.dataIn = 0, this.dataOut = 0});
+class _TrafficSample extends TrafficSample {
+  const _TrafficSample({required this.time, this.messagesIn = 0, this.messagesOut = 0, this.framesIn = 0, this.framesOut = 0, this.dataIn = 0, this.dataOut = 0}): super._();
   
 
 @override final  DateTime time;

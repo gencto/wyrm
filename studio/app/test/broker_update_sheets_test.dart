@@ -3,6 +3,8 @@ import 'package:business/wyrm/features.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
+import 'package:models/broker_self_update.dart';
+import 'package:models/self_update_state.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
@@ -13,15 +15,15 @@ BrokerUpdateData _data({
   bool connected = true,
   String confirm = '',
   String? reason,
-  Map<String, String> last = const {},
+  UpdateLast last = const UpdateLast(),
   int lostSeconds = 0,
 }) => BrokerUpdateData(
   site: 'plant',
   version: '0.1.0',
   latest: '0.2.0',
   follow: follow,
-  mode: mode,
-  updateState: updateState,
+  mode: SelfUpdateMode.fromWire(mode)!,
+  updateState: SelfUpdateState.fromWire(updateState)!,
   connected: connected,
   confirm: confirm,
   reason: reason,
@@ -107,15 +109,15 @@ void main() {
     final d = _data(
       follow: true,
       updateState: 'confirmed',
-      last: const {
-        'from': '0.1.0',
-        'to': '0.2.0',
-        'down_s': '9',
-        'links_back': '9',
-        'links': '9',
-        'back_s': '41',
-        'rollback_until': '2026-11-20',
-      },
+      last: const UpdateLast(
+        from: '0.1.0',
+        to: '0.2.0',
+        downS: '9',
+        linksBack: '9',
+        links: '9',
+        backS: '41',
+        rollbackUntil: '2026-11-20',
+      ),
     );
     expect(d.stage, BrokerUpdateStage.confirmed);
     final vm = brokerUpdateSheet(d);
@@ -131,11 +133,11 @@ void main() {
     final d = _data(
       follow: true,
       updateState: 'rolled_back',
-      last: const {
-        'from': '0.1.0',
-        'to': '0.2.0',
-        'reason': 'gateway: bind 127.0.0.1:8446: address in use',
-      },
+      last: const UpdateLast(
+        from: '0.1.0',
+        to: '0.2.0',
+        reason: 'gateway: bind 127.0.0.1:8446: address in use',
+      ),
     );
     expect(d.stage, BrokerUpdateStage.rolledBack);
     final vm = brokerUpdateSheet(d);

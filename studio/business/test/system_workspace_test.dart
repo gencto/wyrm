@@ -33,9 +33,11 @@ import 'package:models/attention_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/live_value.dart';
+import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/standby_state.dart';
+import 'package:models/system_tab.dart';
 import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -108,7 +110,7 @@ void main() {
       ];
       s
         ..dispatchSync(SetSourceAction('scheduler'))
-        ..dispatchSync(SetLogLevelAction('warn'))
+        ..dispatchSync(SetLogLevelAction(LogLevel.warn))
         ..dispatchSync(SetFilterAction('edge'))
         ..dispatchSync(SetLinesAction(50));
 
@@ -168,11 +170,11 @@ void main() {
 
       s
         ..dispatchSync(SetShownAction(true))
-        ..dispatchSync(SetTabAction('overview'));
+        ..dispatchSync(SetTabAction(SystemTab.overview));
       await s.dispatchAndWait(PollSystemLogAction());
       expect(reads(), 0, reason: 'another tab');
 
-      s.dispatchSync(SetTabAction('log'));
+      s.dispatchSync(SetTabAction(SystemTab.log));
       await s.dispatchAndWait(PollSystemLogAction());
       expect(reads(), 1);
 
@@ -190,7 +192,7 @@ void main() {
       await s.dispatchAndWait(RetrieveSystemLogAction());
       s
         ..dispatchSync(SetShownAction(true))
-        ..dispatchSync(SetTabAction('log'));
+        ..dispatchSync(SetTabAction(SystemTab.log));
 
       final poll = s.dispatchAndWait(PollSystemLogAction());
       await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -610,7 +612,7 @@ void main() {
       s
         ..dispatchSync(SampleTrafficAction())
         ..dispatchSync(SetShownAction(false))
-        ..dispatchSync(SetTabAction('log'));
+        ..dispatchSync(SetTabAction(SystemTab.log));
       sys(rates(2), at: DateTime.utc(2026, 11, 10, 1, 0, 5));
       s.dispatchSync(SampleTrafficAction());
 

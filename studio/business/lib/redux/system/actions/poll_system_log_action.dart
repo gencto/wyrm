@@ -1,3 +1,5 @@
+import 'package:models/system_tab.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_system_log_action.dart';
@@ -9,7 +11,7 @@ import 'retrieve_system_log_action.dart';
 class PollSystemLogAction extends Action {
   @override
   Future<AppState?> reduce() async {
-    if (!system.shown || !system.auto || system.tab != 'log') {
+    if (!system.shown || !system.auto || system.tab != SystemTab.log) {
       return null;
     }
     if (system.isWaiting) {

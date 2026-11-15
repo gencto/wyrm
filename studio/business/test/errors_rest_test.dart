@@ -234,7 +234,9 @@ void main() {
   });
 
   group('the Log toolbar time (errors.md §3, Open the log)', () {
-    LogLine at(String time) => LogLine(time: time, level: 'info');
+    // as the decoder of `get_log` gives it: the time as written and read
+    LogLine at(String time) =>
+        LogLine(time: time, at: DateTime.tryParse(time), level: 'info');
     final lines = [
       at('2026-11-10T11:58:00Z'),
       at('2026-11-10T11:54:04Z'),

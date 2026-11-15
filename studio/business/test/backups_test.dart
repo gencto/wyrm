@@ -38,12 +38,13 @@ import 'package:business/redux/session/actions/log_out_action.dart';
 import 'package:business/redux/site/actions/set_connected_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:business/redux/updates/actions/open_update_action.dart';
-import 'package:business/wyrm/mappers/backup_mapper.dart';
+import 'package:business/wyrm/decode/backup_job.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:business/wyrm/transfer.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backup_job.dart';
+import 'package:models/backup_status.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -316,7 +317,7 @@ void main() {
     );
 
     test('the values of a backup overlay its meta; times are ISO texts', () {
-      final j = backupLive(
+      final j = backupLiveOf(
         const BackupJob(id: 'b1'),
         (leaf) => switch (leaf) {
           'status' => 'done',
@@ -328,11 +329,13 @@ void main() {
           'send_progress' => 40,
           _ => null,
         },
+        'b1',
       );
-      expect(j.status, 'done');
+      expect(j.status, BackupStatus.done);
       expect(j.size, 4096);
-      expect(j.created, '2026-11-13T15:40:12Z');
-      expect(j.expires, '2026-11-20T15:40:12Z');
+      expect(j.created, DateTime.utc(2026, 11, 13, 15, 40, 12));
+      expect(j.expires, DateTime.utc(2026, 11, 20, 15, 40, 12));
+      expect(j.sendStatus, BackupSendStatus.sending);
       expect(j.sendProgress, 40);
     });
 

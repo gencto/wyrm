@@ -1,7 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/log_line.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/log_line_mapper.dart';
+import '../../../wyrm/decode/decoded.dart';
+import '../../../wyrm/decode/log_lines.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -35,16 +37,22 @@ Future<AppState?> readSystemLog(Action a) async {
           'get_log',
           Value.from({
             'lines': system.lines,
-            'level': ?system.logLevel,
+            'level': ?system.logLevel?.wire,
             if (system.filter case final f? when f.isNotEmpty) 'filter': f,
             if (system.source case final l? when l.isNotEmpty) 'link': l,
           }),
         )
         .toList();
-    return a.state.copyWith.system(
-      log: logLinesOf(rows).reversed.toList().lock,
-      logError: null,
-    );
+    return switch (logLinesOf(rows)) {
+      Valid(value: final lines) => a.state.copyWith.system(
+        log: lines.reversed.toList().lock,
+        logError: null,
+      ),
+      // shown in the log box, as a refusal is: the lines held stay
+      final Invalid<List<LogLine>> i => a.state.copyWith.system(
+        logError: 'invalid answer: ${i.shape}.${i.field}: ${i.reason}',
+      ),
+    };
   } on WyrmException catch (e) {
     return a.state.copyWith.system(logError: '${e.status.name}: ${e.message}');
   }
