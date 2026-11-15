@@ -54,33 +54,14 @@ pub const TARGET_COST: usize = 5;
 /// Bytes of `last_error` at most.
 const MAX_TARGET_ERROR: usize = 200;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Confirm {
-    ReadBack,
-    Feedback,
-    Ack,
-}
-
-impl Confirm {
-    /// In the order of the `confirm` enum param: an action gets the index of the choice (the
-    /// responder checks enum args as indices), an import the text.
-    pub const ALL: [Confirm; 3] = [Confirm::ReadBack, Confirm::Feedback, Confirm::Ack];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Confirm::ReadBack => "read_back",
-            Confirm::Feedback => "feedback",
-            Confirm::Ack => "ack",
-        }
-    }
-
-    fn parse(s: &str) -> Option<Self> {
-        match s {
-            "read_back" => Some(Confirm::ReadBack),
-            "feedback" => Some(Confirm::Feedback),
-            "ack" => Some(Confirm::Ack),
-            _ => None,
-        }
+wyrm_core::name_enum! {
+    /// How a target's write is confirmed. [`Confirm::ALL`] is in the order of the `confirm`
+    /// enum param: an action gets the index of the choice (the responder checks enum args as
+    /// indices), an import the text.
+    pub enum Confirm {
+        ReadBack => "read_back",
+        Feedback => "feedback",
+        Ack => "ack",
     }
 }
 
@@ -159,10 +140,7 @@ impl TargetDef {
         let mut m = BTreeMap::new();
         m.insert("id".to_owned(), Value::Str(self.id.clone()));
         m.insert("point".to_owned(), Value::Str(self.point.clone()));
-        m.insert(
-            "confirm".to_owned(),
-            Value::Str(self.confirm.as_str().into()),
-        );
+        m.insert("confirm".to_owned(), Value::Str(self.confirm.name().into()));
         if let Some(f) = &self.feedback {
             m.insert("feedback".to_owned(), Value::Str(f.clone()));
         }
@@ -361,7 +339,7 @@ pub fn fields(
             .ok()
             .and_then(|i| Confirm::ALL.get(i).copied())
             .ok_or_else(one_of)?,
-        (Some(Value::Str(c)), _) => Confirm::parse(c).ok_or_else(one_of)?,
+        (Some(Value::Str(c)), _) => Confirm::from_name(c).ok_or_else(one_of)?,
         (None | Some(Value::Null), Some(b)) => b.confirm,
         (None | Some(Value::Null), None) => return Err(invalid("confirm", "required")),
         (Some(_), _) => return Err(one_of()),

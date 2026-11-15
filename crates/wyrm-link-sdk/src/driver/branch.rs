@@ -38,31 +38,17 @@ pub const MAX_NODES: usize = 5_000;
 /// The bound on one `copy` or `import` call (its `timeout_ms`).
 pub const ACTION_MS: u32 = 60_000;
 
-/// The level of a branch node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Level {
-    Connection,
-    Device,
-    Folder,
-    Point,
+wyrm_core::name_enum! {
+    /// The level of a branch node.
+    pub enum Level {
+        Connection => "connection",
+        Device => "device",
+        Folder => "folder",
+        Point => "point",
+    }
 }
 
 impl Level {
-    pub const fn name(self) -> &'static str {
-        match self {
-            Level::Connection => "connection",
-            Level::Device => "device",
-            Level::Folder => "folder",
-            Level::Point => "point",
-        }
-    }
-
-    fn from_name(s: &str) -> Option<Self> {
-        [Self::Connection, Self::Device, Self::Folder, Self::Point]
-            .into_iter()
-            .find(|l| l.name() == s)
-    }
-
     /// The levels a node of this level may hold.
     fn holds(self, folders: bool) -> &'static [Level] {
         match self {

@@ -4424,7 +4424,7 @@ impl Admin {
             PackageKind::Wasm => Mode::Embedded,
         };
         let mode = match arg_str(args, "mode") {
-            Some(m) => Mode::parse(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
+            Some(m) => Mode::from_name(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
             None => match &package {
                 Some(p) => package_mode(p),
                 None if compiled => Mode::Embedded,

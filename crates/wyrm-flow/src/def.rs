@@ -25,11 +25,13 @@ fn err<T>(msg: impl Into<String>) -> Result<T> {
 
 pub type Map = BTreeMap<String, Value>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Overflow {
-    DropOldest,
-    DropNewest,
-    Block,
+wyrm_core::name_enum! {
+    /// What a full queue does with the next sample (`policy.overflow`).
+    pub enum Overflow {
+        DropOldest => "drop_oldest",
+        DropNewest => "drop_newest",
+        Block => "block",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -809,11 +811,12 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
             match k.as_str() {
                 "overflow" => {
                     policy.overflow = match v {
-                        Value::Str(s) if s == "drop_oldest" => Overflow::DropOldest,
-                        Value::Str(s) if s == "drop_newest" => Overflow::DropNewest,
-                        Value::Str(s) if s == "block" => Overflow::Block,
-                        _ => return err(format!("{path}: drop_oldest | drop_newest | block")),
+                        Value::Str(s) => Overflow::from_name(s),
+                        _ => None,
                     }
+                    .ok_or_else(|| {
+                        DefError(format!("{path}: drop_oldest | drop_newest | block"))
+                    })?;
                 }
                 "queue" => {
                     let q = uint(v, &path)?;

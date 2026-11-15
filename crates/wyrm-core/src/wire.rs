@@ -33,7 +33,7 @@
 //! assert!("High".parse::<Level>().is_err());
 //! ```
 
-/// A name that is not in a `wire_enum!` table (the `FromStr` error).
+/// A name that is not in a `wire_enum!` or `name_enum!` table (the `FromStr` error).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnknownName;
 
@@ -108,6 +108,77 @@ macro_rules! wire_enum {
                     $($code => Ok(Self::$variant),)+
                     other => Err(other),
                 }
+            }
+        }
+    };
+}
+
+/// `name_enum!`: a closed set of names with no wire code (rule 6 of
+/// `docs/rust-rules.md`). Each variant lists its one name; the macro
+/// generates the enum (`Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`)
+/// and `ALL`, `name(self)`, `from_name(&str)` and `FromStr`, so the names
+/// are written once and no lookup is written by hand
+/// (`ALL.iter().find(|x| x.name() == s)`). Only that one name is accepted:
+/// a second form (a display text, another case) is the caller's to map, in
+/// one place that says why.
+///
+/// ```
+/// wyrm_core::name_enum! {
+///     /// Example set.
+///     #[derive(Default)]
+///     pub enum Side {
+///         #[default]
+///         Left => "left",
+///         Right => "right",
+///     }
+/// }
+/// assert_eq!(Side::Right.name(), "right");
+/// assert_eq!(Side::from_name("left"), Some(Side::Left));
+/// assert_eq!("right".parse::<Side>(), Ok(Side::Right));
+/// assert!("Left".parse::<Side>().is_err());
+/// assert_eq!(Side::ALL, [Side::Left, Side::Right]);
+/// ```
+#[macro_export]
+macro_rules! name_enum {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $ty:ident {
+            $(
+                $(#[$vmeta:meta])*
+                $variant:ident => $name:literal
+            ),+ $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        $vis enum $ty {
+            $( $(#[$vmeta])* $variant, )+
+        }
+
+        impl $ty {
+            /// Every variant, in declaration order.
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            /// Its name.
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            /// The variant with this name; `None` for any other text.
+            pub fn from_name(name: &str) -> ::core::option::Option<Self> {
+                match name {
+                    $($name => ::core::option::Option::Some(Self::$variant),)+
+                    _ => ::core::option::Option::None,
+                }
+            }
+        }
+
+        impl ::core::str::FromStr for $ty {
+            type Err = $crate::wire::UnknownName;
+            fn from_str(s: &str) -> ::core::result::Result<Self, Self::Err> {
+                Self::from_name(s).ok_or($crate::wire::UnknownName)
             }
         }
     };

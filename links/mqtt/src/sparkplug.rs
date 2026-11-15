@@ -246,31 +246,17 @@ pub fn command(
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MsgType {
-    NBirth,
-    NDeath,
-    NData,
-    NCmd,
-    DBirth,
-    DDeath,
-    DData,
-    DCmd,
-}
-
-impl MsgType {
-    fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "NBIRTH" => MsgType::NBirth,
-            "NDEATH" => MsgType::NDeath,
-            "NDATA" => MsgType::NData,
-            "NCMD" => MsgType::NCmd,
-            "DBIRTH" => MsgType::DBirth,
-            "DDEATH" => MsgType::DDeath,
-            "DDATA" => MsgType::DData,
-            "DCMD" => MsgType::DCmd,
-            _ => return None,
-        })
+wyrm_core::name_enum! {
+    /// A Sparkplug B message type, by its topic token.
+    pub enum MsgType {
+        NBirth => "NBIRTH",
+        NDeath => "NDEATH",
+        NData => "NDATA",
+        NCmd => "NCMD",
+        DBirth => "DBIRTH",
+        DDeath => "DDEATH",
+        DData => "DDATA",
+        DCmd => "DCMD",
     }
 }
 
@@ -289,7 +275,7 @@ pub fn parse_topic(t: &str) -> Option<Topic<'_>> {
         return None;
     }
     let group = it.next()?;
-    let kind = MsgType::parse(it.next()?)?;
+    let kind = MsgType::from_name(it.next()?)?;
     let edge = it.next()?;
     let device = it.next();
     if it.next().is_some() {

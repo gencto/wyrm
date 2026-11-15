@@ -51,39 +51,24 @@ pub fn broker_site(cn: &str) -> Option<&str> {
         .filter(|s| validate_segment(s).is_ok())
 }
 
-/// How a link runs (wiki "Режими розгортання").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
-#[cbor(index_only)]
-pub enum Mode {
-    /// In-process, started by the broker.
-    #[n(0)]
-    Embedded,
-    /// Child process supervised by the broker (mTLS client, CN = link id).
-    #[n(1)]
-    Process,
-    /// Runs elsewhere (MCU, remote host) with a CA-issued certificate.
-    #[n(2)]
-    External,
+wyrm_core::name_enum! {
+    /// How a link runs (wiki "Режими розгортання").
+    #[derive(Serialize, Deserialize, Encode, Decode)]
+    #[cbor(index_only)]
+    pub enum Mode {
+        /// In-process, started by the broker.
+        #[n(0)]
+        Embedded => "embedded",
+        /// Child process supervised by the broker (mTLS client, CN = link id).
+        #[n(1)]
+        Process => "process",
+        /// Runs elsewhere (MCU, remote host) with a CA-issued certificate.
+        #[n(2)]
+        External => "external",
+    }
 }
 
 impl Mode {
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "embedded" => Mode::Embedded,
-            "process" => Mode::Process,
-            "external" => Mode::External,
-            _ => return None,
-        })
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Mode::Embedded => "embedded",
-            Mode::Process => "process",
-            Mode::External => "external",
-        }
-    }
-
     /// Connects over the network with its own certificate (gets an ACL rule).
     pub fn is_remote(self) -> bool {
         !matches!(self, Mode::Embedded)
@@ -1246,7 +1231,7 @@ impl wyrm_state::State for Registry {
                 if name.starts_with('.') || name.starts_with('~') {
                     return Err(format!("group {name:?}: starts with a letter or digit"));
                 }
-                if wyrm_history::Logging::from_code(*logging).is_none() {
+                if wyrm_history::Logging::try_from(*logging).is_err() {
                     return Err(format!("logging code {logging}?"));
                 }
                 if !INTERVAL_MS.contains(interval_ms) || !FLUSH_MS.contains(flush_ms) {

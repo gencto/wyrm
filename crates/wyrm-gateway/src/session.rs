@@ -43,16 +43,17 @@ pub struct SessionClaims {
     pub dev: Option<String>,
 }
 
-/// How a session was made. Tokens from before ADR 0050 carry none and are password logins.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Amr {
-    /// `POST /api/login` with the password.
-    Password,
-    /// `POST /api/device/login` with a device key.
-    Device,
-    /// An access token of the MCP endpoint (ADR 0041): never registers a device or passes a
-    /// step-up.
-    OAuth,
+wyrm_core::name_enum! {
+    /// How a session was made. Tokens from before ADR 0050 carry none and are password logins.
+    pub enum Amr {
+        /// `POST /api/login` with the password.
+        Password => "pwd",
+        /// `POST /api/device/login` with a device key.
+        Device => "dev",
+        /// An access token of the MCP endpoint (ADR 0041): never registers a device or passes a
+        /// step-up.
+        OAuth => "oauth",
+    }
 }
 
 impl Amr {
@@ -69,23 +70,6 @@ impl Amr {
             Amr::Password | Amr::Device => true,
             Amr::OAuth => false,
         }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Amr::Password => "pwd",
-            Amr::Device => "dev",
-            Amr::OAuth => "oauth",
-        }
-    }
-
-    fn of(s: &str) -> Option<Self> {
-        Some(match s {
-            "pwd" => Amr::Password,
-            "dev" => Amr::Device,
-            "oauth" => Amr::OAuth,
-            _ => return None,
-        })
     }
 }
 
@@ -175,7 +159,7 @@ fn decode(v: &Value) -> Option<SessionClaims> {
     // absent in tokens from before ADR 0050: a password login at `iat`
     let amr = match m.get("amr") {
         None => Amr::Password,
-        Some(Value::Str(s)) => Amr::of(s)?,
+        Some(Value::Str(s)) => Amr::from_name(s)?,
         Some(_) => return None,
     };
     let dev = match m.get("dev") {

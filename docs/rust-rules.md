@@ -217,13 +217,21 @@ let level = Perm::from_name(level)
 `name(*x) == s` comparison, and a `match` whose string arms give enum variants
 (`"read" => Perm::Read`), once per `match`. No function is exempt by its name:
 a plain enum's own hand-written lookup counts too, until its names are
-declared once by a macro that generates the lookup (`wire_enum!` today).
+declared once by a macro that generates the lookup: `wire_enum!` for a set
+with codes, `name_enum!` (`wyrm_core`, names only: `ALL`, `name`,
+`from_name`, `FromStr`) for one without. Either takes its one name and no
+other form; a second form (another case, a display text) is mapped by the
+caller in one place that says why (`Freq`: RFC 5545 names are
+case-insensitive, so the text is upper-cased first). Left in C2 (20 after
+2026-11-15): lookups that build a variant with data (`Answer::Granted
+{left}`, `DType::String(n)`), names of other crates' types (`tracing`
+levels), comparisons that are not a lookup, and the closed sets of T5.
 
 ## 6. A closed set is an enum, not a `String`
 
 **Rule.** A field, argument or state whose values are a fixed list is an enum
 (`wire_enum!` when it has wire codes, `ParamEnum` for an action argument,
-otherwise a plain enum with `name()`/`from_name()`). The string becomes the
+otherwise `name_enum!`). The string becomes the
 enum once, where it is decoded. No `String` field documented as "`a`, `b` or
 `c`", no inline `&["a", "b"]` set, no `const NAMES: [&str; N]` checked by
 hand. The key list of `Fields::only(&[…])` (the names an argument map may

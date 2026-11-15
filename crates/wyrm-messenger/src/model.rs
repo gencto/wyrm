@@ -28,39 +28,20 @@ pub const MAX_BLOCKS: usize = 16 << 10;
 /// The chat platform of a bot: the link's [`Platform`] (one per link).
 pub type Kind = &'static Platform;
 
-/// How a message's text is marked up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Format {
-    Plain,
-    /// Telegram `parse_mode: HTML`.
-    Html,
-    /// Telegram `parse_mode: MarkdownV2`.
-    Markdown,
-    /// Slack mrkdwn.
-    Mrkdwn,
+wyrm_core::name_enum! {
+    /// How a message's text is marked up.
+    pub enum Format {
+        Plain => "plain",
+        /// Telegram `parse_mode: HTML`.
+        Html => "html",
+        /// Telegram `parse_mode: MarkdownV2`.
+        Markdown => "markdown",
+        /// Slack mrkdwn.
+        Mrkdwn => "mrkdwn",
+    }
 }
 
 impl Format {
-    pub fn name(self) -> &'static str {
-        match self {
-            Format::Plain => "plain",
-            Format::Html => "html",
-            Format::Markdown => "markdown",
-            Format::Mrkdwn => "mrkdwn",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        [
-            Format::Plain,
-            Format::Html,
-            Format::Markdown,
-            Format::Mrkdwn,
-        ]
-        .into_iter()
-        .find(|f| f.name() == s)
-    }
-
     pub fn escape(self) -> render::Escape {
         match self {
             Format::Plain => render::Escape::None,
@@ -71,34 +52,13 @@ impl Format {
     }
 }
 
-/// What a message carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MsgKind {
-    Text,
-    Photo,
-    Document,
-    Location,
-}
-
-impl MsgKind {
-    pub const ALL: [MsgKind; 4] = [
-        MsgKind::Text,
-        MsgKind::Photo,
-        MsgKind::Document,
-        MsgKind::Location,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            MsgKind::Text => "text",
-            MsgKind::Photo => "photo",
-            MsgKind::Document => "document",
-            MsgKind::Location => "location",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|k| k.name() == s)
+wyrm_core::name_enum! {
+    /// What a message carries.
+    pub enum MsgKind {
+        Text => "text",
+        Photo => "photo",
+        Document => "document",
+        Location => "location",
     }
 }
 
@@ -566,7 +526,8 @@ impl Template {
         check_name(name, "name")?;
         let f = Form(m);
         f.reject_unknown(&TEMPLATE_FIELDS)?;
-        let msg = match f.choice("kind", &MsgKind::ALL.map(MsgKind::name))? {
+        let kinds: Vec<&str> = MsgKind::ALL.iter().map(|k| k.name()).collect();
+        let msg = match f.choice("kind", &kinds)? {
             None => MsgKind::Text,
             Some(s) => MsgKind::from_name(&s).ok_or("kind: text, photo, document or location")?,
         };
@@ -798,31 +759,12 @@ impl Template {
 
 // ---------- chat user ----------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserStatus {
-    /// Invited: waits for `/start <code>` from its account.
-    Pending,
-    Active,
-    Disabled,
-}
-
-impl UserStatus {
-    pub fn name(self) -> &'static str {
-        match self {
-            UserStatus::Pending => "pending",
-            UserStatus::Active => "active",
-            UserStatus::Disabled => "disabled",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        [
-            UserStatus::Pending,
-            UserStatus::Active,
-            UserStatus::Disabled,
-        ]
-        .into_iter()
-        .find(|x| x.name() == s)
+wyrm_core::name_enum! {
+    pub enum UserStatus {
+        /// Invited: waits for `/start <code>` from its account.
+        Pending => "pending",
+        Active => "active",
+        Disabled => "disabled",
     }
 }
 

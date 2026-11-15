@@ -12,40 +12,24 @@ use wyrm_link_api::net::NetPolicy;
 
 pub type Map = BTreeMap<String, Value>;
 
-/// The platforms (ADR 0035).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Kind {
-    /// Any MQTT broker, one topic per point (a Unified Namespace).
-    Mqtt,
-    /// Sparkplug B 3.0: the site as an edge node, links as devices.
-    Sparkplug,
-    /// ThingsBoard's gateway API over MQTT.
-    ThingsBoard,
-    /// Azure IoT Hub, a device with a SAS token over MQTT.
-    Azure,
-    /// AWS IoT Core over HTTPS, Signature V4.
-    Aws,
+wyrm_core::name_enum! {
+    /// The platforms (ADR 0035).
+    #[derive(PartialOrd, Ord)]
+    pub enum Kind {
+        /// Any MQTT broker, one topic per point (a Unified Namespace).
+        Mqtt => "mqtt",
+        /// Sparkplug B 3.0: the site as an edge node, links as devices.
+        Sparkplug => "sparkplug",
+        /// ThingsBoard's gateway API over MQTT.
+        ThingsBoard => "thingsboard",
+        /// Azure IoT Hub, a device with a SAS token over MQTT.
+        Azure => "azure",
+        /// AWS IoT Core over HTTPS, Signature V4.
+        Aws => "aws",
+    }
 }
 
 impl Kind {
-    pub const ALL: [Kind; 5] = [
-        Kind::Mqtt,
-        Kind::Sparkplug,
-        Kind::ThingsBoard,
-        Kind::Azure,
-        Kind::Aws,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Kind::Mqtt => "mqtt",
-            Kind::Sparkplug => "sparkplug",
-            Kind::ThingsBoard => "thingsboard",
-            Kind::Azure => "azure",
-            Kind::Aws => "aws",
-        }
-    }
-
     pub fn display(self) -> &'static str {
         match self {
             Kind::Mqtt => "MQTT (UNS)",
@@ -54,10 +38,6 @@ impl Kind {
             Kind::Azure => "Azure IoT Hub",
             Kind::Aws => "AWS IoT Core",
         }
-    }
-
-    pub fn from_name(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|k| k.name() == s)
     }
 
     /// What ▸ Set password keeps for this kind.
