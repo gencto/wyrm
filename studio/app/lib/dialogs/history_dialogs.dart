@@ -1,5 +1,5 @@
 import 'package:business/redux/app_state.dart';
-import 'package:business/redux/historian/actions/run_history_action.dart';
+import 'package:business/redux/historian/actions/reread_trend_action.dart';
 import 'package:business/wyrm/historian_stats.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
@@ -18,8 +18,8 @@ class _Sel with Selectors {
 }
 
 /// Asks for [act] of History (its `+`, a row of its inspector): the form
-/// of the node's action, or a confirmation for one that removes, then one
-/// [RunHistoryAction] (which reads the trend again).
+/// of the node's action, or a confirmation for one that removes; once it
+/// went through, the trend is read again ([RereadTrendAction]).
 Future<void> askHistory(BuildContext context, HistoryAct act) {
   final call = act.call;
   final key = _Sel(AppStore.of(context).state).historyKeyOf(call.node);
@@ -35,6 +35,6 @@ Future<void> askHistory(BuildContext context, HistoryAct act) {
       HistoryAct.edit ||
       HistoryAct.purge => null,
     },
-    run: (args, keep) => RunHistoryAction(key, call.wire, args, keep),
+    then: RereadTrendAction.new,
   );
 }

@@ -1,5 +1,6 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:business/redux/nodes/actions/invoke_node_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_node_detail_action.dart';
 import 'package:business/wyrm/calls.dart' show clearedNames;
 import 'package:business/wyrm/labels.dart';
@@ -12,25 +13,30 @@ import 'package:ui/overlays/panel_dialog.dart';
 import '../common/app_store.dart';
 import '../common/forms.dart';
 
-/// The one action that runs an action of a node with the [args] the form
-/// gave, the names in [keep] sent even when empty.
-typedef NodeRun = ReduxAction<AppState> Function(
-  Map<String, Object?> args,
-  Set<String> keep,
-);
-
 /// Asks for [action] of the node [key]: a form made from its parameters
-/// (or a confirmation when it has none and [confirm] is set), then
-/// dispatches the one action [run] makes of the answer. The node's actions
-/// are read first, as they are now.
+/// (or a confirmation when it has none and [confirm] is set), then runs it
+/// ([InvokeNodeAction]; a refusal of the input goes back to the form, on
+/// the field it names). Once it went through, [then] (when given) is
+/// dispatched: the read that follows it. The node's actions are read
+/// first, as they are now.
 Future<void> runNodeAction(
   BuildContext context,
   String key,
   String action, {
-  required NodeRun run,
+  ReduxAction<AppState> Function()? then,
   String? confirm,
 }) async {
   final store = AppStore.of(context);
+  // The invoke's own status, so a refusal reaches the form; [then] only
+  // after it went through.
+  Future<ActionStatus> ranThen(Future<ActionStatus> sent) async {
+    final ran = await sent;
+    if (ran.isCompletedOk && then != null) {
+      await store.dispatchAndWait(then());
+    }
+    return ran;
+  }
+
   await store.dispatchAndWait(RetrieveNodeDetailAction(key));
   final a = store.state.nodes.detail[key]?.actions
       .where((x) => x.name == action)
@@ -49,7 +55,7 @@ Future<void> runNodeAction(
         )) {
       return;
     }
-    await store.dispatchAndWait(run(const {}, const {}));
+    await ranThen(store.dispatchAndWait(InvokeNodeAction(key, action)));
     return;
   }
   await showDialog<void>(
@@ -62,7 +68,16 @@ Future<void> runNodeAction(
         fields: paramFields(a.params),
         submit: labelOf(a.name, display: a.display),
         onSubmit: (v) => sendForm(
-          store.dispatchAndWait(run(plainArgs(v), clearedNames(a.params))),
+          ranThen(
+            store.dispatchAndWait(
+              InvokeNodeAction(
+                key,
+                action,
+                plainArgs(v),
+                clearedNames(a.params),
+              ),
+            ),
+          ),
           onOk: () {
             if (dialog.mounted) {
               Navigator.of(dialog).pop();

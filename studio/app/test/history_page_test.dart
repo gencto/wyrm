@@ -8,7 +8,9 @@ import 'package:models/trend_range.dart';
 import 'package:ui/buttons/button.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/containers/side_panels.dart';
+import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/pages/history_page.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/history_fixture.dart';
 import 'support/screen_app.dart';
@@ -228,6 +230,40 @@ void main() {
     final call = app.calls('add_watch_group').single;
     expect(call.key, hist);
     expect('${call.args}', contains('pumps'));
+    await app.leave(t);
+  });
+
+  testWidgets('a refusal of the form stays in the form, on its field', (
+    t,
+  ) async {
+    final app = await shown(t);
+    app.api.errors['$hist ▸ add_watch_group'] = WyrmException.of(
+      Status.invalidParameter,
+      'name: a group of this name exists',
+    );
+    await t.tap(find.byIcon(Icons.add));
+    await app.settle(t);
+    await t.enterText(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(TextField),
+      ),
+      'boiler-1',
+    );
+    await t.pump();
+    await t.tap(inDialog);
+    await app.settle(t);
+    // the form is still open, its field says what the broker said
+    expect(find.byType(PanelDialog), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(PanelDialog),
+        matching: find.text('a group of this name exists'),
+      ),
+      findsOneWidget,
+    );
+    // no trend was read again for a call that did not go through
+    expect(app.calls('add_watch_group'), hasLength(1));
     await app.leave(t);
   });
 }
