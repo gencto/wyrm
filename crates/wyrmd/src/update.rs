@@ -25,8 +25,8 @@ pub struct UpdatesSection {
     /// outside it (containers, distribution packages). `self`: it replaces
     /// itself (`sys/~act/update`); needs the install layout and the guard
     /// (docs/operations.md §2).
-    #[serde(default = "default_mode")]
-    pub mode: String,
+    #[serde(default)]
+    pub mode: UpdateMode,
     /// URL of the channel file (`releases.json`: the releases index and its
     /// signature in one file). `https://`, or `http://` to loopback (a
     /// mirror).
@@ -44,10 +44,6 @@ pub struct UpdatesSection {
     pub keep_days: u32,
 }
 
-fn default_mode() -> String {
-    "off".to_owned()
-}
-
 fn default_trial_s() -> u64 {
     180
 }
@@ -59,7 +55,7 @@ fn default_keep_days() -> u32 {
 impl Default for UpdatesSection {
     fn default() -> Self {
         Self {
-            mode: default_mode(),
+            mode: UpdateMode::Off,
             channel: None,
             keys: Vec::new(),
             trial_s: default_trial_s(),
@@ -69,17 +65,8 @@ impl Default for UpdatesSection {
 }
 
 impl UpdatesSection {
-    pub fn mode(&self) -> Result<UpdateMode, String> {
-        match self.mode.as_str() {
-            "off" => Ok(UpdateMode::Off),
-            "external" => Ok(UpdateMode::External),
-            "self" => Ok(UpdateMode::SelfUpdate),
-            m => Err(format!("updates.mode {m:?}: off, external or self")),
-        }
-    }
-
     pub fn validate(&self) -> Result<(), String> {
-        let mode = self.mode()?;
+        let mode = self.mode;
         release::pinned_keys(&self.keys)?;
         if !(10..=3600).contains(&self.trial_s) {
             return Err(format!("updates.trial_s {}: 10 to 3600", self.trial_s));
@@ -150,7 +137,7 @@ pub fn check_channel(url: &str) -> Result<(), String> {
 pub fn update_config(cfg: &Config) -> Result<UpdateConfig, String> {
     let u = &cfg.updates;
     Ok(UpdateConfig {
-        mode: u.mode()?,
+        mode: u.mode,
         channel: u.channel.clone(),
         keys: release::pinned_keys(&u.keys)?,
         trial_s: u.trial_s,
@@ -263,7 +250,7 @@ pub fn trial_start(data_dir: &Path, trial_s: u64) {
 /// the guard. A binary outside the layout is not checked (it cannot update
 /// itself either).
 pub fn verify_self(cfg: &Config, exe: &Path) -> Result<(), String> {
-    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+    if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Ok(());
     }
     let me = &release::identity().version;
@@ -290,7 +277,9 @@ pub fn standby_synced() {
 /// confirmed and this stays pending.
 pub async fn standby_trial(data_dir: &Path, exe: &Path) {
     let me = &release::identity().version;
-    let mine = |u: &UpdateFile| u.in_trial() && &u.to == me && u.role == "standby";
+    let mine = |u: &UpdateFile| {
+        u.in_trial() && &u.to == me && u.role == Some(release::UpdateRole::Standby)
+    };
     let Some(mut u) = UpdateFile::load(data_dir).filter(mine) else {
         return std::future::pending().await;
     };
@@ -324,7 +313,7 @@ pub async fn standby_trial(data_dir: &Path, exe: &Path) {
         return std::future::pending().await;
     };
     if SYNCED.load(Ordering::SeqCst) {
-        u.state = "confirmed".into();
+        u.state = release::UpdateState::Confirmed;
         u.ended = release::now_s();
         u.audited = true;
         if let Err(e) = u.save(data_dir) {
@@ -362,9 +351,10 @@ fn map_get<'a>(v: &'a Value, k: &str) -> Option<&'a Value> {
 /// stop so that its supervisor starts it.
 pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Result<bool, String> {
     let me = release::identity();
-    let file = UpdateFile::load(&cfg.data_dir).filter(|u| u.role == "standby");
+    let file =
+        UpdateFile::load(&cfg.data_dir).filter(|u| u.role == Some(release::UpdateRole::Standby));
     let (state, to) = match &file {
-        Some(u) => (u.state.clone(), u.to.clone()),
+        Some(u) => (u.state.name().to_owned(), u.to.clone()),
         None => ("none".to_owned(), "-".to_owned()),
     };
     let key = format!("{prefix}/update/{}/{state}/{to}", me.version);
@@ -379,7 +369,7 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
     };
     release::check_version(version)?;
     // an order this host refused or rolled back is not tried again
-    if file.is_some_and(|u| &u.to == version && u.state != "confirmed") {
+    if file.is_some_and(|u| &u.to == version && u.state != release::UpdateState::Confirmed) {
         return Ok(false);
     }
     match standby_apply(session, prefix, cfg, order, version).await {
@@ -389,10 +379,10 @@ pub async fn standby_poll(session: &Session, prefix: &str, cfg: &Config) -> Resu
             let u = UpdateFile {
                 from: me.version.clone(),
                 to: version.clone(),
-                state: "failed".into(),
+                state: release::UpdateState::Failed,
                 reason: e.clone(),
                 ended: release::now_s(),
-                role: "standby".into(),
+                role: Some(release::UpdateRole::Standby),
                 audited: true,
                 ..Default::default()
             };
@@ -411,7 +401,7 @@ async fn standby_apply(
     version: &str,
 ) -> Result<(), String> {
     let me = release::identity();
-    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+    if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Err("updates.mode is not \"self\" on the standby".into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -493,13 +483,13 @@ async fn standby_apply(
     let u = UpdateFile {
         from: me.version.clone(),
         to: rel.version.clone(),
-        state: "trial".into(),
+        state: release::UpdateState::Trial,
         trial_s: cfg.updates.trial_s,
         from_schemas: me.schemas.clone(),
         to_schemas: rel.schemas.clone(),
         by: "the active broker".into(),
         started: now,
-        role: "standby".into(),
+        role: Some(release::UpdateRole::Standby),
         ..Default::default()
     };
     if !layout.guard_is(&exe) {
@@ -532,7 +522,7 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
             return Ok(());
         }
     };
-    let keys = match cfg.updates.mode()? {
+    let keys = match cfg.updates.mode {
         UpdateMode::SelfUpdate => Some(release::pinned_keys(&cfg.updates.keys)?),
         _ => None,
     };
@@ -555,7 +545,7 @@ pub fn run_guard(cfg: &Config) -> Result<(), Error> {
 pub fn run_guard_refresh(cfg: &Config) -> Result<(), Error> {
     let exe: PathBuf = std::env::current_exe()?;
     let layout = Layout::of_guard(&exe)?;
-    if cfg.updates.mode()? != UpdateMode::SelfUpdate {
+    if cfg.updates.mode != UpdateMode::SelfUpdate {
         return Ok(());
     }
     if UpdateFile::load(&cfg.data_dir).is_some_and(|u| u.in_trial()) {

@@ -45,26 +45,18 @@ const STANDBY_HOLD: Duration = Duration::from_secs(120);
 /// One part of the archive a standby fetches.
 pub const ORDER_PART: u64 = 1 << 20;
 
-/// `updates.mode` in `wyrmd.json5`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum UpdateMode {
-    /// Nothing is fetched and nothing is updated.
-    #[default]
-    Off,
-    /// The broker says that a newer version exists; it is updated outside
-    /// (a container image, a distribution package).
-    External,
-    /// The broker replaces itself.
-    SelfUpdate,
-}
-
-impl UpdateMode {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::External => "external",
-            Self::SelfUpdate => "self",
-        }
+wyrm_core::name_enum! {
+    /// `updates.mode` in `wyrmd.json5`; another name refuses the file.
+    #[derive(Default)]
+    pub enum UpdateMode as "updates.mode" {
+        /// Nothing is fetched and nothing is updated.
+        #[default]
+        Off => "off",
+        /// The broker says that a newer version exists; it is updated outside
+        /// (a container image, a distribution package).
+        External => "external",
+        /// The broker replaces itself.
+        SelfUpdate => "self",
     }
 }
 
@@ -111,12 +103,20 @@ impl Default for UpdateConfig {
     }
 }
 
+/// The standby's word for "no update of its own" (`sys/replication/update/<v>/none/-`).
+pub(crate) const NO_UPDATE: &str = "none";
+
+/// What a standby's update state is called on the wire and in `sys`.
+fn said_name(s: Option<release::UpdateState>) -> &'static str {
+    s.map_or(NO_UPDATE, release::UpdateState::name)
+}
+
 /// What the standby said about itself with its last poll.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct StandbySaid {
     version: String,
-    /// `none`, `trial`, `confirmed`, `rolled_back`, `failed`.
-    state: String,
+    /// The state of the standby's own update; `None`: it has none (`none` on the wire).
+    state: Option<release::UpdateState>,
     /// The version that state is about.
     to: String,
     at: Option<std::time::Instant>,
@@ -457,7 +457,7 @@ fn upd_map(u: &UpdateFile) -> BTreeMap<String, Value> {
     let mut m = BTreeMap::from([
         ("from".to_owned(), Value::from(u.from.clone())),
         ("to".to_owned(), Value::from(u.to.clone())),
-        ("result".to_owned(), Value::from(u.state.clone())),
+        ("result".to_owned(), Value::from(u.state.name())),
         ("at".to_owned(), Value::UInt(at)),
         ("started".to_owned(), Value::UInt(u.started)),
         ("by".to_owned(), Value::from(u.by.clone())),
@@ -476,8 +476,8 @@ fn upd_map(u: &UpdateFile) -> BTreeMap<String, Value> {
             Value::Array(u.moved().into_iter().map(Value::from).collect()),
         ),
     ]);
-    if !u.role.is_empty() {
-        m.insert("role".to_owned(), Value::from(u.role.clone()));
+    if let Some(role) = u.role {
+        m.insert("role".to_owned(), Value::from(role.name()));
     }
     m
 }
@@ -575,7 +575,7 @@ impl Control {
             ("none".to_owned(), f)
         } else {
             match &file {
-                Some(u) => (u.state.clone(), upd_map(u)),
+                Some(u) => (u.state.name().to_owned(), upd_map(u)),
                 None => ("none".to_owned(), BTreeMap::new()),
             }
         };
@@ -645,8 +645,12 @@ impl Control {
         let Some(mut u) = UpdateFile::load(d) else {
             return;
         };
-        if matches!(u.state.as_str(), "rolled_back" | "failed") && !u.audited {
-            let status = if u.state == "failed" {
+        if matches!(
+            u.state,
+            release::UpdateState::RolledBack | release::UpdateState::Failed
+        ) && !u.audited
+        {
+            let status = if u.state == release::UpdateState::Failed {
                 Status::InternalError
             } else {
                 Status::Ok
@@ -678,14 +682,14 @@ impl Control {
             return;
         };
         // after a rollback: only once the version it left current came up
-        if u.state == "rolled_back" && !u.settled {
+        if u.state == release::UpdateState::RolledBack && !u.settled {
             return;
         }
         let now = now_s();
         // how long this process has seen the clock past `keep_until`
         let past_s = {
             let mut since = lock(&self.update.past_since);
-            if u.state == "confirmed" && now > u.keep_until {
+            if u.state == release::UpdateState::Confirmed && now > u.keep_until {
                 since
                     .get_or_insert_with(std::time::Instant::now)
                     .elapsed()
@@ -723,21 +727,21 @@ impl Control {
     /// The standby's report with one poll (`sys/replication/update/…`), and
     /// the order for it, if there is one.
     pub(super) fn standby_update_report(&self, version: &str, state: &str, to: &str) -> Value {
+        let state = match state {
+            NO_UPDATE => Some(None),
+            s => release::UpdateState::from_name(s).map(Some),
+        };
         let ok = release::check_version(version).is_ok()
-            && matches!(
-                state,
-                "none" | "trial" | "confirmed" | "rolled_back" | "failed"
-            )
             && (to == "-" || release::check_version(to).is_ok());
-        if !ok {
+        let (true, Some(state)) = (ok, state) else {
             return Value::Map(BTreeMap::from([(
                 "error".to_owned(),
                 Value::from("version, state, to"),
             )]));
-        }
+        };
         let said = StandbySaid {
             version: version.to_owned(),
-            state: state.to_owned(),
+            state,
             to: to.to_owned(),
             at: Some(std::time::Instant::now()),
         };
@@ -750,15 +754,16 @@ impl Control {
         let order = lock(&self.update.order).clone();
         let mut out = BTreeMap::new();
         if let Some(o) = order {
-            let done = version == o.version && matches!(state, "confirmed" | "none");
-            let refused = to == o.version && matches!(state, "rolled_back" | "failed");
+            use release::UpdateState as U;
+            let done = version == o.version && matches!(state, Some(U::Confirmed) | None);
+            let refused = to == o.version && matches!(state, Some(U::RolledBack | U::Failed));
             if done || refused {
                 *lock(&self.update.order) = None;
                 let _ = std::fs::remove_dir_all(self.cfg.data_dir.join(ORDER_DIR));
                 let (op, status, text) = if done {
                     ("update_confirmed", Status::Ok, "confirmed")
                 } else {
-                    ("update_rollback", Status::InternalError, state)
+                    ("update_rollback", Status::InternalError, said_name(state))
                 };
                 *lock(&self.update.order_result) = format!("{} {text}", o.version);
                 self.record(
@@ -768,7 +773,7 @@ impl Control {
                     status,
                     &format!("the standby runs {version}; wyrmd {}: {text}", o.version),
                 );
-            } else if version != o.version && state != "trial" {
+            } else if version != o.version && state != Some(U::Trial) {
                 let release = std::fs::read(self.cfg.data_dir.join(ORDER_DIR).join(ORDER_RELEASE))
                     .unwrap_or_default();
                 out.insert(
@@ -814,9 +819,9 @@ impl Control {
         let s = lock(&self.update.standby).clone();
         s.at.filter(|t| t.elapsed() < STANDBY_SEEN)?;
         let about = if s.to == "-" {
-            s.state
+            said_name(s.state).to_owned()
         } else {
-            format!("{} {}", s.to, s.state)
+            format!("{} {}", s.to, said_name(s.state))
         };
         Some((s.version, about))
     }
@@ -850,7 +855,9 @@ impl Control {
                  without_standby: true updates this broker alone",
             ));
         }
-        if said.version == r.version && matches!(said.state.as_str(), "none" | "confirmed") {
+        if said.version == r.version
+            && matches!(said.state, None | Some(release::UpdateState::Confirmed))
+        {
             return Ok(());
         }
         Err(LinkError::new(
@@ -858,7 +865,9 @@ impl Control {
             format!(
                 "the standby runs wyrmd {} ({}): update the standby first (update with \
                  target: \"standby\") and wait until it follows again on {}",
-                said.version, said.state, r.version
+                said.version,
+                said_name(said.state),
+                r.version
             ),
         ))
     }
@@ -1216,7 +1225,7 @@ async fn run(
     let u = UpdateFile {
         from: me.version.clone(),
         to: plan.release.version.clone(),
-        state: "trial".into(),
+        state: release::UpdateState::Trial,
         attempts: 0,
         // the trial begins when the new version starts
         trial_s: ctl.cfg.updates.trial_s,
@@ -1230,7 +1239,7 @@ async fn run(
         links,
         by: plan.by.clone(),
         started: now,
-        role: "active".into(),
+        role: Some(release::UpdateRole::Active),
         ..Default::default()
     };
     let exe = ctl.cfg.link_exe.clone();
@@ -1369,7 +1378,7 @@ pub(super) async fn rollback(
     let d = &ctl.cfg.data_dir;
     let me = &release::identity().version;
     let mut u = UpdateFile::load(d)
-        .filter(|u| u.state == "confirmed" && &u.to == me)
+        .filter(|u| u.state == release::UpdateState::Confirmed && &u.to == me)
         .ok_or_else(|| LinkError::not_found("no confirmed update to roll back"))?;
     gates(&Gate {
         mode: ctl.cfg.updates.mode,
@@ -1683,9 +1692,12 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
     let d = &ctl.cfg.data_dir;
     let me = &release::identity().version;
     // the version a rollback left current came up: the guard leaves it
-    if let Some(mut u) = UpdateFile::load(d)
-        .filter(|u| matches!(u.state.as_str(), "rolled_back" | "failed") && !u.settled)
-    {
+    if let Some(mut u) = UpdateFile::load(d).filter(|u| {
+        matches!(
+            u.state,
+            release::UpdateState::RolledBack | release::UpdateState::Failed
+        ) && !u.settled
+    }) {
         u.settled = true;
         u.starts = 0;
         if let Err(e) = u.save(d) {
@@ -1749,7 +1761,7 @@ async fn trial(ctl: &Arc<Control>, session: &Session) {
     match verdict {
         Ok(()) => {
             let now = now_s();
-            u.state = "confirmed".into();
+            u.state = release::UpdateState::Confirmed;
             u.ended = now;
             u.keep_until = now + u64::from(ctl.cfg.updates.keep_days) * 86_400;
             u.audited = true;
@@ -2047,7 +2059,7 @@ mod tests {
             UpdateFile {
                 from: "0.1.0".into(),
                 to: "0.2.0".into(),
-                state: "trial".into(),
+                state: release::UpdateState::Trial,
                 failed: "link plc1 is not back".into(),
                 from_schemas: schemas(20, 4),
                 to_schemas: schemas(21, 5),
@@ -2081,7 +2093,10 @@ mod tests {
         assert!(!d.join("gateway/users").exists());
         assert!(d.join("update.aside/users/wal.new").is_file());
         let u = UpdateFile::load(&d).unwrap();
-        assert_eq!((u.state.as_str(), u.restored), ("rolled_back", true));
+        assert_eq!(
+            (u.state, u.restored),
+            (release::UpdateState::RolledBack, true)
+        );
 
         // a backup that is gone, one that was changed (with its hash in
         // update.json changed to match), one that is not sealed for this
@@ -2122,7 +2137,7 @@ mod tests {
                 "{name}: the state is left as it is"
             );
             let u = UpdateFile::load(&d).unwrap();
-            assert_eq!(u.state, "failed", "{name}");
+            assert_eq!(u.state, release::UpdateState::Failed, "{name}");
             assert!(
                 u.reason.contains("link plc1 is not back"),
                 "{name}: {}",

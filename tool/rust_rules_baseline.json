@@ -93,7 +93,12 @@
   },
   "C2-name-lookup": {
     "crates/wyrm-admin/src/control.rs": 1,
+<<<<<<< HEAD
     "crates/wyrm-admin/src/logs.rs": 2,
+=======
+    "crates/wyrm-admin/src/logs.rs": 1,
+    "crates/wyrm-admin/src/registry.rs": 1,
+>>>>>>> b5ffb2ff (wyrm-admin, wyrmd: update results, log levels, options, update.json typed)
     "crates/wyrm-admin/src/supervisor.rs": 1,
     "crates/wyrm-core/src/meta.rs": 1,
     "crates/wyrm-flow/src/blocks.rs": 1,
@@ -102,7 +107,11 @@
     "crates/wyrm-gateway/src/devices.rs": 1,
     "crates/wyrm-link-sdk-derive/src/lib.rs": 1,
     "crates/wyrmd/src/arbiter.rs": 2,
+<<<<<<< HEAD
     "crates/wyrmd/src/update.rs": 1,
+=======
+    "links/agent/src/tools.rs": 4,
+>>>>>>> b5ffb2ff (wyrm-admin, wyrmd: update results, log levels, options, update.json typed)
     "links/alarm/src/algo.rs": 1,
     "links/alarm/src/lib.rs": 1,
     "links/s7/src/addr.rs": 2,
@@ -112,11 +121,9 @@
   "C3-string-closed-set": {
     "crates/wyrm-admin/src/audit.rs": 2,
     "crates/wyrm-admin/src/control.rs": 1,
-    "crates/wyrm-admin/src/control/broker_update.rs": 1,
     "crates/wyrm-admin/src/fetch.rs": 1,
     "crates/wyrm-admin/src/history.rs": 1,
-    "crates/wyrm-admin/src/registry.rs": 4,
-    "crates/wyrm-admin/src/release.rs": 1,
+    "crates/wyrm-admin/src/registry.rs": 1,
     "crates/wyrm-admin/src/secret.rs": 1,
     "crates/wyrm-core/src/time.rs": 1,
     "crates/wyrm-dql/src/engine.rs": 1,
@@ -136,7 +143,6 @@
     "crates/wyrm-link-sdk/src/package.rs": 5,
     "crates/wyrm-messenger/src/api.rs": 3,
     "crates/wyrmd/src/announce.rs": 1,
-    "crates/wyrmd/src/lib.rs": 1,
     "links/agent/src/lib.rs": 2,
     "links/agent/src/tools.rs": 1,
     "links/prometheus/src/expo.rs": 1,
@@ -360,7 +366,7 @@
     "crates/wyrm-state/src/lib.rs": 1,
     "crates/wyrm-storage/src/store.rs": 3,
     "crates/wyrmd/src/lib.rs": 1,
-    "crates/wyrmd/src/update.rs": 7,
+    "crates/wyrmd/src/update.rs": 6,
     "links/agent/src/llm.rs": 2,
     "links/agent/src/store.rs": 1,
     "links/agent/src/tools.rs": 8,
@@ -399,9 +405,9 @@
   "C6-string-set": {
     "crates/wyrm-admin/src/acl.rs": 37,
     "crates/wyrm-admin/src/backup.rs": 5,
-    "crates/wyrm-admin/src/control.rs": 13,
+    "crates/wyrm-admin/src/control.rs": 12,
     "crates/wyrm-admin/src/control/backups.rs": 6,
-    "crates/wyrm-admin/src/control/broker_update.rs": 11,
+    "crates/wyrm-admin/src/control/broker_update.rs": 5,
     "crates/wyrm-admin/src/control/replication.rs": 3,
     "crates/wyrm-admin/src/control/restore_broker.rs": 10,
     "crates/wyrm-admin/src/control/send.rs": 2,
@@ -411,9 +417,9 @@
     "crates/wyrm-admin/src/history.rs": 6,
     "crates/wyrm-admin/src/history/sinks.rs": 3,
     "crates/wyrm-admin/src/keys.rs": 3,
-    "crates/wyrm-admin/src/logs.rs": 4,
+    "crates/wyrm-admin/src/logs.rs": 2,
     "crates/wyrm-admin/src/packages.rs": 1,
-    "crates/wyrm-admin/src/registry.rs": 6,
+    "crates/wyrm-admin/src/registry.rs": 5,
     "crates/wyrm-admin/src/release.rs": 2,
     "crates/wyrm-admin/src/secrets.rs": 8,
     "crates/wyrm-admin/src/supervisor.rs": 2,

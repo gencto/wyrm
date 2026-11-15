@@ -853,9 +853,9 @@ pub enum Profile {
 #[serde(deny_unknown_fields)]
 pub struct LinkSection {
     pub driver: String,
-    /// `embedded` (default) | `process` | `external`.
-    #[serde(default)]
-    pub mode: Option<String>,
+    /// By name; `None`: embedded. Another name refuses the file.
+    #[serde(default, with = "wyrm_core::named::serde_opt")]
+    pub mode: Option<Mode>,
     #[serde(default)]
     pub params: serde_json::Value,
 }
@@ -1059,9 +1059,6 @@ impl Config {
             {
                 return Err(format!("links.{id}: the id belongs to the broker").into());
             }
-            if let Some(m) = &l.mode {
-                Mode::from_name(m).ok_or_else(|| format!("links.{id}.mode: unknown mode {m}"))?;
-            }
         }
         Ok(cfg)
     }
@@ -1102,11 +1099,7 @@ impl Config {
             .map(|(id, l)| ConfigLink {
                 id: id.clone(),
                 driver: l.driver.clone(),
-                mode: l
-                    .mode
-                    .as_deref()
-                    .and_then(Mode::from_name)
-                    .unwrap_or(Mode::Embedded),
+                mode: l.mode.unwrap_or(Mode::Embedded),
                 params: match &l.params {
                     serde_json::Value::Null => Value::Map(Default::default()),
                     p => json_to_value(p),
@@ -2569,6 +2562,37 @@ async fn wait_udp_free(endpoint: &str, max: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review T5: `links.<id>.mode` was an `Option<String>` checked at load and parsed
+    /// again where it was used. It is read as a [`Mode`] now; another name, also in
+    /// another case, refuses the file, and a left-out mode is embedded.
+    #[test]
+    fn a_link_mode_is_one_of_three() {
+        let parse = |mode: &str| {
+            Config::from_json5(&format!(
+                r#"{{ site: "s", links: {{ plc: {{ driver: "mock"{mode} }} }} }}"#
+            ))
+        };
+        for (text, mode) in [
+            ("", Mode::Embedded),
+            (r#", mode: "embedded""#, Mode::Embedded),
+            (r#", mode: "process""#, Mode::Process),
+            (r#", mode: "external""#, Mode::External),
+        ] {
+            let cfg = parse(text).unwrap();
+            assert_eq!(cfg.config_links()[0].mode, mode, "{text}");
+        }
+        for bad in [
+            r#", mode: "Process""#,
+            r#", mode: "remote""#,
+            r#", mode: 1"#,
+        ] {
+            let e = parse(bad).err().map(|e| e.to_string()).unwrap_or_default();
+            assert!(!e.is_empty(), "{bad}");
+        }
+        let e = parse(r#", mode: "remote""#).err().unwrap().to_string();
+        assert!(e.contains("link mode: unknown name \"remote\""), "{e}");
+    }
 
     /// Every QUIC endpoint of the router is one stream; its config stays after `#`.
     #[test]

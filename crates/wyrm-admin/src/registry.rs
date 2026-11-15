@@ -1,5 +1,6 @@
 //! The link registry: control-plane state persisted with `wyrm-state`.
 
+use crate::logs::LogLevel;
 use minicbor::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -118,11 +119,11 @@ pub struct LinkDef {
     #[n(9)]
     #[serde(default)]
     pub granted: Option<String>,
-    /// Log level of this link (one of `logs::LEVELS`); `None`: the broker's
-    /// (embedded) or the process default.
+    /// Log level of this link (by its name, as the `String` it was); `None`: the
+    /// broker's (embedded) or the process default.
     #[n(10)]
     #[serde(default)]
-    pub log_level: Option<String>,
+    pub log_level: Option<LogLevel>,
     /// What this link may reach as a requester (as DSA `isRequester`):
     /// `(path, Perm code)`, the path a node key prefix with `{site}`.
     #[n(11)]
@@ -303,8 +304,9 @@ pub enum Op {
     /// A broker option (`sys/<name>`, see [`Options`]).
     #[n(9)]
     SetOption {
+        /// By name; a name that is no option does not decode.
         #[n(0)]
-        name: String,
+        name: OptionName,
         #[n(1)]
         on: bool,
     },
@@ -343,8 +345,9 @@ pub enum Op {
     SetLogLevel {
         #[n(0)]
         link: Option<String>,
+        /// By name; a name that is not a level does not decode.
         #[n(1)]
-        level: Option<String>,
+        level: Option<LogLevel>,
     },
     /// Add, change or (level `none`) remove one grant of a link.
     #[n(17)]
@@ -687,11 +690,21 @@ pub struct PreviousDef {
 /// Most keys of `new` and of `gone` kept in an [`UpdateReport`].
 pub const UPDATE_REPORT_KEYS: usize = 200;
 
-/// `result` of an [`UpdateReport`] while the health check runs.
-pub const UPDATE_CHECKING: &str = "checking";
-pub const UPDATE_OK: &str = "ok";
-pub const UPDATE_ROLLED_BACK: &str = "rolled_back";
-pub const UPDATE_FAILED: &str = "failed";
+wyrm_core::name_enum! {
+    /// What the last update of a package did (`result` of an [`UpdateReport`]). Kept
+    /// by its name in the registry, as the `String` it was.
+    #[derive(Default)]
+    pub enum UpdateResult as "package update result" {
+        /// The health check runs (also a report not yet decided: a start that finds
+        /// one turns it into `failed`).
+        #[default]
+        Checking => "checking",
+        Ok => "ok",
+        /// `from` runs again.
+        RolledBack => "rolled_back",
+        Failed => "failed",
+    }
+}
 
 /// What the last update of a package did (ADR 0048 §1.1, §1.5): shown as
 /// the map `sys/packages/<name>/last_update`.
@@ -706,10 +719,8 @@ pub struct UpdateReport {
     /// Unix seconds.
     #[n(2)]
     pub at: u64,
-    /// `checking` (the health check runs), `ok`, `rolled_back` (`from` runs
-    /// again) or `failed`.
     #[n(3)]
-    pub result: String,
+    pub result: UpdateResult,
     /// Keys the links had before and have now.
     #[n(4)]
     pub kept: u32,
@@ -951,18 +962,28 @@ impl Default for Options {
 }
 
 impl Options {
-    /// The option `name` (one of [`OPTION_NAMES`]).
-    pub fn get(&self, name: &str) -> Option<bool> {
+    pub fn get(&self, name: OptionName) -> bool {
         match name {
-            "allow_all_links" => Some(self.allow_all_links),
-            "enable_quarantine" => Some(self.enable_quarantine),
-            _ => None,
+            OptionName::AllowAllLinks => self.allow_all_links,
+            OptionName::EnableQuarantine => self.enable_quarantine,
+        }
+    }
+
+    fn set(&mut self, name: OptionName, on: bool) {
+        match name {
+            OptionName::AllowAllLinks => self.allow_all_links = on,
+            OptionName::EnableQuarantine => self.enable_quarantine = on,
         }
     }
 }
 
-/// Names of the [`Options`] fields, as `SetOption` takes them.
-pub const OPTION_NAMES: [&str; 2] = ["allow_all_links", "enable_quarantine"];
+wyrm_core::name_enum! {
+    /// The [`Options`] fields, as `SetOption` takes them (`sys/<name>`).
+    pub enum OptionName as "broker option" {
+        AllowAllLinks => "allow_all_links",
+        EnableQuarantine => "enable_quarantine",
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Registry {
@@ -992,9 +1013,9 @@ pub struct Registry {
     /// Link packages by name (ADR 0011).
     #[serde(default)]
     pub packages: BTreeMap<String, PackageDef>,
-    /// Log level of the broker set from `sys/log_level`; `None`: `RUST_LOG`.
+    /// Log level of the broker set from `sys/log_level` (by its name); `None`: `RUST_LOG`.
     #[serde(default)]
-    pub log_level: Option<String>,
+    pub log_level: Option<LogLevel>,
     /// Watch groups and purge settings of the embedded historian.
     #[serde(default)]
     pub historian: HistorianDef,
@@ -1379,22 +1400,15 @@ impl wyrm_state::State for Registry {
                 h.keep_free_mib = *keep_free_mib;
                 h.retention_days = *retention_days;
             }
-            Op::SetLogLevel { link, level } => {
-                if let Some(l) = level {
-                    if crate::logs::parse_level(l).is_none() {
-                        return Err(format!("level {l:?}: one of {:?}", crate::logs::LEVELS));
-                    }
+            Op::SetLogLevel { link, level } => match link {
+                None => self.log_level = *level,
+                Some(id) => {
+                    self.links
+                        .get_mut(id)
+                        .ok_or_else(|| format!("no link {id}"))?
+                        .log_level = *level;
                 }
-                match link {
-                    None => self.log_level = level.clone(),
-                    Some(id) => {
-                        self.links
-                            .get_mut(id)
-                            .ok_or_else(|| format!("no link {id}"))?
-                            .log_level = level.clone();
-                    }
-                }
-            }
+            },
             Op::PutPackage(def) => {
                 validate_link_id(&def.name).map_err(|e| format!("package {e}"))?;
                 self.packages.insert(def.name.clone(), def.clone());
@@ -1696,11 +1710,7 @@ impl wyrm_state::State for Registry {
                     }
                 }
             }
-            Op::SetOption { name, on } => match name.as_str() {
-                "allow_all_links" => self.options.allow_all_links = *on,
-                "enable_quarantine" => self.options.enable_quarantine = *on,
-                other => return Err(format!("no option {other}")),
-            },
+            Op::SetOption { name, on } => self.options.set(*name, *on),
         }
         Ok(())
     }
@@ -1710,6 +1720,107 @@ impl wyrm_state::State for Registry {
 mod tests {
     use super::*;
     use wyrm_state::State;
+
+    /// Review T5: a package's update result and a log level were `String`s. Typed, they
+    /// keep their names in the WAL (CBOR) and the snapshot (postcard): a record written
+    /// with the `String`s reads back as the same bytes, and another name does not decode.
+    #[test]
+    fn update_results_and_log_levels_keep_their_bytes() {
+        #[derive(Encode, Serialize)]
+        struct OldReport {
+            #[n(0)]
+            from: String,
+            #[n(1)]
+            to: String,
+            #[n(2)]
+            at: u64,
+            #[n(3)]
+            result: String,
+            #[n(4)]
+            kept: u32,
+            #[n(5)]
+            new: u32,
+            #[n(6)]
+            gone: u32,
+            #[n(7)]
+            new_keys: Vec<String>,
+            #[n(8)]
+            gone_keys: Vec<String>,
+            #[n(9)]
+            reason: String,
+            #[n(10)]
+            links: Vec<String>,
+            #[n(11)]
+            changes_state: bool,
+            #[n(12)]
+            restore_point: bool,
+        }
+        #[derive(Encode)]
+        enum OldOp {
+            #[n(16)]
+            SetLogLevel {
+                #[n(0)]
+                link: Option<String>,
+                #[n(1)]
+                level: Option<String>,
+            },
+        }
+        let old = |result: &str| OldReport {
+            from: "1.0.0".into(),
+            to: "1.1.0".into(),
+            at: 5,
+            result: result.into(),
+            kept: 1,
+            new: 2,
+            gone: 0,
+            new_keys: vec!["l1/a".into()],
+            gone_keys: vec![],
+            reason: String::new(),
+            links: vec!["l1".into()],
+            changes_state: false,
+            restore_point: true,
+        };
+        for r in ["checking", "ok", "rolled_back", "failed"] {
+            let cbor = minicbor::to_vec(old(r)).unwrap();
+            let new: UpdateReport = minicbor::decode(&cbor).unwrap();
+            assert_eq!(new.result.name(), r);
+            assert_eq!(minicbor::to_vec(&new).unwrap(), cbor);
+            let pc = postcard::to_stdvec(&old(r)).unwrap();
+            let new: UpdateReport = postcard::from_bytes(&pc).unwrap();
+            assert_eq!(postcard::to_stdvec(&new).unwrap(), pc);
+        }
+        assert!(minicbor::decode::<UpdateReport>(&minicbor::to_vec(old("")).unwrap()).is_err());
+        assert!(
+            postcard::from_bytes::<UpdateReport>(&postcard::to_stdvec(&old("done")).unwrap())
+                .is_err()
+        );
+        for level in [
+            None,
+            Some("error"),
+            Some("warn"),
+            Some("info"),
+            Some("debug"),
+            Some("trace"),
+        ] {
+            let cbor = minicbor::to_vec(OldOp::SetLogLevel {
+                link: Some("l1".into()),
+                level: level.map(str::to_owned),
+            })
+            .unwrap();
+            let op: Op = minicbor::decode(&cbor).unwrap();
+            let Op::SetLogLevel { level: l, .. } = &op else {
+                panic!("not SetLogLevel")
+            };
+            assert_eq!(l.map(LogLevel::name), level);
+            assert_eq!(minicbor::to_vec(&op).unwrap(), cbor);
+        }
+        let bad = minicbor::to_vec(OldOp::SetLogLevel {
+            link: None,
+            level: Some("WARN".into()),
+        })
+        .unwrap();
+        assert!(minicbor::decode::<Op>(&bad).is_err());
+    }
 
     fn def(id: &str, mode: Mode) -> LinkDef {
         LinkDef {
@@ -2040,7 +2151,7 @@ mod tests {
             from: "1.2.0".into(),
             to: "1.3.0".into(),
             at: 100,
-            result: UPDATE_OK.into(),
+            result: UpdateResult::Ok,
             kept: 3,
             new: 1,
             gone: 0,
