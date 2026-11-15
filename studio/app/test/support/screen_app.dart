@@ -148,9 +148,11 @@ class ScreenApp {
   /// The route on top (its name).
   String get top => appRouter.topRoute.name;
 
-  /// Lets the fake broker's answers arrive and the screen follow them.
-  Future<void> settle(WidgetTester tester) async {
-    for (var i = 0; i < 6; i++) {
+  /// Lets the fake broker's answers arrive and the screen follow them, in
+  /// [rounds] of 100 ms of the clock (a read that collects values for a
+  /// while needs more of them).
+  Future<void> settle(WidgetTester tester, {int rounds = 6}) async {
+    for (var i = 0; i < rounds; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
