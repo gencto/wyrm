@@ -108,7 +108,7 @@
     "crates/wyrm-flow/src/scope.rs": 1,
     "crates/wyrm-flow/src/sources.rs": 3,
     "crates/wyrm-flow/src/watch.rs": 6,
-    "crates/wyrm-gateway-client/src/lib.rs": 32,
+    "crates/wyrm-gateway-client/src/lib.rs": 34,
     "crates/wyrm-gateway/src/approve.rs": 11,
     "crates/wyrm-gateway/src/http.rs": 6,
     "crates/wyrm-gateway/src/oauth.rs": 7,

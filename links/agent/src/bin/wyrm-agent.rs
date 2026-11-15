@@ -106,7 +106,8 @@ fn invoke_args(
     let json = match args_file {
         Some(p) => {
             let b = read_capped(p)?;
-            let text = String::from_utf8(b).map_err(|_| format!("{}: not UTF-8", p.display()))?;
+            let text =
+                String::from_utf8(b).map_err(|e| format!("{}: not UTF-8 ({e})", p.display()))?;
             parse(&text, &p.display().to_string())?
         }
         None => parse(args, "args")?,
