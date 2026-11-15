@@ -2318,10 +2318,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         : const <String, Object?>{};
     final known = flows.table[id];
     final by = val['deployed_by'] as String? ?? known?.deployedBy;
-    final maxperm = switch (d?.rest['permissions']) {
-      final Map<Object?, Object?> m => maxpermName(m['maxperm']),
-      _ => null,
-    };
+    final maxperm = d?.permissions?.maxperm?.wireName;
     final keys = d == null ? null : flowKeysOf(d);
     final ids = d?.blocks.keys.toList() ?? const <String>[];
     return FlowSummaryVm(
