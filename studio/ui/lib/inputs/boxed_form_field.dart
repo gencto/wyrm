@@ -100,9 +100,12 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
     }
     final value = widget.vm.value ?? '';
     if (!_focus.hasFocus && value != _text.text) {
+      // Only the controller: the validator reads the view-model's value (see
+      // `build`), so the form state needs no update here. `didChange` would
+      // mark the enclosing `Form` dirty while the tree is being built
+      // ("setState() called during build": the frame was dropped and the
+      // log-in page kept the pixels of earlier ones).
       _text.text = value;
-      // The form validates what it holds, not what the controller shows.
-      _field.currentState?.didChange(widget.vm.value);
     }
   }
 
@@ -138,7 +141,12 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
     return FormField<String?>(
       key: _field,
       initialValue: widget.vm.value,
-      validator: widget.vm.validator,
+      // What the field shows is the view-model's value, also when it was set
+      // from outside: that is what is validated, not the form's own copy.
+      validator: switch (widget.vm.validator) {
+        final v? => (_) => v(widget.vm.value),
+        null => null,
+      },
       enabled: widget.vm.enabled,
       builder: (state) {
         final error = widget.vm.error ?? state.errorText;
