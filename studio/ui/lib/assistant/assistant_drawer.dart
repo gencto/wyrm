@@ -1,3 +1,4 @@
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
@@ -6,6 +7,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'assistant_composer.dart';
+import 'blocked.dart';
 import 'choices_card.dart';
 import 'conversation.dart';
 import 'found_card.dart';
@@ -20,15 +22,12 @@ import 'task_card.dart';
 /// header names the task, *Open full* goes to the tab with the same task.
 class AssistantDrawer extends StatelessWidget {
   const AssistantDrawer({
-    required this.title,
-    required this.openFull,
-    required this.closeLabel,
     required this.onOpenFull,
     required this.onClose,
     required this.events,
     required this.composer,
     required this.onButton,
-    this.taskKey,
+    this.taskId,
     this.choices,
     this.onPick,
     this.onAnswer,
@@ -40,25 +39,18 @@ class AssistantDrawer extends StatelessWidget {
     this.stopped,
     this.onWay,
     this.card,
-    this.secondLabel,
     this.second,
     this.onSecond,
-    this.newTask,
     this.onNewTask,
-    this.empty,
+    this.noAgent = false,
     this.found,
     this.onTimelineWindow,
     this.onTimelineReset,
     super.key,
   });
 
-  /// `Assistant`.
-  final String title;
-
-  /// `tasks/t-0141`; null before a task.
-  final String? taskKey;
-  final String openFull;
-  final String closeLabel;
+  /// The task on screen (`t-0141`); null before a task.
+  final String? taskId;
 
   /// Null: there is no task to open.
   final VoidCallback? onOpenFull;
@@ -79,25 +71,22 @@ class AssistantDrawer extends StatelessWidget {
   /// The task's card with Approve and run, and the second button the
   /// model may offer.
   final TaskCardVm? card;
-  final ValueChanged<String> onButton;
-
-  /// `The assistant suggests`: above [second].
-  final String? secondLabel;
+  final ValueChanged<TaskButtonVm> onButton;
 
   /// The second button the model may offer (spec §5), as the model's
   /// tile: its words, the guessed changes, what a pick does.
   final SuggestionTileVm? second;
   final VoidCallback? onSecond;
 
-  /// `New task`: a question in the drawer then starts a task of its own.
-  final String? newTask;
+  /// *New task*: a question in the drawer then starts a task of its own;
+  /// null before a task.
   final VoidCallback? onNewTask;
 
   /// The ask box, in the drawer's density.
   final AssistantComposer composer;
 
-  /// Why there is nothing to ask (no agent link).
-  final String? empty;
+  /// There is nothing to ask: the site has no agent link.
+  final bool noAgent;
 
   /// *What I found* and the mini timeline of the selected point; null when
   /// there is neither.
@@ -132,28 +121,34 @@ class AssistantDrawer extends StatelessWidget {
                 children: [
                   AppIcon('ws_assistant', size: 15, color: c.ember),
                   Text(
-                    title,
+                    S.current.drawerTitle,
                     style: TextStyle(
                       fontSize: FontSizes.lg,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
                   ),
-                  if (taskKey case final k?)
+                  if (taskId case final id?)
                     Flexible(
                       child: Text(
-                        k,
+                        'tasks/$id',
                         overflow: .ellipsis,
                         style: mono(size: 12, color: c.text3),
                       ),
                     ),
                   const Spacer(),
-                  if (newTask case final n? when onNewTask != null)
-                    TextButton(onPressed: onNewTask, child: Text(n)),
+                  if (onNewTask != null)
+                    TextButton(
+                      onPressed: onNewTask,
+                      child: Text(S.current.newTask),
+                    ),
                   if (onOpenFull != null)
-                    TextButton(onPressed: onOpenFull, child: Text(openFull)),
+                    TextButton(
+                      onPressed: onOpenFull,
+                      child: Text(S.current.openFull),
+                    ),
                   IconButton(
-                    tooltip: closeLabel,
+                    tooltip: S.current.closeDrawer,
                     onPressed: onClose,
                     icon: AppIcon('ui_close', size: 14, color: c.text2),
                   ),
@@ -161,11 +156,11 @@ class AssistantDrawer extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: empty != null
+              child: noAgent
                   ? Padding(
                       padding: const EdgeInsets.all(20),
                       child: Text(
-                        empty!,
+                        const BlockedNoAgent().text,
                         style: TextStyle(
                           fontSize: FontSizes.md,
                           color: c.text2,
@@ -212,14 +207,13 @@ class AssistantDrawer extends StatelessWidget {
                                 crossAxisAlignment: .stretch,
                                 spacing: 6,
                                 children: [
-                                  if (secondLabel case final l?)
-                                    Text(
-                                      l,
-                                      style: TextStyle(
-                                        fontSize: FontSizes.xs,
-                                        color: c.text3,
-                                      ),
+                                  Text(
+                                    S.current.drawerSuggests,
+                                    style: TextStyle(
+                                      fontSize: FontSizes.xs,
+                                      color: c.text3,
                                     ),
+                                  ),
                                   SuggestionTile(vm: t, onTap: onSecond),
                                 ],
                               ),

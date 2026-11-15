@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:ui/assistant/model_words.dart';
+import 'package:ui/assistant/blocked.dart';
 import 'package:ui/assistant/plan_card.dart';
 import 'package:ui/assistant/stopped_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
@@ -14,6 +15,8 @@ Widget _app(Widget child) => MaterialApp(
 
 /// The cards of what the model offers next (ADR 0049 amendment).
 void main() {
+  setUpAll(() => S.load(const Locale('en')));
+
   testWidgets('a tile with a reason is shown and cannot be picked', (
     tester,
   ) async {
@@ -22,14 +25,15 @@ void main() {
       _app(
         StoppedCard(
           vm: const StoppedCardVm(
-            title: 'Stopped at step 2',
+            step: 2,
             message: 'timeout',
             ways: [
-              SuggestionTileVm(id: 'a', label: 'Try unit 4'),
+              SuggestionTileVm(id: 'a', label: 'Try unit 4', changes: 1),
               SuggestionTileVm(
                 id: 'b',
                 label: 'Undo',
-                disabledReason: 'needs write on agent',
+                changes: 1,
+                blocked: BlockedLacks('needs write on agent'),
               ),
             ],
           ),
@@ -50,19 +54,16 @@ void main() {
       _app(
         const PlanCard(
           vm: PlanCardVm(
-            title: 'Plan',
-            state: 'awaiting approval',
+            line: PlanChecked(now: 1, atRun: 0),
+            badge: .awaitingApproval,
             steps: [
               PlanStepVm(
                 n: 1,
-                verb: 'SET',
-                target: 'wy/plant/downstream/m/a',
+                verb: .set,
+                node: 'wy/plant/downstream/m/a',
                 level: 'write',
                 warn: 'at the limit',
-                modelWarn: ModelWordsVm(
-                  label: 'the assistant says',
-                  text: 'see [the manual](https://example.org)',
-                ),
+                modelWarn: 'see [the manual](https://example.org)',
               ),
             ],
           ),
