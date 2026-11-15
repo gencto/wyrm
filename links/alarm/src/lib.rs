@@ -1961,7 +1961,8 @@ impl Alarm {
         who: &Who,
         now: Micros,
     ) -> Result<Value, AppError> {
-        let Some(s) = self.sinks.get(name) else {
+        let next_seq = self.next_seq();
+        let Some(s) = self.sinks.get_mut(name) else {
             return Err(not_found(format!("sinks/{name}")));
         };
         // nobody else moves its cursor: a person who ran it would confirm rows the database
@@ -1969,7 +1970,6 @@ impl Alarm {
         if who.subject.as_deref() != Some(&format!("link:{}", s.def.link)) {
             return Err(denied(""));
         }
-        let next_seq = self.next_seq();
         if let Some(a) = get_u64(m, "after")? {
             if a >= next_seq {
                 return Err(invalid(
@@ -1978,9 +1978,7 @@ impl Alarm {
                 ));
             }
             if a != s.def.cursor {
-                if let Some(s) = self.sinks.get_mut(name) {
-                    s.def.cursor = a;
-                }
+                s.def.cursor = a;
                 self.save_sinks(cx)?;
             }
         }
@@ -2054,10 +2052,12 @@ impl Alarm {
             seq += 1;
         }
         let sent = rows.len() as u64;
-        if let Some(s) = self.sinks.get_mut(name) {
-            s.rows_sent += sent;
-            s.last_request = Some(now);
-        }
+        // found at the start; nothing in between removes a sink
+        let Some(s) = self.sinks.get_mut(name) else {
+            return Err(not_found(format!("sinks/{name}")));
+        };
+        s.rows_sent += sent;
+        s.last_request = Some(now);
         self.show_sink(cx, name);
         Ok(Value::Map(Map::from([
             ("rows".to_owned(), Value::Array(rows)),

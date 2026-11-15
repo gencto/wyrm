@@ -4095,6 +4095,7 @@ impl<D: Driver> Framework<D> {
                 for id in &new_ids {
                     // every new id was loaded into `points` above
                     let Some(p) = points.get_mut(id) else {
+                        error!(point = %id, "import: a new point is not among the loaded ones");
                         continue;
                     };
                     let at = format!("{devpath}/{}", child(&p.folder, id).join("/"));

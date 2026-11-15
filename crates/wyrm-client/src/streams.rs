@@ -681,8 +681,14 @@ impl Vals {
                     pending,
                     order,
                 } => queue.pop_front().or_else(|| {
-                    // every ordered key is pending; a stray one is skipped
-                    std::iter::from_fn(|| order.pop_front()).find_map(|k| pending.remove(&k))
+                    // every ordered key is pending; a stray one is a bug, said and skipped
+                    std::iter::from_fn(|| order.pop_front()).find_map(|k| {
+                        let v = pending.remove(&k);
+                        if v.is_none() {
+                            tracing::error!(key = %k, "stream: an ordered key without a pending value");
+                        }
+                        v
+                    })
                 }),
                 Policy::Queue(q) => q.pop_front(),
             };
