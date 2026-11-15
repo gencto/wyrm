@@ -4,66 +4,6 @@
 
 `app/lib/connectors/link_install_page_connector.dart`
 
-## catalog.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LinkInstallPage
-    participant VM as LinkInstallPageConnector
-    participant A1 as SetQueryAction
-    participant ST as AppState
-
-    User->>UI: catalog.onChanged
-    UI->>VM: catalog()
-    VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.query)
-```
-
-## bring.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LinkInstallPage
-    participant VM as LinkInstallPageConnector
-    participant A1 as SetSourceAction
-    participant ST as AppState
-
-    User->>UI: bring.onChanged
-    UI->>VM: bring()
-    VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.source)
-    VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.source)
-    alt url != null
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(linkInstall.source)
-    end
-```
-
-## target.onChanged
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LinkInstallPage
-    participant VM as LinkInstallPageConnector
-    participant A1 as SetNameAction
-    participant A2 as SetAcceptRightsAction
-    participant ST as AppState
-
-    User->>UI: target.onChanged
-    UI->>VM: target()
-    VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid)
-    VM->>A2: dispatch
-    A2->>ST: copyWith(linkInstall.acceptRights)
-```
-
 ## onClose
 
 ```mermaid
@@ -79,7 +19,7 @@ sequenceDiagram
     VM->>NAV: GoAction.pop
 ```
 
-## onSource
+## onFrom
 
 ```mermaid
 sequenceDiagram
@@ -87,13 +27,11 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as ChooseInstallSourceAction
-    participant ST as AppState
+    participant A1 as StartInstallOverAction
 
-    User->>UI: onSource
-    UI->>VM: onSource()
+    User->>UI: onFrom
+    UI->>VM: onFrom()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall)
 ```
 
 ## onCategory
@@ -111,6 +49,23 @@ sequenceDiagram
     UI->>VM: onCategory()
     VM->>A1: dispatch
     A1->>ST: copyWith(linkInstall.category)
+```
+
+## onQuery
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetQueryAction
+    participant ST as AppState
+
+    User->>UI: onQuery
+    UI->>VM: onQuery()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.query)
 ```
 
 ## onItem
@@ -139,15 +94,12 @@ sequenceDiagram
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
     participant A1 as SetMethodAction
-    participant A2 as SetSourceAction
     participant ST as AppState
 
     User->>UI: onMethod
     UI->>VM: onMethod()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(linkInstall.method)
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(linkInstall.source)
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.method, linkInstall.source, linkInstall.acceptRights, linkInstall.refusedField, linkInstall.refusedSaid)
 ```
 
 ## onPickFile
@@ -158,13 +110,47 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as SetSourceAction
-    participant ST as AppState
+    participant A1 as PickLinkBackupAction
+    participant A2 as PickPackageFileAction
 
     User->>UI: onPickFile
     UI->>VM: onPickFile()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(linkInstall.source)
+    VM->>A1: dispatch
+    VM->>A2: dispatch
+```
+
+## onUrl
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetPackageUrlAction
+    participant ST as AppState
+
+    User->>UI: onUrl
+    UI->>VM: onUrl()
+    VM->>A1: dispatch
+    A1->>ST: dispatchSync(SetSourceAction)
+```
+
+## onRef
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetGitRefAction
+    participant ST as AppState
+
+    User->>UI: onRef
+    UI->>VM: onRef()
+    VM->>A1: dispatch
+    A1->>ST: dispatchSync(SetSourceAction)
 ```
 
 ## onBroker
@@ -201,6 +187,55 @@ sequenceDiagram
     A1->>ST: copyWith(linkInstall.mode)
 ```
 
+## onName
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetNameAction
+    participant ST as AppState
+
+    User->>UI: onName
+    UI->>VM: onName()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid)
+```
+
+## onAccept
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as SetAcceptRightsAction
+    participant ST as AppState
+
+    User->>UI: onAccept
+    UI->>VM: onAccept()
+    VM->>A1: dispatch
+    A1->>ST: copyWith(linkInstall.acceptRights)
+```
+
+## onResult
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as LinkInstallPage
+    participant VM as LinkInstallPageConnector
+    participant A1 as switch (a) {InstallResultAction.explorer => ShowInstalledLinkAction(installedLinkKey), InstallResultAction.links => GoAction.pop(), InstallResultAction.again => StartInstallOverAction(_held, InstallPath.official), InstallResultAction.back => ChangeInstallAnswersAction()}
+
+    User->>UI: onResult
+    UI->>VM: onResult()
+    VM->>A1: dispatch
+```
+
 ## onStep
 
 ```mermaid
@@ -209,13 +244,11 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as SetStepAction
-    participant ST as AppState
+    participant A1 as InstallBackAction
 
     User->>UI: onStep
     UI->>VM: onStep()
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.step)
 ```
 
 ## onBack
@@ -226,15 +259,11 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as SetStepAction
-    participant ST as AppState
-    participant NAV as Router
+    participant A1 as InstallBackAction
 
     User->>UI: onBack
     UI->>VM: onBack()
-    VM->>NAV: GoAction.pop
     VM->>A1: dispatch
-    A1->>ST: copyWith(linkInstall.step)
 ```
 
 ## onNext
@@ -245,82 +274,43 @@ sequenceDiagram
     actor User
     participant UI as LinkInstallPage
     participant VM as LinkInstallPageConnector
-    participant A1 as SetStepAction
-    participant A2 as _backup ? InstallBackupAction(read: file!.read, passphrase: passphrase) : InstallLinkAction()
-    participant A3 as CheckPackageAction
+    participant A1 as ContinueInstallAction
     participant ST as AppState
 
     User->>UI: onNext
     UI->>VM: onNext()
-    alt key == 'run'
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(linkInstall.step)
-        VM->>+A2: dispatchAndWait
-        A2-->>-VM: ActionStatus
-    end
-    alt _backup && key == 'choose'
-        VM->>+A3: dispatchAndWait
-        Note over A3: async
-        A3->>ST: copyWith(linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode)
-        A3-->>-VM: ActionStatus
-    end
-    alt !_official && key == 'choose'
-        VM->>+A3: dispatchAndWait
-        Note over A3: async
-        A3->>ST: copyWith(linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode)
-        A3-->>-VM: ActionStatus
-    end
-    VM->>A1: dispatchSync
+    VM->>A1: dispatch
+    Note over A1: NonReentrant · async
     A1->>ST: copyWith(linkInstall.step)
-```
-
-## onResultAction
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as LinkInstallPage
-    participant VM as LinkInstallPageConnector
-    participant A1 as SetSelectedNodeAction
-    participant A2 as ChooseInstallSourceAction
-    participant A3 as SetStepAction
-    participant ST as AppState
-    participant NAV as Router
-
-    User->>UI: onResultAction
-    UI->>VM: onResultAction()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(nodes.selectedNode)
-    VM->>NAV: GoAction.pop
-    VM->>NAV: GoAction.pop
-    VM->>A2: dispatchSync
-    A2->>ST: copyWith(linkInstall)
-    VM->>A3: dispatchSync
-    A3->>ST: copyWith(linkInstall.step)
+    A1->>ST: dispatchAndWait(InstallBackupAction)
+    A1->>ST: dispatchAndWait(InstallLinkAction)
+    A1->>ST: dispatchAndWait(CheckPackageAction)
+    A1->>ST: dispatchAndWait(CheckPackageAction)
 ```
 
 _Not drawn — these files dispatch outside any interaction:_
 
-- `LinkInstallPageConnector` — 3 dispatches
+- `LinkInstallPageConnector` — 1 dispatch
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `catalog.onChanged` | `SetQueryAction` | `linkInstall.query` |
-| `bring.onChanged` | `SetSourceAction`, `SetSourceAction`, `SetSourceAction` ? | `linkInstall.source` |
-| `target.onChanged` | `SetNameAction`, `SetAcceptRightsAction` | `linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid`, `linkInstall.acceptRights` |
 | `onClose` | `GoAction.pop` | — |
-| `onSource` | `ChooseInstallSourceAction` | `linkInstall` |
+| `onFrom` | `StartInstallOverAction` | — |
 | `onCategory` | `SetCategoryAction` | `linkInstall.category` |
+| `onQuery` | `SetQueryAction` | `linkInstall.query` |
 | `onItem` | `SetItemAction` | `linkInstall.item, linkInstall.mode, linkInstall.name, linkInstall.acceptRights, linkInstall.message, linkInstall.rights` |
-| `onMethod` | `SetMethodAction`, `SetSourceAction` | `linkInstall.method`, `linkInstall.source` |
-| `onPickFile` | `SetSourceAction` | `linkInstall.source` |
+| `onMethod` | `SetMethodAction` | `linkInstall.method, linkInstall.source, linkInstall.acceptRights, linkInstall.refusedField, linkInstall.refusedSaid` |
+| `onPickFile` | `PickLinkBackupAction`, `PickPackageFileAction` | — |
+| `onUrl` | `SetPackageUrlAction` | — |
+| `onRef` | `SetGitRefAction` | — |
 | `onBroker` | `SetBrokerAction` | `linkInstall.broker` |
 | `onMode` | `SetModeAction` | `linkInstall.mode` |
-| `onStep` | `SetStepAction` | `linkInstall.step` |
-| `onBack` | `GoAction.pop`, `SetStepAction` | `linkInstall.step` |
-| `onNext` | `SetStepAction` ?, `_backup ? InstallBackupAction(read: file!.read, passphrase: passphrase) : InstallLinkAction()` ?, `CheckPackageAction` ?, `CheckPackageAction` ?, `SetStepAction` | `linkInstall.step`, `linkInstall.checks, linkInstall.manifest, linkInstall.rights, linkInstall.name, linkInstall.mode` |
-| `onResultAction` | `SetSelectedNodeAction`, `GoAction.pop`, `GoAction.pop`, `ChooseInstallSourceAction`, `SetStepAction` | `nodes.selectedNode`, `linkInstall`, `linkInstall.step` |
+| `onName` | `SetNameAction` | `linkInstall.name, linkInstall.refusedField, linkInstall.refusedSaid` |
+| `onAccept` | `SetAcceptRightsAction` | `linkInstall.acceptRights` |
+| `onResult` | `switch (a) {InstallResultAction.explorer => ShowInstalledLinkAction(installedLinkKey), InstallResultAction.links => GoAction.pop(), InstallResultAction.again => StartInstallOverAction(_held, InstallPath.official), InstallResultAction.back => ChangeInstallAnswersAction()}` | — |
+| `onStep` | `InstallBackAction` | — |
+| `onBack` | `InstallBackAction` | — |
+| `onNext` | `ContinueInstallAction` | `linkInstall.step` |
 
 `?` marks a dispatch that only runs under a condition.
 

@@ -1,8 +1,21 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/catalog_form.dart';
 import 'package:models/catalog_item.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:models/catalog_row.dart';
+import 'package:models/link_mode.dart';
 
-import 'mappers/values.dart';
+export 'decode/catalog_rows.dart' show catalogRowsOf;
+
+/// What Studio says of a driver it knows: its short tag, title, one line
+/// and category.
+final class _Known {
+  const _Known(this.tag, this.title, this.summary, this.category);
+
+  final String tag;
+  final String title;
+  final String summary;
+  final String category;
+}
 
 /// What Studio knows about the drivers wyrmd is built with (names, one line,
 /// category), so the official list reads well on a broker that does not
@@ -10,112 +23,137 @@ import 'mappers/values.dart';
 /// them a broker has comes from that broker (`sys/links` ▸ `install`
 /// `driver` choices); a driver missing here is still listed, under its own
 /// name.
-const _known = <String, (String, String, String, String)>{
-  'modbus': (
+const _known = <String, _Known>{
+  'modbus': _Known(
     'MB',
     'Modbus',
     'TCP, RTU over TCP, serial RTU · master and slave',
     'Equipment',
   ),
-  'opcua': (
+  'opcua': _Known(
     'OPC',
     'OPC UA client',
     'Nodes of OPC UA servers as points',
     'Equipment',
   ),
-  'bacnet': (
+  'bacnet': _Known(
     'BAC',
     'BACnet/IP',
     'Who-Is/I-Am, RPM, BBMD, routed devices',
     'Equipment',
   ),
-  's7': (
+  's7': _Known(
     'S7',
     'Siemens S7',
     'S7-300/400/1200/1500 over ISO-on-TCP',
     'Equipment',
   ),
-  'snmp': ('SNMP', 'SNMP', 'v2c and v3 agents', 'Equipment'),
-  'mqtt': ('MQTT', 'MQTT', 'Topics as points', 'Equipment'),
-  'http': (
+  'snmp': _Known('SNMP', 'SNMP', 'v2c and v3 agents', 'Equipment'),
+  'mqtt': _Known('MQTT', 'MQTT', 'Topics as points', 'Equipment'),
+  'http': _Known(
     'HTTP',
     'HTTP / REST',
     'JSON APIs polled on a schedule',
     'Equipment',
   ),
-  'prometheus': (
+  'prometheus': _Known(
     'PROM',
     'Prometheus',
     'Scrapes exporters into points',
     'Equipment',
   ),
-  'dlms': ('DLMS', 'DLMS/COSEM', 'Electricity meters', 'Equipment'),
-  'mock': ('MOCK', 'Mock', 'Generated points for tests and benchmarks', 'Test'),
-  'mockdev': (
+  'dlms': _Known('DLMS', 'DLMS/COSEM', 'Electricity meters', 'Equipment'),
+  'mock': _Known(
+    'MOCK',
+    'Mock',
+    'Generated points for tests and benchmarks',
+    'Test',
+  ),
+  'mockdev': _Known(
     'DEV',
     'Mock device',
     'A simulated device on the driver framework',
     'Test',
   ),
-  's3': (
+  's3': _Known(
     'S3',
     'S3 and compatibles',
     'A bucket as a tree of folders and files',
     'File stores',
   ),
-  'gdrive': ('GD', 'Google Drive', 'A folder or a shared drive', 'File stores'),
-  'webdav': (
+  'gdrive': _Known(
+    'GD',
+    'Google Drive',
+    'A folder or a shared drive',
+    'File stores',
+  ),
+  'webdav': _Known(
     'DAV',
     'WebDAV',
     'Nextcloud, ownCloud and other WebDAV servers',
     'File stores',
   ),
-  'localfs': (
+  'localfs': _Known(
     'FS',
     'Local folder',
     'A directory of the host, USB/SD or a mount',
     'File stores',
   ),
-  'agent': (
+  'agent': _Known(
     'AI',
     'Assistant agent',
     'Plans changes for a person to approve',
     'Apps',
   ),
-  'postgres': (
+  'postgres': _Known(
     'PG',
     'PostgreSQL / TimescaleDB',
     'Sends the historian’s journal to a database',
     'History sync',
   ),
-  'influxdb': (
+  'influxdb': _Known(
     'INFX',
     'InfluxDB 2.x / 3.x',
     'Line protocol, tags site and key',
     'History sync',
   ),
-  'mongodb': ('MDB', 'MongoDB', 'History rows as documents', 'History sync'),
-  'mysql': (
+  'mongodb': _Known(
+    'MDB',
+    'MongoDB',
+    'History rows as documents',
+    'History sync',
+  ),
+  'mysql': _Known(
     'MY',
     'MySQL / MariaDB',
     'History rows as an upsert per batch',
     'History sync',
   ),
-  'dynamodb': ('DDB', 'DynamoDB', 'History rows with a TTL', 'History sync'),
-  'scheduler': (
+  'dynamodb': _Known(
+    'DDB',
+    'DynamoDB',
+    'History rows with a TTL',
+    'History sync',
+  ),
+  'scheduler': _Known(
     'SCH',
     'Scheduler',
     'Weekly schedules and special days',
     'Apps',
   ),
-  'alarm': (
+  'alarm': _Known(
     'ALM',
     'Alarms',
     'Alarm classes, records and acknowledgement',
     'Apps',
   ),
-  'dql': ('DQL', 'DQL queries', 'Tables from the tree, as DSA queries', 'Apps'),
-  'uplink': (
+  'dql': _Known(
+    'DQL',
+    'DQL queries',
+    'Tables from the tree, as DSA queries',
+    'Apps',
+  ),
+  'uplink': _Known(
     'UP',
     'Platform upstreams',
     'MQTT, Sparkplug, ThingsBoard, Azure, AWS',
@@ -125,40 +163,6 @@ const _known = <String, (String, String, String, String)>{
 
 /// Drivers that run only inside a broker (no process or external mode).
 const _embeddedOnly = {'agent', 'wasm', 'app', 'portable-echo', 'storage'};
-
-/// One row of `attr.catalog` on `sys/links` (ADR 0043 §7): what the broker
-/// says of one item of its `install` / `install_repo` choices. An empty
-/// text is a field the broker left out.
-typedef CatalogRow = ({
-  String title,
-  String summary,
-  String category,
-  String version,
-  String form,
-  bool official,
-});
-
-/// The rows of `attr.catalog` by `id` (`driver:<code>` / `package:<code>`);
-/// null when the broker sends none (built before ADR 0043).
-Map<String, CatalogRow>? catalogRowsOf(Map<String, Value>? attr) {
-  final rows = attr?['catalog'];
-  if (rows is! VArray) {
-    return null;
-  }
-  String t(Value r, String k) => (str(r[k]) ?? '').trim();
-  return {
-    for (final r in rows.v)
-      if (r is VMap && t(r, 'id').isNotEmpty)
-        t(r, 'id'): (
-          title: t(r, 'title'),
-          summary: t(r, 'summary'),
-          category: t(r, 'category'),
-          version: t(r, 'version'),
-          form: t(r, 'form'),
-          official: boolean(r['official']) ?? false,
-        ),
-  };
-}
 
 /// The official list: the broker's drivers, then its repository's packages.
 ///
@@ -183,15 +187,15 @@ IList<CatalogItem> catalogOf({
     // A package of a broker with rows never takes Studio's text.
     final k = builtIn || rows == null ? _known[base] : null;
     final form = switch (row?.form) {
-      final f? when f.isNotEmpty => f,
-      _ when builtIn => 'builtin',
-      _ when code.endsWith('-process') => 'process',
-      _ => 'wasm',
+      final f? => f,
+      _ when builtIn => CatalogForm.builtin,
+      _ when code.endsWith('-process') => CatalogForm.process,
+      _ => CatalogForm.wasm,
     };
-    final process = !builtIn && form == 'process';
+    final process = !builtIn && form == CatalogForm.process;
     final title = switch (row?.title) {
       final t? when t.isNotEmpty => t,
-      _ => k?.$2 ?? code,
+      _ => k?.title ?? code,
     };
     final version = switch (row?.version) {
       final v? when v.isNotEmpty => v,
@@ -206,7 +210,7 @@ IList<CatalogItem> catalogOf({
       // The short tag of a known link; an unofficial package of a broker
       // with rows gets its own from its name.
       tag:
-          (k ?? (official ? _known[base] : null))?.$1 ??
+          (k ?? (official ? _known[base] : null))?.tag ??
           code.substring(0, code.length.clamp(0, 4)).toUpperCase(),
       // Both forms of one link may carry one title: the process form says
       // so.
@@ -215,20 +219,26 @@ IList<CatalogItem> catalogOf({
           : title,
       description: switch (row?.summary) {
         final s? when s.isNotEmpty => s,
-        _ => k?.$3 ?? '',
+        _ => k?.summary ?? '',
       },
       category: switch (row?.category) {
         final c? when c.isNotEmpty => c,
-        _ => k?.$4 ?? (builtIn ? 'Equipment' : 'Packages'),
+        _ => k?.category ?? (builtIn ? 'Equipment' : 'Packages'),
       },
       builtIn: builtIn,
       modes: switch (form) {
         _ when builtIn && _embeddedOnly.contains(code) => const IListConst([
-          'embedded',
+          LinkMode.embedded,
         ]),
-        _ when builtIn => const IListConst(['embedded', 'process', 'external']),
-        'process' => const IListConst(['process']),
-        _ => const IListConst(['wasm']),
+        _ when builtIn => const IListConst([
+          LinkMode.embedded,
+          LinkMode.process,
+          LinkMode.external,
+        ]),
+        CatalogForm.process => const IListConst([LinkMode.process]),
+        CatalogForm.builtin || CatalogForm.wasm => const IListConst([
+          LinkMode.wasm,
+        ]),
       },
       existing: existing[builtIn ? code : 'pkg:$code'] ?? 0,
       // A driver's row carries the broker's own version.
@@ -244,8 +254,7 @@ IList<CatalogItem> catalogOf({
   ].lock;
 }
 
-/// The categories of [catalog], `All` first.
+/// The categories of [catalog], each once, in the order of the list.
 List<String> categoriesOf(IList<CatalogItem> catalog) => [
-  'All',
   ...{for (final c in catalog) c.category},
 ];

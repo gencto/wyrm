@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:models/update_view.dart';
 
 part 'updates_state.freezed.dart';
 
@@ -7,7 +8,7 @@ part 'updates_state.freezed.dart';
 abstract class UpdatesState with _$UpdatesState {
   const factory UpdatesState({
     String? package,
-    @Default('review') String view,
+    @Default(UpdateView.review) UpdateView view,
     @Default(true) bool takePoint,
     @Default(true) bool autoRollback,
     @Default(false) bool acceptNew,

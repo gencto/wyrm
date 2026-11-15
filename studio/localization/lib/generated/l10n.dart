@@ -2095,6 +2095,46 @@ class S {
     );
   }
 
+  /// `network`
+  String get rightNetwork {
+    return Intl.message('network', name: 'rightNetwork', desc: '', args: []);
+  }
+
+  /// `store`
+  String get rightStore {
+    return Intl.message('store', name: 'rightStore', desc: '', args: []);
+  }
+
+  /// `memory`
+  String get rightMemory {
+    return Intl.message('memory', name: 'rightMemory', desc: '', args: []);
+  }
+
+  /// `call`
+  String get rightCall {
+    return Intl.message('call', name: 'rightCall', desc: '', args: []);
+  }
+
+  /// `{n} MiB`
+  String rightMib(int n) {
+    return Intl.message('$n MiB', name: 'rightMib', desc: '', args: [n]);
+  }
+
+  /// `{n} ms`
+  String rightMs(int n) {
+    return Intl.message('$n ms', name: 'rightMs', desc: '', args: [n]);
+  }
+
+  /// `on {path}`
+  String rightOn(String path) {
+    return Intl.message('on $path', name: 'rightOn', desc: '', args: [path]);
+  }
+
+  /// `none`
+  String get rightsNone {
+    return Intl.message('none', name: 'rightsNone', desc: '', args: []);
+  }
+
   /// `The package asks for these rights`
   String get rightsTitle {
     return Intl.message(
@@ -2258,6 +2298,11 @@ class S {
   /// `Zip file`
   String get zipFile {
     return Intl.message('Zip file', name: 'zipFile', desc: '', args: []);
+  }
+
+  /// `All`
+  String get catalogAll {
+    return Intl.message('All', name: 'catalogAll', desc: '', args: []);
   }
 
   /// `Search the list`
@@ -11401,6 +11446,41 @@ class S {
     return Intl.message(
       'rolled back',
       name: 'updPillRolledBack',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `unknown`
+  String get updPillUnknown {
+    return Intl.message('unknown', name: 'updPillUnknown', desc: '', args: []);
+  }
+
+  /// `The broker ended it as “{result}”`
+  String updUnknownResult(String result) {
+    return Intl.message(
+      'The broker ended it as “$result”',
+      name: 'updUnknownResult',
+      desc: '',
+      args: [result],
+    );
+  }
+
+  /// `Studio does not know this result. The broker's log says more.`
+  String get updUnknownResultNote {
+    return Intl.message(
+      'Studio does not know this result. The broker\'s log says more.',
+      name: 'updUnknownResultNote',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `The broker gave no reason.`
+  String get installNoWords {
+    return Intl.message(
+      'The broker gave no reason.',
+      name: 'installNoWords',
       desc: '',
       args: [],
     );

@@ -14,6 +14,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'links_data.dart';
 
 /// A setting shown as a card above the Quarantine table.
 final class SettingCardVm extends Equatable {
@@ -84,17 +85,17 @@ class LinksPage extends StatelessWidget {
   /// Opens Add a link; null when the user may not install.
   final VoidCallback? onTapLinkInstall;
   final String? addReason;
-  final List<TabItemVm<String>> tabs;
-  final String tab;
+  final List<TabItemVm<LinksTabKey>> tabs;
+  final LinksTabKey tab;
   final String description;
   final List<SettingCardVm> settings;
   final List<ColumnVm> columns;
   final List<RowVm<String>> rows;
   final String? empty;
-  final DetailInspectorVm<String>? inspector;
-  final ValueChanged<String> onTab;
+  final DetailInspectorVm<LinkAct>? inspector;
+  final ValueChanged<LinksTabKey> onTab;
   final ValueChanged<String> onRow;
-  final ValueChanged<String> onAction;
+  final ValueChanged<LinkAct> onAction;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
@@ -118,12 +119,7 @@ class LinksPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(
-        28,
-        28,
-        28,
-        40,
-      ),
+      padding: Insets.workspacePage,
       children: [
         PageHeader(
           title: title,
@@ -147,9 +143,9 @@ class LinksPage extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        Gaps.pageTabs,
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: 18),
+        Gaps.tabNote,
         Text(
           description,
           style: TextStyle(fontSize: FontSizes.md, color: c.text2),
@@ -161,10 +157,7 @@ class LinksPage extends StatelessWidget {
               final cards = [
                 for (final s in settings)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
-                    ),
+                    padding: Insets.settingCard,
                     decoration: BoxDecoration(
                       color: c.ground1,
                       border: .all(color: c.line1),

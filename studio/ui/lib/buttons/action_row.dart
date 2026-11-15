@@ -5,6 +5,7 @@ import '../indicators/app_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One action of an inspector: icon, title, one line of what it does, the
@@ -92,10 +93,7 @@ class ActionRow<T> extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 10,
-            ),
+            padding: Insets.actionCard,
             child: Row(
               spacing: 12,
               children: [

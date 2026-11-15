@@ -1,15 +1,20 @@
-import 'dart:async';
-
 import 'package:async_redux/async_redux.dart';
+import 'package:models/install_phase.dart';
+import 'package:models/install_request.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
+import 'package:models/link_install_call.dart';
+import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import '../../../wyrm/decode/sys_verdict.dart';
 import '../../../wyrm/failures.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/install_args.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_links_action.dart';
+import 'installing_action.dart';
 
 /// Add a link ▸ From backup (ADR 0048 §3.5): the `.wyrm-link` goes to
 /// `wy/<broker>/sys/backups` in parts (`restore_begin`, `restore_part`),
@@ -41,11 +46,10 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
         source is! InstallSourceBackup) {
       return null;
     }
-    dispatchSync(_Phase());
+    dispatchSync(InstallingAction());
     final backups = 'wy/$broker/sys/backups';
-    String? message;
     String? upload;
-    var success = false;
+    SysVerdict answer;
     try {
       upload = await uploadParts(
         deps.wyrm,
@@ -53,46 +57,42 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
         size: source.size,
         read: read,
       );
+      final request = InstallRequest.backup(
+        upload: upload,
+        id: name,
+        accept: li.acceptRights,
+        passphrase: passphrase,
+      );
       final rows = await deps.wyrm
           .invoke(
             'wy/$broker/sys/links',
-            'install_backup',
-            Value.from({
-              'upload': upload,
-              'id': name,
-              if (li.acceptRights) 'accept': true,
-              if (passphrase case final p? when p.isNotEmpty) 'passphrase': p,
-            }),
+            request.call.wire,
+            installArgsOf(request),
           )
           .toList();
-      final last = rows.isEmpty ? const VNull() : rows.last;
-      success = boolean(last['success']) ?? last is! VNull;
-      message = str(last['message']) ?? (success ? null : text(last));
+      answer = sysVerdictOf(
+        rows,
+        where: '${LinkInstallCall.backup.wire} on $broker',
+      );
     } on WyrmException catch (e) {
-      message = '${e.status.name}: ${e.message}';
+      answer = SysVerdict(
+        success: false,
+        message: '${e.status.name}: ${e.message}',
+      );
     } on StudioException catch (e) {
       // A refused part of the upload: the broker's own words.
-      message = e.error.message;
+      answer = SysVerdict(success: false, message: e.error.message);
     }
-    if (success) {
-      unawaited(dispatchAndWait(RetrieveLinksAction()));
+    if (answer.success) {
+      // the new link is in the tables when the result is shown
+      await dispatchAndWait(RetrieveLinksAction());
     } else if (upload != null) {
       await abortUpload(deps.wyrm, backups, upload);
     }
     return state.copyWith.linkInstall(
-      phase: success ? 'done' : 'failed',
-      message: message,
-      step: 4,
+      phase: answer.success ? InstallPhase.done : InstallPhase.failed,
+      message: answer.message,
+      step: InstallStep.result,
     );
   }
-}
-
-class _Phase extends Action {
-  @override
-  AppState reduce() => state.copyWith.linkInstall(
-    phase: 'installing',
-    message: null,
-    refusedField: null,
-    refusedSaid: null,
-  );
 }

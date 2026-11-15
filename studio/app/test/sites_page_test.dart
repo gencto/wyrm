@@ -2,6 +2,7 @@ import 'package:app/connectors/sites_page_connector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/link_state.dart';
 import 'package:models/site_node.dart';
 import 'package:models/site_pick.dart';
 import 'package:ui/buttons/button.dart';
@@ -263,7 +264,7 @@ void main() {
       (s) => s.copyWith.links(
         table: s.links.table.update(
           'field-gw',
-          (l) => l.copyWith(state: 'connected'),
+          (l) => l.copyWith(state: LinkState.connected),
         ),
       ),
     );

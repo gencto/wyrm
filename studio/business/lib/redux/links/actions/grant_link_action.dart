@@ -18,7 +18,7 @@ class GrantLinkAction extends Action with WaitingAction {
 
   final String id;
   final String path;
-  final String level;
+  final Perm level;
 
   @override
   Future<AppState?> reduce() async {
@@ -26,7 +26,7 @@ class GrantLinkAction extends Action with WaitingAction {
       deps.wyrm,
       '${site.root}/sys/links/$id',
       'grant',
-      Value.from({'path': path, 'level': level}),
+      Value.from({'path': path, 'level': level.wire}),
     );
     return null;
   }

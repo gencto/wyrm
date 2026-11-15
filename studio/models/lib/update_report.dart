@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'update_result.dart';
+
 part 'update_report.freezed.dart';
 
 @freezed
@@ -14,9 +16,12 @@ abstract class UpdateReport with _$UpdateReport {
     /// Unix seconds, the broker's clock.
     @Default(0) int at,
 
-    /// `checking` while the health check runs, then `ok`, `rolled_back` or
-    /// `failed`.
-    @Default('') String result,
+    /// None when the broker says none.
+    UpdateResult? result,
+
+    /// The broker's own word for [result], kept for a result this client
+    /// does not know ([UpdateResult.unknown]).
+    @Default('') String resultWord,
     @Default(0) int kept,
     @Default(0) int added,
     @Default(0) int gone,

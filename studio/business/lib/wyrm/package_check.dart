@@ -5,20 +5,19 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/backup_sealed.dart';
+import 'package:models/link_mode.dart';
 import 'package:models/package_check.dart';
+import 'package:models/package_check_result.dart';
+import 'package:models/package_report.dart';
+import 'package:models/requested_right.dart';
+
+import 'decode/decoded.dart';
+import 'decode/requested_rights.dart';
 
 /// The link protocol of this Studio's brokers (`LINK_PROTOCOL`).
 const linkProtocol = 1;
-
-/// What a package check found: the checks, the manifest as indented JSON,
-/// and the package name from it.
-typedef PackageReport = ({
-  List<PackageCheck> checks,
-  String? manifest,
-  String? name,
-  String? kind,
-  String? rights,
-});
 
 const _fields = {
   'name',
@@ -37,9 +36,9 @@ const _fields = {
 PackageCheck _ok(String t, [String d = '']) =>
     PackageCheck(title: t, detail: d);
 PackageCheck _bad(String t, String d) =>
-    PackageCheck(title: t, detail: d, result: 'failed');
+    PackageCheck(title: t, detail: d, result: PackageCheckResult.failed);
 PackageCheck _skip(String t, String d) =>
-    PackageCheck(title: t, detail: d, result: 'skipped');
+    PackageCheck(title: t, detail: d, result: PackageCheckResult.skipped);
 
 /// The checks of docs/links.md §4 on a package zip, run here before the
 /// broker runs them again. [host] is the target broker's `os-arch`, when
@@ -50,36 +49,18 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
     checks.add(
       _bad('Size', '${bytes.length >> 20} MiB zipped; at most 64 MiB'),
     );
-    return (
-      checks: checks,
-      manifest: null,
-      name: null,
-      kind: null,
-      rights: null,
-    );
+    return PackageReport(checks: checks.lock);
   }
   if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
     checks.add(_bad('Archive', 'not a zip'));
-    return (
-      checks: checks,
-      manifest: null,
-      name: null,
-      kind: null,
-      rights: null,
-    );
+    return PackageReport(checks: checks.lock);
   }
   final Archive zip;
   try {
     zip = ZipDecoder().decodeBytes(bytes);
   } on Object catch (e) {
     checks.add(_bad('Archive', 'not a zip: $e'));
-    return (
-      checks: checks,
-      manifest: null,
-      name: null,
-      kind: null,
-      rights: null,
-    );
+    return PackageReport(checks: checks.lock);
   }
   final files = zip.files.where((f) => f.isFile).toList();
   final unpacked = files.fold<int>(0, (n, f) => n + f.size);
@@ -114,36 +95,18 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
   final mf = zip.findFile('wyrm-link.json');
   if (mf == null) {
     checks.add(_bad('Manifest', 'no wyrm-link.json at the zip root'));
-    return (
-      checks: checks,
-      manifest: null,
-      name: null,
-      kind: null,
-      rights: null,
-    );
+    return PackageReport(checks: checks.lock);
   }
   final Object? json;
   try {
     json = jsonDecode(utf8.decode(mf.content));
   } on Object catch (e) {
     checks.add(_bad('Manifest', 'wyrm-link.json is not JSON: $e'));
-    return (
-      checks: checks,
-      manifest: null,
-      name: null,
-      kind: null,
-      rights: null,
-    );
+    return PackageReport(checks: checks.lock);
   }
   if (json is! Map<String, Object?>) {
     checks.add(_bad('Manifest', 'wyrm-link.json is not an object'));
-    return (
-      checks: checks,
-      manifest: null,
-      name: null,
-      kind: null,
-      rights: null,
-    );
+    return PackageReport(checks: checks.lock);
   }
   final pretty = const JsonEncoder.withIndent('  ').convert(json);
   final unknown = json.keys.where((k) => !_fields.contains(k)).toList();
@@ -220,34 +183,30 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
     );
     checks.add(_skip('World', 'read from the component by the broker'));
   }
-  final rights = <String>[
-    if (json['capabilities'] case final Map<String, Object?> c) ...[
-      if (c['net'] case final List<Object?> n when n.isNotEmpty)
-        'network ${n.join(', ')}',
-      if (c['store_mb'] case final s?) 'store $s MiB',
-      if (c['memory_mb'] case final m?) 'memory $m MiB',
-      if (c['call_ms'] case final t?) 'call $t ms',
-    ],
-    if (json['requester'] case final List<Object?> r)
-      for (final g in r)
-        if (g case {'path': final p, 'level': final l}) '$l on $p',
-  ];
-  checks.add(
-    rights.isEmpty
-        ? _ok('Rights asked', 'none')
-        : _ok('Rights asked', rights.join('; ')),
-  );
-  return (
-    checks: checks,
+  final asked = requestedRightsOf(json['capabilities'], json['requester']);
+  final List<RequestedRight> rights;
+  switch (asked) {
+    case Valid(:final value):
+      rights = value;
+    case Invalid(:final field, :final reason):
+      rights = const [];
+      checks.add(_bad('Rights asked', '$field: $reason'));
+  }
+  if (asked is Valid) {
+    // the rights themselves: ui says them in the language on screen
+    checks.add(PackageCheck(title: 'Rights asked', rights: rights.lock));
+  }
+  return PackageReport(
+    checks: checks.lock,
     manifest: pretty,
     name: name is String ? name : null,
-    kind: kind is String ? kind : null,
-    rights: rights.isEmpty ? null : rights.join('; '),
+    kind: kind is String ? LinkMode.fromWire(kind) : null,
+    rights: rights.isEmpty ? null : rights.lock,
   );
 }
 
 /// The checks of one component file.
-PackageReport checkWasm(Uint8List bytes) => (
+PackageReport checkWasm(Uint8List bytes) => PackageReport(
   checks: [
     if (bytes.length > 64 << 20)
       _bad('Size', '${bytes.length >> 20} MiB; at most 64 MiB')
@@ -258,11 +217,8 @@ PackageReport checkWasm(Uint8List bytes) => (
     else
       _bad('Component', 'not WebAssembly'),
     _skip('World', 'read from the component by the broker'),
-  ],
-  manifest: null,
-  name: null,
-  kind: 'wasm',
-  rights: null,
+  ].lock,
+  kind: LinkMode.wasm,
 );
 
 /// What Studio reads of a link backup (`.wyrm-link`, ADR 0048 §3.1)
@@ -273,7 +229,7 @@ PackageReport checkWasm(Uint8List bytes) => (
 /// `accept`. `name` is the link's id, `kind` its mode.
 PackageReport checkBackup(Uint8List bytes) {
   PackageReport stop(List<PackageCheck> checks) =>
-      (checks: checks, manifest: null, name: null, kind: null, rights: null);
+      PackageReport(checks: checks.lock);
   if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
     return stop([_bad('Archive', 'not a zip')]);
   }
@@ -334,19 +290,19 @@ PackageReport checkBackup(Uint8List bytes) {
     );
   }
   final how = switch (m['sealed']) {
-    final Map<String, Object?> s => s['how'] as String? ?? 'none',
-    _ => 'none',
+    {'how': final String h} => BackupSealed.fromWire(h) ?? BackupSealed.none,
+    _ => BackupSealed.none,
   };
   checks
     ..add(
       switch (how) {
-        'passphrase' => _ok('Secrets', 'sealed with a passphrase'),
-        'broker' => _skip(
+        BackupSealed.passphrase => _ok('Secrets', 'sealed with a passphrase'),
+        BackupSealed.broker => _skip(
           'Secrets',
           'sealed for ${m['site']}: the file opens only on a broker with '
               'the keys of that site',
         ),
-        _ => _ok('Secrets', 'none in the file'),
+        BackupSealed.none => _ok('Secrets', 'none in the file'),
       },
     )
     ..add(_ok('Sections', sections.join(', ')))
@@ -356,49 +312,43 @@ PackageReport checkBackup(Uint8List bytes) {
         'checked by the broker as a new link',
       ),
     );
-  return (
-    checks: checks,
+  return PackageReport(
+    checks: checks.lock,
     manifest: const JsonEncoder.withIndent('  ').convert({
       for (final k in ['wyrm_backup', 'kind', 'site', 'broker', 'created'])
         k: m[k],
-      'sealed': how,
+      'sealed': how.wire,
       'link': link,
       'sections': sections,
     }),
     name: link['id'] as String?,
-    kind: link['mode'] as String?,
-    rights: null,
+    kind: switch (link['mode']) {
+      final String mode => LinkMode.fromWire(mode),
+      _ => null,
+    },
   );
 }
 
 /// A link backup too large to read here: the broker alone checks it.
-PackageReport checkLargeBackup(int size) => (
+PackageReport checkLargeBackup(int size) => PackageReport(
   checks: [
     _skip(
       'Archive, manifest, link',
       '${size >> 20} MiB: not read by Studio; checked by the broker after '
           'the upload. Give the link its name on the next step',
     ),
-  ],
-  manifest: null,
-  name: null,
-  kind: null,
-  rights: null,
+  ].lock,
 );
 
 /// A URL or a Git repository: fetched and checked by the broker only.
-PackageReport checkRemote(String what) => (
+PackageReport checkRemote(String what) => PackageReport(
   checks: [
     _skip('Download', '$what is fetched by the broker'),
     _skip(
       'Archive, manifest, binaries',
       'checked by the broker after the download',
     ),
-  ],
-  manifest: null,
-  name: null,
-  kind: null,
-  rights: null,
+  ].lock,
 );
 
 bool _isWasm(List<int> b) =>

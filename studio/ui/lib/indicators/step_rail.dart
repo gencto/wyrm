@@ -52,10 +52,7 @@ class StepRail extends StatelessWidget {
               onTap: onStep != null && i < current ? () => onStep!(i) : null,
               borderRadius: Radii.control,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: 12,
-                ),
+                padding: Insets.railStep,
                 decoration: BoxDecoration(
                   color: i == current ? c.emberTint : null,
                   borderRadius: Radii.control,

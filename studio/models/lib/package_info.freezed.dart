@@ -15,8 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$PackageInfo {
 
- String get name; String get version;/// `process` or `wasm`.
- String get kind; String? get source; String? get sha256;/// The version in the repository index; empty for a custom package
+ String get name; String get version; PackageKind get kind; String? get source; String? get sha256;/// The version in the repository index; empty for a custom package
 /// (ADR 0048 §1).
  String get latest; bool get updateAvailable;/// The update to [latest] changes the store format.
  bool get changesState;/// The store format the installed version writes.
@@ -60,7 +59,7 @@ abstract mixin class $PackageInfoCopyWith<$Res>  {
   factory $PackageInfoCopyWith(PackageInfo value, $Res Function(PackageInfo) _then) = _$PackageInfoCopyWithImpl;
 @useResult
 $Res call({
- String name, String version, String kind, String? source, String? sha256, String latest, bool updateAvailable, bool changesState, int state, String? previous, int keepUntil, bool previousChangesState, UpdateReport? lastUpdate
+ String name, String version, PackageKind kind, String? source, String? sha256, String latest, bool updateAvailable, bool changesState, int state, String? previous, int keepUntil, bool previousChangesState, UpdateReport? lastUpdate
 });
 
 
@@ -82,7 +81,7 @@ class _$PackageInfoCopyWithImpl<$Res>
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as String,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
+as PackageKind,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as String?,sha256: freezed == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
 as String?,latest: null == latest ? _self.latest : latest // ignore: cast_nullable_to_non_nullable
 as String,updateAvailable: null == updateAvailable ? _self.updateAvailable : updateAvailable // ignore: cast_nullable_to_non_nullable
@@ -116,13 +115,12 @@ $UpdateReportCopyWith<$Res>? get lastUpdate {
 
 
 class _PackageInfo implements PackageInfo {
-  const _PackageInfo({required this.name, this.version = '', this.kind = 'process', this.source, this.sha256, this.latest = '', this.updateAvailable = false, this.changesState = false, this.state = 1, this.previous, this.keepUntil = 0, this.previousChangesState = false, this.lastUpdate});
+  const _PackageInfo({required this.name, this.version = '', this.kind = PackageKind.process, this.source, this.sha256, this.latest = '', this.updateAvailable = false, this.changesState = false, this.state = 1, this.previous, this.keepUntil = 0, this.previousChangesState = false, this.lastUpdate});
   
 
 @override final  String name;
 @override@JsonKey() final  String version;
-/// `process` or `wasm`.
-@override@JsonKey() final  String kind;
+@override@JsonKey() final  PackageKind kind;
 @override final  String? source;
 @override final  String? sha256;
 /// The version in the repository index; empty for a custom package
@@ -174,7 +172,7 @@ abstract mixin class _$PackageInfoCopyWith<$Res> implements $PackageInfoCopyWith
   factory _$PackageInfoCopyWith(_PackageInfo value, $Res Function(_PackageInfo) _then) = __$PackageInfoCopyWithImpl;
 @override @useResult
 $Res call({
- String name, String version, String kind, String? source, String? sha256, String latest, bool updateAvailable, bool changesState, int state, String? previous, int keepUntil, bool previousChangesState, UpdateReport? lastUpdate
+ String name, String version, PackageKind kind, String? source, String? sha256, String latest, bool updateAvailable, bool changesState, int state, String? previous, int keepUntil, bool previousChangesState, UpdateReport? lastUpdate
 });
 
 
@@ -196,7 +194,7 @@ class __$PackageInfoCopyWithImpl<$Res>
 name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,version: null == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String,kind: null == kind ? _self.kind : kind // ignore: cast_nullable_to_non_nullable
-as String,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
+as PackageKind,source: freezed == source ? _self.source : source // ignore: cast_nullable_to_non_nullable
 as String?,sha256: freezed == sha256 ? _self.sha256 : sha256 // ignore: cast_nullable_to_non_nullable
 as String?,latest: null == latest ? _self.latest : latest // ignore: cast_nullable_to_non_nullable
 as String,updateAvailable: null == updateAvailable ? _self.updateAvailable : updateAvailable // ignore: cast_nullable_to_non_nullable

@@ -28,12 +28,20 @@ import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
 import 'package:models/history_call.dart';
 import 'package:models/history_range.dart';
+import 'package:models/install_block.dart';
+import 'package:models/install_field.dart';
+import 'package:models/install_name_problem.dart';
+import 'package:models/install_path.dart';
+import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
 import 'package:models/install_target.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_origin.dart';
 import 'package:models/link_revision.dart';
+import 'package:models/link_state.dart';
 import 'package:models/links_tab.dart';
 import 'package:models/live_set.dart';
 import 'package:models/live_value.dart';
@@ -46,7 +54,9 @@ import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/package_check.dart';
+import 'package:models/package_check_result.dart';
 import 'package:models/package_info.dart';
+import 'package:models/package_method.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
@@ -55,7 +65,9 @@ import 'package:models/plan_step.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
+import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
+import 'package:models/restore_point.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
 import 'package:models/site_choice.dart';
@@ -80,6 +92,7 @@ import 'package:models/trust_refusal.dart';
 import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
+import 'package:models/update_view.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
@@ -87,10 +100,13 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, Perm, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/catalog.dart';
 import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
 import '../wyrm/decode/backup_job.dart';
 import '../wyrm/decode/broker_self_update.dart';
+import '../wyrm/decode/live_values.dart';
+import '../wyrm/decode/package_info.dart';
 import '../wyrm/decode/sys_status.dart';
 import '../wyrm/device_keys.dart';
 import '../wyrm/discovery.dart' show RangeFault, codeGroups;
@@ -101,10 +117,10 @@ import '../wyrm/historian_stats.dart';
 import '../wyrm/history_trend.dart';
 import '../wyrm/holds.dart';
 import '../wyrm/keys.dart';
+import '../wyrm/link_update.dart';
 import '../wyrm/log_in_page.dart';
 import '../wyrm/mappers/agent_task_mapper.dart';
 import '../wyrm/mappers/flow_blocks.dart';
-import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
 import '../wyrm/rights.dart';
@@ -734,6 +750,385 @@ extension SelectComposites on Selectors {
   }
 }
 
+/// A link name: a key segment of letters, digits, `.`, `_`, `-`.
+final _linkName = RegExp(r'^[A-Za-z0-9._-]{1,64}$');
+
+/// What Add a link shows, computed from state once (studio-rules §3): the
+/// connector maps these, it decides none of them.
+extension LinkInstallScreen on Selectors {
+  /// The steps of the path: the official list Choose → Where → Install; a
+  /// custom package or a backup Bring → Check → Where → Install.
+  List<InstallStep> get installSteps => switch (linkInstall.path) {
+    InstallPath.official => const [
+      InstallStep.choose,
+      InstallStep.run,
+      InstallStep.result,
+    ],
+    InstallPath.custom || InstallPath.backup => InstallStep.values,
+  };
+
+  /// The step on screen, one of [installSteps].
+  InstallStep get installStep => installSteps.contains(linkInstall.step)
+      ? linkInstall.step
+      : installSteps.first;
+
+  /// The item of the official list picked; null before one is.
+  CatalogItem? get installItem =>
+      linkInstall.catalog.where((c) => c.id == linkInstall.item).firstOrNull;
+
+  /// The broker the new link goes to.
+  String get installBroker => linkInstall.broker ?? site.viewed ?? '';
+
+  /// What was brought, as the user knows it: the file's name, the URL,
+  /// the driver or the package; null before anything is.
+  String? get installSourceName => switch (linkInstall.source) {
+    null => null,
+    InstallSourceZip(:final fileName) ||
+    InstallSourceBackup(:final fileName) ||
+    InstallSourceWasm(:final fileName) => fileName,
+    InstallSourceUrl(:final url) || InstallSourceGit(:final url) => url,
+    InstallSourceBuiltIn(:final driver) => driver,
+    InstallSourceRepository(:final package) => package,
+  };
+
+  /// The name of the file brought (a zip, a component, a backup); null
+  /// for a URL or nothing.
+  String? get installFileName => switch (linkInstall.source) {
+    InstallSourceZip(:final fileName) ||
+    InstallSourceBackup(:final fileName) ||
+    InstallSourceWasm(:final fileName) => fileName,
+    _ => null,
+  };
+
+  /// The URL brought: the package's, or the Git repository's.
+  String? get installUrl => switch (linkInstall.source) {
+    InstallSourceUrl(:final url) || InstallSourceGit(:final url) => url,
+    _ => null,
+  };
+
+  /// The Git ref brought.
+  String? get installRef => switch (linkInstall.source) {
+    InstallSourceGit(:final ref) => ref,
+    _ => null,
+  };
+
+  /// The branch of the link just installed: `wy/<broker>/downstream/<name>`.
+  String get installedLinkKey =>
+      'wy/$installBroker/downstream/${linkInstall.name ?? ''}';
+
+  /// The official list as filtered on screen: by category and by the
+  /// words searched for in an item's name, code or description.
+  List<CatalogItem> get installShownCatalog {
+    final q = (linkInstall.query ?? '').toLowerCase();
+    final category = linkInstall.category;
+    return [
+      for (final c in linkInstall.catalog)
+        if ((category == null || c.category == category) &&
+            (q.isEmpty ||
+                '${c.name} ${c.code} ${c.description}'.toLowerCase().contains(
+                  q,
+                )))
+          c,
+    ];
+  }
+
+  /// The categories of the official list, each once.
+  List<String> get installCategories => categoriesOf(linkInstall.catalog);
+
+  /// A check of the package or the backup failed.
+  bool get installCheckFailed => linkInstall.checks.any(
+    (c) => c.result == PackageCheckResult.failed,
+  );
+
+  /// A link of the backup's id is on the broker: the install replaces it
+  /// (in place, after a restore point).
+  bool get installReplaces =>
+      linkInstall.path == InstallPath.backup &&
+      installBroker == site.viewed &&
+      links.table.containsKey(linkInstall.name);
+
+  /// What is wrong with the name; null when nothing is, or no name is
+  /// given yet. What the broker said of a name it refused stays until the
+  /// name changes (docs/design/specs/errors.md §3, *Back to the form*).
+  InstallNameProblem? get installNameProblem {
+    final name = linkInstall.name ?? '';
+    if (name.isEmpty) {
+      return null;
+    }
+    if (!_linkName.hasMatch(name)) {
+      return InstallNameProblem.rule;
+    }
+    // A backup may replace the link of its id: the name is then no
+    // problem.
+    if (linkInstall.path != InstallPath.backup &&
+        installBroker == site.viewed &&
+        links.table.containsKey(name)) {
+      return InstallNameProblem.taken;
+    }
+    return linkInstall.refusedField == InstallField.name
+        ? InstallNameProblem.refused
+        : null;
+  }
+
+  /// The rights must be accepted before Install: a package that asks for
+  /// some. A backup's grants are in its sealed part: the broker lists them
+  /// when the install needs `accept`, so accepting is offered, not asked.
+  bool get installNeedsRights =>
+      linkInstall.path != InstallPath.backup &&
+      (linkInstall.rights != null || !(installItem?.builtIn ?? true));
+
+  /// *Accept requested rights* is offered.
+  bool get installOffersAccept =>
+      linkInstall.path == InstallPath.backup || installNeedsRights;
+
+  /// Why the user may not install on the broker: no config on its
+  /// `sys/links`; null when they may.
+  String? get installConfigReason =>
+      site.needs('config', 'wy/$installBroker/sys/links');
+
+  /// How the new link can run there, the one to pick first.
+  List<LinkMode> get installModes => switch (linkInstall.path) {
+    InstallPath.official =>
+      installItem?.modes.unlock ?? const [LinkMode.embedded],
+    InstallPath.backup => [linkInstall.mode ?? LinkMode.process],
+    InstallPath.custom => [
+      if (linkInstall.mode == LinkMode.wasm)
+        LinkMode.wasm
+      else
+        LinkMode.process,
+    ],
+  };
+
+  /// How the new link runs.
+  LinkMode get installMode => linkInstall.mode ?? installModes.first;
+
+  /// Why the step on screen offers no *Continue* (or *Install*); null when
+  /// it does, and on the last step.
+  InstallBlock? get installBlock {
+    final li = linkInstall;
+    return switch (installStep) {
+      InstallStep.choose
+          when li.path == InstallPath.official && installItem == null =>
+        InstallBlock.pickOne,
+      InstallStep.choose
+          when li.path != InstallPath.official && li.source == null =>
+        InstallBlock.bringOne,
+      InstallStep.check when installCheckFailed => InstallBlock.checkFailed,
+      InstallStep.run when (li.name ?? '').isEmpty => InstallBlock.nameIt,
+      InstallStep.run when installNameProblem != null =>
+        InstallBlock.nameProblem,
+      InstallStep.run when installNeedsRights && !li.acceptRights =>
+        InstallBlock.acceptFirst,
+      InstallStep.run when installConfigReason != null =>
+        InstallBlock.needsConfig,
+      _ => null,
+    };
+  }
+}
+
+/// The package a link runs (`pkg:<name>`), or null for a built-in driver.
+String? packageOfLink(LinkInfo l) =>
+    l.driver.startsWith('pkg:') ? l.driver.substring(4) : null;
+
+final _linkStates = LastResult<Map<String, LinkState>>();
+final _livePackages = LastResult<Map<String, PackageInfo>>();
+final _restorePoints = LastResult<Map<String, List<RestorePoint>>>();
+
+/// What Links shows, computed from state once (studio-rules §3): the live
+/// values of its links and packages are decoded once per change of their
+/// own keys (a value of another type is logged, and the table's stays).
+extension LinksTables on Selectors {
+  String get _linksRoot => site.root ?? '';
+
+  /// The keys Links watches while shown: each link's state and restore
+  /// points, the admission options, and what moves while a package is
+  /// updated (ADR 0048 §1).
+  List<String> get linksKeys => [
+    '$_linksRoot/sys/links/*/state',
+    '$_linksRoot/sys/enable_quarantine',
+    '$_linksRoot/sys/allow_all_links',
+    '$_linksRoot/sys/packages/*/*',
+    '$_linksRoot/sys/links/*/restore_points',
+  ];
+
+  Object? _live(String key) => live.values['$_linksRoot/sys/$key']?.value;
+
+  /// The state of each link: its live `sys/links/<id>/state` when watched.
+  Map<String, LinkState> get _states => _linkStates.of(
+    [
+      site.root,
+      links.view,
+      for (final id in links.view)
+        live.values['$_linksRoot/sys/links/$id/state'],
+    ],
+    () => {
+      for (final id in links.view)
+        if (_live('links/$id/state') case final v?)
+          id: ?linkStateSampleOf(v).orWarn('sys/links/$id/state'),
+    },
+  );
+
+  /// The state of [link]: its live `sys/links/<id>/state` when watched,
+  /// else what was read with the list.
+  LinkState stateOfLink(LinkInfo link) => _states[link.id] ?? link.state;
+
+  /// The link [id] was connected when the list was read.
+  bool linkListedConnected(String id) =>
+      links.table[id]?.state == LinkState.connected;
+
+  /// The installed packages with their live values.
+  Map<String, PackageInfo> get _packages => _livePackages.of(
+    [
+      site.root,
+      packages.table,
+      for (final name in packages.table.keys)
+        for (final leaf in packageLeaves)
+          live.values['$_linksRoot/sys/packages/$name/$leaf'],
+    ],
+    () => {
+      for (final MapEntry(:key, :value) in packages.table.entries)
+        key: packageLiveOf(
+          value,
+          (leaf) => _live('packages/$key/$leaf'),
+          where: 'sys/packages/$key',
+        ),
+    },
+  );
+
+  /// The package [name] with its live values; null when not installed.
+  PackageInfo? livePackage(String? name) =>
+      name == null ? null : _packages[name];
+
+  /// The package [l] runs, with its live values; null for a built-in
+  /// driver.
+  PackageInfo? packageRunBy(LinkInfo l) => livePackage(packageOfLink(l));
+
+  /// The repository lists [p]: `latest` is empty for a custom package.
+  bool isOfficialPackage(PackageInfo p) => p.latest.isNotEmpty;
+
+  /// The links that run the package [name], by id, in list order.
+  List<String> linksOfPackage(String name) => [
+    for (final id in links.view)
+      if (links.table[id]?.driver == 'pkg:$name') id,
+  ];
+
+  /// The restore points of [link] (`sys/links/<id>/restore_points`).
+  List<RestorePoint> restorePointsOfLink(String link) =>
+      _restorePoints.of(
+        [
+          site.root,
+          links.view,
+          for (final id in links.view)
+            live.values['$_linksRoot/sys/links/$id/restore_points'],
+        ],
+        () => {
+          for (final id in links.view)
+            id:
+                restorePointsOf(
+                  _live('links/$id/restore_points'),
+                  where: 'sys/links/$id/restore_points',
+                ).orWarn('sys/links/$id/restore_points') ??
+                const [],
+        },
+      )[link] ??
+      const [];
+
+  /// The links of the site in list order: those that run here, and those
+  /// on other devices.
+  List<LinkInfo> get _allLinks => [
+    for (final id in links.view) ?links.table[id],
+  ];
+  List<LinkInfo> get localLinks => [
+    for (final l in _allLinks)
+      if (l.mode != LinkMode.external) l,
+  ];
+  List<LinkInfo> get remoteLinks => [
+    for (final l in _allLinks)
+      if (l.mode == LinkMode.external) l,
+  ];
+
+  /// The entries of `sys/quarantine`, in list order.
+  List<QuarantineEntry> get quarantined => [
+    for (final n in quarantine.view) ?quarantine.table[n],
+  ];
+
+  /// The rows of Updates: the links of a package with a newer version, and
+  /// the links of a custom package (updated from a file).
+  List<LinkInfo> get linksToUpdate => [
+    for (final l in localLinks)
+      if (packageRunBy(l) case final p?
+          when p.updateAvailable || !isOfficialPackage(p))
+        l,
+  ];
+
+  /// The official packages with a newer version, in the order of the
+  /// links.
+  List<String> get updatablePackages => {
+    for (final l in _allLinks)
+      if (packageRunBy(l) case final p? when p.updateAvailable) p.name,
+  }.toList();
+
+  /// How many links of Updates have a newer version: the live values of
+  /// the packages once read, the attribute of `sys/links` until then.
+  int get updateCount => packages.view.isEmpty
+      ? links.updatesAvailable
+      : linksToUpdate.where((l) => packageRunBy(l)!.updateAvailable).length;
+
+  /// The Updates tab is shown: hidden at 0 (spec §1), and while it is the
+  /// tab on screen.
+  bool get showsUpdates => updateCount > 0 || links.tab == LinksTab.updates;
+
+  /// Why the user may not install or update links; null when they may.
+  String? get linksConfigReason =>
+      site.needs('config', '$_linksRoot/sys/links');
+
+  /// Why the user may not change the link [id]; null when they may.
+  String? linkConfigReason(String id) =>
+      site.needs('config', '$_linksRoot/sys/links/$id');
+
+  /// Why the user may not change the admission options on `sys`.
+  String? get admissionReason => site.needs('config', '$_linksRoot/sys');
+
+  /// `sys/enable_quarantine` and `sys/allow_all_links` as the broker says
+  /// them (false when it says nothing).
+  bool get holdsUnknown => _live('enable_quarantine') == true;
+  bool get allowsAllLinks => _live('allow_all_links') == true;
+
+  /// The update sheet open, or null.
+  LinkUpdate? get linkUpdate {
+    final p = livePackage(updates.package);
+    if (p == null) {
+      return null;
+    }
+    final ids = linksOfPackage(p.name);
+    final row = linkInstall.catalog
+        .where((c) => c.id == 'package:${p.name}')
+        .firstOrNull;
+    return LinkUpdate(
+      package: p,
+      links: ids,
+      follow: updates.view != UpdateView.review,
+      official: isOfficialPackage(p),
+      title: row?.name,
+      summary: row?.description,
+      takePoint: updates.takePoint,
+      autoRollback: updates.autoRollback,
+      acceptNew: updates.acceptNew,
+      asks: updates.asks,
+      said: updates.message,
+      busy: updates.isWaiting,
+      rollingBack: updates.isRollingBack,
+      seenAt: updates.seenAt,
+      points: [
+        for (final id in ids)
+          for (final point in restorePointsOfLink(id)) LinkPoint(id, point),
+      ]..sort((a, b) => b.point.at.compareTo(a.point.at)),
+      queue: updates.queue.unlock,
+      reason: linksConfigReason,
+    );
+  }
+}
+
 /// What System says about the broker on screen, from the values it serves
 /// under `sys` (specs/system.md). They read `live`, `links`, `quarantine`
 /// and `system` at once, so they sit on the facade.
@@ -774,14 +1169,6 @@ extension SelectBrokerHealth on Selectors {
   /// they may.
   String? get sysConfigReason => site.needs('config', _sysKey);
 
-  /// The state of [link]: its live `sys/links/<id>/state` when watched,
-  /// else what was read with the list.
-  String linkStateOf_(LinkInfo link) =>
-      switch (live.values['$_sysKey/links/${link.id}/state']) {
-        final v? => linkStateOf(v.value),
-        null => link.state,
-      };
-
   /// The links `sys ▸ clear_conns` would remove, by the broker's own rule
   /// (wyrm-admin `clear_conns`): mode external, admitted at runtime, not
   /// connected now.
@@ -789,15 +1176,16 @@ extension SelectBrokerHealth on Selectors {
     for (final id in links.view)
       if (links.table[id] case final l?)
         if (l.mode == LinkMode.external &&
-            l.origin == 'runtime' &&
-            linkStateOf_(l) != 'connected')
+            l.origin == LinkOrigin.runtime &&
+            stateOfLink(l) != LinkState.connected)
           l,
   ];
 
   /// The links whose state is failed, in list order.
   List<LinkInfo> get failedLinks => [
     for (final id in links.view)
-      if (links.table[id] case final l? when linkStateOf_(l) == 'failed') l,
+      if (links.table[id] case final l? when stateOfLink(l) == LinkState.failed)
+        l,
   ];
 
   /// The entries of `sys/quarantine` that wait (not held back by
@@ -1508,7 +1896,7 @@ extension type SelectPackages(AppState _state) {
 
 extension type SelectLinkInstall(AppState _state) {
   /// Returns step
-  int get step => _state.linkInstall.step;
+  InstallStep get step => _state.linkInstall.step;
 
   /// Returns source
   InstallSource? get source => _state.linkInstall.source;
@@ -1538,22 +1926,22 @@ extension type SelectLinkInstall(AppState _state) {
   bool get isWaiting => _state.wait.isWaitingForType<InstallLinkAction>();
 
   /// Returns path
-  String get path => _state.linkInstall.path;
+  InstallPath get path => _state.linkInstall.path;
 
   /// Returns category
-  String get category => _state.linkInstall.category;
+  String? get category => _state.linkInstall.category;
 
   /// Returns query
   String? get query => _state.linkInstall.query;
 
   /// Returns phase
-  String? get phase => _state.linkInstall.phase;
+  InstallPhase? get phase => _state.linkInstall.phase;
 
   /// Returns manifest
   String? get manifest => _state.linkInstall.manifest;
 
   /// Returns rights
-  String? get rights => _state.linkInstall.rights;
+  IList<RequestedRight>? get rights => _state.linkInstall.rights;
 
   /// Returns catalog
   IList<CatalogItem> get catalog => _state.linkInstall.catalog;
@@ -1562,10 +1950,10 @@ extension type SelectLinkInstall(AppState _state) {
   IList<InstallTarget> get targets => _state.linkInstall.targets;
 
   /// Returns method
-  String get method => _state.linkInstall.method;
+  PackageMethod get method => _state.linkInstall.method;
 
   /// Returns refusedField
-  String? get refusedField => _state.linkInstall.refusedField;
+  InstallField? get refusedField => _state.linkInstall.refusedField;
 
   /// Returns refusedSaid
   String? get refusedSaid => _state.linkInstall.refusedSaid;
@@ -2156,7 +2544,7 @@ extension type SelectUpdates(AppState _state) {
   String? get package => _state.updates.package;
 
   /// Returns view
-  String get view => _state.updates.view;
+  UpdateView get view => _state.updates.view;
 
   /// Returns takePoint
   bool get takePoint => _state.updates.takePoint;

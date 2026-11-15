@@ -35,6 +35,8 @@ import 'package:models/attention_kind.dart';
 import 'package:models/hist_window.dart';
 import 'package:models/link_info.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/link_origin.dart';
+import 'package:models/link_state.dart';
 import 'package:models/live_value.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
@@ -246,8 +248,8 @@ void main() {
     LinkInfo link(
       String id, {
       LinkMode mode = LinkMode.external,
-      String origin = 'runtime',
-      String state = 'installed',
+      LinkOrigin origin = LinkOrigin.runtime,
+      LinkState state = LinkState.installed,
     }) => LinkInfo(id: id, mode: mode, origin: origin, state: state);
 
     void hold(List<LinkInfo> links) => s.dispatchSync(
@@ -263,11 +265,11 @@ void main() {
         'runtime, not connected now', () {
       hold([
         link('meter-07'),
-        link('field-gw', state: 'connected'),
-        link('from-config', origin: 'config'),
+        link('field-gw', state: LinkState.connected),
+        link('from-config', origin: LinkOrigin.config),
         link('modbus', mode: LinkMode.embedded),
-        link('pg', mode: LinkMode.process, state: 'failed'),
-        link('field-gw-old', state: 'stopped'),
+        link('pg', mode: LinkMode.process, state: LinkState.failed),
+        link('field-gw-old', state: LinkState.stopped),
       ]);
 
       expect(
@@ -277,7 +279,7 @@ void main() {
     });
 
     test('a live state wins over the one read with the list', () {
-      hold([link('meter-07'), link('field-gw', state: 'connected')]);
+      hold([link('meter-07'), link('field-gw', state: LinkState.connected)]);
       // wyrm-admin STATES: 2 = connected, 4 = stopped.
       sys({'links/meter-07/state': 2, 'links/field-gw/state': 4});
 
@@ -299,7 +301,7 @@ void main() {
 
       await s.dispatchAndWait(RetrieveLinksAction());
 
-      expect(s.state.links.table['meter-07']!.origin, 'runtime');
+      expect(s.state.links.table['meter-07']!.origin, LinkOrigin.runtime);
       expect(_Read(s.state).clearableLinks.single.id, 'meter-07');
     });
 
@@ -461,8 +463,11 @@ void main() {
             (st) => st.copyWith
                 .links(
                   table: const IMapConst({
-                    'modbus': LinkInfo(id: 'modbus', state: 'connected'),
-                    'bacnet': LinkInfo(id: 'bacnet', state: 'failed'),
+                    'modbus': LinkInfo(
+                      id: 'modbus',
+                      state: LinkState.connected,
+                    ),
+                    'bacnet': LinkInfo(id: 'bacnet', state: LinkState.failed),
                   }),
                   view: const IListConst(['modbus', 'bacnet']),
                 )
@@ -525,7 +530,7 @@ void main() {
         _Set(
           (st) => st.copyWith.links(
             table: const IMapConst({
-              'bacnet': LinkInfo(id: 'bacnet', state: 'failed'),
+              'bacnet': LinkInfo(id: 'bacnet', state: LinkState.failed),
             }),
             view: const IListConst(['bacnet']),
           ),

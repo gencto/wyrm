@@ -46,10 +46,7 @@ class CheckList extends StatelessWidget {
         children: [
           for (var i = 0; i < rows.length; i++)
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 10,
-              ),
+              padding: Insets.checkRow,
               decoration: BoxDecoration(
                 border: i == 0 ? null : Border(top: BorderSide(color: c.line1)),
               ),

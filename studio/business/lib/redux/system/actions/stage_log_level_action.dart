@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/log_level.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/staged_change_kind.dart';
 
 import '../../app_state.dart';
 import '../../changes/actions/add_changes_action.dart';
@@ -30,7 +31,7 @@ class StageLogLevelAction extends Action {
       AddChangesAction(
         [
           StagedChange(
-            id: 'set:$key',
+            id: StagedChangeKind.set.idOf(key),
             op: 'Edit',
             key: key,
             field: 'value',

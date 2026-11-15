@@ -1,5 +1,6 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'package_kind.dart';
 import 'update_report.dart';
 
 part 'package_info.freezed.dart';
@@ -11,8 +12,7 @@ abstract class PackageInfo with _$PackageInfo {
     required String name,
     @Default('') String version,
 
-    /// `process` or `wasm`.
-    @Default('process') String kind,
+    @Default(PackageKind.process) PackageKind kind,
     String? source,
     String? sha256,
 

@@ -1,4 +1,5 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/update_view.dart';
 
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -23,7 +24,7 @@ class OpenUpdateAction extends Action {
   AppState reduce() => state.copyWith(
     updates: UpdatesState(
       package: package,
-      view: follow ? 'follow' : 'review',
+      view: follow ? UpdateView.follow : UpdateView.review,
       queue: queue.lock,
       seenAt: -1,
     ),

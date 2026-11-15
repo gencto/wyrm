@@ -2,7 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/package_info.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/package_info_mapper.dart';
+import '../../../wyrm/decode/package_info.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -22,7 +22,11 @@ class RetrievePackagesAction extends Action with WaitingAction {
     final names = await listOf(api, base);
     final list = await Future.wait([
       for (final c in names)
-        metaOf(api, '$base/${c.name}').then((m) => packageInfoOf(c.name, m)),
+        metaOf(api, '$base/${c.name}').then(
+          // an attribute this client cannot read is left at its default
+          // and logged with its field; the package keeps the rest
+          (m) => packageInfoOf(c.name, m, where: '$base/${c.name}'),
+        ),
     ]);
     return state.copyWith.packages(
       table: IMap<String, PackageInfo>.fromValues(

@@ -47,8 +47,11 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/backup_status.dart';
+import 'package:models/install_path.dart';
+import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
+import 'package:models/package_check_result.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -1063,9 +1066,12 @@ void main() {
   group('Add a link ▸ From backup', () {
     test('the manifest of a link backup is read here', () {
       final r = checkBackup(_linkBackup());
-      expect(r.checks.where((c) => c.result == 'failed'), isEmpty);
+      expect(
+        r.checks.where((c) => c.result == PackageCheckResult.failed),
+        isEmpty,
+      );
       expect(r.name, 'modbus');
-      expect(r.kind, 'process');
+      expect(r.kind, LinkMode.process);
       expect(
         r.checks.firstWhere((c) => c.title == 'Secrets').detail,
         contains('opens only on a broker'),
@@ -1076,11 +1082,11 @@ void main() {
     test('a broker backup and a file that is no zip fail the check', () {
       expect(
         checkBackup(_linkBackup(kind: 'full')).checks.last.result,
-        'failed',
+        PackageCheckResult.failed,
       );
       expect(
         checkBackup(Uint8List.fromList([1, 2, 3])).checks.single.result,
-        'failed',
+        PackageCheckResult.failed,
       );
     });
 
@@ -1090,7 +1096,7 @@ void main() {
 
     Future<void> picked() async {
       s
-        ..dispatchSync(ChooseInstallSourceAction('backup'))
+        ..dispatchSync(ChooseInstallSourceAction(InstallPath.backup))
         ..dispatchSync(
           SetSourceAction(
             InstallSource.backup(
@@ -1113,7 +1119,7 @@ void main() {
 
     test('a file too large to read here is checked by the broker', () async {
       s
-        ..dispatchSync(ChooseInstallSourceAction('backup'))
+        ..dispatchSync(ChooseInstallSourceAction(InstallPath.backup))
         ..dispatchSync(
           SetSourceAction(
             const InstallSource.backup(
@@ -1124,7 +1130,10 @@ void main() {
         );
       await s.dispatchAndWait(CheckPackageAction());
 
-      expect(s.state.linkInstall.checks.single.result, 'skipped');
+      expect(
+        s.state.linkInstall.checks.single.result,
+        PackageCheckResult.skipped,
+      );
       expect(s.state.linkInstall.name, isNull);
     });
 
@@ -1162,7 +1171,7 @@ void main() {
       expect(args['id'], const VStr('modbus2'));
       expect(args['accept'], const VBool(true));
       expect(args['passphrase'], const VStr(_secret));
-      expect(s.state.linkInstall.phase, 'done');
+      expect(s.state.linkInstall.phase, InstallPhase.done);
       expect(s.state.linkInstall.message, 'link modbus2 installed');
       expect('${s.state}', isNot(contains(_secret)));
     });
@@ -1187,7 +1196,7 @@ void main() {
 
         expect(invokes('install_backup').single.args!['accept'], isNull);
         expect(invokes('install_backup').single.args!['passphrase'], isNull);
-        expect(s.state.linkInstall.phase, 'failed');
+        expect(s.state.linkInstall.phase, InstallPhase.failed);
         expect(s.state.linkInstall.message, contains('10.0.4.0/24'));
         // The upload of an install that was not made is dropped.
         expect(
@@ -1206,7 +1215,7 @@ void main() {
 
       await s.dispatchAndWait(InstallBackupAction(read: read));
 
-      expect(s.state.linkInstall.phase, 'failed');
+      expect(s.state.linkInstall.phase, InstallPhase.failed);
       expect(s.state.linkInstall.message, contains('two uploads are open'));
     });
   });

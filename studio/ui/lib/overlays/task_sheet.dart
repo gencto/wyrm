@@ -71,21 +71,35 @@ final class SheetCard extends SheetBlock {
 /// A checkbox with its sentence. Locked with [reason] when not [enabled].
 final class SheetOption extends SheetBlock {
   const SheetOption({
-    required this.id,
     required this.label,
     required this.value,
+    this.id = '',
     this.enabled = true,
     this.reason,
+    this.onChanged,
   });
 
+  /// What [TaskSheet.onToggle] reports; empty when the option reports
+  /// through its own [onChanged].
   final String id;
   final String label;
   final bool value;
   final bool enabled;
   final String? reason;
 
+  /// The option's own report of a change (a typed sheet built in `ui`);
+  /// null: [TaskSheet.onToggle] with [id].
+  final ValueChanged<bool>? onChanged;
+
   @override
-  List<Object?> get props => [id, label, value, enabled, reason];
+  List<Object?> get props => [
+    id,
+    label,
+    value,
+    enabled,
+    reason,
+    onChanged != null,
+  ];
 }
 
 /// A chip of a [SheetSection]: one of a range, or one of a set.
@@ -222,6 +236,7 @@ final class SheetRow extends SheetBlock {
     this.mono = true,
     this.action,
     this.actionLabel,
+    this.onAction,
     this.divider = false,
   });
 
@@ -230,8 +245,15 @@ final class SheetRow extends SheetBlock {
   final Tone tone;
   final String? note;
   final bool mono;
+
+  /// What [TaskSheet.onAction] reports; null when the row reports through
+  /// its own [onAction], or has no link.
   final String? action;
   final String? actionLabel;
+
+  /// The row's own report of a tap on its link (a typed sheet built in
+  /// `ui`); null: [TaskSheet.onAction] with [action].
+  final VoidCallback? onAction;
 
   /// A line above the row (a list of restore points).
   final bool divider;
@@ -245,6 +267,7 @@ final class SheetRow extends SheetBlock {
     mono,
     action,
     actionLabel,
+    onAction != null,
     divider,
   ];
 }
@@ -781,8 +804,10 @@ class TaskSheet extends StatelessWidget {
           label: b.label,
           vm: FieldVm(
             value: b.value,
-            enabled: b.enabled && onToggle != null,
-            onChanged: (v) => onToggle?.call(b.id, on: v),
+            enabled: b.enabled && (b.onChanged != null || onToggle != null),
+            onChanged: (v) => b.onChanged != null
+                ? b.onChanged!(v)
+                : onToggle?.call(b.id, on: v),
           ),
         );
         final shown = b.enabled ? row : Opacity(opacity: 0.55, child: row);
@@ -1039,6 +1064,9 @@ class TaskSheet extends StatelessWidget {
   Widget _row(BuildContext context, SheetRow b) {
     final c = context.colors;
     final link = b.action;
+    final tap =
+        b.onAction ??
+        (link == null || onAction == null ? null : () => onAction!(link));
     final row = Row(
       crossAxisAlignment: .start,
       spacing: 8,
@@ -1083,9 +1111,9 @@ class TaskSheet extends StatelessWidget {
               style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
           ),
-        if (link != null && b.actionLabel != null)
+        if ((link != null || b.onAction != null) && b.actionLabel != null)
           InkWell(
-            onTap: onAction == null ? null : () => onAction!(link),
+            onTap: tap,
             borderRadius: Radii.chip,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
@@ -1093,7 +1121,7 @@ class TaskSheet extends StatelessWidget {
                 b.actionLabel!,
                 style: TextStyle(
                   fontSize: FontSizes.sm,
-                  color: onAction == null ? c.muted : c.emberSoft,
+                  color: tap == null ? c.muted : c.emberSoft,
                 ),
               ),
             ),

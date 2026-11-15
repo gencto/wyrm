@@ -1,16 +1,20 @@
-import 'package:app/common/sizes.dart';
-import 'package:app/common/update_sheets.dart';
+import 'package:app/mappers/links_mappers.dart';
+import 'package:business/wyrm/link_update.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:models/package_info.dart';
 import 'package:models/restore_point.dart';
+import 'package:models/update_next.dart';
 import 'package:models/update_report.dart';
+import 'package:models/update_result.dart';
+import 'package:models/update_stage.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/overlays/link_update_sheet.dart';
 import 'package:ui/overlays/task_sheet.dart';
 
-UpdateReport _report(String result, {int at = 10, int gone = 0}) =>
+UpdateReport _report(UpdateResult result, {int at = 10, int gone = 0}) =>
     UpdateReport(
       from: '0.4.2',
       to: '0.5.0',
@@ -43,7 +47,7 @@ PackageInfo _pkg({
   lastUpdate: last,
 );
 
-UpdateSheetData _data(
+LinkUpdate _data(
   PackageInfo p, {
   bool follow = false,
   String? asks,
@@ -53,7 +57,7 @@ UpdateSheetData _data(
   String? reason,
   bool official = true,
   bool takePoint = true,
-}) => UpdateSheetData(
+}) => LinkUpdate(
   package: p,
   links: const ['modbus', 'line2'],
   follow: follow,
@@ -64,33 +68,48 @@ UpdateSheetData _data(
   seenAt: seenAt,
   reason: reason,
   takePoint: takePoint,
-  points: const [('modbus', RestorePoint(at: 5, version: '0.4.2', size: 3000))],
+  points: const [
+    LinkPoint('modbus', RestorePoint(at: 5, version: '0.4.2', size: 3000)),
+  ],
 );
 
 T _one<T extends SheetBlock>(TaskSheetVm vm, bool Function(T) test) =>
     vm.blocks.whereType<T>().firstWhere(test);
 
+/// The sheet of [d], with its options and its rollback link reporting.
+TaskSheetVm sheet(LinkUpdate d) => linkUpdateSheet(
+  d.ui,
+  onTakePoint: (_) {},
+  onAutoRollback: (_) {},
+  onAcceptNew: (_) {},
+  onRollBack: () {},
+);
+
 /// The states of the update sheet (boards `LinkUpdate*`, spec
-/// `updates-backups.md` §1).
+/// `updates-backups.md` §1), decided in `business` (`LinkUpdate`) and
+/// worded in `ui` (`linkUpdateSheet`).
 void main() {
   setUpAll(() => S.load(const Locale('en')));
 
   test('the review of an official package offers the update', () {
-    final vm = updateSheet(_data(_pkg()));
+    final vm = sheet(_data(_pkg()));
     expect(vm.title, 'Update modbus 0.4.2 → 0.5.0');
     expect(vm.primary, 'Update links: 2');
     expect(vm.primaryEnabled, isTrue);
-    expect(vm.blocks.whereType<SheetOption>().map((o) => o.id), [
-      'point',
-      'auto',
+    expect(vm.blocks.whereType<SheetOption>().map((o) => o.label), [
+      S.current.updOptPoint,
+      S.current.updOptAuto,
     ]);
   });
 
   test('a store format change locks the restore point on', () {
-    final vm = updateSheet(
+    final vm = sheet(
       _data(_pkg(changesState: true), takePoint: false),
     );
-    final point = _one<SheetOption>(vm, (o) => o.id == 'point');
+    final point = _one<SheetOption>(
+      vm,
+      (o) => o.label == S.current.updOptPoint,
+    );
     expect(point.value, isTrue);
     expect(point.enabled, isFalse);
     expect(point.reason, isNotNull);
@@ -98,17 +117,20 @@ void main() {
 
   test('new rights hold the update until they are accepted', () {
     const asks = 'modbus 0.5.0 asks for more: net 10.0.5.0/24';
-    final held = updateSheet(_data(_pkg(), asks: asks));
+    final held = sheet(_data(_pkg(), asks: asks));
     expect(held.primaryEnabled, isFalse);
     expect(_one<SheetCard>(held, (c) => c.detail == asks).tone, Tone.warn);
-    expect(_one<SheetOption>(held, (o) => o.id == 'accept').value, isFalse);
+    expect(
+      _one<SheetOption>(held, (o) => o.label == S.current.updOptAccept).value,
+      isFalse,
+    );
 
-    final accepted = updateSheet(_data(_pkg(), asks: asks, acceptNew: true));
+    final accepted = sheet(_data(_pkg(), asks: asks, acceptNew: true));
     expect(accepted.primaryEnabled, isTrue);
   });
 
   test('without config the update is locked with the reason', () {
-    final vm = updateSheet(
+    final vm = sheet(
       _data(_pkg(), reason: 'needs config on sys/links'),
     );
     expect(vm.primaryEnabled, isFalse);
@@ -117,25 +139,33 @@ void main() {
 
   test('a custom package is updated from a file', () {
     final d = _data(_pkg(latest: ''), official: false);
-    expect(updateSheet(d).primary, 'Choose the archive…');
-    expect(updatePrimary(d), 'file');
+    expect(sheet(d).primary, 'Choose the archive…');
+    expect(d.next, UpdateNext.file);
   });
 
   test('progress while the action runs and while the check runs', () {
-    final running = _data(_pkg(last: _report('ok')), follow: true, busy: true);
+    final running = _data(
+      _pkg(last: _report(UpdateResult.ok)),
+      follow: true,
+      busy: true,
+    );
     expect(running.stage, UpdateStage.progress);
 
     // The action answered; the report of before is still the one shown.
-    final stale = _data(_pkg(last: _report('ok')), follow: true, seenAt: 10);
+    final stale = _data(
+      _pkg(last: _report(UpdateResult.ok)),
+      follow: true,
+      seenAt: 10,
+    );
     expect(stale.stage, UpdateStage.progress);
 
     final checking = _data(
-      _pkg(last: _report('checking', at: 11)),
+      _pkg(last: _report(UpdateResult.checking, at: 11)),
       follow: true,
       seenAt: 10,
     );
     expect(checking.stage, UpdateStage.progress);
-    final vm = updateSheet(checking);
+    final vm = sheet(checking);
     expect(vm.secondary, 'Stop and roll back');
     expect(vm.primaryEnabled, isFalse);
     final steps = vm.blocks.whereType<SheetSteps>().single.steps;
@@ -149,43 +179,43 @@ void main() {
 
   test('ok: a good banner, the counts, and Open', () {
     final d = _data(
-      _pkg(last: _report('ok', at: 11), previous: '0.4.2'),
+      _pkg(last: _report(UpdateResult.ok, at: 11), previous: '0.4.2'),
       follow: true,
       seenAt: 10,
     );
     expect(d.stage, UpdateStage.result);
-    final vm = updateSheet(d);
+    final vm = sheet(d);
     expect(vm.blocks.whereType<SheetBanner>().single.tone, Tone.good);
     expect(
       vm.blocks.whereType<SheetTiles>().single.tiles.map((t) => t.number),
       ['226', '+4', '0'],
     );
     expect(vm.primary, 'Open modbus');
-    expect(updatePrimary(d), 'open');
+    expect(d.next, UpdateNext.open);
     // The newest restore point offers the rollback while a version is kept.
     final point = _one<SheetRow>(vm, (r) => r.divider);
-    expect(point.action, 'rollback');
+    expect(point.onAction, isNotNull);
     expect(point.actionLabel, 'Roll back to 0.4.2…');
   });
 
   test('ok with nodes gone warns and offers the rollback', () {
     final d = _data(
-      _pkg(last: _report('ok', gone: 23), previous: '0.4.2'),
+      _pkg(last: _report(UpdateResult.ok, gone: 23), previous: '0.4.2'),
       follow: true,
     );
-    final vm = updateSheet(d);
+    final vm = sheet(d);
     expect(vm.blocks.whereType<SheetBanner>().single.tone, Tone.warn);
     expect(
       vm.blocks.whereType<SheetBanner>().single.text,
       contains('61 of 84'),
     );
-    expect(updatePrimary(d), 'rollback');
+    expect(d.next, UpdateNext.rollback);
     expect(vm.primaryQuiet, isTrue);
   });
 
   test('rolled back: a warn banner, no second rollback', () {
-    final d = _data(_pkg(last: _report('rolled_back')), follow: true);
-    final vm = updateSheet(d);
+    final d = _data(_pkg(last: _report(UpdateResult.rolledBack)), follow: true);
+    final vm = sheet(d);
     expect(vm.pill, 'rolled back');
     // The report keeps the update's from and to: the links run `from`.
     expect(
@@ -193,39 +223,55 @@ void main() {
       'Rolled back to 0.4.2',
     );
     expect(vm.blocks.whereType<SheetBanner>().single.tone, Tone.warn);
-    expect(_one<SheetRow>(vm, (r) => r.divider).action, isNull);
-    expect(updatePrimary(d), 'log');
+    expect(_one<SheetRow>(vm, (r) => r.divider).onAction, isNull);
+    expect(d.next, UpdateNext.log);
+  });
+
+  test('a result this client does not know is said as the broker said it', () {
+    final d = _data(
+      _pkg(
+        last: _report(UpdateResult.unknown).copyWith(resultWord: 'quarantined'),
+      ),
+      follow: true,
+    );
+    expect(d.stage, UpdateStage.result);
+    final vm = sheet(d);
+    expect(vm.pill, S.current.updPillUnknown);
+    final banner = vm.blocks.whereType<SheetBanner>().single;
+    expect(banner.title, S.current.updUnknownResult('quarantined'));
+    expect(banner.tone, Tone.warn);
+    expect(d.next, UpdateNext.open);
   });
 
   test('failed keeps the new version and offers the rollback', () {
     final d = _data(
-      _pkg(last: _report('failed'), previous: '0.4.2'),
+      _pkg(last: _report(UpdateResult.failed), previous: '0.4.2'),
       follow: true,
     );
-    expect(updateSheet(d).pill, 'failed');
-    expect(updatePrimary(d), 'rollback');
+    expect(sheet(d).pill, 'failed');
+    expect(d.next, UpdateNext.rollback);
   });
 
   test('restore points without any update: no progress, no rollback', () {
     // Review point 9.
     final d = _data(_pkg(), follow: true);
     expect(d.stage, UpdateStage.points);
-    final vm = updateSheet(d);
+    final vm = sheet(d);
     expect(vm.title, 'Versions of modbus');
     expect(vm.primary, isNull);
     expect(vm.secondary, 'Close');
     expect(vm.blocks.whereType<SheetSteps>(), isEmpty);
-    expect(vm.blocks.whereType<SheetRow>().single.action, isNull);
-    expect(updatePrimary(d), '');
+    expect(vm.blocks.whereType<SheetRow>().single.onAction, isNull);
+    expect(d.next, isNull);
 
     // The first update of a package, started from this sheet: progress.
     expect(_data(_pkg(), follow: true, seenAt: 0).stage, UpdateStage.progress);
   });
 
   test('sizes read in binary units', () {
-    expect(bytesText(812), '812 B');
-    expect(bytesText(48 * 1024), '48 KiB');
-    expect(bytesText(3250586), '3.1 MiB');
-    expect(bytesText(3 << 30), '3 GiB');
+    expect(Formats.bytes(812), '812 B');
+    expect(Formats.bytes(48 * 1024), '48 KiB');
+    expect(Formats.bytes(3250586), '3.1 MiB');
+    expect(Formats.bytes(3 << 30), '3 GiB');
   });
 }

@@ -29,13 +29,11 @@ flowchart LR
     logIn ==>|"⚡ EnterStudioAction (replace)"| studio
     explorer -->|"onTapFlowEditor"| flowEditor
     explorer -->|"onAddAgent"| linkInstall
-    links -->|"onTapLinkInstall"| linkInstall
+    links -->|"onAdd"| linkInstall
     flows -->|"onNew"| flowEditor
     flows -->|"onEdit"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
     linkInstall -.->|"onClose"| frxBack
-    linkInstall -.->|"onBack"| frxBack
-    linkInstall -.->|"onResultAction"| frxBack
     flowEditor -.->|"onClose"| frxBack
     flowEditor ==>|"onLogo (navigate)"| explorer
 
@@ -52,12 +50,12 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `GalleryPage` | `/gallery` | no | 0 | [gallery](gallery.md) |
 | `StudioPage` | `/studio` | no | 18 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 58 | [explorer](explorer.md) |
-| `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
+| `LinksPage` | `/studio/links` | no | 21 | [links](links.md) |
 | `FlowsPage` | `/studio/flows` | no | 5 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 10 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 5 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 4 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 23 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
-| `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
+| `LinkInstallPage` | `/link-install` | no | 17 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 42 | [flowEditor](flowEditor.md) |

@@ -867,11 +867,10 @@ class _ExplorerPageState extends State<ExplorerPage> {
           SegmentedTabs(
             tabs: [
               for (final r in HistoryRangeTag.values)
-                TabItemVm(id: r.name, label: r.label),
+                TabItemVm(id: r, label: r.label),
             ],
-            selected: _w.range.name,
-            onSelect: (id) =>
-                _w.onHistoryRange?.call(HistoryRangeTag.values.byName(id)),
+            selected: _w.range,
+            onSelect: (r) => _w.onHistoryRange?.call(r),
           ),
           if (_w.trend case final t?)
             Trend(
