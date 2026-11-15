@@ -395,31 +395,27 @@ The shared parts the rules point to. Copy the reference connector,
 
 | Rule | Piece | Where |
 | --- | --- | --- |
-| 1, 9 | one action that awaits its parts (`ReloadShownAction`); a business action, then navigation (`LeaveOnLogOutAction(inner)`) | `business/lib/redux/site/actions/`, `app/lib/navigation/` |
-| 2, 3 | a wire enum from `wyrm_client` (`DevicePlatform`, `GatewayDeviceState`, `StepUp`, `Perm`…); a Studio-only domain enum in `models` (`HostPlatform`: the computer Studio runs on, a superset of the wire set); `ui` enums that carry what drawing needs: words (`DeviceOs`), a glyph and a label (`UnlockMethod`), a tone (`SecurityTag`); one mapper extension per domain enum | `dart/wyrm_client`, `models/lib/`, `ui/lib/indicators/`, `ui/lib/overlays/security_dialog.dart`, `app/lib/mappers/` |
+| 1, 9 | one action that awaits its parts (`ReloadShownAction`, `PickTrendPointAction`); a business action, then navigation (`LeaveOnLogOutAction(inner)`) | `business/lib/redux/…/actions/`, `app/lib/navigation/` |
+| 2, 3 | a wire enum from `wyrm_client` (`DevicePlatform`, `GatewayDeviceState`, `StepUp`, `GatewayRefusal`, `Perm`…); a domain enum in `models` (`HostPlatform`, `DeviceTag`); what is computed from state and the clock in `business` (`deviceRowOf`, selector `device.rowsAt(now)`); `ui` enums that carry what drawing needs: words (`DeviceOs`), a glyph and a label (`UnlockMethod`), a tone (`SecurityTag`); one exhaustive mapper per domain enum | `dart/wyrm_client`, `models/lib/`, `business/lib/wyrm/device_keys.dart`, `business/lib/redux/selectors.dart`, `ui/lib/indicators/`, `app/lib/mappers/` |
 | 4 | a dialog opener that takes the context (`showSecurityDialog`) | `app/lib/dialogs/` |
 | 5 | `Formats.bytes/mebibytes/age/ago/shortDate/date/clock/clockSeconds/dateTime/minutesSeconds` | `localization/lib/formats.dart` |
-| 6 | `AppSpacing` (rhythm + `s1`…`s42`), `Insets` (`.top.sm`, `.h.md`), `AppRadii`/`Radii`, `FontSizes`, `AppText`, `Shades`, `AppSizes` | `ui/lib/theme/` |
-| 7 | `ItemChanged`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/value_changed.dart` |
-| 8 | a gateway or agent record: its `fromValue` in `wyrm_client` (`GatewayDevice`, `GatewayInfo`, …, `DecodeError`); a Studio-only shape: `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)` (`flowPermissionsOf`) | `dart/wyrm_client`, `business/lib/wyrm/decode/` |
+| 6 | `AppSpacing` and `Gaps` (the rhythm), `Insets` named for what they pad (`control`, `card`, `notice`, `assistantCard`), `AppRadii`/`Radii`, `FontSizes` (the body scale `xs`…`lg`, and `sectionTitle`, `panelTitle`, `pageTitle`, `figure`), `AppText`, `Shades` (`dialogShadow`, `popupShadow`, `drawerShadow`, …, `barrier`), `AppSizes` (by component) | `ui/lib/theme/` |
+| 7 | `FieldEdited`, `FieldBound`, `OptionPicked`, `MenuPicked`, `Renamed`, `Toggled`, `RangeChanged`, `RowAction`, `ItemAt`, `Validate`, `PanelResized`, `ToggleVm`, `FieldVm`, `ChoiceVm` | `ui/lib/models/` |
+| 8 | a gateway or agent record: its `fromValue` in `wyrm_client` (`GatewayDevice`, `GatewayInfo`, …, `DecodeError`); a Studio-only shape: `Decoded<T>` = `Valid` / `Invalid(shape, field, reason)` (`flowPermissionsOf`); `orWarn(where)` logs an `Invalid` with its field, never a silent null | `dart/wyrm_client`, `business/lib/wyrm/decode/` |
 
-Three things the tools do not say:
+Open questions for the owner (observed while building these; not rules):
 - A project typedef (`Toggled<T>`) in a connector's `_Vm` makes `frx doctor`
-  report it as a value left out of equality: it knows only Flutter's own
-  typedefs. In a `_Vm`, use `ValueChanged`/`VoidCallback`, or a `ui` model
-  (`ToggleVm`, `FieldVm`); the project typedefs are for widget parameters.
+  report it as a value left out of equality: it reads only Flutter's own
+  typedefs as callbacks. Should `_Vm` fields use `ValueChanged`/`VoidCallback`
+  or a `ui` model (`ToggleVm`, `FieldVm`) until `frx` learns the project's
+  typedefs?
 - `multi-dispatch` also counts a block that is not a callback: a
   `fromStore() {` body, an `if (…) {` or `switch (…) {` block, a private
-  method, when two dispatches sit anywhere inside. Such a hit is not a
-  rule-9 fault; it stays in the baseline until the check counts only
-  closures passed as arguments.
-- `context-in-connector` counts the connector's own `build(BuildContext)`:
-  1 is the floor.
-- A widget that words typed values itself is not redrawn by a language
-  switch when its view-model is equal: `app.dart` does not key the tree on
-  the locale. Take the words once in `build` as
-  `S.maybeOf(context) ?? S.current`, which depends on the locale, as
-  `SecurityDialog` does.
+  method, when two dispatches sit anywhere inside. Should the check count
+  only closures passed as arguments?
+- `context-in-connector` counts the connector's own `build(BuildContext)`.
+  Is 1 per connector the expected floor, or should the connector's widget
+  move out of the scanned file?
 
 To collapse a callback with several dispatches (rule 9):
 1. Name the intent and make one action for it (`frx add-action`). A step
