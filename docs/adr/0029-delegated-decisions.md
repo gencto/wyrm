@@ -56,6 +56,10 @@ Defining or changing a target stays a `config` action (ADR 0022, ruling 6). The 
 - Spool cleanup runs on the blocking pool, not on a tokio worker.
 - An S3 multipart upload cut by Stop or Edit is aborted (AbortMultipartUpload) before the connection closes.
 
+### 12. An unknown level code in a stored role grant refuses the users store
+Added 2026-11-15 (typing audit T4). The gateway users store keeps each runtime role grant as a typed `RoleGrant { key, perm: Perm }`, on disk in the layout it had as `(String, u8)` (so SCHEMA stays 5 and older stores open unchanged). A level code that this build does not know is a decode error of the WAL record and of the snapshot: the store does not open, and the gateway, so `wyrmd`, does not start; the error names the key and the code. It is never read with the grant dropped, and the role never gets "no grants" either: grants match first-intersect (ADR 0031 DQL-2), so a dropped restricting grant before a broad one widens access, and a silently emptied role would hide the problem until a user notices. Replay already refused such a code through `apply`; only a snapshot loaded it. The code can come only from a newer WYRM (a downgrade) or a restore from one: go back to that version, or remove the role's runtime grants with it, before downgrading.
+*If wrong:* a downgrade over a store that a newer version wrote with a new level stops the broker at start instead of starting with that role reduced.
+
 ## Not decided here
 - New framework hooks that links asked for (per-point quality, `poll_period` with connection and device params, the sample time from the driver, `~meta` from device data, a driver-owned connection leaf) are work items in `docs/backlog.md`, not decisions.
 - The `wyrm:app` world after 0.2.0 (TLS imports, a host random source) gets its own ADR.

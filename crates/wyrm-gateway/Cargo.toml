@@ -47,6 +47,8 @@ wyrm-gateway-client = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 
 [dev-dependencies]
+# the users store snapshot of SCHEMA 5 decodes as today's (`users.rs` tests)
+postcard.workspace = true
 wyrm-link-sdk = { workspace = true, features = ["harness"] }
 wyrm-history.workspace = true
 wyrm-link-mock.workspace = true

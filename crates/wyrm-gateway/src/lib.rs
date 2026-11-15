@@ -845,10 +845,8 @@ impl Gateway {
     fn table_of(&self, db: &UserDb) -> RoleTable {
         let mut t = self.cfg.roles.clone();
         for (role, grants) in &db.roles {
-            let grants = grants
-                .iter()
-                .filter_map(|(k, c)| Some((k.clone(), Perm::try_from(*c).ok()?)))
-                .collect();
+            // typed in the store: an unknown code never loads (review T4)
+            let grants = grants.iter().map(|g| (g.key.clone(), g.perm)).collect();
             t.insert(role.clone(), grants);
         }
         t
@@ -915,7 +913,13 @@ impl Gateway {
         }
         store.apply(Op::SetRole {
             role: role.into(),
-            grants: grants.iter().map(|(k, p)| (k.clone(), p.code())).collect(),
+            grants: grants
+                .iter()
+                .map(|(k, p)| users::RoleGrant {
+                    key: k.clone(),
+                    perm: *p,
+                })
+                .collect(),
         })?;
         Ok(())
     }
