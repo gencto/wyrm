@@ -236,17 +236,24 @@ pub struct Session {
     buf: Vec<u8>,
 }
 
-fn random_u64() -> u64 {
+/// A random start for the request ids and the USM privacy salt of a new
+/// session, or `Err`: the session does not open (fails closed, audit S3).
+/// The salt is the AES-CFB IV's last half (RFC 3826): one repeated under the
+/// same key, boots and time gives two ciphertexts with one keystream, so a
+/// guessable fallback (the clock) is no answer.
+fn random_u64() -> Result<u64, DriverError> {
+    random_u64_from(getrandom::fill)
+}
+
+fn random_u64_from(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), getrandom::Error>,
+) -> Result<u64, DriverError> {
     let mut b = [0u8; 8];
-    if getrandom::fill(&mut b).is_err() {
-        // Not for secrecy: ids only need to differ between sessions.
-        let n = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        return u64::try_from(n & u128::from(u64::MAX)).unwrap_or(0) ^ 0x9E37_79B9_7F4A_7C15;
-    }
-    u64::from_be_bytes(b)
+    fill(&mut b).map_err(|e| {
+        tracing::error!("snmp: no randomness from the OS ({e}): the session does not open");
+        DriverError::Transport(format!("no randomness from the OS: {e}"))
+    })?;
+    Ok(u64::from_be_bytes(b))
 }
 
 /// What a received datagram is for the request waited for.
@@ -288,14 +295,14 @@ impl Session {
         sock.connect(addr)
             .await
             .map_err(|e| DriverError::Transport(format!("connect {addr}: {e}")))?;
-        let seed = random_u64();
+        let seed = random_u64()?;
         let mut s = Session {
             sock,
             addr,
             timeout,
             retries,
             next_id: u32::try_from(seed >> 33).unwrap_or(1),
-            salt: random_u64(),
+            salt: random_u64()?,
             sec,
             engine: None,
             stale: false,
@@ -898,6 +905,18 @@ fn io_err(e: &std::io::Error) -> DriverError {
 
 #[cfg(test)]
 mod tests {
+    /// No randomness: no session (it took the clock, and a salt that repeats).
+    #[test]
+    fn no_randomness_opens_no_session() {
+        let failed = super::random_u64_from(|_| Err(getrandom::Error::UNSUPPORTED));
+        assert!(matches!(failed, Err(super::DriverError::Transport(_))));
+        let given = super::random_u64_from(|b| {
+            b.fill(7);
+            Ok(())
+        });
+        assert_eq!(given.ok(), Some(u64::from_be_bytes([7; 8])));
+    }
+
     use super::*;
 
     fn engine(boots: u32, time: u32) -> Engine {
