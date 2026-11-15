@@ -8,6 +8,7 @@ pub mod store;
 pub mod time;
 
 pub use engine::{Counters, GroupCfg, Historian, Logging, SinkStats, WatchCfg};
-pub use query::{parse_selector, HistoryQuery, QueryError};
+pub use query::{parse_selector, HistoryRead, QueryError};
 pub use rollup::{Folder, Rollup};
 pub use store::{encode_row, Change, ChangeBatch, ChangeLimit, Row, Store};
+pub use wyrm_core::history::{HistoryParamError, HistoryQuery, TimeUs, Window};

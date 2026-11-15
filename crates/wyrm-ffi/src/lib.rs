@@ -598,9 +598,13 @@ pub unsafe extern "C" fn wyrm_history(
         let q = wyrm_client::HistoryQuery::from_args(Some(&args));
         let inner = h.inner.clone();
         h.rt.spawn(async move {
-            let f = match inner.client.history(&key, &q).await {
-                Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
-                Err(e) => client_err(id, &e),
+            let f = match q {
+                Ok(q) => match inner.client.history(&key, &q).await {
+                    Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
+                    Err(e) => client_err(id, &e),
+                },
+                // refused before any selector is made (review S2)
+                Err(e) => err_frame(id, e.status().code(), &e.to_string()),
             };
             inner.emit(f).await;
         });

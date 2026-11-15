@@ -1511,7 +1511,7 @@ async fn history_follows_point_grants() {
     // no read on g1: refused before the query leaves the gateway
     let r = ws.call("history", &format!("{ROOT}/g1/p1"), args()).await;
     assert_eq!(err_status(&r), Some(Status::PermissionDenied));
-    // bad arguments come back from the historian
+    // bad arguments are refused by the gateway before any selector is made (review S2)
     let r = ws
         .call(
             "history",
