@@ -3,7 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [ScopePrompt] draws.
@@ -70,7 +74,7 @@ class ScopePrompt extends StatefulWidget {
   final VoidCallback onCancel;
 
   /// What is wrong with a scope; null: it can be saved.
-  final String? Function(String scope)? validate;
+  final Validate<String>? validate;
 
   static const width = 320.0;
 
@@ -125,10 +129,12 @@ class _ScopePromptState extends State<ScopePrompt> {
           decoration: BoxDecoration(
             color: c.ground2,
             border: .all(color: c.emberLine),
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
+            borderRadius: const BorderRadius.all(
+              Radius.circular(AppRadii.card),
+            ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x73000000),
+                color: Shades.popupShadow,
                 offset: Offset(0, 12),
                 blurRadius: 28,
               ),
@@ -142,19 +148,21 @@ class _ScopePromptState extends State<ScopePrompt> {
               Text(
                 vm.title,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: FontSizes.sm,
                   fontWeight: .w600,
                   color: c.text2,
                 ),
               ),
               Container(
                 height: 34,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: Insets.control,
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
                   color: c.ground3,
                   border: .all(color: problem == null ? c.line2 : c.badLine),
-                  borderRadius: const BorderRadius.all(Radius.circular(6)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadii.segment),
+                  ),
                 ),
                 child: TextField(
                   key: const ValueKey('scope-field'),
@@ -180,7 +188,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                       InkWell(
                         onTap: () => _text.text = s,
                         borderRadius: const BorderRadius.all(
-                          Radius.circular(4),
+                          Radius.circular(AppRadii.chip),
                         ),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -195,7 +203,7 @@ class _ScopePromptState extends State<ScopePrompt> {
                                   : c.line2,
                             ),
                             borderRadius: const BorderRadius.all(
-                              Radius.circular(4),
+                              Radius.circular(AppRadii.chip),
                             ),
                           ),
                           child: Text(s, style: mono(size: 11, color: c.text2)),
@@ -206,7 +214,7 @@ class _ScopePromptState extends State<ScopePrompt> {
               Text(
                 problem ?? vm.note,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: FontSizes.xs,
                   height: 1.4,
                   color: problem == null ? c.text4 : c.bad,
                 ),

@@ -6,6 +6,9 @@ import '../buttons/language_switcher.dart';
 import '../buttons/theme_switcher.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What the account menu shows: who is logged in, the language and the
@@ -115,7 +118,7 @@ class _AccountMenuState extends State<AccountMenu> {
     Widget label(String text) => Text(
       text.toUpperCase(),
       style: TextStyle(
-        fontSize: 11,
+        fontSize: FontSizes.xs,
         fontWeight: .w600,
         letterSpacing: 0.66,
         color: c.text4,
@@ -126,12 +129,12 @@ class _AccountMenuState extends State<AccountMenu> {
       elevation: 12,
       shadowColor: c.ground0,
       shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
         side: BorderSide(color: c.line3),
       ),
       clipBehavior: .antiAlias,
       child: SizedBox(
-        width: 300,
+        width: AppSizes.menu,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Column(
@@ -139,7 +142,12 @@ class _AccountMenuState extends State<AccountMenu> {
             mainAxisSize: .min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                padding: const EdgeInsets.fromLTRB(
+                  14,
+                  AppSpacing.sm,
+                  14,
+                  10,
+                ),
                 child: Column(
                   crossAxisAlignment: .start,
                   spacing: 2,
@@ -154,14 +162,22 @@ class _AccountMenuState extends State<AccountMenu> {
                       vm.role,
                       maxLines: 1,
                       overflow: .ellipsis,
-                      style: TextStyle(fontSize: 12, color: c.text4),
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text4,
+                      ),
                     ),
                   ],
                 ),
               ),
               Divider(height: 1, color: c.line1),
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+                padding: const EdgeInsets.fromLTRB(
+                  14,
+                  12,
+                  14,
+                  AppSpacing.xs,
+                ),
                 child: Column(
                   crossAxisAlignment: .stretch,
                   spacing: 8,
@@ -176,7 +192,7 @@ class _AccountMenuState extends State<AccountMenu> {
                         },
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    Gaps.xs,
                     label(s.menuTheme),
                     ThemeSwitcher(
                       vm: FieldVm(
@@ -196,11 +212,16 @@ class _AccountMenuState extends State<AccountMenu> {
                   onTap: security,
                   child: Container(
                     height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                    ),
                     alignment: .centerLeft,
                     child: Text(
                       s.securityMenu,
-                      style: TextStyle(fontSize: 14, color: c.text1),
+                      style: TextStyle(
+                        fontSize: FontSizes.lg,
+                        color: c.text1,
+                      ),
                     ),
                   ),
                 ),
@@ -208,11 +229,13 @@ class _AccountMenuState extends State<AccountMenu> {
                 onTap: widget.onLogOut,
                 child: Container(
                   height: 38,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                  ),
                   alignment: .centerLeft,
                   child: Text(
                     s.logOut,
-                    style: TextStyle(fontSize: 14, color: c.text1),
+                    style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                   ),
                 ),
               ),

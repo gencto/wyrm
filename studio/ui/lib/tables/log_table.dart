@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../containers/sys_tile.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One record of a log, as [LogTable] draws it.
@@ -79,7 +80,10 @@ class _LogTableState extends State<LogTable> {
     final Widget body;
     if (rows.isEmpty || widget.bad) {
       body = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: 22,
+        ),
         child: SelectableText(
           widget.message,
           style: mono(size: 12, color: widget.bad ? c.badText : c.text4),
@@ -107,7 +111,9 @@ class _LogTableState extends State<LogTable> {
                 child: SelectionArea(
                   child: ListView.builder(
                     controller: _down,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 6,
+                    ),
                     itemExtent: LogTable.rowHeight,
                     itemCount: rows.length,
                     itemBuilder: (_, i) => _row(c, dark, rows[i]),
@@ -153,7 +159,7 @@ class _LogTableState extends State<LogTable> {
     );
     return Container(
       color: ground,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
       alignment: Alignment.centerLeft,
       child: Row(
         spacing: 12,

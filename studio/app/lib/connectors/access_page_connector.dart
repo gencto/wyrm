@@ -13,9 +13,9 @@ import 'package:business/redux/access/actions/set_tab_action.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/device/actions/remove_device_action.dart';
 import 'package:business/redux/device/actions/retrieve_user_devices_action.dart';
+import 'package:business/wyrm/device_keys.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:models/user_device.dart';
 import 'package:ui/buttons/action_row.dart';
 import 'package:ui/buttons/segmented_tabs.dart';
 import 'package:ui/containers/detail_inspector.dart';
@@ -110,9 +110,7 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
     final home = site.home ?? '';
     final sel = a.selected;
     final u = a.users.where((x) => x.name == sel).firstOrNull;
-    final devicesOfU = u == null
-        ? const <UserDevice>[]
-        : state.device.userDevices[u.name]?.unlock ?? const <UserDevice>[];
+    final devicesOfU = [...?state.device.userDevices[u?.name ?? '']];
     final sysReason = site.needs('config', '$home/sys');
     final roles = {
       for (final g in a.grants)
@@ -228,24 +226,19 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
                       ActionRowVm(
                         id: 'device:${dv.id}',
                         icon: 'action_trash',
-                        title: dv.state == 'removed'
+                        title: dv.state == .removed
                             ? [
                                 dv.name,
-                                S.current.securityRemovedBy(
-                                  (dv.removedBy ?? '').replaceFirst(
-                                    'user:',
-                                    '',
-                                  ),
-                                ),
+                                S.current.securityRemovedBy(dv.removedByUser),
                               ].join(' · ')
                             : dv.name,
                         description: S.current.deviceLine(
-                          dv.platform,
+                          dv.platform?.wire ?? '',
                           dv.lastUsed == 0
                               ? S.current.securityAdded(shortDate(dv.added))
                               : agoOf(dv.lastUsed),
                         ),
-                        code: dv.state == 'removed'
+                        code: dv.state == .removed
                             ? S.current.securityForget
                             : S.current.securityRemove,
                         tone: Tone.bad,
@@ -293,7 +286,7 @@ class _Factory extends VmFactory<AppState, AccessPageConnector, _Vm>
           if (dv == null) {
             return;
           }
-          final forget = dv.state == 'removed';
+          final forget = dv.state == .removed;
           if (await ConfirmDialog.ask(
             context,
             title: forget

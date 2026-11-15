@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 /// A 4-point scale, doubling from [sm]. A value off the scale is a smell: the
 /// point is that screens built from these line up with each other.
 abstract final class AppSpacing {
+  /// No space, where a constructor asks for every side.
+  static const double none = 0;
   static const double xs = 4;
   static const double sm = 8;
   static const double md = 16;
@@ -29,7 +31,8 @@ abstract final class Gaps {
   static const Widget hXl = SizedBox(width: AppSpacing.xl);
 }
 
-/// Padding built from the same scale.
+/// Padding built from the same scale, and the paddings the canvas repeats,
+/// named for what they pad.
 abstract final class Insets {
   static const sm = EdgeInsets.all(AppSpacing.sm);
   static const md = EdgeInsets.all(AppSpacing.md);
@@ -40,4 +43,22 @@ abstract final class Insets {
     horizontal: AppSpacing.md,
     vertical: AppSpacing.lg,
   );
+
+  /// Inside a one-line control of a fixed height: a field, a chip, a
+  /// search box, a block's header row.
+  static const control = EdgeInsets.symmetric(horizontal: 10);
+
+  /// Inside a card or a row of a card list (Account › Security's options
+  /// and devices, a found gateway, a notice).
+  static const card = EdgeInsets.symmetric(horizontal: 14, vertical: 12);
+
+  /// Inside an alert or a banner that spans its panel.
+  static const notice = EdgeInsets.symmetric(
+    horizontal: AppSpacing.md,
+    vertical: 14,
+  );
+
+  /// Around an Assistant card: indented past the avatar column (42) and
+  /// apart from the next card.
+  static const assistantCard = EdgeInsets.only(left: 42, bottom: 12);
 }

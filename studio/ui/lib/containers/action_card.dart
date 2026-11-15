@@ -76,7 +76,7 @@ class ActionCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: FontSizes.lg,
                         fontWeight: .w600,
                         color: off ? c.text3 : c.text1,
                       ),
@@ -88,7 +88,7 @@ class ActionCard extends StatelessWidget {
               Text(
                 vm.disabledReason ?? vm.detail,
                 style: off
-                    ? TextStyle(fontSize: 12, color: c.text4)
+                    ? TextStyle(fontSize: FontSizes.sm, color: c.text4)
                     : mono(size: 11, color: c.text4),
               ),
             ],

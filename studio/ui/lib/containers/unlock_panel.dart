@@ -13,6 +13,8 @@ import '../inputs/check_row.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
 import 'shake.dart';
@@ -184,7 +186,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
     final c = context.colors;
     final vm = widget.vm;
     final link = TextStyle(
-      fontSize: 13,
+      fontSize: FontSizes.md,
       color: c.text2,
       decoration: .underline,
       decorationColor: c.text2,
@@ -201,13 +203,16 @@ class _UnlockPanelState extends State<UnlockPanel> {
               Text(
                 vm.title,
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: FontSizes.pageTitle,
                   fontWeight: .w600,
                   letterSpacing: -.26,
                   color: c.text1,
                 ),
               ),
-              Text(vm.subtitle, style: TextStyle(fontSize: 14, color: c.text3)),
+              Text(
+                vm.subtitle,
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
+              ),
             ],
           ),
         ),
@@ -277,13 +282,17 @@ class _UnlockPanelState extends State<UnlockPanel> {
           ),
           Text(
             vm.unlockLabel,
-            style: TextStyle(fontSize: 15, fontWeight: .w600, color: c.text1),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: .w600,
+              color: c.text1,
+            ),
           ),
           Semantics(
             liveRegion: true,
             child: Text(
               vm.note,
-              style: TextStyle(fontSize: 12, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
             ),
           ),
         ],
@@ -332,7 +341,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
 
   Widget _footer(BuildContext context) {
     final c = context.colors;
-    final note = TextStyle(fontSize: 12, color: c.text4);
+    final note = TextStyle(fontSize: FontSizes.sm, color: c.text4);
     final lock = switch (widget.vm.footerTone) {
       .warn => c.warn,
       .bad => c.bad,
@@ -381,10 +390,13 @@ class _AccountCard extends StatelessWidget {
       _ => c.muted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: 14,
+      ),
       decoration: BoxDecoration(
         color: c.ground1,
-        borderRadius: const BorderRadius.all(Radius.circular(12)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.panel)),
         border: Border.all(color: c.line1),
       ),
       child: Row(
@@ -452,7 +464,7 @@ class _AccountCard extends StatelessWidget {
                         overflow: .ellipsis,
                         style: TextStyle(
                           fontFamily: AppFonts.mono,
-                          fontSize: 12,
+                          fontSize: FontSizes.sm,
                           color: c.text4,
                         ),
                       ),
@@ -465,7 +477,7 @@ class _AccountCard extends StatelessWidget {
           Text(
             vm.last,
             textAlign: .right,
-            style: TextStyle(fontSize: 12, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
         ],
       ),
@@ -491,7 +503,10 @@ class LockGlyph extends CustomPainter {
           ..addRect(const Rect.fromLTWH(6, 11, 12, 9))
           ..moveTo(8, 11)
           ..lineTo(8, 7)
-          ..arcToPoint(const Offset(16, 7), radius: const Radius.circular(4))
+          ..arcToPoint(
+            const Offset(16, 7),
+            radius: const Radius.circular(AppRadii.chip),
+          )
           ..lineTo(16, 11),
         Paint()
           ..color = color

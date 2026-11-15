@@ -5,7 +5,11 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
 
@@ -149,7 +153,7 @@ class BlockPalette extends StatefulWidget {
   final ValueChanged<String>? onQuery;
 
   /// An item of an entry's context menu: the entry's id, the item's.
-  final void Function(String entry, String item)? onMenu;
+  final MenuPicked? onMenu;
 
   /// Said in place of the list when there is nothing to list.
   final String empty;
@@ -198,7 +202,7 @@ class _BlockPaletteState extends State<BlockPalette> {
       cursor: off ? MouseCursor.defer : SystemMouseCursors.grab,
       child: InkWell(
         onTap: off ? null : () => widget.onPick(e.id),
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
         child: row,
       ),
     );
@@ -238,7 +242,7 @@ class _BlockPaletteState extends State<BlockPalette> {
               child: Text(
                 m.label,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: FontSizes.md,
                   color: m.disabledReason != null
                       ? c.muted
                       : (m.danger ? c.bad : c.text1),
@@ -308,11 +312,13 @@ class _BlockPaletteState extends State<BlockPalette> {
             padding: const EdgeInsets.all(10),
             child: Container(
               height: 34,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: Insets.control,
               decoration: BoxDecoration(
                 color: c.ground3,
                 border: .all(color: c.line1),
-                borderRadius: const BorderRadius.all(Radius.circular(6)),
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppRadii.segment),
+                ),
               ),
               child: Row(
                 spacing: 8,
@@ -327,11 +333,14 @@ class _BlockPaletteState extends State<BlockPalette> {
                         }
                         setState(() => _q = s);
                       },
-                      style: TextStyle(fontSize: 13, color: c.text1),
+                      style: TextStyle(fontSize: FontSizes.md, color: c.text1),
                       decoration:
                           InputDecoration.collapsed(
                             hintText: widget.hint,
-                            hintStyle: TextStyle(fontSize: 13, color: c.text4),
+                            hintStyle: TextStyle(
+                              fontSize: FontSizes.md,
+                              color: c.text4,
+                            ),
                           ).copyWith(
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
@@ -348,7 +357,12 @@ class _BlockPaletteState extends State<BlockPalette> {
               child: rows.isEmpty
                   ? _Empty(widget.empty)
                   : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                      padding: const EdgeInsets.fromLTRB(
+                        6,
+                        AppSpacing.none,
+                        6,
+                        12,
+                      ),
                       itemCount: rows.length,
                       itemBuilder: (_, i) => _treeRow(rows[i]),
                     ),
@@ -358,7 +372,12 @@ class _BlockPaletteState extends State<BlockPalette> {
           else
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(6, 0, 6, 12),
+                padding: const EdgeInsets.fromLTRB(
+                  6,
+                  AppSpacing.none,
+                  6,
+                  12,
+                ),
                 children: [
                   for (final MapEntry(key: g, value: list)
                       in groups.entries) ...[
@@ -380,7 +399,12 @@ class _BlockPaletteState extends State<BlockPalette> {
             ),
           if (widget.notes.isNotEmpty)
             Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+              padding: const EdgeInsets.fromLTRB(
+                12,
+                10,
+                12,
+                14,
+              ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
@@ -402,7 +426,7 @@ class _BlockPaletteState extends State<BlockPalette> {
                         ],
                       ),
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: FontSizes.sm,
                         height: 1.45,
                         color: c.text4,
                       ),
@@ -424,10 +448,19 @@ class _Empty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.md,
+      AppSpacing.sm,
+      AppSpacing.md,
+      AppSpacing.none,
+    ),
     child: Text(
       text,
-      style: TextStyle(fontSize: 12, height: 1.45, color: context.colors.text4),
+      style: TextStyle(
+        fontSize: FontSizes.sm,
+        height: 1.45,
+        color: context.colors.text4,
+      ),
     ),
   );
 }
@@ -473,7 +506,7 @@ class _Group extends StatelessWidget {
                   style: tree
                       ? mono(size: 12, color: c.text3)
                       : TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.md,
                           fontWeight: .w600,
                           color: c.text2,
                         ),
@@ -505,7 +538,12 @@ class _BlockRow extends StatelessWidget {
     final row = SizedBox(
       height: 32,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 8, 0),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.none,
+          AppSpacing.sm,
+          AppSpacing.none,
+        ),
         child: Row(
           spacing: 10,
           children: [
@@ -515,7 +553,9 @@ class _BlockRow extends StatelessWidget {
               alignment: .center,
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: const BorderRadius.all(Radius.circular(3)),
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppRadii.mark),
+                ),
               ),
               child: Text(
                 e.tag,
@@ -530,7 +570,7 @@ class _BlockRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: .ellipsis,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: FontSizes.md,
                   color: e.disabledReason == null ? c.text2 : c.muted,
                 ),
               ),
@@ -573,14 +613,19 @@ class _TreeRow extends StatelessWidget {
     final accent = e.action ? c.emberSoft : c.text4;
     return Container(
       height: 32,
-      padding: const EdgeInsets.fromLTRB(22, 0, 8, 0),
+      padding: const EdgeInsets.fromLTRB(
+        22,
+        AppSpacing.none,
+        AppSpacing.sm,
+        AppSpacing.none,
+      ),
       decoration: BoxDecoration(
         color: e.dragging ? c.emberFill : (e.used ? c.ground2 : null),
         border: .all(
           color: e.dragging ? c.ember : Colors.transparent,
           width: e.dragging ? 1.5 : 1,
         ),
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
       child: Row(
         spacing: 8,
@@ -625,15 +670,17 @@ class _Feedback extends StatelessWidget {
       color: Colors.transparent,
       child: Container(
         height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: Insets.control,
         alignment: .center,
         decoration: BoxDecoration(
           color: c.emberFill,
           border: .all(color: c.ember, width: 1.5),
-          borderRadius: const BorderRadius.all(Radius.circular(6)),
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppRadii.segment),
+          ),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x73000000),
+              color: Shades.popupShadow,
               offset: Offset(0, 10),
               blurRadius: 24,
             ),

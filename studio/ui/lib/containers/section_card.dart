@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/typography.dart';
 
 /// A titled card of a settings-like page: a heading, a sentence that says
 /// what the section is, the content, and a foot line that names the key or
@@ -44,7 +45,11 @@ class SectionCard extends StatelessWidget {
       children: [
         Text(
           title,
-          style: TextStyle(fontSize: 16, fontWeight: .w600, color: c.text1),
+          style: TextStyle(
+            fontSize: FontSizes.sectionTitle,
+            fontWeight: .w600,
+            color: c.text1,
+          ),
         ),
         if (description.isNotEmpty)
           ConstrainedBox(
@@ -53,7 +58,11 @@ class SectionCard extends StatelessWidget {
             ),
             child: CodeText(
               description,
-              style: TextStyle(fontSize: 13, height: 1.5, color: c.text3),
+              style: TextStyle(
+                fontSize: FontSizes.md,
+                height: 1.5,
+                color: c.text3,
+              ),
             ),
           ),
       ],
@@ -87,7 +96,7 @@ class SectionCard extends StatelessWidget {
             if (footer.isNotEmpty)
               CodeText(
                 footer,
-                style: TextStyle(fontSize: 12, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
           ],
         ),

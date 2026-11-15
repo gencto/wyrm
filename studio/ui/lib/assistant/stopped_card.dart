@@ -5,6 +5,8 @@ import '../containers/section_label.dart';
 import '../indicators/arc_spinner.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'model_words.dart';
 import 'suggestion_tile.dart';
 
@@ -72,10 +74,19 @@ class StoppedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: 12, height: 1.45, color: c.text3);
+    final small = TextStyle(
+      fontSize: FontSizes.sm,
+      height: 1.45,
+      color: c.text3,
+    );
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      margin: Insets.assistantCard,
+      padding: const EdgeInsets.fromLTRB(
+        14,
+        12,
+        14,
+        14,
+      ),
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.badLine),
@@ -85,10 +96,17 @@ class StoppedCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         spacing: 10,
         children: [
-          Text(vm.title, style: TextStyle(fontSize: 12, color: c.bad)),
+          Text(
+            vm.title,
+            style: TextStyle(fontSize: FontSizes.sm, color: c.bad),
+          ),
           SelectableText(
             vm.message,
-            style: TextStyle(fontSize: 14, height: 1.5, color: c.text1),
+            style: TextStyle(
+              fontSize: FontSizes.lg,
+              height: 1.5,
+              color: c.text1,
+            ),
           ),
           if (vm.reviewing case final r?)
             Row(

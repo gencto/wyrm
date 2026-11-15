@@ -1,3 +1,4 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/models/value_changed.dart';
 
@@ -111,6 +112,38 @@ void main() {
         const ChoiceItemVm(value: 'en', label: 'English'),
         isNot(const ChoiceItemVm(value: 'en', label: 'Англійська')),
       );
+    });
+  });
+
+  group('ToggleVm equality counts the selection, not the callback', () {
+    void a(String _, {required bool on}) {}
+    void b(String _, {required bool on}) {}
+
+    test('the same set with another closure — equal', () {
+      expect(
+        ToggleVm(selected: ISet(const ['x', 'y']), onToggle: a),
+        ToggleVm(selected: ISet(const ['x', 'y']), onToggle: b),
+      );
+    });
+
+    test('another set — not equal', () {
+      expect(
+        ToggleVm(selected: ISet(const ['x']), onToggle: a),
+        isNot(ToggleVm(selected: ISet(const ['x', 'y']), onToggle: a)),
+      );
+    });
+
+    test('toggle reports the flip of one item', () {
+      final got = <(String, bool)>[];
+      final vm = ToggleVm(
+        selected: ISet(const ['x']),
+        onToggle: (i, {required on}) => got.add((i, on)),
+      );
+      expect(vm.contains('x'), isTrue);
+      vm
+        ..toggle('x')
+        ..toggle('y');
+      expect(got, [('x', false), ('y', true)]);
     });
   });
 }

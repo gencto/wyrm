@@ -40,7 +40,7 @@ class LoadDeviceAction extends Action with WaitingAction {
     }
     final record = await records.read(account.origin, account.user);
     final info = await deps.login.info(account.gateway);
-    final policy = info == null ? d.policy : policyOf(info.devices);
+    final policy = info == null ? d.policy : info.devices;
     d = d.copyWith(
       keyId: record.alias,
       deviceId: record.deviceId,

@@ -9,8 +9,10 @@ import '../indicators/level_badge.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/tag_chip.dart';
 import '../models/tone.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'model_words.dart';
 import 'suggestion_tile.dart';
@@ -189,7 +191,7 @@ class PlanCard extends StatefulWidget {
   final PlanCardVm vm;
 
   /// A step (by its number) was ticked or unticked.
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
 
   /// A fix (a suggestion, by its id) was picked.
   final ValueChanged<String>? onFix;
@@ -222,7 +224,7 @@ class _PlanCardState extends State<PlanCard> {
     final toggle = _open ? vm.hideLabel : vm.showLabel;
     final open = _open || vm.showLabel == null;
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
+      margin: Insets.assistantCard,
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -233,7 +235,12 @@ class _PlanCardState extends State<PlanCard> {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            padding: const EdgeInsets.fromLTRB(
+              14,
+              12,
+              14,
+              10,
+            ),
             // a long state line (how far it was checked) wraps beside the
             // toggle instead of pushing it out
             child: LayoutBuilder(
@@ -254,7 +261,7 @@ class _PlanCardState extends State<PlanCard> {
                       vm.state,
                       textAlign: .right,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: FontSizes.sm,
                         color: vm.stateTone == .neutral
                             ? c.text3
                             : toneColor(c, vm.stateTone),
@@ -266,7 +273,10 @@ class _PlanCardState extends State<PlanCard> {
                       onTap: () => setState(() => _open = !_open),
                       child: Text(
                         toggle,
-                        style: TextStyle(fontSize: 12, color: c.text2),
+                        style: TextStyle(
+                          fontSize: FontSizes.sm,
+                          color: c.text2,
+                        ),
                       ),
                     ),
                 ],
@@ -283,13 +293,22 @@ class _PlanCardState extends State<PlanCard> {
               ),
           if (vm.note case final n? when open)
             Container(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              padding: const EdgeInsets.fromLTRB(
+                14,
+                10,
+                14,
+                12,
+              ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 n,
-                style: TextStyle(fontSize: 12, height: 1.45, color: c.text3),
+                style: TextStyle(
+                  fontSize: FontSizes.sm,
+                  height: 1.45,
+                  color: c.text3,
+                ),
               ),
             ),
         ],
@@ -307,17 +326,26 @@ class _Step extends StatelessWidget {
   });
 
   final PlanStepVm vm;
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
   final ValueChanged<String>? onFix;
   final ValueChanged<int>? onReveal;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: 12, height: 1.45, color: c.text3);
+    final small = TextStyle(
+      fontSize: FontSizes.sm,
+      height: 1.45,
+      color: c.text3,
+    );
     final can = onTick != null && vm.tickReason == null;
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      padding: const EdgeInsets.fromLTRB(
+        14,
+        10,
+        14,
+        10,
+      ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -451,9 +479,7 @@ class _Step extends StatelessWidget {
               message: vm.tickReason ?? '',
               child: Checkbox(
                 value: t,
-                onChanged: can
-                    ? (v) => onTick!(vm.n, ticked: v ?? false)
-                    : null,
+                onChanged: can ? (v) => onTick!(vm.n, on: v ?? false) : null,
               ),
             ),
         ],

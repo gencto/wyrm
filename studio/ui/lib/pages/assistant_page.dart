@@ -16,7 +16,9 @@ import '../buttons/segmented_tabs.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../indicators/status_pill.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 export '../assistant/assistant_composer.dart' show ChipVm;
@@ -102,7 +104,7 @@ class AssistantPage extends StatelessWidget {
   final PlanCardVm? plan;
 
   /// A step of [plan] was ticked; null: the plan is only shown.
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
 
   /// A fix of a step (a suggestion id) was picked.
   final ValueChanged<String>? onFix;
@@ -127,7 +129,7 @@ class AssistantPage extends StatelessWidget {
 
   /// What the assistant asked the person, answered or not.
   final ChoicesCardVm? choices;
-  final void Function(String question, String option)? onPick;
+  final OptionPicked? onPick;
 
   /// The picks of [choices] are sent (`Write the plan`).
   final VoidCallback? onAnswer;
@@ -203,7 +205,11 @@ class AssistantPage extends StatelessWidget {
               Text(
                 e,
                 textAlign: .center,
-                style: TextStyle(fontSize: 14, height: 1.5, color: c.text2),
+                style: TextStyle(
+                  fontSize: FontSizes.lg,
+                  height: 1.5,
+                  color: c.text2,
+                ),
               ),
               if (emptyAction case final a?)
                 Button.primary(
@@ -221,7 +227,7 @@ class AssistantPage extends StatelessWidget {
         children: [
           Container(
             height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -330,7 +336,7 @@ class AssistantPage extends StatelessWidget {
                 if (reads.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   SectionLabel(readsLabel),
-                  const SizedBox(height: 8),
+                  Gaps.sm,
                   for (final (kind, key) in reads)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
@@ -353,7 +359,11 @@ class AssistantPage extends StatelessWidget {
                   const SizedBox(height: 14),
                   Text(
                     panelNote,
-                    style: TextStyle(fontSize: 12, height: 1.5, color: c.text3),
+                    style: TextStyle(
+                      fontSize: FontSizes.sm,
+                      height: 1.5,
+                      color: c.text3,
+                    ),
                   ),
                 ],
               ],

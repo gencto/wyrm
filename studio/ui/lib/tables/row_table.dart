@@ -6,6 +6,7 @@ import '../indicators/tag_chip.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One cell: a title, a grey line under it, or a chip, or a state mark.
@@ -107,7 +108,7 @@ class RowTable extends StatelessWidget {
         children: [
           Container(
             height: 38,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
             child: Row(
               children: [
                 for (final col in columns)
@@ -117,7 +118,10 @@ class RowTable extends StatelessWidget {
                       col.label,
                       maxLines: 1,
                       overflow: .ellipsis,
-                      style: TextStyle(fontSize: 12, color: c.text3),
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text3,
+                      ),
                     ),
                   ),
               ],
@@ -131,7 +135,7 @@ class RowTable extends StatelessWidget {
               ),
               child: Text(
                 empty!,
-                style: TextStyle(fontSize: 13, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
             ),
           for (final r in rows)
@@ -161,7 +165,9 @@ class RowTable extends StatelessWidget {
                         flex: columns[i].flex,
                         child: i < r.cells.length
                             ? Padding(
-                                padding: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.only(
+                                  right: AppSpacing.sm,
+                                ),
                                 child: _Cell(vm: r.cells[i]),
                               )
                             : const SizedBox.shrink(),
@@ -218,7 +224,7 @@ class _Cell extends StatelessWidget {
             s,
             maxLines: 1,
             overflow: .ellipsis,
-            style: TextStyle(fontSize: 12, color: c.text4),
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
           ),
       ],
     );

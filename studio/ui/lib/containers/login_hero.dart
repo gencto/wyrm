@@ -9,6 +9,9 @@ import '../indicators/wyrm_mark.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'rise.dart';
 
 /// How much of the hero there is room for (docs/design/specs/login.md §1).
@@ -93,7 +96,7 @@ class _LoginHeroState extends State<LoginHero> {
                 Padding(
                   // 220 high below 700 px: 24 around the logo and the mark.
                   padding: small
-                      ? const EdgeInsets.all(24)
+                      ? const EdgeInsets.all(AppSpacing.lg)
                       : EdgeInsets.fromLTRB(
                           48,
                           underButtons ? 40 + LoginHero.buttonsClearance : 40,
@@ -162,7 +165,10 @@ class _LoginHeroState extends State<LoginHero> {
                               _legend(c.ember, S.current.legendCommands, c),
                               Text(
                                 S.current.legendNote,
-                                style: TextStyle(fontSize: 12, color: c.text4),
+                                style: TextStyle(
+                                  fontSize: FontSizes.sm,
+                                  color: c.text4,
+                                ),
                               ),
                             ],
                           ),
@@ -184,8 +190,15 @@ class _LoginHeroState extends State<LoginHero> {
     mainAxisSize: .min,
     spacing: 6,
     children: [
-      SizedBox(width: 14, height: 2, child: ColoredBox(color: line)),
-      Text(label, style: TextStyle(fontSize: 12, color: c.text4)),
+      SizedBox(
+        width: 14,
+        height: 2,
+        child: ColoredBox(color: line),
+      ),
+      Text(
+        label,
+        style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+      ),
     ],
   );
 }
@@ -510,7 +523,7 @@ class _Network extends CustomPainter {
     if (clear.isNotEmpty) {
       final erase = Paint()
         ..blendMode = .dstOut
-        ..color = const Color(0xFF000000)
+        ..color = Shades.mask
         ..maskFilter = const MaskFilter.blur(.normal, _quietBlur);
       for (final r in clear) {
         canvas.drawRRect(

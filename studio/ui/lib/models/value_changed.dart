@@ -1,5 +1,84 @@
 import 'package:equatable/equatable.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/widgets.dart';
+
+// The shared shapes of what a widget reports (studio-rules §7). A widget or
+// a view-model takes one of these instead of declaring its own
+// `void Function(…)` field, so every callback of one meaning has one
+// parameter order, one null meaning and one equality.
+//
+// The equality rule, once for all of them: a callback is behaviour, not
+// data. A view-model leaves a callback that is always there out of `props`,
+// and puts an optional one in as `onX != null` (whether the thing reacts is
+// visible). The value a callback reports about — the selection of a
+// [ToggleVm], the value of a [FieldVm] — is in `props`.
+
+/// The field [field] of a list of fields was edited to [text]: one
+/// callback for every row, the rows keyed by their id (data-driven-widgets,
+/// "Out of the model"). A single field takes a [FieldVm].
+typedef FieldEdited = void Function(String field, String text);
+
+/// The field [field] was bound to [source] (a port, another block's
+/// output).
+typedef FieldBound<S> = void Function(String field, S source);
+
+/// [option] was picked for the question or group [question].
+typedef OptionPicked = void Function(String question, String option);
+
+/// The menu item [item] was picked for [entry] (a palette entry, a block).
+typedef MenuPicked = void Function(String entry, String item);
+
+/// [entry] was renamed to [name].
+typedef Renamed = void Function(String entry, String name);
+
+/// [item] was turned [on] or off: a tick of a step, a pin of a field, a row
+/// in or out of a set. With the set itself, take a [ToggleVm].
+typedef Toggled<T> = void Function(T item, {required bool on});
+
+/// The span from [start] to [end] was picked: a trend's or a timeline's
+/// window (µs since the epoch).
+typedef RangeChanged<T> = void Function(T start, T end);
+
+/// An action on [row] of [owner]: a row of a flow block (`onRowAction(block,
+/// row)`), a field of a node. The row is named by its id.
+typedef RowAction<O, R> = void Function(O owner, R row);
+
+/// [item] asks for its menu at [at] (global): a tree row's `⋯`, a right
+/// click.
+typedef ItemAt<T> = void Function(T item, Offset at);
+
+/// Why [value] is refused, or null when it is taken: a check a widget runs
+/// as the user types. [FormFieldValidator] is the same for a form field,
+/// where the value may be null.
+typedef Validate<T> = String? Function(T value);
+
+/// A set the user ticks items in and out of: the [selected] items and the
+/// [onToggle] that reports one change. The widget never changes the set
+/// itself; the next [ToggleVm] carries the new one.
+///
+/// [selected] is in [props]; [onToggle] is behaviour and is not.
+final class ToggleVm<T> extends Equatable {
+  const ToggleVm({required this.selected, required this.onToggle});
+
+  final ISet<T> selected;
+  // Written out, not [Toggled]: `frx doctor` reads only Flutter's own
+  // callback typedefs as behaviour in a view-model. Contravariant T in a
+  // callback param, safe here — same as FieldVm.
+  // ignore: unsafe_variance
+  final void Function(T item, {required bool on}) onToggle;
+
+  /// Whether [item] is ticked.
+  bool contains(T item) => selected.contains(item);
+
+  /// Reports [item] flipped.
+  void toggle(T item) => onToggle(item, on: !selected.contains(item));
+
+  // Equatable compares an `ISet` as an iterable, in order: the same items
+  // added in another order compare unequal. That costs at most one extra
+  // rebuild, never a lost one, and a selector builds a set in one order.
+  @override
+  List<Object?> get props => [selected];
+}
 
 /// View-model for a form field: the current [value], a fire-and-forget
 /// [onChanged], an optional [validator] (the form runs it on submit), and an

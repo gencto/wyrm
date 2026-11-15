@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One row of [RowList].
@@ -81,11 +82,14 @@ class RowList extends StatelessWidget {
         children: [
           if (rows.isEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
+              ),
               child: Text(
                 empty,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: FontSizes.md,
                   height: 1.5,
                   color: emptyBad ? c.text3 : c.text4,
                 ),
@@ -95,7 +99,7 @@ class RowList extends StatelessWidget {
             Container(
               padding: EdgeInsets.symmetric(
                 horizontal: 12,
-                vertical: r.action == null ? 10 : 8,
+                vertical: r.action == null ? 10 : AppSpacing.sm,
               ),
               decoration: BoxDecoration(
                 border: i == 0
@@ -116,7 +120,7 @@ class RowList extends StatelessWidget {
                           overflow: .ellipsis,
                           style: TextStyle(
                             fontFamily: AppFonts.mono,
-                            fontSize: 13,
+                            fontSize: FontSizes.md,
                             color: c.text1,
                           ),
                         ),
@@ -125,7 +129,10 @@ class RowList extends StatelessWidget {
                             r.subtitle,
                             maxLines: 1,
                             overflow: .ellipsis,
-                            style: TextStyle(fontSize: 12, color: c.text4),
+                            style: TextStyle(
+                              fontSize: FontSizes.sm,
+                              color: c.text4,
+                            ),
                           ),
                       ],
                     ),
@@ -133,7 +140,10 @@ class RowList extends StatelessWidget {
                   if (r.trailing.isNotEmpty)
                     Text(
                       r.trailing,
-                      style: TextStyle(fontSize: 12, color: c.text4),
+                      style: TextStyle(
+                        fontSize: FontSizes.sm,
+                        color: c.text4,
+                      ),
                     ),
                   if (r.action case final a?) _button(c, r, a),
                 ],
@@ -164,11 +174,11 @@ class RowList extends StatelessWidget {
           child: Container(
             height: 30,
             alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: Insets.control,
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: FontSizes.sm,
                 color: enabled ? c.text3 : c.muted,
               ),
             ),

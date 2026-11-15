@@ -5,7 +5,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/historian/actions/follow_history_action.dart';
 import 'package:business/redux/historian/actions/load_trend_window_action.dart';
-import 'package:business/redux/historian/actions/pick_point_action.dart';
+import 'package:business/redux/historian/actions/pick_trend_point_action.dart';
 import 'package:business/redux/historian/actions/retrieve_series_action.dart';
 import 'package:business/redux/historian/actions/set_range_action.dart';
 import 'package:business/redux/historian/actions/set_selected_action.dart';
@@ -24,6 +24,7 @@ import 'package:ui/containers/detail_inspector.dart';
 import 'package:ui/containers/fact_grid.dart';
 import 'package:ui/containers/side_panels.dart';
 import 'package:ui/models/tone.dart';
+import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/history_page.dart';
 import 'package:ui/tables/row_table.dart';
 
@@ -73,7 +74,8 @@ class HistoryPageConnector extends StatelessWidget {
           ColumnVm(S.current.colReadRows, flex: 2),
         ],
         points: vm.points,
-        onPoint: vm.onPoint,
+        picked: vm.trendPoints,
+        onPick: vm.onPick,
         pointsEmpty: S.current.noWatchPaths,
         footer: vm.footer,
         inspector: vm.inspector,
@@ -137,7 +139,6 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
               every(g.interval),
             ].where((s) => s.isNotEmpty).join(' · '),
       range: h.range,
-      picked: h.points.isNotEmpty,
       trend: g == null || h.points.isEmpty ? null : _trend(),
       points: [
         if (g != null)
@@ -259,13 +260,12 @@ class _Factory extends VmFactory<AppState, HistoryPageConnector, _Vm>
       },
       onHide: () => dispatchSync(FollowHistoryAction(show: false)),
       onGroup: (id) => dispatchSync(SetSelectedAction(id)),
-      onPoint: (key, add) {
-        dispatchSync(PickPointAction(key, add: add));
-        unawaited(dispatchAndWait(RetrieveSeriesAction()));
-        if (historian.window != null) {
-          unawaited(dispatchAndWait(LoadTrendWindowAction()));
-        }
-      },
+      trendPoints: ToggleVm(
+        selected: historian.points.toISet(),
+        onToggle: (key, {required on}) =>
+            dispatch(PickTrendPointAction(key, add: true)),
+      ),
+      onPick: (key) => dispatch(PickTrendPointAction(key)),
       onTrendWindow: (a, b) {
         final (start, end) = _range();
         dispatchSync(SetTrendWindowAction(trendWindow(a, b, start, end)));
@@ -418,7 +418,6 @@ class _Vm extends Vm {
     required this.title,
     required this.subtitle,
     required this.range,
-    required this.picked,
     required this.trend,
     required this.onTrendWindow,
     required this.onTrendToggle,
@@ -429,7 +428,8 @@ class _Vm extends Vm {
     required this.onShow,
     required this.onHide,
     required this.onGroup,
-    required this.onPoint,
+    required this.trendPoints,
+    required this.onPick,
     required this.onRange,
     required this.onAction,
     required this.panelWidths,
@@ -441,7 +441,7 @@ class _Vm extends Vm {
            title,
            subtitle,
            range,
-           picked,
+           trendPoints,
            trend,
            points,
            footer,
@@ -455,9 +455,6 @@ class _Vm extends Vm {
   final String? title;
   final String? subtitle;
   final String range;
-
-  /// A point is picked for the trend.
-  final bool picked;
   final TrendVm? trend;
   final void Function(int start, int end) onTrendWindow;
   final ValueChanged<String> onTrendToggle;
@@ -469,8 +466,11 @@ class _Vm extends Vm {
   final VoidCallback onHide;
   final ValueChanged<String> onGroup;
 
-  /// A point row was clicked; `add` with ⌘/Ctrl held.
-  final void Function(String key, bool add) onPoint;
+  /// The points on the trend (a ⌘- or Ctrl-click toggles one).
+  final ToggleVm<String> trendPoints;
+
+  /// A plain click: the trend shows that point alone.
+  final ValueChanged<String> onPick;
   final ValueChanged<String> onRange;
   final Future<void> Function(BuildContext context, String action) onAction;
   final SidePanelWidths panelWidths;

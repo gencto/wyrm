@@ -9,13 +9,8 @@ import 'package:storage/storage.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'redux/app_state.dart';
-import 'redux/assistant/actions/load_assistant_action.dart';
-import 'redux/backups/actions/retrieve_backups_action.dart';
 import 'redux/changes/actions/apply_changes_action.dart';
 import 'redux/device/actions/show_step_up_action.dart';
-import 'redux/links/actions/retrieve_links_action.dart';
-import 'redux/packages/actions/retrieve_packages_action.dart';
-import 'redux/quarantine/actions/retrieve_quarantine_action.dart';
 import 'redux/services/agent_tasks/agent_tasks.dart';
 import 'redux/services/agent_tasks/agent_tasks_dispatcher.dart';
 import 'redux/services/connectivity/connectivity.dart';
@@ -38,6 +33,7 @@ import 'redux/services/tree_watch/tree_watch.dart';
 import 'redux/services/tree_watch/tree_watch_dispatcher.dart';
 import 'redux/services/wyrm_connection/wyrm_connection.dart';
 import 'redux/services/wyrm_connection/wyrm_connection_dispatcher.dart';
+import 'redux/site/actions/reload_shown_action.dart';
 import 'wyrm/discovery.dart';
 import 'wyrm/failures.dart';
 import 'wyrm/session.dart';
@@ -220,25 +216,7 @@ class AppDependencies {
   /// Reads that run again after the gateway socket is back (each screen adds
   /// its Retrieve action here, docs/studio.md §5.2).
   final reloads = <void Function(Store<AppState> store)>[
-    (store) {
-      if (store.state.links.view.isNotEmpty) {
-        unawaited(store.dispatchAndWait(RetrieveLinksAction()));
-      }
-      if (store.state.quarantine.view.isNotEmpty) {
-        unawaited(store.dispatchAndWait(RetrieveQuarantineAction()));
-      }
-      if (store.state.packages.view.isNotEmpty) {
-        unawaited(store.dispatchAndWait(RetrievePackagesAction()));
-      }
-      if (store.state.backups.sections.isNotEmpty) {
-        unawaited(store.dispatchAndWait(RetrieveBackupsAction(quiet: true)));
-      }
-      // the Assistant reads its agent again: after a site switch it is the
-      // new site's agent, with its own tasks
-      if (store.state.assistant.shown) {
-        unawaited(store.dispatchAndWait(LoadAssistantAction()));
-      }
-    },
+    (store) => store.dispatch(ReloadShownAction()),
   ];
 
   /// `site.connected` from the client's socket.

@@ -4,8 +4,10 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/pill_tabs.dart';
 import '../containers/sys_tile.dart';
 import '../indicators/code_text.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'trend.dart';
 
@@ -81,7 +83,7 @@ class TrafficCard extends StatelessWidget {
   final ValueChanged<String> onMeasure;
 
   /// The trend's window (µs), `Follow now` and `Reset zoom`.
-  final void Function(int start, int end)? onWindow;
+  final RangeChanged<int>? onWindow;
   final VoidCallback? onFollow;
   final VoidCallback? onReset;
 
@@ -89,7 +91,7 @@ class TrafficCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -104,7 +106,10 @@ class TrafficCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   vm.title,
-                  style: const TextStyle(fontSize: 14, fontWeight: .w600),
+                  style: const TextStyle(
+                    fontSize: FontSizes.lg,
+                    fontWeight: .w600,
+                  ),
                 ),
               ),
               PillTabs(
@@ -112,7 +117,7 @@ class TrafficCard extends StatelessWidget {
                 selected: vm.measure,
                 onSelect: onMeasure,
                 height: 30,
-                fontSize: 12,
+                fontSize: FontSizes.sm,
                 inset: true,
               ),
             ],
@@ -138,13 +143,17 @@ class TrafficCard extends StatelessWidget {
               child: Center(
                 child: Text(
                   vm.empty,
-                  style: TextStyle(fontSize: 13, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.md, color: c.text4),
                 ),
               ),
             ),
           CodeText(
             vm.note,
-            style: TextStyle(fontSize: 12, height: 1.5, color: c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.sm,
+              height: 1.5,
+              color: c.text4,
+            ),
           ),
         ],
       ),
@@ -169,13 +178,13 @@ class TrafficCard extends StatelessWidget {
                       text: key,
                       style: TextStyle(
                         fontFamily: AppFonts.mono,
-                        fontSize: 11,
+                        fontSize: FontSizes.xs,
                         color: SysTile.keyColor(c),
                       ),
                     ),
                   ],
                 ),
-                style: TextStyle(fontSize: 12, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
               ),
             ],
           ),
@@ -193,7 +202,10 @@ class TrafficCard extends StatelessWidget {
                   color: c.text1,
                 ),
               ),
-              Text(vm.unit, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                vm.unit,
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+              ),
             ],
           ),
         ],

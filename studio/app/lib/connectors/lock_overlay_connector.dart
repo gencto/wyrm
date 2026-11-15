@@ -10,7 +10,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:ui/overlays/lock_overlay.dart';
 
-import '../common/unlock.dart';
+import '../mappers/device_mappers.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
 
@@ -51,7 +51,7 @@ class _Factory extends VmFactory<AppState, LockOverlayConnector, _Vm>
     final s = S.current;
     final siteName = site.name ?? '';
     final user = (login.user ?? '').trim();
-    final name = unlockName(d.kind);
+    final name = d.kind.method.label;
     final key = d.available && d.keyId != null && !d.stale;
     final kept = state.changes.view.length;
     return _Vm(
@@ -60,7 +60,7 @@ class _Factory extends VmFactory<AppState, LockOverlayConnector, _Vm>
           : LockCardVm(
               title: s.lockTitle,
               text: s.lockText(user, siteName, d.lockAfter),
-              glyph: unlockGlyph(d.kind),
+              glyph: d.kind.method.glyph,
               unlockLabel: s.unlockWith(name),
               kept: kept == 0 ? null : s.lockKept(kept),
               usePassword: s.unlockUsePassword,

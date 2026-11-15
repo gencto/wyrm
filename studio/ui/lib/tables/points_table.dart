@@ -6,6 +6,7 @@ import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One point of a device as its row shows it; every text already formatted.
@@ -196,7 +197,7 @@ class PointsTable extends StatelessWidget {
 
   Widget _header(AppColors c, {required bool all, required bool some}) {
     final style = TextStyle(
-      fontSize: 12,
+      fontSize: FontSizes.sm,
       fontWeight: .w600,
       letterSpacing: 0.48,
       color: c.text4,
@@ -291,7 +292,7 @@ class PointsTable extends StatelessWidget {
                 // left, the ellipsis at its end (a long name cuts it too).
                 Flexible(
                   child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.only(right: AppSpacing.sm),
                     child: Text.rich(
                       TextSpan(
                         text: r.name,
@@ -302,7 +303,7 @@ class PointsTable extends StatelessWidget {
                               text: '  $d',
                               style: TextStyle(
                                 fontFamily: AppFonts.sans,
-                                fontSize: 13,
+                                fontSize: FontSizes.md,
                                 color: c.text4,
                               ),
                             ),
@@ -315,7 +316,7 @@ class PointsTable extends StatelessWidget {
                 ),
                 if (r.failed case final f?)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.only(right: AppSpacing.sm),
                     child: FailChip(vm: f),
                   ),
               ],
@@ -336,7 +337,7 @@ class PointsTable extends StatelessWidget {
               r.unit,
               maxLines: 1,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: 14, color: c.text2),
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text2),
             ),
             Column(
               crossAxisAlignment: .start,
@@ -345,7 +346,7 @@ class PointsTable extends StatelessWidget {
                 Text(
                   r.poll,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: FontSizes.lg,
                     fontWeight: r.pollWas == null ? .w400 : .w600,
                     color: r.pollWas == null ? c.text2 : c.emberSoft,
                   ),
@@ -353,7 +354,7 @@ class PointsTable extends StatelessWidget {
                 if (r.pollWas case final w?)
                   Text(
                     '${labels.was} $w',
-                    style: TextStyle(fontSize: 12, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                   ),
               ],
             ),
@@ -367,7 +368,7 @@ class PointsTable extends StatelessWidget {
             Text(
               r.writable ? 'RW' : 'R',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: FontSizes.md,
                 color: r.writable ? c.text1 : c.text4,
               ),
             ),
@@ -398,7 +399,7 @@ class _Box extends StatelessWidget {
         decoration: BoxDecoration(
           color: on ? c.ember : c.ground3,
           border: .all(color: on ? c.ember : c.line3),
-          borderRadius: const BorderRadius.all(Radius.circular(3)),
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.mark)),
         ),
         child: switch (value) {
           true => Icon(Icons.check, size: 12, color: c.onEmber),

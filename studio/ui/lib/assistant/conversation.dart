@@ -6,6 +6,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What one entry of the conversation is.
@@ -68,12 +69,22 @@ class Conversation extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListView(
     padding: dense
-        ? const EdgeInsets.fromLTRB(14, 14, 14, 16)
-        : const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        ? const EdgeInsets.fromLTRB(
+            14,
+            14,
+            14,
+            AppSpacing.md,
+          )
+        : const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            20,
+            AppSpacing.lg,
+            AppSpacing.lg,
+          ),
     children: [
       for (final e in events)
         Padding(
-          padding: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
           child: _Event(vm: e),
         ),
       ?trailing,
@@ -141,14 +152,21 @@ class _Event extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
               decoration: BoxDecoration(
                 color: c.ground3,
                 borderRadius: Radii.card,
               ),
               child: SelectableText(
                 vm.text,
-                style: TextStyle(fontSize: 14, height: 1.5, color: c.text1),
+                style: TextStyle(
+                  fontSize: FontSizes.lg,
+                  height: 1.5,
+                  color: c.text1,
+                ),
               ),
             ),
           ),
@@ -179,7 +197,11 @@ class _Event extends StatelessWidget {
                       code: mono(size: 13, color: c.text1),
                     ),
                   ),
-                  style: TextStyle(fontSize: 14, height: 1.55, color: c.text1),
+                  style: TextStyle(
+                    fontSize: FontSizes.lg,
+                    height: 1.55,
+                    color: c.text1,
+                  ),
                 ),
               ),
             ),
@@ -195,7 +217,7 @@ class _Event extends StatelessWidget {
               for (final r in vm.reads)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
+                    horizontal: AppSpacing.sm,
                     vertical: 3,
                   ),
                   decoration: BoxDecoration(
@@ -217,7 +239,10 @@ class _Event extends StatelessWidget {
                 mark: vm.tone == .neutral ? Mark.ring : Mark.dot,
                 color: vm.tone == .neutral ? c.text3 : toneColor(c, vm.tone),
               ),
-              Text(vm.text, style: TextStyle(fontSize: 13, color: c.text3)),
+              Text(
+                vm.text,
+                style: TextStyle(fontSize: FontSizes.md, color: c.text3),
+              ),
             ],
           ),
         );
@@ -225,7 +250,10 @@ class _Event extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(left: 42),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
             decoration: BoxDecoration(
               color: c.badTint,
               border: Border.all(color: c.badLine),

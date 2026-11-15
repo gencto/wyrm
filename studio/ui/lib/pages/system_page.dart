@@ -17,11 +17,13 @@ import '../indicators/code_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../models/tone.dart';
+import '../models/value_changed.dart';
 import '../tables/log_table.dart';
 import '../tables/row_list.dart';
 import '../tables/term_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// A labelled group of tiles on the Overview.
@@ -380,7 +382,7 @@ class SystemPage extends StatelessWidget {
   final ValueChanged<String> onMeasure;
 
   /// The traffic trend's window (µs), `Follow now` and `Reset zoom`.
-  final void Function(int start, int end)? onTrafficWindow;
+  final RangeChanged<int>? onTrafficWindow;
   final VoidCallback? onTrafficFollow;
   final VoidCallback? onTrafficReset;
   final VoidCallback? onBanner;
@@ -428,7 +430,10 @@ class SystemPage extends StatelessWidget {
         _ => _overview(context),
       };
       final main = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 28,
+          vertical: AppSpacing.lg,
+        ),
         child: Column(
           crossAxisAlignment: .stretch,
           spacing: 24,
@@ -506,7 +511,7 @@ class SystemPage extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 26,
+                    fontSize: FontSizes.pageTitle,
                     fontWeight: .w600,
                     letterSpacing: -0.26,
                     color: c.text1,
@@ -515,7 +520,10 @@ class SystemPage extends StatelessWidget {
                 if (pill case final p?) _pill(c, p),
               ],
             ),
-            Text(meta, style: TextStyle(fontSize: 14, color: c.text3)),
+            Text(
+              meta,
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text3),
+            ),
           ],
         ),
         PillTabs(
@@ -540,7 +548,7 @@ class SystemPage extends StatelessWidget {
     };
     return Container(
       height: 24,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: Insets.control,
       decoration: BoxDecoration(color: bg, borderRadius: Radii.pill),
       child: Row(
         mainAxisSize: .min,
@@ -553,7 +561,11 @@ class SystemPage extends StatelessWidget {
           ),
           Text(
             p.label,
-            style: TextStyle(fontSize: 12, fontWeight: .w500, color: fg),
+            style: TextStyle(
+              fontSize: FontSizes.sm,
+              fontWeight: .w500,
+              color: fg,
+            ),
           ),
         ],
       ),
@@ -563,7 +575,7 @@ class SystemPage extends StatelessWidget {
   Widget _groupLabel(AppColors c, String text) => Text(
     text.toUpperCase(),
     style: TextStyle(
-      fontSize: 12,
+      fontSize: FontSizes.sm,
       fontWeight: .w600,
       letterSpacing: 0.72,
       color: c.text4,
@@ -649,28 +661,28 @@ class SystemPage extends StatelessWidget {
               child: CodeText(
                 l.summary,
                 maxLines: 2,
-                style: TextStyle(fontSize: 12, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
               ),
             ),
             Button.quiet(
               label: l.copyLabel,
               onPressed: export ? onCopyLog : null,
               size: ButtonSize.small,
-              fontSize: 12,
+              fontSize: FontSizes.sm,
               fontWeight: .w400,
             ),
             Button.quiet(
               label: l.saveLabel,
               onPressed: export ? onSaveLog : null,
               size: ButtonSize.small,
-              fontSize: 12,
+              fontSize: FontSizes.sm,
               fontWeight: .w400,
             ),
           ],
         ),
         LogTable(rows: l.rows, message: l.message, bad: l.bad),
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
             color: c.ground1,
             border: .all(color: c.line1),
@@ -692,7 +704,7 @@ class SystemPage extends StatelessWidget {
                         text: l.levelKey,
                         style: TextStyle(
                           fontFamily: AppFonts.mono,
-                          fontSize: 12,
+                          fontSize: FontSizes.sm,
                           fontWeight: .w400,
                           color: c.text4,
                         ),
@@ -700,7 +712,7 @@ class SystemPage extends StatelessWidget {
                     ],
                   ),
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: FontSizes.lg,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -708,7 +720,7 @@ class SystemPage extends StatelessWidget {
                 CodeText(
                   l.levelNote,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: FontSizes.sm,
                     height: 1.5,
                     color: c.text4,
                   ),
@@ -721,7 +733,7 @@ class SystemPage extends StatelessWidget {
               onSelect: onLogLevel,
               label: l.levelTitle,
               height: 32,
-              fontSize: 12,
+              fontSize: FontSizes.sm,
               inset: true,
               equal: true,
               mono: true,
@@ -789,7 +801,7 @@ class SystemPage extends StatelessWidget {
         onPressed: m.putReason == null ? onPutProfile : null,
         disabledReason: m.putReason,
         size: ButtonSize.compact,
-        fontSize: 13,
+        fontSize: FontSizes.md,
         fontWeight: .w400,
       ),
       child: RowList(
@@ -808,7 +820,7 @@ class SystemPage extends StatelessWidget {
           onPressed: v.reason == null ? onBrokerUpdate : null,
           disabledReason: v.reason,
           size: ButtonSize.compact,
-          fontSize: 13,
+          fontSize: FontSizes.md,
           fontWeight: .w400,
         ),
         child: Text(
@@ -834,7 +846,7 @@ class SystemPage extends StatelessWidget {
               onPressed: b.reason == null ? onRestore : null,
               disabledReason: b.reason,
               size: ButtonSize.compact,
-              fontSize: 13,
+              fontSize: FontSizes.md,
               fontWeight: .w400,
             ),
             Button.primary(
@@ -842,7 +854,7 @@ class SystemPage extends StatelessWidget {
               onPressed: b.reason == null ? onBackUp : null,
               disabledReason: b.reason,
               size: ButtonSize.compact,
-              fontSize: 13,
+              fontSize: FontSizes.md,
             ),
           ],
         ),
@@ -903,7 +915,11 @@ class SystemPage extends StatelessWidget {
               Expanded(
                 child: Text(
                   m.backupWarning,
-                  style: TextStyle(fontSize: 12, height: 1.5, color: c.warn),
+                  style: TextStyle(
+                    fontSize: FontSizes.sm,
+                    height: 1.5,
+                    color: c.warn,
+                  ),
                 ),
               ),
             ],
@@ -938,14 +954,14 @@ class SystemPage extends StatelessWidget {
             children: [
               Text(
                 m.elsewhereLabel,
-                style: TextStyle(fontSize: 13, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
               for (final e in m.elsewhere)
                 InkWell(
                   onTap: () => onElsewhere(e.id),
                   child: Text(
                     e.label,
-                    style: TextStyle(fontSize: 13, color: c.text2),
+                    style: TextStyle(fontSize: FontSizes.md, color: c.text2),
                   ),
                 ),
             ],

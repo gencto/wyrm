@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// Asks before something that cannot be undone; the confirm button is the
 /// danger one when [danger].
@@ -62,8 +64,11 @@ class ConfirmDialog extends StatelessWidget {
             spacing: 12,
             children: [
               Text(title, style: Theme.of(context).textTheme.titleLarge),
-              Text(message, style: TextStyle(fontSize: 14, color: c.text2)),
-              const SizedBox(height: 8),
+              Text(
+                message,
+                style: TextStyle(fontSize: FontSizes.lg, color: c.text2),
+              ),
+              Gaps.sm,
               Row(
                 mainAxisAlignment: .end,
                 spacing: 10,

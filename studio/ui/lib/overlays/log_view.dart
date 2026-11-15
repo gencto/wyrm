@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// Mono lines in a scrolling, selectable panel (a link's log, a broker log).
@@ -32,7 +33,7 @@ class LogView extends StatelessWidget {
           ? Center(
               child: Text(
                 empty,
-                style: TextStyle(fontSize: 13, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.md, color: c.text4),
               ),
             )
           : Scrollbar(
@@ -41,7 +42,7 @@ class LogView extends StatelessWidget {
                   padding: const EdgeInsets.all(12),
                   itemCount: lines.length,
                   itemBuilder: (_, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                     child: Text(
                       lines[i],
                       style: mono(

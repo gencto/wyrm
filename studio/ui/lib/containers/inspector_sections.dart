@@ -105,7 +105,7 @@ class InspectorSections extends StatelessWidget {
               child: Text(
                 s.label.toUpperCase(),
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: FontSizes.sm,
                   fontWeight: .w600,
                   letterSpacing: 0.72,
                   color: c.text4,
@@ -122,7 +122,13 @@ class InspectorSections extends StatelessWidget {
                     height: 6,
                     decoration: BoxDecoration(shape: .circle, color: c.ember),
                   ),
-                  Text(n, style: TextStyle(fontSize: 12, color: c.emberSoft)),
+                  Text(
+                    n,
+                    style: TextStyle(
+                      fontSize: FontSizes.sm,
+                      color: c.emberSoft,
+                    ),
+                  ),
                 ],
               ),
           ],
@@ -133,7 +139,10 @@ class InspectorSections extends StatelessWidget {
         if (s.facts.isNotEmpty) FactGrid(facts: s.facts),
         if (s.code.isNotEmpty) _code(c, s.code),
         if (s.text case final t?)
-          Text(t, style: TextStyle(fontSize: 12, color: c.text4)),
+          Text(
+            t,
+            style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+          ),
       ],
     );
   }
@@ -146,9 +155,15 @@ class InspectorSections extends StatelessWidget {
           crossAxisAlignment: .start,
           spacing: 2,
           children: [
-            Text(f.label, style: TextStyle(fontSize: 14, color: c.text1)),
+            Text(
+              f.label,
+              style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
+            ),
             if (f.description case final d?)
-              Text(d, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                d,
+                style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
+              ),
           ],
         ),
       ),
@@ -185,7 +200,7 @@ class InspectorSections extends StatelessWidget {
                   child: Text(
                     label,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: FontSizes.md,
                       fontWeight: i == s.segment ? .w600 : .w400,
                       color: s.onSegment == null
                           ? c.muted

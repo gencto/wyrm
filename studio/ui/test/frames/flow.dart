@@ -374,7 +374,7 @@ FlowEditorPage _bind({
   onCommand: (_, {at}) {},
   onPin: (_, _, {required pinned}) {},
   onViewField: (_, _) {},
-  onFieldPin: pins ? (_, {required pinned}) {} : null,
+  onFieldPin: pins ? (_, {required on}) {} : null,
   onSaveViewer: _id,
   validateViewer: (text) =>
       text.contains('oops') ? 'Not a JSON map or list' : null,
@@ -1793,7 +1793,7 @@ FlowEditorPage _wave2({
   onCommand: (_, {at}) {},
   onPin: (_, _, {required pinned}) {},
   onViewField: (_, _) {},
-  onFieldPin: (_, {required pinned}) {},
+  onFieldPin: (_, {required on}) {},
   onRun: _id,
   menu: _menu2,
   crumbs: crumbs,

@@ -5,6 +5,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [SysTile] draws: one value the broker serves under `sys`.
@@ -86,9 +87,15 @@ class SysTile extends StatelessWidget {
   /// label's longest word needs the room does the key end in an ellipsis.
   Widget _head(BuildContext context, AppColors c) {
     final base = DefaultTextStyle.of(context).style;
-    final labelStyle = base.merge(TextStyle(fontSize: 12, color: c.text3));
+    final labelStyle = base.merge(
+      TextStyle(fontSize: FontSizes.sm, color: c.text3),
+    );
     final keyStyle = base.merge(
-      TextStyle(fontFamily: AppFonts.mono, fontSize: 11, color: keyColor(c)),
+      TextStyle(
+        fontFamily: AppFonts.mono,
+        fontSize: FontSizes.xs,
+        color: keyColor(c),
+      ),
     );
     final keyText = Text(
       vm.keyName,
@@ -153,7 +160,10 @@ class SysTile extends StatelessWidget {
           }
         : c.line1;
     final body = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: 14,
+      ),
       child: Column(
         crossAxisAlignment: .start,
         spacing: 6,
@@ -171,7 +181,7 @@ class SysTile extends StatelessWidget {
                   overflow: .ellipsis,
                   style: TextStyle(
                     fontFamily: AppFonts.mono,
-                    fontSize: 22,
+                    fontSize: FontSizes.figure,
                     color: vm.tone == .neutral
                         ? c.text1
                         : toneColor(c, vm.tone),
@@ -181,7 +191,7 @@ class SysTile extends StatelessWidget {
               if (vm.unit.isNotEmpty)
                 Text(
                   vm.unit,
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
             ],
           ),
@@ -190,7 +200,7 @@ class SysTile extends StatelessWidget {
             maxLines: 2,
             overflow: .ellipsis,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: FontSizes.sm,
               height: relaxed ? 1.5 : null,
               color: vm.subTone == .neutral
                   ? c.text4

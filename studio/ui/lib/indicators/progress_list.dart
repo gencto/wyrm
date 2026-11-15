@@ -59,7 +59,7 @@ class ProgressList extends StatelessWidget {
                     Text(
                       r.label,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.md,
                         fontWeight: r.state == .now ? .w600 : .w400,
                         color: switch (r.state) {
                           .waiting || .skipped => c.text4,

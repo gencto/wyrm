@@ -7,6 +7,8 @@ import '../containers/fault_boundary.dart';
 import '../indicators/app_icon.dart';
 import '../theme/common.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [PanelFault] draws.
@@ -117,7 +119,7 @@ class PanelFault extends StatelessWidget {
                 width: .infinity,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 8,
+                  vertical: AppSpacing.sm,
                 ),
                 decoration: BoxDecoration(
                   color: c.ground0,
@@ -137,7 +139,7 @@ class PanelFault extends StatelessWidget {
                       key: const ValueKey('fault-draw-again'),
                       label: vm.drawAgain,
                       size: .compact,
-                      fontSize: 13,
+                      fontSize: FontSizes.md,
                       inset: 14,
                       onPressed: f,
                     ),
@@ -145,7 +147,7 @@ class PanelFault extends StatelessWidget {
                     key: const ValueKey('fault-copy'),
                     label: vm.copy,
                     size: .compact,
-                    fontSize: 13,
+                    fontSize: FontSizes.md,
                     fontWeight: .w400,
                     inset: 14,
                     onPressed: onCopy,
@@ -167,7 +169,10 @@ class PanelFault extends StatelessWidget {
                   padding: const EdgeInsets.all(20),
                   child: Align(alignment: .topCenter, child: sized),
                 )
-              : Padding(padding: const EdgeInsets.all(20), child: sized),
+              : Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: sized,
+                ),
         );
       },
     );
@@ -272,7 +277,7 @@ class _DashedBorder extends ShapeBorder {
 
   final Color color;
 
-  static const _radius = Radius.circular(12);
+  static const _radius = Radius.circular(AppRadii.panel);
 
   @override
   EdgeInsetsGeometry get dimensions => const EdgeInsets.all(1);

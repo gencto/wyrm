@@ -121,14 +121,17 @@ class CatalogCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: FontSizes.lg,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
                     ),
                   ),
                   if (vm.note case final n?)
-                    Text(n, style: TextStyle(fontSize: 11, color: c.good)),
+                    Text(
+                      n,
+                      style: TextStyle(fontSize: FontSizes.xs, color: c.good),
+                    ),
                 ],
               ),
               SizedBox(
@@ -141,7 +144,11 @@ class CatalogCard extends StatelessWidget {
                   vm.description,
                   maxLines: descriptionLines,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: 12, height: 1.4, color: c.text3),
+                  style: TextStyle(
+                    fontSize: FontSizes.sm,
+                    height: 1.4,
+                    color: c.text3,
+                  ),
                 ),
               ),
               Row(
@@ -159,7 +166,7 @@ class CatalogCard extends StatelessWidget {
                     child: Text(
                       vm.source,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: FontSizes.xs,
                         color: vm.builtIn ? c.text2 : c.good,
                       ),
                     ),
@@ -181,7 +188,10 @@ class CatalogCard extends StatelessWidget {
                           AppIcon('ui_check', size: 12, color: c.ember),
                           Text(
                             o,
-                            style: TextStyle(fontSize: 11, color: c.ember),
+                            style: TextStyle(
+                              fontSize: FontSizes.xs,
+                              color: c.ember,
+                            ),
                           ),
                         ],
                       ),

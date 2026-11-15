@@ -8,6 +8,7 @@ import '../indicators/app_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
 import '../theme/typography.dart';
 
 /// One toast: a quiet failure, or something that went well (`good`).
@@ -255,7 +256,7 @@ class _ToastState extends State<_Toast> {
             borderRadius: Radii.card,
             boxShadow: const [
               BoxShadow(
-                color: Color(0x73000000),
+                color: Shades.popupShadow,
                 offset: Offset(0, 12),
                 blurRadius: 32,
               ),

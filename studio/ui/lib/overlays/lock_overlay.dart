@@ -11,6 +11,9 @@ import '../indicators/biometric_icon.dart';
 import '../inputs/boxed_form_field.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// What the card of a locked Studio says (board `UnlockLock`), resolved.
 final class LockCardVm extends Equatable {
@@ -239,7 +242,7 @@ class _LockCardState extends State<_LockCard> {
     final vm = widget.vm;
     final usePassword = _password || vm.passwordOnly || widget.onUnlock == null;
     final link = TextStyle(
-      fontSize: 13,
+      fontSize: FontSizes.md,
       color: c.text2,
       decoration: .underline,
       decorationColor: c.text2,
@@ -260,14 +263,14 @@ class _LockCardState extends State<_LockCard> {
         child: Container(
           // The board's 420 is CSS content-box: 420 inside the padding.
           width: 484,
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(AppSpacing.xl),
           decoration: BoxDecoration(
             color: c.ground1,
             borderRadius: const BorderRadius.all(Radius.circular(16)),
             border: Border.all(color: c.line1),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x80000000),
+                color: Shades.dialogShadow,
                 blurRadius: 80,
                 offset: Offset(0, 30),
               ),
@@ -296,7 +299,11 @@ class _LockCardState extends State<_LockCard> {
                   Text(
                     vm.text,
                     textAlign: .center,
-                    style: TextStyle(fontSize: 14, height: 1.5, color: c.text3),
+                    style: TextStyle(
+                      fontSize: FontSizes.lg,
+                      height: 1.5,
+                      color: c.text3,
+                    ),
                   ),
                 ],
               ),
@@ -347,7 +354,7 @@ class _LockCardState extends State<_LockCard> {
                 Text(
                   k,
                   textAlign: .center,
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
               Wrap(
                 spacing: 20,

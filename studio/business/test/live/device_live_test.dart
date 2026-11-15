@@ -33,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
 import 'package:storage/storage.dart';
+import 'package:wyrm_client/wyrm_client.dart' show StepUp;
 
 void main() {
   final bin = Platform.environment['WYRM_GATEWAY_DEV'];
@@ -94,7 +95,7 @@ void main() {
     // A password login, then the offer: Use registers a key the gateway
     // checks (it signs the register nonce).
     final s = await page();
-    expect(s.state.device.policy?.stepUp, 'config');
+    expect(s.state.device.policy?.stepUp, StepUp.config);
     await s.dispatchAndWait(SetPasswordAction('admin password'));
     final login = await s.dispatchAndWait(LogInAction());
     expect(login.isCompletedOk, isTrue, reason: '${login.originalError}');

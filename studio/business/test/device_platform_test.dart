@@ -19,8 +19,8 @@ void main() {
       debugDefaultTargetPlatformOverride = target;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
-      expect(devicePlatform(), name);
-      expect(accepted, contains(devicePlatform()));
+      expect(hostPlatform().device?.wire, name);
+      expect(accepted, contains(hostPlatform().device?.wire));
     });
   }
 }

@@ -6,6 +6,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// Where a step of a run stands.
@@ -68,7 +69,7 @@ class RunCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
+      margin: Insets.assistantCard,
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -79,19 +80,29 @@ class RunCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            padding: const EdgeInsets.fromLTRB(
+              14,
+              12,
+              14,
+              10,
+            ),
             child: SectionLabel(vm.title),
           ),
           for (final r in vm.rows) _Row(vm: r),
           Container(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            padding: const EdgeInsets.fromLTRB(
+              14,
+              10,
+              14,
+              12,
+            ),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
             ),
             child: Text(
               vm.note,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: FontSizes.sm,
                 height: 1.45,
                 color: vm.noteTone == .neutral
                     ? c.text3
@@ -120,7 +131,12 @@ class _Row extends StatelessWidget {
       .waiting || .skipped => c.text3,
     };
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      padding: const EdgeInsets.fromLTRB(
+        14,
+        AppSpacing.sm,
+        14,
+        AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),

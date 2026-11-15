@@ -5,10 +5,10 @@ import 'package:crypto/crypto.dart';
 import 'package:device_key/device_key.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/foundation.dart';
-import 'package:models/device_policy_info.dart';
+import 'package:models/device_tag.dart';
+import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/unlock_refusal.dart';
-import 'package:models/user_device.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'session.dart';
@@ -17,19 +17,30 @@ import 'session.dart';
 // platform names, the alias of a key, the signer that turns the OS prompt
 // into bytes, and the mapping of the gateway's answers.
 
-/// `macos`, `windows`, `linux`, `ios` or `android`: the platform a device
-/// record names and the log-in page draws (unlock-discover.md §1). The
-/// gateway takes `macos | windows | ios | android` on the wire (ADR 0050).
-String devicePlatform() {
+/// The platform Studio runs on: the one a new device record names and the
+/// log-in page draws (unlock-discover.md §1).
+HostPlatform hostPlatform() {
   if (kIsWeb) {
-    return 'web';
+    return .web;
   }
   return switch (defaultTargetPlatform) {
-    TargetPlatform.macOS => 'macos',
-    TargetPlatform.windows => 'windows',
-    TargetPlatform.iOS => 'ios',
-    TargetPlatform.android => 'android',
-    _ => 'linux',
+    TargetPlatform.macOS => .macos,
+    TargetPlatform.windows => .windows,
+    TargetPlatform.iOS => .ios,
+    TargetPlatform.android => .android,
+    _ => .linux,
+  };
+}
+
+extension HostPlatformOnWire on HostPlatform {
+  /// The gateway's name for this platform; null where Studio keeps no
+  /// device key (`linux`, `web`).
+  DevicePlatform? get device => switch (this) {
+    HostPlatform.macos => .macos,
+    HostPlatform.windows => .windows,
+    HostPlatform.ios => .ios,
+    HostPlatform.android => .android,
+    HostPlatform.linux || HostPlatform.web => null,
   };
 }
 
@@ -57,33 +68,66 @@ String keyAlias(String origin, String user) {
 /// The state's [KeyKind] for the plugin's.
 KeyKind keyKindOf(DeviceKeyKind k) => KeyKind.values.byName(k.name);
 
-/// The gateway's device policy as the state keeps it.
-DevicePolicyInfo policyOf(DevicePolicy p) => DevicePolicyInfo(
-  enabled: p.enabled,
-  maxPerUser: p.maxPerUser,
-  passwordEveryDays: p.passwordEveryDays,
-  idleLockMaxMin: p.idleLockMaxMin,
-  stepUp: p.stepUp.wire,
-  allowDeviceCredential: p.allowDeviceCredential,
-);
+/// A moment given in seconds since the Unix epoch; null for 0 (not known).
+DateTime? momentOf(int seconds) =>
+    seconds <= 0 ? null : DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
 
-/// A device record as the state keeps it.
-UserDevice userDeviceOf(GatewayDevice d) => UserDevice(
-  id: d.id,
-  name: d.name,
-  platform: d.platform?.wire ?? '',
-  added: d.added,
-  lastUsed: d.lastUsed,
-  passwordDueAt: d.passwordDueAt,
-  state: d.state.wire,
-  thisDevice: d.thisSession,
-  removedBy: d.removedBy,
-);
+extension GatewayDeviceWho on GatewayDevice {
+  /// The user who removed this record (`user:` of the subject taken off).
+  String get removedByUser => (removedBy ?? '').replaceFirst('user:', '');
+}
+
+/// A device record as a row of Account › Security, with what is computed
+/// from it and the clock: whether it is this computer's (`own`), its
+/// `tag`, the days until its password is due, whether it was used within
+/// the last minute.
+typedef DeviceRow = ({
+  GatewayDevice device,
+  bool own,
+  DeviceTag? tag,
+  String removedBy,
+  int dueDays,
+  bool usedNow,
+  DateTime? lastUsed,
+  DateTime? added,
+});
+
+/// A use this recent is `used now` on this computer's own row.
+const _usedNowS = 60;
+
+/// A password due within this many days is tagged.
+const _dueSoonDays = 7;
+
+/// [d] as a row at [now]; [thisDeviceId] is this computer's device.
+DeviceRow deviceRowOf(GatewayDevice d, String? thisDeviceId, DateTime now) {
+  final own = d.thisSession || d.id == thisDeviceId;
+  final nowS = now.millisecondsSinceEpoch ~/ 1000;
+  final dueDays = d.passwordDueAt == 0
+      ? null
+      : ((d.passwordDueAt - nowS) / Duration.secondsPerDay).ceil();
+  return (
+    device: d,
+    own: own,
+    tag: switch (d.state) {
+      GatewayDeviceState.removed => DeviceTag.removed,
+      _ when own => DeviceTag.thisDevice,
+      GatewayDeviceState.signedOut => DeviceTag.signedOut,
+      GatewayDeviceState.active
+          when dueDays != null && dueDays <= _dueSoonDays =>
+        DeviceTag.passwordDue,
+      GatewayDeviceState.active => null,
+    },
+    removedBy: d.removedByUser,
+    dueDays: dueDays == null || dueDays < 0 ? 0 : dueDays,
+    usedNow: own && d.lastUsed > 0 && nowS - d.lastUsed < _usedNowS,
+    lastUsed: momentOf(d.lastUsed),
+    added: momentOf(d.added),
+  );
+}
 
 /// The device records of a list, newest use first.
-IList<UserDevice> userDevicesOf(List<GatewayDevice> ds) => ([
-  for (final d in ds) userDeviceOf(d),
-]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed))).lock;
+IList<GatewayDevice> newestFirst(List<GatewayDevice> ds) =>
+    ([...ds]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed))).lock;
 
 /// Why the gateway refused a device login, from its `code`; null for a
 /// failure that is not a refusal of the key.

@@ -89,7 +89,10 @@ class ActionRow extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 10,
+            ),
             child: Row(
               spacing: 12,
               children: [
@@ -121,7 +124,7 @@ class ActionRow extends StatelessWidget {
                       Text(
                         vm.title,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: FontSizes.lg,
                           fontWeight: .w500,
                           color: title,
                         ),
@@ -130,7 +133,7 @@ class ActionRow extends StatelessWidget {
                         Text(
                           d,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: FontSizes.sm,
                             height: 1.4,
                             color: vm.enabled ? c.text3 : c.muted,
                           ),

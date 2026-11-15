@@ -8,7 +8,6 @@ import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/catalog_item.dart';
-import 'package:models/device_policy_info.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
@@ -51,12 +50,14 @@ import 'package:models/task_event.dart';
 import 'package:models/traffic_sample.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:models/unlock_stage.dart';
-import 'package:models/user_device.dart';
 import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
+import 'package:wyrm_client/wyrm_client.dart'
+    show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/device_keys.dart';
 import '../wyrm/gateway_label.dart';
 import '../wyrm/keys.dart';
 import '../wyrm/mappers/flow_blocks.dart';
@@ -71,6 +72,7 @@ import 'broker_update/actions/update_broker_action.dart';
 import 'changes/actions/apply_changes_action.dart';
 import 'common/action.dart';
 import 'device/actions/load_device_action.dart';
+import 'device/actions/set_device_unlock_action.dart';
 import 'discovery/actions/trust_gateway_action.dart';
 import 'flow_editor/actions/deploy_flow_action.dart';
 import 'flows/actions/retrieve_flows_action.dart';
@@ -1518,7 +1520,7 @@ extension type SelectDevice(AppState _state) {
   bool get noticed => _state.device.noticed;
 
   /// Returns policy
-  DevicePolicyInfo? get policy => _state.device.policy;
+  DevicePolicy? get policy => _state.device.policy;
 
   /// Returns stage
   UnlockStage get stage => _state.device.stage;
@@ -1545,22 +1547,56 @@ extension type SelectDevice(AppState _state) {
   StepUpRequest? get stepUp => _state.device.stepUp;
 
   /// Returns devices
-  IList<UserDevice> get devices => _state.device.devices;
+  IList<GatewayDevice> get devices => _state.device.devices;
 
   /// Returns userDevices
-  IMap<String, IList<UserDevice>> get userDevices => _state.device.userDevices;
+  IMap<String, IList<GatewayDevice>> get userDevices =>
+      _state.device.userDevices;
 
   /// Returns needPassword
   bool get needPassword => _state.device.needPassword;
-
-  /// Returns securityError
-  String? get securityError => _state.device.securityError;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<LoadDeviceAction>();
 
   /// Returns keyRole
   String? get keyRole => _state.device.keyRole;
+
+  /// This computer unlocks with its key: a device record and a key, not
+  /// stale.
+  bool get unlockOn =>
+      _state.device.deviceId != null &&
+      _state.device.keyId != null &&
+      !_state.device.stale;
+
+  /// The unlock switch can be used: a biometric is here and the gateway's
+  /// policy (when known) has devices on.
+  bool get unlockAllowed =>
+      _state.device.available && (_state.device.policy?.enabled ?? true);
+
+  /// The gateway asks for a fresh confirmation before a config change
+  /// (`gateway.devices.step_up: config`).
+  bool get confirmsConfig => _state.device.policy?.stepUp == StepUp.config;
+
+  /// The longest idle lock the gateway allows, in minutes (30 when not
+  /// told).
+  int get lockMaxMin => _state.device.policy?.idleLockMaxMin ?? 30;
+
+  /// This user's device records as rows of Account › Security at [now].
+  IList<DeviceRow> rowsAt(DateTime now) => [
+    for (final d in _state.device.devices)
+      deviceRowOf(d, _state.device.deviceId, now),
+  ].lock;
+
+  /// When this computer's key was made; null when not known.
+  DateTime? get keyAddedAt => momentOf(_state.device.added);
+
+  /// The unlock switch is being turned on or off.
+  bool get isSettingUnlock =>
+      _state.wait.isWaitingForType<SetDeviceUnlockAction>();
+
+  /// Returns passwordRefused
+  bool get passwordRefused => _state.device.passwordRefused;
 }
 
 extension type SelectDiscovery(AppState _state) {

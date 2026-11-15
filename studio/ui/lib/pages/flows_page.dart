@@ -40,7 +40,12 @@ class FlowsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+      padding: const EdgeInsets.fromLTRB(
+        28,
+        28,
+        28,
+        40,
+      ),
       children: [
         PageHeader(
           title: title,

@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/typography.dart';
 import 'param_form.dart';
 
 /// A picked file: its name and bytes (an `editor: file` parameter).
@@ -204,7 +205,11 @@ class _ActionFormState extends State<ActionForm> {
             child: Text(
               r.message,
               key: const ValueKey('form-refusal'),
-              style: TextStyle(fontSize: 12, height: 1.4, color: c.bad),
+              style: TextStyle(
+                fontSize: FontSizes.sm,
+                height: 1.4,
+                color: c.bad,
+              ),
             ),
           ),
         Row(

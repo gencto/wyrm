@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// A notice: what happened, in the tone of the outcome.
@@ -38,11 +40,11 @@ class Notice extends StatelessWidget {
     };
     final light = Theme.of(context).brightness == .light;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: Insets.card,
       decoration: BoxDecoration(
         color: bg,
         border: Border.all(color: line),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.control),
       ),
       child: Row(
         crossAxisAlignment: .start,
@@ -59,7 +61,10 @@ class Notice extends StatelessWidget {
               children: [
                 Text(
                   vm.message,
-                  style: TextStyle(fontSize: 13, color: light ? c.text1 : fg),
+                  style: TextStyle(
+                    fontSize: FontSizes.md,
+                    color: light ? c.text1 : fg,
+                  ),
                 ),
                 if (vm.detail case final d?)
                   SelectableText(

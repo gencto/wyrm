@@ -41,6 +41,19 @@ class EnableDeviceAction extends Action with WaitingAction {
     final keys = deps.deviceKey;
     final alias = keyAlias(account.origin, account.user);
     final name = device.name ?? 'biometrics';
+    // The gateway takes a device key only from a platform of its set: on
+    // linux and the web Studio refuses here, and sends nothing.
+    final host = hostPlatform();
+    final platform = host.device;
+    if (platform == null) {
+      dispatchSync(_Left());
+      throw StudioException.said(
+        ErrorKind.studio,
+        'no device key on ${host.name}',
+        call: 'enable_device',
+        thing: name,
+      );
+    }
     try {
       if (password case final pw?) {
         await session.confirmWithPassword(pw);
@@ -55,7 +68,7 @@ class EnableDeviceAction extends Action with WaitingAction {
           site: site,
           user: account.user,
           name: deviceName(),
-          platform: devicePlatform(),
+          platform: platform.wire,
           alg: pub.alg,
           publicKey: pub.publicKey,
           sign: signer(keys, alias, reason),
@@ -91,15 +104,15 @@ class EnableDeviceAction extends Action with WaitingAction {
         offered: true,
         stage: UnlockStage.none,
         needPassword: false,
-        securityError: null,
+        passwordRefused: false,
       );
     } on WyrmException catch (e) {
-      if (e.code == 'password_required') {
-        dispatchSync(_NeedPassword());
-        return null;
-      }
-      if (e.code == 'bad_password') {
-        dispatchSync(_NeedPassword(error: e.code));
+      final refusal = e.refusal;
+      if (refusal == GatewayRefusal.passwordRequired ||
+          refusal == GatewayRefusal.badPassword) {
+        dispatchSync(
+          _NeedPassword(refused: refusal == GatewayRefusal.badPassword),
+        );
         return null;
       }
       dispatchSync(_Left());
@@ -137,11 +150,12 @@ class _Left extends Action {
 
 /// Account › Security asks for the password before the key.
 class _NeedPassword extends Action {
-  _NeedPassword({this.error});
+  _NeedPassword({this.refused = false});
 
-  final String? error;
+  /// The password given was wrong.
+  final bool refused;
 
   @override
   AppState reduce() =>
-      state.copyWith.device(needPassword: true, securityError: error);
+      state.copyWith.device(needPassword: true, passwordRefused: refused);
 }

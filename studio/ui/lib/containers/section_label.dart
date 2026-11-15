@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/typography.dart';
 
 /// The uppercase label of a group (`REGISTER`, `POLLING`): 12/600, +6 %.
 class SectionLabel extends StatelessWidget {
@@ -18,7 +19,7 @@ class SectionLabel extends StatelessWidget {
         child: Text(
           text.toUpperCase(),
           style: TextStyle(
-            fontSize: 12,
+            fontSize: FontSizes.sm,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: context.colors.text3,

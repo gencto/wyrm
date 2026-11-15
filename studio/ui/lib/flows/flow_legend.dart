@@ -2,6 +2,9 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// The words of the canvas legend (spec §5).
 final class FlowLegendVm extends Equatable {
@@ -38,7 +41,7 @@ class FlowLegend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final style = TextStyle(fontSize: 12, color: c.text3);
+    final style = TextStyle(fontSize: FontSizes.sm, color: c.text3);
     Widget line(Color color, String label) => Row(
       mainAxisSize: .min,
       spacing: 6,
@@ -48,11 +51,14 @@ class FlowLegend extends StatelessWidget {
       ],
     );
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
         color: c.ground1.withValues(alpha: 0.92),
         border: .all(color: c.line1),
-        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.control)),
       ),
       child: Wrap(
         spacing: 16,

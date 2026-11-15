@@ -137,7 +137,7 @@ void main() {
               ),
             ],
           ),
-          onToggle: (id, {required value}) => got.add('$id=$value'),
+          onToggle: (id, {required on}) => got.add('$id=$on'),
           onPick: (g, v) => got.add('$g:$v'),
           onText: (id, text) => got.add('$id:${text.length}'),
         ),
