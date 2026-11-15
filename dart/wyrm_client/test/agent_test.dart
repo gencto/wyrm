@@ -1,4 +1,7 @@
-// The agent link's call shapes and the plan hash, without a broker.
+// The agent link's old call shapes (deprecated shims, kept for one
+// release) and the plan hash, without a broker. The typed calls are in
+// agent_types_test.dart.
+// ignore_for_file: deprecated_member_use_from_same_package
 
 import 'dart:async';
 
@@ -15,10 +18,11 @@ class _Conn implements FrameTransport {
   Stream<Value> get incoming => _in.stream;
 
   @override
-  void send(Map<String, Value> frame) {
+  void send(FrameRequest request) {
+    final frame = request.toValue().v;
     sent.add(frame);
     final reply = answer(frame);
-    scheduleMicrotask(() => _in.add(VMap({'id': frame['id']!, ...reply})));
+    scheduleMicrotask(() => _in.add(VMap({'id': VInt(request.id), ...reply})));
   }
 
   @override

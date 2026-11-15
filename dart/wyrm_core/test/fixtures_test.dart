@@ -85,8 +85,8 @@ void main() {
   });
 
   for (final f in fixtures) {
-    final name = f['name'] as String;
-    final hex = f['hex'] as String;
+    final name = f['name']! as String;
+    final hex = f['hex']! as String;
     group(name, () {
       final bytes = hexDecode(hex);
 
@@ -111,7 +111,7 @@ void main() {
 
   test('val_number typed fields', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'val_number');
-    final s = Sample.fromCbor(hexDecode(f['hex'] as String));
+    final s = Sample.fromCbor(hexDecode(f['hex']! as String));
     expect(s.v, const VFloat(21.4));
     expect(s.q, Quality.good);
     expect(s.t, 1760000000123456);
@@ -119,7 +119,7 @@ void main() {
 
   test('meta_number_full typed fields', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'meta_number_full');
-    final m = NodeMeta.fromCbor(hexDecode(f['hex'] as String));
+    final m = NodeMeta.fromCbor(hexDecode(f['hex']! as String));
     expect(m.is_, const TCode(2));
     expect(m.profileName, 'wy:number');
     expect(m.ty, TypeCode.number);
@@ -132,7 +132,7 @@ void main() {
 
   test('meta_folder_full action', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'meta_folder_full');
-    final m = NodeMeta.fromCbor(hexDecode(f['hex'] as String));
+    final m = NodeMeta.fromCbor(hexDecode(f['hex']! as String));
     final reset = m.actions!['reset']!;
     expect(reset.params['mode']!.ty, TypeCode.enum_);
     expect(reset.params['mode']!.enumValues, ['soft', 'hard']);
@@ -142,7 +142,7 @@ void main() {
 
   test('meta_action_ui UI fields', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'meta_action_ui');
-    final m = NodeMeta.fromCbor(hexDecode(f['hex'] as String));
+    final m = NodeMeta.fromCbor(hexDecode(f['hex']! as String));
     final add = m.actions!['add_device']!;
     expect(add.display, 'Add device');
     expect(add.group, 'new');
@@ -155,7 +155,7 @@ void main() {
 
   test('profile_extends typed fields', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'profile_extends');
-    final p = ProfileDef.fromCbor(hexDecode(f['hex'] as String));
+    final p = ProfileDef.fromCbor(hexDecode(f['hex']! as String));
     expect(p.extends_, 'wy:number');
     expect(p.meta.ty, TypeCode.number);
     expect(p.meta.unit, const TText('°C'));
@@ -163,7 +163,7 @@ void main() {
 
   test('att_reply_err status', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'att_reply_err');
-    final a = Attachment.fromCbor(hexDecode(f['hex'] as String));
+    final a = Attachment.fromCbor(hexDecode(f['hex']! as String));
     expect(a.status!.isError, isTrue);
     expect(a.status!.known, Status.outOfRange);
     expect(a.err, 'value 150 > max 120');
@@ -171,7 +171,7 @@ void main() {
 
   test('ptok claims structure', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'ptok_claims_v1');
-    final c = PtokClaims.fromCbor(hexDecode(f['hex'] as String));
+    final c = PtokClaims.fromCbor(hexDecode(f['hex']! as String));
     expect(c.site, 'plant-a');
     expect(c.grants, hasLength(3));
     expect(c.grants[1].k, 'wy/plant-a/downstream/bacnet/**');
@@ -182,7 +182,7 @@ void main() {
 
   test('ptok claims with auth', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'ptok_claims_auth');
-    final c = PtokClaims.fromCbor(hexDecode(f['hex'] as String));
+    final c = PtokClaims.fromCbor(hexDecode(f['hex']! as String));
     expect(c.grants, hasLength(1));
     expect(c.auth, hasLength(3));
     expect(c.auth![1].k, 'wy/plant-a/downstream/plc1/**');
@@ -191,14 +191,14 @@ void main() {
 
   test('ptok claims bound to arguments', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'ptok_claims_args');
-    final c = PtokClaims.fromCbor(hexDecode(f['hex'] as String));
+    final c = PtokClaims.fromCbor(hexDecode(f['hex']! as String));
     expect(c.args, List.generate(32, (i) => i));
     expect(c.auth, isNull);
   });
 
   test('view=keys expands and compresses', () {
     final f = fixtures.firstWhere((f) => f['name'] == 'meta_view_keys');
-    final compressed = decodeCbor(hexDecode(f['hex'] as String), decodeKeyList);
+    final compressed = decodeCbor(hexDecode(f['hex']! as String), decodeKeyList);
     final expanded = expandKeys(compressed);
     expect(expanded, ['ahu1/supply_temp', 'ahu1/return_temp', 'ahu1/fan', 'ahu2/supply_temp']);
     expect(compressKeys(expanded), compressed);

@@ -566,9 +566,9 @@ class FakeDevices {
         GatewayDevice(
           id: d.id,
           name: d.name,
-          platform: 'macos',
+          platform: DevicePlatform.macos,
           lastUsed: d.lastUsed,
-          state: d.state,
+          state: GatewayDeviceState.fromWire(d.state)!,
           thisSession: d.id == own,
           removedBy: d.removedBy,
         ),

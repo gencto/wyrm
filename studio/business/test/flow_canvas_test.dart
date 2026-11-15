@@ -17,6 +17,7 @@ import 'package:business/redux/flow_editor/actions/set_clipboard_action.dart';
 import 'package:business/redux/flow_editor/actions/set_field_pin_action.dart';
 import 'package:business/redux/flow_editor/actions/set_operand_value_action.dart';
 import 'package:business/redux/flow_editor/actions/set_selected_block_action.dart';
+import 'package:business/redux/flow_editor/actions/tidy_flow_action.dart';
 import 'package:business/redux/flow_editor/actions/undo_flow_action.dart';
 import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
@@ -584,6 +585,49 @@ void main() {
         ..dispatchSync(MoveBlocksAction(const {'avg': (0, 0)}));
       expect(s.state.flowEditor.redo, isEmpty);
     });
+
+    test('Duplicate pastes the selection one grid step down and right', () {
+      s.dispatchSync(PasteBlocksAction.duplicate(now(), {'avg', 'text'}));
+      final d = now();
+      expect(d.blocks['avg1']!.x, 320);
+      expect(d.blocks['avg1']!.y, 60);
+      expect(d.blocks['text1']!.x, 580);
+      expect(s.state.flowEditor.selection, {'avg1', 'text1'});
+      s.dispatchSync(PasteBlocksAction.duplicate(now(), {'nothing'}));
+      expect(now(), d);
+    });
+
+    test('Tidy up lays the flow out again in one undo step', () {
+      final start = now();
+      s.dispatchSync(TidyFlowAction());
+      final tidy = now();
+      expect(tidy.blocks['level']!.x, lessThan(tidy.blocks['avg']!.x));
+      expect(tidy.blocks['avg']!.x, lessThan(tidy.blocks['text']!.x));
+      expect(tidy.blocks['text']!.x, lessThan(tidy.blocks['out']!.x));
+      expect(s.state.flowEditor.undo, hasLength(1));
+      expect(s.state.flowEditor.dirty, isTrue);
+      // Tidy again: nothing moves, no new step.
+      s.dispatchSync(TidyFlowAction());
+      expect(s.state.flowEditor.undo, hasLength(1));
+      s.dispatchSync(UndoFlowAction());
+      expect(now(), start);
+    });
+
+    test(
+      'a flow without a saved layout opens laid out by its data flow',
+      () async {
+        api.invokes['wy/central/dataflows/bare ▸ history'] = [
+          Value.from([
+            {...tank, 'id': 'bare', 'layout': <String, Object?>{}},
+          ]),
+        ];
+        await s.dispatchAndWait(LoadFlowAction('bare'));
+        final d = now();
+        expect(d.blocks['level']!.x, lessThan(d.blocks['avg']!.x));
+        expect(d.blocks['avg']!.x, lessThan(d.blocks['out2']!.x));
+        expect(s.state.flowEditor.dirty, isFalse);
+      },
+    );
 
     test('typing in one field is one step; the history holds 100', () {
       for (final v in [1, 12, 120]) {

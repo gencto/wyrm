@@ -43,12 +43,21 @@ enum Cmd {
     },
     /// Write a value (JSON: `21.5`, `true`, `"text"`).
     Set { key: String, value: String },
-    /// Run an action with JSON arguments (`{"name": "ahu2", "unit": 1}`).
+    /// Run an action with JSON arguments (`{"name": "ahu2", "unit": 1}`). Arguments over
+    /// 60 KiB go by the gateway's `POST /api/invoke`, which takes only an action with an
+    /// `editor: file` parameter (up to 64 MiB).
     Invoke {
         key: String,
         action: String,
         #[arg(default_value = "{}")]
         args: String,
+        /// The JSON arguments from a file instead (too long for a command line).
+        #[arg(long, value_name = "PATH", conflicts_with = "args")]
+        args_file: Option<std::path::PathBuf>,
+        /// A binary parameter from the bytes of a file, `data=./part.bin` (repeat for more);
+        /// it replaces that key of the JSON arguments.
+        #[arg(long = "file", value_name = "PARAM=PATH")]
+        files: Vec<String>,
     },
     /// Recorded values of a point: JSON arguments as spec 01 `~val?history=`
     /// (`{"from": "2026-11-01T00:00:00Z", "limit": 100}`).
@@ -67,6 +76,53 @@ fn line(j: &Json) {
 
 fn parse(s: &str, what: &str) -> Result<Json, String> {
     serde_json::from_str(s).map_err(|e| format!("{what}: not JSON: {e}"))
+}
+
+/// A file of at most what one gateway call takes, read whole.
+fn read_capped(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let max = wyrm_gateway_client::MAX_INVOKE_BODY;
+    let len = std::fs::metadata(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .len();
+    if len > max as u64 {
+        return Err(format!(
+            "{}: {len} bytes, over the {max} bytes one gateway call takes: send it in parts \
+             (`upload_part`, `restore_part`)",
+            path.display()
+        ));
+    }
+    std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The arguments of `invoke`: JSON from the command line or `--args-file`, with each
+/// `--file PARAM=PATH` set to the file's bytes.
+fn invoke_args(
+    args: &str,
+    args_file: Option<&std::path::Path>,
+    files: &[String],
+) -> Result<wyrm_core::Value, String> {
+    let json = match args_file {
+        Some(p) => {
+            let b = read_capped(p)?;
+            let text = String::from_utf8(b).map_err(|_| format!("{}: not UTF-8", p.display()))?;
+            parse(&text, &p.display().to_string())?
+        }
+        None => parse(args, "args")?,
+    };
+    let wyrm_core::Value::Map(mut m) = json_to_value(&json)? else {
+        return Err("args: a JSON object".into());
+    };
+    for f in files {
+        let Some((name, path)) = f
+            .split_once('=')
+            .filter(|(n, p)| !n.is_empty() && !p.is_empty())
+        else {
+            return Err(format!("--file {f}: PARAM=PATH"));
+        };
+        let bytes = read_capped(std::path::Path::new(path))?;
+        m.insert(name.to_owned(), wyrm_core::Value::Bytes(bytes));
+    }
+    Ok(wyrm_core::Value::Map(m))
 }
 
 async fn main_r(a: Args) -> Result<bool, String> {
@@ -95,8 +151,14 @@ async fn main_r(a: Args) -> Result<bool, String> {
             let v = json_to_value(&parse(&value, "value")?)?;
             line(&cli::set(&c, &key, v).await?);
         }
-        Cmd::Invoke { key, action, args } => {
-            let v = json_to_value(&parse(&args, "args")?)?;
+        Cmd::Invoke {
+            key,
+            action,
+            args,
+            args_file,
+            files,
+        } => {
+            let v = invoke_args(&args, args_file.as_deref(), &files)?;
             line(&cli::invoke(&c, &key, &action, v).await?);
         }
         Cmd::History { key, args } => {
@@ -149,5 +211,38 @@ async fn main() {
             line(&json!({ "error": e }));
             std::process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::invoke_args;
+    use wyrm_core::Value;
+
+    #[test]
+    fn invoke_arguments_from_files() {
+        let dir = std::env::temp_dir().join(format!("wyrm-agent-args-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (json, part) = (dir.join("args.json"), dir.join("part.bin"));
+        let big = vec![9u8; 100 << 10];
+        std::fs::write(&json, r#"{"upload": "u1", "index": 2, "data": "replaced"}"#).unwrap();
+        std::fs::write(&part, &big).unwrap();
+        let file = format!("data={}", part.display());
+        let Value::Map(m) = invoke_args("{}", Some(&json), &[file]).unwrap() else {
+            panic!("a map");
+        };
+        assert_eq!(m.get("upload"), Some(&Value::from("u1")));
+        assert_eq!(m.get("index"), Some(&Value::UInt(2)));
+        assert_eq!(m.get("data"), Some(&Value::Bytes(big)));
+        // the command-line form, and what is refused
+        let Value::Map(m) = invoke_args(r#"{"a": 1}"#, None, &[]).unwrap() else {
+            panic!("a map");
+        };
+        assert_eq!(m.get("a"), Some(&Value::UInt(1)));
+        assert!(invoke_args("[1]", None, &[]).is_err());
+        assert!(invoke_args("{}", None, &["data".into()]).is_err());
+        assert!(invoke_args("{}", None, &["=x".into()]).is_err());
+        assert!(invoke_args("{}", None, &[format!("d={}", dir.join("none").display())]).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

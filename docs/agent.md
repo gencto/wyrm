@@ -27,7 +27,7 @@ plant too (ADR 0007, 0018).
 | `get <key>…` | Current values. |
 | `watch <pattern> [--seconds N]` | Samples of a key or a pattern for a while. |
 | `set <key> <json>` | Writes a value. |
-| `invoke <key> <action> [<json args>]` | Runs an action. |
+| `invoke <key> <action> [<json args>] [--args-file <path>] [--file <param>=<path>]…` | Runs an action. `--args-file` reads the JSON arguments from a file; `--file` sets a binary parameter to the bytes of a file (a zip, a part). Arguments over 60 KiB go by the gateway's `POST /api/invoke`, which takes only an action with an `editor: file` parameter, up to 64 MiB. |
 | `history <key> <json args>` | Recorded values (`{"from": "…", "limit": 100}`). |
 | `run <plan.json> [--apply]` | Checks a plan; with `--apply`, runs it. |
 

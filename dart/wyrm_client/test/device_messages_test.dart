@@ -64,34 +64,47 @@ void main() {
       }),
     );
     expect(e.code, 'confirm_required');
+    expect(e.refusal, GatewayRefusal.confirmRequired);
     expect(e.nonce!.length, 56);
     expect(e.request!.length, 32);
     expect(e.status, StatusCode.of(Status.permissionDenied));
   });
 
   test('info and device rows parse', () {
-    final i = GatewayInfo.of(
+    final i = GatewayInfo.fromValue(
       VMap({
         'site': const VStr('plant'),
         'version': const VStr('0.1.0'),
         'tls': const VBool(true),
         'ca_fp': const VStr('68f7dfccc43c1853c1d268219414440b'),
         'names': VArray([const VStr('gw.plant.example')]),
+        'role': const VStr('active'),
+        'min_studio': const VStr('1.0.0'),
+        'up': VArray(const []),
         'devices': VMap({
           'enabled': const VBool(true),
+          'max_per_user': const VInt(5),
+          'password_every_days': const VInt(30),
+          'idle_lock_max_min': const VInt(30),
           'step_up': const VStr('config'),
+          'allow_device_credential': const VBool(false),
         }),
       }),
     );
     expect(i.site, 'plant');
     expect(i.devices.enabled, isTrue);
-    expect(i.devices.stepUp, 'config');
+    expect(i.devices.stepUp, StepUp.config);
     expect(i.names, ['gw.plant.example']);
-    final d = GatewayDevice.of(
+    final d = GatewayDevice.fromValue(
       VMap({
         'id': const VStr('ab'),
         'name': const VStr('Mac'),
         'platform': const VStr('macos'),
+        'alg': const VStr('es256'),
+        'added': const VInt(1),
+        'last_used': const VInt(2),
+        'password_at': const VInt(1),
+        'password_due_at': const VInt(3),
         'state': const VStr('removed'),
         'removed_by': const VStr('user:root'),
         'this': const VBool(true),
@@ -99,7 +112,8 @@ void main() {
     );
     expect(
       (d.state, d.removedBy, d.thisSession),
-      ('removed', 'user:root', true),
+      (GatewayDeviceState.removed, 'user:root', true),
     );
+    expect(d.alg, DeviceAlg.es256);
   });
 }

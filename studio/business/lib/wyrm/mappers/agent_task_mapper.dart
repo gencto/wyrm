@@ -1,3 +1,6 @@
+// Calls deprecated wyrm_client shims until this file moves to the typed API
+// (dart/ PR "typed wire"; list in its body).
+// ignore_for_file: deprecated_member_use
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/agent_task.dart';
 import 'package:models/plan_step.dart';

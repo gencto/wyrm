@@ -97,6 +97,10 @@ void main() {
   }
 
   testWidgets(
+    'a large flow, laid out by its data flow and fitted when it opens',
+    (t) => shoot(t, 'flow_large', flowLarge()),
+  );
+  testWidgets(
     'block selected',
     (t) => shoot(t, 'flow_block_selected', flowBlockSelected()),
   );

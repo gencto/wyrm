@@ -1,3 +1,6 @@
+// Calls deprecated wyrm_client shims until this file moves to the typed API
+// (dart/ PR "typed wire"; list in its body).
+// ignore_for_file: deprecated_member_use
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -604,7 +607,7 @@ FoundGateway _withInfo(FoundGateway row, GatewayInfo info, String studio) {
   return row.copyWith(
     version: info.version.isEmpty ? row.version : info.version,
     up: up,
-    role: info.role,
+    role: info.role.wire,
     standby: _standbyOf(info.pair, tls: row.tls) ?? row.standby,
     problem: atLeast(studio, info.minStudio) ? null : FoundProblem.studioTooOld,
     detail: atLeast(studio, info.minStudio) ? null : info.minStudio,

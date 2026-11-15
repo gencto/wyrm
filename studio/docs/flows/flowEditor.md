@@ -540,11 +540,13 @@ sequenceDiagram
     participant A1 as SetClipboardAction
     participant A2 as RemoveBlocksAction
     participant A3 as PasteBlocksAction
-    participant A4 as UndoFlowAction
-    participant A5 as RedoFlowAction
-    participant A6 as SetViewedFieldAction
-    participant A7 as SetSelectedBlockAction
-    participant A8 as EnterBlockAction
+    participant A4 as PasteBlocksAction.duplicate
+    participant A5 as UndoFlowAction
+    participant A6 as RedoFlowAction
+    participant A7 as SetViewedFieldAction
+    participant A8 as SetSelectedBlockAction
+    participant A9 as TidyFlowAction
+    participant A10 as EnterBlockAction
     participant ST as AppState
 
     User->>UI: onCommand
@@ -559,29 +561,29 @@ sequenceDiagram
     VM->>A3: dispatchSync
     A3->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A3->>ST: dispatchAndWait(ValidateFlowAction)
-    alt picked.isNotEmpty
-        VM->>A3: dispatchSync
-        A3->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
-        A3->>ST: dispatchAndWait(ValidateFlowAction)
-    end
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+    A4->>ST: dispatchAndWait(ValidateFlowAction)
     VM->>A2: dispatchSync
     A2->>ST: copyWith(flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
     A2->>ST: dispatchAndWait(ValidateFlowAction)
-    VM->>A4: dispatchSync
-    A4->>ST: copyWith(flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
-    A4->>ST: dispatchAndWait(ValidateFlowAction)
     VM->>A5: dispatchSync
-    A5->>ST: copyWith(flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
+    A5->>ST: copyWith(flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
     A5->>ST: dispatchAndWait(ValidateFlowAction)
+    VM->>A6: dispatchSync
+    A6->>ST: copyWith(flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty)
+    A6->>ST: dispatchAndWait(ValidateFlowAction)
     alt ed.viewedField != null
-        VM->>A6: dispatchSync
-        A6->>ST: copyWith(flowEditor.viewedField)
         VM->>A7: dispatchSync
-        A7->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
-    end
-    alt blockNameOf(one?.type ?? '')
+        A7->>ST: copyWith(flowEditor.viewedField)
         VM->>A8: dispatchSync
-        A8->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
+        A8->>ST: copyWith(flowEditor.selectedBlock, flowEditor.selection)
+    end
+    VM->>A9: dispatchSync
+    A9->>ST: copyWith(flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag)
+    alt blockNameOf(one?.type ?? '')
+        VM->>A10: dispatchSync
+        A10->>ST: copyWith(flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt)
     end
 ```
 
@@ -945,7 +947,7 @@ _Not drawn — these files dispatch outside any interaction:_
 | `onMove` | `MoveBlocksAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onSelect` | `SetSelectedBlockAction` | `flowEditor.selectedBlock, flowEditor.selection` |
 | `onSelectMany` | `SelectBlocksAction` | `flowEditor.selection, flowEditor.selectedBlock` |
-| `onCommand` | `SetClipboardAction`, `RemoveBlocksAction` ?, `PasteBlocksAction`, `PasteBlocksAction` ?, `RemoveBlocksAction`, `UndoFlowAction`, `RedoFlowAction`, `SetViewedFieldAction` ?, `SetSelectedBlockAction` ?, `EnterBlockAction` ? | `flowEditor.clipboard`, `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.viewedField`, `flowEditor.selectedBlock, flowEditor.selection`, `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
+| `onCommand` | `SetClipboardAction`, `RemoveBlocksAction` ?, `PasteBlocksAction`, `PasteBlocksAction.duplicate`, `RemoveBlocksAction`, `UndoFlowAction`, `RedoFlowAction`, `SetViewedFieldAction` ?, `SetSelectedBlockAction` ?, `TidyFlowAction`, `EnterBlockAction` ? | `flowEditor.clipboard`, `flowEditor.draft, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.draft, flowEditor.redo, flowEditor.undo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.dirty`, `flowEditor.viewedField`, `flowEditor.selectedBlock, flowEditor.selection`, `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag`, `flowEditor.frames, flowEditor.draft, flowEditor.undo, flowEditor.redo, flowEditor.undoTag, flowEditor.selection, flowEditor.selectedBlock, flowEditor.viewedField, flowEditor.scopePrompt` |
 | `onPin` | `SetFieldPinAction` | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onFieldPin` | `SetFieldPinAction` ? | `flowEditor.draft, flowEditor.dirty, flowEditor.undo, flowEditor.redo, flowEditor.undoTag` |
 | `onViewField` | `SetViewedFieldAction` | `flowEditor.viewedField` |

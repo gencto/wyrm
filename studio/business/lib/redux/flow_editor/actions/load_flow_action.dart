@@ -4,6 +4,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/mappers/flow_blocks.dart';
+import '../../../wyrm/mappers/flow_layout.dart';
 import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -44,9 +45,14 @@ class LoadFlowAction extends Action {
     if (!isNew) {
       final defs = await askOne(api, '$root/dataflows/$id', 'history');
       if (defs case VArray(:final v) when v.isNotEmpty) {
-        draft = tidyIfOverlapping(
-          flowDraftOf(id, v.last),
-          {for (final t in types) t.type: t},
+        // A saved place always wins; blocks without one are laid out by
+        // the data flow (flow-editor.md §25).
+        final read = flowReadOf(id, v.last);
+        draft = placeFlow(
+          read.draft,
+          // The catalog with the flow's own custom blocks, as drawn.
+          {for (final t in typesWithBlocks(types, read.draft)) t.type: t},
+          placed: read.placed,
         );
       }
     }

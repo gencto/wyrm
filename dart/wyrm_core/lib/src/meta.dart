@@ -43,6 +43,35 @@ final class TText extends TextOrCode {
   String toString() => text;
 }
 
+/// `editor` of a parameter (spec 02): how a UI edits it. The set grows and
+/// a UI ignores an editor it does not know, so [ParamMeta.editorKind] is
+/// null for one this client does not know.
+enum ParamEditor implements WireName {
+  /// Hidden, never shown or filled in (a secret).
+  password('password'),
+
+  /// Multi-line text.
+  textarea('textarea'),
+
+  /// A `binary` parameter read from a local file.
+  file('file'),
+
+  /// `<from>/<to>` in RFC 3339, with preset ranges.
+  daterange('daterange'),
+
+  /// One instant in RFC 3339.
+  date('date'),
+
+  /// Seconds, typed in a chosen unit.
+  duration('duration');
+
+  @override
+  final String wire;
+  const ParamEditor(this.wire);
+
+  static ParamEditor? fromWire(String s) => wireByName(values, s);
+}
+
 /// Parameter metadata inside `actions.*.params`.
 class ParamMeta {
   TypeCode? ty;
@@ -73,9 +102,15 @@ class ParamMeta {
       this.placeholder,
       this.editor});
 
-  bool get isPassword => editor == 'password';
+  /// [editor] as a [ParamEditor]; null when absent or unknown.
+  ParamEditor? get editorKind {
+    final e = editor;
+    return e == null ? null : ParamEditor.fromWire(e);
+  }
 
-  bool get isFile => editor == 'file';
+  bool get isPassword => editorKind == ParamEditor.password;
+
+  bool get isFile => editorKind == ParamEditor.file;
 
   void encode(CborWriter w) {
     final n = [ty, unit, enumValues, defaultValue, required, display, description, placeholder, editor]

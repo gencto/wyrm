@@ -29,6 +29,9 @@ Everything below is the part no command scaffolds.
 - `dispatchAndWait` — returns the `ActionStatus`; await it when the next step
   depends on whether the action succeeded.
 - `dispatch` — fire and forget, including `GoAction` for navigation.
+- Never `unawaited(dispatch…(…))` (`studio-rules` §1): start work with
+  `dispatch`, show it with `WaitingAction`, and put a sequence of steps inside
+  one action that awaits them.
 
 Navigation is itself an action (`GoAction.push` / `replace` / `navigate` / `pop`
 / `popUntilRoot`), so it is observable and testable like any other, and
