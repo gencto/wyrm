@@ -13,11 +13,12 @@ import 'package:business/redux/nodes/actions/select_point_action.dart';
 import 'package:business/redux/nodes/actions/set_selected_node_action.dart';
 import 'package:business/redux/tasks/actions/set_selected_task_action.dart';
 import 'package:business/wyrm/context_keys.dart';
-import 'package:business/wyrm/mappers/agent_task_mapper.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/finding_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
+import 'support/agent_records.dart';
 import 'support/fake_wyrm.dart';
 
 const _agent = 'wy/central/downstream/agent';
@@ -39,9 +40,8 @@ void main() {
   }
 
   test('the findings of a record, in order; an older record has none', () {
-    final t = agentTaskOf(
-      't-1',
-      Value.from({
+    final t = taskOf(
+      taskRecord({
         'state': 'done',
         'plan': <Object?>[],
         'findings': [
@@ -58,11 +58,8 @@ void main() {
         (_valve, 'valve', 'bad since 03:12'),
       ],
     );
-    expect(t.findingsRefused.unlock, {'rights_expired': 2});
-    final old = agentTaskOf(
-      't-0',
-      Value.from({'state': 'done', 'plan': <Object?>[]}),
-    );
+    expect(t.findingsRefused.unlock, {FindingRefusal.rightsExpired: 2});
+    final old = taskOf(taskRecord({'state': 'done', 'plan': <Object?>[]}));
     expect(old.findings, isEmpty);
     expect(old.findingsRefused, isEmpty);
   });
@@ -77,7 +74,7 @@ void main() {
           attr: {'driver': const VStr('agent'), 'mode': const VStr('embedded')},
         )
         ..metas[_agent] = NodeMeta()
-        ..docs['$_agent/tasks/t-1 ~state'] = Value.from({
+        ..docs['$_agent/tasks/t-1 ~state'] = taskRecord({
           'state': 'planning',
           'plan': <Object?>[],
         });

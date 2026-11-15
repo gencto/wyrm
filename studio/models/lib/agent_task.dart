@@ -1,7 +1,9 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'finding_refusal.dart';
 import 'plan_step.dart';
+import 'task_event.dart';
 import 'task_finding.dart';
 import 'task_question.dart';
 import 'task_state.dart';
@@ -51,10 +53,18 @@ abstract class AgentTask with _$AgentTask {
     /// What the model read about nodes (`findings`, ADR 0049 amendment 2).
     @Default(IListConst([])) IList<TaskFinding> findings,
 
-    /// Findings the agent link did not note, by why (`findings_refused`:
-    /// `rights_expired`, `rights_unknown`, `outside_rights`, `limit`,
-    /// `invalid`), each with a count.
-    @Default(IMapConst({})) IMap<String, int> findingsRefused,
+    /// Findings the agent link did not note, by why (`findings_refused`),
+    /// each with a count.
+    @Default(IMapConst({})) IMap<FindingRefusal, int> findingsRefused,
+
+    /// Who approved the plan, the record's own line (`approved by olena,
+    /// 1 step(s) left out`); null before an approval.
+    String? approvedBy,
+
+    /// The conversation as the record tells it: the ask, the model's
+    /// lines, what it did, the error. For a task asked in another session
+    /// (or before a restart of Studio).
+    @Default(IListConst([])) IList<TaskEvent> told,
 
     /// The record (`~state`) was read; before that only the state is known.
     @Default(false) bool recorded,

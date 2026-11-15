@@ -1,8 +1,5 @@
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:wyrm_client/wyrm_client.dart';
-
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/agent_config.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -29,11 +26,9 @@ class RetrieveAgentSecretsAction extends Action {
       if (assistant.agent != agent) {
         return null;
       }
+      // an answer that is no list of names is logged: not known
       return state.copyWith.assistant(
-        secrets: switch (names) {
-          VArray(:final v) => {for (final n in v) ?str(n)}.lock,
-          _ => const ISetConst({}),
-        },
+        secrets: secretNamesOf(names).orWarn(key),
       );
     } on Object {
       // An older broker without the action, or no rights: not known.

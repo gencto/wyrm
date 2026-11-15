@@ -1,6 +1,9 @@
+import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../assistant/assistant_composer.dart';
+import '../assistant/blocked.dart';
 import '../assistant/choices_card.dart';
 import '../assistant/conversation.dart';
 import '../assistant/more_rows_card.dart';
@@ -9,6 +12,7 @@ import '../assistant/result_card.dart';
 import '../assistant/rights_panel.dart';
 import '../assistant/run_card.dart';
 import '../assistant/stopped_card.dart';
+import '../assistant/task_badge.dart';
 import '../assistant/task_card.dart';
 import '../assistant/task_list.dart';
 import '../buttons/button.dart';
@@ -21,40 +25,77 @@ import '../theme/extensions/colors.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
-export '../assistant/assistant_composer.dart' show ChipVm;
-export '../assistant/task_card.dart' show TaskButtonVm, TaskCardVm;
+export '../assistant/task_card.dart' show TaskButton, TaskButtonVm, TaskCardVm;
 
-/// One `kind  key` row of WHAT IT READ.
-typedef ReadRow = (String kind, String key);
+/// One tool of WHAT IT READ and how many times the model called it.
+typedef ReadRow = (String tool, int times);
+
+/// A row of *Same for more units?*: the suggestion it belongs to and the
+/// node's key.
+typedef MoreRowRef = ({String suggestion, String key});
+
+/// The panels on the right of the Assistant.
+enum AssistantTab {
+  task,
+  rights;
+
+  String get label => switch (this) {
+    task => S.current.panelThisTask,
+    rights => S.current.panelMayDo,
+  };
+}
+
+/// *This task*: the selected task's facts.
+final class TaskFactsVm extends Equatable {
+  const TaskFactsVm({
+    required this.taskId,
+    required this.badge,
+    this.owner = '',
+    this.events = 0,
+  });
+
+  final String taskId;
+  final TaskBadge badge;
+
+  /// Who asked (`user:olena`); empty when not known.
+  final String owner;
+
+  /// How many lines its conversation holds in this session.
+  final int events;
+
+  List<FactVm> get facts => [
+    FactVm(label: S.current.factTask, value: 'tasks/$taskId', mono: true),
+    FactVm(label: S.current.factTaskState, value: badge.label),
+    if (owner.isNotEmpty) FactVm(label: S.current.factAskedBy, value: owner),
+    if (events > 0) FactVm(label: S.current.factEvents, value: '$events'),
+  ];
+
+  @override
+  List<Object?> get props => [taskId, badge, owner, events];
+}
 
 /// Board *Assistant*: tasks on the left, the selected task's conversation
 /// with its card and the ask box in the middle, *This task* and *What it
-/// may do* on the right. With [empty] set (no agent link on the site) the
-/// middle shows it and [emptyAction] instead.
+/// may do* on the right. With [noAgent] (no agent link on the site) the
+/// middle says so and offers to add one.
 class AssistantPage extends StatelessWidget {
   const AssistantPage({
-    required this.newLabel,
-    required this.listNote,
     required this.sections,
     required this.onNew,
     required this.onTask,
     required this.events,
-    required this.draft,
-    required this.askHint,
-    required this.askLabel,
+    required this.composer,
     required this.onDraft,
     required this.onAsk,
-    required this.panels,
     required this.panel,
     required this.onPanel,
-    required this.facts,
-    required this.readsLabel,
     required this.reads,
-    required this.panelNote,
     required this.onButton,
+    this.agent,
+    this.noAgent = false,
     this.title,
-    this.status,
-    this.taskKey,
+    this.badge,
+    this.taskId,
     this.plan,
     this.onTick,
     this.onFix,
@@ -70,34 +111,33 @@ class AssistantPage extends StatelessWidget {
     this.onPick,
     this.onAnswer,
     this.card,
-    this.askReason,
-    this.askNote,
-    this.chips = const [],
     this.onChipRemove,
-    this.addChipLabel,
-    this.addChipReason,
     this.onAddChip,
+    this.facts,
     this.rights,
     this.onMode,
     this.onRemovePrefix,
     this.onAddPrefix,
-    this.empty,
-    this.emptyAction,
-    this.onEmptyAction,
+    this.onAddAgent,
     super.key,
   });
 
-  final String newLabel;
-  final String listNote;
   final List<TaskSectionVm> sections;
   final VoidCallback onNew;
   final ValueChanged<String> onTask;
 
-  final String? title;
-  final StatusPillVm? status;
+  /// The agent link's key; null when the site has none.
+  final String? agent;
 
-  /// `tasks/t-0142`.
-  final String? taskKey;
+  /// The site has no agent link.
+  final bool noAgent;
+
+  /// The selected task's ask.
+  final String? title;
+  final TaskBadge? badge;
+
+  /// The selected task (`t-0142`).
+  final String? taskId;
   final List<ConversationEventVm> events;
 
   /// The task's plan, above its card; null while it is not known.
@@ -120,7 +160,7 @@ class AssistantPage extends StatelessWidget {
 
   /// *Same for more units?*: the suggestions with rows, under [result].
   final List<MoreRowsCardVm> more;
-  final void Function(String suggestion, String key, {required bool on})? onRow;
+  final Toggled<MoreRowRef>? onRow;
   final ValueChanged<String>? onMore;
 
   /// Where a run stopped and the ways out.
@@ -134,46 +174,32 @@ class AssistantPage extends StatelessWidget {
   /// The picks of [choices] are sent (`Write the plan`).
   final VoidCallback? onAnswer;
   final TaskCardVm? card;
-  final ValueChanged<String> onButton;
+  final ValueChanged<TaskButtonVm> onButton;
 
-  final String draft;
-  final String askHint;
-  final String askLabel;
-
-  /// Why asking is not possible (no write on the agent, no agent).
-  final String? askReason;
-
-  /// What sending does to the plan that waits: shown above the box.
-  final String? askNote;
-
-  /// The `@` chips that go with the ask as its context.
-  final List<ChipVm> chips;
+  /// The ask box.
+  final ComposerVm composer;
   final ValueChanged<String>? onChipRemove;
-
-  /// `+ from Explorer`; null: not offered.
-  final String? addChipLabel;
-  final String? addChipReason;
   final VoidCallback? onAddChip;
   final ValueChanged<String> onDraft;
   final VoidCallback onAsk;
 
-  final List<TabItemVm> panels;
-  final String panel;
-  final ValueChanged<String> onPanel;
-  final List<FactVm> facts;
-  final String readsLabel;
+  final AssistantTab panel;
+  final ValueChanged<AssistantTab> onPanel;
+
+  /// *This task*; null when no task is selected.
+  final TaskFactsVm? facts;
+
+  /// WHAT IT READ in this session; empty under *What it may do*.
   final List<ReadRow> reads;
-  final String panelNote;
 
   /// *What it may do*: shown in place of [facts] and [reads].
   final RightsPanelVm? rights;
-  final ValueChanged<String>? onMode;
+  final ValueChanged<AgentModeVm>? onMode;
   final ValueChanged<String>? onRemovePrefix;
   final VoidCallback? onAddPrefix;
 
-  final String? empty;
-  final String? emptyAction;
-  final VoidCallback? onEmptyAction;
+  /// *Add the agent link*, when the site has none.
+  final VoidCallback? onAddAgent;
 
   @override
   Widget build(BuildContext context) {
@@ -185,16 +211,15 @@ class AssistantPage extends StatelessWidget {
         border: Border(right: BorderSide(color: c.line1)),
       ),
       child: TaskList(
-        newLabel: newLabel,
-        note: listNote,
         sections: sections,
         onNew: onNew,
         onTask: onTask,
-        newReason: empty,
+        agent: agent,
+        noAgent: noAgent,
       ),
     );
     final Widget middle;
-    if (empty case final e?) {
+    if (noAgent) {
       middle = Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -203,7 +228,7 @@ class AssistantPage extends StatelessWidget {
             spacing: 16,
             children: [
               Text(
-                e,
+                const BlockedNoAgent().text,
                 textAlign: .center,
                 style: TextStyle(
                   fontSize: FontSizes.lg,
@@ -211,12 +236,11 @@ class AssistantPage extends StatelessWidget {
                   color: c.text2,
                 ),
               ),
-              if (emptyAction case final a?)
-                Button.primary(
-                  label: a,
-                  icon: 'ui_add',
-                  onPressed: onEmptyAction,
-                ),
+              Button.primary(
+                label: S.current.addAgent,
+                icon: 'ui_add',
+                onPressed: onAddAgent,
+              ),
             ],
           ),
         ),
@@ -245,9 +269,13 @@ class AssistantPage extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (status case final s?) StatusPill(vm: s, dense: true),
-                if (taskKey case final k?)
-                  Text(k, style: mono(size: 12, color: c.text3)),
+                if (badge case final b?)
+                  StatusPill(
+                    vm: StatusPillVm(label: b.label, tone: b.tone),
+                    dense: true,
+                  ),
+                if (taskId case final id?)
+                  Text('tasks/$id', style: mono(size: 12, color: c.text3)),
               ],
             ),
           ),
@@ -281,8 +309,10 @@ class AssistantPage extends StatelessWidget {
                         for (final m in more)
                           MoreRowsCard(
                             vm: m,
-                            onRow: (key, {required on}) =>
-                                onRow?.call(m.id, key, on: on),
+                            onRow: (key, {required on}) => onRow?.call((
+                              suggestion: m.id,
+                              key: key,
+                            ), on: on),
                             onAsk: () => onMore?.call(m.id),
                           ),
                         if (stopped case final st?)
@@ -294,18 +324,11 @@ class AssistantPage extends StatelessWidget {
             ),
           ),
           AssistantComposer(
-            draft: draft,
-            hint: askHint,
-            label: askLabel,
-            reason: askReason,
+            vm: composer,
             onDraft: onDraft,
             onAsk: onAsk,
-            chips: chips,
             onChipRemove: onChipRemove,
-            addChipLabel: addChipLabel,
-            addChipReason: addChipReason,
             onAddChip: onAddChip,
-            note: askNote,
           ),
         ],
       );
@@ -319,7 +342,14 @@ class AssistantPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: .stretch,
         children: [
-          SegmentedTabs(tabs: panels, selected: panel, onSelect: onPanel),
+          SegmentedTabs(
+            tabs: [
+              for (final t in AssistantTab.values)
+                TabItemVm(id: t.name, label: t.label),
+            ],
+            selected: panel.name,
+            onSelect: (id) => onPanel(AssistantTab.values.byName(id)),
+          ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(18),
@@ -332,22 +362,22 @@ class AssistantPage extends StatelessWidget {
                     onAddPrefix: onAddPrefix,
                   )
                 else
-                  FactGrid(facts: facts, labelWidth: 96),
+                  FactGrid(facts: facts?.facts ?? const [], labelWidth: 96),
                 if (reads.isNotEmpty) ...[
                   const SizedBox(height: 20),
-                  SectionLabel(readsLabel),
+                  SectionLabel(S.current.whatItRead),
                   Gaps.sm,
-                  for (final (kind, key) in reads)
+                  for (final (tool, times) in reads)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Row(
                         crossAxisAlignment: .start,
                         spacing: 8,
                         children: [
-                          Text(kind, style: mono(size: 12, color: c.good)),
+                          Text(tool, style: mono(size: 12, color: c.good)),
                           Expanded(
                             child: Text(
-                              key,
+                              times > 1 ? '× $times' : '',
                               style: mono(size: 12, color: c.text2),
                             ),
                           ),
@@ -355,10 +385,10 @@ class AssistantPage extends StatelessWidget {
                       ),
                     ),
                 ],
-                if (panelNote.isNotEmpty) ...[
+                if (reads.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Text(
-                    panelNote,
+                    S.current.readsNote,
                     style: TextStyle(
                       fontSize: FontSizes.sm,
                       height: 1.5,

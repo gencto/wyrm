@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
@@ -8,6 +9,7 @@ import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
+import 'blocked.dart';
 
 /// One option of a question: its label, the detail under it, and whether
 /// it is picked.
@@ -28,6 +30,28 @@ final class ChoiceOptionVm extends Equatable {
   List<Object?> get props => [id, label, detail, picked];
 }
 
+/// How a question was answered.
+final class ChoiceAnswerVm extends Equatable {
+  /// In the person's own [words].
+  const ChoiceAnswerVm.words(String this.words) : labels = const [];
+
+  /// With the options of these [labels] (none: no answer).
+  const ChoiceAnswerVm.picked(this.labels) : words = null;
+
+  final String? words;
+  final List<String> labels;
+
+  /// `from the card: Slave ID 4`, `in your own words: …`, `no answer`.
+  String get text => switch (words) {
+    final w? when w.isNotEmpty => S.current.choicesOwnWords(w),
+    _ when labels.isEmpty => S.current.choicesNoAnswer,
+    _ => S.current.choicesFromCard(labels.join(', ')),
+  };
+
+  @override
+  List<Object?> get props => [words, labels];
+}
+
 /// One question of [ChoicesCard]. With [answer] it was answered and is
 /// drawn as one line (`from the card: …`); else as its options.
 final class ChoiceQuestionVm extends Equatable {
@@ -45,7 +69,7 @@ final class ChoiceQuestionVm extends Equatable {
 
   /// Several options may be picked (ticks); else one (a radio mark).
   final bool multiple;
-  final String? answer;
+  final ChoiceAnswerVm? answer;
 
   @override
   List<Object?> get props => [id, text, options, multiple, answer];
@@ -54,29 +78,32 @@ final class ChoiceQuestionVm extends Equatable {
 /// What [ChoicesCard] draws.
 final class ChoicesCardVm extends Equatable {
   const ChoicesCardVm({
-    required this.title,
     required this.questions,
-    this.confirm,
-    this.confirmReason,
-    this.note,
+    this.confirm = false,
+    this.blocked,
   });
 
-  /// `The assistant asks`.
-  final String title;
   final List<ChoiceQuestionVm> questions;
 
-  /// `Write the plan`; null when every question was answered.
-  final String? confirm;
+  /// *Write the plan* is offered: a question still waits.
+  final bool confirm;
 
-  /// Why [confirm] cannot be pressed (nothing picked, no write on the
-  /// agent).
-  final String? confirmReason;
+  /// Why *Write the plan* cannot be pressed (nothing picked, no write on
+  /// the agent, an answer on its way).
+  final Blocked? blocked;
+
+  /// `The assistant asks`.
+  String get title => S.current.choicesTitle;
+
+  String? get confirmLabel => confirm ? S.current.choicesConfirm : null;
+
+  String? get confirmReason => blocked?.text;
 
   /// `Or answer in your own words below.`
-  final String? note;
+  String get note => S.current.choicesNote;
 
   @override
-  List<Object?> get props => [title, questions, confirm, confirmReason, note];
+  List<Object?> get props => [questions, confirm, blocked];
 }
 
 /// Board *AssistantAsk*: the assistant asks back. Each open question is a
@@ -105,12 +132,7 @@ class ChoicesCard extends StatelessWidget {
     );
     return Container(
       margin: Insets.assistantCard,
-      padding: const EdgeInsets.fromLTRB(
-        14,
-        12,
-        14,
-        12,
-      ),
+      padding: Insets.card,
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.line2),
@@ -131,7 +153,7 @@ class ChoicesCard extends StatelessWidget {
               ),
             ),
             if (q.answer case final a?)
-              Text(a, style: small.copyWith(color: c.text2))
+              Text(a.text, style: small.copyWith(color: c.text2))
             else
               for (final o in q.options)
                 _Option(
@@ -140,12 +162,12 @@ class ChoicesCard extends StatelessWidget {
                   onTap: () => onPick(q.id, o.id),
                 ),
           ],
-          if (vm.confirm case final label?)
+          if (vm.confirmLabel case final label?)
             Row(
               spacing: 12,
               children: [
                 Expanded(
-                  child: Text(vm.note ?? '', style: small),
+                  child: Text(vm.note, style: small),
                 ),
                 Button.primary(
                   label: label,

@@ -1,5 +1,8 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'task_event_kind.dart';
+import 'task_state.dart';
+
 part 'task_event.freezed.dart';
 
 /// One line of a task's conversation: what was asked, what the model said,
@@ -7,9 +10,11 @@ part 'task_event.freezed.dart';
 @freezed
 abstract class TaskEvent with _$TaskEvent {
   const factory TaskEvent({
-    /// `ask`, `text`, `tool`, `state`, `error`.
-    required String kind,
+    required TaskEventKind kind,
     @Default('') String text,
+
+    /// The state reached, for [TaskEventKind.state].
+    TaskState? state,
     DateTime? time,
   }) = _TaskEvent;
 }

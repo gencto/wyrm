@@ -1759,7 +1759,7 @@
     "updVersionsOf": "Versions of {package}",
     "updNeverUpdated": "This package was not updated on this broker yet.",
     "bakNoBackups": "This broker makes no backups for Studio (a wyrmd before ADR 0048).",
-    "planSteps": "Plan · {n} steps",
+    "planSteps": "{n, plural, =1{Plan · 1 step} other{Plan · {n} steps}}",
     "planChecked": "awaiting approval · checked",
     "planWhyNote": "The lines after “why” and under “the assistant says” come from the model; a warning on the yellow band is the link's own check. Read the key and the arguments of each step: they are what runs.",
     "checkNow": "checked against the live tree",
@@ -2132,5 +2132,9 @@
     "levelRead": "read",
     "levelWrite": "write",
     "levelConfig": "config",
-    "flowProblemUnknown": "error"
+    "flowProblemUnknown": "error",
+    "modeUnknown": "Not known",
+    "modeUnknownDetail": "The agent's settings could not be read, so who approves is not known.",
+    "modeUnknownCaution": "Who approves is not known (the agent's settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.",
+    "fixReplacesModeUnknown": "replaces this plan; who approves is not known, so the new plan's write steps may run without a person"
 }

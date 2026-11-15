@@ -13986,10 +13986,12 @@ class S {
     );
   }
 
-  /// `Plan · {n} steps`
-  String planSteps(Object n) {
-    return Intl.message(
-      'Plan · $n steps',
+  /// `{n, plural, =1{Plan · 1 step} other{Plan · {n} steps}}`
+  String planSteps(num n) {
+    return Intl.plural(
+      n,
+      one: 'Plan · 1 step',
+      other: 'Plan · $n steps',
       name: 'planSteps',
       desc: '',
       args: [n],
@@ -17217,6 +17219,41 @@ class S {
     return Intl.message(
       'error',
       name: 'flowProblemUnknown',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Not known`
+  String get modeUnknown {
+    return Intl.message('Not known', name: 'modeUnknown', desc: '', args: []);
+  }
+
+  /// `The agent's settings could not be read, so who approves is not known.`
+  String get modeUnknownDetail {
+    return Intl.message(
+      'The agent\'s settings could not be read, so who approves is not known.',
+      name: 'modeUnknownDetail',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `Who approves is not known (the agent's settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant's guess, not a check. Read a tile before you pick it.`
+  String get modeUnknownCaution {
+    return Intl.message(
+      'Who approves is not known (the agent\'s settings could not be read): the plan of a pick may run its write steps without a person. The tag is the assistant\'s guess, not a check. Read a tile before you pick it.',
+      name: 'modeUnknownCaution',
+      desc: '',
+      args: [],
+    );
+  }
+
+  /// `replaces this plan; who approves is not known, so the new plan's write steps may run without a person`
+  String get fixReplacesModeUnknown {
+    return Intl.message(
+      'replaces this plan; who approves is not known, so the new plan\'s write steps may run without a person',
+      name: 'fixReplacesModeUnknown',
       desc: '',
       args: [],
     );

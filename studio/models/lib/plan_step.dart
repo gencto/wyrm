@@ -1,6 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
+
+import 'step_check.dart';
+import 'step_kind.dart';
 import 'step_result.dart';
 
 part 'plan_step.freezed.dart';
@@ -9,8 +13,8 @@ part 'plan_step.freezed.dart';
 abstract class PlanStep with _$PlanStep {
   /// One step of an agent plan (`tasks/<id>` `~state` `plan[]`, ADR 0049).
   const factory PlanStep({
-    /// `set`, `invoke`, `wait`, `expect` or `sleep`.
-    required String op,
+    /// What the step does.
+    required StepKind kind,
 
     /// The node the step is about (empty for `sleep`).
     required String key,
@@ -37,14 +41,14 @@ abstract class PlanStep with _$PlanStep {
     /// `wait`/`expect`: the timeout; `sleep`: its length. Seconds.
     double? seconds,
 
-    /// `read`, `write` or `config`.
-    @Default('write') String level,
+    /// The level the step needs.
+    @Default(Perm.write) Perm level,
 
     /// The step needs a human token.
     @Default(false) bool approval,
 
-    /// `now` (checked against the live tree) or `at_run`.
-    @Default('now') String check,
+    /// When it was checked against the tree.
+    @Default(StepCheck.now) StepCheck check,
 
     /// The link's own finding about the step (a checked conclusion).
     String? warn,
