@@ -171,8 +171,7 @@ final class TrendVm extends Equatable {
     required this.rangeEnd,
     required this.windowStart,
     required this.windowEnd,
-    required this.rollup,
-    required this.format,
+    required this.format, this.rollup,
     this.title = '',
     this.step,
     this.minWindow = 0,
@@ -196,8 +195,12 @@ final class TrendVm extends Equatable {
   final int windowStart;
   final int windowEnd;
 
-  /// What the plot's rows are, in the header and the tooltip.
-  final String rollup;
+  /// What the plot's rows are, in the header and the tooltip: words of
+  /// the caller's (`15 min avg`, `trendRollup`); null says `raw`.
+  final String? rollup;
+
+  /// [rollup], or `raw` in the language on screen.
+  String get rollupWords => rollup ?? S.current.trendRaw;
 
   /// The bucket of the plot's rows; null for raw rows or live samples.
   final int? step;
@@ -569,7 +572,7 @@ class _TrendState extends State<Trend> {
             style: mono(size: 12, color: c.text2),
             children: [
               TextSpan(
-                text: '  · ${vm.rollup}',
+                text: '  · ${vm.rollupWords}',
                 style: TextStyle(
                   fontFamily: AppFonts.sans,
                   fontSize: FontSizes.sm,
@@ -1164,9 +1167,9 @@ class _TrendState extends State<Trend> {
     final f = vm.format;
     final d = _dt(t);
     final bucket = vm.step != null
-        ? s.trendBucket(vm.rollup, f.clock(d), f.clock(_dt(t + vm.step!)))
+        ? s.trendBucket(vm.rollupWords, f.clock(d), f.clock(_dt(t + vm.step!)))
         : vm.live
-        ? '${vm.rollup} · ${f.clockSeconds(d)}'
+        ? '${vm.rollupWords} · ${f.clockSeconds(d)}'
         : s.trendRawAt(f.clockSeconds(d));
     final right = x > w * 0.6;
     final tip = Container(

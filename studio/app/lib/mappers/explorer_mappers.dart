@@ -482,7 +482,6 @@ extension ExplorerTrendVm on ExplorerTrend {
     rangeEnd: span.rangeEnd,
     windowStart: span.windowStart,
     windowEnd: span.windowEnd,
-    rollup: rollupText(null),
     minWindow: span.minWindow,
     endsNow: true,
     following: span.following,
