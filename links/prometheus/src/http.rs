@@ -65,7 +65,7 @@ impl Url {
             match e {
                 UrlError::NoScheme | UrlError::Scheme => "must start with http:// or https://",
                 UrlError::Credentials => "no user info in the url: use username/password",
-                UrlError::Ipv6 => "bad IPv6 address",
+                UrlError::Ipv6 | UrlError::Ipv6Address(_) => "bad IPv6 address",
                 UrlError::Port => "bad port",
                 UrlError::Chars => "spaces, control or non-ASCII characters in the url",
                 UrlError::NoHost | UrlError::Host => "bad host",

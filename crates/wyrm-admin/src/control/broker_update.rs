@@ -287,8 +287,8 @@ fn asset_url(channel: &str, asset: &Asset) -> Result<String, String> {
         return Ok(asset.url.clone());
     }
     // the channel's directory: its scheme, authority and path up to the last `/`
-    let u =
-        wyrm_core::weburl::Url::parse(channel).map_err(|_| "updates.channel: the URL of a file")?;
+    let u = wyrm_core::weburl::Url::parse(channel)
+        .map_err(|e| format!("updates.channel: the URL of a file ({e})"))?;
     let dir = u
         .path
         .rsplit_once('/')

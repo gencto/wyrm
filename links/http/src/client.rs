@@ -52,7 +52,7 @@ impl Origin {
             match e {
                 UrlError::NoScheme | UrlError::Scheme => "must start with http:// or https://",
                 UrlError::Credentials => "no user or password in the URL: use auth",
-                UrlError::Ipv6 => "bad IPv6 host",
+                UrlError::Ipv6 | UrlError::Ipv6Address(_) => "bad IPv6 host",
                 UrlError::Port => "bad port",
                 UrlError::Chars => "spaces, control or non-ASCII characters in the URL",
                 UrlError::NoHost | UrlError::Host => "bad host",

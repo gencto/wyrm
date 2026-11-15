@@ -1045,7 +1045,7 @@ impl Config {
                 d.policy()?;
             }
         }
-        for (id, l) in &cfg.links {
+        for id in cfg.links.keys() {
             wyrm_core::keyspace::validate_segment(id).map_err(|e| format!("links.{id}: {e}"))?;
             // ids of the broker's own links (ADR 0017, 0022, 0025, 0034)
             if [

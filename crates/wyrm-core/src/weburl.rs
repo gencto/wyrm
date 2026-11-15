@@ -32,7 +32,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 const MAX_NAME: usize = 253;
 
 /// Why a URL is refused. The message never holds the URL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UrlError {
     #[error("not scheme://host: no scheme")]
     NoScheme,
@@ -44,8 +44,12 @@ pub enum UrlError {
     Credentials,
     #[error("bad host")]
     Host,
+    /// No `]`, or text after it that is no port.
     #[error("bad IPv6 host")]
     Ipv6,
+    /// Between the brackets: no IPv6 address.
+    #[error("bad IPv6 host: {0}")]
+    Ipv6Address(#[source] std::net::AddrParseError),
     #[error("bad port")]
     Port,
     #[error("spaces, control or non-ASCII characters, or `\\`, in the URL")]
@@ -129,7 +133,7 @@ fn host_port(authority: &str) -> Result<(Host, Option<u16>), UrlError> {
     }
     if let Some(v6) = authority.strip_prefix('[') {
         let (h, after) = v6.split_once(']').ok_or(UrlError::Ipv6)?;
-        let ip = h.parse::<Ipv6Addr>().map_err(|_| UrlError::Ipv6)?;
+        let ip = h.parse::<Ipv6Addr>().map_err(UrlError::Ipv6Address)?;
         let port = match after {
             "" => None,
             p => Some(port_of(p.strip_prefix(':').ok_or(UrlError::Port)?)?),
@@ -318,6 +322,7 @@ mod tests {
     #[test]
     fn refusals() {
         use UrlError::*;
+        let addr = Ipv6Address("x".parse::<Ipv6Addr>().unwrap_err());
         for (s, e) in [
             // userinfo, in every spelling
             ("https://u:p@host/", Credentials),
@@ -328,12 +333,12 @@ mod tests {
             // IPv6 literals
             ("http://[::1/", Ipv6),
             ("http://[::1", Ipv6),
-            ("http://[fe80::1%25eth0]/", Ipv6),
-            ("http://[g::1]/", Ipv6),
+            ("http://[fe80::1%25eth0]/", addr.clone()),
+            ("http://[g::1]/", addr.clone()),
             ("http://[::1]x/", Port),
             ("http://[::1]:/", Port),
             ("http://::1/", Port),
-            ("http://[]/", Ipv6),
+            ("http://[]/", addr.clone()),
             // ports
             ("http://host:0/", Port),
             ("http://host:65536/", Port),
@@ -369,7 +374,7 @@ mod tests {
             (" https://host", Chars),
             ("https://host ", Chars),
         ] {
-            assert_eq!(Url::parse(s), Err(e), "{s:?}");
+            assert_eq!(Url::parse(s), Err(e.clone()), "{s:?}");
         }
         let long = format!("http://{}.example/", "a".repeat(250));
         assert_eq!(Url::parse(&long), Err(Host));
