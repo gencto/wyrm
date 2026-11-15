@@ -883,7 +883,7 @@
   },
   "clippy::let_underscore_must_use": {
     "crates/wyrm-admin/src/backup.rs": 4,
-    "crates/wyrm-admin/src/control.rs": 27,
+    "crates/wyrm-admin/src/control.rs": 23,
     "crates/wyrm-admin/src/control/backups.rs": 10,
     "crates/wyrm-admin/src/control/broker_update.rs": 15,
     "crates/wyrm-admin/src/control/restore.rs": 5,

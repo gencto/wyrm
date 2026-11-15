@@ -908,6 +908,50 @@ impl Control {
             .map(|_| ())
     }
 
+    /// The agent's LLM API key is entered for one `api_base` and one `api_key_ref`: a change of
+    /// either drops the secrets both names held until someone enters the key again with
+    /// ▸ Set Secret (security review AI-3: a `config` operator who cannot read `secrets.bin`
+    /// pointed `api_base` at a host of their own and received the key; changing the name first
+    /// and the host next, then the name back, must not keep it either).
+    /// `Err` when a secret cannot be removed: the caller refuses the edit, so the key never
+    /// stays with a new base (fails closed).
+    fn drop_agent_key_on_new_base(
+        &self,
+        id: &str,
+        old: &Value,
+        new: &Value,
+        sub: &str,
+    ) -> Result<(), Error> {
+        let text = |v: &Value, k: &str, d: &str| match v {
+            Value::Map(m) => match m.get(k) {
+                Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
+                _ => d.to_owned(),
+            },
+            _ => d.to_owned(),
+        };
+        let base = |v: &Value| text(v, "api_base", AGENT_API_BASE);
+        let name = text(new, "api_key_ref", AGENT_API_KEY_REF);
+        let old_name = text(old, "api_key_ref", AGENT_API_KEY_REF);
+        if base(old) == base(new) && name == old_name {
+            return Ok(());
+        }
+        for n in [name, old_name] {
+            if self.secrets.remove(id, &n)? {
+                self.record(
+                    sub,
+                    "secret_dropped",
+                    id,
+                    Status::Ok,
+                    &format!(
+                        "{n}: api_base changed to {}; enter the key again",
+                        base(new)
+                    ),
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// One record in the admin's audit journal (also for in-process
     /// components such as the user gateway). Never pass secret values.
     pub fn record(&self, sub: &str, op: &str, key: &str, status: Status, detail: &str) {
@@ -3206,10 +3250,26 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                         endpoint,
                         cert_pem: cert.clone(),
                     });
-                    if applied.is_err() {
+                    if let Err(e) = applied {
+                        // asked again at the next round: the certificate is not kept
+                        error!(site = %def.site, error = %e, "the certificate from the upstream site is not stored");
                         continue;
                     }
-                    let _ = ctl.secrets.remove(&peer_secret(&def.site), PEER_TOKEN);
+                    if let Err(e) = ctl.secrets.remove(&peer_secret(&def.site), PEER_TOKEN) {
+                        // the token was single use: it is spent, but stays sealed in secrets.bin
+                        error!(
+                            site = %def.site,
+                            error = %e,
+                            "the used enrollment token is not removed from the secret store"
+                        );
+                        ctl.record(
+                            "system",
+                            "peer_token_kept",
+                            &def.site,
+                            Status::InternalError,
+                            &format!("the used enrollment token stays sealed: {e}"),
+                        );
+                    }
                     let how = if def.cert_pem.is_empty() {
                         "issued"
                     } else {
@@ -4864,6 +4924,17 @@ impl Admin {
         if def.mode != Mode::External && !process_package {
             self.ctl.host.validate(&def.driver, &params)?;
         }
+        if def.driver == AGENT_DRIVER {
+            // before the new base is stored: a key that cannot be dropped refuses the edit
+            self.ctl
+                .drop_agent_key_on_new_base(id, &decode_params(&def.params), &params, sub)
+                .map_err(|e| {
+                    LinkError::internal(format!(
+                        "the agent's API key for the old api_base cannot be dropped ({e}); \
+                         nothing changed"
+                    ))
+                })?;
+        }
         self.ctl
             .apply(Op::Update {
                 id: id.to_owned(),
@@ -4875,9 +4946,6 @@ impl Admin {
         self.ctl
             .record(sub, op, id, Status::Ok, &format!("rev {rev}"));
         if def.driver == AGENT_DRIVER {
-            self.drop_agent_key_on_new_base(id, &decode_params(&def.params), &params, sub);
-        }
-        if def.driver == AGENT_DRIVER {
             // allowed_prefixes scope its key in every link's trust list
             self.ctl.schedule_reload();
         } else if def.mode != Mode::External {
@@ -4885,41 +4953,6 @@ impl Admin {
             self.start_link(id, sub).await?;
         }
         Ok(Some(Value::UInt(rev.into())))
-    }
-
-    /// The agent's LLM API key is entered for one `api_base` and one `api_key_ref`: a change of
-    /// either drops the secrets both names held until someone enters the key again with
-    /// ▸ Set Secret (security review AI-3: a `config` operator who cannot read `secrets.bin`
-    /// pointed `api_base` at a host of their own and received the key; changing the name first
-    /// and the host next, then the name back, must not keep it either).
-    fn drop_agent_key_on_new_base(&self, id: &str, old: &Value, new: &Value, sub: &str) {
-        let text = |v: &Value, k: &str, d: &str| match v {
-            Value::Map(m) => match m.get(k) {
-                Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
-                _ => d.to_owned(),
-            },
-            _ => d.to_owned(),
-        };
-        let base = |v: &Value| text(v, "api_base", AGENT_API_BASE);
-        let name = text(new, "api_key_ref", AGENT_API_KEY_REF);
-        let old_name = text(old, "api_key_ref", AGENT_API_KEY_REF);
-        if base(old) == base(new) && name == old_name {
-            return;
-        }
-        for n in [name, old_name] {
-            if self.ctl.secrets.remove(id, &n).unwrap_or(false) {
-                self.ctl.record(
-                    sub,
-                    "secret_dropped",
-                    id,
-                    Status::Ok,
-                    &format!(
-                        "{n}: api_base changed to {}; enter the key again",
-                        base(new)
-                    ),
-                );
-            }
-        }
     }
 
     /// Previous params (oldest first) and the current one: `[{rev, params}]`.
@@ -5381,7 +5414,7 @@ impl Admin {
                 None => Ok(()),
             });
         if let Err(e) = sealed {
-            let _ = self.ctl.secrets.drop_link(&store);
+            self.drop_peer_secrets(&store, site, "the upstream was not added");
             return Err(LinkError::internal(e.to_string()));
         }
         let def = PeerDef {
@@ -5398,7 +5431,7 @@ impl Admin {
             allow_config,
         };
         if let Err(e) = self.ctl.apply(Op::AddPeer(def.clone())) {
-            let _ = self.ctl.secrets.drop_link(&store);
+            self.drop_peer_secrets(&store, site, "the upstream was not added");
             return Err(rejected(e));
         }
         self.ctl.record(
@@ -5411,6 +5444,22 @@ impl Admin {
         declare_upstream(&self.ctx, &Upstream::of(&def), true).await?;
         self.ctl.enroll_wake.notify_one();
         Ok(None)
+    }
+
+    /// Drop the sealed key and token of peer `site` (store `store`) after
+    /// `why`. A failed save leaves them sealed in `secrets.bin`: logged and
+    /// in the audit, never passed over.
+    fn drop_peer_secrets(&self, store: &str, site: &str, why: &str) {
+        if let Err(e) = self.ctl.secrets.drop_link(store) {
+            error!(site, error = %e, "{why}, but its sealed key and token stay in the secret store");
+            self.ctl.record(
+                "system",
+                "peer_secrets_kept",
+                site,
+                Status::InternalError,
+                &format!("{why}; its sealed key and token stay: {e}"),
+            );
+        }
     }
 
     /// A new peer site: not this broker, not a peer (either direction, from
@@ -5445,7 +5494,7 @@ impl Admin {
         self.ctl
             .apply(Op::RemovePeer(site.to_owned()))
             .map_err(rejected)?;
-        let _ = self.ctl.secrets.drop_link(&peer_secret(site));
+        self.drop_peer_secrets(&peer_secret(site), site, "the upstream was removed");
         for ext in ["pem", "cert.pem", "key"] {
             let _ = std::fs::remove_file(self.ctl.peer_file(site, ext));
         }
@@ -6956,6 +7005,45 @@ mod tests {
         };
         tweak(&mut cfg);
         Control::open(cfg, Arc::new(NoDrivers)).unwrap().0
+    }
+
+    /// Review AI-3 kept closed when the secret store cannot be saved: the key
+    /// is not dropped, so the drop says so and the edit that wanted it is
+    /// refused (it went on, and the key stayed for the new base).
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_key_that_cannot_be_dropped_refuses_the_new_base() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use wyrm_core::Value;
+        let ctl = control("agent-key-kept", false, |_| {});
+        let dir = ctl.cfg.data_dir.clone();
+        ctl.secrets
+            .set("agent", "anthropic_api_key", b"sk-1")
+            .unwrap();
+        let p = |base: &str| {
+            Value::Map(std::collections::BTreeMap::from([(
+                "api_base".to_owned(),
+                Value::from(base),
+            )]))
+        };
+        let (old, new) = (
+            p("https://api.anthropic.com"),
+            p("https://elsewhere.example"),
+        );
+        assert!(ctl
+            .drop_agent_key_on_new_base("agent", &old, &old, "admin")
+            .is_ok());
+        if std::fs::metadata(&dir).unwrap().uid() == 0 {
+            return; // root writes into a read-only directory: nothing to show
+        }
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let r = ctl.drop_agent_key_on_new_base("agent", &old, &new, "admin");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(r.is_err(), "a key that stays is an error");
+        assert_eq!(ctl.secrets.names("agent"), ["anthropic_api_key"]);
+        ctl.drop_agent_key_on_new_base("agent", &old, &new, "admin")
+            .unwrap();
+        assert!(ctl.secrets.names("agent").is_empty());
     }
 
     fn scheduler_subject(k: &wyrm_link_sdk::LimitedKey) -> bool {
