@@ -7,6 +7,7 @@
 //! sample it gets). A declared output keeps its name; an input's echo comes before a
 //! parameter's (`latch`: input `reset` and parameter `reset`), so that parameter has none.
 
+use crate::modes::{InvokeOn, OnBad, QualityMode, Reset, SetOn, Trigger, WindowFn, WindowKind};
 use crate::nodes::{Echo, EchoOf, PortType, Ports};
 use std::collections::BTreeMap;
 use wyrm_core::Value;
@@ -235,11 +236,11 @@ pub const TYPES: &[NodeType] = &[
         params: &[
             req(p("inputs", "array", "Input names, [A-Za-z0-9_]+; each is a port in.<name> and a variable.")),
             ed(req(p("expr", "string", "rhai, over the input names: a + b * 2")), "textarea"),
-            pick(p("trigger", "string", "Calculate on any input, or once all have a value."), &["any", "all"], "any"),
+            pick(p("trigger", "string", "Calculate on any input, or once all have a value."), Trigger::NAMES, Trigger::Any.name()),
             pick(
                 p("quality", "string", "Quality of the result: the worst input's, good, or set by the script."),
-                &["worst", "ignore", "custom"],
-                "worst",
+                QualityMode::NAMES,
+                QualityMode::Worst.name(),
             ),
         ],
     },
@@ -261,7 +262,7 @@ pub const TYPES: &[NodeType] = &[
         outputs: &["out"],
         dyn_inputs: None,
         dyn_outputs: None,
-        params: &[pick(p("reset", "string", "manual: only the reset input clears it; auto: also in going false."), &["manual", "auto"], "manual")],
+        params: &[pick(p("reset", "string", "manual: only the reset input clears it; auto: also in going false."), Reset::NAMES, Reset::Manual.name())],
     },
     NodeType {
         ty: "delay",
@@ -313,8 +314,8 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             ed(req(p("size_s", "number", "Window length in seconds.")), "duration"),
-            pick(p("kind", "string", "tumbling: back to back; sliding: the last size_s at each sample."), &["tumbling", "sliding"], "tumbling"),
-            pick(p("fn", "string", "What the window gives."), &["avg", "min", "max", "sum", "count", "rate"], "avg"),
+            pick(p("kind", "string", "tumbling: back to back; sliding: the last size_s at each sample."), WindowKind::NAMES, WindowKind::Tumbling.name()),
+            pick(p("fn", "string", "What the window gives."), WindowFn::NAMES, WindowFn::Avg.name()),
             di(p("max_samples", "number", "Most samples kept, 1..100 000 (default 10 000)."), 10_000),
         ],
     },
@@ -332,7 +333,7 @@ pub const TYPES: &[NodeType] = &[
             di(p("hysteresis", "number", "Back inside by this much before it clears."), 0),
             di(ed(p("delay_s", "number", "Seconds outside before it is raised."), "duration"), 0),
             di(ed(p("return_delay_s", "number", "Seconds inside before it clears."), "duration"), 0),
-            pick(p("on_bad", "string", "What a bad sample does."), &["hold", "clear", "raise"], "hold"),
+            pick(p("on_bad", "string", "What a bad sample does."), OnBad::NAMES, OnBad::Hold.name()),
         ],
     },
     NodeType {
@@ -358,7 +359,7 @@ pub const TYPES: &[NodeType] = &[
         dyn_outputs: None,
         params: &[
             req(p("path", "string", "The point: downstream/<link>/… or storage/…")),
-            pick(p("on", "string", "With auto_run: every sample, or a changed value only."), &["change", "any"], "change"),
+            pick(p("on", "string", "With auto_run: every sample, or a changed value only."), SetOn::NAMES, SetOn::Change.name()),
             di(p("deadband", "number", "With on change: a smaller change is not written."), 0),
             db(p("allow_bad", "bool", "Write values of bad quality too."), false),
             INTERVAL_MS,
@@ -384,7 +385,7 @@ pub const TYPES: &[NodeType] = &[
             req(p("path", "string", "The node: downstream/<link>/… or storage/…")),
             req(p("action", "string", "The action's name.")),
             p("args", "map", "Its arguments: each key is a field with the port arg.<name>; the value is the argument's constant until a sample replaces it (\"$in\": the last value on in)."),
-            pick(p("on", "string", "For in: every sample, a rising or falling bool, or a change."), &["any", "rising", "falling", "change"], "any"),
+            pick(p("on", "string", "For in: every sample, a rising or falling bool, or a change."), InvokeOn::NAMES, InvokeOn::Any.name()),
             db(p("allow_bad", "bool", "Run on samples of bad quality too."), false),
             INTERVAL_MS,
             db(p("auto_run", "bool", "Run when an argument changes on its port (default false)."), false),

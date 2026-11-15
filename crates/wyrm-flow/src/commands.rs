@@ -27,8 +27,9 @@
 //! would send to the probe, fires `sent` and `last_run`, and never `ok`, `error` or `result`.
 
 use crate::def::Map;
+use crate::modes::{InvokeOn, SetOn};
 use crate::nodes::{
-    b, command_target, f, one_of, only, req_s, truthy, Io, Mode, Msg, Node, Out, PortType, Ports,
+    b, command_target, f, only, pick_of, req_s, truthy, Io, Mode, Msg, Node, Out, PortType, Ports,
     SinkOp,
 };
 use crate::watch::Probe;
@@ -114,7 +115,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
             ],
         )?;
         req_s(cfg, "action")?;
-        one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?;
+        pick_of(cfg, "on", InvokeOn::Any)?;
         inputs.extend(
             arg_names(cfg)?
                 .into_iter()
@@ -135,7 +136,7 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
                 "run_on_start",
             ],
         )?;
-        one_of(cfg, "on", &["any", "change"], "change")?;
+        pick_of(cfg, "on", SetOn::Change)?;
         f(cfg, "deadband")?;
     }
     outputs.extend(
@@ -152,13 +153,13 @@ pub(crate) fn ports(ty: &str, cfg: &Map) -> Result<Ports, String> {
 }
 
 /// Edge detection of `invoke.on`.
-fn should_fire(on: &str, last: &mut Option<Value>, v: &Value) -> bool {
+fn should_fire(on: InvokeOn, last: &mut Option<Value>, v: &Value) -> bool {
     let prev = last.replace(v.clone());
     match on {
-        "rising" => truthy(v) && !prev.as_ref().is_some_and(truthy),
-        "falling" => !truthy(v) && prev.as_ref().is_some_and(truthy),
-        "change" => prev.as_ref() != Some(v),
-        _ => true,
+        InvokeOn::Rising => truthy(v) && !prev.as_ref().is_some_and(truthy),
+        InvokeOn::Falling => !truthy(v) && prev.as_ref().is_some_and(truthy),
+        InvokeOn::Change => prev.as_ref() != Some(v),
+        InvokeOn::Any => true,
     }
 }
 
@@ -172,7 +173,7 @@ enum What {
         action: String,
         /// Each argument's value: its constant, then the last sample on `arg.<name>`.
         args: Map,
-        on: String,
+        on: InvokeOn,
         last_in: Option<Value>,
         /// The last sample on `in`: what `"$in"` in `args` stands for.
         input: Value,
@@ -242,13 +243,13 @@ pub(crate) fn build(ty: &str, id: &str, cfg: &Map, mode: &Mode) -> Result<Box<dy
                 Some(Value::Map(m)) => m.clone(),
                 _ => Map::new(),
             },
-            on: one_of(cfg, "on", &["any", "rising", "falling", "change"], "any")?.to_owned(),
+            on: pick_of(cfg, "on", InvokeOn::Any)?,
             last_in: None,
             input: Value::Null,
         }
     } else {
         What::Set {
-            change: one_of(cfg, "on", &["any", "change"], "change")? == "change",
+            change: pick_of(cfg, "on", SetOn::Change)? == SetOn::Change,
             deadband: f(cfg, "deadband")?.unwrap_or(0.0),
             written: None,
             value: None,
@@ -537,7 +538,7 @@ impl Node for Command {
                         // never act on bad data
                         !bad && {
                             *input = m.v.clone();
-                            should_fire(on, last_in, &m.v)
+                            should_fire(*on, last_in, &m.v)
                         }
                     }
                     What::Set {

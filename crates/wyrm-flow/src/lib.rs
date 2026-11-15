@@ -14,6 +14,7 @@ mod commands;
 mod cpu_clock;
 pub mod def;
 pub mod engine;
+pub mod modes;
 pub mod nodes;
 pub mod preview;
 mod readers;
