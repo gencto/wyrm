@@ -935,7 +935,7 @@ async fn v3_refusals_are_clear() {
 /// stale, and it comes back when the agent answers rightly. Returns the
 /// device's error while the forged responses came. The user is
 /// `sha256user` (authPriv), or `authonly` (authNoPriv) with `no_priv`.
-async fn forged_reply(forge: Forge, no_priv: bool) -> Option<String> {
+async fn forged_reply(forge: Forge, no_priv: bool) -> String {
     let (addr, agent, _task) = sim::spawn("127.0.0.1:0").await.unwrap();
     // an agent that has run a while (a time 1000 s back is still > 0)
     agent.lock().unwrap().clock_offset = 10_000;
@@ -952,11 +952,16 @@ async fn forged_reply(forge: Forge, no_priv: bool) -> Option<String> {
     let marker = Value::from("FORGED");
     agent.lock().unwrap().forge = Some((forge, SnmpValue::OctetString(b"FORGED".to_vec())));
     wait_diag(&h, "rejected_replies", 1).await;
-    wait("device failed", || {
-        state(&h, "c1/d1").as_deref() == Some("failed")
+    // The framework publishes `status` first and declares and sets the
+    // `error` leaf after it: wait for both, not for `failed` alone.
+    let mut err = None;
+    wait("device failed with its error", || {
+        err = (state(&h, "c1/d1").as_deref() == Some("failed"))
+            .then(|| error(&h, "c1/d1"))
+            .flatten();
+        err.is_some()
     })
     .await;
-    let err = error(&h, "c1/d1");
     wait("bad", || qual(&h, "name") == Some(Quality::Bad)).await;
     agent.lock().unwrap().forge = None;
     wait("good again", || qual(&h, "name") == Some(Quality::Good)).await;
@@ -966,7 +971,7 @@ async fn forged_reply(forge: Forge, no_priv: bool) -> Option<String> {
     );
     assert_eq!(diag(&h, "late_replies").await, late, "{forge:?}: not late");
     h.stop().await;
-    err
+    err.unwrap_or_default()
 }
 
 /// RFC 3414 §3.2 7b: an authenticated response with lower boots, or with
@@ -977,10 +982,7 @@ async fn forged_reply(forge: Forge, no_priv: bool) -> Option<String> {
 async fn a_stale_v3_reply_is_never_taken() {
     for forge in [Forge::StaleBoots, Forge::StaleTime] {
         let e = forged_reply(forge, false).await;
-        assert!(
-            e.as_deref().is_some_and(|e| e.contains("time window")),
-            "{forge:?}: {e:?}"
-        );
+        assert!(e.contains("time window"), "{forge:?}: {e}");
     }
 }
 
