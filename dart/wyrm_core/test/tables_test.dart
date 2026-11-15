@@ -110,4 +110,19 @@ void main() {
       expect(DocSuffix.fromWire(s.wire), s);
     }
   });
+
+  // spec 02: "- `editor`: `"password"` — …; `"textarea"` — …"
+  test('ParamEditor equals the editors of spec 02', () {
+    final text = File('../../spec/02-meta.md').readAsStringSync();
+    final line = text
+        .split('\n')
+        .firstWhere((l) => l.startsWith('- `editor`:'), orElse: () => '');
+    final names = {
+      for (final m in RegExp(r'`"([a-z]+)"`').allMatches(line)) m.group(1)!,
+    };
+    expect(names, hasLength(greaterThan(3)), reason: 'the editor line moved');
+    expect(ParamEditor.values.map((e) => e.wire).toSet(), names);
+    expect(ParamMeta(editor: 'password').isPassword, isTrue);
+    expect(ParamMeta(editor: 'a_new_editor').editorKind, isNull);
+  });
 }
