@@ -82,7 +82,9 @@ A service that must not block (a stream listener, a timer) dispatches with
 
 **Check.** `unawaited-dispatch` in `app/lib`, `business/lib`, `ui/lib`: also
 `dispatchAll([x])` of one action (a `dispatch` whose Future
-`discarded_futures` cannot see) and dispatch calls with type arguments.
+`discarded_futures` cannot see), `dispatchAll([for …])` / `dispatchAll([if …])`
+(a built list can hold one action just the same) and dispatch calls with type
+arguments.
 
 ## 2. Enums, not strings
 
@@ -117,8 +119,9 @@ enum DevicePlatform {
 
 **Check.** `string-case` in `app/lib`, `business/lib`, `ui/lib` (decode
 boundary excepted, rule 8), and `string-id`: an id written as text
-(`id: 'git'`) and a record of strings (`(String, String)`) — a closed set
-or a typed pair carried as text (owner, 2026-11-15).
+(`id: 'git'`) and a record of strings, positional (`(String, String)`) or
+with named fields (`({String key, String scope})`) — a closed set or a typed
+pair carried as text (owner, 2026-11-15).
 
 ## 3. Each package owns its types; a connector maps, it does not compute
 
@@ -331,7 +334,7 @@ final class FlowPermissions {
 }
 ```
 
-**Check.** `untyped-wire` in `app/lib` and `business/lib` outside
+**Check.** `untyped-wire` in `app/lib`, `business/lib` and `ui/lib` outside
 `business/lib/wyrm/decode/` and `business/lib/wyrm/mappers/values.dart`; a
 cast written as a pattern (`case final Map<String, Object?> m`) counts as the
 cast it is.
