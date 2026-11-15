@@ -421,7 +421,7 @@ async fn read_only_and_allow_config_and_a_wrong_password() {
 async fn a_large_file_argument_goes_by_http() {
     use base64::Engine as _;
     let env = Env::start("bulk").await;
-    // a password made at run time (none in the source)
+    // a password unique to the run
     let pw = format!("bulk-{:x}", std::process::id());
     env.gw
         .add_user("bulk", &pw, vec!["operator".into()])

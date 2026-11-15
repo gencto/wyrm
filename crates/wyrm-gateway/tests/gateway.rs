@@ -21,7 +21,7 @@ use wyrm_link_sdk::{LinkConfig, LinkHandle};
 const ROOT: &str = "wy/test/downstream/mock";
 const ADMIN_PW: &str = "admin password";
 
-/// Nanoseconds since the Unix epoch (for passwords made at run time).
+/// Nanoseconds since the Unix epoch (passwords unique to a run).
 fn now_ns() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1037,7 +1037,7 @@ async fn rust_client_sends_large_arguments_by_http() {
     let up = wyrm_link_sdk::spawn::<Upload>(env.session.clone(), lc, ())
         .await
         .unwrap();
-    // passwords made at run time (none in the source)
+    // passwords unique to the run
     let pw = |u: &str| format!("{u}-{:x}-{:x}", std::process::id(), now_ns());
     let (viewer_pw, op_pw) = (pw("viewer2"), pw("op2"));
     env.gw
