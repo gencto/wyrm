@@ -4,9 +4,10 @@
 
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString};
 use argon2::{Argon2, PasswordVerifier};
-use minicbor::{Decode, Encode};
-use serde::{Deserialize, Serialize};
+use minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
+use wyrm_core::Perm;
 
 /// Longest accepted password: argon2 input is bounded to keep logins cheap.
 pub const MAX_PASSWORD: usize = 1024;
@@ -64,9 +65,9 @@ pub enum Op {
     SetRole {
         #[n(0)]
         role: String,
-        /// `(key expression, Perm code)` in match order.
+        /// In match order.
         #[n(1)]
-        grants: Vec<(String, u8)>,
+        grants: Vec<RoleGrant>,
     },
     /// A device key of `user` (ADR 0050): only its public key.
     #[n(6)]
@@ -149,14 +150,73 @@ pub struct Device {
     pub removed: Option<(String, u64)>,
 }
 
+/// One grant of a role as the store keeps it. The level is a [`Perm`] in
+/// memory and its wire code on disk, in the layout SCHEMA 5 wrote for
+/// `(String, u8)`: CBOR `[key, code]` in the WAL, the same tuple in the
+/// snapshot. A code this build does not know refuses the record, so the
+/// store does not open (ADR 0029 item 12): a grant is never dropped on
+/// read, and a role never widens because a restricting grant before a broad
+/// one went missing (typing audit 2026-11-15, T4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoleGrant {
+    /// Key expression; `{site}` stands for the gateway's site.
+    pub key: String,
+    pub perm: Perm,
+}
+
+fn unknown_code(key: &str, code: u8) -> String {
+    format!("role grant on {key}: unknown level code {code} (written by a newer WYRM?)")
+}
+
+impl<C> Encode<C> for RoleGrant {
+    fn encode<W: encode::Write>(
+        &self,
+        e: &mut Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), encode::Error<W::Error>> {
+        e.array(2)?.str(&self.key)?.u8(self.perm.code())?;
+        Ok(())
+    }
+}
+
+impl<'b, C> Decode<'b, C> for RoleGrant {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, decode::Error> {
+        if d.array()? != Some(2) {
+            return Err(decode::Error::message(
+                "role grant: [key, level code] expected",
+            ));
+        }
+        let key = d.str()?.to_owned();
+        let code = d.u8()?;
+        let perm =
+            Perm::try_from(code).map_err(|c| decode::Error::message(unknown_code(&key, c)))?;
+        Ok(Self { key, perm })
+    }
+}
+
+impl Serialize for RoleGrant {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (&self.key, self.perm.code()).serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for RoleGrant {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let (key, code) = <(String, u8)>::deserialize(d)?;
+        let perm =
+            Perm::try_from(code).map_err(|c| serde::de::Error::custom(unknown_code(&key, c)))?;
+        Ok(Self { key, perm })
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UserDb {
     pub users: BTreeMap<String, User>,
     /// Next generation; survives `RemoveUser`.
     pub next_gen: u64,
-    /// Roles changed at runtime: role → `(key expression, Perm code)`.
+    /// Roles changed at runtime: role → grants in match order.
     #[serde(default)]
-    pub roles: BTreeMap<String, Vec<(String, u8)>>,
+    pub roles: BTreeMap<String, Vec<RoleGrant>>,
     /// Device keys by id (ADR 0050).
     #[serde(default)]
     pub devices: BTreeMap<String, Device>,
@@ -311,16 +371,13 @@ impl wyrm_state::State for UserDb {
                 if !valid_name(role) {
                     return Err(format!("bad role name {role:?}"));
                 }
-                if let Some((_, c)) = grants
-                    .iter()
-                    .find(|(_, c)| wyrm_core::Perm::try_from(*c).is_err())
-                {
-                    return Err(format!("bad level code {c}"));
-                }
                 // keys stored before spec 0.2.0 under their new names
                 let grants = grants
                     .iter()
-                    .map(|(k, c)| (wyrm_core::keyspace::renamed(k).into_owned(), *c))
+                    .map(|g| RoleGrant {
+                        key: wyrm_core::keyspace::renamed(&g.key).into_owned(),
+                        perm: g.perm,
+                    })
                     .collect();
                 self.roles.insert(role.clone(), grants);
             }
@@ -378,21 +435,162 @@ mod tests {
     use super::*;
     use wyrm_state::State;
 
+    fn grant(key: &str, perm: Perm) -> RoleGrant {
+        RoleGrant {
+            key: key.into(),
+            perm,
+        }
+    }
+
     #[test]
     fn grant_keys_before_spec_0_2_replay_renamed() {
         let mut db = UserDb::default();
         db.apply(&Op::SetRole {
             role: "ops".into(),
-            grants: vec![("wy/{site}/down/**".into(), 3), ("wy/**".into(), 1)],
+            grants: vec![
+                grant("wy/{site}/down/**", Perm::Write),
+                grant("wy/**", Perm::List),
+            ],
         })
         .unwrap();
         assert_eq!(
             db.roles["ops"],
             [
-                ("wy/{site}/downstream/**".to_string(), 3),
-                ("wy/**".to_string(), 1)
+                grant("wy/{site}/downstream/**", Perm::Write),
+                grant("wy/**", Perm::List)
             ]
         );
+    }
+
+    /// The users store as SCHEMA 5 wrote it: the same snapshot layout and the same `SetRole`
+    /// record, the level a bare code that nothing checks.
+    mod old {
+        use super::super::{Device, User};
+        use minicbor::{Decode, Encode};
+        use serde::{Deserialize, Serialize};
+        use std::collections::BTreeMap;
+
+        #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+        pub struct Db {
+            pub users: BTreeMap<String, User>,
+            pub next_gen: u64,
+            pub roles: BTreeMap<String, Vec<(String, u8)>>,
+            pub devices: BTreeMap<String, Device>,
+        }
+
+        #[derive(Debug, Encode, Decode)]
+        pub enum Op {
+            #[n(5)]
+            SetRole {
+                #[n(0)]
+                role: String,
+                #[n(1)]
+                grants: Vec<(String, u8)>,
+            },
+        }
+
+        impl wyrm_state::State for Db {
+            const SCHEMA: u32 = 5;
+            type Op = Op;
+            fn apply(&mut self, op: &Op) -> Result<(), String> {
+                let Op::SetRole { role, grants } = op;
+                self.roles.insert(role.clone(), grants.clone());
+                Ok(())
+            }
+        }
+    }
+
+    fn old_store(name: &str, grants: Vec<(String, u8)>, snapshot: bool) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("wyrm-users-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut s = wyrm_state::Store::<old::Db>::open(&dir, b"users-key").unwrap();
+        s.apply(old::Op::SetRole {
+            role: "ops".into(),
+            grants,
+        })
+        .unwrap();
+        if snapshot {
+            s.snapshot().unwrap();
+        }
+        dir
+    }
+
+    /// Review T4: grants were read with `filter_map(Perm::try_from(c).ok())`, so a restricting
+    /// grant with an unknown code was dropped and the broad one after it decided. A SCHEMA 5
+    /// snapshot with such a code opened, its grants kept as bare codes; now no form of that
+    /// store opens.
+    #[test]
+    fn unknown_level_code_refuses_the_store() {
+        let grants = vec![
+            ("wy/s/downstream/plc/secret".to_string(), 9),
+            ("wy/s/**".to_string(), Perm::Config.code()),
+        ];
+        for snapshot in [false, true] {
+            let dir = old_store("unknown", grants.clone(), snapshot);
+            let r = wyrm_state::Store::<UserDb>::open(&dir, b"users-key");
+            let _ = std::fs::remove_dir_all(&dir);
+            match r {
+                Ok(s) => panic!("snapshot {snapshot}: opened {:?}", s.state().roles),
+                Err(e) => assert!(e.to_string().contains("unknown level code 9"), "{e}"),
+            }
+        }
+        // the API cannot make one: a record with the code does not decode
+        let bytes = minicbor::to_vec(old::Op::SetRole {
+            role: "ops".into(),
+            grants,
+        })
+        .unwrap();
+        assert!(minicbor::decode::<Op>(&bytes).is_err());
+    }
+
+    /// A store written before the grants were typed opens as it was, from its WAL and from
+    /// its snapshot, and its restricting grant still decides first.
+    #[test]
+    fn grants_of_an_older_store_load_typed() {
+        let grants = vec![
+            ("wy/s/downstream/plc/secret".to_string(), Perm::None.code()),
+            ("wy/s/**".to_string(), Perm::Config.code()),
+        ];
+        for snapshot in [false, true] {
+            let dir = old_store("typed", grants.clone(), snapshot);
+            let s = wyrm_state::Store::<UserDb>::open(&dir, b"users-key").unwrap();
+            let ops = s.state().roles["ops"].clone();
+            drop(s);
+            let _ = std::fs::remove_dir_all(&dir);
+            assert_eq!(
+                ops,
+                [
+                    grant("wy/s/downstream/plc/secret", Perm::None),
+                    grant("wy/s/**", Perm::Config)
+                ],
+                "snapshot {snapshot}"
+            );
+            let level =
+                |k| wyrm_core::ptok::level_on(ops.iter().map(|g| (g.key.as_str(), g.perm)), k);
+            assert_eq!(level("wy/s/downstream/plc/secret"), Perm::None);
+            assert_eq!(level("wy/s/downstream/plc/t"), Perm::Config);
+        }
+        // the WAL record of a grant is the tuple's, byte for byte
+        let g = grant("wy/s/**", Perm::Read);
+        let tuple = ("wy/s/**".to_string(), Perm::Read.code());
+        assert_eq!(
+            minicbor::to_vec(&g).unwrap(),
+            minicbor::to_vec(&tuple).unwrap()
+        );
+        // and a SCHEMA 5 snapshot body decodes as today's state (else the store would
+        // rebuild from the WAL without a word), unless a code is unknown
+        let snapshot = |grants: &[(String, u8)]| {
+            let mut db = old::Db::default();
+            db.roles.insert("ops".into(), grants.to_vec());
+            postcard::to_stdvec(&db).unwrap()
+        };
+        let db: UserDb = postcard::from_bytes(&snapshot(&grants)).unwrap();
+        assert_eq!(
+            db.roles["ops"][0],
+            grant("wy/s/downstream/plc/secret", Perm::None)
+        );
+        let unknown = [("wy/s/**".to_string(), 9)];
+        assert!(postcard::from_bytes::<UserDb>(&snapshot(&unknown)).is_err());
     }
 
     #[test]

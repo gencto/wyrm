@@ -98,14 +98,16 @@ are needed (spec 05 0.1.10):
 |---|---|
 | Explorer | the history mark after a recorded point's name, or right-click a recorded point (in Data or Metrics; `attr.history`, as DSA's `@@getHistory`) ▸ **View History**: presets 1 h, 24 h, 7 d, 30 d, or From/To, Interval, Rollup ▸ Load; a chart of the numeric values (bad samples as red dots) and the rows; the store that records it at the top (a choice when there are several) |
 | Zenoh | `get wy/<site>/downstream/<link>/<point>/~val?history=2026-10-22T08:00:00Z..&agg=avg&window=5m` (spec 01/03): one or more replies, each a CBOR array of `[t, v, q]` (or `[t_start, v]`) |
-| Rust | `WyrmClient::history(node, &HistoryQuery { from, to, agg, window, limit })` |
+| Rust | `WyrmClient::history(node, &HistoryQuery::from_text(from, to, agg, window, limit)?)`; `HistoryQuery` holds parsed values (`TimeUs`, `Rollup`, `Window`, `NonZeroUsize`) |
 | Dart | `api.history(key, from: …, to: …, agg: …, window: …)` (gateway and FFI) |
 | CLI | `wyr values wy/<site>/downstream/mock/g0/p0 --from 2026-10-22 --agg avg --window 1h` |
 | Gateway WS | op `history`, `args {from, to, agg, window, limit}`; needs `read` on the point |
 
 - Parameters: `history=<from>..<to>` (an empty end is now) or `since=<from>`;
   `agg` and `window` as Rollup and Interval above; `limit` rows (10 000 by
-  default, at most 100 000).
+  default, at most 100 000; the gateway gives at most 10 000). Each parameter
+  at most once and no other (spec 01 0.2.35): a repeated or unknown one is
+  `invalid_parameter`.
 - This site's broker answers for its points; a downstream site's broker
   answers for the points it records.
 - Every watch also answers at its own key

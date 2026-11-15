@@ -380,8 +380,16 @@ pub const SOCKETS_PER_USER: usize = 8;
 /// burst.
 pub const REQUESTS_PER_S: f64 = 100.0;
 pub const REQUEST_BURST: f64 = 200.0;
-/// Rows one `history` request through the gateway may ask for.
-pub const HISTORY_LIMIT: usize = 10_000;
+/// Rows one `history` request through the gateway may ask for (review GW-2).
+pub const HISTORY_LIMIT: std::num::NonZeroUsize = std::num::NonZeroUsize::MIN.saturating_add(9_999);
+
+/// `q` with its `limit` at most [`HISTORY_LIMIT`] (none asked: the cap). The
+/// cap is set on the typed value that alone makes the selector, so no text of
+/// the request can raise it (review S2).
+pub fn capped_history(mut q: wyrm_client::HistoryQuery) -> wyrm_client::HistoryQuery {
+    q.limit = Some(q.limit.map_or(HISTORY_LIMIT, |l| l.min(HISTORY_LIMIT)));
+    q
+}
 
 /// One of a user's open WebSockets; dropping it frees the place.
 pub(crate) struct SocketSlot {
@@ -837,10 +845,8 @@ impl Gateway {
     fn table_of(&self, db: &UserDb) -> RoleTable {
         let mut t = self.cfg.roles.clone();
         for (role, grants) in &db.roles {
-            let grants = grants
-                .iter()
-                .filter_map(|(k, c)| Some((k.clone(), Perm::try_from(*c).ok()?)))
-                .collect();
+            // typed in the store: an unknown code never loads (review T4)
+            let grants = grants.iter().map(|g| (g.key.clone(), g.perm)).collect();
             t.insert(role.clone(), grants);
         }
         t
@@ -907,7 +913,13 @@ impl Gateway {
         }
         store.apply(Op::SetRole {
             role: role.into(),
-            grants: grants.iter().map(|(k, p)| (k.clone(), p.code())).collect(),
+            grants: grants
+                .iter()
+                .map(|(k, p)| users::RoleGrant {
+                    key: k.clone(),
+                    perm: *p,
+                })
+                .collect(),
         })?;
         Ok(())
     }
