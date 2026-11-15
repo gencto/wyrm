@@ -76,6 +76,7 @@ jobs:
       - run: flutter pub get
       - run: dart run build_runner build --workspace
       - run: frx doctor
+      - run: dart run tool/check_rules.dart
       - run: flutter analyze
       - name: Tests
         run: |
