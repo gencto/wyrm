@@ -719,7 +719,6 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       rangeEnd: re,
       windowStart: ws.clamp(rs, re),
       windowEnd: we.clamp(rs, re),
-      rollup: rollupText(null),
       minWindow: 12 * stepDuration(stepFor(span, raw: false))!.inMicroseconds,
       endsNow: true,
       following: w?.end == null,

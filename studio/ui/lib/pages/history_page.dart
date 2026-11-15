@@ -35,16 +35,18 @@ final class GroupItemVm extends Equatable {
 
 /// Board *History · watch groups and trends*: the groups, the selected
 /// group's points, the trend of the points picked (none until the user
-/// picks one), the group's settings and actions.
-class HistoryPage extends StatelessWidget {
-  const HistoryPage({
+/// picks one), the group's settings and actions. [R] names a range of the
+/// trend, [A] an action of the inspector.
+class HistoryPage<R, A> extends StatelessWidget {
+  /// [onRange] gets the range picked, [onAction] the inspector's action.
+  HistoryPage({
     required this.groupsLabel,
     required this.groups,
     required this.onGroup,
     required this.onAddGroup,
-    required this.ranges,
-    required this.range,
-    required this.onRange,
+    required List<TabItemVm<R>> ranges,
+    required R range,
+    required ValueChanged<R> onRange,
     required this.trend,
     required this.trendEmpty,
     required this.onTrendWindow,
@@ -53,7 +55,8 @@ class HistoryPage extends StatelessWidget {
     required this.points,
     required this.picked,
     required this.onPick,
-    required this.onAction,
+    required ValueChanged<A> onAction,
+    DetailInspectorVm<A>? inspector,
     this.addReason,
     this.title,
     this.subtitle,
@@ -61,13 +64,19 @@ class HistoryPage extends StatelessWidget {
     this.pointsEmpty,
     this.pointsHint,
     this.footer,
-    this.inspector,
     this.panels = const SidePanelWidths(),
     this.onPanelWidth,
     this.onTrendToggle,
     this.onTrendReset,
     super.key,
-  });
+  }) : _ranges = SegmentedTabs<R>(
+         tabs: ranges,
+         selected: range,
+         onSelect: onRange,
+       ),
+       _inspector = inspector == null
+           ? null
+           : DetailInspector<A>(vm: inspector, onAction: onAction);
 
   final String groupsLabel;
   final List<GroupItemVm> groups;
@@ -77,9 +86,12 @@ class HistoryPage extends StatelessWidget {
   final String? title;
   final String? subtitle;
   final String empty;
-  final List<TabItemVm<String>> ranges;
-  final String range;
-  final ValueChanged<String> onRange;
+
+  // The range switch and the inspector, made in the constructor with
+  // their callbacks: a field of type `ValueChanged<R>` or `ValueChanged<A>`
+  // would hold the type against its variance.
+  final SegmentedTabs<R> _ranges;
+  final DetailInspector<A>? _inspector;
 
   /// The picked points' trend; null while none is picked.
   final TrendVm? trend;
@@ -93,7 +105,7 @@ class HistoryPage extends StatelessWidget {
   final VoidCallback? onTrendReset;
   final String pointsLabel;
   final List<ColumnVm> columns;
-  final List<RowVm> points;
+  final List<RowVm<String>> points;
   final String? pointsEmpty;
 
   /// How to pick points for the trend, under the points label.
@@ -107,8 +119,6 @@ class HistoryPage extends StatelessWidget {
 
   /// The historian's size, under the groups.
   final String? footer;
-  final DetailInspectorVm<String>? inspector;
-  final ValueChanged<String> onAction;
 
   /// The groups and inspector widths the viewer chose.
   final SidePanelWidths panels;
@@ -240,14 +250,7 @@ class HistoryPage extends StatelessWidget {
                       ],
                     ),
                   ),
-                  SizedBox(
-                    width: 260,
-                    child: SegmentedTabs(
-                      tabs: ranges,
-                      selected: range,
-                      onSelect: onRange,
-                    ),
-                  ),
+                  SizedBox(width: 260, child: _ranges),
                 ],
               ),
               const SizedBox(height: 18),
@@ -302,11 +305,11 @@ class HistoryPage extends StatelessWidget {
       builder: (context, box) => SidePanels(
         left: SidePanel(width: panels.left, defaultWidth: 240, child: left),
         center: center,
-        right: inspector != null && box.maxWidth >= 1100
+        right: _inspector != null && box.maxWidth >= 1100
             ? SidePanel(
                 width: panels.right,
                 defaultWidth: 340,
-                child: DetailInspector(vm: inspector!, onAction: onAction),
+                child: _inspector,
               )
             : null,
         onChanged: onPanelWidth,

@@ -8,7 +8,7 @@ import 'link_mode.dart';
 part 'install_request.freezed.dart';
 
 /// One install of Add a link, with its arguments typed: what is sent to
-/// `sys/links` (docs/links.md §5). [accept] is the user's consent to the
+/// `sys/links` (docs/links.md §5). `accept` is the user's consent to the
 /// rights the package asks for.
 @freezed
 sealed class InstallRequest with _$InstallRequest {

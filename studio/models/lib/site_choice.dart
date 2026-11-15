@@ -11,7 +11,7 @@ abstract class SiteChoice with _$SiteChoice {
   const factory SiteChoice({
     required String site,
 
-    @Default(SiteRelation.here) SiteRelation relation,
+    @Default(SiteRelation.self) SiteRelation relation,
 
     /// The site it is reached through, when not directly.
     String? via,

@@ -101,29 +101,6 @@ final class ToastVm extends Equatable {
 /// What a copy toast says was copied.
 enum Copied { key, keys, value }
 
-/// The words of the toasts, localized by the connector.
-final class ToastLabels {
-  const ToastLabels({
-    this.details = 'Details',
-    this.retry = 'Try again',
-    this.dismiss = 'Dismiss',
-    this.region = 'Notifications',
-    this.hidesIn = _hidesIn,
-  });
-
-  final String details;
-  final String retry;
-  final String dismiss;
-
-  /// The name of the region for a screen reader.
-  final String region;
-
-  /// `hides in 8 s`.
-  final String Function(int seconds) hidesIn;
-
-  static String _hidesIn(int seconds) => 'hides in $seconds s';
-}
-
 /// The toasts of quiet failures and of successes (boards `ErrorQuiet`,
 /// docs/design/specs/errors.md §4): 380 wide, the newest at the bottom, at
 /// most [max] at once (older ones wait in Problems, behind the counter).
@@ -138,7 +115,6 @@ class ToastStack extends StatelessWidget {
     this.onExpire,
     this.onDetails,
     this.onRetry,
-    this.labels = const ToastLabels(),
     super.key,
   });
 
@@ -150,7 +126,6 @@ class ToastStack extends StatelessWidget {
   final ValueChanged<int>? onExpire;
   final ValueChanged<int>? onDetails;
   final ValueChanged<int>? onRetry;
-  final ToastLabels labels;
 
   /// How many are drawn at once.
   static const max = 3;
@@ -169,7 +144,7 @@ class ToastStack extends StatelessWidget {
     return Semantics(
       container: true,
       liveRegion: true,
-      label: labels.region,
+      label: S.current.toastNotifications,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: width),
         child: Column(
@@ -181,7 +156,6 @@ class ToastStack extends StatelessWidget {
               _Toast(
                 key: ValueKey(t.id),
                 vm: t,
-                labels: labels,
                 onDismiss: () => onDismiss(t.id),
                 onExpire: () => (onExpire ?? onDismiss)(t.id),
                 onDetails: onDetails == null ? null : () => onDetails!(t.id),
@@ -198,7 +172,6 @@ class ToastStack extends StatelessWidget {
 class _Toast extends StatefulWidget {
   const _Toast({
     required this.vm,
-    required this.labels,
     required this.onDismiss,
     required this.onExpire,
     required this.onDetails,
@@ -207,7 +180,6 @@ class _Toast extends StatefulWidget {
   });
 
   final ToastVm vm;
-  final ToastLabels labels;
   final VoidCallback onDismiss;
   final VoidCallback onExpire;
   final VoidCallback? onDetails;
@@ -349,19 +321,19 @@ class _ToastState extends State<_Toast> {
                         children: [
                           if (widget.onDetails case final f? when vm.details)
                             link(
-                              widget.labels.details,
+                              S.current.errDetails,
                               f,
                               ValueKey('toast-details-${vm.id}'),
                             ),
                           if (widget.onRetry case final f? when vm.retry)
                             link(
-                              widget.labels.retry,
+                              S.current.errTryAgain,
                               f,
                               ValueKey('toast-retry-${vm.id}'),
                             ),
                           Expanded(
                             child: Text(
-                              vm.stays ?? widget.labels.hidesIn(_left),
+                              vm.stays ?? S.current.toastHidesIn(_left),
                               textAlign: .end,
                               maxLines: 1,
                               overflow: .ellipsis,
@@ -379,7 +351,7 @@ class _ToastState extends State<_Toast> {
                 offset: const Offset(4, -4),
                 child: Semantics(
                   button: true,
-                  label: widget.labels.dismiss,
+                  label: S.current.toastDismiss,
                   child: InkWell(
                     key: ValueKey('toast-dismiss-${vm.id}'),
                     onTap: widget.onDismiss,

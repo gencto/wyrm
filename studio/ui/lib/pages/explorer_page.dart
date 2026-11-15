@@ -880,7 +880,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
               onReset: _w.onTrendReset,
             ),
           if (_w.historyRows.isNotEmpty)
-            RowTable(
+            RowTable<String>(
               columns: [
                 ColumnVm(S.current.colTime, flex: 2),
                 ColumnVm(S.current.colValue, flex: 3),
@@ -913,7 +913,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
             style: TextStyle(fontSize: FontSizes.md, color: c.text4),
           ),
         if (_w.auditRows.isNotEmpty)
-          RowTable(
+          RowTable<String>(
             columns: [
               ColumnVm(S.current.colTime, flex: 2),
               ColumnVm(S.current.colOp),
@@ -1331,7 +1331,7 @@ class _ExplorerPageState extends State<ExplorerPage> {
         ],
       ),
       if (r.rows.isNotEmpty)
-        RowTable(
+        RowTable<String>(
           columns: [for (final c in r.columns) ColumnVm(c)],
           rows: [
             for (final row in r.rows)

@@ -3,14 +3,12 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
-import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
-/// One tab: what the composer gets back on a tap ([id], a domain id or a
-/// `ui` enum), a label and an optional count.
+/// One tab: a label and an optional count.
 final class TabItemVm<T> extends Equatable {
   const TabItemVm({
     required this.id,
@@ -37,20 +35,23 @@ final class TabItemVm<T> extends Equatable {
 /// The underlined tab bar of the workspaces and inspectors: 40 high, the
 /// current tab in text/1 with a 2 px ember line, the others in text/3.
 class SegmentedTabs<T> extends StatelessWidget {
+  /// [onSelect] gets the id of the tab tapped.
   SegmentedTabs({
     required this.tabs,
-    required T selected,
+    required this.selected,
     required ValueChanged<T> onSelect,
     this.plainCounts = false,
     this.height = 40,
     this.equal = false,
     super.key,
-  }) : _choice = FieldVm(value: selected, onChanged: onSelect);
+  }) : _onSelect = [for (final t in tabs) () => onSelect(t.id)];
 
   final List<TabItemVm<T>> tabs;
+  final T selected;
 
-  /// The tab on screen, and what a tap on another reports.
-  final FieldVm<T> _choice;
+  // The callback is applied to each id here, in the constructor: a field
+  // of type `ValueChanged<T>` would hold `T` against its variance.
+  final List<VoidCallback> _onSelect;
 
   /// Counts as plain 12 text after the label, not pills (Explorer's device
   /// tabs, docs/design/specs/explorer.md §3.3).
@@ -86,7 +87,7 @@ class SegmentedTabs<T> extends StatelessWidget {
   Widget _tab(BuildContext context, TabItemVm<T> t) {
     final c = context.colors;
     final tab = InkWell(
-      onTap: t.disabledReason == null ? () => _choice.onChanged(t.id) : null,
+      onTap: t.disabledReason == null ? _onSelect[tabs.indexOf(t)] : null,
       child: Container(
         height: height,
         padding: EdgeInsets.symmetric(
@@ -96,7 +97,7 @@ class SegmentedTabs<T> extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: t.id == _choice.value ? c.ember : Colors.transparent,
+              color: t.id == selected ? c.ember : Colors.transparent,
               width: 2,
             ),
           ),
@@ -112,10 +113,10 @@ class SegmentedTabs<T> extends StatelessWidget {
                 overflow: .ellipsis,
                 style: TextStyle(
                   fontSize: equal ? 13 : 14,
-                  fontWeight: t.id == _choice.value ? .w500 : .w400,
+                  fontWeight: t.id == selected ? .w500 : .w400,
                   color: t.disabledReason != null
                       ? c.muted
-                      : (t.id == _choice.value ? c.text1 : c.text3),
+                      : (t.id == selected ? c.text1 : c.text3),
                 ),
               ),
             ),

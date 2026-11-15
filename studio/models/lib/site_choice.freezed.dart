@@ -86,7 +86,7 @@ as String?,
 
 
 class _SiteChoice implements SiteChoice {
-  const _SiteChoice({required this.site, this.relation = SiteRelation.here, this.via});
+  const _SiteChoice({required this.site, this.relation = SiteRelation.self, this.via});
   
 
 @override final  String site;

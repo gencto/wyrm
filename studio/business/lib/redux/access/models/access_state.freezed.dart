@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$AccessState {
 
- IList<UserInfo> get users; IList<RoleGrant> get grants; IList<String> get audit; String? get selected; String get tab; bool get shown;
+ IList<UserInfo> get users; IList<RoleGrant> get grants; IList<AuditLine> get audit; String? get selected; AccessTab get tab; bool get shown;
 /// Create a copy of AccessState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -51,7 +51,7 @@ abstract mixin class $AccessStateCopyWith<$Res>  {
   factory $AccessStateCopyWith(AccessState value, $Res Function(AccessState) _then) = _$AccessStateCopyWithImpl;
 @useResult
 $Res call({
- IList<UserInfo> users, IList<RoleGrant> grants, IList<String> audit, String? selected, String tab, bool shown
+ IList<UserInfo> users, IList<RoleGrant> grants, IList<AuditLine> audit, String? selected, AccessTab tab, bool shown
 });
 
 
@@ -73,9 +73,9 @@ class _$AccessStateCopyWithImpl<$Res>
 users: null == users ? _self.users : users // ignore: cast_nullable_to_non_nullable
 as IList<UserInfo>,grants: null == grants ? _self.grants : grants // ignore: cast_nullable_to_non_nullable
 as IList<RoleGrant>,audit: null == audit ? _self.audit : audit // ignore: cast_nullable_to_non_nullable
-as IList<String>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
+as IList<AuditLine>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,tab: null == tab ? _self.tab : tab // ignore: cast_nullable_to_non_nullable
-as String,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
+as AccessTab,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
@@ -88,14 +88,14 @@ as bool,
 
 
 class _AccessState implements AccessState {
-  const _AccessState({this.users = const IListConst([]), this.grants = const IListConst([]), this.audit = const IListConst([]), this.selected, this.tab = 'users', this.shown = false});
+  const _AccessState({this.users = const IListConst([]), this.grants = const IListConst([]), this.audit = const IListConst([]), this.selected, this.tab = AccessTab.users, this.shown = false});
   
 
 @override@JsonKey() final  IList<UserInfo> users;
 @override@JsonKey() final  IList<RoleGrant> grants;
-@override@JsonKey() final  IList<String> audit;
+@override@JsonKey() final  IList<AuditLine> audit;
 @override final  String? selected;
-@override@JsonKey() final  String tab;
+@override@JsonKey() final  AccessTab tab;
 @override@JsonKey() final  bool shown;
 
 /// Create a copy of AccessState
@@ -130,7 +130,7 @@ abstract mixin class _$AccessStateCopyWith<$Res> implements $AccessStateCopyWith
   factory _$AccessStateCopyWith(_AccessState value, $Res Function(_AccessState) _then) = __$AccessStateCopyWithImpl;
 @override @useResult
 $Res call({
- IList<UserInfo> users, IList<RoleGrant> grants, IList<String> audit, String? selected, String tab, bool shown
+ IList<UserInfo> users, IList<RoleGrant> grants, IList<AuditLine> audit, String? selected, AccessTab tab, bool shown
 });
 
 
@@ -152,9 +152,9 @@ class __$AccessStateCopyWithImpl<$Res>
 users: null == users ? _self.users : users // ignore: cast_nullable_to_non_nullable
 as IList<UserInfo>,grants: null == grants ? _self.grants : grants // ignore: cast_nullable_to_non_nullable
 as IList<RoleGrant>,audit: null == audit ? _self.audit : audit // ignore: cast_nullable_to_non_nullable
-as IList<String>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
+as IList<AuditLine>,selected: freezed == selected ? _self.selected : selected // ignore: cast_nullable_to_non_nullable
 as String?,tab: null == tab ? _self.tab : tab // ignore: cast_nullable_to_non_nullable
-as String,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
+as AccessTab,shown: null == shown ? _self.shown : shown // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }

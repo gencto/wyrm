@@ -90,7 +90,7 @@ class LinksPage extends StatelessWidget {
   final String description;
   final List<SettingCardVm> settings;
   final List<ColumnVm> columns;
-  final List<RowVm> rows;
+  final List<RowVm<String>> rows;
   final String? empty;
   final DetailInspectorVm<LinkAct>? inspector;
   final ValueChanged<LinksTabKey> onTab;

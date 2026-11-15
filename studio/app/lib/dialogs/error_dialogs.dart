@@ -6,6 +6,7 @@ import 'package:business/redux/access/actions/set_tab_action.dart'
     as access_slice;
 import 'package:business/redux/app_state.dart';
 import 'package:business/redux/problems/actions/add_problem_action.dart';
+import 'package:business/redux/problems/actions/dismiss_toast_action.dart';
 import 'package:business/redux/problems/actions/mark_problem_shown_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/problems/actions/show_notice_action.dart';
@@ -18,6 +19,7 @@ import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/access_tab.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
 import 'package:ui/dialogs/error_dialog.dart';
@@ -26,6 +28,7 @@ import '../common/app_store.dart';
 import '../errors.dart';
 import '../navigation/app_router.dart';
 import '../navigation/go_action.dart';
+import '../navigation/go_after_action.dart';
 
 /// How an error dialog was closed.
 enum _Closed { primary, secondary, dismissed }
@@ -104,6 +107,13 @@ void showUserException({
 
 /// *Details* of a toast or of a card in Problems: the dialog of the problem
 /// [id], read only. It repeats no write and counts nothing down.
+/// The details of the toast [id]'s failure: the toast goes (one
+/// dispatch), the dialog opens.
+Future<void> showToastDetails(BuildContext context, int id) {
+  AppStore.of(context).dispatchSync(DismissToastAction(id));
+  return showProblemDetails(context, id);
+}
+
 Future<void> showProblemDetails(BuildContext context, int id) async {
   final store = AppStore.of(context);
   final e = store.state.problems.items.where((p) => p.id == id).firstOrNull;
@@ -187,11 +197,14 @@ Future<void> _show(
       }
     case _Closed.secondary:
       if (e.kind == .rights) {
-        // Access, on the user's own line.
-        store
-          ..dispatchSync(access_slice.SetTabAction('users'))
-          ..dispatchSync(SetSelectedAction(store.state.site.user))
-          ..dispatchSync(GoAction.navigate(const AccessRoute()));
+        // Access, on the user's own line: one action, the tab and the
+        // user in one state, then the route.
+        await store.dispatchAndWait(
+          GoAfterAction(const AccessRoute(), [
+            access_slice.SetTabAction(AccessTab.users),
+            SetSelectedAction(store.state.site.user),
+          ]),
+        );
       }
     case _Closed.dismissed:
       break;

@@ -20,7 +20,7 @@ class SetGrantAction extends Action with WaitingAction {
 
   final String role;
   final String path;
-  final String level;
+  final Perm level;
 
   @override
   Future<AppState?> reduce() async {
@@ -28,7 +28,7 @@ class SetGrantAction extends Action with WaitingAction {
       deps.wyrm,
       '${site.home}/sys',
       'update_permissions',
-      Value.from({'role': role, 'path': path, 'level': level}),
+      Value.from({'role': role, 'path': path, 'level': level.wire}),
     );
     return null;
   }

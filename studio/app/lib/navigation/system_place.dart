@@ -1,10 +1,13 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:business/redux/app_state.dart';
+import 'package:models/access_tab.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/links_tab.dart';
+import 'package:models/site_node.dart';
+import 'package:models/site_pick.dart';
 import 'package:models/system_tab.dart';
 
 import 'app_router.dart';
@@ -43,7 +46,7 @@ class GoSystemPlaceAction extends ReduxAction<AppState> {
   AppState? reduce() => switch (place) {
     SystemPlace.links => state.copyWith.links(tab: LinksTab.local),
     SystemPlace.quarantine => state.copyWith.links(tab: LinksTab.quarantine),
-    SystemPlace.audit => state.copyWith.access(tab: 'audit'),
+    SystemPlace.audit => state.copyWith.access(tab: AccessTab.audit),
     SystemPlace.availability => state.copyWith.system(
       tab: SystemTab.availability,
     ),
@@ -100,9 +103,9 @@ class OpenAttentionAction extends ReduxAction<AppState> {
         quarantine: state.quarantine.copyWith(selectedEntry: what),
       ),
       AttentionKind.brokerWaiting => state.copyWith.peers(
-        selectedPeer: 'waiting:$what',
+        selectedPeer: SitePick(SiteNode.waiting, what),
       ),
-      AttentionKind.aclGrown => state.copyWith.access(tab: 'audit'),
+      AttentionKind.aclGrown => state.copyWith.access(tab: AccessTab.audit),
     };
   }
 

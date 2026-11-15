@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'grant_source.dart';
+
 part 'role_grant.freezed.dart';
 
 /// One grant of a role or a subject (`sys` ▸ `get_permissions`).
@@ -12,10 +14,11 @@ abstract class RoleGrant with _$RoleGrant {
     /// A key pattern (`wy/{site}/downstream/**`).
     required String path,
 
-    /// `none`, `list`, `read`, `write`, `config`.
+    /// `none`, `list`, `read`, `write`, `config`; for a rule of the ACL,
+    /// its messages and flows, as the broker words them.
     required String level,
 
-    /// Where it comes from: `gateway`, `link`, `peer`, …
-    @Default('') String source,
+    /// Where it comes from; null for a source this client does not know.
+    GrantSource? source,
   }) = _RoleGrant;
 }

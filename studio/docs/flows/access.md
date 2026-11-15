@@ -4,147 +4,56 @@
 
 `app/lib/connectors/access_page_connector.dart`
 
-## onShow
-
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
     participant UI as AccessPage
     participant VM as AccessPageConnector
-    participant A1 as SetShownAction
-    participant A2 as RetrieveAccessAction
+    participant A1 as ShowAccessAction
+    participant A2 as SetShownAction
+    participant A3 as PollAccessAction
+    participant A4 as SetTabAction
+    participant A5 as PickUserAction
     participant ST as AppState
 
     User->>UI: onShow
     UI->>VM: onShow()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(access.shown)
-    VM->>+A2: dispatchAndWait
-    Note over A2: WaitingAction
-    A2-->>-VM: ActionStatus
-```
-
-## onHide
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as AccessPage
-    participant VM as AccessPageConnector
-    participant A1 as SetShownAction
-    participant ST as AppState
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>A2: dispatchSync
+    A1->>ST: dispatchAndWait(RetrieveAccessAction)
 
     User->>UI: onHide
     UI->>VM: onHide()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(access.shown)
-```
-
-## onPoll
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as AccessPage
-    participant VM as AccessPageConnector
-    participant A1 as PollAccessAction
+    VM->>A2: dispatchSync
+    A2->>ST: copyWith(access.shown)
 
     User->>UI: onPoll
     UI->>VM: onPoll()
-    VM->>+A1: dispatchAndWait
-    Note over A1: NonReentrant · async
-    A1-->>-VM: ActionStatus
-```
-
-## onTab
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as AccessPage
-    participant VM as AccessPageConnector
-    participant A1 as SetTabAction
-    participant ST as AppState
+    VM->>A3: dispatch
+    Note over A3: NonReentrant · async
 
     User->>UI: onTab
     UI->>VM: onTab()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(access.tab)
-```
+    VM->>A4: dispatchSync
+    A4->>ST: copyWith(access.tab)
 
-## onRow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as AccessPage
-    participant VM as AccessPageConnector
-    participant A1 as SetSelectedAction
-    participant A2 as RetrieveUserDevicesAction
-    participant ST as AppState
-
-    User->>UI: onRow
-    UI->>VM: onRow()
-    alt !id.startsWith('grant:')
-        VM->>A1: dispatchSync
-        A1->>ST: copyWith(access.selected)
-        VM->>+A2: dispatchAndWait
-        Note over A2: WaitingAction · async
-        A2->>ST: copyWith(device.userDevices)
-        A2-->>-VM: ActionStatus
-    end
-```
-
-## onAction
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as AccessPage
-    participant VM as AccessPageConnector
-    participant A1 as RemoveDeviceAction
-    participant A2 as make
-    participant A3 as SaveUserAction
-    participant A4 as RemoveUserAction
-    participant ST as AppState
-
-    User->>UI: onAction
-    UI->>VM: onAction()
-    alt await ConfirmDialog.ask(context, title: forget ? S.current.deviceForgetTitle(dv.name) : S.current.deviceRemoveTitle(dv.name), message: forget ? S.current.deviceForgetText : S.current.deviceRemoveText(u.name), confirm: forget ? S.current.securityForget : S.current.remove, cancel: S.current.cancel)
-        VM->>+A1: dispatchAndWait
-        Note over A1: WaitingAction · async
-        A1->>ST: dispatchAndWait(RetrieveUserDevicesAction)
-        A1->>ST: dispatchAndWait(RetrieveDevicesAction)
-        A1-->>-VM: ActionStatus
-    end
-    VM->>+A2: dispatchAndWait
-    A2-->>-VM: ActionStatus
-    VM->>+A3: dispatchAndWait
-    Note over A3: WaitingAction · async
-    A3->>ST: dispatchAndWait(RetrieveAccessAction)
-    A3-->>-VM: ActionStatus
-    alt await ConfirmDialog.ask(context, title: S.current.removeUserTitle(u.name), message: S.current.removeUserNote, confirm: S.current.remove, cancel: S.current.cancel)
-        VM->>+A4: dispatchAndWait
-        Note over A4: WaitingAction · async
-        A4->>ST: copyWith(access.users, access.selected)
-        A4-->>-VM: ActionStatus
-    end
+    User->>UI: onUser
+    UI->>VM: onUser()
+    VM->>A5: dispatch
+    Note over A5: async
+    A5->>ST: dispatchSync(SetSelectedAction)
+    A5->>ST: dispatchAndWait(RetrieveUserDevicesAction)
 ```
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onShow` | `SetShownAction`, `RetrieveAccessAction` | `access.shown` |
+| `onShow` | `ShowAccessAction` | — |
 | `onHide` | `SetShownAction` | `access.shown` |
 | `onPoll` | `PollAccessAction` | — |
 | `onTab` | `SetTabAction` | `access.tab` |
-| `onRow` | `SetSelectedAction` ?, `RetrieveUserDevicesAction` ? | `access.selected`, `device.userDevices` |
-| `onAction` | `RemoveDeviceAction` ?, `make`, `SaveUserAction`, `RemoveUserAction` ? | `access.users, access.selected` |
+| `onUser` | `PickUserAction` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

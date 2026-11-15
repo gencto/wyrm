@@ -234,7 +234,7 @@ class LinksScreen extends StatelessWidget {
   String _certificate(LinkData l) =>
       'CN ${l.certificateCn ?? l.id} · ${vm.site} CA';
 
-  RowVm _localRow(LinkData l) {
+  RowVm<String> _localRow(LinkData l) {
     final pkg = l.package;
     final s = l.state;
     return RowVm(
@@ -261,7 +261,7 @@ class LinksScreen extends StatelessWidget {
     );
   }
 
-  RowVm _updateRow(LinkData l) {
+  RowVm<String> _updateRow(LinkData l) {
     final p = l.package!;
     return RowVm(
       id: l.id,
@@ -291,7 +291,7 @@ class LinksScreen extends StatelessWidget {
     );
   }
 
-  RowVm _remoteRow(LinkData l) {
+  RowVm<String> _remoteRow(LinkData l) {
     final on = l.state == LinkStateWord.connected;
     return RowVm(
       id: l.id,
@@ -314,7 +314,7 @@ class LinksScreen extends StatelessWidget {
 
   String _seen(DateTime t) => S.current.firstSeen(Formats.ago(t));
 
-  RowVm _quarantineRow(QuarantineData q) => RowVm(
+  RowVm<String> _quarantineRow(QuarantineData q) => RowVm(
     id: q.node,
     selected: vm.selectedEntry == q.node,
     cells: [

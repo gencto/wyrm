@@ -8,7 +8,7 @@ import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One entry of the search palette.
-final class SearchEntryVm extends Equatable {
+final class SearchEntryVm<T> extends Equatable {
   const SearchEntryVm({
     required this.id,
     required this.title,
@@ -16,8 +16,9 @@ final class SearchEntryVm extends Equatable {
     this.detail,
   });
 
-  /// What the composer gets back: `tab:links`, `key:wy/…`, `site:plant`.
-  final String id;
+  /// What the composer gets back: a workspace, a site, a key — of the
+  /// type the caller names.
+  final T id;
   final String title;
   final String icon;
   final String? detail;
@@ -28,47 +29,44 @@ final class SearchEntryVm extends Equatable {
 
 /// ⌘K: type to filter workspaces, sites, links and loaded nodes; a typed key
 /// (`wy/…` or relative to the site) is offered as "Go to".
-class SearchPalette extends StatefulWidget {
+///
+/// A pick closes it with the entry's id ([show]'s answer).
+class SearchPalette<T> extends StatefulWidget {
   const SearchPalette({
     required this.entries,
-    required this.onPick,
     required this.goTo,
     this.hint = 'Go to a node, action or link',
     super.key,
   });
 
-  final List<SearchEntryVm> entries;
-  final ValueChanged<String> onPick;
+  final List<SearchEntryVm<T>> entries;
 
   /// Builds the "Go to" entry for a typed key, or null.
-  final SearchEntryVm? Function(String text) goTo;
+  final SearchEntryVm<T>? Function(String text) goTo;
   final String hint;
 
   /// Opens the palette as a dialog; the picked id or null.
-  static Future<String?> show(
+  static Future<T?> show<T>(
     BuildContext context, {
-    required List<SearchEntryVm> entries,
-    required SearchEntryVm? Function(String text) goTo,
+    required List<SearchEntryVm<T>> entries,
+    required SearchEntryVm<T>? Function(String text) goTo,
     String hint = 'Go to a node, action or link',
-  }) => showDialog<String>(
+  }) => showDialog<T>(
     context: context,
     barrierColor: Colors.black54,
     builder: (context) => Align(
       alignment: const Alignment(0, -0.6),
-      child: SearchPalette(
-        entries: entries,
-        goTo: goTo,
-        hint: hint,
-        onPick: (id) => Navigator.of(context).pop(id),
-      ),
+      child: SearchPalette<T>(entries: entries, goTo: goTo, hint: hint),
     ),
   );
 
   @override
-  State<SearchPalette> createState() => _SearchPaletteState();
+  State<SearchPalette<T>> createState() => _SearchPaletteState<T>();
 }
 
-class _SearchPaletteState extends State<SearchPalette> {
+class _SearchPaletteState<T> extends State<SearchPalette<T>> {
+  void _pick(T id) => Navigator.of(context).pop(id);
+
   var _text = '';
 
   @override
@@ -109,7 +107,7 @@ class _SearchPaletteState extends State<SearchPalette> {
                 onChanged: (s) => setState(() => _text = s),
                 onSubmitted: (_) {
                   if (hits.isNotEmpty) {
-                    widget.onPick(hits.first.id);
+                    _pick(hits.first.id);
                   }
                 },
               ),
@@ -126,7 +124,7 @@ class _SearchPaletteState extends State<SearchPalette> {
                 children: [
                   for (final h in hits)
                     InkWell(
-                      onTap: () => widget.onPick(h.id),
+                      onTap: () => _pick(h.id),
                       borderRadius: Radii.segment,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(

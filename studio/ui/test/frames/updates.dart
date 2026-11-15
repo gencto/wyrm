@@ -14,7 +14,7 @@ import 'package:ui/tables/row_table.dart';
 
 void _none(Object? _) {}
 
-RowVm _row(
+RowVm<String> _row(
   String id,
   String kind,
   String pkg,

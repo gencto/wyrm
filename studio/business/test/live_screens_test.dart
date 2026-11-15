@@ -19,6 +19,7 @@ import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/site/actions/view_site_action.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/trend_range.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/fake_wyrm.dart';
@@ -168,7 +169,7 @@ void main() {
 
       // Points older than the range drop off (1 h: the first one); 1 h is
       // drawn from raw rows, so every sample stays (spec trend.md §4).
-      s.dispatchSync(SetRangeAction('1h'));
+      s.dispatchSync(SetRangeAction(TrendRange.hour));
       api.subs[a]!.add(ValSample(a, Sample(const VFloat(8), t: t + 2)));
       await batch();
       expect(s.state.historian.series[a]!.map((p) => p.value), [2, 1, 8]);

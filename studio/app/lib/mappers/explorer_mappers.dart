@@ -4,7 +4,6 @@ import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/points.dart' show pollParam;
 import 'package:models/driver_status.dart';
 import 'package:models/explorer_tab.dart';
-import 'package:models/flow_summary.dart';
 import 'package:models/history_range.dart';
 import 'package:models/link_mode.dart';
 import 'package:models/link_state.dart';
@@ -20,7 +19,6 @@ import 'package:models/workspace.dart';
 import 'package:ui/charts/trend.dart';
 import 'package:ui/forms/param_form.dart';
 import 'package:ui/indicators/fail_chip.dart';
-import 'package:ui/indicators/level_badge.dart';
 import 'package:ui/indicators/node_state.dart';
 import 'package:ui/indicators/sample_mark.dart';
 import 'package:ui/indicators/value_type.dart';
@@ -29,11 +27,16 @@ import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/value_viewer.dart';
 import 'package:ui/pages/explorer_page.dart';
 import 'package:ui/tables/points_table.dart';
-import 'package:wyrm_client/wyrm_client.dart' show Perm, TypeCode;
+import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
 import '../common/forms.dart';
 import '../common/trend.dart';
 import '../common/value_viewer.dart';
+import 'flow_mappers.dart';
+import 'rights_mappers.dart';
+
+export 'flow_mappers.dart' show FlowStateTagOf;
+export 'rights_mappers.dart' show PermAccess;
 
 // Explorer's domain as `ui` draws it (studio-rules §3): one exhaustive
 // switch per domain enum, and the records of `business/lib/wyrm/explorer`
@@ -210,15 +213,6 @@ extension DriverStatusTone on DriverStatus? {
   };
 }
 
-extension FlowStateTagOf on FlowSummary {
-  FlowStateTag get tag => switch (this) {
-    FlowSummary(problem: _?) => .error,
-    FlowSummary(running: true) => .deployed,
-    FlowSummary(version: _?) => .stopped,
-    _ => .notDeployed,
-  };
-}
-
 extension NoteWorkspaceOf on NoteWorkspace {
   Workspace get workspace => switch (this) {
     NoteWorkspace.links => .links,
@@ -238,16 +232,6 @@ extension ReachDisabled on Reach {
       null => NoAction(action),
     },
     LacksLevel(:final level, :final path) => NeedsLevel(level.access, path),
-  };
-}
-
-extension PermAccess on Perm {
-  AccessLevel get access => switch (this) {
-    Perm.none => .none,
-    Perm.list => .list,
-    Perm.read => .read,
-    Perm.write => .write,
-    Perm.config => .config,
   };
 }
 
@@ -498,7 +482,6 @@ extension ExplorerTrendVm on ExplorerTrend {
     rangeEnd: span.rangeEnd,
     windowStart: span.windowStart,
     windowEnd: span.windowEnd,
-    rollup: rollupText(null),
     minWindow: span.minWindow,
     endsNow: true,
     following: span.following,

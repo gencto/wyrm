@@ -4,7 +4,7 @@
 
 `app/lib/connectors/studio_page_connector.dart`
 
-## onProblems
+## onTab
 
 ```mermaid
 sequenceDiagram
@@ -12,50 +12,11 @@ sequenceDiagram
     actor User
     participant UI as StudioPage
     participant VM as StudioPageConnector
-    participant A1 as OpenProblemsAction
-    participant ST as AppState
+    participant NAV as Router
 
-    User->>UI: onProblems
-    UI->>VM: onProblems()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.open, problems.unread)
-```
-
-## onClearProblems
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as StudioPage
-    participant VM as StudioPageConnector
-    participant A1 as ClearProblemsAction
-    participant ST as AppState
-
-    User->>UI: onClearProblems
-    UI->>VM: onClearProblems()
-    VM->>A1: dispatchSync
-    A1->>ST: copyWith(problems.items, problems.toasts, problems.unread)
-```
-
-## onRetryProblem
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant UI as StudioPage
-    participant VM as StudioPageConnector
-    participant A1 as RetryProblemAction
-    participant ST as AppState
-
-    User->>UI: onRetryProblem
-    UI->>VM: onRetryProblem()
-    VM->>+A1: dispatchAndWait
-    Note over A1: async
-    A1->>ST: dispatchSync(DismissToastAction)
-    A1->>ST: dispatchAndWait(action)
-    A1-->>-VM: ActionStatus
+    User->>UI: onTab
+    UI->>VM: onTab()
+    VM->>NAV: GoAction.workspace
 ```
 
 ## onSite
@@ -81,7 +42,7 @@ sequenceDiagram
     A1->>ST: dispatchAndWait(RetrieveLinksAction)
 ```
 
-## onGoToKey
+## onSearch
 
 ```mermaid
 sequenceDiagram
@@ -89,15 +50,14 @@ sequenceDiagram
     actor User
     participant UI as StudioPage
     participant VM as StudioPageConnector
-    participant A1 as SelectNodeAction
+    participant A1 as SearchGoAction
     participant ST as AppState
 
-    User->>UI: onGoToKey
-    UI->>VM: onGoToKey()
+    User->>UI: onSearch
+    UI->>VM: onSearch()
     VM->>A1: dispatch
     Note over A1: async
-    A1->>ST: dispatchSync(ShowNodeAction)
-    A1->>ST: dispatchAndWait(a)
+    A1->>ST: dispatchAndWait(switch (pick) {PickWorkspace(: final tab) => GoAction.workspace(tab.workspace), PickSite(: final site) => ViewSiteAction(site), PickKey(: final key) => ExploreAction(key)})
 ```
 
 ## onReview
@@ -147,11 +107,10 @@ sequenceDiagram
 
     User->>UI: onApply
     UI->>VM: onApply()
-    VM->>+A1: dispatchAndWait
+    VM->>A1: dispatch
     Note over A1: WaitingAction · async
     A1->>ST: copyWith(changes.table, changes.view, changes.message, changes.open)
     A1->>ST: dispatchAndWait(RetrieveDetailsAction)
-    A1-->>-VM: ActionStatus
 ```
 
 ## onDiscard
@@ -196,17 +155,68 @@ sequenceDiagram
     actor User
     participant UI as StudioPage
     participant VM as StudioPageConnector
-    participant A1 as LogOutAction
+    participant A1 as LeaveOnLogOutAction
     participant ST as AppState
-    participant NAV as Router
 
     User->>UI: onLogOut
     UI->>VM: onLogOut()
-    VM->>+A1: dispatchAndWait
-    Note over A1: WaitingAction · async
-    A1->>ST: copyWith(login.password)
-    A1-->>-VM: ActionStatus
-    VM->>NAV: GoAction.replace LogInRoute
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchAndWait(inner)
+    A1->>ST: dispatchSync(leave)
+```
+
+## onProblems
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as OpenProblemsAction
+    participant ST as AppState
+
+    User->>UI: onProblems
+    UI->>VM: onProblems()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.open, problems.unread)
+```
+
+## onClearProblems
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as ClearProblemsAction
+    participant ST as AppState
+
+    User->>UI: onClearProblems
+    UI->>VM: onClearProblems()
+    VM->>A1: dispatchSync
+    A1->>ST: copyWith(problems.items, problems.toasts, problems.unread)
+```
+
+## onRetryProblem
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as StudioPage
+    participant VM as StudioPageConnector
+    participant A1 as RetryProblemAction
+    participant ST as AppState
+
+    User->>UI: onRetryProblem
+    UI->>VM: onRetryProblem()
+    VM->>A1: dispatch
+    Note over A1: async
+    A1->>ST: dispatchSync(DismissToastAction)
+    A1->>ST: dispatchAndWait(action)
 ```
 
 ## onLanguage
@@ -320,17 +330,18 @@ _Not drawn — these files dispatch outside any interaction:_
 
 | Interaction | Dispatches | Writes |
 | --- | --- | --- |
-| `onProblems` | `OpenProblemsAction` | `problems.open, problems.unread` |
-| `onClearProblems` | `ClearProblemsAction` | `problems.items, problems.toasts, problems.unread` |
-| `onRetryProblem` | `RetryProblemAction` | — |
+| `onTab` | `GoAction.workspace` | — |
 | `onSite` | `ViewSiteAction` | `site, nodes, links, quarantine, packages, flows, updates, backups, brokerUpdate, historian, tasks, assistant` |
-| `onGoToKey` | `SelectNodeAction` | — |
+| `onSearch` | `SearchGoAction` | — |
 | `onReview` | `SetOpenAction` | `changes.open` |
 | `onCloseReview` | `SetOpenAction` | `changes.open` |
 | `onApply` | `ApplyChangesAction` | `changes.table, changes.view, changes.message, changes.open` |
 | `onDiscard` | `DiscardChangesAction` | `changes.table, changes.view, changes.message, changes.open` |
 | `onRemoveChange` | `RemoveChangeAction` | `changes.table, changes.view, changes.open` |
-| `onLogOut` | `LogOutAction`, `GoAction.replace` | `login.password` |
+| `onLogOut` | `LeaveOnLogOutAction` | — |
+| `onProblems` | `OpenProblemsAction` | `problems.open, problems.unread` |
+| `onClearProblems` | `ClearProblemsAction` | `problems.items, problems.toasts, problems.unread` |
+| `onRetryProblem` | `RetryProblemAction` | — |
 | `onLanguage` | `SetLanguageAction` | `language.locale` |
 | `onTheme` | `SetThemeModeAction` | `theme.mode` |
 | `LockOverlay ▸ onUnlock` | `LeaveOnLogOutAction` | — |

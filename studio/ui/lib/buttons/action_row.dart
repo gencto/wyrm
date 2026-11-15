@@ -21,7 +21,8 @@ final class ActionRowVm<T> extends Equatable {
     this.disabledReason,
   });
 
-  /// What the composer gets back on a tap (a domain id or a `ui` enum).
+  /// What the composer gets back on a tap: one of a closed set (an enum)
+  /// or the thing's own name.
   final T id;
   final String title;
   final String? icon;
@@ -55,17 +56,17 @@ final class ActionRowVm<T> extends Equatable {
 /// a danger row is coral on the bad tint; a disabled row keeps its place,
 /// dimmed, with the reason as its line.
 class ActionRow<T> extends StatelessWidget {
-  const ActionRow({required this.vm, this.onTap, super.key});
+  /// [onTap] gets the row's id; null leaves the row inert.
+  ActionRow({required this.vm, ValueChanged<T>? onTap, super.key})
+    : _onTap = onTap == null ? null : (() => onTap(vm.id));
 
   final ActionRowVm<T> vm;
-
-  /// A tap on the row; null when no row of its inspector reacts.
-  final VoidCallback? onTap;
+  final VoidCallback? _onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final enabled = vm.enabled && onTap != null;
+    final enabled = vm.enabled && _onTap != null;
     final danger = vm.tone == .bad;
     final warn = vm.tone == .warn;
     final title = switch (vm.tone) {
@@ -87,7 +88,7 @@ class ActionRow<T> extends StatelessWidget {
         side: BorderSide(color: line),
       ),
       child: InkWell(
-        onTap: enabled ? onTap : null,
+        onTap: enabled ? _onTap : null,
         borderRadius: Radii.card,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),

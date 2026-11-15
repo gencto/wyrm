@@ -2382,6 +2382,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "historyOf": m175,
     "historyRange1h": MessageLookupByLibrary.simpleMessage("1 h"),
     "historyRange24h": MessageLookupByLibrary.simpleMessage("24 h"),
+    "historyRange30d": MessageLookupByLibrary.simpleMessage("30 d"),
     "historyRange7d": MessageLookupByLibrary.simpleMessage("7 d"),
     "historyUnavailable": MessageLookupByLibrary.simpleMessage(
       "history unavailable",
@@ -2812,6 +2813,9 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "passed": MessageLookupByLibrary.simpleMessage("passed"),
     "password": MessageLookupByLibrary.simpleMessage("Password"),
+    "passwordBlank": MessageLookupByLibrary.simpleMessage(
+      "A password cannot be empty or only spaces.",
+    ),
     "pickAPoint": MessageLookupByLibrary.simpleMessage(
       "Select a point in the table to see its history.",
     ),

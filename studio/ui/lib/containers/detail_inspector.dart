@@ -103,6 +103,7 @@ final class DetailInspectorVm<T> extends Equatable {
 /// The inspector of the canvas boards (Links, Sites): header with a status
 /// pill, facts, groups of action cards, an optional form.
 class DetailInspector<T> extends StatelessWidget {
+  /// [onAction] gets the id of the action row tapped.
   DetailInspector({
     required this.vm,
     required ValueChanged<T> onAction,
@@ -111,16 +112,16 @@ class DetailInspector<T> extends StatelessWidget {
     this.busy = false,
     this.width = 340,
     super.key,
-  }) : _taps = [
+  }) : _rows = [
          for (final g in vm.groups)
-           [for (final a in g.actions) () => onAction(a.id)],
+           [for (final a in g.actions) ActionRow<T>(vm: a, onTap: onAction)],
        ];
 
   final DetailInspectorVm<T> vm;
 
-  /// What a tap on each action card reports, group by group: `onAction`
-  /// with the card's id, resolved once here.
-  final List<List<VoidCallback>> _taps;
+  // The rows of each group, with [onAction] applied to their ids here: a
+  // field of type `ValueChanged<T>` would hold `T` against its variance.
+  final List<List<ActionRow<T>>> _rows;
   final FormSubmit? onSubmit;
   final VoidCallback? onSecondary;
   final bool busy;
@@ -185,8 +186,7 @@ class DetailInspector<T> extends StatelessWidget {
                     padding: Insets.inspectorGroup,
                     child: SectionLabel(g.label),
                   ),
-                  for (final (j, a) in g.actions.indexed)
-                    ActionRow(vm: a, onTap: _taps[i][j]),
+                  ..._rows[i],
                 ],
                 if (vm.form case final f?) ...[
                   Padding(

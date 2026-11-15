@@ -1,0 +1,55 @@
+{
+  "toasts": [
+    "Studio couldn’t read t1",
+    "timeout",
+    "Details",
+    "Try again",
+    "hides in 8 s",
+    "Copied",
+    "wy/plant",
+    "hides in 3 s",
+    "The broker refused the list of sys",
+    "permission denied",
+    "Details",
+    "hides in 8 s"
+  ],
+  "toasts uk": [
+    "Studio couldn’t read t1",
+    "timeout",
+    "Подробиці",
+    "Спробувати ще раз",
+    "зникне через 8 с",
+    "Copied",
+    "wy/plant",
+    "зникне через 3 с",
+    "The broker refused the list of sys",
+    "permission denied",
+    "Подробиці",
+    "зникне через 8 с"
+  ],
+  "details": [
+    "The broker refused the list of sys",
+    "The broker said",
+    "WHAT YOU CAN DO",
+    "The call reached the broker and it answered no. Check what it names above.",
+    "Details",
+    "broker",
+    "Call",
+    "As",
+    "Gateway",
+    "Time",
+    "Copy details",
+    "OK",
+    "selectable: wy/plant/sys › list",
+    "selectable: permission denied",
+    "selectable: list on wy/plant/sys",
+    "selectable: user:olena (admin)",
+    "selectable: http://127.0.0.1:8445",
+    "selectable: 2026-11-12 02:02:00 (local)",
+    "tip: Close"
+  ],
+  "no internet": [
+    "Couldn't connect to internet.",
+    "Please check your network settings."
+  ]
+}
