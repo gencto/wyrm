@@ -129,3 +129,18 @@ T _lenient<T>(String where, String field, String reason, T value) {
   decodeLog.warning('$where: $_shape.$field: $reason');
   return value;
 }
+
+/// The catalog `node_types` answers: an array of entries, each
+/// [nodeTypeOf]; an entry that does not read is left out with a warning
+/// naming [where]. Sorted by category, then type. Not an array: none.
+List<NodeType> nodeTypesOf(Value catalog, {required String where}) {
+  final entries = switch (catalog) {
+    VArray(:final v) => v,
+    _ => _lenient(where, '', 'not an array', const <Value>[]),
+  };
+  return [for (final t in entries) ?nodeTypeOf(t).orWarn(where)]..sort(
+    (a, b) => a.category == b.category
+        ? a.type.wire.compareTo(b.type.wire)
+        : a.category.compareTo(b.category),
+  );
+}

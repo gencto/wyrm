@@ -13,9 +13,9 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/flow_watch/flow_watch.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -546,16 +546,16 @@ void main() {
     final t = types['scale'];
     FlowField f(String l) => fieldsOf(t, b).firstWhere((x) => x.name == l);
     final live = <String, LiveValue>{
-      portKey('in', 'scale1', 'in'): LiveValue(
+      portKey(PortSide.input, 'scale1', 'in'): LiveValue(
         time: DateTime(2026),
         value: 3790,
         quality: m.Quality.bad,
       ),
-      portKey('out', 'scale1', 'out'): LiveValue(
+      portKey(PortSide.output, 'scale1', 'out'): LiveValue(
         time: DateTime(2026),
         value: 92.554,
       ),
-      portKey('in', 'scale1', 'in.input_max'): LiveValue(
+      portKey(PortSide.input, 'scale1', 'in.input_max'): LiveValue(
         time: DateTime(2026),
         value: 4000,
       ),

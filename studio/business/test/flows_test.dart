@@ -9,7 +9,9 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
+import 'package:business/wyrm/failures.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -156,6 +158,28 @@ void main() {
           Value.from({'ok': true}),
         ]
         ..invokes['wy/central/dataflows ▸ deploy'] = [const VNull()];
+    });
+
+    test('a definition Studio cannot read is said; the editor keeps what '
+        'it had, never an empty draft a deploy would write over', () async {
+      await s.dispatchAndWait(LoadFlowAction('tank'));
+      final held = s.state.flowEditor.draft;
+      api.invokes['wy/central/dataflows/tank ▸ history'] = [
+        Value.from([
+          {
+            'version': 4,
+            'nodes': {'a': <String, Object?>{}},
+          },
+        ]),
+      ];
+      final status = await s.dispatchAndWait(LoadFlowAction('tank'));
+      expect(status.originalError, isA<StudioException>());
+      expect(
+        (status.originalError! as StudioException).error.message,
+        contains('nodes.a.type: missing'),
+      );
+      expect(s.state.flowEditor.draft, held);
+      expect(s.state.flowEditor.version, 3);
     });
 
     test('loads, edits and deploys version + 1', () async {

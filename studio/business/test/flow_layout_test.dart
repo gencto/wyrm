@@ -6,7 +6,6 @@ import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_layout.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/block_type.dart';
@@ -46,11 +45,11 @@ Map<String, Object?> shuffled(Map<String, Object?> def, int seed) {
   return {...def, 'nodes': Map.fromEntries(nodes), 'edges': edges};
 }
 
-Set<String> placedIdsOf(Value def) => flowReadOf('large', def).placed;
+Set<String> placedIdsOf(Value def) => readFlow('large', def).placed.unlock;
 
 FlowDraft placed(Map<String, Object?> def) {
-  final read = flowReadOf('large', Value.from(def));
-  return placeFlow(read.draft, byType(types), placed: read.placed);
+  final read = readFlow('large', Value.from(def));
+  return placeFlow(read.draft, byType(types), placed: read.placed.unlock);
 }
 
 Map<String, (double, double)> at(FlowDraft d) => {
@@ -350,12 +349,12 @@ void main() {
         ['w.out', 'r.in'],
       ],
     };
-    final read = flowReadOf('inst', Value.from(def));
+    final read = readFlow('inst', Value.from(def));
     final all = {
       for (final t in typesWithBlocks(types.values.toIList(), read.draft))
         t.type: t,
     };
-    final d = placeFlow(read.draft, all, placed: read.placed);
+    final d = placeFlow(read.draft, all, placed: read.placed.unlock);
     expect(
       blockHeight(all[bt('block:wide')], d.blocks['w']!, edges: d.edges),
       greaterThan(200),

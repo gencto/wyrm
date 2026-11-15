@@ -29,11 +29,11 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,6 +45,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -637,14 +638,14 @@ void main() {
         ),
       );
       expect(instanceValueOf(next, next.blocks[id]!, 'second'), 0);
-      expect(instanceEnd(next, next.blocks[id]!, 'first', output: false), (
-        'mean21/sum',
-        'in.0',
-      ));
-      expect(instanceEnd(next, next.blocks[id]!, 'out', output: true), (
-        'mean21/half',
-        'out',
-      ));
+      expect(
+        instanceEnd(next, next.blocks[id]!, 'first', output: false),
+        const PortEnd('mean21/sum', 'in.0'),
+      );
+      expect(
+        instanceEnd(next, next.blocks[id]!, 'out', output: true),
+        const PortEnd('mean21/half', 'out'),
+      );
     });
 
     test('a name must be free and well formed', () {
@@ -717,7 +718,7 @@ void main() {
           'in1',
         ],
       );
-      expect(blockInputsOf(def).last.ends, ['half.in.1']);
+      expect(blockInputsOf(def).last.ends, [const PortEnd('half', 'in.1')]);
       expect(blockOutputsOf(def), isEmpty);
       // The instance lost the wire of the output that is gone.
       expect(folded.edges.where((e) => e.from == id), isEmpty);
@@ -792,7 +793,7 @@ void main() {
       // Into another flow: the definition comes along.
       final (pasted, ids) = pasteClip(
         const FlowDraft(id: 'other'),
-        clipOf(text)!,
+        clipped(text),
         100,
         100,
       );
@@ -804,7 +805,7 @@ void main() {
         'mean2': {'description': 'mine'},
       });
       expect(
-        blockDefsOf(pasteClip(own, clipOf(text)!, 0, 0).$1)['mean2'],
+        blockDefsOf(pasteClip(own, clipped(text), 0, 0).$1)['mean2'],
         {'description': 'mine'},
       );
     });

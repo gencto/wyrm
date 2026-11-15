@@ -23,15 +23,19 @@ import 'package:business/redux/login/actions/log_in_action.dart';
 import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
+import 'package:business/wyrm/decode/decoded.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_canvas.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/field_id.dart';
 import 'package:models/flow_draft.dart';
 import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
+import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'support/block_types.dart';
@@ -242,8 +246,7 @@ void main() {
       // The preview runs the definition without its layout: a pin runs
       // nothing again.
       expect(previewDefOf(d1), previewDefOf(d));
-      expect(pinKeyOf('avg'), isNull);
-      expect(pinKeyOf(pinKey('avg', 'in:in.0')), ('avg', 'in:in.0'));
+      expect(pinKey('avg', const FieldId.input('in.0')), 'avg~pin~in:in.0');
     });
   });
 
@@ -263,7 +266,7 @@ void main() {
     test('pasted ids are unique, inner edges follow them, the box lands at '
         'the pointer on the grid', () {
       final d = draft();
-      final clip = clipOf(clipTextOf(d, {'avg', 'text'}))!;
+      final clip = clipped(clipTextOf(d, {'avg', 'text'}));
       final (next, ids) = pasteClip(d, clip, 407, 311);
       expect(ids, ['avg1', 'text1']);
       expect(next.blocks.length, 7);
@@ -302,21 +305,30 @@ void main() {
     });
 
     test('foreign text is not a clip', () {
-      expect(clipOf(null), isNull);
-      expect(clipOf(''), isNull);
-      expect(clipOf('hello'), isNull);
-      expect(clipOf('{"nodes": {"a": {"type": "scale"}}}'), isNull);
-      expect(clipOf('{"format": "wyrm-flow-blocks/2", "nodes": {}}'), isNull);
+      expect(clipOf(null), isA<Invalid<FlowDraft>>());
+      expect(clipOf(''), isA<Invalid<FlowDraft>>());
+      expect(clipOf('hello'), isA<Invalid<FlowDraft>>());
+      expect(
+        clipOf('{"nodes": {"a": {"type": "scale"}}}'),
+        isA<Invalid<FlowDraft>>(),
+      );
+      expect(
+        clipOf('{"format": "wyrm-flow-blocks/2", "nodes": {}}'),
+        isA<Invalid<FlowDraft>>(),
+      );
       expect(
         clipOf('{"format": "wyrm-flow-blocks/1", "nodes": {"a": 1}}'),
-        isNull,
+        isA<Invalid<FlowDraft>>(),
       );
-      expect(clipOf('{"format": "wyrm-flow-blocks/1", "nodes": {}}'), isNull);
+      expect(
+        clipOf('{"format": "wyrm-flow-blocks/1", "nodes": {}}'),
+        isA<Invalid<FlowDraft>>(),
+      );
       // An edge that names a block the text does not hold is dropped.
-      final c = clipOf(
+      final c = clipped(
         '{"format": "wyrm-flow-blocks/1", "nodes": {"a": {"type": "x"}}, '
         '"edges": [["z.out", "a.in"]]}',
-      )!;
+      );
       expect(c.blocks.keys, ['a']);
       expect(c.edges, isEmpty);
     });
@@ -330,13 +342,13 @@ void main() {
       expect(s.edges.single.to, 'text');
       expect(s.inputs, hasLength(1));
       expect(s.inputs.single.name, 'avg');
-      expect(s.inputs.single.outside, [('level', 'out')]);
-      expect(s.inputs.single.inside, [('avg', 'in')]);
+      expect(s.inputs.single.outside, [const PortEnd('level', 'out')]);
+      expect(s.inputs.single.inside, [const PortEnd('avg', 'in')]);
       // `avg.out` feeds `text` (inside) and `out2` (outside); `text.out`
       // feeds `out`: two outputs, named after their nodes.
       expect([for (final o in s.outputs) o.name], ['text', 'avg']);
-      expect(s.outputs[1].inside, [('avg', 'out')]);
-      expect(s.outputs[1].outside, [('out2', 'in')]);
+      expect(s.outputs[1].inside, [const PortEnd('avg', 'out')]);
+      expect(s.outputs[1].outside, [const PortEnd('out2', 'in')]);
     });
 
     test('one outside source that feeds two inside inputs is one input; '
@@ -363,16 +375,16 @@ void main() {
       final s = extractSubflow(d, {'w1', 'w2'});
       expect(s.edges, isEmpty);
       expect(s.inputs, hasLength(2));
-      expect(s.inputs[0].outside, [('a', 'out')]);
+      expect(s.inputs[0].outside, [const PortEnd('a', 'out')]);
       expect(s.inputs[0].inside, [
-        ('w1', 'in'),
-        ('w2', 'in'),
-        ('w2', 'in.size_s'),
+        const PortEnd('w1', 'in'),
+        const PortEnd('w2', 'in'),
+        const PortEnd('w2', 'in.size_s'),
       ]);
       expect(s.inputs[0].name, 'w1');
       expect(s.inputs[1].name, 'size_s');
       expect(s.outputs.single.name, 'size_s');
-      expect(s.outputs.single.outside, [('o', 'in')]);
+      expect(s.outputs.single.outside, [const PortEnd('o', 'in')]);
       // Nothing selected, everything selected.
       expect(extractSubflow(d, {}).blocks, isEmpty);
       final all = extractSubflow(d, d.blocks.keys.toSet());

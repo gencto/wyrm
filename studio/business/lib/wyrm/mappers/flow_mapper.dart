@@ -4,177 +4,10 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/block_type.dart';
 import 'package:models/flow_block.dart';
 import 'package:models/flow_draft.dart';
-import 'package:models/flow_edge.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../decode/block_cfg.dart';
-import '../decode/flow_permissions.dart';
-import 'values.dart';
-
-/// A `~def` (spec 06) as a [FlowDraft].
-FlowDraft flowDraftOf(String id, Value def) => flowReadOf(id, def).draft;
-
-/// A `~def` (spec 06) as a [FlowDraft], and the ids of the blocks its
-/// `layout` gives a place (the others stand on a grid until they are laid
-/// out, flow-editor.md §25).
-({FlowDraft draft, Set<String> placed}) flowReadOf(String id, Value def) {
-  final placed = <String>{};
-  final layout = switch (def['layout']) {
-    VMap(:final v) => v,
-    _ => const <String, Value>{},
-  };
-  final blocks = <String, FlowBlock>{};
-  var i = 0;
-  if (def['nodes'] case VMap(:final v)) {
-    for (final e in v.entries) {
-      final cfg = switch (toDart(e.value)) {
-        final Map<String, Object?> m => Map.of(m),
-        _ => <String, Object?>{},
-      };
-      final type = cfg.remove('type') as String? ?? '';
-      final xy = layout[e.key];
-      final saved = switch (xy) {
-        VArray(:final v) when v.length == 2 => (
-          (number(v[0]) ?? 0).toDouble(),
-          (number(v[1]) ?? 0).toDouble(),
-        ),
-        _ => null,
-      };
-      if (saved != null) {
-        placed.add(e.key);
-      }
-      final (x, y) = saved ?? (40.0 + 260 * (i % 4), 40.0 + 200 * (i ~/ 4));
-      blocks[e.key] = FlowBlock(
-        id: e.key,
-        type: BlockType.fromWire(type),
-        cfg: cfg.lock,
-        x: x,
-        y: y,
-        pins: {
-          for (final l in layout.entries)
-            if (pinKeyOf(l.key)
-                case (
-                  final node,
-                  final field,
-                )
-                when node == e.key)
-              if (l.value case VArray(:final v) when v.isNotEmpty)
-                field: (number(v[0]) ?? 0) != 0,
-        }.lock,
-      );
-      i++;
-    }
-  }
-  final edges = <FlowEdge>[];
-  if (def['edges'] case VArray(:final v)) {
-    for (final pair in v) {
-      final a = endpoint(
-        str(pair is VArray && pair.v.isNotEmpty ? pair.v[0] : null),
-      );
-      final b = endpoint(
-        str(pair is VArray && pair.v.length > 1 ? pair.v[1] : null),
-      );
-      if (a != null && b != null) {
-        edges.add(FlowEdge(from: a.$1, fromPort: a.$2, to: b.$1, toPort: b.$2));
-      }
-    }
-  }
-  final rest = <String, Object?>{
-    for (final e in (def is VMap ? def.v : const <String, Value>{}).entries)
-      if (!const ['id', 'version', 'nodes', 'edges', 'layout'].contains(e.key))
-        e.key: toDart(e.value),
-  };
-  return (
-    draft: FlowDraft(
-      id: id,
-      version: integer(def['version']) ?? 0,
-      blocks: blocks.lock,
-      edges: edges.lock,
-      rest: rest.lock,
-      permissions: flowPermissionsOf(def['permissions']).orWarn('flow $id'),
-    ),
-    placed: placed,
-  );
-}
-
-/// `<node>.<port>` split at the first dot (`in.<name>` ports keep theirs).
-(String, String)? endpoint(String? s) {
-  if (s == null) {
-    return null;
-  }
-  final i = s.indexOf('.');
-  return i <= 0 ? null : (s.substring(0, i), s.substring(i + 1));
-}
-
-/// The definition of [d] at [version], with the editor's layout; a flow
-/// that sets or invokes gets `permissions.maxperm: write` when it has none
-/// (spec 06 rule 7).
-Value defOf(FlowDraft d, int version) => Value.from(_defMap(d, version));
-
-/// What `dataflows` ▸ `preview {def}` runs for [d]: its definition without
-/// the layout and the version, so moving a block changes nothing, and with
-/// an id (`draft`) when the flow has none yet. Two drafts with the same
-/// preview definition run alike.
-Value previewDefOf(FlowDraft d) {
-  final m = _defMap(d, 0)..remove('layout');
-  if (d.id.isEmpty) {
-    m['id'] = 'draft';
-  }
-  return Value.from(m);
-}
-
-Map<String, Object?> _defMap(FlowDraft d, int version) {
-  final rest = Map<String, Object?>.of(d.rest.unlock);
-  final commands = d.blocks.values.any(
-    (b) => b.type.known == KnownBlock.set || b.type.known == KnownBlock.invoke,
-  );
-  if (commands && rest['permissions'] == null) {
-    rest['permissions'] = {'maxperm': 'write'};
-  }
-  return {
-    ...rest,
-    'id': d.id,
-    'version': version,
-    'nodes': {
-      for (final b in d.blocks.values)
-        b.id: {'type': b.type.wire, ...b.cfg.unlock},
-    },
-    'edges': [
-      for (final e in d.edges)
-        ['${e.from}.${e.fromPort}', '${e.to}.${e.toPort}'],
-    ],
-    'layout': {
-      for (final b in d.blocks.values) b.id: [b.x.round(), b.y.round()],
-      for (final b in d.blocks.values)
-        for (final p in b.pins.entries)
-          pinKey(b.id, p.key): [if (p.value) 1 else 0, 0],
-    },
-  };
-}
-
-// ---------- pins in the layout (flow-editor.md §12) ----------
-
-/// What stands between a node id and a field id in a pin's layout key. A
-/// node id is a key segment (letters, digits, `_`, `-`, `.`), so no node
-/// is named like a pin.
-const _pinMark = '~pin~';
-
-/// The `layout` key of the pin of field [field] of block [node]:
-/// `<node>~pin~<field id>` (`scale1~pin~p:k`). Its value is `[1, 0]`
-/// (pinned to the block) or `[0, 0]` (taken off it); the second number is
-/// not used. The engine reads `layout` as `{<key>: [x, y]}` of two finite
-/// numbers and does not look at the keys (spec 06 0.2.5), so a pin travels
-/// with the definition like a position does, on any broker.
-String pinKey(String node, String field) => '$node$_pinMark$field';
-
-/// The node and the field id of a pin's layout key; null for a position.
-(String, String)? pinKeyOf(String key) {
-  final i = key.indexOf(_pinMark);
-  return i <= 0
-      ? null
-      : (key.substring(0, i), key.substring(i + _pinMark.length));
-}
 
 /// The ports of [b] by its type: fixed ones and the ones a parameter names.
 ({List<String> inputs, List<String> outputs}) portsOf(
@@ -188,14 +21,7 @@ String pinKey(String node, String field) => '$node$_pinMark$field';
     if (param == null) {
       return const [];
     }
-    final names = switch (b.cfg[param]) {
-      final List<Object?> l => [
-        for (final n in l)
-          if (n is String && n.isNotEmpty) n,
-      ],
-      final Map<String, Object?> m => m.keys.toList(),
-      _ => <String>[],
-    };
+    final names = b.portNamesOf(param) ?? const <String>[];
     return [for (final n in names.isEmpty ? defaults : names) '$prefix$n'];
   }
 
@@ -217,7 +43,7 @@ bool sameCfg(IMap<String, Object?> a, IMap<String, Object?> b) =>
 // ---------- operand constants (ADR 0038 §7, spec 06 0.2.19) ----------
 
 /// The config key of the operand constants: `values: {<port>: <value>}`.
-const operandValuesKey = 'values';
+final String operandValuesKey = BlockCfgKey.operandValues.wire;
 
 /// The inputs of [b] that take a typed constant in `values`: `in` (when the
 /// type has it and no parameter owns it) and the variable inputs
@@ -247,14 +73,7 @@ List<String> operandPortsOf(NodeType? t, FlowBlock b) {
 }
 
 /// The constants of [b]'s operands, by port (`{in.0: "AHU-"}`).
-Map<String, Object?> operandValuesOf(FlowBlock b) =>
-    switch (b.cfg[operandValuesKey]) {
-      final Map<Object?, Object?> m => {
-        for (final e in m.entries)
-          if (e.key case final String k) k: e.value,
-      },
-      _ => const {},
-    };
+Map<String, Object?> operandValuesOf(FlowBlock b) => b.cfgValues;
 
 /// The constant typed into operand [port] of [b], or null.
 Object? operandValueOf(FlowBlock b, String port) => operandValuesOf(b)[port];
@@ -308,14 +127,12 @@ IMap<String, Object?> cfgWithoutOperands(
         KnownBlock.liveliness,
         KnownBlock.loadValue,
       }.contains(b.type.known))
-        if (b.cfg['key'] case final String k) k,
+        ?b.cfgKey,
     for (final b in d.blocks.values)
-      if (b.type.known == KnownBlock.listChildren)
-        if (b.cfg['path'] case final String k) k,
+      if (b.type.known == KnownBlock.listChildren) ?b.cfgPath,
     // What a key from a port may read (ADR 0040 §1).
     for (final b in d.blocks.values)
-      if (b.cfg['key_scope'] ?? b.cfg['path_scope'] case final String k)
-        if (k.isNotEmpty) k,
+      if (b.cfgScope case final k? when k.isNotEmpty) k,
   ],
   writes: [
     for (final b in d.blocks.values)
@@ -324,9 +141,7 @@ IMap<String, Object?> cfgWithoutOperands(
         KnownBlock.invoke,
         KnownBlock.publish,
       }.contains(b.type.known))
-        if (b.cfg['path'] ?? b.cfg['key'] ?? b.cfg['target']
-            case final String k)
-          k,
+        ?(b.cfgPath ?? b.cfgKey ?? b.cfgTarget),
   ],
 );
 

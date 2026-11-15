@@ -42,7 +42,7 @@ class PasteBlocksAction extends Action {
   @override
   AppState? reduce() {
     final d = flowEditor.draft;
-    final clip = clipOf(text);
+    final clip = clipOf(text).orWarn('paste');
     if (d == null || clip == null) {
       return null;
     }

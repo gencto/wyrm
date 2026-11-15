@@ -2,8 +2,8 @@ import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/flow_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/flow_check.dart';
+import '../../../wyrm/decode/flow_def.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -31,15 +31,14 @@ class ValidateFlowAction extends Action with Debounce {
           .invoke(
             '$root/dataflows',
             'validate',
-            Value.from({'def': toDart(defOf(d, flowEditor.version + 1))}),
+            defArgs(defOf(d, flowEditor.version + 1)),
           )
           .toList();
-      final r = rows.isEmpty ? const VNull() : rows.first;
-      final ok = boolean(r['ok']) ?? false;
+      final check = flowCheckOf(rows).orWarn('validate ${d.id}');
       return state.copyWith.flowEditor(
-        problems: ok
+        problems: check != null && check.ok
             ? const IListConst([])
-            : [str(r['error']) ?? text(r) ?? 'invalid'].lock,
+            : [check?.error ?? 'invalid'].lock,
       );
     } on WyrmException catch (e) {
       return state.copyWith.flowEditor(problems: [e.message].lock);

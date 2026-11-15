@@ -1,10 +1,8 @@
 import 'dart:async';
 
-import 'package:wyrm_client/wyrm_client.dart';
-
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/block_library.dart';
 import '../../../wyrm/mappers/flow_blocks.dart';
-import '../../../wyrm/mappers/values.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_block_library_action.dart';
@@ -37,10 +35,10 @@ class SaveBlockToLibraryAction extends Action {
         deps.wyrm,
         '$root/dataflows',
         'put_block',
-        Value.from({'name': n, 'def': libraryDefOf(defs[n]!)}),
+        putBlockArgs(n, libraryDefOf(defs[n]!)),
       );
       if (n == name) {
-        version = integer(answer['version']) ?? 0;
+        version = putBlockVersionOf(answer).orWarn('put_block $n') ?? 0;
       }
     }
     // Only the flow's own draft carries the mark (not an inside view).

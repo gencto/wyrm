@@ -9,9 +9,9 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/services/flow_preview/flow_preview.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/node_type.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
-import 'package:business/wyrm/mappers/flow_mapper.dart';
 import 'package:business/wyrm/mappers/values.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -214,7 +214,7 @@ void main() {
       final free = FlowDraft(id: 'x', blocks: {'limit': b}.lock);
       expect(fieldValue(b, f, free, (_) => null).text, '25');
       final out = {
-        portKey('out', 'limit', 'out'): LiveValue(
+        portKey(PortSide.output, 'limit', 'out'): LiveValue(
           time: DateTime(2026),
           value: 30,
         ),
@@ -228,7 +228,7 @@ void main() {
       final none = fieldValue(b, f, bound, (_) => null);
       expect((none.text, none.bound), ('', true), reason: 'not the typed 25');
       final inSample = {
-        portKey('in', 'limit', 'in'): LiveValue(
+        portKey(PortSide.input, 'limit', 'in'): LiveValue(
           time: DateTime(2026),
           value: 21.5,
         ),

@@ -29,16 +29,8 @@ class RetrieveBlockTypesAction extends Action with WaitingAction {
 }
 
 /// The block catalogue of the site at [root], sorted by category, then type.
-Future<IList<NodeType>> readBlockTypes(WyrmApi api, String root) async {
-  final cat = await askOne(api, '$root/dataflows', 'node_types');
-  final types =
-      [
-        if (cat case VArray(:final v))
-          for (final t in v) ?nodeTypeOf(t).orWarn('node_types of $root'),
-      ]..sort(
-        (a, b) => a.category == b.category
-            ? a.type.wire.compareTo(b.type.wire)
-            : a.category.compareTo(b.category),
-      );
-  return types.lock;
-}
+Future<IList<NodeType>> readBlockTypes(WyrmApi api, String root) async =>
+    nodeTypesOf(
+      await askOne(api, '$root/dataflows', 'node_types'),
+      where: 'node_types of $root',
+    ).lock;

@@ -1,8 +1,7 @@
 import 'dart:async';
 
-import 'package:wyrm_client/wyrm_client.dart';
-
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/block_library.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'retrieve_block_library_action.dart';
@@ -25,7 +24,7 @@ class RemoveLibraryBlockAction extends Action {
       deps.wyrm,
       '$root/dataflows',
       'remove_block',
-      Value.from({'name': name}),
+      nameArgs(name),
     );
     return null;
   }

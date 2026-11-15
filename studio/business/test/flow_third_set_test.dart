@@ -263,7 +263,7 @@ void main() {
         b,
         out,
         d,
-        (k) => k == portKey('out', 'b', 'out')
+        (k) => k == portKey(PortSide.output, 'b', 'out')
             ? LiveValue(time: DateTime.utc(2026), value: at)
             : null,
       );

@@ -1,7 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../../../wyrm/mappers/flow_blocks.dart';
+import '../../../wyrm/decode/block_library.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -21,13 +21,7 @@ class RetrieveBlockLibraryAction extends Action {
       final rows = await deps.wyrm
           .invoke('$root/dataflows', 'list_blocks')
           .toList();
-      final list = switch (rows) {
-        [VArray(:final v)] => v,
-        _ => rows,
-      };
-      final blocks = [for (final r in list) blockInfoOf(r)]
-        ..removeWhere((b) => b.name.isEmpty)
-        ..sort((a, b) => a.name.compareTo(b.name));
+      final blocks = blockListOf(rows, where: 'list_blocks of $root');
       return state.copyWith.flowEditor(library: blocks.lock, libraryOff: null);
     } on WyrmException catch (e) {
       return state.copyWith.flowEditor(

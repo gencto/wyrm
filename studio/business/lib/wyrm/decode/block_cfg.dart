@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_block.dart';
 
@@ -142,3 +144,40 @@ List<String>? _names(Object? v) => switch (v) {
   ],
   _ => null,
 };
+
+// ---------- a config value as the editor shows it ----------
+
+/// A config value (JSON) as the text its editor starts with: nothing for
+/// none, a text as itself, a map or a list as indented JSON, anything else
+/// as JSON.
+String jsonEditText(Object? v) => switch (v) {
+  null => '',
+  final String s => s,
+  Map() || List() => const JsonEncoder.withIndent('  ').convert(v),
+  _ => jsonEncode(v),
+};
+
+/// What a field shows for a map or a list it holds, in short (`{…}`,
+/// `[…]`); null for anything else, an empty one too.
+String? jsonShortText(Object? v) => switch (v) {
+  Map(isNotEmpty: true) => '{…}',
+  List(isNotEmpty: true) => '[…]',
+  _ => null,
+};
+
+/// The items of a list parameter as rows of texts by key: a text as it
+/// is, another value as JSON. A value that is no list of maps gives no
+/// rows.
+List<Map<String, String>> listRowsIn(Object? v) => [
+  if (v case final List<Object?> l)
+    for (final item in l)
+      if (item case final Map<Object?, Object?> m)
+        {
+          for (final MapEntry(:key, :value) in m.entries)
+            '$key': switch (value) {
+              null => '',
+              final String s => s,
+              _ => jsonEncode(value),
+            },
+        },
+];

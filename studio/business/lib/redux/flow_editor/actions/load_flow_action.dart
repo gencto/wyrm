@@ -1,11 +1,13 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/error_kind.dart';
 import 'package:models/flow_draft.dart';
-import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/decoded.dart';
+import '../../../wyrm/decode/flow_def.dart';
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_layout.dart';
-import '../../../wyrm/mappers/flow_mapper.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../flows/actions/retrieve_block_types_action.dart';
@@ -43,16 +45,32 @@ class LoadFlowAction extends Action {
     final types = cached.isNotEmpty ? cached : await readBlockTypes(api, root);
     var draft = FlowDraft(id: id);
     if (!isNew) {
-      final defs = await askOne(api, '$root/dataflows/$id', 'history');
-      if (defs case VArray(:final v) when v.isNotEmpty) {
+      final key = '$root/dataflows/$id';
+      final read = switch (newestFlowOf(
+        id,
+        await askOne(api, key, 'history'),
+      )) {
+        Valid(:final value) => value,
+        // A definition Studio cannot read is said, with the field: the
+        // editor keeps what it had, never an empty draft a deploy would
+        // write over the flow.
+        Invalid(:final field, :final reason) => throw StudioException.said(
+          ErrorKind.broker,
+          'The definition of flow $id is not one Studio reads: '
+          '$field: $reason.',
+          key: key,
+          call: 'history',
+          thing: id,
+        ),
+      };
+      if (read != null) {
         // A saved place always wins; blocks without one are laid out by
         // the data flow (flow-editor.md §25).
-        final read = flowReadOf(id, v.last);
         draft = placeFlow(
           read.draft,
           // The catalog with the flow's own custom blocks, as drawn.
           {for (final t in typesWithBlocks(types, read.draft)) t.type: t},
-          placed: read.placed,
+          placed: read.placed.unlock,
         );
       }
     }

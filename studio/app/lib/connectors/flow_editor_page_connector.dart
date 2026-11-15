@@ -50,6 +50,9 @@ import 'package:business/redux/nodes/actions/retrieve_details_action.dart';
 import 'package:business/redux/nodes/actions/retrieve_nodes_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
+import 'package:business/wyrm/decode/block_def.dart';
+import 'package:business/wyrm/decode/flow_def.dart';
+import 'package:business/wyrm/decode/flow_val.dart';
 import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
@@ -90,7 +93,6 @@ import 'package:ui/pages/flow_editor_page.dart';
 import 'package:ui/shell/window_bar.dart';
 import 'package:ui/tables/table_edits.dart';
 import 'package:ui/trees/tree_row.dart';
-
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
 import '../common/side_panels.dart';
@@ -783,7 +785,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             port,
             param: old?.spec?.name,
             keep: old != null && old.typed
-                ? _shown[portKey('in', oldBlock, oldPort)]?.value
+                ? _shown[portKey(PortSide.input, oldBlock, oldPort)]?.value
                 : null,
           ),
         );
@@ -1164,7 +1166,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     if (f == null || port == null) {
       return;
     }
-    final last = _shown[portKey('in', block, port)]?.value;
+    final last = _shown[portKey(PortSide.input, block, port)]?.value;
     dispatchSync(
       DisconnectEdgeAction(
         block,
@@ -1348,7 +1350,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         for (final p in sub.inputs)
           BlockPortVm(
             name: p.name,
-            detail: '← ${p.outside.first.$1}.${p.outside.first.$2}',
+            detail: '← ${p.outside.first.wire}',
           ),
       ],
       outputs: [
@@ -1357,7 +1359,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             name: p.name,
             detail: [
               '→',
-              [for (final o in p.outside) '${o.$1}.${o.$2}'].join(', '),
+              [for (final o in p.outside) o.wire].join(', '),
             ].join(' '),
           ),
       ],
@@ -1408,7 +1410,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
             title: name,
             tag: 'MY',
             group: S.current.myBlocksThisFlow,
-            detail: def['description'] as String?,
+            detail: blockDefOrWarn(name, def)?.description,
             value: lib != null && lib.version != copied
                 ? S.current.mbUpdateTo(lib.version)
                 : S.current.mbUsed(used),
@@ -1661,42 +1663,19 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final tree = pub != null
         ? live.values[pub]
         : (point == null ? null : live.values[_full(root, point)]);
-    final inPrefix = portKey('in', b.id, '');
-    final outPrefix = portKey('out', b.id, '');
-    final paramPrefix = portKey('param', b.id, '');
+    final inPrefix = portKey(PortSide.input, b.id, '');
+    final outPrefix = portKey(PortSide.output, b.id, '');
     final instance = d != null && isInstance(b.type);
-    // The key of a value in the engine's rows: the block's own node, or,
-    // for an instance of a custom block, the inner node its port stands
-    // for (an input: the first inner input it feeds, as its echo too).
-    String? engineKey(String k) {
-      if (eid == null) {
-        return null;
-      }
-      final (dir, port) = k.startsWith(inPrefix)
-          ? ('in', k.substring(inPrefix.length))
-          : k.startsWith(outPrefix)
-          ? ('out', k.substring(outPrefix.length))
-          : ('param', k.substring(paramPrefix.length));
-      if (!instance) {
-        return portKey(dir, eid, port);
-      }
-      final up = eid.substring(0, eid.length - b.id.length);
-      final out = dir == 'out' ? instanceEnd(d, b, port, output: true) : null;
-      final end = out ?? instanceEnd(d, b, port, output: false);
-      return end == null
-          ? null
-          : portKey(out != null ? 'out' : 'in', '$up${end.$1}', end.$2);
-    }
-
     LiveValue? look(String k) {
-      final at = engineKey(k);
+      final at = eid == null ? null : engineKeyOf(d, b, eid, k);
       final v = at == null ? null : ports?[at];
       if (v != null) {
         return v;
       }
       if (tree != null &&
-          (k == portKey('out', b.id, 'out') && b.type.known != KnownBlock.set ||
-              k == portKey('in', b.id, 'in') &&
+          (k == portKey(PortSide.output, b.id, 'out') &&
+                  b.type.known != KnownBlock.set ||
+              k == portKey(PortSide.input, b.id, 'in') &&
                   (b.type.known == KnownBlock.set ||
                       b.type.known == KnownBlock.publish))) {
         return tree;
@@ -1733,7 +1712,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
           previewing: previewing,
           differs: differs,
           hops: hops + 1,
-        )(portKey('out', src.id, wire.fromPort));
+        )(portKey(PortSide.output, src.id, wire.fromPort));
       }
       if (!k.startsWith(outPrefix)) {
         return null;
@@ -1761,12 +1740,14 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       final inPort = f.inPort;
       if (inPort != null &&
           d.edges.any((e) => e.to == b.id && e.toPort == inPort)) {
-        return look(portKey('in', b.id, inPort));
+        return look(portKey(PortSide.input, b.id, inPort));
       }
       if (f.kind == FieldKind.input) {
-        return inPort == null ? null : look(portKey('in', b.id, inPort));
+        return inPort == null
+            ? null
+            : look(portKey(PortSide.input, b.id, inPort));
       }
-      if (ports?[portKey('param', b.id, f.name)] case final v?) {
+      if (ports?[portKey(PortSide.param, b.id, f.name)] case final v?) {
         return v;
       }
       final typed = b.cfg[f.name] ?? f.spec?.defaultValue;
@@ -1874,7 +1855,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
                     // A command is a button: it shows no value.
                     _ when f.command => '',
                     _ when group == FieldGroup.events =>
-                      eventText(live(portKey('out', b.id, f.name))) ?? '',
+                      eventText(live(portKey(PortSide.output, b.id, f.name))) ??
+                          '',
                     'last_run' when behaves => lastRunText(value.raw) ?? '',
                     _ => value.text,
                   },
@@ -2261,7 +2243,8 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       // An event: when it last fired, and for an error its code and
       // message; a run: its time.
       _ when groupOf(t, b, f) == FieldGroup.events =>
-        eventText(live(portKey('out', b.id, f.name))) ?? S.current.eventNone,
+        eventText(live(portKey(PortSide.output, b.id, f.name))) ??
+            S.current.eventNone,
       'last_run' when behaves => lastRunText(shown.raw) ?? S.current.eventNone,
       _ => shown.text,
     };
@@ -2295,11 +2278,9 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     required bool previewing,
   }) {
     final own = live.values['$root/dataflows/$id'];
-    final val = own?.value is Map
-        ? own!.value! as Map
-        : const <String, Object?>{};
+    final val = flowValOf(own?.value).orWarn('flow $id');
     final known = flows.table[id];
-    final by = val['deployed_by'] as String? ?? known?.deployedBy;
+    final by = val?.deployedBy ?? known?.deployedBy;
     final maxperm = d?.permissions?.maxperm?.wireName;
     final keys = d == null ? null : flowKeysOf(d);
     final ids = d?.blocks.keys.toList() ?? const <String>[];

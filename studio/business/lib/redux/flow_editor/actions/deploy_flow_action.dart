@@ -1,11 +1,9 @@
 import 'dart:async';
 
 import 'package:async_redux/async_redux.dart';
-import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
-import '../../../wyrm/mappers/flow_mapper.dart';
-import '../../../wyrm/mappers/values.dart';
+import '../../../wyrm/decode/flow_def.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../flows/actions/retrieve_flows_action.dart';
@@ -33,7 +31,7 @@ class DeployFlowAction extends Action with NonReentrant, WaitingAction {
       deps.wyrm,
       '$root/dataflows',
       'deploy',
-      Value.from({'def': toDart(defOf(d, v))}),
+      defArgs(defOf(d, v)),
     );
     return state.copyWith.flowEditor(
       version: v,

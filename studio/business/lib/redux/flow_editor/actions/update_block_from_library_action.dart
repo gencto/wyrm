@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:models/error_kind.dart';
 
 import '../../../wyrm/calls.dart';
+import '../../../wyrm/decode/block_library.dart';
+import '../../../wyrm/decode/decoded.dart';
+import '../../../wyrm/failures.dart';
 import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../app_state.dart';
@@ -26,14 +29,18 @@ class UpdateBlockFromLibraryAction extends Action {
     if (root == null || flowEditor.frames.isNotEmpty) {
       return null;
     }
-    final answer = libraryBlockOf(
-      await askOne(
-        deps.wyrm,
-        '$root/dataflows',
-        'get_block',
-        Value.from({'name': name}),
+    final answer = switch (libraryBlockOf(
+      await askOne(deps.wyrm, '$root/dataflows', 'get_block', nameArgs(name)),
+    )) {
+      Valid(:final value) => value,
+      Invalid(:final field, :final reason) => throw StudioException.said(
+        ErrorKind.broker,
+        'The library block $name is not one Studio reads: $field: $reason.',
+        key: '$root/dataflows',
+        call: 'get_block',
+        thing: name,
       ),
-    );
+    };
     final d = flowEditor.draft;
     if (d == null || flowEditor.frames.isNotEmpty) {
       return null;

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:models/block_type.dart';
@@ -9,17 +8,22 @@ import 'package:models/flow_edge.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:models/param_spec.dart';
+import 'package:models/port_side.dart';
 import 'package:models/port_type.dart';
 import 'package:models/quality.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
 import '../decode/block_cfg.dart';
+import '../decode/flow_rows.dart';
 import '../labels.dart';
 import 'flow_blocks.dart';
 import 'flow_mapper.dart';
 import 'value_text.dart';
 
 export 'package:models/field_id.dart' show FieldKind;
+export 'package:models/port_side.dart';
+
+export '../decode/flow_rows.dart' show portKey;
 
 export '../labels.dart' show humanize;
 
@@ -677,19 +681,7 @@ List<({String key, List<String> choices})>? listItemsOf(
 /// The items of a list parameter as rows of texts by key ([listItemsOf]):
 /// a text as it is, another value as JSON. A value that is no list of maps
 /// gives no rows.
-List<Map<String, String>> listRowsOf(Object? v) => [
-  if (v case final List<Object?> l)
-    for (final item in l)
-      if (item case final Map<Object?, Object?> m)
-        {
-          for (final MapEntry(:key, :value) in m.entries)
-            '$key': switch (value) {
-              null => '',
-              final String s => s,
-              _ => jsonEncode(value),
-            },
-        },
-];
+List<Map<String, String>> listRowsOf(Object? v) => listRowsIn(v);
 
 /// Whether input [port] of a block of [type] is a command ([commandInputs]).
 bool isCommandInput(BlockType type, String port) =>
@@ -1491,9 +1483,6 @@ Refused? bindRefusal(
   return null;
 }
 
-/// The key of a live value of [node] in `flowEditor.ports`.
-String portKey(String dir, String node, String port) => '$dir:$node.$port';
-
 /// What a field shows.
 final class FieldValue {
   const FieldValue(
@@ -1553,20 +1542,20 @@ FieldValue fieldValue(
       final typed = b.cfg[p.name] ?? p.defaultValue;
       if (f.variable) {
         sample =
-            live(portKey('out', b.id, f.outPort!)) ??
-            (bound ? live(portKey('in', b.id, f.inPort!)) : null);
+            live(portKey(PortSide.output, b.id, f.outPort!)) ??
+            (bound ? live(portKey(PortSide.input, b.id, f.inPort!)) : null);
         shown =
             sample?.value ??
             (bound
                 ? null
-                : typed ?? live(portKey('param', b.id, p.name))?.value);
+                : typed ?? live(portKey(PortSide.param, b.id, p.name))?.value);
       } else if (bound) {
         sample =
-            live(portKey('in', b.id, f.inPort!)) ??
-            live(portKey('param', b.id, p.name));
+            live(portKey(PortSide.input, b.id, f.inPort!)) ??
+            live(portKey(PortSide.param, b.id, p.name));
         shown = sample?.value;
       } else {
-        shown = typed ?? live(portKey('param', b.id, p.name))?.value;
+        shown = typed ?? live(portKey(PortSide.param, b.id, p.name))?.value;
       }
       if (sample == null && shown == null) {
         return FieldValue('', bound: bound);
@@ -1581,13 +1570,13 @@ FieldValue fieldValue(
         shown = constant;
         break;
       }
-      sample = live(portKey('in', b.id, f.inPort!));
+      sample = live(portKey(PortSide.input, b.id, f.inPort!));
       shown = sample?.value;
       if (sample == null) {
         return FieldValue('', bound: bound);
       }
     case FieldKind.output:
-      sample = live(portKey('out', b.id, f.outPort!));
+      sample = live(portKey(PortSide.output, b.id, f.outPort!));
       shown = sample?.value;
       if (sample == null) {
         return const FieldValue('');
@@ -1595,7 +1584,7 @@ FieldValue fieldValue(
     case FieldKind.arg:
       // An argument's constant, until a binding replaces it (ADR 0040 §2).
       if (bound) {
-        sample = live(portKey('in', b.id, f.inPort!));
+        sample = live(portKey(PortSide.input, b.id, f.inPort!));
         shown = sample?.value;
         if (sample == null) {
           return FieldValue('', bound: bound);
@@ -1607,8 +1596,7 @@ FieldValue fieldValue(
   final point = f.kind == FieldKind.input || f.kind == FieldKind.output;
   return FieldValue(
     switch (shown) {
-      final Map<Object?, Object?> m when m.isNotEmpty => '{…}',
-      final List<Object?> l when l.isNotEmpty => '[…]',
+      _ when jsonShortText(shown) != null => jsonShortText(shown)!,
       // A date of the engine (µs) reads as a date and time.
       final num n when isTimeField(b.type, f.name) && dateText(n) != null =>
         dateText(n)!,

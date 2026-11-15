@@ -1,4 +1,4 @@
-import '../../../wyrm/mappers/flow_mapper.dart';
+import '../../../wyrm/decode/flow_def.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
