@@ -22,6 +22,9 @@ const int _errArg = -1;
 const int _errClosed = -2;
 const int _errDuplicate = -4;
 
+/// Not a C ABI code: an op the library has no function for.
+const int _errUnsupported = -1000;
+
 typedef _OpenN = Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
 typedef _Open = Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
 typedef _OpenTlsN = Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
@@ -214,36 +217,36 @@ class FfiTransport implements FrameTransport {
   Stream<Value> get incoming => _in.stream;
 
   @override
-  void send(Map<String, Value> frame) {
-    final id = (frame['id'] as VInt).v;
-    final op = (frame['op'] as VStr).v;
-    final key = switch (frame['key']) { VStr(:final v) => v, _ => '' };
+  void send(FrameRequest frame) {
+    final id = frame.id;
+    final key = frame.key;
     final rc = using((arena) {
       Pointer<Utf8> s(String x) => x.toNativeUtf8(allocator: arena);
       Pointer<Uint8> buf(Uint8List b) => arena<Uint8>(b.isEmpty ? 1 : b.length)..asTypedList(b.length).setAll(0, b);
-      switch (op) {
-        case 'meta':
-          return _l.meta(_h, id, s(key));
-        case 'children':
-          return _l.children(_h, id, s(key));
-        case 'list':
-          return _l.list(_h, id, s(key));
-        case 'subscribe':
-          return _l.subscribe(_h, id, s(key));
-        case 'unsubscribe':
-          return _l.unsubscribe(_h, id, (frame['sub'] as VInt).v);
-        case 'set':
-          final v = (frame['value'] ?? const VNull()).toCbor();
-          return _l.set(_h, id, s(key), buf(v), v.length);
-        case 'history':
-          final a = (frame['args'] ?? const VMap({})).toCbor();
-          return _l.history(_h, id, s(key), buf(a), a.length);
-        case 'invoke':
-          final a = (frame['args'] ?? const VMap({})).toCbor();
-          final action = switch (frame['action']) { VStr(:final v) => v, _ => '' };
-          return _l.invoke(_h, id, s(key), s(action), buf(a), a.length);
-      }
-      return _errArg;
+      return switch (frame.op) {
+        FrameOp.meta => _l.meta(_h, id, s(key)),
+        FrameOp.children => _l.children(_h, id, s(key)),
+        FrameOp.list => _l.list(_h, id, s(key)),
+        FrameOp.subscribe => _l.subscribe(_h, id, s(key)),
+        FrameOp.unsubscribe => switch (frame.sub) {
+            final sub? => _l.unsubscribe(_h, id, sub),
+            null => _errArg,
+          },
+        FrameOp.set => () {
+            final v = (frame.value ?? const VNull()).toCbor();
+            return _l.set(_h, id, s(key), buf(v), v.length);
+          }(),
+        FrameOp.history => () {
+            final a = (frame.args ?? const VMap({})).toCbor();
+            return _l.history(_h, id, s(key), buf(a), a.length);
+          }(),
+        FrameOp.invoke => () {
+            final a = (frame.args ?? const VMap({})).toCbor();
+            return _l.invoke(_h, id, s(key), s(frame.action ?? ''), buf(a), a.length);
+          }(),
+        // not in the C ABI (crates/wyrm-ffi/include/wyrm.h)
+        FrameOp.doc || FrameOp.check => _errUnsupported,
+      };
     });
     if (rc != _ok) {
       // Report as the gateway would: an error frame for this id.
@@ -251,6 +254,7 @@ class FfiTransport implements FrameTransport {
         _errClosed => (Status.disconnected, 'closed'),
         _errDuplicate => (Status.invalidParameter, 'id of an open stream'),
         _errArg => (Status.invalidParameter, 'bad argument'),
+        _errUnsupported => (Status.notSupported, 'op ${frame.op.wire} is not in the FFI library'),
         _ => (Status.internalError, 'native error $rc'),
       };
       scheduleMicrotask(() => _in.add(VMap({

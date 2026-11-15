@@ -4,6 +4,7 @@
 // The test builds the example with cargo unless WYRM_GATEWAY_DEV names a
 // built binary. Without cargo and without that variable it fails.
 @Timeout(Duration(minutes: 20))
+@Tags(['e2e'])
 library;
 
 import 'dart:async';
@@ -67,9 +68,22 @@ void main() {
     );
   });
 
-  test('me', () async {
-    final me = await gw.me();
-    expect(me['sub'], const VStr('admin'));
+  test('identity', () async {
+    final me = await gw.identity();
+    expect(me.sub, 'admin');
+    expect(me.site, 'test');
+    expect(me.max, Perm.config);
+    expect(me.grants, isNotEmpty);
+  });
+
+  test('info and users decode', () async {
+    final info = await WyrmGateway.info(base);
+    expect(info.site, 'test');
+    expect(info.role, GatewayRole.active);
+    expect(info.tls, isFalse);
+    final users = await gw.users();
+    expect(users.map((u) => u.name), contains('admin'));
+    expect(await gw.devices(), isA<List<GatewayDevice>>());
   });
 
   test('children', () async {
@@ -165,61 +179,67 @@ void main() {
   group('agent tasks', () {
     const agent = 'wy/test/downstream/agent';
 
-    Future<Value> record(String task, bool Function(String state) until) async {
+    Future<AgentTaskRecord> record(String task, bool Function(AgentTaskState state) until) async {
       for (var i = 0; i < 400; i++) {
-        final r = await c.doc(task, '~state');
-        final st = switch (r['state']) { VStr(:final v) => v, _ => '' };
-        if (until(st)) return r;
+        final r = await c.agentRecord(task);
+        if (until(r.state)) return r;
         await Future<void>.delayed(const Duration(milliseconds: 25));
       }
       fail('the task never got there');
     }
 
-    String text(Value? v) => switch (v) { VStr(:final v) => v, _ => fail('text expected: $v') };
+    AgentReplyState last(List<AgentReply> rows) => rows.whereType<AgentReplyState>().last;
 
     test('doc: the record of a task, a closed set of suffixes', () async {
-      final rows = await c.askAgent(agent, 'set two points').toList();
-      expect(text(rows.last['state']), 'awaiting_approval');
-      final task = '$agent/tasks/${text(rows.last['task'])}';
-      final rec = await c.doc(task, '~state');
-      expect(text(rec['ask']), 'set two points');
-      final plan = rec['plan'] as VArray;
-      expect(plan.v, hasLength(4));
-      expect(text(plan.v[0]['set']), '$root/g0/p0');
-      expect(plan.v[0]['value'], const VFloat(42.5));
-      expect(text(plan.v[2]['expect']), '$root/g0/p0');
+      final rows = await c.agentAsk(agent, 'set two points').toList();
+      expect(rows.first, isA<AgentReplyState>());
+      expect(last(rows).state, AgentTaskState.awaitingApproval);
+      final task = '$agent/tasks/${last(rows).task}';
+      final rec = await c.agentRecord(task);
+      expect(rec.ask, 'set two points');
+      expect(rec.plan, hasLength(4));
+      expect(rec.plan[0].kind, AgentStepKind.set);
+      expect(rec.plan[0].node, '$root/g0/p0');
+      expect(rec.plan[0].value, const VFloat(42.5));
+      expect(rec.plan[0].level, Perm.write);
+      expect(rec.plan[2].kind, AgentStepKind.expect);
+      expect(rec.plan[2].node, '$root/g0/p0');
       // the hash made here is the link's (and the gateway's)
-      expect(planHash(plan), text(rec['plan_hash']));
+      expect(rec.shownPlanHash, isNotNull);
+      expect(rec.shownPlanHash, rec.planHash);
       await expectLater(
           c.doc(task, 'state'),
           throwsA(isA<WyrmException>()
               .having((e) => e.status.known, 'status', Status.invalidParameter)
               .having(isUnknownOp, 'unknown op', isFalse)));
-      await expectLater(c.doc('$root/g0/p0', '~state'),
+      await expectLater(c.docOf('$root/g0/p0', DocSuffix.state),
           throwsA(isA<WyrmException>().having((e) => e.status.known, 'status', Status.notSupported)));
       await c.invoke(task, 'reject').toList();
     });
 
     test('approve: the ticked step runs, the others are skipped', () async {
       await c.invoke(root, 'reset').toList();
-      final rows = await c.askAgent(agent, 'set two points').toList();
-      final task = '$agent/tasks/${text(rows.last['task'])}';
-      final rec = await c.doc(task, '~state');
-      final hash = planHash(rec['plan'])!;
+      final rows = await c.agentAsk(agent, 'set two points').toList();
+      final task = '$agent/tasks/${last(rows).task}';
+      final rec = await c.agentRecord(task);
+      final hash = rec.shownPlanHash!;
       // another plan than the one that is stored
       await expectLater(
-          c.approveTask(task, steps: [1], plan: '00'),
+          c.agentApprove(task, steps: [1], plan: '00'),
           throwsA(isA<WyrmException>().having((e) => e.message, 'message', contains('read it again'))));
       // a step that sends nothing
-      await expectLater(c.approveTask(task, steps: [3], plan: hash), throwsA(isA<WyrmException>()));
-      final r = await c.approveTask(task, steps: [1], plan: hash);
-      expect(text(r?['state']), 'running');
-      final done = await record(task, (s) => s != 'running');
-      expect(text(done['state']), 'done');
-      final plan = (done['plan'] as VArray).v;
-      String status(int i) => text(plan[i]['result']?['status']);
-      expect([for (var i = 0; i < 4; i++) status(i)], ['ok', 'skipped', 'ok', 'skipped']);
-      expect(text(plan[3]['result']?['message']), 'skipped: needs step 2');
+      await expectLater(c.agentApprove(task, steps: [3], plan: hash), throwsA(isA<WyrmException>()));
+      final r = await c.agentApprove(task, steps: [1], plan: hash);
+      expect(r?.state, AgentTaskState.running);
+      final done = await record(task, (s) => s != AgentTaskState.running);
+      expect(done.state, AgentTaskState.done);
+      expect([for (final s in done.plan) s.result?.status], [
+        AgentStepStatus.ok,
+        AgentStepStatus.skipped,
+        AgentStepStatus.ok,
+        AgentStepStatus.skipped,
+      ]);
+      expect(done.plan[3].result?.message, 'skipped: needs step 2');
       // the public value: where the run is, in fixed words
       final val = await c
           .subscribe(task)
@@ -227,25 +247,29 @@ void main() {
           .cast<ValSample>()
           .first
           .timeout(const Duration(seconds: 10));
-      expect(val.sample.v['of'], const VInt(4));
-      expect(val.sample.v['last']?['result'], const VStr('skipped'));
+      final pub = AgentTaskValue.fromValue(val.sample.v);
+      expect(pub.of, 4);
+      expect(pub.last?.result, AgentStepStatus.skipped);
       await c.invoke(root, 'reset').toList();
     });
 
     test('the model asks back; the answer resumes it', () async {
-      final rows = await c.askAgent(agent, 'ask me first, then set two points').toList();
-      expect(text(rows.last['state']), 'awaiting_answer');
-      final task = '$agent/tasks/${text(rows.last['task'])}';
-      final rec = await c.doc(task, '~state');
-      final q = (rec['questions'] as VArray).v.single;
-      expect(text(q['id']), 'q1');
-      expect((q['options'] as VArray).v, hasLength(2));
-      await expectLater(c.answerTask(task, answers: {'q1': ['nope']}).toList(), throwsA(isA<WyrmException>()));
-      final after = await c.answerTask(task, answers: {'q1': ['g0']}).toList();
-      expect(text(after.last['state']), 'awaiting_approval');
-      final planned = await c.doc(task, '~state');
-      expect((planned['plan'] as VArray).v, hasLength(4));
-      expect((planned['questions'] as VArray).v.single['answer'], VArray([const VStr('g0')]));
+      final rows = await c.agentAsk(agent, 'ask me first, then set two points').toList();
+      expect(last(rows).state, AgentTaskState.awaitingAnswer);
+      expect(rows.whereType<AgentReplyEvent>().map((e) => e.kind), contains(AgentEventKind.question));
+      final task = '$agent/tasks/${last(rows).task}';
+      final rec = await c.agentRecord(task);
+      final q = rec.questions.single;
+      expect(q.id, 'q1');
+      expect(q.options, hasLength(2));
+      await expectLater(
+          c.agentAnswer(task, answers: {'q1': const AgentAnswer.options(['nope'])}).toList(),
+          throwsA(isA<WyrmException>()));
+      final after = await c.agentAnswer(task, answers: {'q1': const AgentAnswer.options(['g0'])}).toList();
+      expect(last(after).state, AgentTaskState.awaitingApproval);
+      final planned = await c.agentRecord(task);
+      expect(planned.plan, hasLength(4));
+      expect(planned.questions.single.answer, const AgentAnswer.options(['g0']));
       await c.invoke(task, 'cancel').toList();
     });
   });

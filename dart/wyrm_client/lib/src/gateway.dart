@@ -16,6 +16,7 @@ import 'package:wyrm_core/wyrm_core.dart';
 
 import 'api.dart';
 import 'frames.dart';
+import 'gateway_types.dart';
 import 'reconnect.dart';
 
 /// A logged-in gateway session. [connect] opens a WebSocket with a fresh
@@ -131,15 +132,8 @@ class WyrmGateway {
         'device': ?(device == null ? null : VStr(device)),
       },
     );
-    final session = switch (r['session']) {
-      VStr(:final v) => v,
-      _ => throw _bad('session'),
-    };
-    final exp = switch (r['exp']) {
-      VInt(:final v) => v,
-      _ => 0,
-    };
-    return (session, exp);
+    final s = decodeReply(r, GatewaySession.fromValue);
+    return (s.session, s.exp);
   }
 
   /// Log in again on `bases[at]` with the kept credentials and use it.
@@ -157,7 +151,14 @@ class WyrmGateway {
     _current = at;
   }
 
-  /// `GET /api/me`: `{sub, roles, grants, max, exp, site}`.
+  /// `GET /api/me`: who this session is.
+  Future<GatewayIdentity> identity() async => decodeReply<GatewayIdentity>(
+    await _get(_http, base.resolve('/api/me'), bearer: _session),
+    GatewayIdentity.fromValue,
+  );
+
+  /// `GET /api/me` as a plain value: `{sub, roles, grants, max, exp, site}`.
+  @Deprecated('Use identity(): it answers a GatewayIdentity')
   Future<Value> me() => _get(_http, base.resolve('/api/me'), bearer: _session);
 
   /// Open a WebSocket and return the client over it: on the gateway in
@@ -201,10 +202,7 @@ class WyrmGateway {
       base.resolve('/api/ws-ticket'),
       bearer: _session,
     );
-    final ticket = switch (t['ticket']) {
-      VStr(:final v) => v,
-      _ => throw _bad('ticket'),
-    };
+    final ticket = decodeReply(t, (v) => WireMap.of(v, 'ws-ticket').str('ticket'));
     final ws = base.replace(
       scheme: base.scheme == 'https' ? 'wss' : 'ws',
       path: '/api/ws',
@@ -250,13 +248,10 @@ class WyrmGateway {
       );
 
   /// `GET /api/users` (admin): `[{name, roles, disabled}]`.
-  Future<List<GatewayUser>> users() async {
-    final r = await _get(_http, base.resolve('/api/users'), bearer: _session);
-    return [
-      if (r case VArray(:final v))
-        for (final u in v) GatewayUser.of(u),
-    ];
-  }
+  Future<List<GatewayUser>> users() async => decodeReply<List<GatewayUser>>(
+    await _get(_http, base.resolve('/api/users'), bearer: _session),
+    GatewayUser.listFromValue,
+  );
 
   /// `POST /api/users {name, password, roles}` (admin).
   Future<void> addUser(String name, String password, List<String> roles) =>
@@ -313,7 +308,10 @@ class WyrmGateway {
   static Future<GatewayInfo> info(Uri base, {HttpClient? http}) async {
     final c = http ?? HttpClient();
     try {
-      return GatewayInfo.of(await _get(c, base.resolve('/api/info')));
+      return decodeReply<GatewayInfo>(
+        await _get(c, base.resolve('/api/info')),
+        GatewayInfo.fromValue,
+      );
     } finally {
       if (http == null) c.close();
     }
@@ -358,7 +356,7 @@ class WyrmGateway {
       base.resolve('/api/device/challenge'),
       body: {'device': VStr(device)},
     );
-    final nonce = _bytes(ch, 'nonce');
+    final nonce = _nonce(ch);
     final origin = base.origin;
     final sig = await sign(
       deviceLoginMessage(site, origin, user, device, nonce),
@@ -374,17 +372,8 @@ class WyrmGateway {
         'session': ?(keep == null ? null : VStr(keep)),
       },
     );
-    final session = switch (r['session']) {
-      VStr(:final v) => v,
-      _ => throw _bad('session'),
-    };
-    return (
-      session,
-      switch (r['exp']) {
-        VInt(:final v) => v,
-        _ => 0,
-      },
-    );
+    final s = decodeReply(r, GatewaySession.fromValue);
+    return (s.session, s.exp);
   }
 
   /// Unlock after an idle lock: a device login that keeps this session.
@@ -410,7 +399,20 @@ class WyrmGateway {
   /// Register a device key of this session's user (`POST /api/devices`):
   /// the new key signs a `register` nonce ([deviceRegisterMessage]) to
   /// prove it. Returns the device id. Needs a password login in the last
-  /// 5 minutes.
+  /// 5 minutes (else `password_required`).
+  Future<String> addDevice({
+    required String site,
+    required String user,
+    required String name,
+    required DevicePlatform platform,
+    required DeviceAlg alg,
+    required Uint8List publicKey,
+    required Future<Uint8List> Function(Uint8List message) sign,
+  }) => _register(site, user, name, platform.wire, alg.wire, publicKey, sign);
+
+  /// [addDevice] with the platform and the algorithm as text: a misspelt
+  /// one (`mac`) reaches the gateway, which refuses it.
+  @Deprecated('Use addDevice: it takes DevicePlatform and DeviceAlg')
   Future<String> registerDevice({
     required String site,
     required String user,
@@ -419,14 +421,24 @@ class WyrmGateway {
     required String alg,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
-  }) async {
+  }) => _register(site, user, name, platform, alg, publicKey, sign);
+
+  Future<String> _register(
+    String site,
+    String user,
+    String name,
+    String platform,
+    String alg,
+    Uint8List publicKey,
+    Future<Uint8List> Function(Uint8List message) sign,
+  ) async {
     final ch = await _post(
       _http,
       base.resolve('/api/device/challenge'),
       bearer: _session,
       body: {'purpose': const VStr('register')},
     );
-    final nonce = _bytes(ch, 'nonce');
+    final nonce = _nonce(ch);
     final origin = base.origin;
     final sig = await sign(
       deviceRegisterMessage(site, origin, user, nonce, publicKey),
@@ -445,10 +457,7 @@ class WyrmGateway {
         'signature': VBytes(sig),
       },
     );
-    return switch (r['device']) {
-      VStr(:final v) => v,
-      _ => throw _bad('device'),
-    };
+    return decodeReply(r, (v) => WireMap.of(v, 'POST /api/devices').str('device'));
   }
 
   /// A step-up with the device key, for a `confirm_required` refusal [e].
@@ -523,15 +532,12 @@ class WyrmGateway {
     body: const {},
   );
 
-  static List<GatewayDevice> _deviceList(Value v) => [
-    if (v case VArray(:final v))
-      for (final d in v) GatewayDevice.of(d),
-  ];
+  static List<GatewayDevice> _deviceList(Value v) =>
+      decodeReply(v, GatewayDevice.listFromValue);
 
-  static Uint8List _bytes(Value v, String k) => switch (v[k]) {
-    VBytes(:final v) => v,
-    _ => throw _bad(k),
-  };
+  /// The nonce of a `/api/device/challenge` answer `{nonce, exp}`.
+  static Uint8List _nonce(Value v) =>
+      decodeReply(v, (v) => WireMap.of(v, 'challenge').bytes('nonce'));
 
   /// Close the HTTP client (open sockets stay until their clients close).
   void dispose() => _http.close();
@@ -545,8 +551,9 @@ class WyrmGateway {
   }) async {
     final req = await c.postUrl(url);
     req.headers.contentType = ContentType('application', 'cbor');
-    if (bearer != null)
+    if (bearer != null) {
       req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
+    }
     final bytes = raw ?? (body == null ? Uint8List(0) : VMap(body).toCbor());
     req.contentLength = bytes.length;
     req.add(bytes);
@@ -555,8 +562,9 @@ class WyrmGateway {
 
   static Future<Value> _get(HttpClient c, Uri url, {String? bearer}) async {
     final req = await c.getUrl(url);
-    if (bearer != null)
+    if (bearer != null) {
       req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearer');
+    }
     return _read(await req.close());
   }
 
@@ -580,9 +588,6 @@ class WyrmGateway {
     }
     return v;
   }
-
-  static WyrmException _bad(String what) =>
-      WyrmException.of(Status.invalidMessage, 'malformed gateway reply: $what');
 }
 
 /// What a device signs to log in (ADR 0050):
@@ -638,181 +643,6 @@ Uint8List deviceConfirmMessage(
   VBytes(request),
 ]).toCbor();
 
-/// `GET /api/info` (ADR 0050 §2.2).
-class GatewayInfo {
-  final String site;
-  final String version;
-  final bool tls;
-  final String role;
-  final String? pair;
-  final List<String> up;
-  final String minStudio;
-
-  /// The CA code (32 hex digits) and the CA certificate (DER), over TLS
-  /// when the broker knows its CA.
-  final String? caFp;
-  final Uint8List? ca;
-
-  /// The DNS and IP names of the gateway's certificate.
-  final List<String> names;
-  final DevicePolicy devices;
-
-  const GatewayInfo({
-    required this.site,
-    required this.version,
-    required this.tls,
-    this.role = 'active',
-    this.pair,
-    this.up = const [],
-    this.minStudio = '0',
-    this.caFp,
-    this.ca,
-    this.names = const [],
-    this.devices = const DevicePolicy(),
-  });
-
-  factory GatewayInfo.of(Value v) => GatewayInfo(
-    site: _str(v['site']) ?? '',
-    version: _str(v['version']) ?? '',
-    tls: v['tls'] == const VBool(true),
-    role: _str(v['role']) ?? 'active',
-    pair: _str(v['pair']),
-    up: _strs(v['up']),
-    minStudio: _str(v['min_studio']) ?? '0',
-    caFp: _str(v['ca_fp']),
-    ca: switch (v['ca']) {
-      VBytes(:final v) => v,
-      _ => null,
-    },
-    names: _strs(v['names']),
-    devices: DevicePolicy.of(v['devices']),
-  );
-}
-
-/// `gateway.devices` as `/api/info` tells it.
-class DevicePolicy {
-  final bool enabled;
-  final int maxPerUser;
-  final int passwordEveryDays;
-  final int idleLockMaxMin;
-
-  /// `none` or `config`.
-  final String stepUp;
-  final bool allowDeviceCredential;
-
-  const DevicePolicy({
-    this.enabled = false,
-    this.maxPerUser = 5,
-    this.passwordEveryDays = 30,
-    this.idleLockMaxMin = 30,
-    this.stepUp = 'none',
-    this.allowDeviceCredential = false,
-  });
-
-  factory DevicePolicy.of(Value? v) => DevicePolicy(
-    enabled: v?['enabled'] == const VBool(true),
-    maxPerUser: _int(v?['max_per_user']) ?? 5,
-    passwordEveryDays: _int(v?['password_every_days']) ?? 30,
-    idleLockMaxMin: _int(v?['idle_lock_max_min']) ?? 30,
-    stepUp: _str(v?['step_up']) ?? 'none',
-    allowDeviceCredential: v?['allow_device_credential'] == const VBool(true),
-  );
-}
-
-/// A device record (`/api/devices`).
-class GatewayDevice {
-  final String id;
-  final String name;
-  final String platform;
-  final String alg;
-  final int added;
-  final int lastUsed;
-  final int passwordAt;
-  final int passwordDueAt;
-
-  /// `active`, `removed` or `signed_out`.
-  final String state;
-  final bool thisSession;
-  final String? removedBy;
-
-  const GatewayDevice({
-    required this.id,
-    required this.name,
-    required this.platform,
-    this.alg = 'es256',
-    this.added = 0,
-    this.lastUsed = 0,
-    this.passwordAt = 0,
-    this.passwordDueAt = 0,
-    this.state = 'active',
-    this.thisSession = false,
-    this.removedBy,
-  });
-
-  factory GatewayDevice.of(Value v) => GatewayDevice(
-    id: _str(v['id']) ?? '',
-    name: _str(v['name']) ?? '',
-    platform: _str(v['platform']) ?? '',
-    alg: _str(v['alg']) ?? 'es256',
-    added: _int(v['added']) ?? 0,
-    lastUsed: _int(v['last_used']) ?? 0,
-    passwordAt: _int(v['password_at']) ?? 0,
-    passwordDueAt: _int(v['password_due_at']) ?? 0,
-    state: _str(v['state']) ?? 'active',
-    thisSession: v['this'] == const VBool(true),
-    removedBy: _str(v['removed_by']),
-  );
-}
-
-String? _str(Value? v) => switch (v) {
-  VStr(:final v) => v,
-  _ => null,
-};
-
-int? _int(Value? v) => switch (v) {
-  VInt(:final v) => v,
-  _ => null,
-};
-
-List<String> _strs(Value? v) => [
-  if (v case VArray(:final v))
-    for (final s in v)
-      if (s case VStr(:final v)) v,
-];
-
-/// A user of the gateway (`/api/users`).
-class GatewayUser {
-  final String name;
-  final List<String> roles;
-  final bool disabled;
-
-  /// Devices that can log in (ADR 0050).
-  final int devices;
-
-  const GatewayUser(
-    this.name,
-    this.roles, {
-    this.disabled = false,
-    this.devices = 0,
-  });
-
-  factory GatewayUser.of(Value v) => GatewayUser(
-    switch (v['name']) {
-      VStr(:final v) => v,
-      _ => '',
-    },
-    switch (v['roles']) {
-      VArray(:final v) => [
-        for (final r in v)
-          if (r case VStr(:final v)) v,
-      ],
-      _ => const [],
-    },
-    disabled: v['disabled'] == const VBool(true),
-    devices: _int(v['devices']) ?? 0,
-  );
-}
-
 /// [FrameTransport] over a `dart:io` WebSocket (binary CBOR frames).
 class WebSocketTransport implements FrameTransport {
   final WebSocket _ws;
@@ -820,8 +650,9 @@ class WebSocketTransport implements FrameTransport {
 
   WebSocketTransport(this._ws) {
     _in = _ws
-        .where((m) => m is List<int>)
-        .map((m) => decodeFrame(m as List<int>))
+        .expand<Value>(
+          (Object? m) => m is List<int> ? [decodeFrame(m)] : const [],
+        )
         .handleError((Object _) {}, test: (e) => e is CborError)
         .asBroadcastStream();
   }
@@ -830,7 +661,7 @@ class WebSocketTransport implements FrameTransport {
   Stream<Value> get incoming => _in;
 
   @override
-  void send(Map<String, Value> frame) => _ws.add(encodeFrame(frame));
+  void send(FrameRequest frame) => _ws.add(encodeFrame(frame));
 
   @override
   Future<void> close() => _ws.close();

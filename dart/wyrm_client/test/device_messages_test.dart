@@ -64,13 +64,14 @@ void main() {
       }),
     );
     expect(e.code, 'confirm_required');
+    expect(e.refusal, GatewayRefusal.confirmRequired);
     expect(e.nonce!.length, 56);
     expect(e.request!.length, 32);
     expect(e.status, StatusCode.of(Status.permissionDenied));
   });
 
   test('info and device rows parse', () {
-    final i = GatewayInfo.of(
+    final i = GatewayInfo.fromValue(
       VMap({
         'site': const VStr('plant'),
         'version': const VStr('0.1.0'),
@@ -85,9 +86,9 @@ void main() {
     );
     expect(i.site, 'plant');
     expect(i.devices.enabled, isTrue);
-    expect(i.devices.stepUp, 'config');
+    expect(i.devices.stepUp, StepUp.config);
     expect(i.names, ['gw.plant.example']);
-    final d = GatewayDevice.of(
+    final d = GatewayDevice.fromValue(
       VMap({
         'id': const VStr('ab'),
         'name': const VStr('Mac'),
@@ -99,7 +100,9 @@ void main() {
     );
     expect(
       (d.state, d.removedBy, d.thisSession),
-      ('removed', 'user:root', true),
+      (GatewayDeviceState.removed, 'user:root', true),
     );
+    // a record of a gateway older than `alg`
+    expect(d.alg, DeviceAlg.es256);
   });
 }

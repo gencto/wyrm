@@ -49,7 +49,7 @@ void main() {
     site: site,
     version: '0.1.0',
     tls: tls,
-    role: role,
+    role: GatewayRole.fromWire(role)!,
     pair: pair,
     up: up,
     minStudio: minStudio,

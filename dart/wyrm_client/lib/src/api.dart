@@ -4,16 +4,24 @@ import 'dart:typed_data';
 
 import 'package:wyrm_core/wyrm_core.dart';
 
+import 'gateway_types.dart';
+
 /// A failed request: a spec-04 status and a message.
 class WyrmException implements Exception {
   final StatusCode status;
   final String message;
 
-  /// The refusal code a gateway gives (ADR 0050): `device_removed`,
-  /// `password_changed`, `password_due`, `devices_off`, `confirm_required`,
-  /// `password_required`, `too_many_devices`, `bad_password`; `null` for
-  /// any other error.
+  /// The refusal code a gateway gives (ADR 0050) as text, also one this
+  /// client does not know; `null` for any other error. [refusal] is the
+  /// typed form.
   final String? code;
+
+  /// The refusal as a [GatewayRefusal]; null for an error without a code
+  /// and for a code this client does not know (see [code]).
+  GatewayRefusal? get refusal {
+    final c = code;
+    return c == null ? null : GatewayRefusal.fromWire(c);
+  }
 
   /// What a `confirm_required` refusal carries to sign: `nonce` (absent for
   /// a session that cannot confirm) and `request` (the request's hash).
@@ -61,8 +69,27 @@ class WyrmException implements Exception {
         },
       );
 
+  /// A reply that does not have the shape its decoder reads.
+  WyrmException.malformed(DecodeError e)
+    : status = StatusCode.of(Status.invalidMessage),
+      message = 'malformed reply: ${e.path}: expected ${e.expected}, got ${e.got}',
+      code = null,
+      nonce = null,
+      request = null;
+
   @override
   String toString() => 'WyrmException(${status.name}): $message';
+}
+
+/// [decode] of [v]; a [DecodeError] becomes a [WyrmException] with status
+/// `invalid_message` that names the field, so a caller handles one error
+/// type for every call.
+T decodeReply<T>(Value v, T Function(Value v) decode) {
+  try {
+    return decode(v);
+  } on DecodeError catch (e) {
+    throw WyrmException.malformed(e);
+  }
 }
 
 /// One child of a node: its name and its `view=list` meta.
@@ -185,6 +212,30 @@ abstract interface class WyrmApi {
 
   /// End every stream and the connection.
   Future<void> close();
+}
+
+/// Typed forms of [WyrmApi] calls that take a closed set as text.
+extension TypedCalls on WyrmApi {
+  /// [WyrmApi.history] with [agg] as a [HistoryAgg]. [window] is
+  /// `<n>s|m|h|d|w` (`5m`, `1h`).
+  Future<List<HistRow>> historyOf(
+    String key, {
+    required String from,
+    String to = '',
+    HistoryAgg? agg,
+    String? window,
+    int? limit,
+  }) => history(
+    key,
+    from: from,
+    to: to,
+    agg: agg?.wire,
+    window: window,
+    limit: limit,
+  );
+
+  /// [WyrmApi.doc] with [suffix] as a [DocSuffix].
+  Future<Value> docOf(String key, DocSuffix suffix) => doc(key, suffix.wire);
 }
 
 /// Is [e] the answer of a gateway that does not know the op (one older than
