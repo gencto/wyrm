@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
+import '../theme/tints.dart';
 import '../theme/typography.dart';
 
 /// What [TrustCard] says (docs/design/specs/unlock-discover.md §4, *Trust*).
@@ -73,8 +74,8 @@ class TrustCard extends StatelessWidget {
 
   /// The board's fill and border (`#1A1810`, `#6A5A2A`): amber, darker than
   /// `warnTint` and lighter than `warnLine`.
-  static const fill = Color(0xFF1A1810);
-  static const border = Color(0xFF6A5A2A);
+  static const Color fill = Tints.warnFill;
+  static const Color border = Tints.warnLine;
 
   @override
   Widget build(BuildContext context) {
@@ -129,7 +130,7 @@ class TrustCard extends StatelessWidget {
               value: vm.code.join(' '),
               child: ExcludeSemantics(
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: Insets.caCode,
                   decoration: BoxDecoration(
                     color: c.ground0,
                     borderRadius: const BorderRadius.all(
@@ -150,7 +151,7 @@ class TrustCard extends StatelessWidget {
                                   textAlign: .center,
                                   style: TextStyle(
                                     fontFamily: AppFonts.mono,
-                                    fontSize: 15,
+                                    fontSize: FontSizes.lead,
                                     letterSpacing: 1.2,
                                     color: c.text1,
                                   ),

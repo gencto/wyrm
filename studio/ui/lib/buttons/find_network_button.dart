@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// `Find on this network` beside the gateway field
@@ -40,9 +42,9 @@ class FindNetworkButton extends StatelessWidget {
           onTap: onPressed,
           borderRadius: shape,
           child: SizedBox(
-            height: 46,
+            height: AppSizes.fieldButton,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: Insets.button,
               child: Row(
                 mainAxisSize: .min,
                 spacing: 8,

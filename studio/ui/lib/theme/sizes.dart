@@ -28,6 +28,21 @@ abstract final class AppSizes {
   /// A button beside a boxed field, as tall as the field.
   static const double fieldButton = 46;
 
+  /// The outlined buttons of the offer (`Not now`, `Don't ask`).
+  static const double outlinedButton = 42;
+
+  /// The row of *Probe a range*: its fields and its button.
+  static const double probeRow = 38;
+
+  /// The port field of *Probe a range*.
+  static const double portField = 70;
+
+  /// The step-up dialog's width (board `UnlockStepUp`).
+  static const double stepUpDialog = 520;
+
+  /// The line of a legend of the hero (14 × 2).
+  static const heroLegend = Size(14, 2);
+
   /// A small outlined button at the end of a row or a line.
   static const double smallButton = 32;
 

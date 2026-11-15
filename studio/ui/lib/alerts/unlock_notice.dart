@@ -5,6 +5,7 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
+import '../theme/tints.dart';
 import '../theme/typography.dart';
 
 /// What the notice above an unlock form says (unlock-discover.md §2):
@@ -37,9 +38,9 @@ class UnlockNotice extends StatelessWidget {
 
   /// The boards' amber notice (`#6A5A2A` on `#1A1810`) and the coral one's
   /// fill (`#1C1513`).
-  static const warnBorder = Color(0xFF6A5A2A);
-  static const warnFill = Color(0xFF1A1810);
-  static const badFill = Color(0xFF1C1513);
+  static const Color warnBorder = Tints.warnLine;
+  static const Color warnFill = Tints.warnFill;
+  static const Color badFill = Tints.badFill;
 
   @override
   Widget build(BuildContext context) {

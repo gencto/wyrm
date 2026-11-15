@@ -270,7 +270,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
     final c = context.colors;
     final vm = widget.vm;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: Insets.unlockButton,
       child: Column(
         spacing: 14,
         children: [
@@ -283,7 +283,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
           Text(
             vm.unlockLabel,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: FontSizes.lead,
               fontWeight: .w600,
               color: c.text1,
             ),
@@ -348,7 +348,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
       _ => c.good,
     };
     return Container(
-      padding: const EdgeInsets.only(top: 14),
+      padding: Insets.footer,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.ground3)),
       ),
@@ -390,10 +390,7 @@ class _AccountCard extends StatelessWidget {
       _ => c.muted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: 14,
-      ),
+      padding: Insets.accountCard,
       decoration: BoxDecoration(
         color: c.ground1,
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.panel)),
@@ -413,7 +410,7 @@ class _AccountCard extends StatelessWidget {
             child: Text(
               vm.initials,
               style: TextStyle(
-                fontSize: 15,
+                fontSize: FontSizes.lead,
                 fontWeight: .w600,
                 color: c.emberSoft,
               ),
@@ -428,7 +425,7 @@ class _AccountCard extends StatelessWidget {
                   TextSpan(
                     text: vm.user,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: FontSizes.lead,
                       fontWeight: .w600,
                       color: c.text1,
                     ),

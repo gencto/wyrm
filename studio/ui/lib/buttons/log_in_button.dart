@@ -6,6 +6,7 @@ import '../indicators/wyrm_loader.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
+import '../theme/tints.dart';
 import '../theme/typography.dart';
 
 /// The log-in's button (docs/design/specs/login.md §3.6): 50 high, radius 10,
@@ -22,7 +23,7 @@ class LogInButton extends StatelessWidget {
   final bool busy;
 
   /// The ember of a pressed, busy button (the board's `#C9772F`).
-  static const busyFill = Color(0xFFC9772F);
+  static const Color busyFill = Tints.emberBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +50,7 @@ class LogInButton extends StatelessWidget {
                       busy ? S.current.signingIn : S.current.logIn,
                       style: TextStyle(
                         fontFamily: AppFonts.sans,
-                        fontSize: 16,
+                        fontSize: FontSizes.tallButton,
                         fontWeight: .w600,
                         color: c.onEmber,
                       ),

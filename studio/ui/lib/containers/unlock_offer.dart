@@ -7,6 +7,7 @@ import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
 
@@ -126,7 +127,9 @@ class UnlockOffer extends StatelessWidget {
             height: 84,
             decoration: BoxDecoration(
               color: c.emberFill,
-              borderRadius: const BorderRadius.all(Radius.circular(24)),
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppRadii.offerGlyph),
+              ),
               border: Border.all(color: c.emberLine),
             ),
             alignment: .center,
@@ -169,7 +172,7 @@ class UnlockOffer extends StatelessWidget {
                   spacing: 10,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(top: 7),
+                      padding: Insets.bulletDot,
                       child: Container(
                         width: 6,
                         height: 6,
@@ -272,7 +275,7 @@ class OfferButton extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 16,
+                fontSize: FontSizes.tallButton,
                 fontWeight: .w600,
                 color: c.onEmber,
               ),
@@ -308,7 +311,7 @@ class _Outlined extends StatelessWidget {
     child: InkWell(
       onTap: onPressed,
       child: SizedBox(
-        height: 42,
+        height: AppSizes.outlinedButton,
         child: Center(
           child: Text(
             label,

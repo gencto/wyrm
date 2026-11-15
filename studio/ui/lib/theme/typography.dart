@@ -167,6 +167,19 @@ abstract final class FontSizes {
 
   /// A page's title (`headlineSmall`).
   static const double pageTitle = 26;
+
+  /// A line set above the body: the account and the round button's label
+  /// on the unlock, the lock card's lines, the groups of a CA code.
+  static const double lead = 15;
+
+  /// The label of a tall button (log in, the offer's `Use`).
+  static const double tallButton = 16;
+
+  /// The hero's lead under its headline.
+  static const double heroLead = 16;
+
+  /// The title of the lock card over the dimmed shell.
+  static const double lockTitle = 22;
 }
 
 /// Text styles that set the size only: a widget adds its colour and weight

@@ -10,7 +10,9 @@ import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
+import '../theme/tints.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
 
@@ -51,7 +53,7 @@ class LoginHero extends StatefulWidget {
   static const buttonsClearance = 20.0;
 
   /// The glow's warm centre (the board's `#1A1511`).
-  static const glow = Color(0xFF1A1511);
+  static const Color glow = Tints.heroGlow;
 
   @override
   State<LoginHero> createState() => _LoginHeroState();
@@ -83,7 +85,7 @@ class _LoginHeroState extends State<LoginHero> {
         border: Border(right: BorderSide(color: c.ground3)),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(right: 1),
+        padding: Insets.heroMark,
         child: ClipRect(
           child: CustomPaint(
             painter: _Glow(LoginHero.glow, c.ground0),
@@ -97,12 +99,11 @@ class _LoginHeroState extends State<LoginHero> {
                   // 220 high below 700 px: 24 around the logo and the mark.
                   padding: small
                       ? const EdgeInsets.all(AppSpacing.lg)
-                      : EdgeInsets.fromLTRB(
-                          48,
-                          underButtons ? 40 + LoginHero.buttonsClearance : 40,
-                          48,
-                          40,
-                        ),
+                      : underButtons
+                      ? Insets.hero.copyWith(
+                          top: Insets.hero.top + LoginHero.buttonsClearance,
+                        )
+                      : Insets.hero,
                   child: Column(
                     crossAxisAlignment: .start,
                     mainAxisAlignment: .spaceBetween,
@@ -141,7 +142,7 @@ class _LoginHeroState extends State<LoginHero> {
                                 child: Text(
                                   S.current.heroLead,
                                   style: TextStyle(
-                                    fontSize: 16,
+                                    fontSize: FontSizes.heroLead,
                                     height: 1.6,
                                     leadingDistribution: .even,
                                     color: c.text3,
@@ -190,9 +191,8 @@ class _LoginHeroState extends State<LoginHero> {
     mainAxisSize: .min,
     spacing: 6,
     children: [
-      SizedBox(
-        width: 14,
-        height: 2,
+      SizedBox.fromSize(
+        size: AppSizes.heroLegend,
         child: ColoredBox(color: line),
       ),
       Text(
@@ -353,7 +353,7 @@ class _Network extends CustomPainter {
   final Color star;
   final Color node;
 
-  static const _edgeInk = Color(0xFF2A2F33);
+  static const Color _edgeInk = Tints.heroEdge;
 
   /// How far around a quiet widget the network is erased, and how soft the
   /// edge of that is.

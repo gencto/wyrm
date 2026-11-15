@@ -349,10 +349,7 @@ class _LogInPageState extends State<LogInPage> {
   );
 
   Widget _form(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(
-      horizontal: AppSpacing.xl,
-      vertical: 40,
-    ),
+    padding: Insets.logInForm,
     child: Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: _finding ? 460 : 420),
@@ -582,7 +579,7 @@ class _LogInPageState extends State<LogInPage> {
           ),
         if (widget.trust case final t?)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: Insets.underGateway,
             child: TrustCard(
               vm: t,
               onTrust: widget.onTrust ?? () {},
@@ -591,7 +588,7 @@ class _LogInPageState extends State<LogInPage> {
           )
         else if (widget.discover case final d?)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: Insets.underGateway,
             child: DiscoverPanel(
               vm: d,
               onLookAgain: widget.onLookAgain ?? () {},
@@ -631,7 +628,7 @@ class _LogInPageState extends State<LogInPage> {
     final c = context.colors;
     final note = TextStyle(fontSize: FontSizes.sm, color: c.text4);
     return Container(
-      padding: const EdgeInsets.only(top: 14),
+      padding: Insets.footer,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.ground3)),
       ),

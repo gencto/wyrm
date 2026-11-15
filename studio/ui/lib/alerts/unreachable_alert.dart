@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/spacing.dart';
+import '../theme/tints.dart';
 import '../theme/typography.dart';
 
 /// What the unreachable alert says (docs/design/specs/login.md §5).
@@ -48,7 +49,7 @@ class UnreachableAlert extends StatelessWidget {
 
   /// The alert's fill (the board's `#1C1513`, between `ground0` and
   /// `badTint`).
-  static const fill = Color(0xFF1C1513);
+  static const Color fill = Tints.badFill;
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +146,7 @@ class UnreachableAlert extends StatelessWidget {
         borderRadius: shape,
         child: Container(
           height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: Insets.button,
           child: Center(
             widthFactor: 1,
             child: Text(

@@ -8,6 +8,7 @@ import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/shades.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -171,18 +172,13 @@ class _StepUpDialogState extends State<StepUpDialog> {
           shadowColor: Shades.dialogShadow,
           clipBehavior: .antiAlias,
           child: SizedBox(
-            width: 520,
+            width: AppSizes.stepUpDialog,
             child: Column(
               mainAxisSize: .min,
               crossAxisAlignment: .stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    22,
-                    AppSpacing.lg,
-                    6,
-                  ),
+                  padding: Insets.dialogHead,
                   child: Column(
                     crossAxisAlignment: .start,
                     spacing: 6,
@@ -207,12 +203,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   ),
                 ),
                 Container(
-                  margin: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    10,
-                    AppSpacing.lg,
-                    10,
-                  ),
+                  margin: Insets.dialogList,
                   decoration: BoxDecoration(
                     borderRadius: const BorderRadius.all(
                       Radius.circular(AppRadii.card),
@@ -228,12 +219,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                 ),
                 if (password)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      6,
-                      AppSpacing.lg,
-                      AppSpacing.none,
-                    ),
+                    padding: Insets.dialogRow,
                     child: BoxedFormField(
                       vm: FieldVm(
                         value: _typed,
@@ -251,13 +237,8 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   )
                 else
                   Container(
-                    margin: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      6,
-                      AppSpacing.lg,
-                      AppSpacing.none,
-                    ),
-                    padding: const EdgeInsets.all(14),
+                    margin: Insets.dialogRow,
+                    padding: Insets.panelBox,
                     decoration: BoxDecoration(
                       color: c.emberFill,
                       borderRadius: const BorderRadius.all(
@@ -303,11 +284,8 @@ class _StepUpDialogState extends State<StepUpDialog> {
                     ),
                   ),
                 Container(
-                  margin: const EdgeInsets.only(top: 12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: 18,
-                  ),
+                  margin: Insets.dialogFootGap,
+                  padding: Insets.dialogFoot,
                   decoration: BoxDecoration(
                     border: Border(top: BorderSide(color: c.ground3)),
                   ),
@@ -366,10 +344,7 @@ class _Line extends StatelessWidget {
     final c = context.colors;
     final config = vm.level.strong;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 10,
-      ),
+      padding: Insets.cardRow,
       decoration: BoxDecoration(
         border: first ? null : Border(top: BorderSide(color: c.ground3)),
       ),
@@ -377,10 +352,7 @@ class _Line extends StatelessWidget {
         spacing: 10,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: 2,
-            ),
+            padding: Insets.levelBadge,
             decoration: BoxDecoration(
               color: config ? c.badTint : c.ground4,
               borderRadius: const BorderRadius.all(
