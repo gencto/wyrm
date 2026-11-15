@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/staged_change_kind.dart';
 import 'package:wyrm_client/wyrm_client.dart' show Perm;
 
 import '../../../wyrm/mappers/value_text.dart';
@@ -62,7 +63,7 @@ class StageValueAction extends Action {
       AddChangesAction(
         [
           StagedChange(
-            id: 'set:$key',
+            id: StagedChangeKind.set.idOf(key),
             op: 'Edit',
             key: key,
             field: 'value',

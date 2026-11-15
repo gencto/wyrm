@@ -5,6 +5,7 @@ import 'package:models/agent_params.dart';
 import 'package:models/approval_mode.dart';
 import 'package:models/error_kind.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/staged_change_kind.dart';
 
 import '../../../wyrm/decode/agent_params.dart';
 import '../../../wyrm/failures.dart';
@@ -99,7 +100,7 @@ class StageAgentParamAction extends Action with WaitingAction {
           now: _listed(next.allowedPrefixes),
         ),
     ];
-    final cid = 'params:$key';
+    final cid = StagedChangeKind.params.idOf(key);
     final old = staged?.change.id;
     var table = changes.table;
     var view = changes.view;
