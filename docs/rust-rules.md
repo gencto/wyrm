@@ -46,8 +46,10 @@ call `unwrap()`, `expect()`, `panic!`, `todo!`, `unimplemented!` or `dbg!`.
 Where a value is known to be there, restructure so the type says it: a
 `let … else`, a slice pattern, an array from `get(..)`, `if let Some` after a
 lookup. `expect` stays only for a true invariant that no restructure states
-better (an HMAC key of any length, a fail-closed RNG, an encode into memory),
-with `#[allow(clippy::expect_used, reason = "…")]`.
+better (an HMAC key of any length, an encode into memory, build-time data
+that a test parses), with `#[allow(clippy::expect_used, reason = "…")]`. An
+RNG failure is never an `expect`: the function returns `None`/`Err` and its
+caller refuses (rule 10).
 
 **Why.** The audit found the code "much better on panics than feared": 14
 guarded `unwrap()` in product code. The rule keeps it that way. A panic
@@ -187,8 +189,9 @@ counted).
 (`wire_enum!` when it has wire codes, `ParamEnum` for an action argument,
 otherwise a plain enum with `name()`/`from_name()`). The string becomes the
 enum once, where it is decoded. No `String` field documented as "`a`, `b` or
-`c`", no `&["a", "b"].contains(&x)`, no `const NAMES: [&str; N]` checked by
-hand.
+`c`", no inline `&["a", "b"]` set, no `const NAMES: [&str; N]` checked by
+hand. The key list of `Fields::only(&[…])` (the names an argument map may
+hold) is not a set of values and is not counted.
 
 **Why.** **T5**: 31 `String` fields documented as closed sets
 (`Job.status` compared as `job.status != "done"`, `Device.alg` parsed again at
