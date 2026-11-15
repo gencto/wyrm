@@ -9,9 +9,17 @@ environment:
 dependencies:
   # SHA-256 of a plan (`planHash`)
   crypto: ^3.0.8
+  # Typed wire models (immutable, `==`, `copyWith`). The same constraints as
+  # studio/models: Studio resolves this package in its own workspace.
+  freezed_annotation: ^3.1.0
   wyrm_core:
     path: ../wyrm_core
 
 dev_dependencies:
+  # `dart run build_runner build`; the generated `*.freezed.dart` files are
+  # committed (Studio's `build_runner --workspace` does not build path
+  # dependencies outside its workspace). CI checks that they are current.
+  build_runner: ^2.16.1
+  freezed: ^4.0.1
   lints: ^6.1.0
   test: ^1.33.0

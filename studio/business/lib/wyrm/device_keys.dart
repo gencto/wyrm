@@ -63,7 +63,7 @@ DevicePolicyInfo policyOf(DevicePolicy p) => DevicePolicyInfo(
   maxPerUser: p.maxPerUser,
   passwordEveryDays: p.passwordEveryDays,
   idleLockMaxMin: p.idleLockMaxMin,
-  stepUp: p.stepUp,
+  stepUp: p.stepUp.wire,
   allowDeviceCredential: p.allowDeviceCredential,
 );
 
@@ -71,11 +71,11 @@ DevicePolicyInfo policyOf(DevicePolicy p) => DevicePolicyInfo(
 UserDevice userDeviceOf(GatewayDevice d) => UserDevice(
   id: d.id,
   name: d.name,
-  platform: d.platform,
+  platform: d.platform?.wire ?? '',
   added: d.added,
   lastUsed: d.lastUsed,
   passwordDueAt: d.passwordDueAt,
-  state: d.state,
+  state: d.state.wire,
   thisDevice: d.thisSession,
   removedBy: d.removedBy,
 );

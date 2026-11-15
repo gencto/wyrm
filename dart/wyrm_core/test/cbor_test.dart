@@ -53,7 +53,7 @@ void main() {
   test('Value.from and toDart', () {
     final v = Value.from({'a': 1, 'b': 2.5, 'c': [true, null, 'x'], 'd': Uint8List.fromList([1])});
     expect(Value.fromCbor(v.toCbor()), v);
-    expect((v.toDart() as Map)['b'], 2.5);
+    expect((v.toDart()! as Map<String, Object?>)['b'], 2.5);
   });
 
   test('nesting is bounded (spec rule 6)', () {

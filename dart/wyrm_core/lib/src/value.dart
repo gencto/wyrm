@@ -257,11 +257,11 @@ final class VMap extends Value {
 
 /// Write a text-keyed map in canonical order.
 void encodeTextMap<T>(CborWriter w, Map<String, T> m, void Function(CborWriter, T) enc) {
-  final keys = m.keys.toList()..sort(canonicalTextOrder);
-  w.mapHeader(keys.length);
-  for (final k in keys) {
-    w.text(k);
-    enc(w, m[k] as T);
+  final entries = m.entries.toList()..sort((a, b) => canonicalTextOrder(a.key, b.key));
+  w.mapHeader(entries.length);
+  for (final e in entries) {
+    w.text(e.key);
+    enc(w, e.value);
   }
 }
 

@@ -7,10 +7,18 @@ import 'cbor.dart';
 import 'tables.dart';
 import 'value.dart';
 
+/// One grant: a key expression and the level it gives.
 class Grant {
   final String k;
   final Perm p;
   const Grant(this.k, this.p);
+
+  @override
+  bool operator ==(Object other) => other is Grant && other.k == k && other.p == p;
+  @override
+  int get hashCode => Object.hash(k, p);
+  @override
+  String toString() => 'Grant($k, ${p.wire})';
 }
 
 class PtokClaims {

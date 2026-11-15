@@ -4,6 +4,7 @@
 // The test builds the library with cargo unless WYRM_FFI_LIB names a
 // library that was built with `--features test-harness`.
 @Timeout(Duration(minutes: 20))
+@Tags(['e2e'])
 library;
 
 import 'dart:io';
