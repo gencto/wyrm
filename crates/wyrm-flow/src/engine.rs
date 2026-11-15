@@ -423,7 +423,7 @@ impl State {
                 .declare_node(&format!("{nodes}/{name}"), publish_meta(cfg))
                 .await?;
         }
-        let raw = wyrm_core::codec::to_vec(&f.def.raw).unwrap_or_default();
+        let raw = wyrm_core::codec::value_to_vec(&f.def.raw);
         self.ctx.set_doc(id, "~def", Some(raw))?;
         Ok(())
     }
@@ -452,13 +452,11 @@ impl State {
         let t = now_us();
         let recs = states
             .iter()
-            .filter_map(|(node, (hash, v))| {
-                wyrm_core::codec::to_vec(v).ok().map(|cbor| NodeStateRec {
-                    node: node.clone(),
-                    hash: *hash,
-                    t,
-                    cbor,
-                })
+            .map(|(node, (hash, v))| NodeStateRec {
+                node: node.clone(),
+                hash: *hash,
+                t,
+                cbor: wyrm_core::codec::value_to_vec(v),
             })
             .collect();
         if let Err(e) = self.host.apply(Op::PutStates {

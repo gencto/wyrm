@@ -510,7 +510,7 @@ impl Nonces {
         use hmac::Mac;
         let mut m = self.keyed();
         m.update(b"wyrm-step-up-request/1");
-        m.update(&wyrm_core::codec::to_vec(&without_secrets(request)).unwrap_or_default());
+        m.update(&wyrm_core::codec::value_to_vec(&without_secrets(request)));
         m.finalize().into_bytes().into()
     }
 }

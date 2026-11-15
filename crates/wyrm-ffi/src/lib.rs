@@ -950,7 +950,7 @@ fn event_frame<'a>(id: u64, ty: &str, fields: impl IntoIterator<Item = (&'a str,
 }
 
 fn meta_bytes(m: &NodeMeta) -> Value {
-    Value::Bytes(to_vec(m).unwrap_or_default())
+    Value::Bytes(wyrm_core::codec::encode_to_vec(m))
 }
 
 fn child_fields(c: &Child) -> [(&'static str, Value); 2] {

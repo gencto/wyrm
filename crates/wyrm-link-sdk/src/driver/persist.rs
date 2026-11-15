@@ -84,7 +84,7 @@ impl Persist {
             );
             return None;
         };
-        let boot = Sha256::digest(wyrm_core::codec::to_vec(bootstrap).unwrap_or_default()).into();
+        let boot = Sha256::digest(wyrm_core::codec::value_to_vec(bootstrap)).into();
         Some(Self {
             path: dir.join(FILE),
             key,

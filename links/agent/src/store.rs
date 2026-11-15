@@ -335,7 +335,7 @@ pub fn encode_plan(plan: &[PlanOp], extras: &Extras) -> Vec<u8> {
         }
         Value::Map(m)
     };
-    wyrm_core::codec::to_vec(&v).unwrap_or_default()
+    wyrm_core::codec::value_to_vec(&v)
 }
 
 pub fn decode_plan(b: &[u8]) -> Result<(Vec<PlanOp>, Extras), String> {

@@ -465,7 +465,7 @@ pub fn plan_hash(plan: &[PlanOp]) -> String {
         .enumerate()
         .map(|(i, op)| Value::Map(op.hashed(i + 1)))
         .collect();
-    check::payload_sha256(&wyrm_core::codec::to_vec(&Value::Array(steps)).unwrap_or_default())
+    check::payload_sha256(&wyrm_core::codec::value_to_vec(&Value::Array(steps)))
 }
 
 /// The steps of `plan` that do not run when the steps in `unapproved` (numbers from 1) get no

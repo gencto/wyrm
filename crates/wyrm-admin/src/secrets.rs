@@ -38,7 +38,7 @@ fn encode(db: &Db) -> Zeroizing<Vec<u8>> {
             })
             .collect(),
     );
-    Zeroizing::new(wyrm_core::codec::to_vec(&v).unwrap_or_default())
+    Zeroizing::new(wyrm_core::codec::value_to_vec(&v))
 }
 
 fn decode(b: &[u8]) -> Result<Db, Error> {

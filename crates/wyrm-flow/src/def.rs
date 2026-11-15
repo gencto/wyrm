@@ -796,7 +796,7 @@ pub fn parse(v: &Value) -> Result<FlowDef> {
         .into_iter()
         .map(|(nid, (ty, cfg))| {
             let mut bytes = ty.as_bytes().to_vec();
-            bytes.extend(wyrm_core::codec::to_vec(&Value::Map(cfg.clone())).unwrap_or_default());
+            bytes.extend(wyrm_core::codec::value_to_vec(&Value::Map(cfg.clone())));
             let hash = crc32c::crc32c(&bytes);
             (nid, NodeDef { ty, cfg, hash })
         })
