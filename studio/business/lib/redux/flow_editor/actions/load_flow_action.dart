@@ -50,7 +50,8 @@ class LoadFlowAction extends Action {
         final read = flowReadOf(id, v.last);
         draft = placeFlow(
           read.draft,
-          {for (final t in types) t.type: t},
+          // The catalog with the flow's own custom blocks, as drawn.
+          {for (final t in typesWithBlocks(types, read.draft)) t.type: t},
           placed: read.placed,
         );
       }

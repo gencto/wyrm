@@ -194,6 +194,19 @@ void main() {
     expect(allShown(tester, big), isTrue);
   });
 
+  testWidgets('another flow opened is fitted again', (tester) async {
+    screen(tester);
+    final ctl = TransformationController();
+    addTearDown(ctl.dispose);
+    await tester.pumpWidget(canvas(ctl, [], blocks: big, view: 'a'));
+    await tester.pump();
+    ctl.value = Matrix4.identity();
+    await tester.pumpWidget(canvas(ctl, [], blocks: big, view: 'b'));
+    await tester.pump();
+    expect(scaleOf(ctl), lessThan(1));
+    expect(allShown(tester, big), isTrue);
+  });
+
   testWidgets('a flow that shows whole stays at 100 %', (tester) async {
     screen(tester);
     final ctl = TransformationController();

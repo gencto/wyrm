@@ -17,7 +17,9 @@ class TidyFlowAction extends Action {
     if (d == null || d.blocks.isEmpty) {
       return null;
     }
-    final next = tidyFlow(d, {for (final t in ed.types) t.type: t});
+    // The catalog with the flow's own custom blocks: an instance is drawn
+    // as tall as its block's inputs and outputs make it.
+    final next = tidyFlow(d, {for (final t in ed.allTypes) t.type: t});
     final moved = d.blocks.values.any((b) {
       final n = next.blocks[b.id]!;
       return n.x != b.x || n.y != b.y;

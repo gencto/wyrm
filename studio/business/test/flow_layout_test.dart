@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:business/wyrm/mappers/flow_blocks.dart';
 import 'package:business/wyrm/mappers/flow_fields.dart';
 import 'package:business/wyrm/mappers/flow_layout.dart';
 import 'package:business/wyrm/mappers/flow_mapper.dart';
@@ -95,14 +96,15 @@ FlowDraft oldColumns(FlowDraft d) {
   );
 }
 
-bool overlaps(FlowDraft d) {
+bool overlaps(FlowDraft d, [Map<String, NodeType>? with_]) {
+  final ts = with_ ?? types;
   final rs = [
     for (final b in d.blocks.values)
       (
         b.x,
         b.y,
         b.x + blockWidthOf(roleOf(b.type)),
-        b.y + blockHeight(types[b.type], b, edges: d.edges),
+        b.y + blockHeight(ts[b.type], b, edges: d.edges),
       ),
   ];
   for (var i = 0; i < rs.length; i++) {
@@ -311,6 +313,51 @@ void main() {
       expect(file.readAsStringSync(), text);
     },
   );
+
+  test('a custom block instance is laid out as tall as it is drawn', () {
+    final def = {
+      'id': 'inst',
+      'version': 1,
+      'blocks': {
+        'wide': {
+          'inputs': [
+            for (var i = 0; i < 8; i++) {'name': 'i$i', 'to': 'e$i.in'},
+          ],
+          'outputs': [
+            {'name': 'out', 'from': 'e0.on_edge'},
+          ],
+          'nodes': {
+            for (var i = 0; i < 8; i++) 'e$i': {'type': 'rising_edge'},
+          },
+          'edges': <Object>[],
+        },
+      },
+      'nodes': {
+        for (var i = 0; i < 8; i++)
+          's$i': {'type': 'subscribe', 'key': 'storage/s$i'},
+        'w': {'type': 'block:wide'},
+        'x': {'type': 'block:wide'},
+        'r': {'type': 'set', 'path': 'storage/r'},
+      },
+      'edges': [
+        for (var i = 0; i < 8; i++) ['s$i.out', 'w.i$i'],
+        for (var i = 0; i < 8; i++) ['s$i.out', 'x.i$i'],
+        ['w.out', 'r.in'],
+      ],
+    };
+    final read = flowReadOf('inst', Value.from(def));
+    final all = {
+      for (final t in typesWithBlocks(types.values.toIList(), read.draft))
+        t.type: t,
+    };
+    final d = placeFlow(read.draft, all, placed: read.placed);
+    expect(
+      blockHeight(all['block:wide'], d.blocks['w']!, edges: d.edges),
+      greaterThan(200),
+    );
+    expect(overlaps(d, all), isFalse);
+    expect(overlaps(tidyFlow(d, all), all), isFalse);
+  });
 
   test('a loop through a delay lays out', () {
     final d = flowDraftOf(
