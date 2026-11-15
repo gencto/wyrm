@@ -4,10 +4,10 @@
 
 use crate::engine::{now_us, Historian};
 use crate::rollup::{Folder, Out, Rollup};
-use crate::time::{parse_interval, parse_iso, parse_range};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
+use wyrm_core::history::{HistoryParamError, HistoryQuery};
 use wyrm_core::{codec, Attachment, HistRow, Status};
 use zenoh::query::Query;
 use zenoh::Session;
@@ -24,9 +24,11 @@ pub const QUEUE_WAIT: Duration = Duration::from_secs(5);
 /// Rows per reply of `~val?history=`: several replies, each an array.
 pub const CHUNK: usize = 5_000;
 
-/// One history read.
+/// One history read with its range resolved: what a `~val?history=`
+/// selector ([`HistoryQuery`]) asks at the time it came, or a Get History of
+/// `sys/history`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct HistoryQuery {
+pub struct HistoryRead {
     pub from: u64,
     pub to: u64,
     pub interval: Option<u64>,
@@ -34,7 +36,20 @@ pub struct HistoryQuery {
     pub limit: usize,
 }
 
-impl HistoryQuery {
+impl HistoryRead {
+    /// The read of `q` at `now`: an open end is now, no limit is
+    /// [`DEFAULT_LIMIT`], and no limit is above [`MAX_LIMIT`].
+    pub fn of(q: &HistoryQuery, now: u64) -> Result<Self, HistoryParamError> {
+        let (from, to) = q.range(now)?;
+        Ok(Self {
+            from,
+            to,
+            interval: q.window.map(|w| w.us()),
+            rollup: q.rollup,
+            limit: q.limit.map_or(DEFAULT_LIMIT, |l| l.get().min(MAX_LIMIT)),
+        })
+    }
+
     /// Raw rows `[t, v, q]` (no interval, no rollup).
     pub fn raw(&self) -> bool {
         self.interval.is_none() && self.rollup == Rollup::None
@@ -61,56 +76,19 @@ impl QueryError {
     }
 }
 
-/// The parameters of a `~val` selector (spec 01, `&`-separated). `None`
-/// when it asks for no history: `history=<from>..<to>` (an empty end is
-/// now) or `since=<from>`; then `agg`, `window`, `limit`.
-pub fn parse_selector(params: &str, now: u64) -> Result<Option<HistoryQuery>, String> {
-    let get = |name: &str| {
-        params
-            .split(['&', ';'])
-            .find_map(|kv| match kv.split_once('=') {
-                Some((k, v)) if k == name => Some(v),
-                _ => None,
-            })
-    };
-    let (from, to) = match (get("history"), get("since")) {
-        (Some(h), _) => parse_range(h, now)
-            .ok_or_else(|| format!("history={h}: <from>..<to> in RFC 3339, from before to"))?,
-        (None, Some(s)) => {
-            let from = parse_iso(s).ok_or_else(|| format!("since={s}: RFC 3339"))?;
-            if from > now {
-                return Err(format!("since={s}: in the future"));
-            }
-            (from, now)
-        }
-        (None, None) => return Ok(None),
-    };
-    let rollup = match get("agg") {
-        None => Rollup::None,
-        Some(a) => Rollup::parse(a).ok_or_else(|| format!("agg={a}?"))?,
-    };
-    let interval = parse_interval(get("window").unwrap_or(""))?;
-    let limit = match get("limit") {
-        None => DEFAULT_LIMIT,
-        Some(l) => l
-            .parse::<usize>()
-            .ok()
-            .filter(|n| *n >= 1)
-            .ok_or_else(|| format!("limit={l}: a number from 1"))?
-            .min(MAX_LIMIT),
-    };
-    Ok(Some(HistoryQuery {
-        from,
-        to,
-        interval,
-        rollup,
-        limit,
-    }))
+/// The read a `~val` selector asks for (spec 01), at `now`; `None` when it
+/// asks for no history (the storage answers it). Each parameter at most
+/// once, and no other: a duplicate or unknown one is `invalid_parameter`
+/// (spec 01 0.2.35, review S2).
+pub fn parse_selector(params: &str, now: u64) -> Result<Option<HistoryRead>, HistoryParamError> {
+    HistoryQuery::parse(params)?
+        .map(|q| HistoryRead::of(&q, now))
+        .transpose()
 }
 
 impl Historian {
     /// Rows of `key` for `q`; `None` if the point was never recorded.
-    pub async fn query(&self, key: &str, q: &HistoryQuery) -> Result<Option<Vec<Out>>, QueryError> {
+    pub async fn query(&self, key: &str, q: &HistoryRead) -> Result<Option<Vec<Out>>, QueryError> {
         let _permit = tokio::time::timeout(QUEUE_WAIT, self.reads.acquire())
             .await
             .map_err(|_| QueryError::Busy)?
@@ -218,8 +196,8 @@ async fn answer(h: Arc<Historian>, q: Query, watches: Option<String>) {
     let rows = match parsed {
         Ok(Some(hq)) => h.query(&point, &hq).await.map(|r| (r, hq.raw())),
         Ok(None) => return,
-        Err(msg) => {
-            let err = status_att(Status::InvalidParameter, Some(msg));
+        Err(e) => {
+            let err = status_att(e.status(), Some(e.to_string()));
             let _ = q.reply(&ke, Vec::<u8>::new()).attachment(err).await;
             return;
         }
@@ -262,7 +240,7 @@ async fn answer(h: Arc<Historian>, q: Query, watches: Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::time::US_PER_S;
+    use crate::time::{parse_iso, US_PER_S};
 
     #[test]
     fn selectors() {
@@ -288,6 +266,11 @@ mod tests {
             "history=2026-10-22..&window=1M",
             "history=2026-10-22..&limit=0",
             "since=2027-01-01",
+            "history=2027-01-01..",
+            // review S2: the selector the gateway sent for an injected `from`
+            "history=2026-01-01T00:00:00Z..&limit=100000&x=..&limit=10000",
+            "history=2026-01-01T00:00:00Z..&limit=100000&limit=10000",
+            "history=2026-01-01T00:00:00Z..&agg=avg&agg=sum",
         ] {
             assert!(parse_selector(bad, now).is_err(), "{bad}");
         }

@@ -664,19 +664,14 @@ impl Conn {
                 }
                 Err(e) => client_err(id, &e),
             },
-            "history" => {
-                let mut q = wyrm_client::HistoryQuery::from_args(req.args.as_ref());
+            "history" => match wyrm_client::HistoryQuery::from_args(req.args.as_ref()) {
                 // the server decides how much one request may ask for (review GW-2)
-                q.limit = Some(
-                    q.limit
-                        .unwrap_or(crate::HISTORY_LIMIT)
-                        .min(crate::HISTORY_LIMIT),
-                );
-                match c.history(&req.key, &q).await {
+                Ok(q) => match c.history(&req.key, &crate::capped_history(q)).await {
                     Ok(rows) => ok_frame(id, Some(wyrm_client::history_value(rows))),
                     Err(e) => client_err(id, &e),
-                }
-            }
+                },
+                Err(e) => err_frame(id, e.status().code(), &e.to_string()),
+            },
             "children" => match c.children(&req.key).await {
                 Ok(kids) => {
                     let g = self.grants.borrow().clone();
@@ -1092,6 +1087,39 @@ fn laid(sites: &crate::overlay::Sites, parent: &str, mut c: Child) -> Child {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review S2: the `limit` of a history read is the gateway's at most, and a `from` that
+    /// carries its own `&limit=` makes no selector at all.
+    #[test]
+    fn history_reads_are_capped_and_typed() {
+        let args = |kv: &[(&str, Value)]| {
+            Some(Value::Map(
+                kv.iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.clone()))
+                    .collect(),
+            ))
+        };
+        let from = ("from", Value::from("2026-01-01T00:00:00Z"));
+        let read = |a: Option<Value>| {
+            wyrm_client::HistoryQuery::from_args(a.as_ref()).map(crate::capped_history)
+        };
+        let cap = Some(crate::HISTORY_LIMIT);
+        assert_eq!(read(args(std::slice::from_ref(&from))).unwrap().limit, cap);
+        let more = ("limit", Value::UInt(100_000));
+        assert_eq!(read(args(&[from.clone(), more])).unwrap().limit, cap);
+        let less = ("limit", Value::UInt(5));
+        assert_eq!(
+            read(args(&[from, less])).unwrap().limit,
+            std::num::NonZeroUsize::new(5)
+        );
+        let injected = (
+            "from",
+            Value::from("2026-01-01T00:00:00Z..&limit=100000&x="),
+        );
+        assert!(read(args(&[injected])).is_err());
+        let q = read(args(&[("from", Value::from("2026-01-01"))])).unwrap();
+        assert!(q.params().ends_with("&limit=10000"), "{}", q.params());
+    }
 
     #[test]
     fn keys() {
