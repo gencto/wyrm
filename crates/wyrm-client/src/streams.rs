@@ -22,7 +22,7 @@
 //!   with `resource_exhausted` after the replies it still holds.
 
 use crate::intake::Intake;
-use crate::{decode, is_links_root, owner_key, Child, ClientError, Result, WyrmClient};
+use crate::{decode, is_links_root, owner_key, Child, ClientError, LinkMeta, Result, WyrmClient};
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,6 +30,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::task::{AbortHandle, JoinSet};
 use tracing::debug;
 use wyrm_core::keyspace::{SUFFIX_META, SUFFIX_VAL};
 use wyrm_core::{Attachment, NodeMeta, Sample};
@@ -267,7 +268,7 @@ pub(crate) async fn list(client: WyrmClient, node: String) -> Result<EventStream
         ),
         None => None,
     };
-    let snapshot = client.children(&node).await?;
+    let (snapshot, unread) = client.snapshot(&node).await?;
 
     let (tx, rx) = mpsc::channel(TASK_CHANNEL);
     let mut known = known_of(&snapshot);
@@ -275,24 +276,45 @@ pub(crate) async fn list(client: WyrmClient, node: String) -> Result<EventStream
         .await
         .map_err(|_| ClientError::new(wyrm_core::Status::Closed, "stream dropped"))?;
     let links_root = is_links_root(&node);
+    let mut silent = SilentLinks::default();
+    silent.read_again(&client, &node, unread);
 
     tokio::spawn(async move {
         let _subs = (meta_sub, live_sub, owner_sub);
         loop {
             let step = tokio::select! {
                 step = intake.next(list_step) => step,
+                Some(done) = silent.reads.join_next_with_id(), if !silent.reads.is_empty() => {
+                    match done {
+                        Ok((id, (name, LinkMeta::Read(meta)))) if silent.take(&name, id) => {
+                            // a link that kept silent has answered at last
+                            known.insert(name.clone(), meta.rev.unwrap_or(0));
+                            if tx.send(ListEvent::Added(Child { name, meta })).await.is_err() {
+                                return;
+                            }
+                        }
+                        Ok((id, (name, _))) => {
+                            silent.take(&name, id);
+                        }
+                        Err(_) => {} // aborted: its child is gone or listed again
+                    }
+                    continue;
+                }
                 _ = tx.closed() => return,
             };
             let ev = match step {
                 Step::Closed => return,
-                Step::Raw(Raw::Meta(smp)) => on_meta(&node, &smp, &mut known),
+                Step::Raw(Raw::Meta(smp)) => on_meta(&node, &smp, &mut known, &mut silent),
                 Step::Raw(Raw::Child(smp)) => {
-                    on_child_liveliness(&client, &node, links_root, &smp, &mut known).await
+                    on_child_liveliness(&client, &node, links_root, &smp, &mut known, &mut silent)
+                        .await
                 }
                 Step::Raw(Raw::Owner(SampleKind::Delete)) => Some(ListEvent::Disconnected(None)),
-                Step::Raw(Raw::Owner(SampleKind::Put)) => match client.children(&node).await {
-                    Ok(snap) => {
+                Step::Raw(Raw::Owner(SampleKind::Put)) => match client.snapshot(&node).await {
+                    Ok((snap, unread)) => {
                         known = known_of(&snap);
+                        silent.reset();
+                        silent.read_again(&client, &node, unread);
                         Some(ListEvent::Refreshed(snap))
                     }
                     Err(e) => {
@@ -300,9 +322,11 @@ pub(crate) async fn list(client: WyrmClient, node: String) -> Result<EventStream
                         None
                     }
                 },
-                Step::Resync => match client.children(&node).await {
-                    Ok(snap) => {
+                Step::Resync => match client.snapshot(&node).await {
+                    Ok((snap, unread)) => {
                         known = known_of(&snap);
+                        silent.reset();
+                        silent.read_again(&client, &node, unread);
                         Some(ListEvent::Refreshed(snap))
                     }
                     // the owner is gone: its next `Put` lists again
@@ -336,12 +360,80 @@ fn known_of(kids: &[Child]) -> HashMap<String, u32> {
         .collect()
 }
 
-fn on_meta(node: &str, smp: &ZSample, known: &mut HashMap<String, u32>) -> Option<ListEvent> {
+/// The first pause before a silent link's `~meta` is read again; it doubles
+/// up to [`SILENT_PAUSE_MAX`].
+const SILENT_PAUSE_FIRST: Duration = Duration::from_secs(1);
+const SILENT_PAUSE_MAX: Duration = Duration::from_secs(30);
+
+/// Links of a links-root list whose token is there but whose `~meta` gave
+/// no reply in a whole read: each is read again on its own task (a pause,
+/// doubled up to [`SILENT_PAUSE_MAX`], between reads) until it answers or
+/// its token is gone. It is listed only once it has answered.
+#[derive(Default)]
+struct SilentLinks {
+    reads: JoinSet<(String, LinkMeta)>,
+    ids: HashMap<String, AbortHandle>,
+}
+
+impl SilentLinks {
+    fn read_again(&mut self, client: &WyrmClient, node: &str, names: Vec<String>) {
+        for name in names {
+            if self.ids.contains_key(&name) {
+                continue;
+            }
+            let (client, key) = (client.clone(), format!("{node}/{name}"));
+            let task_name = name.clone();
+            let handle = self.reads.spawn(async move {
+                let mut pause = SILENT_PAUSE_FIRST;
+                loop {
+                    tokio::time::sleep(pause).await;
+                    match client.link_meta(&key).await {
+                        LinkMeta::Silent => pause = (pause * 2).min(SILENT_PAUSE_MAX),
+                        r => return (task_name, r),
+                    }
+                }
+            });
+            self.ids.insert(name, handle);
+        }
+    }
+
+    /// The child is listed, or gone: no more reads of it (the set reports
+    /// the aborted task, and it is skipped).
+    fn forget(&mut self, name: &str) {
+        if let Some(h) = self.ids.remove(name) {
+            h.abort();
+        }
+    }
+
+    /// `true` if the read `id` of `name` is the current one (and ends it).
+    fn take(&mut self, name: &str, id: tokio::task::Id) -> bool {
+        if self.ids.get(name).is_some_and(|h| h.id() == id) {
+            self.ids.remove(name);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn reset(&mut self) {
+        self.reads.abort_all();
+        self.ids.clear();
+    }
+}
+
+fn on_meta(
+    node: &str,
+    smp: &ZSample,
+    known: &mut HashMap<String, u32>,
+    silent: &mut SilentLinks,
+) -> Option<ListEvent> {
     let name = child_name(smp.key_expr().as_str(), node, SUFFIX_META)?.to_owned();
     match smp.kind() {
         SampleKind::Delete => known.remove(&name).map(|_| ListEvent::Removed(name)),
         SampleKind::Put => {
             let meta: NodeMeta = decode(&smp.payload().to_bytes()).ok()?;
+            // its own meta came: a silent link needs no read any more
+            silent.forget(&name);
             let rev = meta.rev.unwrap_or(0);
             match known.insert(name.clone(), rev) {
                 None => Some(ListEvent::Added(Child { name, meta })),
@@ -361,21 +453,33 @@ async fn on_child_liveliness(
     links_root: bool,
     smp: &ZSample,
     known: &mut HashMap<String, u32>,
+    silent: &mut SilentLinks,
 ) -> Option<ListEvent> {
     let name = child_name(smp.key_expr().as_str(), node, "")?.to_owned();
     match (smp.kind(), links_root) {
         (SampleKind::Put, true) => {
-            if known.contains_key(&name) {
+            if known.contains_key(&name) || silent.ids.contains_key(&name) {
                 return None;
             }
-            let meta = client
-                .meta(&format!("{node}/{name}"))
-                .await
-                .unwrap_or_default();
-            known.insert(name.clone(), meta.rev.unwrap_or(0));
-            Some(ListEvent::Added(Child { name, meta }))
+            // Its token is the proof that it exists; the read waits out the
+            // route gap (`read_through_gap`). A child is added only with
+            // the meta its link answered, never with an empty default.
+            match client.link_meta(&format!("{node}/{name}")).await {
+                LinkMeta::Read(meta) => {
+                    known.insert(name.clone(), meta.rev.unwrap_or(0));
+                    Some(ListEvent::Added(Child { name, meta }))
+                }
+                LinkMeta::Gone => None,
+                LinkMeta::Silent => {
+                    silent.read_again(client, node, vec![name]);
+                    None
+                }
+            }
         }
-        (SampleKind::Delete, true) => known.remove(&name).map(|_| ListEvent::Removed(name)),
+        (SampleKind::Delete, true) => {
+            silent.forget(&name);
+            known.remove(&name).map(|_| ListEvent::Removed(name))
+        }
         (SampleKind::Put, false) => Some(ListEvent::Connected(name)),
         (SampleKind::Delete, false) => Some(ListEvent::Disconnected(Some(name))),
     }

@@ -373,8 +373,11 @@ impl WyrmClient {
         let rx = self
             .query(selector, payload, att, interactive, timeout)
             .await?;
-        match next_response(&rx).await {
-            Some(r) => r?.check(),
+        match rx.recv_async().await.ok() {
+            // Zenoh ends a query that timed out with its own error reply:
+            // that is no reply from the responder (spec 05)
+            Some(r) if is_query_timeout(&r) => Err(self.no_reply(selector).await),
+            Some(r) => response(&r)?.check(),
             None => Err(self.no_reply(selector).await),
         }
     }
@@ -478,28 +481,46 @@ impl WyrmClient {
         } else {
             format!("{key}?{params}")
         };
-        // A read is safe to send twice: two tries of half the timeout each,
-        // so one lost query (seen once across a peer link, backlog item 6)
-        // costs half a timeout, and a missing node no more than one.
+        // A read is safe to send again: tries of at most half the timeout
+        // each, so one lost query (seen once across a peer link, backlog
+        // item 6) costs half a timeout, and a missing node no more than one.
         let half = (self.timeout / 2).max(Duration::from_secs(1));
-        let mut last = None;
-        for _ in 0..2 {
-            let r = match self
-                .one_within(&sel, None, Attachment::default(), false, half)
-                .await
-            {
-                Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
-                    self.one_within(&sel, None, self.token_att(&key), false, half)
-                        .await
+        // Under a link, `timeout` means its token is there (`no_reply`
+        // asked): reads go on through the route gap (see `read_through_gap`).
+        let owned = owner_key(&key).is_some();
+        read_through_gap(2 * half, half, owned, |within| {
+            let (sel, key) = (sel.as_str(), key.as_str());
+            async move {
+                match self
+                    .one_within(sel, None, Attachment::default(), false, within)
+                    .await
+                {
+                    Err(e) if e.is(Status::PermissionDenied) && self.tokens.is_some() => {
+                        self.one_within(sel, None, self.token_att(key), false, within)
+                            .await
+                    }
+                    r => r,
                 }
-                r => r,
-            };
-            match r {
-                Err(e) if e.is(Status::Timeout) => last = Some(e),
-                r => return r,
+            }
+        })
+        .await
+    }
+
+    /// A link's root `~meta` for a list of the links root: what the read
+    /// says about the child its token announced.
+    async fn link_meta(&self, node: &str) -> LinkMeta {
+        match self.meta(node).await {
+            Ok(m) => LinkMeta::Read(m),
+            // its token is gone (or the session): a `Delete` follows
+            Err(e) if e.is(Status::Disconnected) => LinkMeta::Gone,
+            // the token is there, but no reply came in the whole budget
+            Err(e) if e.is(Status::Timeout) => LinkMeta::Silent,
+            // the link answered with a refusal: the name, nothing more
+            Err(e) => {
+                tracing::debug!(node, "link meta: {e}");
+                LinkMeta::Read(NodeMeta::default())
             }
         }
-        Err(last.unwrap_or_else(|| ClientError::new(Status::Timeout, "no reply")))
     }
 
     /// A node's document (`suffix` = `~state` or `~def`, spec 01) as its responder stores it:
@@ -538,10 +559,26 @@ impl WyrmClient {
 
     /// Snapshot of the children of `node`: names from `view=full`, summaries
     /// from `view=list` (paged), consistent on the parent's `rev`.
+    ///
+    /// On the links root (`wy/<site>/downstream`) a link whose `~meta` gave
+    /// no reply in the whole timeout, while its token is there, is left out:
+    /// a child always comes with the meta its link answered (`docs/links.md`
+    /// "A link that has just appeared"). A link that refused the read is
+    /// listed with an empty meta.
     pub async fn children(&self, node: &str) -> Result<Vec<Child>> {
+        Ok(self.snapshot(node).await?.0)
+    }
+
+    /// [`children`](Self::children) and, on the links root, the links left
+    /// out because their `~meta` gave no reply (a list reads them again).
+    pub(crate) async fn snapshot(&self, node: &str) -> Result<(Vec<Child>, Vec<String>)> {
         if is_links_root(node) {
             return self.links(node).await;
         }
+        Ok((self.children_of(node).await?, Vec::new()))
+    }
+
+    async fn children_of(&self, node: &str) -> Result<Vec<Child>> {
         for _ in 0..3 {
             let full = self.meta_raw(node, "").await?;
             let rev = full.att.rev;
@@ -575,8 +612,9 @@ impl WyrmClient {
         Err(ClientError::new(Status::Busy, "children kept changing"))
     }
 
-    /// Links under `wy/<site>/downstream`: liveliness tokens, then each root `~meta`.
-    async fn links(&self, root: &str) -> Result<Vec<Child>> {
+    /// Links under `wy/<site>/downstream`: liveliness tokens, then each root
+    /// `~meta`; and the names of those whose `~meta` gave no reply.
+    async fn links(&self, root: &str) -> Result<(Vec<Child>, Vec<String>)> {
         let rx = self
             .session
             .liveliness()
@@ -593,14 +631,15 @@ impl WyrmClient {
         }
         names.sort();
         let mut out = Vec::with_capacity(names.len());
+        let mut silent = Vec::new();
         for name in names {
-            let meta = self
-                .meta(&format!("{root}/{name}"))
-                .await
-                .unwrap_or_default();
-            out.push(Child { name, meta });
+            match self.link_meta(&format!("{root}/{name}")).await {
+                LinkMeta::Read(meta) => out.push(Child { name, meta }),
+                LinkMeta::Gone => {}
+                LinkMeta::Silent => silent.push(name),
+            }
         }
-        Ok(out)
+        Ok((out, silent))
     }
 
     /// Reactive `list`: first event is `Refreshed` with the snapshot, then
@@ -754,9 +793,85 @@ impl WyrmClient {
     }
 }
 
+/// The first pause between two reads in the route gap; it doubles up to
+/// [`GAP_PAUSE_MAX`].
+const GAP_PAUSE_FIRST: Duration = Duration::from_millis(25);
+const GAP_PAUSE_MAX: Duration = Duration::from_millis(200);
+
+/// What a list of the links root learns from a link's root `~meta`.
+// moved once per link read; boxing would cost an allocation each
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LinkMeta {
+    /// The link answered: its meta (empty if it refused the read).
+    Read(NodeMeta),
+    /// Its token is gone.
+    Gone,
+    /// Its token is there, but no reply came in the whole budget.
+    Silent,
+}
+
+/// One read, sent again while it ends with `timeout` and `budget` lasts.
+///
+/// The route gap (backlog item 6, 2026-11-15): when a router connects, its
+/// liveliness tokens are routed about one routing-tree computation (Zenoh
+/// 1.10.1 debounces it by 100 ms) before queries to it are, and in that gap
+/// a query toward it ends at once with no reply. With `owned` (the key is
+/// under a link, so `timeout` means `no_reply` found the link's token) the
+/// token proves that the responder exists, and the read is sent again after
+/// a short pause (25 ms, doubled up to 200 ms) until it has an answer, the
+/// token is gone (`disconnected`), or `budget` is spent. Without `owned`,
+/// two tries: a key that no queryable serves fails at once. `read` gets the
+/// timeout of its try, at most `per_try`.
+pub(crate) async fn read_through_gap<T, F, Fut>(
+    budget: Duration,
+    per_try: Duration,
+    owned: bool,
+    mut read: F,
+) -> Result<T>
+where
+    F: FnMut(Duration) -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    use tokio::time::Instant;
+    let deadline = Instant::now() + budget;
+    let mut pause = GAP_PAUSE_FIRST;
+    let mut tries = 0u32;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let e = match read(per_try.min(left)).await {
+            Err(e) if e.is(Status::Timeout) => e,
+            r => return r,
+        };
+        tries += 1;
+        let left = deadline.saturating_duration_since(Instant::now());
+        if !owned {
+            if tries >= 2 || left.is_zero() {
+                return Err(e);
+            }
+            continue;
+        }
+        if left <= pause {
+            return Err(e);
+        }
+        tokio::time::sleep(pause).await;
+        pause = (pause * 2).min(GAP_PAUSE_MAX);
+    }
+}
+
 pub(crate) async fn next_response(rx: &FifoChannelHandler<Reply>) -> Option<Result<Response>> {
     let reply = rx.recv_async().await.ok()?;
     Some(response(&reply))
+}
+
+/// The error reply Zenoh itself makes when a query times out (the session's
+/// own timer, or a router's query cleanup): `"Timeout"`. A responder never
+/// answers with a reply error (it sends a status attachment, spec 04).
+fn is_query_timeout(reply: &Reply) -> bool {
+    reply
+        .result()
+        .err()
+        .is_some_and(|e| e.payload().to_bytes().as_ref() == b"Timeout")
 }
 
 fn response(reply: &Reply) -> Result<Response> {
@@ -924,5 +1039,123 @@ mod tests {
             "the responder kept sending"
         );
         stop.store(true, Ordering::SeqCst);
+    }
+}
+
+/// `read_through_gap` on paused time: a fake read stands for the responder.
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+    use std::cell::Cell;
+    use tokio::time::Instant;
+
+    const BUDGET: Duration = Duration::from_secs(10);
+    const PER_TRY: Duration = Duration::from_secs(5);
+
+    fn timeout() -> ClientError {
+        ClientError::new(Status::Timeout, "no reply")
+    }
+
+    /// A read in the route gap ends at once (a few ms) with no reply.
+    async fn quick_no_reply() -> Result<u32> {
+        tokio::time::sleep(Duration::from_millis(3)).await;
+        Err(timeout())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_in_the_gap_is_sent_again_until_it_answers() {
+        let start = Instant::now();
+        let calls = Cell::new(0);
+        let gap = Duration::from_millis(150);
+        let r = read_through_gap(BUDGET, PER_TRY, true, |_| {
+            calls.set(calls.get() + 1);
+            async move {
+                if start.elapsed() < gap {
+                    quick_no_reply().await
+                } else {
+                    Ok(7)
+                }
+            }
+        })
+        .await;
+        assert_eq!(r, Ok(7), "the answer after the gap, not an error");
+        assert!(calls.get() > 2, "more than the two tries of before");
+        assert!(start.elapsed() < gap + GAP_PAUSE_MAX + Duration::from_millis(10));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_token_that_goes_ends_the_reads() {
+        let calls = Cell::new(0);
+        let r: Result<u32> = read_through_gap(BUDGET, PER_TRY, true, |_| {
+            calls.set(calls.get() + 1);
+            async { Err(ClientError::new(Status::Disconnected, "gone")) }
+        })
+        .await;
+        assert!(r.unwrap_err().is(Status::Disconnected));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_answer_is_final_also_a_refusal() {
+        let calls = Cell::new(0);
+        let r: Result<u32> = read_through_gap(BUDGET, PER_TRY, true, |_| {
+            calls.set(calls.get() + 1);
+            async { Err(ClientError::new(Status::PermissionDenied, "no")) }
+        })
+        .await;
+        assert!(r.unwrap_err().is(Status::PermissionDenied));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_gap_that_never_ends_costs_the_budget_only() {
+        let start = Instant::now();
+        let calls = Cell::new(0);
+        let r = read_through_gap(BUDGET, PER_TRY, true, |within| {
+            calls.set(calls.get() + 1);
+            assert!(within > Duration::ZERO && within <= PER_TRY);
+            quick_no_reply()
+        })
+        .await;
+        assert!(r.unwrap_err().is(Status::Timeout));
+        assert!(start.elapsed() <= BUDGET, "{:?}", start.elapsed());
+        assert!(start.elapsed() >= BUDGET - GAP_PAUSE_MAX - Duration::from_millis(10));
+        // 25, 50, 100, then 200 ms pauses: bounded, about 50 reads in 10 s
+        assert!(calls.get() < 60, "{}", calls.get());
+    }
+
+    /// A responder that is there but never answers: each try waits its
+    /// timeout, two of them fill the budget (as before the gap reads).
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_responder_gets_two_tries() {
+        let start = Instant::now();
+        let calls = Cell::new(0);
+        let r: Result<u32> = read_through_gap(BUDGET, PER_TRY, true, |within| {
+            calls.set(calls.get() + 1);
+            async move {
+                tokio::time::sleep(within).await;
+                Err(timeout())
+            }
+        })
+        .await;
+        assert!(r.unwrap_err().is(Status::Timeout));
+        assert_eq!(calls.get(), 2);
+        assert_eq!(start.elapsed(), BUDGET);
+    }
+
+    /// Not under a link (no token proves a responder): two tries, so a key
+    /// that no queryable serves fails at once.
+    #[tokio::test(start_paused = true)]
+    async fn without_a_token_two_tries() {
+        let start = Instant::now();
+        let calls = Cell::new(0);
+        let r = read_through_gap(BUDGET, PER_TRY, false, |_| {
+            calls.set(calls.get() + 1);
+            quick_no_reply()
+        })
+        .await;
+        assert!(r.unwrap_err().is(Status::Timeout));
+        assert_eq!(calls.get(), 2);
+        assert!(start.elapsed() < Duration::from_millis(10));
     }
 }
