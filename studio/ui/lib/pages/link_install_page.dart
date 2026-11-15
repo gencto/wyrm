@@ -515,7 +515,7 @@ class _Center extends StatelessWidget {
                 hint: f.hint,
                 onChanged: (v) =>
                     (f == InstallText.ref ? page.onRef : page.onUrl)?.call(
-                      v as String?,
+                      _textOf(v),
                     ),
               ),
           ],
@@ -613,7 +613,7 @@ class _Center extends StatelessWidget {
               kind: .text,
               value: vm.name,
               error: _nameError,
-              onChanged: (v) => page.onName?.call(v as String?),
+              onChanged: (v) => page.onName?.call(_textOf(v)),
             ),
           ),
         ),
@@ -654,7 +654,7 @@ class _Center extends StatelessWidget {
                 label: InstallText.passphrase.label,
                 kind: .secret,
                 description: S.current.backupPassphraseNote,
-                onChanged: (v) => page.onSecret?.call(v as String? ?? ''),
+                onChanged: (v) => page.onSecret?.call(_textOf(v) ?? ''),
               ),
             ),
           ),
@@ -765,6 +765,13 @@ class _Center extends StatelessWidget {
         },
       );
 }
+
+/// What a text field reports: its text, or none (a text field of
+/// [ParamField] reports a `String` or null).
+String? _textOf(Object? v) => switch (v) {
+  final String s => s,
+  _ => null,
+};
 
 /// The search field and the category chips of the official list: one
 /// height (36), one vertical centre, on one line while the field keeps at
