@@ -117,6 +117,33 @@ impl Env {
     }
 
     /// Raw HTTP/1.1 request; returns `(status, CBOR body or Null)`.
+    /// A request that declares a body of `len` bytes and sends none; the
+    /// status of the answer.
+    async fn http_head_only(
+        &self,
+        method: &str,
+        path: &str,
+        token: Option<&str>,
+        len: usize,
+    ) -> u16 {
+        let mut req = format!(
+            "{method} {path} HTTP/1.1\r\nHost: gw\r\nConnection: close\r\nContent-Type: application/cbor\r\nContent-Length: {len}\r\n"
+        );
+        if let Some(t) = token {
+            req.push_str(&format!("Authorization: Bearer {t}\r\n"));
+        }
+        req.push_str("\r\n");
+        let mut s = TcpStream::connect(self.addr).await.unwrap();
+        s.write_all(req.as_bytes()).await.unwrap();
+        let mut resp = Vec::new();
+        tokio::time::timeout(Duration::from_secs(10), s.read_to_end(&mut resp))
+            .await
+            .expect("http response in time")
+            .unwrap();
+        let head = String::from_utf8_lossy(&resp);
+        head.split(' ').nth(1).unwrap().parse().unwrap()
+    }
+
     async fn http(
         &self,
         method: &str,
@@ -909,6 +936,33 @@ async fn http_invoke_takes_large_arguments() {
     let reset = format!("/api/invoke?key={ROOT}&action=reset");
     let (st, v) = env.http("POST", &reset, Some(&root), Some(map([]))).await;
     assert_eq!(st, 400, "{v:?}");
+    // a refusal before a big body is read still reaches a client that writes
+    // the whole body first (Dart's HttpClient): the gateway reads it to the
+    // end, so the client gets the answer, not a broken pipe
+    let blob = |n: usize| map([("blob", Value::Bytes(vec![3u8; n]))]);
+    let (st, v) = env
+        .http("POST", &reset, Some(&root), Some(blob(4 << 20)))
+        .await;
+    assert_eq!(st, 400, "{v:?}");
+    assert!(
+        matches!(get(&v, "message"), Value::Str(m) if m.contains("takes no file")),
+        "{v:?}"
+    );
+    let (st, _) = env
+        .http("POST", &put, Some(&viewer), Some(data(4 << 20)))
+        .await;
+    assert_eq!(st, 403, "the action's level, before 4 MiB are taken");
+    // a refused body holds no upload slot: the next upload runs
+    let (st, v) = env
+        .http("POST", &put, Some(&root), Some(data(4 << 20)))
+        .await;
+    assert_eq!(st, 200, "{v:?}");
+    assert_eq!(get(&v, "result"), &Value::UInt(4 << 20));
+    // a body over the limit is refused by its declared length
+    let st = env
+        .http_head_only("POST", &put, Some(&root), 65 << 20)
+        .await;
+    assert_eq!(st, 413);
     // a body that would decode to a big tree is refused before decoding
     let many = map([
         ("data", Value::Bytes(vec![1])),

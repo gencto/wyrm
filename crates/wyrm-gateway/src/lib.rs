@@ -333,6 +333,9 @@ pub struct Gateway {
     pub(crate) hashing: Semaphore,
     /// Bounds concurrent `POST /api/invoke` bodies (up to 64 MiB each).
     bulk: Semaphore,
+    /// Bounds refused `POST /api/invoke` bodies read to their end (see
+    /// `http::refuse`).
+    drains: Semaphore,
     /// Users with a `POST /api/invoke` in progress: one each (see
     /// [`Gateway::upload_slot`]).
     uploading: Mutex<std::collections::HashSet<String>>,
@@ -468,6 +471,7 @@ impl Gateway {
             limiter: limit::LoginLimiter::new(LOGIN_FAILURES, LOGIN_WINDOW),
             hashing: Semaphore::new(4),
             bulk: Semaphore::new(2),
+            drains: Semaphore::new(http::MAX_DRAINS),
             uploading: Mutex::new(Default::default()),
             audit: RwLock::new(None),
             addr: watch::channel(None).0,

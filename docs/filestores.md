@@ -179,7 +179,9 @@ Upload File and Download carry a file in one request (at most 64 MiB and
 
 - Parts are 64 KiB … 16 MiB (4 MiB by default); every part but the last
   has `part_size` bytes. A file is at most `max_file_mib` (4 GiB by
-  default). Send parts through the gateway's `POST /api/invoke`.
+  default). Send parts through the gateway's `POST /api/invoke`
+  (`data` is `editor: file`, so the gateway takes it there; ADR 0028
+  amendment 2026-11-15).
 - The link keeps the parts in a spool file on its own disk
   (`<data_dir>/uploads/`) until the commit, so its disk needs room for the
   file. The commit sends it to the store as it reads it: S3 multipart

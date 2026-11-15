@@ -3844,9 +3844,11 @@ impl Link for Admin {
                 .param("name", str_param().required(true).display("Name"))
                 .param(
                     "profile",
+                    // a picked file, larger than a frame for big models
                     ParamMeta::of(TypeCode::Binary)
                         .required(true)
-                        .display("Profile"),
+                        .display("Profile")
+                        .editor(EDITOR_FILE),
                 )
                 .level(Perm::Config),
         )

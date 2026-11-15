@@ -221,16 +221,33 @@ class WyrmGateway {
   /// login session does.
   Future<ReconnectingClient> client() => ReconnectingClient.open(connect);
 
-  /// `POST /api/invoke`: one invoke of an action with a file parameter
-  /// whose arguments are too large for a WebSocket frame; returns its last
-  /// result.
+  /// `POST /api/invoke`: one invoke of an action with a file parameter (a
+  /// file or a part of one) whose arguments are too large for a WebSocket
+  /// frame; returns its last result. A refusal arrives as the gateway's
+  /// [WyrmException]; a connection cut while the body goes (a session that
+  /// ended, a gateway gone) as one with status `disconnected` that says so,
+  /// not as a [SocketException].
   Future<Value> invoke(String key, String action, Value args) async {
     final url = base
         .resolve('/api/invoke')
         .replace(queryParameters: {'key': key, 'action': action});
-    final r = await _post(_http, url, bearer: _session, raw: args.toCbor());
-    return r['result'] ?? const VNull();
+    final body = args.toCbor();
+    try {
+      final r = await _post(_http, url, bearer: _session, raw: body);
+      return r['result'] ?? const VNull();
+    } on SocketException catch (e) {
+      throw _cutOff(action, body.length, e.message);
+    } on HttpException catch (e) {
+      throw _cutOff(action, body.length, e.message);
+    }
   }
+
+  static WyrmException _cutOff(String action, int size, String why) =>
+      WyrmException.of(
+        Status.disconnected,
+        'the gateway closed the connection while $action sent $size bytes '
+        '($why): log in again if the session ended, or try again',
+      );
 
   /// `GET /api/users` (admin): `[{name, roles, disabled}]`.
   Future<List<GatewayUser>> users() async {

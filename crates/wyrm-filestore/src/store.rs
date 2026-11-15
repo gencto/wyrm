@@ -408,10 +408,13 @@ fn upload_actions(m: &mut BTreeMap<String, ActionMeta>) {
             .timeout_ms(TRANSFER_MS)
             .param("upload", id())
             .param("index", num("Index").required(true).description("from 0"))
+            // a part is at least 64 KiB, over a gateway's WebSocket frame:
+            // `editor: file` lets it go by `POST /api/invoke` (ADR 0028)
             .param(
                 "data",
                 ParamMeta::of(TypeCode::Binary)
                     .required(true)
+                    .editor(wyrm_core::meta::EDITOR_FILE)
                     .display("Data"),
             )
             .result(ActionResult::Type(TypeCode::Map)),
