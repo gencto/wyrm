@@ -116,7 +116,10 @@ Common fields: `type` (`alert`, `warning`, `fault`), `message` (a template:
   record, before the first sample as after a later silence, has value `null` and quality `bad`
   (`{value}` = `null`, `{quality}` = `bad`): it says that nothing fresh is known of the key, so
   it never reports the quality of the last sample. A record made when a wait ends takes the
-  key's last sample; without one it is `null` / `bad` too.
+  key's last sample; without one it is `null` / `bad` too. The watch's own value
+  (`watches/<w>`) is the state of the watch, not of its source: `normal` means "no record and
+  no wait", so a watch whose key has sent nothing yet is `normal`. A key that may go silent
+  needs a `staleness` watch.
 
 ## 5. Records
 
