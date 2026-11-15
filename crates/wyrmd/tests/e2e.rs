@@ -4713,7 +4713,8 @@ async fn chain_of_three_brokers() {
 
 /// Backlog item 6: the first queries of edge nodes from central, right
 /// after the peer link comes up, all answer (no lost first query). The link
-/// that counts is the one after edge's rebuild for central's signing keys.
+/// that counts is the one after edge's rebuild for central's signing keys,
+/// and it is up once a query to edge answers, not when edge's token is back.
 #[tokio::test(flavor = "multi_thread")]
 async fn first_queries_across_peers_answer() {
     let key = ed25519_dalek::SigningKey::from_bytes(&SEED);
@@ -4775,9 +4776,13 @@ async fn first_queries_across_peers_answer() {
         }
     }
     drop(edge_token);
-    eventually("edge connected at central", 15, || async {
-        (last_val(&c, "wy/central/downstream/edge/connected").await == Some(Value::Bool(true)))
-            .then_some(())
+    // The token back is not yet a route to edge: central's router routes the tokens of a
+    // router that has just connected about one tree computation (Zenoh's 100 ms debounce)
+    // before it routes queries to it, and in that gap every query to edge ends at once with
+    // no reply. Edge is reachable once a query to it answers: one outside the keys below,
+    // so each of them still has its first query in the rounds.
+    eventually("a query to edge answers from central", 15, || async {
+        c.children("wy/edge/storage").await.ok()
     })
     .await;
     // every key once, in order, as an explorer opening the tree would
