@@ -29,6 +29,10 @@ abstract final class Gaps {
   static const Widget hMd = SizedBox(width: AppSpacing.md);
   static const Widget hLg = SizedBox(width: AppSpacing.lg);
   static const Widget hXl = SizedBox(width: AppSpacing.xl);
+
+  /// Between a workspace page's header and the table or tabs under it
+  /// (Flows, Access).
+  static const Widget underHeader = SizedBox(height: 20);
 }
 
 /// Padding built from the same scale, and the paddings the canvas repeats,
@@ -100,4 +104,8 @@ abstract final class Insets {
 
   /// Around a small text button beside chips (`+ prefix`).
   static const textLink = EdgeInsets.symmetric(horizontal: 6, vertical: 3);
+
+  /// The scrolling body of a workspace page with a header (Flows, Access,
+  /// Sites): roomy at the sides and the top, more below the last row.
+  static const workspace = EdgeInsets.fromLTRB(28, 28, 28, 40);
 }

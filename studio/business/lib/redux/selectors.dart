@@ -72,7 +72,7 @@ import 'package:models/user_info.dart';
 import 'package:models/watch_group.dart';
 import 'package:models/workspace.dart';
 import 'package:wyrm_client/wyrm_client.dart'
-    show DevicePolicy, GatewayDevice, StepUp;
+    show DevicePolicy, GatewayDevice, Perm, StepUp;
 
 import '../wyrm/approval.dart';
 import '../wyrm/context_keys.dart';
@@ -90,6 +90,7 @@ import '../wyrm/mappers/flow_blocks.dart';
 import '../wyrm/mappers/link_info_mapper.dart';
 import '../wyrm/mappers/live_overlay_mapper.dart';
 import '../wyrm/mappers/log_line_mapper.dart';
+import '../wyrm/rights.dart';
 import '../wyrm/task_facts.dart';
 import 'access/actions/retrieve_access_action.dart';
 import 'app_state.dart';
@@ -1137,6 +1138,13 @@ extension type SelectSite(AppState _state) {
   /// trend never locks a series on a missing `/api/me`.
   bool mayRead(String key) => _state.site.grants.isEmpty || can('read', key);
 
+  /// What the user lacks for a control that needs [level] on [key], or
+  /// null when they have it (docs/studio.md §2 rule 8: shown, never
+  /// hidden); `ui` words it.
+  Lack? lacks(Perm level, String key) => can(level.wire, key)
+      ? null
+      : Lack(level, key.split('/').skip(2).join('/'));
+
   /// Why a control that needs [level] on [key] is disabled, or null when the
   /// user has it (docs/studio.md §2 rule 8: shown, never hidden).
   String? needs(String level, String key) => can(level, key)
@@ -1450,6 +1458,18 @@ extension type SelectFlows(AppState _state) {
       ),
     ),
   );
+  /// The flows in their list's order, live while Flows follows them.
+  List<FlowSummary> get shown {
+    final table = shownTable;
+    return [for (final id in _state.flows.view) ?table[id]];
+  }
+
+  /// The flow picked, live; null when none is.
+  FlowSummary? get picked => switch (_state.flows.selectedFlow) {
+    final id? => shownTable[id],
+    null => null,
+  };
+
 }
 
 extension type SelectFlowEditor(AppState _state) {

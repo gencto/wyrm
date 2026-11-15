@@ -32,8 +32,12 @@ sequenceDiagram
     VM->>A2: dispatchSync
     A2->>ST: copyWith(flows.selectedFlow)
 
-    User->>UI: onTapFlowEditor
-    UI->>VM: onTapFlowEditor()
+    User->>UI: onNew
+    UI->>VM: onNew()
+    VM->>NAV: GoAction.push FlowEditorRoute(id: newFlowId)
+
+    User->>UI: onEdit
+    UI->>VM: onEdit()
     VM->>NAV: GoAction.push FlowEditorRoute(id: id)
 ```
 
@@ -42,7 +46,8 @@ sequenceDiagram
 | `onShow` | `FollowFlowsAction` | `flows.follow` |
 | `onHide` | `FollowFlowsAction` | `flows.follow` |
 | `onRow` | `SetSelectedFlowAction` | `flows.selectedFlow` |
-| `onTapFlowEditor` | `GoAction.push` | — |
+| `onNew` | `GoAction.push` | — |
+| `onEdit` | `GoAction.push` | — |
 
 `?` marks a dispatch that only runs under a condition.
 

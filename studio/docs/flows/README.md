@@ -31,7 +31,8 @@ flowchart LR
     explorer -->|"onTapFlowEditor"| flowEditor
     explorer -->|"onAddAgent"| linkInstall
     links -->|"onTapLinkInstall"| linkInstall
-    flows -->|"onTapFlowEditor"| flowEditor
+    flows -->|"onNew"| flowEditor
+    flows -->|"onEdit"| flowEditor
     assistant -->|"onAddAgent"| linkInstall
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
@@ -53,7 +54,7 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `StudioPage` | `/studio` | no | 17 | [studio](studio.md) |
 | `ExplorerPage` | `/studio/explorer` | no | 55 | [explorer](explorer.md) |
 | `LinksPage` | `/studio/links` | no | 9 | [links](links.md) |
-| `FlowsPage` | `/studio/flows` | no | 4 | [flows](flows.md) |
+| `FlowsPage` | `/studio/flows` | no | 5 | [flows](flows.md) |
 | `HistoryPage` | `/studio/history` | no | 11 | [history](history.md) |
 | `AccessPage` | `/studio/access` | no | 6 | [access](access.md) |
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
