@@ -433,10 +433,30 @@ def c7(s: Source) -> list[int]:
     return s.hits("C7", hits)
 
 
-PERSIST = (
-    r"(?:getrandom::\w+|\.fill\(|\.apply\(|\.save\(|\.persist\(|\.sync_all\(|\.sync_data\("
-    r"|\.flush\(|\brename\(|\.write_all\(|\bfs::write\(|\.commit\()"
-)
+# The calls whose `Result` must never be dropped (docs/rust-rules.md rule 10): randomness,
+# store writes, sealing, file modes and the secret store. Kept here, by name; `probe()` checks
+# at every run that each one is caught when its result is dropped, so a name added here is
+# known to work. A new security or persistence call that returns `Result` goes in this list.
+PERSIST_CALLS = [
+    r"getrandom::\w+",  # an RNG fill
+    r"\.fill\(",  # SecureRandom::fill
+    r"\.apply\(",  # a store's op
+    r"\.save\(",
+    r"\.persist\(",
+    r"\.sync_all\(",
+    r"\.sync_data\(",
+    r"\.flush\(",
+    r"\brename\(",
+    r"\.write_all\(",
+    r"\bfs::write\(",
+    r"\.commit\(",
+    r"\bset_permissions\(",  # a private directory or file mode
+    r"\bwrite_private\(",
+    r"\bprivate_dir\(",
+    r"\bseal(?:_aad|_stream|_bytes|_in_place\w*)?\(",  # sealing (an RNG nonce inside)
+    r"\bsecrets\.(?:set|remove|drop_link|replace_stashed|unstash)\(",  # the secret store
+]
+PERSIST = "(?:" + "|".join(PERSIST_CALLS) + ")"
 
 
 def c8(s: Source) -> list[int]:
@@ -454,10 +474,75 @@ def c8(s: Source) -> list[int]:
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.ok\(\)\s*;",
         rf"\bif\s+[^{{;]*?{PERSIST}[^{{;]*\.is_err\(\)\s*\{{\s*\}}",
         rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or_default\(\)",
+        # the error read as a plain answer: `.unwrap_or(false)`, `.unwrap_or(0)`, …
+        rf"{PERSIST}[^;]*?\)(?:\.await)?\s*\.unwrap_or\(\s*(?:false|true|0|None|\(\))\s*\)",
+        # `if let Ok(..) = call(..) { … }` with no `else`: the `Err` passes in silence
+        rf"\bif\s+let\s+Ok\([^)]*\)\s*=\s*[^{{;]*?{PERSIST}[^{{;]*\{{(?:[^{{}}]|\{{[^{{}}]*\}})*\}}(?!\s*else)",
         r"\bto_vec\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)\s*\.\s*(?:unwrap_or_default\(\)|ok\(\))",
     ]
     hits = [m.start() for p in pats for m in re.finditer(p, m_)]
-    return s.hits("C8", hits)
+    # one hit per line, however many of the forms above match it
+    return sorted(set(s.hits("C8", hits)))
+
+
+# One sample call per entry of PERSIST_CALLS, in the same order.
+PROBE_CALLS = [
+    "getrandom::fill(&mut b)",
+    "rng.fill(&mut b)",
+    "store.apply(op)",
+    "db.save(&x)",
+    "f.persist(p)",
+    "f.sync_all()",
+    "f.sync_data()",
+    "w.flush()",
+    "std::fs::rename(a, b)",
+    "f.write_all(b)",
+    "std::fs::write(p, b)",
+    "tx.commit()",
+    "std::fs::set_permissions(dir, perms)",
+    "secret::write_private(&p, b)",
+    "secret::private_dir(dir)",
+    "format::seal_bytes(key, path, b)",
+    "self.ctl.secrets.drop_link(&store)",
+]
+# Every way of dropping the result (C8 must see each) and of handling it (it must not).
+PROBE_DROPPED = [
+    "let _ = {c};",
+    "let _x = {c};",
+    "let _: Result<(), E> = {c};",
+    "_ = {c};",
+    "drop({c});",
+    "{c}.ok();",
+    "{c}.unwrap_or_default();",
+    "if {c}.unwrap_or(false) {{ go(); }}",
+    "if {c}.is_err() {{}}",
+    "if let Ok(v) = {c} {{ use_it(v); }}",
+]
+PROBE_HANDLED = [
+    "{c}?;",
+    "{c}.map_err(|e| e.to_string())?;",
+    "if let Err(e) = {c} {{ tracing::error!(\"{{e}}\"); }}",
+    "match {c} {{ Ok(v) => v, Err(e) => return Err(e.into()) }};",
+    "if let Ok(v) = {c} {{ use_it(v); }} else {{ tracing::error!(\"lost\"); }}",
+]
+
+
+def probe() -> list[str]:
+    """C8 against samples: every call of PERSIST_CALLS caught in every dropped form, and
+    never in a handled one. The list of failures (empty = the rule works)."""
+    bad = []
+    if len(PROBE_CALLS) != len(PERSIST_CALLS):
+        return ["PROBE_CALLS needs one sample per entry of PERSIST_CALLS"]
+    for pat, call in zip(PERSIST_CALLS, PROBE_CALLS):
+        if not re.search(pat, call):
+            bad.append(f"sample {call!r} is not a call of {pat!r}")
+        for forms, want in ((PROBE_DROPPED, 1), (PROBE_HANDLED, 0)):
+            for form in forms:
+                code = "fn f() {\n    " + form.format(c=call) + "\n}\n"
+                got = len(c8(Source("probe.rs", code)))
+                if got != want:
+                    bad.append(f"C8 counts {got}, not {want}: {form.format(c=call)}")
+    return bad
 
 
 CLOCK_HEX = r"(?:now\w*|\w*_now|unix_\w+|timestamp\w*|\w*hex\w*|\w*sha256\w*|\w*digest\w*)"
@@ -662,6 +747,12 @@ def write(counts: dict[str, dict[str, int]]) -> None:
 
 def main(argv: list[str]) -> int:
     os.chdir(ROOT)
+    broken = probe()
+    if broken:
+        sys.stderr.write("rust rules: the C8 probe fails (the rule misses what it must count):\n")
+        for b in broken:
+            sys.stderr.write(f"  {b}\n")
+        return 1
     if "--show" in argv:
         measure_patterns(argv[argv.index("--show") + 1])
         return 0

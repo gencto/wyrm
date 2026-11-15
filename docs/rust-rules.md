@@ -339,9 +339,13 @@ text piece that ends a parameter for a value to follow (`"&x="` in a
 ## 10. A security or persistence result is never dropped
 
 **Rule.** The result of an RNG fill, a store `apply`, a `save`, `persist`,
-`sync_all`, `flush`, `rename` or `write_all` is handled: `?`, a refusal, or a
-logged error with the state it leaves. A failing RNG fails closed: the gateway
-has one source, `rng::fill`, whose error the caller refuses with.
+`sync_all`, `flush`, `rename` or `write_all`, a seal (`seal`, `seal_stream`,
+`seal_bytes`), a file mode (`set_permissions`, `write_private`,
+`private_dir`) or a secret store change (`secrets.set/remove/drop_link`) is
+handled: `?`, a refusal, or a logged error with the state it leaves. A
+failing RNG fails closed: the gateway has one source, `rng::fill`, whose
+error the caller refuses with; a link refuses the session or the call (the
+SNMP link opens no session without a random salt).
 
 **Why.** **S3**: three RNG-failure policies; `let _ = getrandom::fill(key)`
 leaves the device nonce MAC key at zero, and `new_jti` leaves every session's
@@ -358,9 +362,18 @@ pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
 ```
 
 **Check.** C8 `dropped-result`: `let _ =`, `let _x =`, `let _: T =`, `_ =`,
-`drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}` and
-`.unwrap_or_default()` on such a call, and `to_vec(..).unwrap_or_default()` /
-`.ok()`; clippy `let_underscore_must_use` (baselined).
+`drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}`,
+`.unwrap_or_default()`, `.unwrap_or(false|true|0|None|())` and `if let Ok(..)
+= … { … }` without `else` on such a call, and `to_vec(..).unwrap_or_default()`
+/ `.ok()`. The calls are a name list in `tool/check_rust_rules.py`
+(`PERSIST_CALLS`); a new security or persistence call that returns `Result`
+goes there with a sample in `PROBE_CALLS`. Every run first checks that list
+against samples (`probe()`): each call in each dropped form is counted, none
+in a handled form, or the check fails. clippy `let_underscore_must_use`
+(baselined) counts every dropped `Result` whatever its name. The list was
+too short until 2026-11-15: C8 read 0 while a backup dropped a failed seal
+(audit B1–B4); with the list widened it counted 10 on `main`, all fixed in
+the same change.
 
 ## 11. One clock and one hex helper
 

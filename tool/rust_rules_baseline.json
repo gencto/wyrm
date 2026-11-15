@@ -898,7 +898,7 @@
     "crates/wyrm-admin/src/nofollow.rs": 2,
     "crates/wyrm-admin/src/packages.rs": 1,
     "crates/wyrm-admin/src/peers.rs": 1,
-    "crates/wyrm-admin/src/release.rs": 6,
+    "crates/wyrm-admin/src/release.rs": 5,
     "crates/wyrm-admin/src/restore_point.rs": 6,
     "crates/wyrm-admin/src/secret.rs": 3,
     "crates/wyrm-admin/src/supervisor.rs": 4,
