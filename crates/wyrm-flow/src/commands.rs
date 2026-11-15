@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
+use wyrm_core::status::StatusCode;
 use wyrm_core::{Quality, Status, Value};
 use wyrm_link_sdk::now_us;
 
@@ -385,7 +386,7 @@ impl Command {
                         self.set_running(true, out);
                     } else {
                         debug!(path = %self.path, "invoke: calls queued to the limit, call refused");
-                        self.failed(Status::Busy.code(), "calls queued to the limit", out);
+                        self.failed(Status::Busy.into(), "calls queued to the limit", out);
                     }
                 }
                 Job::Set(v) => {
@@ -418,11 +419,11 @@ impl Command {
     }
 
     /// The `error` event, and for `invoke` the older `out` (the message, quality `bad`).
-    fn failed(&mut self, code: u8, message: &str, out: &mut Out) {
+    fn failed(&mut self, code: StatusCode, message: &str, out: &mut Out) {
         self.event(
             "error",
             &[
-                ("code", Value::UInt(u64::from(code))),
+                ("code", Value::UInt(u64::from(code.code()))),
                 ("message", Value::Str(message.to_owned())),
             ],
             false,
@@ -485,7 +486,9 @@ impl Node for Command {
             "__result" => {
                 let Value::Map(r) = &m.v else { return };
                 if m.q == Quality::Bad {
-                    let code = r.get("code").and_then(Value::as_f64).unwrap_or(0.0) as u8;
+                    // a failure never reads as a success: no valid error code is
+                    // `internal_error`; a user-defined code travels as it is
+                    let code = crate::codes::error_status_of(r.get("code"));
                     let message = match r.get("message") {
                         Some(Value::Str(s)) => s.clone(),
                         _ => String::new(),

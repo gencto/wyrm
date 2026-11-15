@@ -685,7 +685,7 @@ impl Expression {
         self.last
             .values()
             .map(|m| m.q)
-            .max_by_key(|q| *q as u8)
+            .max_by_key(|q| q.code())
             .unwrap_or(Quality::Good)
     }
 }
@@ -720,7 +720,7 @@ impl Node for Expression {
                 let m = &self.last[n];
                 let mut map = rhai::Map::new();
                 map.insert("v".into(), script::to_dynamic(&m.v));
-                map.insert("q".into(), rhai::Dynamic::from_int(m.q as i64));
+                map.insert("q".into(), rhai::Dynamic::from_int(i64::from(m.q.code())));
                 map.insert("t".into(), rhai::Dynamic::from_int(m.t as i64));
                 map.insert(
                     "age_ms".into(),
@@ -741,21 +741,19 @@ impl Node for Expression {
         if r.is_unit() {
             return;
         }
-        let q = match self.quality.as_str() {
-            "ignore" => Quality::Good,
-            "custom" => Quality::Good,
-            _ => self.worst(),
-        };
         let v = script::from_dynamic(&r);
-        let (v, q) = match (&v, self.quality.as_str()) {
-            (Value::Map(m), "custom") if m.contains_key("v") => {
-                let q = match m.get("q").and_then(Value::as_f64) {
-                    Some(x) => Quality::try_from(x as u8).unwrap_or(Quality::Bad),
-                    None => q,
-                };
-                (m["v"].clone(), q)
-            }
-            _ => (v, q),
+        let (v, q) = match self.quality.as_str() {
+            "ignore" => (v, Quality::Good),
+            // the script sets the quality: `{v, q}` with `q` a code or a name; a result
+            // without a valid one is `bad`, never `good` (docs/flow-blocks.md)
+            "custom" => match v {
+                Value::Map(mut m) if m.contains_key("v") => {
+                    let q = crate::codes::quality_of(m.get("q"));
+                    (m.remove("v").unwrap_or(Value::Null), q)
+                }
+                v => (v, Quality::Bad),
+            },
+            _ => (v, self.worst()),
         };
         out.emit("out", Msg::new(v, q, t));
     }
@@ -886,15 +884,12 @@ impl Node for Deadband {
     }
     fn state(&self) -> Option<Value> {
         self.last
-            .map(|(x, q)| Value::Array(vec![Value::Float(x), Value::UInt(q as u64)]))
+            .map(|(x, q)| Value::Array(vec![Value::Float(x), Value::UInt(u64::from(q.code()))]))
     }
     fn restore(&mut self, st: &Value) {
         if let Value::Array(a) = st {
-            if let (Some(x), Some(q)) = (
-                a.first().and_then(Value::as_f64),
-                a.get(1).and_then(Value::as_f64),
-            ) {
-                self.last = Some((x, Quality::try_from(q as u8).unwrap_or(Quality::Bad)));
+            if let (Some(x), Some(q)) = (a.first().and_then(Value::as_f64), a.get(1)) {
+                self.last = Some((x, crate::codes::quality_of(Some(q))));
             }
         }
     }
@@ -999,7 +994,7 @@ impl Node for Window {
                 Value::Array(vec![
                     Value::UInt(*t),
                     Value::Float(*x),
-                    Value::UInt(*q as u64),
+                    Value::UInt(u64::from(q.code())),
                 ])
             })
             .collect();
@@ -1019,16 +1014,11 @@ impl Node for Window {
         if let Some(Value::Array(items)) = m.get("buf") {
             for it in items {
                 if let Value::Array(a) = it {
-                    if let (Some(Value::UInt(t)), Some(x), Some(q)) = (
-                        a.first(),
-                        a.get(1).and_then(Value::as_f64),
-                        a.get(2).and_then(Value::as_f64),
-                    ) {
-                        self.buf.push_back((
-                            *t,
-                            x,
-                            Quality::try_from(q as u8).unwrap_or(Quality::Bad),
-                        ));
+                    if let (Some(Value::UInt(t)), Some(x), Some(q)) =
+                        (a.first(), a.get(1).and_then(Value::as_f64), a.get(2))
+                    {
+                        self.buf
+                            .push_back((*t, x, crate::codes::quality_of(Some(q))));
                     }
                 }
             }
@@ -1217,7 +1207,10 @@ impl Node for Filter {
     fn input(&mut self, _p: &str, m: Msg, _io: &Io, out: &mut Out) {
         let vars = vec![
             ("v".to_owned(), script::to_dynamic(&m.v)),
-            ("q".to_owned(), rhai::Dynamic::from_int(m.q as i64)),
+            (
+                "q".to_owned(),
+                rhai::Dynamic::from_int(i64::from(m.q.code())),
+            ),
             ("t".to_owned(), rhai::Dynamic::from_int(m.t as i64)),
         ];
         let mut st = rhai::Map::new();
