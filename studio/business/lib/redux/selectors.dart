@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/access_tab.dart';
 import 'package:models/agent_config.dart';
 import 'package:models/agent_params.dart';
 import 'package:models/agent_task.dart';
@@ -8,6 +9,7 @@ import 'package:models/assistant_panel.dart';
 import 'package:models/attention_item.dart';
 import 'package:models/attention_kind.dart';
 import 'package:models/audit_entry.dart';
+import 'package:models/audit_line.dart';
 import 'package:models/backup_job.dart';
 import 'package:models/block_info.dart';
 import 'package:models/broker_self_update.dart';
@@ -18,6 +20,7 @@ import 'package:models/flow_frame.dart';
 import 'package:models/flow_summary.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/grant.dart';
+import 'package:models/grant_source.dart';
 import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
@@ -1459,6 +1462,7 @@ extension type SelectFlows(AppState _state) {
       ),
     ),
   );
+
   /// The flows in their list's order, live while Flows follows them.
   List<FlowSummary> get shown {
     final table = shownTable;
@@ -1470,7 +1474,6 @@ extension type SelectFlows(AppState _state) {
     final id? => shownTable[id],
     null => null,
   };
-
 }
 
 extension type SelectFlowEditor(AppState _state) {
@@ -1790,19 +1793,42 @@ extension type SelectAccess(AppState _state) {
   IList<RoleGrant> get grants => _state.access.grants;
 
   /// Returns audit
-  IList<String> get audit => _state.access.audit;
+  IList<AuditLine> get audit => _state.access.audit;
 
   /// Returns selected
   String? get selected => _state.access.selected;
 
   /// Returns tab
-  String get tab => _state.access.tab;
+  AccessTab get tab => _state.access.tab;
 
   /// Returns isWaiting
   bool get isWaiting => _state.wait.isWaitingForType<RetrieveAccessAction>();
 
   /// Returns shown
   bool get shown => _state.access.shown;
+
+  /// The user picked, as `/api/users` gives them; null when none is.
+  UserInfo? get pickedUser => _state.access.users
+      .where((u) => u.name == _state.access.selected)
+      .firstOrNull;
+
+  /// The grants of [user]'s roles.
+  List<RoleGrant> grantsOf(UserInfo user) => [
+    for (final g in _state.access.grants)
+      if (user.roles.contains(g.subject)) g,
+  ];
+
+  /// The roles a user may be given: the subjects of the gateway's grants,
+  /// or the four of a fresh gateway when it lists none.
+  List<String> get roleNames {
+    final roles = {
+      for (final g in _state.access.grants)
+        if (g.source == GrantSource.gateway) g.subject,
+    };
+    return roles.isEmpty
+        ? const ['admin', 'engineer', 'operator', 'viewer']
+        : roles.toList();
+  }
 }
 
 extension type SelectSystem(AppState _state) {
@@ -2166,6 +2192,14 @@ extension type SelectDevice(AppState _state) {
   /// This user's device records as rows of Account › Security at [now].
   IList<DeviceRow> rowsAt(DateTime now) => [
     for (final d in _state.device.devices)
+      deviceRowOf(d, _state.device.deviceId, now),
+  ].lock;
+
+  /// The devices of [user] (Access › Users) as rows at [now].
+  IList<DeviceRow> userRowsAt(String user, DateTime now) => [
+    for (final d
+        in _state.device.userDevices[user] ??
+            const IListConst<GatewayDevice>([]))
       deviceRowOf(d, _state.device.deviceId, now),
   ].lock;
 

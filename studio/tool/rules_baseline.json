@@ -1,6 +1,5 @@
 {
   "unawaited-dispatch": {
-    "app/lib/connectors/access_page_connector.dart": 3,
     "app/lib/connectors/explorer_page_connector.dart": 6,
     "app/lib/connectors/flow_editor_page_connector.dart": 13,
     "app/lib/connectors/link_install_page_connector.dart": 1,
@@ -67,7 +66,6 @@
     "app/lib/common/backup_sheets.dart": 47,
     "app/lib/common/trend.dart": 2,
     "app/lib/common/update_sheets.dart": 4,
-    "app/lib/connectors/access_page_connector.dart": 6,
     "app/lib/connectors/explorer_page_connector.dart": 29,
     "app/lib/connectors/flow_editor_page_connector.dart": 10,
     "app/lib/connectors/link_install_page_connector.dart": 36,
@@ -102,7 +100,6 @@
     "app/lib/common/backup_sheets.dart": 15,
     "app/lib/common/broker_update_sheets.dart": 1,
     "app/lib/common/update_sheets.dart": 3,
-    "app/lib/connectors/access_page_connector.dart": 17,
     "app/lib/connectors/explorer_page_connector.dart": 21,
     "app/lib/connectors/flow_editor_page_connector.dart": 10,
     "app/lib/connectors/link_install_page_connector.dart": 13,
@@ -142,7 +139,7 @@
     "ui/lib/trees/node_tree.dart": 2
   },
   "connector-lines": {
-    "app/lib/connectors/access_page_connector.dart": 514,
+    "app/lib/connectors/access_page_connector.dart": 117,
     "app/lib/connectors/assistant_page_connector.dart": 889,
     "app/lib/connectors/explorer_page_connector.dart": 2186,
     "app/lib/connectors/flow_editor_page_connector.dart": 2612,
@@ -165,7 +162,6 @@
   },
   "context-in-connector": {
     "app/lib/common/app_store.dart": 1,
-    "app/lib/connectors/access_page_connector.dart": 2,
     "app/lib/connectors/explorer_page_connector.dart": 4,
     "app/lib/connectors/links_page_connector.dart": 3,
     "app/lib/connectors/sites_page_connector.dart": 7,
@@ -180,7 +176,6 @@
     "app/lib/common/update_sheets.dart": 4,
     "app/lib/common/validators.dart": 1,
     "app/lib/common/value_viewer.dart": 4,
-    "app/lib/connectors/access_page_connector.dart": 67,
     "app/lib/connectors/explorer_page_connector.dart": 183,
     "app/lib/connectors/flow_editor_page_connector.dart": 195,
     "app/lib/connectors/link_install_page_connector.dart": 112,
@@ -287,7 +282,6 @@
     "ui/lib/overlays/step_up_dialog.dart": 10,
     "ui/lib/overlays/task_sheet.dart": 20,
     "ui/lib/overlays/value_viewer.dart": 13,
-    "ui/lib/pages/access_page.dart": 3,
     "ui/lib/pages/assistant_page.dart": 5,
     "ui/lib/pages/explorer_page.dart": 11,
     "ui/lib/pages/flow_editor_page.dart": 2,
@@ -311,7 +305,6 @@
     "ui/lib/trees/tree_row.dart": 4
   },
   "ad-hoc-callback": {
-    "app/lib/connectors/access_page_connector.dart": 1,
     "app/lib/connectors/explorer_page_connector.dart": 8,
     "app/lib/connectors/flow_editor_page_connector.dart": 25,
     "app/lib/connectors/link_install_page_connector.dart": 1,
@@ -336,13 +329,11 @@
   },
   "untyped-wire": {
     "app/lib/common/value_viewer.dart": 6,
-    "app/lib/connectors/access_page_connector.dart": 6,
     "app/lib/connectors/explorer_page_connector.dart": 2,
     "app/lib/connectors/flow_editor_page_connector.dart": 10,
     "app/lib/connectors/link_install_page_connector.dart": 3,
     "app/lib/connectors/sites_page_connector.dart": 2,
     "app/lib/dialogs/link_dialogs.dart": 5,
-    "business/lib/redux/access/actions/retrieve_access_action.dart": 7,
     "business/lib/redux/backups/actions/apply_restore_action.dart": 4,
     "business/lib/redux/backups/actions/create_backup_action.dart": 1,
     "business/lib/redux/backups/actions/download_backup_action.dart": 1,
@@ -397,7 +388,6 @@
     "business/lib/wyrm/transfer.dart": 6
   },
   "multi-dispatch": {
-    "app/lib/connectors/access_page_connector.dart": 1,
     "app/lib/connectors/explorer_page_connector.dart": 1,
     "app/lib/connectors/flow_editor_page_connector.dart": 1,
     "app/lib/connectors/link_install_page_connector.dart": 4,

@@ -4,6 +4,7 @@ import 'package:business/redux/app_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/access_tab.dart';
 import 'package:models/links_tab.dart';
 import 'package:ui/pages/system_page.dart';
 
@@ -62,13 +63,13 @@ void main() {
     await app.toSystem(t);
     await tap('ACL denials');
     expect(app.workspace, AccessRoute.name);
-    expect(s().access.tab, 'audit');
+    expect(s().access.tab, AccessTab.audit);
 
     await app.toSystem(t);
     app.store.dispatchSync(_ResetAccess());
     await tap('Audit records');
     expect(app.workspace, AccessRoute.name);
-    expect(s().access.tab, 'audit');
+    expect(s().access.tab, AccessTab.audit);
 
     // a tile with no destination leads nowhere
     await app.toSystem(t);
@@ -84,7 +85,7 @@ void main() {
     app.store.dispatchSync(_ResetAccess());
     await tap('Open the audit record ›');
     expect(app.workspace, AccessRoute.name);
-    expect(s().access.tab, 'audit');
+    expect(s().access.tab, AccessTab.audit);
 
     await app.toSystem(t);
     await tap('bacnet failed');
@@ -111,7 +112,7 @@ void main() {
     await app.settle(t);
     await tap('ACL denials grew by 402');
     expect(app.workspace, AccessRoute.name);
-    expect(s().access.tab, 'audit');
+    expect(s().access.tab, AccessTab.audit);
 
     // Also broker settings, on Maintenance
     await app.toSystem(t);
@@ -128,7 +129,7 @@ void main() {
     app.store.dispatchSync(_ResetAccess());
     await tap('Roles and grants › Access');
     expect(app.workspace, AccessRoute.name);
-    expect(s().access.tab, 'users', reason: 'Access as it was');
+    expect(s().access.tab, AccessTab.users, reason: 'Access as it was');
 
     await app.toSystem(t);
     await tap('Retention and purge › History');
@@ -146,7 +147,7 @@ void main() {
 /// Access back on its first tab, so a link that opens Audit is seen to.
 class _ResetAccess extends ReduxAction<AppState> {
   @override
-  AppState reduce() => state.copyWith.access(tab: 'users');
+  AppState reduce() => state.copyWith.access(tab: AccessTab.users);
 }
 
 /// The ACL counter as System saw it when it was last left.

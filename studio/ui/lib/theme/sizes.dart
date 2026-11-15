@@ -47,4 +47,10 @@ abstract final class AppSizes {
 
   /// The plot of System's *Router traffic* (board `System`).
   static const double trafficPlot = 120;
+
+  /// The audit tail of Access, as tall as its tables are long.
+  static const double auditTail = 560;
+
+  /// A row of Access's users and grants: one line, roomier than a point's.
+  static const double accessRow = 48;
 }

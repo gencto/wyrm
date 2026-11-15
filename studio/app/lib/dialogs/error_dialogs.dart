@@ -18,6 +18,7 @@ import 'package:business/wyrm/mappers/log_line_mapper.dart';
 import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:models/access_tab.dart';
 import 'package:models/studio_error.dart';
 import 'package:models/system_tab.dart';
 import 'package:ui/dialogs/error_dialog.dart';
@@ -189,7 +190,7 @@ Future<void> _show(
       if (e.kind == .rights) {
         // Access, on the user's own line.
         store
-          ..dispatchSync(access_slice.SetTabAction('users'))
+          ..dispatchSync(access_slice.SetTabAction(AccessTab.users))
           ..dispatchSync(SetSelectedAction(store.state.site.user))
           ..dispatchSync(GoAction.navigate(const AccessRoute()));
       }
