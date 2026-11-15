@@ -1,5 +1,6 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/staged_change.dart';
+import 'package:models/staged_change_kind.dart';
 
 import '../../app_state.dart';
 import '../../changes/actions/add_changes_action.dart';
@@ -25,7 +26,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
         [
           if (holdUnknown case final v?)
             StagedChange(
-              id: 'set:$root/sys/enable_quarantine',
+              id: StagedChangeKind.set.idOf('$root/sys/enable_quarantine'),
               op: 'Edit',
               key: '$root/sys/enable_quarantine',
               field: 'value',
@@ -36,7 +37,7 @@ class SetAdmissionOptionsAction extends Action with WaitingAction {
             ),
           if (allowAll case final v?)
             StagedChange(
-              id: 'set:$root/sys/allow_all_links',
+              id: StagedChangeKind.set.idOf('$root/sys/allow_all_links'),
               op: 'Edit',
               key: '$root/sys/allow_all_links',
               field: 'value',

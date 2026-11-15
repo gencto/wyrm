@@ -569,9 +569,12 @@ void main() {
         linksWords['stop and roll back dialog'] ?? const [],
       );
       await app.answer(t, S.current.updRollBack);
-      expect([for (final c in app.calls('rollback')) c.key], [
-        '$sys/packages/bacnet',
-      ]);
+      expect(
+        [for (final c in app.calls('rollback')) c.key],
+        [
+          '$sys/packages/bacnet',
+        ],
+      );
       await app.leave(t);
     });
 
@@ -634,14 +637,118 @@ void main() {
       );
       await app.tap(t, S.current.updOptAccept);
       await app.tap(t, S.current.updDo(1));
-      expect([for (final c in app.calls('update')) c.args], [
-        Value.from({'restore_point': true, 'auto_rollback_s': 120}),
-        Value.from({
-          'accept': true,
-          'restore_point': true,
-          'auto_rollback_s': 120,
-        }),
-      ]);
+      expect(
+        [for (final c in app.calls('update')) c.args],
+        [
+          Value.from({'restore_point': true, 'auto_rollback_s': 120}),
+          Value.from({
+            'accept': true,
+            'restore_point': true,
+            'auto_rollback_s': 120,
+          }),
+        ],
+      );
+      await app.leave(t);
+    });
+    testWidgets('Edit params stages the JSON typed; a wrong text is said', (
+      t,
+    ) async {
+      final app = await shown(t);
+      app.api.invokes['$sys/links/modbus ▸ history'] = [
+        Value.from([
+          {
+            'rev': 3,
+            'params': {'poll_s': 5},
+          },
+        ]),
+      ];
+      await app.tap(t, 'modbus');
+      await app.tap(t, S.current.actEditParams);
+      Finder field() => find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(EditableText),
+      );
+      await t.enterText(field(), '[1]');
+      await app.settle(t);
+      expect(find.text(S.current.paramsNotObject), findsOneWidget);
+      await t.enterText(field(), '{"poll_s": ');
+      await app.settle(t);
+      expect(
+        find.textContaining(S.current.paramsNotJson('').trim()),
+        findsWidgets,
+      );
+      await t.enterText(field(), '{"poll_s": 2}');
+      await app.settle(t);
+      await app.answer(t, S.current.stage);
+      expect(find.byType(Dialog), findsNothing);
+      final c = app.store.state.changes.table.values.single;
+      expect(c.id, 'params:$sys/links/modbus');
+      expect(c.key, '$sys/links/modbus');
+      expect(c.from, 'rev 3');
+      expect(c.args?['params'], {'poll_s': 2});
+      await app.leave(t);
+    });
+
+    testWidgets('Secrets sets one, or deletes one without a value', (
+      t,
+    ) async {
+      final app = await shown(t);
+      app.api
+        ..invokes['$sys/links/modbus ▸ set_secret'] = const [VNull()]
+        ..invokes['$sys/links/modbus ▸ delete_secret'] = const [VNull()];
+      await app.tap(t, 'modbus');
+      await app.tap(t, S.current.actSecrets);
+      Finder fields() => find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(EditableText),
+      );
+      await t.enterText(fields().first, 'api_key');
+      await t.enterText(fields().last, 's3cret');
+      await app.settle(t);
+      await app.answer(t, S.current.setSecret);
+      expect(find.byType(Dialog), findsNothing);
+      expect(
+        [for (final c in app.calls('set_secret')) c.args],
+        [
+          Value.from({'name': 'api_key', 'value': 's3cret'.codeUnits}),
+        ],
+      );
+      await app.tap(t, S.current.actSecrets);
+      await t.enterText(fields().first, 'old_key');
+      await app.settle(t);
+      await app.answer(t, S.current.setSecret);
+      expect(
+        [for (final c in app.calls('delete_secret')) c.args],
+        [
+          Value.from({'name': 'old_key'}),
+        ],
+      );
+      await app.leave(t);
+    });
+
+    testWidgets('Grant access sends the path and the level', (t) async {
+      final app = await shown(t);
+      app.api.invokes['$sys/links/modbus ▸ grant'] = const [VNull()];
+      await app.tap(t, 'modbus');
+      await app.tap(t, S.current.actGrant);
+      await t.enterText(
+        find
+            .descendant(
+              of: find.byType(Dialog),
+              matching: find.byType(EditableText),
+            )
+            .first,
+        '$plant/downstream/bacnet/**',
+      );
+      await app.settle(t);
+      await app.answer(t, S.current.actGrant);
+      expect(find.byType(Dialog), findsNothing);
+      expect(
+        [for (final c in app.calls('grant')) c.args],
+        [
+          Value.from({'path': '$plant/downstream/bacnet/**', 'level': 'read'}),
+        ],
+      );
       await app.leave(t);
     });
   });

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/calls.dart';
@@ -24,18 +22,17 @@ class RollbackLinkParamsAction extends Action with WaitingAction {
 
   @override
   Future<AppState?> reduce() async {
-    await invokeAll(
-      deps.wyrm,
-      '${site.root}/sys/links/$id',
-      'rollback',
-      Value.from({'rev': rev}),
-    );
+    try {
+      await invokeAll(
+        deps.wyrm,
+        '${site.root}/sys/links/$id',
+        'rollback',
+        Value.from({'rev': rev}),
+      );
+    } finally {
+      // The revisions as the broker has them now, whatever it answered.
+      await dispatchAndWait(RetrieveLinkHistoryAction(id));
+    }
     return null;
-  }
-
-  @override
-  void after() {
-    super.after();
-    unawaited(dispatchAndWait(RetrieveLinkHistoryAction(id)));
   }
 }

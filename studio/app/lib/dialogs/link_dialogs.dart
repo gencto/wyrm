@@ -8,6 +8,7 @@ import 'package:business/redux/links/actions/retrieve_link_history_action.dart';
 import 'package:business/redux/links/actions/rollback_link_params_action.dart';
 import 'package:business/redux/links/actions/update_link_params_action.dart';
 import 'package:business/redux/nodes/actions/invoke_node_action.dart';
+import 'package:business/wyrm/decode/link_params.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:models/link_revision.dart';
@@ -19,10 +20,12 @@ import 'package:ui/overlays/log_view.dart';
 import 'package:ui/overlays/panel_dialog.dart';
 import 'package:ui/pages/links_data.dart';
 import 'package:ui/theme/sizes.dart';
+import 'package:wyrm_client/wyrm_client.dart';
 
 import '../common/app_store.dart';
 import '../common/forms.dart';
 import 'backup_dialogs.dart';
+import 'close_on_ok_action.dart';
 
 /// The dialog [ask] names, of its link, opened over Links with its
 /// [context]; [root] is the site's (`wy/<site>`).
@@ -82,12 +85,10 @@ Future<void> showLinkParams(BuildContext context, String id) async {
   // Checked as it is typed and said under the field; text that is not one
   // JSON object cannot be staged (docs/design/specs/errors.md §2:
   // validation is inline, never a dialog).
-  String? problem(String json) => switch (UpdateLinkParamsAction.problemOf(
-    json,
-  )) {
-    null => null,
-    '' => S.current.paramsNotObject,
-    final detail => S.current.paramsNotJson(detail),
+  String? problem(String json) => switch (linkParamsOf(json)) {
+    ParamsObject() => null,
+    ParamsNotObject() => S.current.paramsNotObject,
+    ParamsNotJson(:final detail) => S.current.paramsNotJson(detail),
   };
   await showDialog<void>(
     context: context,
@@ -104,29 +105,27 @@ Future<void> showLinkParams(BuildContext context, String id) async {
               disabledReason: wrong,
               onPressed: wrong != null
                   ? null
-                  : () async {
-                      final status = await store.dispatchAndWait(
+                  : () => store.dispatch(
+                      CloseOnOkAction(
                         UpdateLinkParamsAction(
                           id,
                           text,
                           from: 'rev ${newest?.rev ?? 0}',
                         ),
-                      );
-                      if (status.isCompletedOk && dialog.mounted) {
-                        Navigator.of(dialog).pop();
-                      }
-                    },
+                        closed: () => _close(dialog),
+                      ),
+                    ),
             ),
           ],
           child: ParamForm(
             fields: [
               ParamFieldVm(
-                id: 'params',
+                id: _Field.params.key,
                 label: S.current.paramsJson(newest?.rev ?? 0),
                 kind: ParamKind.textarea,
                 value: text,
                 error: wrong,
-                onChanged: (v) => setState(() => text = v as String? ?? ''),
+                onChanged: (v) => setState(() => text = _textOf(v) ?? ''),
               ),
             ],
           ),
@@ -215,7 +214,7 @@ Future<void> showLinkSecrets(BuildContext context, String key) {
       child: ActionForm(
         fields: [
           ParamFieldVm(
-            id: 'name',
+            id: _Field.secretName.key,
             label: S.current.secretName,
             kind: ParamKind.text,
             required: true,
@@ -223,7 +222,7 @@ Future<void> showLinkSecrets(BuildContext context, String key) {
             onChanged: (_) {},
           ),
           ParamFieldVm(
-            id: 'value',
+            id: _Field.secretValue.key,
             label: S.current.secretValue,
             kind: ParamKind.secret,
             onChanged: (_) {},
@@ -231,8 +230,8 @@ Future<void> showLinkSecrets(BuildContext context, String key) {
         ],
         submit: S.current.setSecret,
         onSubmit: (v) {
-          final name = v['name'] as String?;
-          final value = v['value'] as String?;
+          final name = _textOf(v[_Field.secretName.key]);
+          final value = _textOf(v[_Field.secretValue.key]);
           if (name == null) {
             return null;
           }
@@ -264,7 +263,7 @@ Future<void> showLinkGrant(BuildContext context, String id, String root) {
       child: ActionForm(
         fields: [
           ParamFieldVm(
-            id: 'path',
+            id: _Field.grantPath.key,
             label: S.current.grantPath,
             kind: ParamKind.text,
             required: true,
@@ -272,30 +271,58 @@ Future<void> showLinkGrant(BuildContext context, String id, String root) {
             onChanged: (_) {},
           ),
           ParamFieldVm(
-            id: 'level',
+            id: _Field.grantLevel.key,
             label: S.current.grantLevel,
             kind: ParamKind.choice,
             required: true,
-            value: 'read',
-            choices: const ['none', 'list', 'read', 'write'],
+            value: Perm.read.wire,
+            choices: [for (final p in _grantLevels) p.wire],
             onChanged: (_) {},
           ),
         ],
         submit: S.current.actGrant,
-        onSubmit: (v) => sendForm(
-          store.dispatchAndWait(
-            GrantLinkAction(
-              id,
-              path: v['path']! as String,
-              level: v['level']! as String,
+        onSubmit: (v) {
+          final path = _textOf(v[_Field.grantPath.key]);
+          final level = switch (_textOf(v[_Field.grantLevel.key])) {
+            final w? => Perm.fromWire(w),
+            null => null,
+          };
+          if (path == null || level == null) {
+            return null;
+          }
+          return sendForm(
+            store.dispatchAndWait(
+              GrantLinkAction(id, path: path, level: level),
             ),
-          ),
-          onOk: () => _close(dialog),
-        ),
+            onOk: () => _close(dialog),
+          );
+        },
       ),
     ),
   );
 }
+
+/// The fields of a link's dialogs, keyed in their forms by [key].
+enum _Field {
+  params('params'),
+  secretName('name'),
+  secretValue('value'),
+  grantPath('path'),
+  grantLevel('level');
+
+  const _Field(this.key);
+
+  final String key;
+}
+
+/// The levels a grant gives (no `config`: a link never gets it).
+const List<Perm> _grantLevels = [Perm.none, Perm.list, Perm.read, Perm.write];
+
+/// What a text field of a form holds: its text, or none.
+String? _textOf(Object? v) => switch (v) {
+  final String s => s,
+  _ => null,
+};
 
 void _close(BuildContext dialog) {
   if (dialog.mounted) {
