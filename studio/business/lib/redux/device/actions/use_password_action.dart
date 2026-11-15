@@ -10,7 +10,7 @@ class UsePasswordAction extends Action {
   @override
   AppState reduce() => state.copyWith.device(
     stage: UnlockStage.fallback,
-    reason: null,
+    fallback: null,
     autoPrompted: true,
   );
 }

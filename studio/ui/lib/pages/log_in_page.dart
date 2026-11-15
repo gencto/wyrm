@@ -26,6 +26,7 @@ import '../shell/window_bar.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
@@ -285,7 +286,7 @@ class _LogInPageState extends State<LogInPage> {
               top: 0,
               left: 0,
               right: 0,
-              height: 40,
+              height: AppSizes.windowDrag,
               child: WindowBar(
                 vm: widget.window,
                 child: const SizedBox.expand(),
@@ -309,7 +310,12 @@ class _LogInPageState extends State<LogInPage> {
             ),
             // The boards *Discover…* give the form 40 more while the panel
             // or the trust card is open (560, content 460).
-            SizedBox(width: _finding ? 560 : 520, child: _panel(context)),
+            SizedBox(
+              width: _finding
+                  ? AppSizes.logInPanelFinding
+                  : AppSizes.logInPanel,
+              child: _panel(context),
+            ),
           ],
         );
       }
@@ -322,10 +328,10 @@ class _LogInPageState extends State<LogInPage> {
               // Under the window buttons the logo starts lower: the hero
               // grows by as much, so its text keeps its room.
               height: small
-                  ? 220
+                  ? AppSizes.heroSmall
                   : widget.window.leading > 0
-                  ? 420 + LoginHero.buttonsClearance
-                  : 420,
+                  ? AppSizes.heroStacked + LoginHero.buttonsClearance
+                  : AppSizes.heroStacked,
               child: LoginHero(
                 size: small ? LoginHeroSize.small : LoginHeroSize.stacked,
                 underButtons: widget.window.leading > 0,
@@ -349,13 +355,12 @@ class _LogInPageState extends State<LogInPage> {
   );
 
   Widget _form(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(
-      horizontal: AppSpacing.xl,
-      vertical: 40,
-    ),
+    padding: Insets.logInForm,
     child: Center(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: _finding ? 460 : 420),
+        constraints: BoxConstraints(
+          maxWidth: _finding ? AppSizes.logInFormFinding : AppSizes.logInForm,
+        ),
         child: AnimatedSwitcher(
           duration: reduceMotion(context) ? .zero : Motion.fadeOut,
           child: switch ((widget.welcome, widget.offer, widget.unlock)) {
@@ -554,7 +559,7 @@ class _LogInPageState extends State<LogInPage> {
           textInputAction: .next,
           onLeave: widget.onGatewayLeave,
           hint: widget.gatewayHint,
-          border: warn ? TrustCard.border : null,
+          border: warn ? c.noticeLine : null,
           leading: StatusDot(
             color: dot,
             halo: widget.gatewayTone == .neutral ? 0 : 4,
@@ -582,7 +587,7 @@ class _LogInPageState extends State<LogInPage> {
           ),
         if (widget.trust case final t?)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: Insets.underGateway,
             child: TrustCard(
               vm: t,
               onTrust: widget.onTrust ?? () {},
@@ -591,7 +596,7 @@ class _LogInPageState extends State<LogInPage> {
           )
         else if (widget.discover case final d?)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: Insets.underGateway,
             child: DiscoverPanel(
               vm: d,
               onLookAgain: widget.onLookAgain ?? () {},
@@ -631,7 +636,7 @@ class _LogInPageState extends State<LogInPage> {
     final c = context.colors;
     final note = TextStyle(fontSize: FontSizes.sm, color: c.text4);
     return Container(
-      padding: const EdgeInsets.only(top: 14),
+      padding: Insets.footer,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.ground3)),
       ),

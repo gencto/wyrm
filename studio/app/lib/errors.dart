@@ -10,7 +10,7 @@ import 'package:ui/dialogs/error_dialog.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/overlays/problems_drawer.dart';
 
-import 'connectors/log_in_page_connector.dart' show studioVersion;
+import 'common/studio_version.dart';
 
 // The words of an error (docs/design/specs/errors.md §1, §3, §7). They live
 // in `app` because this is the only package that may name `S`: `business`

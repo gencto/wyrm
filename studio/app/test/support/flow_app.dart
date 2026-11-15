@@ -9,7 +9,6 @@ import 'package:business/redux/login/actions/set_gateway_action.dart';
 import 'package:business/redux/login/actions/set_password_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/mappers/values.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -116,7 +115,7 @@ class FlowApp {
     this._catalog,
   }) : login = FakeLogin(
          session: FakeSession(
-           who: WhoAmI(
+           who: identityOf(
              subject: 'user:olena',
              site: 'plant',
              roles: const ['engineer'],

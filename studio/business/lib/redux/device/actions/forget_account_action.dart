@@ -12,7 +12,7 @@ class ForgetAccountAction extends Action {
     device: state.device.copyWith(
       stage: UnlockStage.none,
       refusal: null,
-      reason: null,
+      fallback: null,
       autoPrompted: true,
     ),
     login: state.login.copyWith(password: null, failure: null),

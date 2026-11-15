@@ -7,6 +7,7 @@ import '../indicators/login_steps.dart';
 import '../indicators/sweep_bar.dart';
 import '../indicators/wyrm_loader.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What the welcome says while the tree opens (docs/design/specs/login.md
@@ -61,7 +62,7 @@ class WelcomePanel extends StatelessWidget {
     final opening = S.current.openingTreeOf(vm.site);
     final at = opening.indexOf(vm.site);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40),
+      padding: Insets.welcome,
       child: Column(
         mainAxisSize: .min,
         spacing: 26,

@@ -37,16 +37,13 @@ class UnlockNotice extends StatelessWidget {
 
   /// The boards' amber notice (`#6A5A2A` on `#1A1810`) and the coral one's
   /// fill (`#1C1513`).
-  static const warnBorder = Color(0xFF6A5A2A);
-  static const warnFill = Color(0xFF1A1810);
-  static const badFill = Color(0xFF1C1513);
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final (border, fill, ink) = switch (vm.tone) {
-      .warn => (warnBorder, warnFill, c.warn),
-      .bad => (c.badLine, badFill, c.badText),
+      .warn => (c.noticeLine, c.noticeFill, c.warn),
+      .bad => (c.badLine, c.refusalFill, c.badText),
       _ => (c.line2, c.ground1, c.text2),
     };
     return Semantics(

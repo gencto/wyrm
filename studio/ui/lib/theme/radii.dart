@@ -30,6 +30,12 @@ abstract final class AppRadii {
   /// A dialog (Account › Security, the step-up).
   static const double dialog = 14;
 
+  /// The card of the idle lock.
+  static const double lockCard = 16;
+
+  /// The tile of the offer's biometric glyph.
+  static const double offerGlyph = 24;
+
   /// A status pill.
   static const double pill = 999;
 

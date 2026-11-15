@@ -11,6 +11,7 @@ import '../indicators/biometric_icon.dart';
 import '../inputs/boxed_form_field.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
 import '../theme/shades.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
@@ -199,11 +200,16 @@ class _LockOverlayState extends State<LockOverlay> {
               ),
               Positioned.fill(
                 child: Center(
-                  child: _LockCard(
-                    vm: card,
-                    onUnlock: widget.onUnlock,
-                    onPassword: widget.onPassword,
-                    onLogOut: widget.onLogOut,
+                  // The card's own Material: the shell above it has none,
+                  // and the password field needs one.
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: _LockCard(
+                      vm: card,
+                      onUnlock: widget.onUnlock,
+                      onPassword: widget.onPassword,
+                      onLogOut: widget.onLogOut,
+                    ),
                   ),
                 ),
               ),
@@ -266,7 +272,9 @@ class _LockCardState extends State<_LockCard> {
           padding: const EdgeInsets.all(AppSpacing.xl),
           decoration: BoxDecoration(
             color: c.ground1,
-            borderRadius: const BorderRadius.all(Radius.circular(16)),
+            borderRadius: const BorderRadius.all(
+              Radius.circular(AppRadii.lockCard),
+            ),
             border: Border.all(color: c.line1),
             boxShadow: const [
               BoxShadow(
@@ -291,7 +299,7 @@ class _LockCardState extends State<_LockCard> {
                     vm.title,
                     textAlign: .center,
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: FontSizes.lockTitle,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -344,7 +352,7 @@ class _LockCardState extends State<_LockCard> {
                 Text(
                   vm.unlockLabel,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: FontSizes.lead,
                     fontWeight: .w600,
                     color: c.text1,
                   ),

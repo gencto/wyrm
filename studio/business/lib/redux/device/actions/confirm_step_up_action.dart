@@ -12,10 +12,10 @@ import '../../common/action.dart';
 /// again (the gate of `AppDependencies`). A cancelled prompt or a wrong
 /// password keeps the dialog open with its line.
 class ConfirmStepUpAction extends Action with NonReentrant, WaitingAction {
-  ConfirmStepUpAction({required this.reason, this.password});
+  ConfirmStepUpAction({this.reason, this.password});
 
-  /// The prompt's line.
-  final String reason;
+  /// The prompt's line; null for the words of `deps.prompts`.
+  final String? reason;
   final String? password;
 
   @override
@@ -43,18 +43,22 @@ class ConfirmStepUpAction extends Action with NonReentrant, WaitingAction {
           site: site.name ?? d.keySite ?? '',
           user: account.user,
           device: d.deviceId!,
-          sign: signer(deps.deviceKey, d.keyId!, reason),
+          sign: signer(
+            deps.deviceKey,
+            d.keyId!,
+            reason ?? deps.prompts.confirm(site.name ?? ''),
+          ),
         );
       }
     } on SignStopped catch (e) {
       return state.copyWith.device(
-        stepUp: pending.copyWith(busy: false, error: '$e'),
+        stepUp: pending.copyWith(busy: false, error: stepUpErrorOf(e.result)),
       );
     } on WyrmException catch (e) {
       return state.copyWith.device(
         stepUp: pending.copyWith(
           busy: false,
-          error: e.code ?? e.message,
+          error: stepUpRefusalOf(e),
           // The key is not taken any more: the password still is.
           passwordOnly: pending.passwordOnly || password == null,
         ),

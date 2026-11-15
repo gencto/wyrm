@@ -1,6 +1,8 @@
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../theme/extensions/colors.dart';
+
 /// What unlocks the key, as the boards draw it (`Unlock`, `UnlockPlatforms`):
 /// a fingerprint (Touch ID, Android fingerprint), a face (Face ID, Windows
 /// Hello, Android face) or a key (no biometric here).
@@ -75,7 +77,7 @@ class BiometricIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? IconTheme.of(context).color ?? const Color(0xFFF3A766);
+    final c = color ?? IconTheme.of(context).color ?? context.colors.emberSoft;
     return ExcludeSemantics(
       child: SvgPicture.string(_svg(c), width: size, height: size),
     );

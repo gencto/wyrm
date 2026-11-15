@@ -1,62 +1,11 @@
-// Calls deprecated wyrm_client shims until this file moves to the typed API
-// (dart/ PR "typed wire"; list in its body).
-// ignore_for_file: deprecated_member_use
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:logging/logging.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'discovery.dart';
-
-/// Who the gateway says the user is (`GET /api/me`).
-final class WhoAmI {
-  const WhoAmI({
-    required this.subject,
-    required this.site,
-    required this.roles,
-    required this.max,
-    this.grants = const [],
-  });
-
-  /// Reads the answer of `/api/me`: `{sub, roles, grants, max, exp, site}`.
-  factory WhoAmI.fromValue(Value v) => WhoAmI(
-    subject: _str(v['sub']) ?? '',
-    site: _str(v['site']) ?? '',
-    roles: switch (v['roles']) {
-      VArray(:final v) => [for (final r in v) ?_str(r)],
-      _ => const [],
-    },
-    max: _str(v['max']),
-    grants: switch (v['grants']) {
-      VArray(:final v) => [
-        for (final g in v)
-          if ((_str(g['k']), _str(g['p'])) case (final k?, final p?)) (k, p),
-      ],
-      _ => const [],
-    },
-  );
-
-  /// `user:<name>` (or `user:<name>@<site>` below an upstream).
-  final String subject;
-
-  /// The site this gateway serves.
-  final String site;
-
-  /// The gateway roles of the user (`admin`, `operator`, …).
-  final List<String> roles;
-
-  /// The highest level any grant gives (`read`, `write`, `config`), if sent.
-  final String? max;
-
-  /// `(key pattern, level)` of each grant.
-  final List<(String, String)> grants;
-
-  static String? _str(Value? v) => switch (v) {
-    VStr(:final v) => v,
-    _ => null,
-  };
-}
 
 /// One logged-in gateway session: the live client and the identity.
 ///
@@ -72,8 +21,8 @@ abstract interface class WyrmSession {
   /// The gateway in use.
   Uri get base;
 
-  /// Who the user is on this gateway.
-  Future<WhoAmI> me();
+  /// Who the user is on this gateway (`GET /api/me`).
+  Future<GatewayIdentity> identity();
 
   /// The gateway's users (`/api/users`, admin only).
   Future<List<GatewayUser>> users();
@@ -98,12 +47,12 @@ abstract interface class WyrmSession {
   /// Registers a new device key of this user; [sign] signs the register
   /// nonce with the new key. Returns the gateway's device id. Needs a
   /// password check in the last 5 minutes (`password_required`).
-  Future<String> registerDevice({
+  Future<String> addDevice({
     required String site,
     required String user,
     required String name,
-    required String platform,
-    required String alg,
+    required DevicePlatform platform,
+    required DeviceAlg alg,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
   });
@@ -186,7 +135,8 @@ abstract interface class WyrmLogin {
   });
 
   /// `GET /api/info` of [gateway] without a session, or null when it does
-  /// not answer it (no gateway there, or one older than ADR 0050). Never
+  /// not answer it (no gateway there, or one older than ADR 0050) or
+  /// answers something that is not one (logged with the field). Never
   /// throws.
   Future<GatewayInfo?> info(Uri gateway, {Duration timeout});
 
@@ -273,7 +223,17 @@ final class GatewayLogin implements WyrmLogin {
   }) async {
     final http = _client(timeout: timeout);
     try {
-      return await WyrmGateway.info(gateway, http: http).timeout(timeout);
+      return await WyrmGateway.gatewayInfo(
+        gateway,
+        http: http,
+      ).timeout(timeout);
+    } on WyrmException catch (e) {
+      // A gateway that answers, but not with what ADR 0050 decision 10
+      // says: no policy is taken from it, and the log names the field.
+      if (e.status == StatusCode.of(Status.invalidMessage)) {
+        _log.warning('GET ${gateway.origin}/api/info: ${e.message}');
+      }
+      return null;
     } on Object {
       return null;
     } finally {
@@ -323,6 +283,8 @@ final class GatewayLogin implements WyrmLogin {
     }
   }
 
+  static final _log = Logger('wyrm.login');
+
   static String _seconds(Duration d) =>
       d.inMilliseconds < 1000 ? '${d.inMilliseconds} ms' : '${d.inSeconds} s';
 }
@@ -343,7 +305,7 @@ final class _GatewaySession implements WyrmSession {
   Uri get base => _gw.base;
 
   @override
-  Future<WhoAmI> me() async => WhoAmI.fromValue(await _gw.me());
+  Future<GatewayIdentity> identity() => _gw.identity();
 
   @override
   Future<List<GatewayUser>> users() => _gw.users();
@@ -368,15 +330,15 @@ final class _GatewaySession implements WyrmSession {
       _gw.setUserDisabled(name, disabled);
 
   @override
-  Future<String> registerDevice({
+  Future<String> addDevice({
     required String site,
     required String user,
     required String name,
-    required String platform,
-    required String alg,
+    required DevicePlatform platform,
+    required DeviceAlg alg,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
-  }) => _gw.registerDevice(
+  }) => _gw.addDevice(
     site: site,
     user: user,
     name: name,
@@ -439,6 +401,6 @@ List<Uri> parseGateways(String text) => [
   for (final part in text.split(','))
     if (part.trim() case final s when s.isNotEmpty)
       if (Uri.tryParse(s.contains('://') ? s : 'http://$s') case final u?
-          when u.host.isNotEmpty && (u.scheme == 'http' || u.scheme == 'https'))
+          when u.host.isNotEmpty && (u.isScheme('http') || u.isScheme('https')))
         u,
 ];
