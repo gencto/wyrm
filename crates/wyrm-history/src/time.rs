@@ -37,13 +37,27 @@ pub fn day_name(day: i64) -> String {
 
 /// Day number of `YYYY-MM-DD`.
 pub fn parse_day(s: &str) -> Option<i64> {
-    let b = s.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+    match s.as_bytes() {
+        [y @ .., b'-', m1, m2, b'-', d1, d2] if y.len() == 4 => day_of(y, &[*m1, *m2], &[*d1, *d2]),
+        _ => None,
+    }
+}
+
+/// The value of 1 to 6 ASCII digits; `None` for anything else. Input text is read as bytes
+/// and never sliced as `str`, so no offset can fall inside a character (review S1).
+fn digits(b: &[u8]) -> Option<u64> {
+    if b.is_empty() || b.len() > 6 {
         return None;
     }
-    let y: i64 = s[..4].parse().ok()?;
-    let m: u32 = s[5..7].parse().ok()?;
-    let d: u32 = s[8..10].parse().ok()?;
+    b.iter().try_fold(0u64, |n, c| {
+        c.is_ascii_digit().then(|| n * 10 + u64::from(c - b'0'))
+    })
+}
+
+fn day_of(y: &[u8], m: &[u8], d: &[u8]) -> Option<i64> {
+    let y = i64::try_from(digits(y)?).ok()?;
+    let m = u32::try_from(digits(m)?).ok()?;
+    let d = u32::try_from(digits(d)?).ok()?;
     if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return None;
     }
@@ -68,44 +82,46 @@ pub fn iso_us(t: u64) -> String {
 
 /// Microseconds since the epoch of an RFC 3339 timestamp
 /// (`2026-10-22T09:30:00Z`, fractions and `±HH:MM` offsets allowed) or of a
-/// date (`2026-10-22`, its midnight UTC).
+/// date (`2026-10-22`, its midnight UTC). Any other text, ASCII or not, is
+/// `None`; the parser never panics.
 pub fn parse_iso(s: &str) -> Option<u64> {
-    let s = s.trim();
-    if s.len() == 10 {
-        let day = parse_day(s)?;
+    let b = s.trim().as_bytes();
+    let (day, rest) = match b {
+        [y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2, rest @ ..] => (
+            day_of(&[*y1, *y2, *y3, *y4], &[*m1, *m2], &[*d1, *d2])?,
+            rest,
+        ),
+        _ => return None,
+    };
+    if rest.is_empty() {
         return u64::try_from(day).ok()?.checked_mul(US_PER_DAY);
     }
-    let (date, rest) = s.split_at_checked(10)?;
-    let day = parse_day(date)?;
-    let rest = rest.strip_prefix(['T', 't', ' '])?;
-    let b = rest.as_bytes();
-    if b.len() < 8 || b[2] != b':' || b[5] != b':' {
-        return None;
-    }
-    let h: u64 = rest[..2].parse().ok()?;
-    let mi: u64 = rest[3..5].parse().ok()?;
-    let sec: u64 = rest[6..8].parse().ok()?;
+    let (h, mi, sec, mut rest) = match rest {
+        [b'T' | b't' | b' ', h1, h2, b':', m1, m2, b':', s1, s2, rest @ ..] => (
+            digits(&[*h1, *h2])?,
+            digits(&[*m1, *m2])?,
+            digits(&[*s1, *s2])?,
+            rest,
+        ),
+        _ => return None,
+    };
     if h > 23 || mi > 59 || sec > 60 {
         return None;
     }
-    let mut rest = &rest[8..];
     let mut frac_us = 0u64;
-    if let Some(f) = rest.strip_prefix('.') {
-        let n = f.bytes().take_while(u8::is_ascii_digit).count();
-        if n == 0 {
-            return None;
-        }
-        let digits = &f[..n.min(6)];
-        frac_us = digits.parse::<u64>().ok()? * 10u64.pow(6 - digits.len() as u32);
-        rest = &f[n..];
+    if let [b'.', f @ ..] = rest {
+        let n = f.iter().take_while(|c| c.is_ascii_digit()).count();
+        let (all, tail) = f.split_at_checked(n)?;
+        let kept = all.get(..n.min(6))?;
+        let scale = 10u64.pow(6 - u32::try_from(kept.len()).ok()?);
+        frac_us = digits(kept)?.checked_mul(scale)?;
+        rest = tail;
     }
     let offset_s: i64 = match rest {
-        "Z" | "z" => 0,
-        o if o.len() == 6 && (o.starts_with('+') || o.starts_with('-')) && &o[3..4] == ":" => {
-            let oh: i64 = o[1..3].parse().ok()?;
-            let om: i64 = o[4..6].parse().ok()?;
-            let v = oh * 3600 + om * 60;
-            if o.starts_with('-') {
+        [b'Z' | b'z'] => 0,
+        [sign @ (b'+' | b'-'), h1, h2, b':', m1, m2] => {
+            let v = i64::try_from(digits(&[*h1, *h2])? * 3600 + digits(&[*m1, *m2])? * 60).ok()?;
+            if *sign == b'-' {
                 -v
             } else {
                 v
@@ -113,8 +129,9 @@ pub fn parse_iso(s: &str) -> Option<u64> {
         }
         _ => return None,
     };
-    let local_s = day.checked_mul(86_400)? + (h * 3600 + mi * 60 + sec) as i64;
-    let utc_s = u64::try_from(local_s - offset_s).ok()?;
+    let clock = i64::try_from(h * 3600 + mi * 60 + sec).ok()?;
+    let local_s = day.checked_mul(86_400)?.checked_add(clock)?;
+    let utc_s = u64::try_from(local_s.checked_sub(offset_s)?).ok()?;
     utc_s.checked_mul(US_PER_S)?.checked_add(frac_us)
 }
 
@@ -190,6 +207,13 @@ mod tests {
         );
         assert_eq!(parse_iso("2026-10-22T25:00:00Z"), None);
         assert_eq!(parse_iso("yesterday"), None);
+        assert_eq!(
+            parse_iso("2026-10-22T09:30:15.1234567Z"),
+            parse_iso("2026-10-22T09:30:15.123456Z")
+        );
+        assert_eq!(parse_iso("2026-10-22T09:30:15.Z"), None);
+        assert_eq!(parse_iso("2026-10-22T09:30:15"), None);
+        assert_eq!(parse_iso("+026-10-22"), None);
         let now = t + 10;
         assert_eq!(
             parse_range("2026-10-22T09:30:15.250Z..", now),
@@ -201,6 +225,91 @@ mod tests {
             Some((midnight, midnight + US_PER_DAY))
         );
         assert_eq!(parse_range("2026-10-23..2026-10-22", now), None);
+    }
+
+    /// Review S1: a fixed byte offset inside a character panicked the history answer task.
+    #[test]
+    fn non_ascii_text_is_refused_not_a_panic() {
+        for s in [
+            "2026-10-22T00:00:0\u{e9}",
+            "2026-10-22T00:00:00+0\u{e9}00",
+            "2026-10-2\u{e9}",
+            "2026-10-22T\u{e9}0:00:00Z",
+            "2026-10-22T00:00:00.\u{e9}Z",
+            "2026-10-22T00:00:00.5\u{e9}",
+            "\u{1f600}026-10-22",
+            "2026-10-22T00:00:00+00:0\u{e9}",
+        ] {
+            assert_eq!(parse_iso(s), None, "{s}");
+            assert_eq!(parse_range(&format!("{s}.."), 0), None, "{s}");
+        }
+        assert_eq!(parse_day("20\u{e9}6-1-22"), None);
+    }
+
+    /// No text makes the parsers panic: valid stamps cut at every byte, with every byte
+    /// replaced by a hard character, and random text from a small alphabet of ASCII and
+    /// multibyte characters (a fixed-seed fuzz table; the workspace has no `proptest`).
+    #[test]
+    fn arbitrary_text_never_panics() {
+        const HARD: [char; 12] = [
+            '0',
+            '9',
+            ':',
+            '-',
+            '.',
+            '+',
+            'T',
+            'Z',
+            ' ',
+            '\u{e9}',
+            '\u{20ac}',
+            '\u{1f600}',
+        ];
+        let check = |s: &str| {
+            let _ = parse_iso(s);
+            let _ = parse_day(s);
+            let _ = parse_range(s, 1);
+            let _ = parse_interval(s);
+        };
+        let valid = [
+            "2026-10-22T09:30:15.250Z",
+            "2026-10-22T12:30:15.123456789+03:00",
+            "2026-10-22 05:30:15-04:00",
+            "2026-10-22",
+            "2026-10-22T00:00:00Z..2026-10-23",
+        ];
+        for v in valid {
+            let chars: Vec<char> = v.chars().collect();
+            for i in 0..=chars.len() {
+                check(&chars[..i].iter().collect::<String>());
+                for h in HARD {
+                    let mut c = chars.clone();
+                    if i < c.len() {
+                        c[i] = h;
+                    } else {
+                        c.push(h);
+                    }
+                    check(&c.iter().collect::<String>());
+                    let mut c = chars.clone();
+                    c.insert(i, h);
+                    check(&c.iter().collect::<String>());
+                }
+            }
+        }
+        let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        for _ in 0..200_000 {
+            let len = (next() % 40) as usize;
+            let s: String = (0..len)
+                .map(|_| HARD[(next() % HARD.len() as u64) as usize])
+                .collect();
+            check(&s);
+        }
     }
 
     #[test]
