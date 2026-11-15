@@ -636,6 +636,32 @@ value (or the default) at start, then the last good sample.
   node's clock starts again one period after the change. A sample that a
   `delay` already holds keeps its time.
 
+## Quality and status codes from a value
+
+A node reads a quality or a status code from a value in four places: the
+result of an `expression` with `quality: custom`, the answer of a reader, the
+answer of a command, and a saved state. Spec 06 does not say what a missing
+or a wrong code means, so these rules apply (ADR 0029, decided 2026-11-15;
+`crates/wyrm-flow/src/codes.rs`):
+
+1. A code is valid when it is an unsigned integer in the code table
+   (`spec/tables.json`), or the wire name of an entry as a text (`"good"`,
+   `"uncertain"`, `"bad"`; `"timeout"`, `"busy"`, …). A fraction, a float with
+   no fraction (`2.0`), a negative number, NaN, a number out of the table, an
+   unknown name, `null` and a missing field are not valid.
+2. A quality that is not valid is `bad`. It is never `good`.
+3. `expression` with `quality: custom`: the result must be a map `{v, q}`.
+   The output is `v` with the quality of `q` (rule 2). A missing `q`, and a
+   result that is not a map with `v`, give `bad`.
+4. A reader or a command whose answer failed gives the event `error` with an
+   error code (spec 04 status group error, `0x20` and above). A code that is
+   not valid, or that is not in the error group (`ok`, a progress or a closed
+   code), is `internal_error` (`0x25`). A failure never reads as a success.
+5. A command passes a user-defined error code (`0x40` … `0x4F`) and an
+   unknown error-group code in the event `error` as it is (CONTRIBUTING
+   "Wire enums" rule 3). A reader gives `internal_error` for them, as it
+   always did.
+
 ## A key from a port
 
 `subscribe` and `liveliness` read the key of their config. Their port `in.key`
