@@ -1,6 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'app_icon.dart';
 
 /// The stepper of Add a link: numbered steps, the current one in ember,
@@ -32,9 +35,12 @@ class StepList extends StatelessWidget {
         for (var i = 1; i <= steps.length; i++) ...[
           InkWell(
             onTap: onStep != null && i < current ? () => onStep!(i) : null,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(AppRadii.segment),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xs,
+                vertical: AppSpacing.xs,
+              ),
               child: Row(
                 mainAxisSize: .min,
                 spacing: 8,
@@ -55,7 +61,7 @@ class StepList extends StatelessWidget {
                         : Text(
                             '$i',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: FontSizes.meta,
                               fontWeight: .w600,
                               color: i == current ? c.onEmber : c.text3,
                             ),
@@ -64,7 +70,7 @@ class StepList extends StatelessWidget {
                   Text(
                     steps[i - 1],
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: FontSizes.row,
                       fontWeight: i == current ? .w600 : .w400,
                       color: i == current ? c.text1 : c.text3,
                     ),

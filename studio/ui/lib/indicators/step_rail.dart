@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'app_icon.dart';
 
 /// One step of a wizard: its title and what was answered in it.
@@ -51,8 +53,8 @@ class StepRail extends StatelessWidget {
               borderRadius: Radii.control,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 12,
+                  horizontal: AppSpacing.sm,
+                  vertical: AppSpacing.s12,
                 ),
                 decoration: BoxDecoration(
                   color: i == current ? c.emberTint : null,
@@ -80,7 +82,7 @@ class StepRail extends StatelessWidget {
                           : Text(
                               '$i',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: FontSizes.meta,
                                 fontWeight: .w600,
                                 color: i < current
                                     ? c.good
@@ -95,7 +97,7 @@ class StepRail extends StatelessWidget {
                           Text(
                             steps[i - 1].title,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: FontSizes.body,
                               fontWeight: i == current ? .w600 : .w400,
                               color: i <= current ? c.text1 : c.text3,
                             ),
@@ -104,7 +106,10 @@ class StepRail extends StatelessWidget {
                             Text(
                               steps[i - 1].sub,
                               overflow: .ellipsis,
-                              style: TextStyle(fontSize: 12, color: c.text4),
+                              style: TextStyle(
+                                fontSize: FontSizes.meta,
+                                color: c.text4,
+                              ),
                             ),
                         ],
                       ),

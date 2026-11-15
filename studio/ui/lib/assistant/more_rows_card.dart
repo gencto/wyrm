@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One row of [MoreRowsCardVm]: a node the same change may be made for.
@@ -92,9 +93,16 @@ class MoreRowsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: 12, height: 1.45, color: c.text3);
+    final small = TextStyle(
+      fontSize: FontSizes.meta,
+      height: 1.45,
+      color: c.text3,
+    );
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
+      margin: const EdgeInsets.only(
+        left: AppSpacing.s42,
+        bottom: AppSpacing.s12,
+      ),
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -105,19 +113,32 @@ class MoreRowsCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s14,
+              AppSpacing.s10,
+              AppSpacing.s14,
+              AppSpacing.s10,
+            ),
             child: Column(
               crossAxisAlignment: .start,
               spacing: 3,
               children: [
-                Text(vm.title, style: TextStyle(fontSize: 14, color: c.text1)),
+                Text(
+                  vm.title,
+                  style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                ),
                 if (vm.detail.isNotEmpty) Text(vm.detail, style: small),
               ],
             ),
           ),
           for (final r in vm.rows)
             Container(
-              padding: const EdgeInsets.fromLTRB(6, 2, 14, 2),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s6,
+                AppSpacing.s2,
+                AppSpacing.s14,
+                AppSpacing.s2,
+              ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
@@ -134,7 +155,10 @@ class MoreRowsCard extends StatelessWidget {
                       children: [
                         Text(
                           r.label,
-                          style: TextStyle(fontSize: 13, color: c.text1),
+                          style: TextStyle(
+                            fontSize: FontSizes.row,
+                            color: c.text1,
+                          ),
                         ),
                         SelectableText(
                           r.key,
@@ -151,7 +175,12 @@ class MoreRowsCard extends StatelessWidget {
               ),
             ),
           Container(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s14,
+              AppSpacing.s10,
+              AppSpacing.s14,
+              AppSpacing.s12,
+            ),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
             ),

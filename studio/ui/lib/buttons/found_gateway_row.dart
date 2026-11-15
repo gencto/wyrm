@@ -5,6 +5,8 @@ import '../indicators/quality_mark.dart';
 import '../indicators/status_dot.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One tag of a found gateway: `used before` (good), `active + standby`
@@ -104,7 +106,10 @@ class FoundGatewayRow extends StatelessWidget {
           child: InkWell(
             onTap: vm.enabled ? onTap : null,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s14,
+                vertical: AppSpacing.s12,
+              ),
               decoration: BoxDecoration(
                 border: Border(
                   top: first ? .none : BorderSide(color: c.ground3),
@@ -131,7 +136,7 @@ class FoundGatewayRow extends StatelessWidget {
                             Text(
                               vm.site,
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: FontSizes.body,
                                 fontWeight: .w600,
                                 color: c.text1,
                               ),
@@ -145,14 +150,14 @@ class FoundGatewayRow extends StatelessWidget {
                           overflow: .ellipsis,
                           style: TextStyle(
                             fontFamily: AppFonts.mono,
-                            fontSize: 12,
+                            fontSize: FontSizes.meta,
                             color: c.text4,
                           ),
                         ),
                         Text(
                           vm.note,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: FontSizes.meta,
                             color: switch (vm.noteTone) {
                               .warn => c.warn,
                               .bad => c.badText,
@@ -166,7 +171,7 @@ class FoundGatewayRow extends StatelessWidget {
                   Text(
                     vm.seen,
                     textAlign: .right,
-                    style: TextStyle(fontSize: 11, color: c.muted),
+                    style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
                   ),
                 ],
               ),
@@ -195,11 +200,15 @@ class _Tag extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
       decoration: BoxDecoration(
         color: ground,
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
       child: Text(
         vm.label,
-        style: TextStyle(fontSize: 11, fontWeight: .w500, color: ink),
+        style: TextStyle(
+          fontSize: FontSizes.tag,
+          fontWeight: .w500,
+          color: ink,
+        ),
       ),
     );
   }

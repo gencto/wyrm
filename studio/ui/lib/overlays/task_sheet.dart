@@ -11,6 +11,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// Where a step of a [SheetSteps] block is.
@@ -468,7 +469,12 @@ class TaskSheet extends StatelessWidget {
     final card = dialog ? c.ground1 : c.ground2;
     final pad = dialog ? 24.0 : 20.0;
     final head = Padding(
-      padding: EdgeInsets.fromLTRB(pad, dialog ? 22 : 18, pad, 12),
+      padding: EdgeInsets.fromLTRB(
+        pad,
+        dialog ? AppSpacing.s22 : AppSpacing.s18,
+        pad,
+        AppSpacing.s12,
+      ),
       child: Column(
         crossAxisAlignment: .start,
         spacing: 6,
@@ -489,7 +495,9 @@ class TaskSheet extends StatelessWidget {
               if (vm.pill case final p?)
                 Container(
                   height: 22,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                  ),
                   alignment: .center,
                   decoration: BoxDecoration(
                     color: toneTint(c, vm.pillTone),
@@ -498,7 +506,7 @@ class TaskSheet extends StatelessWidget {
                   child: Text(
                     p,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: FontSizes.tag,
                       color: vm.pillTone == .neutral
                           ? c.text3
                           : toneColor(c, vm.pillTone),
@@ -510,7 +518,7 @@ class TaskSheet extends StatelessWidget {
                   onTap: onClose,
                   borderRadius: Radii.chip,
                   child: Padding(
-                    padding: const EdgeInsets.all(4),
+                    padding: const EdgeInsets.all(AppSpacing.xs),
                     child: AppIcon('ui_close', size: 16, color: c.text3),
                   ),
                 ),
@@ -519,13 +527,22 @@ class TaskSheet extends StatelessWidget {
           if (vm.sub case final s? when s.isNotEmpty)
             Text(
               s,
-              style: TextStyle(fontSize: 13, height: 1.5, color: c.text3),
+              style: TextStyle(
+                fontSize: FontSizes.row,
+                height: 1.5,
+                color: c.text3,
+              ),
             ),
         ],
       ),
     );
     final body = SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(pad, dialog ? 8 : 16, pad, 16),
+      padding: EdgeInsets.fromLTRB(
+        pad,
+        dialog ? AppSpacing.sm : AppSpacing.md,
+        pad,
+        AppSpacing.md,
+      ),
       child: Column(
         crossAxisAlignment: .stretch,
         children: [
@@ -535,14 +552,23 @@ class TaskSheet extends StatelessWidget {
               // change (a check adds cards above the passphrase), so what
               // was typed stays in it.
               key: b is SheetField ? ValueKey('block-field-${b.id}') : null,
-              padding: EdgeInsets.only(top: i == 0 ? 0 : _gap(vm.blocks, i)),
+              padding: EdgeInsets.only(
+                top: i == AppSpacing.none
+                    ? AppSpacing.none
+                    : _gap(vm.blocks, i),
+              ),
               child: _block(context, b, card),
             ),
         ],
       ),
     );
     final foot = Container(
-      padding: EdgeInsets.fromLTRB(pad, 14, pad, dialog ? 20 : 18),
+      padding: EdgeInsets.fromLTRB(
+        pad,
+        AppSpacing.s14,
+        pad,
+        dialog ? AppSpacing.s20 : AppSpacing.s18,
+      ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -552,7 +578,7 @@ class TaskSheet extends StatelessWidget {
           Expanded(
             child: Text(
               vm.note ?? '',
-              style: TextStyle(fontSize: 12, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
             ),
           ),
           if (vm.secondary case final s?)
@@ -588,9 +614,11 @@ class TaskSheet extends StatelessWidget {
     if (dialog) {
       return Dialog(
         backgroundColor: surface,
-        insetPadding: const EdgeInsets.all(24),
+        insetPadding: const EdgeInsets.all(AppSpacing.lg),
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(14)),
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppRadii.dialog),
+          ),
           side: BorderSide(color: c.line2),
         ),
         child: ConstrainedBox(
@@ -640,7 +668,7 @@ class TaskSheet extends StatelessWidget {
         return Text(
           text.toUpperCase(),
           style: TextStyle(
-            fontSize: 12,
+            fontSize: FontSizes.meta,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: c.text4,
@@ -676,7 +704,7 @@ class TaskSheet extends StatelessWidget {
                     Container(
                       width: 5,
                       height: 5,
-                      margin: const EdgeInsets.only(top: 8),
+                      margin: const EdgeInsets.only(top: AppSpacing.sm),
                       decoration: BoxDecoration(
                         color: c.ember,
                         shape: .circle,
@@ -686,7 +714,7 @@ class TaskSheet extends StatelessWidget {
                     child: Text(
                       line,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.row,
                         height: 1.5,
                         color: c.text2,
                       ),
@@ -698,7 +726,10 @@ class TaskSheet extends StatelessWidget {
         );
       case SheetCard(:final title, :final detail, :final tone):
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.s12,
+            vertical: AppSpacing.s10,
+          ),
           decoration: BoxDecoration(
             color: card,
             borderRadius: Radii.control,
@@ -715,7 +746,7 @@ class TaskSheet extends StatelessWidget {
               Container(
                 width: 8,
                 height: 8,
-                margin: const EdgeInsets.only(top: 6),
+                margin: const EdgeInsets.only(top: AppSpacing.s6),
                 decoration: BoxDecoration(
                   color: toneColor(c, tone),
                   shape: .circle,
@@ -728,13 +759,13 @@ class TaskSheet extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(fontSize: 13, color: c.text1),
+                      style: TextStyle(fontSize: FontSizes.row, color: c.text1),
                     ),
                     if (detail != null && detail.isNotEmpty)
                       Text(
                         detail,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: FontSizes.meta,
                           height: 1.45,
                           color: c.text4,
                         ),
@@ -766,14 +797,14 @@ class TaskSheet extends StatelessWidget {
           children: [
             for (final s in steps)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                 child: Row(
                   crossAxisAlignment: .start,
                   spacing: 12,
                   children: [
                     SizedBox(
-                      width: 20,
-                      height: 20,
+                      width: AppSpacing.s20,
+                      height: AppSpacing.s20,
                       child: switch (s.state) {
                         .now => ArcSpinner(color: c.ember, size: 20),
                         .done => DecoratedBox(
@@ -809,7 +840,7 @@ class TaskSheet extends StatelessWidget {
                           Text(
                             s.title,
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: FontSizes.row,
                               color: s.state == .todo ? c.text4 : c.text1,
                             ),
                           ),
@@ -827,7 +858,10 @@ class TaskSheet extends StatelessWidget {
         return Semantics(
           liveRegion: true,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.s14,
+            ),
             decoration: BoxDecoration(
               color: toneTint(c, tone),
               borderRadius: Radii.card,
@@ -854,7 +888,7 @@ class TaskSheet extends StatelessWidget {
                       Text(
                         title,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: FontSizes.body,
                           fontWeight: .w600,
                           color: c.text1,
                         ),
@@ -863,7 +897,7 @@ class TaskSheet extends StatelessWidget {
                         Text(
                           text,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: FontSizes.row,
                             height: 1.5,
                             color: c.text2,
                           ),
@@ -883,8 +917,8 @@ class TaskSheet extends StatelessWidget {
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
+                    horizontal: AppSpacing.s12,
+                    vertical: AppSpacing.s10,
                   ),
                   decoration: BoxDecoration(
                     color: card,
@@ -906,7 +940,10 @@ class TaskSheet extends StatelessWidget {
                       ),
                       Text(
                         t.label,
-                        style: TextStyle(fontSize: 12, color: c.text4),
+                        style: TextStyle(
+                          fontSize: FontSizes.meta,
+                          color: c.text4,
+                        ),
                       ),
                     ],
                   ),
@@ -929,7 +966,7 @@ class TaskSheet extends StatelessWidget {
         return _choice(context, b);
       case SheetCode(:final text):
         return Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(AppSpacing.s12),
           decoration: BoxDecoration(
             color: c.ground0,
             borderRadius: Radii.control,
@@ -945,7 +982,7 @@ class TaskSheet extends StatelessWidget {
             ClipRRect(
               borderRadius: Radii.chip,
               child: SizedBox(
-                height: 8,
+                height: AppSpacing.sm,
                 child: LinearProgressIndicator(
                   value: percent.clamp(0, 100) / 100,
                   backgroundColor: c.ground4,
@@ -954,12 +991,15 @@ class TaskSheet extends StatelessWidget {
               ),
             ),
             if (text != null && text.isNotEmpty)
-              Text(text, style: TextStyle(fontSize: 13, color: c.text2)),
+              Text(
+                text,
+                style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+              ),
           ],
         );
       case SheetSpinner(:final title, :final text):
         return Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
             color: c.emberFill,
             borderRadius: Radii.card,
@@ -977,7 +1017,7 @@ class TaskSheet extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: FontSizes.body,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -985,7 +1025,10 @@ class TaskSheet extends StatelessWidget {
                     if (text != null && text.isNotEmpty)
                       Text(
                         text,
-                        style: TextStyle(fontSize: 13, color: c.text3),
+                        style: TextStyle(
+                          fontSize: FontSizes.row,
+                          color: c.text3,
+                        ),
                       ),
                   ],
                 ),
@@ -1005,10 +1048,13 @@ class TaskSheet extends StatelessWidget {
       children: [
         if (b.sign case final s?)
           SizedBox(
-            width: 14,
+            width: AppSpacing.s14,
             child: Text(
               s,
-              style: TextStyle(fontSize: 12, color: toneColor(c, b.tone)),
+              style: TextStyle(
+                fontSize: FontSizes.meta,
+                color: toneColor(c, b.tone),
+              ),
             ),
           ),
         Expanded(
@@ -1022,12 +1068,12 @@ class TaskSheet extends StatelessWidget {
                 b.text,
                 style: b.mono
                     ? mono(size: 12, color: c.text2)
-                    : TextStyle(fontSize: 13, color: c.text2),
+                    : TextStyle(fontSize: FontSizes.row, color: c.text2),
               ),
               if (b.divider && (b.note ?? '').isNotEmpty)
                 Text(
                   b.note!,
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
                 ),
             ],
           ),
@@ -1037,7 +1083,7 @@ class TaskSheet extends StatelessWidget {
             child: Text(
               n,
               textAlign: .end,
-              style: TextStyle(fontSize: 12, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
             ),
           ),
         if (link != null && b.actionLabel != null)
@@ -1045,11 +1091,11 @@ class TaskSheet extends StatelessWidget {
             onTap: onAction == null ? null : () => onAction!(link),
             borderRadius: Radii.chip,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
               child: Text(
                 b.actionLabel!,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: FontSizes.meta,
                   color: onAction == null ? c.muted : c.emberSoft,
                 ),
               ),
@@ -1061,7 +1107,7 @@ class TaskSheet extends StatelessWidget {
       return row;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -1080,7 +1126,7 @@ class TaskSheet extends StatelessWidget {
         spacing: 10,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.only(top: AppSpacing.s2),
             child: _Box(on: b.on, dim: b.locked),
           ),
           Expanded(
@@ -1103,7 +1149,7 @@ class TaskSheet extends StatelessWidget {
                             child: Text(
                               b.name,
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: FontSizes.body,
                                 fontWeight: .w600,
                                 color: c.text1,
                               ),
@@ -1112,8 +1158,8 @@ class TaskSheet extends StatelessWidget {
                           if (b.tag case final t?)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
+                                horizontal: AppSpacing.s6,
+                                vertical: AppSpacing.s1,
                               ),
                               decoration: BoxDecoration(
                                 color: toneTint(c, b.tagTone),
@@ -1122,7 +1168,7 @@ class TaskSheet extends StatelessWidget {
                               child: Text(
                                 t,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: FontSizes.tag,
                                   color: b.tagTone == .neutral
                                       ? c.text3
                                       : toneColor(c, b.tagTone),
@@ -1140,7 +1186,7 @@ class TaskSheet extends StatelessWidget {
                   Text(
                     d,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: FontSizes.meta,
                       height: 1.45,
                       color: c.text4,
                     ),
@@ -1180,7 +1226,10 @@ class TaskSheet extends StatelessWidget {
     return Opacity(
       opacity: b.on ? 1 : 0.55,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s12,
+          vertical: AppSpacing.s10,
+        ),
         decoration: BoxDecoration(
           color: card,
           borderRadius: Radii.control,
@@ -1226,7 +1275,7 @@ class TaskSheet extends StatelessWidget {
                     Container(
                       width: 14,
                       height: 14,
-                      margin: const EdgeInsets.only(top: 3),
+                      margin: const EdgeInsets.only(top: AppSpacing.s3),
                       decoration: BoxDecoration(
                         shape: .circle,
                         border: .all(
@@ -1239,7 +1288,7 @@ class TaskSheet extends StatelessWidget {
                       child: Text(
                         label,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.row,
                           height: 1.5,
                           color: c.text2,
                         ),
@@ -1253,7 +1302,7 @@ class TaskSheet extends StatelessWidget {
       );
     } else {
       options = Container(
-        padding: const EdgeInsets.all(3),
+        padding: const EdgeInsets.all(AppSpacing.s3),
         decoration: BoxDecoration(
           color: c.ground3,
           borderRadius: Radii.control,
@@ -1278,7 +1327,7 @@ class TaskSheet extends StatelessWidget {
                             label,
                             overflow: .ellipsis,
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: FontSizes.row,
                               color: v == b.selected ? c.text1 : c.text3,
                             ),
                           ),
@@ -1297,10 +1346,16 @@ class TaskSheet extends StatelessWidget {
       spacing: 6,
       children: [
         if (b.label case final l?)
-          Text(l, style: TextStyle(fontSize: 13, color: c.text2)),
+          Text(
+            l,
+            style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+          ),
         options,
         if (b.note case final n?)
-          Text(n, style: TextStyle(fontSize: 12, color: c.text4)),
+          Text(
+            n,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+          ),
       ],
     );
   }
@@ -1321,7 +1376,7 @@ class _Box extends StatelessWidget {
       height: 16,
       decoration: BoxDecoration(
         color: on ? (dim ? c.emberLine : c.ember) : c.ground2,
-        borderRadius: const BorderRadius.all(Radius.circular(3)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.mark)),
         border: on ? null : .all(color: c.line3),
       ),
       child: on ? AppIcon('ui_check', size: 12, color: c.onEmber) : null,
@@ -1365,7 +1420,9 @@ class _Chip extends StatelessWidget {
                     height: 13,
                     decoration: BoxDecoration(
                       color: on ? c.ember : Colors.transparent,
-                      borderRadius: const BorderRadius.all(Radius.circular(3)),
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(AppRadii.mark),
+                      ),
                       border: on ? null : .all(color: c.line3),
                     ),
                     child: on
@@ -1375,7 +1432,7 @@ class _Chip extends StatelessWidget {
                 Text(
                   chip.label,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: FontSizes.meta,
                     color: picked ? c.emberSoft : (multi ? c.text2 : c.text3),
                   ),
                 ),
@@ -1438,9 +1495,12 @@ class _SheetInputState extends State<_SheetInput> {
       crossAxisAlignment: .stretch,
       spacing: 6,
       children: [
-        Text(f.label, style: TextStyle(fontSize: 13, color: c.text2)),
+        Text(
+          f.label,
+          style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+        ),
         SizedBox(
-          height: 40,
+          height: AppSpacing.s40,
           child: TextField(
             controller: _text,
             enabled: f.enabled,
@@ -1448,13 +1508,13 @@ class _SheetInputState extends State<_SheetInput> {
             enableSuggestions: !f.secret,
             autocorrect: false,
             onChanged: (v) => widget.onText?.call(f.id, v),
-            style: TextStyle(fontSize: 14, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.body, color: c.text1),
             decoration: InputDecoration(
               isDense: true,
               filled: true,
               fillColor: widget.ground,
               hintText: f.hint,
-              hintStyle: TextStyle(fontSize: 14, color: c.muted),
+              hintStyle: TextStyle(fontSize: FontSizes.body, color: c.muted),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 11,
@@ -1467,11 +1527,18 @@ class _SheetInputState extends State<_SheetInput> {
           ),
         ),
         if (f.error case final e?)
-          Text(e, style: TextStyle(fontSize: 12, color: c.badText))
+          Text(
+            e,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.badText),
+          )
         else if (f.note case final n?)
           Text(
             n,
-            style: TextStyle(fontSize: 12, height: 1.45, color: c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.meta,
+              height: 1.45,
+              color: c.text4,
+            ),
           ),
       ],
     );

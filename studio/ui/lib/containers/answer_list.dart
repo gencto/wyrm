@@ -1,6 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 import 'section_label.dart';
 
 /// The right column of a wizard: what was answered so far.
@@ -26,11 +28,14 @@ class AnswerList extends StatelessWidget {
       spacing: 6,
       children: [
         SectionLabel(title),
-        Text(note, style: TextStyle(fontSize: 12, color: c.text3)),
-        const SizedBox(height: 10),
+        Text(
+          note,
+          style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+        ),
+        const SizedBox(height: AppSpacing.s10),
         for (final (label, value) in answers)
           Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -38,8 +43,14 @@ class AnswerList extends StatelessWidget {
               crossAxisAlignment: .start,
               spacing: 2,
               children: [
-                Text(label, style: TextStyle(fontSize: 12, color: c.text4)),
-                Text(value, style: TextStyle(fontSize: 14, color: c.text1)),
+                Text(
+                  label,
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                ),
+                Text(
+                  value,
+                  style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+                ),
               ],
             ),
           ),

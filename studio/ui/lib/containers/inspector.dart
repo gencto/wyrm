@@ -1,6 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// The right panel (320–360): an [eyebrow] label, a [title], an optional
 /// [header] below it, then [child]. One selection drives it.
@@ -35,7 +37,12 @@ class Inspector extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(18, 18, 12, 16),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s18,
+              AppSpacing.s18,
+              AppSpacing.s12,
+              AppSpacing.md,
+            ),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -53,7 +60,7 @@ class Inspector extends StatelessWidget {
                           maxLines: 1,
                           overflow: .ellipsis,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: FontSizes.meta,
                             fontWeight: .w600,
                             letterSpacing: 0.72,
                             color: c.text3,
@@ -84,7 +91,7 @@ class Inspector extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(AppSpacing.s18),
               child: child,
             ),
           ),

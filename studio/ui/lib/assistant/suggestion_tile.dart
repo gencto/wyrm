@@ -5,6 +5,7 @@ import '../indicators/tag_chip.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/typography.dart';
 
 /// What [SuggestionTile] draws: one thing the model offers to ask next.
 final class SuggestionTileVm extends Equatable {
@@ -87,7 +88,7 @@ class SuggestionTile extends StatelessWidget {
                     Text(
                       vm.label,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.row,
                         fontWeight: .w600,
                         color: can ? c.text1 : c.text3,
                       ),
@@ -96,13 +97,19 @@ class SuggestionTile extends StatelessWidget {
                       Text(
                         vm.detail,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: FontSizes.meta,
                           height: 1.45,
                           color: c.text3,
                         ),
                       ),
                     if (vm.note case final n?)
-                      Text(n, style: TextStyle(fontSize: 12, color: c.ember)),
+                      Text(
+                        n,
+                        style: TextStyle(
+                          fontSize: FontSizes.meta,
+                          color: c.ember,
+                        ),
+                      ),
                   ],
                 ),
               ),

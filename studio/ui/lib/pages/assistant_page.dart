@@ -18,6 +18,7 @@ import '../containers/section_label.dart';
 import '../indicators/status_pill.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 export '../assistant/assistant_composer.dart' show ChipVm;
@@ -204,7 +205,11 @@ class AssistantPage extends StatelessWidget {
               Text(
                 e,
                 textAlign: .center,
-                style: TextStyle(fontSize: 14, height: 1.5, color: c.text2),
+                style: TextStyle(
+                  fontSize: FontSizes.body,
+                  height: 1.5,
+                  color: c.text2,
+                ),
               ),
               if (emptyAction case final a?)
                 Button.primary(
@@ -222,7 +227,7 @@ class AssistantPage extends StatelessWidget {
         children: [
           Container(
             height: 52,
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -317,7 +322,7 @@ class AssistantPage extends StatelessWidget {
           SegmentedTabs(tabs: panels, selected: panel, onSelect: onPanel),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(AppSpacing.s18),
               children: [
                 if (rights case final r?)
                   RightsPanel(
@@ -329,12 +334,12 @@ class AssistantPage extends StatelessWidget {
                 else
                   FactGrid(facts: facts, labelWidth: 96),
                 if (reads.isNotEmpty) ...[
-                  const SizedBox(height: 20),
+                  const SizedBox(height: AppSpacing.s20),
                   SectionLabel(readsLabel),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: AppSpacing.sm),
                   for (final (kind, key) in reads)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.only(bottom: AppSpacing.s6),
                       child: Row(
                         crossAxisAlignment: .start,
                         spacing: 8,
@@ -351,10 +356,14 @@ class AssistantPage extends StatelessWidget {
                     ),
                 ],
                 if (panelNote.isNotEmpty) ...[
-                  const SizedBox(height: 14),
+                  const SizedBox(height: AppSpacing.s14),
                   Text(
                     panelNote,
-                    style: TextStyle(fontSize: 12, height: 1.5, color: c.text3),
+                    style: TextStyle(
+                      fontSize: FontSizes.meta,
+                      height: 1.5,
+                      color: c.text3,
+                    ),
                   ),
                 ],
               ],

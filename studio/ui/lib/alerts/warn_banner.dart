@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// What [WarnBanner] says.
 final class WarnBannerVm extends Equatable {
@@ -47,7 +49,10 @@ class WarnBanner extends StatelessWidget {
       container: true,
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.s14,
+        ),
         decoration: BoxDecoration(
           color: c.warnTint,
           border: .all(color: c.warnLine),
@@ -58,7 +63,7 @@ class WarnBanner extends StatelessWidget {
           spacing: 12,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: 1),
+              padding: const EdgeInsets.only(top: AppSpacing.s1),
               child: SvgPicture.string(
                 _triangle,
                 width: 18,
@@ -74,7 +79,7 @@ class WarnBanner extends StatelessWidget {
                   Text(
                     vm.title,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: FontSizes.row,
                       height: 1.5,
                       fontWeight: .w600,
                       color: c.text1,
@@ -82,7 +87,11 @@ class WarnBanner extends StatelessWidget {
                   ),
                   CodeText(
                     vm.body,
-                    style: TextStyle(fontSize: 13, height: 1.5, color: c.text2),
+                    style: TextStyle(
+                      fontSize: FontSizes.row,
+                      height: 1.5,
+                      color: c.text2,
+                    ),
                   ),
                   if (vm.action case final a?)
                     InkWell(
@@ -90,7 +99,7 @@ class WarnBanner extends StatelessWidget {
                       child: Text(
                         a,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.row,
                           height: 1.5,
                           color: c.emberSoft,
                         ),

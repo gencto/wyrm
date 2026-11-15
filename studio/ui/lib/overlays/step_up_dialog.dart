@@ -6,6 +6,9 @@ import '../indicators/biometric_icon.dart';
 import '../inputs/boxed_form_field.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One change the step-up confirms: its level badge, what it does, its key.
@@ -139,11 +142,13 @@ class _StepUpDialogState extends State<StepUpDialog> {
         child: Material(
           color: c.ground1,
           shape: RoundedRectangleBorder(
-            borderRadius: const BorderRadius.all(Radius.circular(14)),
+            borderRadius: const BorderRadius.all(
+              Radius.circular(AppRadii.dialog),
+            ),
             side: BorderSide(color: c.line2),
           ),
           elevation: 24,
-          shadowColor: const Color(0x80000000),
+          shadowColor: Shades.black50,
           clipBehavior: .antiAlias,
           child: SizedBox(
             width: 520,
@@ -152,7 +157,12 @@ class _StepUpDialogState extends State<StepUpDialog> {
               crossAxisAlignment: .stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 6),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.s22,
+                    AppSpacing.lg,
+                    AppSpacing.s6,
+                  ),
                   child: Column(
                     crossAxisAlignment: .start,
                     spacing: 6,
@@ -160,7 +170,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                       Text(
                         vm.title,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: FontSizes.panel,
                           fontWeight: .w600,
                           color: c.text1,
                         ),
@@ -168,7 +178,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                       Text(
                         vm.lead,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: FontSizes.body,
                           height: 1.5,
                           color: c.text3,
                         ),
@@ -177,9 +187,16 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   ),
                 ),
                 Container(
-                  margin: const EdgeInsets.fromLTRB(24, 10, 24, 10),
+                  margin: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.s10,
+                    AppSpacing.lg,
+                    AppSpacing.s10,
+                  ),
                   decoration: BoxDecoration(
-                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(AppRadii.card),
+                    ),
                     border: Border.all(color: c.ground3),
                   ),
                   child: Column(
@@ -191,7 +208,12 @@ class _StepUpDialogState extends State<StepUpDialog> {
                 ),
                 if (password)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 6, 24, 0),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.s6,
+                      AppSpacing.lg,
+                      AppSpacing.none,
+                    ),
                     child: BoxedFormField(
                       vm: FieldVm(
                         value: _typed,
@@ -209,11 +231,18 @@ class _StepUpDialogState extends State<StepUpDialog> {
                   )
                 else
                   Container(
-                    margin: const EdgeInsets.fromLTRB(24, 6, 24, 0),
-                    padding: const EdgeInsets.all(14),
+                    margin: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.s6,
+                      AppSpacing.lg,
+                      AppSpacing.none,
+                    ),
+                    padding: const EdgeInsets.all(AppSpacing.s14),
                     decoration: BoxDecoration(
                       color: c.emberFill,
-                      borderRadius: const BorderRadius.all(Radius.circular(10)),
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(AppRadii.card),
+                      ),
                       border: Border.all(color: c.emberLine),
                     ),
                     child: Row(
@@ -243,7 +272,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                             child: Text(
                               vm.error ?? vm.device,
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: FontSizes.row,
                                 height: 1.45,
                                 color: vm.error == null ? c.text2 : c.badText,
                               ),
@@ -254,10 +283,10 @@ class _StepUpDialogState extends State<StepUpDialog> {
                     ),
                   ),
                 Container(
-                  margin: const EdgeInsets.only(top: 12),
+                  margin: const EdgeInsets.only(top: AppSpacing.s12),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 18,
+                    horizontal: AppSpacing.lg,
+                    vertical: AppSpacing.s18,
                   ),
                   decoration: BoxDecoration(
                     border: Border(top: BorderSide(color: c.ground3)),
@@ -273,7 +302,7 @@ class _StepUpDialogState extends State<StepUpDialog> {
                           child: Text(
                             vm.usePassword,
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: FontSizes.row,
                               color: c.text2,
                               decoration: .underline,
                               decorationColor: c.text2,
@@ -317,7 +346,10 @@ class _Line extends StatelessWidget {
     final c = context.colors;
     final config = vm.level == 'config';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s14,
+        vertical: AppSpacing.s10,
+      ),
       decoration: BoxDecoration(
         border: first ? null : Border(top: BorderSide(color: c.ground3)),
       ),
@@ -325,15 +357,20 @@ class _Line extends StatelessWidget {
         spacing: 10,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.s2,
+            ),
             decoration: BoxDecoration(
               color: config ? c.badTint : c.ground4,
-              borderRadius: const BorderRadius.all(Radius.circular(6)),
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppRadii.segment),
+              ),
             ),
             child: Text(
               vm.level,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: FontSizes.tag,
                 color: config ? c.badText : c.text3,
               ),
             ),
@@ -341,7 +378,7 @@ class _Line extends StatelessWidget {
           Expanded(
             child: Text(
               vm.text,
-              style: TextStyle(fontSize: 13, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
             ),
           ),
           if (vm.key.isNotEmpty)
@@ -354,7 +391,7 @@ class _Line extends StatelessWidget {
                 textAlign: .right,
                 style: TextStyle(
                   fontFamily: AppFonts.mono,
-                  fontSize: 11,
+                  fontSize: FontSizes.tag,
                   color: c.text4,
                 ),
               ),
@@ -386,7 +423,7 @@ class _Button extends StatelessWidget {
   Widget build(BuildContext context) => Material(
     color: fill ?? Colors.transparent,
     shape: RoundedRectangleBorder(
-      borderRadius: const BorderRadius.all(Radius.circular(8)),
+      borderRadius: const BorderRadius.all(Radius.circular(AppRadii.control)),
       side: border == null ? BorderSide.none : BorderSide(color: border!),
     ),
     clipBehavior: .antiAlias,
@@ -394,12 +431,12 @@ class _Button extends StatelessWidget {
       onTap: onPressed,
       child: Container(
         height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
         alignment: .center,
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 14,
+            fontSize: FontSizes.body,
             fontWeight: strong ? .w600 : .w400,
             color: ink,
           ),

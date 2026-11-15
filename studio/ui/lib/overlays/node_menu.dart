@@ -2,6 +2,9 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One item of a [NodeMenu]: an action of the node.
@@ -125,7 +128,7 @@ class NodeMenu extends StatelessWidget {
         onTap: enabled ? () => onPick(i.id) : null,
         child: Container(
           height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
           child: Row(
             children: [
               Expanded(
@@ -134,14 +137,17 @@ class NodeMenu extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: FontSizes.body,
                     color: !enabled
                         ? c.muted
                         : (i.danger ? c.badText : c.text1),
                   ),
                 ),
               ),
-              Text(i.level, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                i.level,
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              ),
             ],
           ),
         ),
@@ -164,20 +170,25 @@ class NodeMenu extends StatelessWidget {
       elevation: 12,
       shadowColor: Colors.black,
       shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
         side: BorderSide(color: c.line3),
       ),
       clipBehavior: .antiAlias,
       child: SizedBox(
-        width: 300,
+        width: AppSizes.menu,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s14,
+                  AppSpacing.s6,
+                  AppSpacing.s14,
+                  AppSpacing.xs,
+                ),
                 child: Row(
                   spacing: 8,
                   children: [
@@ -202,7 +213,10 @@ class NodeMenu extends StatelessWidget {
                         vm.subtitle,
                         maxLines: 1,
                         overflow: .ellipsis,
-                        style: TextStyle(fontSize: 12, color: c.text4),
+                        style: TextStyle(
+                          fontSize: FontSizes.meta,
+                          color: c.text4,
+                        ),
                       ),
                     ),
                   ],
@@ -210,13 +224,18 @@ class NodeMenu extends StatelessWidget {
               ),
               for (final g in vm.groups) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.s14,
+                    AppSpacing.s10,
+                    AppSpacing.s14,
+                    AppSpacing.xs,
+                  ),
                   child: Text(
                     g.label.toUpperCase(),
                     maxLines: 1,
                     overflow: .ellipsis,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: FontSizes.tag,
                       fontWeight: .w600,
                       letterSpacing: 0.66,
                       color: c.text4,
@@ -230,13 +249,18 @@ class NodeMenu extends StatelessWidget {
                 onTap: () => onPick(copyId),
                 child: Container(
                   height: 34,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.s14,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
                           vm.copyLabel,
-                          style: TextStyle(fontSize: 13, color: c.text3),
+                          style: TextStyle(
+                            fontSize: FontSizes.row,
+                            color: c.text3,
+                          ),
                         ),
                       ),
                       Text(

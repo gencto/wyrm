@@ -24,6 +24,8 @@ import '../models/value_changed.dart';
 import '../shell/window_bar.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/motion.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// Log in to a WYRM user gateway: its URL, the user and the password
@@ -271,7 +273,7 @@ class _LogInPageState extends State<LogInPage> {
       body: DefaultTextStyle(
         style: TextStyle(
           fontFamily: AppFonts.sans,
-          fontSize: 14,
+          fontSize: FontSizes.body,
           color: c.text1,
         ),
         child: Stack(
@@ -345,7 +347,10 @@ class _LogInPageState extends State<LogInPage> {
   );
 
   Widget _form(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+    padding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.xl,
+      vertical: AppSpacing.s40,
+    ),
     child: Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: _finding ? 460 : 420),
@@ -415,7 +420,7 @@ class _LogInPageState extends State<LogInPage> {
                   Text(
                     S.current.logIn,
                     style: TextStyle(
-                      fontSize: 26,
+                      fontSize: FontSizes.page,
                       fontWeight: .w600,
                       letterSpacing: -.26,
                       color: c.text1,
@@ -423,7 +428,7 @@ class _LogInPageState extends State<LogInPage> {
                   ),
                   Text(
                     S.current.logInLead,
-                    style: TextStyle(fontSize: 14, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.body, color: c.text3),
                   ),
                 ],
               ),
@@ -568,11 +573,14 @@ class _LogInPageState extends State<LogInPage> {
         if (widget.gatewayNote case final note?)
           Text(
             note,
-            style: TextStyle(fontSize: 12, color: bad ? c.badText : c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.meta,
+              color: bad ? c.badText : c.text4,
+            ),
           ),
         if (widget.trust case final t?)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.only(top: AppSpacing.s12),
             child: TrustCard(
               vm: t,
               onTrust: widget.onTrust ?? () {},
@@ -581,7 +589,7 @@ class _LogInPageState extends State<LogInPage> {
           )
         else if (widget.discover case final d?)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.only(top: AppSpacing.s12),
             child: DiscoverPanel(
               vm: d,
               onLookAgain: widget.onLookAgain ?? () {},
@@ -619,9 +627,9 @@ class _LogInPageState extends State<LogInPage> {
 
   Widget _footer(BuildContext context) {
     final c = context.colors;
-    final note = TextStyle(fontSize: 12, color: c.text4);
+    final note = TextStyle(fontSize: FontSizes.meta, color: c.text4);
     return Container(
-      padding: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.only(top: AppSpacing.s14),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.ground3)),
       ),
@@ -689,7 +697,10 @@ class _Lock extends CustomPainter {
           ..addRect(const Rect.fromLTWH(6, 11, 12, 9))
           ..moveTo(8, 11)
           ..lineTo(8, 7)
-          ..arcToPoint(const Offset(16, 7), radius: const Radius.circular(4))
+          ..arcToPoint(
+            const Offset(16, 7),
+            radius: const Radius.circular(AppRadii.chip),
+          )
           ..lineTo(16, 11),
         Paint()
           ..color = color

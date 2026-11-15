@@ -17,6 +17,7 @@ import 'package:ui/forms/param_form.dart';
 import 'package:ui/overlays/confirm_dialog.dart';
 import 'package:ui/overlays/log_view.dart';
 import 'package:ui/overlays/panel_dialog.dart';
+import 'package:ui/theme/sizes.dart';
 
 import '../common/app_store.dart';
 import '../common/forms.dart';
@@ -43,7 +44,7 @@ Future<void> showLinkLog(BuildContext context, String id) {
           SelectLinks(s.state).isReadingLog,
         ),
         builder: (context, v) => SizedBox(
-          height: 480,
+          height: AppSizes.logDialog,
           child: LogView(lines: v.$1, loading: v.$2, empty: S.current.logEmpty),
         ),
       ),
@@ -133,7 +134,7 @@ Future<void> showLinkHistory(BuildContext context, String id) {
           SelectLinks(s.state).isReadingHistory,
         ),
         builder: (context, v) => SizedBox(
-          height: 480,
+          height: AppSizes.logDialog,
           child: v.$1.isEmpty
               ? LogView(
                   lines: const [],
@@ -172,7 +173,7 @@ Future<void> showLinkHistory(BuildContext context, String id) {
                               ),
                         children: [
                           SizedBox(
-                            height: 260,
+                            height: AppSizes.logPane,
                             child: LogView(lines: r.params.split('\n')),
                           ),
                         ],

@@ -3,6 +3,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// What the notice above an unlock form says (unlock-discover.md §2):
 /// a title in the tone's ink and one or two lines.
@@ -50,20 +53,30 @@ class UnlockNotice extends StatelessWidget {
       liveRegion: true,
       container: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.s14,
+        ),
         decoration: BoxDecoration(
           color: fill,
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
           border: Border.all(color: border),
         ),
         child: Column(
           crossAxisAlignment: .stretch,
           spacing: 8,
           children: [
-            Text(vm.title, style: TextStyle(fontSize: 14, color: ink)),
+            Text(
+              vm.title,
+              style: TextStyle(fontSize: FontSizes.body, color: ink),
+            ),
             Text(
               vm.text,
-              style: TextStyle(fontSize: 13, height: 1.5, color: c.text3),
+              style: TextStyle(
+                fontSize: FontSizes.row,
+                height: 1.5,
+                color: c.text3,
+              ),
             ),
           ],
         ),

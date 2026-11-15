@@ -4,6 +4,9 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One tab: a label and an optional count.
 final class TabItemVm extends Equatable {
@@ -84,7 +87,9 @@ class SegmentedTabs extends StatelessWidget {
       child: Container(
         height: height,
         padding: EdgeInsets.symmetric(
-          horizontal: equal ? 4 : (plainCounts ? 14 : 12),
+          horizontal: equal
+              ? AppSpacing.xs
+              : (plainCounts ? AppSpacing.s14 : AppSpacing.s12),
         ),
         alignment: equal ? Alignment.center : null,
         decoration: BoxDecoration(
@@ -114,24 +119,27 @@ class SegmentedTabs extends StatelessWidget {
               ),
             ),
             if (t.count case final n? when plainCounts)
-              Text(n, style: TextStyle(fontSize: 12, color: c.text3))
+              Text(
+                n,
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+              )
             else if (t.count case final n?)
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
                 decoration: BoxDecoration(
                   color: t.countTone == .neutral
                       ? c.ground4
                       : toneTint(c, t.countTone),
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(AppRadii.toggle),
                 ),
                 child: Center(
                   widthFactor: 1,
                   child: Text(
                     n,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: FontSizes.meta,
                       color: t.countTone == .neutral
                           ? c.text3
                           : toneColor(c, t.countTone),

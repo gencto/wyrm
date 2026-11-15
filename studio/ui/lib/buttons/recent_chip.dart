@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/status_dot.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One recent gateway under the gateway field (docs/design/specs/login.md
@@ -63,7 +64,7 @@ class RecentChip extends StatelessWidget {
           customBorder: const StadiumBorder(),
           child: Container(
             height: 28,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
             child: Row(
               mainAxisSize: .min,
               spacing: 6,
@@ -73,7 +74,7 @@ class RecentChip extends StatelessWidget {
                   vm.label,
                   style: TextStyle(
                     fontFamily: AppFonts.mono,
-                    fontSize: 12,
+                    fontSize: FontSizes.meta,
                     color: vm.current ? c.emberNew : c.text3,
                   ),
                 ),

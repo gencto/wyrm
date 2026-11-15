@@ -4,6 +4,7 @@ import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One `@` chip of the composer: the node's full key and what is shown.
@@ -94,7 +95,7 @@ class _AssistantComposerState extends State<AssistantComposer> {
               minLines: 1,
               maxLines: 6,
               onChanged: widget.onDraft,
-              style: TextStyle(fontSize: 14, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.body, color: c.text1),
               decoration: InputDecoration(
                 hintText: widget.reason ?? widget.hint,
                 isDense: true,
@@ -111,8 +112,18 @@ class _AssistantComposerState extends State<AssistantComposer> {
     );
     return Container(
       padding: widget.dense
-          ? const EdgeInsets.fromLTRB(14, 10, 14, 12)
-          : const EdgeInsets.fromLTRB(24, 12, 24, 16),
+          ? const EdgeInsets.fromLTRB(
+              AppSpacing.s14,
+              AppSpacing.s10,
+              AppSpacing.s14,
+              AppSpacing.s12,
+            )
+          : const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.s12,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -131,7 +142,10 @@ class _AssistantComposerState extends State<AssistantComposer> {
                     message: key,
                     child: Container(
                       height: 24,
-                      padding: const EdgeInsets.only(left: 8, right: 2),
+                      padding: const EdgeInsets.only(
+                        left: AppSpacing.sm,
+                        right: AppSpacing.s2,
+                      ),
                       decoration: BoxDecoration(
                         color: c.ground3,
                         border: Border.all(color: c.line2),
@@ -149,7 +163,7 @@ class _AssistantComposerState extends State<AssistantComposer> {
                                 ? null
                                 : () => widget.onChipRemove!(key),
                             child: Padding(
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.all(AppSpacing.xs),
                               child: AppIcon(
                                 'ui_close',
                                 size: 12,
@@ -170,13 +184,13 @@ class _AssistantComposerState extends State<AssistantComposer> {
                           : null,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 3,
+                          horizontal: AppSpacing.s6,
+                          vertical: AppSpacing.s3,
                         ),
                         child: Text(
                           add,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: FontSizes.meta,
                             color: widget.addChipReason == null
                                 ? c.text2
                                 : c.text4,
@@ -188,7 +202,10 @@ class _AssistantComposerState extends State<AssistantComposer> {
               ],
             ),
           if (widget.note case final n?)
-            Text(n, style: TextStyle(fontSize: 12, color: c.warn)),
+            Text(
+              n,
+              style: TextStyle(fontSize: FontSizes.meta, color: c.warn),
+            ),
           box,
         ],
       ),

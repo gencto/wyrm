@@ -7,6 +7,7 @@ import '../indicators/code_text.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'trend.dart';
 
@@ -90,7 +91,7 @@ class TrafficCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -105,7 +106,10 @@ class TrafficCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   vm.title,
-                  style: const TextStyle(fontSize: 14, fontWeight: .w600),
+                  style: const TextStyle(
+                    fontSize: FontSizes.body,
+                    fontWeight: .w600,
+                  ),
                 ),
               ),
               PillTabs(
@@ -113,7 +117,7 @@ class TrafficCard extends StatelessWidget {
                 selected: vm.measure,
                 onSelect: onMeasure,
                 height: 30,
-                fontSize: 12,
+                fontSize: FontSizes.meta,
                 inset: true,
               ),
             ],
@@ -139,13 +143,17 @@ class TrafficCard extends StatelessWidget {
               child: Center(
                 child: Text(
                   vm.empty,
-                  style: TextStyle(fontSize: 13, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text4),
                 ),
               ),
             ),
           CodeText(
             vm.note,
-            style: TextStyle(fontSize: 12, height: 1.5, color: c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.meta,
+              height: 1.5,
+              color: c.text4,
+            ),
           ),
         ],
       ),
@@ -170,13 +178,13 @@ class TrafficCard extends StatelessWidget {
                       text: key,
                       style: TextStyle(
                         fontFamily: AppFonts.mono,
-                        fontSize: 11,
+                        fontSize: FontSizes.tag,
                         color: SysTile.keyColor(c),
                       ),
                     ),
                   ],
                 ),
-                style: TextStyle(fontSize: 12, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
               ),
             ],
           ),
@@ -190,11 +198,14 @@ class TrafficCard extends StatelessWidget {
                 now,
                 style: TextStyle(
                   fontFamily: AppFonts.mono,
-                  fontSize: 20,
+                  fontSize: FontSizes.panel,
                   color: c.text1,
                 ),
               ),
-              Text(vm.unit, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                vm.unit,
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              ),
             ],
           ),
         ],

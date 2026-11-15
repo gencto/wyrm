@@ -24,6 +24,7 @@ import '../overlays/value_viewer.dart';
 import '../shell/window_bar.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
 
@@ -329,7 +330,7 @@ class FlowEditorPage extends StatelessWidget {
           children: [
             Container(
               constraints: const BoxConstraints(minHeight: 52),
-              padding: const EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: Border(bottom: BorderSide(color: c.line1)),
@@ -359,7 +360,10 @@ class FlowEditorPage extends StatelessWidget {
                             onTap: onFlows,
                             child: Text(
                               flowsLabel,
-                              style: TextStyle(fontSize: 14, color: c.text3),
+                              style: TextStyle(
+                                fontSize: FontSizes.body,
+                                color: c.text3,
+                              ),
                             ),
                           ),
                           Text('›', style: TextStyle(color: c.muted)),
@@ -415,13 +419,15 @@ class FlowEditorPage extends StatelessWidget {
                             Flexible(
                               flex: 2,
                               child: Padding(
-                                padding: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.only(
+                                  left: AppSpacing.sm,
+                                ),
                                 child: Text(
                                   note,
                                   maxLines: 1,
                                   overflow: .ellipsis,
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: FontSizes.meta,
                                     color: c.text4,
                                   ),
                                 ),
@@ -451,7 +457,10 @@ class FlowEditorPage extends StatelessWidget {
                                 state,
                                 maxLines: 1,
                                 overflow: .ellipsis,
-                                style: TextStyle(fontSize: 12, color: c.text4),
+                                style: TextStyle(
+                                  fontSize: FontSizes.meta,
+                                  color: c.text4,
+                                ),
                               ),
                             ),
                           ],
@@ -604,7 +613,12 @@ class FlowEditorPage extends StatelessWidget {
       child: FieldInspector(
         header: switch (nameField) {
           final f? => Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s18,
+              AppSpacing.md,
+              AppSpacing.s18,
+              AppSpacing.none,
+            ),
             child: ParamField(vm: f),
           ),
           null => null,
@@ -664,7 +678,10 @@ class FlowEditorPage extends StatelessWidget {
           PopupMenuItem(
             value: value,
             height: 34,
-            child: Text(label, style: TextStyle(fontSize: 13, color: c.text1)),
+            child: Text(
+              label,
+              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+            ),
           ),
       ],
     );

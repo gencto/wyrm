@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/code_text.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// What [GuideCard] says.
 final class GuideCardVm extends Equatable {
@@ -56,7 +58,7 @@ class GuideCard extends StatelessWidget {
       child: CustomPaint(
         painter: _Dashed(color: c.line3, fill: c.ground1),
         child: Padding(
-          padding: const EdgeInsets.all(28),
+          padding: const EdgeInsets.all(AppSpacing.s28),
           child: Column(
             crossAxisAlignment: .start,
             spacing: 16,
@@ -74,7 +76,7 @@ class GuideCard extends StatelessWidget {
                     child: Text(
                       vm.title,
                       style: TextStyle(
-                        fontSize: 20,
+                        fontSize: FontSizes.panel,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -86,7 +88,11 @@ class GuideCard extends StatelessWidget {
                 constraints: const BoxConstraints(maxWidth: 680),
                 child: CodeText(
                   vm.body,
-                  style: TextStyle(fontSize: 14, height: 1.6, color: c.text2),
+                  style: TextStyle(
+                    fontSize: FontSizes.body,
+                    height: 1.6,
+                    color: c.text2,
+                  ),
                 ),
               ),
               Column(
@@ -96,7 +102,7 @@ class GuideCard extends StatelessWidget {
                   Text(
                     vm.stepsTitle,
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: FontSizes.row,
                       height: 1.5,
                       fontWeight: .w600,
                       color: c.text1,
@@ -107,7 +113,7 @@ class GuideCard extends StatelessWidget {
                       s,
                       codeColor: c.text1,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.row,
                         height: 1.5,
                         color: c.text3,
                       ),
@@ -119,7 +125,10 @@ class GuideCard extends StatelessWidget {
                   onTap: onLink,
                   child: Text(
                     l,
-                    style: TextStyle(fontSize: 13, color: c.emberSoft),
+                    style: TextStyle(
+                      fontSize: FontSizes.row,
+                      color: c.emberSoft,
+                    ),
                   ),
                 ),
             ],

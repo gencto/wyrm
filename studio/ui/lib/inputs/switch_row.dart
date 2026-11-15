@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/key_text.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// A setting: title, one line of what it does, the key it writes, a switch.
 class SwitchRow extends StatelessWidget {
@@ -29,7 +31,7 @@ class SwitchRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final row = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       child: Row(
         spacing: 16,
         children: [
@@ -41,13 +43,16 @@ class SwitchRow extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: FontSizes.body,
                     fontWeight: .w500,
                     color: vm.enabled ? c.text1 : c.text3,
                   ),
                 ),
                 if (disabledReason ?? description case final d?)
-                  Text(d, style: TextStyle(fontSize: 12, color: c.text3)),
+                  Text(
+                    d,
+                    style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                  ),
                 if (keyName case final k?) KeyText(k, size: 12, color: c.text4),
               ],
             ),
@@ -86,7 +91,7 @@ class AppSwitch extends StatelessWidget {
           duration: const Duration(milliseconds: 120),
           width: 44,
           height: 26,
-          padding: const EdgeInsets.all(2),
+          padding: const EdgeInsets.all(AppSpacing.s2),
           alignment: value ? Alignment.centerRight : Alignment.centerLeft,
           decoration: BoxDecoration(
             color: value ? (enabled ? c.ember : c.muted) : c.ground4,

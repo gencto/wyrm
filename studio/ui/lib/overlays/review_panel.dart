@@ -8,6 +8,8 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One staged change as the review card shows it.
@@ -66,7 +68,7 @@ class ChangeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(AppSpacing.s14),
       decoration: BoxDecoration(
         color: c.ground2,
         border: .all(color: vm.allowed ? c.line1 : c.badLine),
@@ -88,7 +90,7 @@ class ChangeCard extends StatelessWidget {
                 child: Text(
                   vm.op.toUpperCase(),
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: FontSizes.tag,
                     fontWeight: .w600,
                     letterSpacing: 0.55,
                     color: c.text2,
@@ -224,7 +226,7 @@ class ReviewPanel extends StatelessWidget {
           border: Border(left: BorderSide(color: c.line2)),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x66000000),
+              color: Shades.black40,
               blurRadius: 48,
               offset: Offset(-24, 0),
             ),
@@ -234,7 +236,12 @@ class ReviewPanel extends StatelessWidget {
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(22, 20, 14, 16),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s22,
+                AppSpacing.s20,
+                AppSpacing.s14,
+                AppSpacing.md,
+              ),
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.line1)),
               ),
@@ -250,7 +257,7 @@ class ReviewPanel extends StatelessWidget {
                         Text(
                           labels.title,
                           style: TextStyle(
-                            fontSize: 20,
+                            fontSize: FontSizes.panel,
                             fontWeight: .w600,
                             color: c.text1,
                           ),
@@ -258,7 +265,10 @@ class ReviewPanel extends StatelessWidget {
                         if (labels.rights.isNotEmpty)
                           Text(
                             labels.rights,
-                            style: TextStyle(fontSize: 13, color: c.text3),
+                            style: TextStyle(
+                              fontSize: FontSizes.row,
+                              color: c.text3,
+                            ),
                           ),
                       ],
                     ),
@@ -287,7 +297,12 @@ class ReviewPanel extends StatelessWidget {
             ),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(22, 16, 22, 16),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s22,
+                  AppSpacing.md,
+                  AppSpacing.s22,
+                  AppSpacing.md,
+                ),
                 children: [
                   if (error case final e?) ...[
                     Notice(
@@ -297,22 +312,27 @@ class ReviewPanel extends StatelessWidget {
                         tone: .bad,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.s12),
                   ],
                   if (cards.isEmpty)
                     Text(
                       labels.empty,
-                      style: TextStyle(fontSize: 13, color: c.text4),
+                      style: TextStyle(fontSize: FontSizes.row, color: c.text4),
                     ),
                   for (final card in cards) ...[
                     ChangeCard(vm: card, onRemove: onRemove),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.s12),
                   ],
                 ],
               ),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(22, 16, 22, 20),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s22,
+                AppSpacing.md,
+                AppSpacing.s22,
+                AppSpacing.s20,
+              ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
@@ -337,7 +357,7 @@ class ReviewPanel extends StatelessWidget {
                               ),
                             ],
                           ),
-                    style: TextStyle(fontSize: 13, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.row, color: c.text3),
                   ),
                   Row(
                     spacing: 10,

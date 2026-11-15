@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One entry of the search palette.
@@ -94,14 +95,14 @@ class _SearchPaletteState extends State<SearchPalette> {
           mainAxisSize: .min,
           children: [
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppSpacing.s12),
               child: TextField(
                 autofocus: true,
-                style: TextStyle(fontSize: 14, color: c.text1),
+                style: TextStyle(fontSize: FontSizes.body, color: c.text1),
                 decoration: InputDecoration(
                   hintText: widget.hint,
                   prefixIcon: Padding(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(AppSpacing.s10),
                     child: AppIcon('ui_search', size: 16, color: c.text3),
                   ),
                 ),
@@ -116,7 +117,12 @@ class _SearchPaletteState extends State<SearchPalette> {
             Flexible(
               child: ListView(
                 shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.sm,
+                  AppSpacing.none,
+                  AppSpacing.sm,
+                  AppSpacing.sm,
+                ),
                 children: [
                   for (final h in hits)
                     InkWell(
@@ -136,7 +142,10 @@ class _SearchPaletteState extends State<SearchPalette> {
                                 h.title,
                                 maxLines: 1,
                                 overflow: .ellipsis,
-                                style: TextStyle(fontSize: 14, color: c.text1),
+                                style: TextStyle(
+                                  fontSize: FontSizes.body,
+                                  color: c.text1,
+                                ),
                               ),
                             ),
                             if (h.detail case final d?)

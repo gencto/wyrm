@@ -3,6 +3,8 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [TrustCard] says (docs/design/specs/unlock-discover.md §4, *Trust*).
@@ -78,7 +80,7 @@ class TrustCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final small = TextStyle(
-      fontSize: 12,
+      fontSize: FontSizes.meta,
       height: 1.5,
       leadingDistribution: .even,
       color: c.text4,
@@ -88,10 +90,10 @@ class TrustCard extends StatelessWidget {
       container: true,
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
           color: fill,
-          borderRadius: const BorderRadius.all(Radius.circular(12)),
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadii.panel)),
           border: .all(color: border),
         ),
         child: Column(
@@ -108,7 +110,7 @@ class TrustCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     vm.title,
-                    style: TextStyle(fontSize: 14, color: c.warn),
+                    style: TextStyle(fontSize: FontSizes.body, color: c.warn),
                   ),
                 ),
               ],
@@ -116,7 +118,7 @@ class TrustCard extends StatelessWidget {
             Text(
               vm.why,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: FontSizes.row,
                 height: 1.5,
                 leadingDistribution: .even,
                 color: c.text2,
@@ -127,10 +129,12 @@ class TrustCard extends StatelessWidget {
               value: vm.code.join(' '),
               child: ExcludeSemantics(
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(AppSpacing.s12),
                   decoration: BoxDecoration(
                     color: c.ground0,
-                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderRadius: const BorderRadius.all(
+                      Radius.circular(AppRadii.card),
+                    ),
                     border: .all(color: c.line1),
                   ),
                   child: Column(
@@ -146,7 +150,7 @@ class TrustCard extends StatelessWidget {
                                   textAlign: .center,
                                   style: TextStyle(
                                     fontFamily: AppFonts.mono,
-                                    fontSize: 15,
+                                    fontSize: FontSizes.lead,
                                     letterSpacing: 1.2,
                                     color: c.text1,
                                   ),
@@ -180,7 +184,10 @@ class TrustCard extends StatelessWidget {
               style: small,
             ),
             if (vm.refused case final r?)
-              Text(r, style: TextStyle(fontSize: 13, color: c.badText)),
+              Text(
+                r,
+                style: TextStyle(fontSize: FontSizes.row, color: c.badText),
+              ),
             Row(
               spacing: 10,
               children: [
@@ -208,7 +215,7 @@ class TrustCard extends StatelessWidget {
     bool primary = false,
   }) {
     final c = context.colors;
-    const shape = BorderRadius.all(Radius.circular(10));
+    const shape = BorderRadius.all(Radius.circular(AppRadii.card));
     return Material(
       color: primary ? c.ember : Colors.transparent,
       shape: RoundedRectangleBorder(
@@ -220,13 +227,13 @@ class TrustCard extends StatelessWidget {
         borderRadius: shape,
         child: Container(
           height: 42,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: Center(
             widthFactor: 1,
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: FontSizes.body,
                 fontWeight: primary ? .w600 : .w400,
                 color: primary ? c.onEmber : c.text1,
               ),

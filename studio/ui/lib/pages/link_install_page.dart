@@ -19,6 +19,7 @@ import '../shell/window_bar.dart';
 import '../shell/wyrm_logo.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What the Choose step lists.
@@ -292,17 +293,26 @@ class LinkInstallPage extends StatelessWidget {
                     const WyrmLogo(showStudio: false),
                     Text(
                       labels.crumb,
-                      style: TextStyle(fontSize: 14, color: c.text3),
+                      style: TextStyle(
+                        fontSize: FontSizes.body,
+                        color: c.text3,
+                      ),
                     ),
                     Text('/', style: TextStyle(color: c.text4)),
                     Text(
                       labels.title,
-                      style: TextStyle(fontSize: 14, color: c.text1),
+                      style: TextStyle(
+                        fontSize: FontSizes.body,
+                        color: c.text1,
+                      ),
                     ),
                     const Spacer(),
                     Text(
                       labels.needs,
-                      style: TextStyle(fontSize: 12, color: c.text3),
+                      style: TextStyle(
+                        fontSize: FontSizes.meta,
+                        color: c.text3,
+                      ),
                     ),
                     IconButton(
                       onPressed: onClose,
@@ -325,7 +335,12 @@ class LinkInstallPage extends StatelessWidget {
                     children: [
                       Container(
                         width: 220,
-                        padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.s12,
+                          AppSpacing.s20,
+                          AppSpacing.s12,
+                          AppSpacing.s20,
+                        ),
                         decoration: BoxDecoration(
                           color: c.ground1,
                           border: Border(right: BorderSide(color: c.line1)),
@@ -335,8 +350,8 @@ class LinkInstallPage extends StatelessWidget {
                           children: [
                             Padding(
                               padding: const EdgeInsets.only(
-                                left: 8,
-                                bottom: 12,
+                                left: AppSpacing.sm,
+                                bottom: AppSpacing.s12,
                               ),
                               child: SectionLabel(labels.railLabel),
                             ),
@@ -348,11 +363,11 @@ class LinkInstallPage extends StatelessWidget {
                             const Spacer(),
                             Divider(color: c.line1),
                             Padding(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(AppSpacing.sm),
                               child: Text(
                                 labels.railNote,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: FontSizes.meta,
                                   height: 1.5,
                                   color: c.text3,
                                 ),
@@ -364,7 +379,7 @@ class LinkInstallPage extends StatelessWidget {
                       Expanded(child: center),
                       Container(
                         width: 280,
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(AppSpacing.s20),
                         decoration: BoxDecoration(
                           color: c.ground1,
                           border: Border(left: BorderSide(color: c.line1)),
@@ -407,20 +422,24 @@ class _Center extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(30, 28, 30, 30),
             children: [
               Text(l.stepOf, style: mono(color: c.text3)),
-              const SizedBox(height: 6),
+              const SizedBox(height: AppSpacing.s6),
               Text(
                 l.question,
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 700),
                 child: Text(
                   l.why,
-                  style: TextStyle(fontSize: 14, height: 1.5, color: c.text2),
+                  style: TextStyle(
+                    fontSize: FontSizes.body,
+                    height: 1.5,
+                    color: c.text2,
+                  ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.s20),
               ..._content(context, c),
             ],
           ),
@@ -454,11 +473,11 @@ class _Center extends StatelessWidget {
     return [
       if (p.sources.isNotEmpty) ...[
         _cards(p.sources, p.onSource),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.s18),
       ],
       if (p.catalog case final cat?) ...[
         _CatalogFilter(cat: cat, onCategory: p.onCategory),
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.md),
         LayoutBuilder(
           builder: (context, box) {
             final n = box.maxWidth > 840 ? 3 : (box.maxWidth > 540 ? 2 : 1);
@@ -480,8 +499,11 @@ class _Center extends StatelessWidget {
             );
           },
         ),
-        const SizedBox(height: 14),
-        Text(cat.note, style: TextStyle(fontSize: 13, color: c.text3)),
+        const SizedBox(height: AppSpacing.s14),
+        Text(
+          cat.note,
+          style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+        ),
       ],
       if (p.bring case final b?) ...[
         SegmentedTabs(
@@ -489,7 +511,7 @@ class _Center extends StatelessWidget {
           selected: b.method,
           onSelect: p.onMethod ?? (_) {},
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.md),
         if (b.fileHint != null)
           InkWell(
             onTap: p.onPickFile,
@@ -510,7 +532,7 @@ class _Center extends StatelessWidget {
                     Text(
                       b.file ?? b.fileHint!,
                       style: b.file == null
-                          ? TextStyle(fontSize: 14, color: c.text3)
+                          ? TextStyle(fontSize: FontSizes.body, color: c.text3)
                           : mono(size: 14, color: c.text1),
                     ),
                   ],
@@ -521,35 +543,38 @@ class _Center extends StatelessWidget {
         if (b.fields.isNotEmpty) ParamForm(fields: b.fields, columns: 2),
       ],
       if (p.checks case final ch?) ...[
-        Text(l.checkedHere, style: TextStyle(fontSize: 12, color: c.text4)),
-        const SizedBox(height: 10),
+        Text(
+          l.checkedHere,
+          style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+        ),
+        const SizedBox(height: AppSpacing.s10),
         CheckList(rows: ch),
         if (p.manifest case final m?) ...[
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.s18),
           SectionLabel(l.manifest),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           SizedBox(height: 220, child: LogView(lines: m.split('\n'))),
         ],
       ],
       if (p.target case final t?) ...[
         if (t.summary case final s?) ...[
           ChoiceCard(vm: s),
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.s18),
         ],
         Text(
           l.onBroker,
-          style: const TextStyle(fontSize: 14, fontWeight: .w600),
+          style: const TextStyle(fontSize: FontSizes.body, fontWeight: .w600),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.s10),
         _cards(t.brokers, p.onBroker),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.s18),
         Text(
           l.howItRuns,
-          style: const TextStyle(fontSize: 14, fontWeight: .w600),
+          style: const TextStyle(fontSize: FontSizes.body, fontWeight: .w600),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.s10),
         _cards(t.modes, p.onMode),
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.s18),
         Align(
           alignment: .centerLeft,
           child: ConstrainedBox(
@@ -566,7 +591,7 @@ class _Center extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: AppSpacing.s6),
         Text.rich(
           TextSpan(
             text: t.keyPreview.$1,
@@ -579,13 +604,19 @@ class _Center extends StatelessWidget {
             ],
           ),
         ),
-        Text(t.nameRule, style: TextStyle(fontSize: 12, color: c.text4)),
+        Text(
+          t.nameRule,
+          style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+        ),
         if (t.nameWarning case final w?) ...[
-          const SizedBox(height: 6),
-          Text(w, style: TextStyle(fontSize: 12, color: c.warn)),
+          const SizedBox(height: AppSpacing.s6),
+          Text(
+            w,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.warn),
+          ),
         ],
         if (t.secretLabel case final label?) ...[
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.s18),
           Align(
             alignment: .centerLeft,
             child: ConstrainedBox(
@@ -603,9 +634,9 @@ class _Center extends StatelessWidget {
           ),
         ],
         if (t.accept case final a?) ...[
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.s18),
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: c.warnTint,
               border: .all(color: c.warnLine),
@@ -617,7 +648,10 @@ class _Center extends StatelessWidget {
               children: [
                 Text(
                   t.rightsTitle ?? '',
-                  style: const TextStyle(fontSize: 14, fontWeight: .w600),
+                  style: const TextStyle(
+                    fontSize: FontSizes.body,
+                    fontWeight: .w600,
+                  ),
                 ),
                 if (t.rights.isNotEmpty) FactGrid(facts: t.rights),
                 // Its own Material: a ListTile paints its ink on the
@@ -631,11 +665,17 @@ class _Center extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: .leading,
                     activeColor: c.ember,
-                    title: Text(l.accept, style: const TextStyle(fontSize: 14)),
+                    title: Text(
+                      l.accept,
+                      style: const TextStyle(fontSize: FontSizes.body),
+                    ),
                   ),
                 ),
                 if (t.rightsNote case final n?)
-                  Text(n, style: TextStyle(fontSize: 12, color: c.text3)),
+                  Text(
+                    n,
+                    style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+                  ),
               ],
             ),
           ),
@@ -643,12 +683,12 @@ class _Center extends StatelessWidget {
       ],
       if (p.installing && p.result == null)
         const Padding(
-          padding: EdgeInsets.all(24),
+          padding: EdgeInsets.all(AppSpacing.lg),
           child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
         ),
       if (p.result case final r?) ...[
         Notice(vm: r),
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.md),
         Wrap(
           spacing: 10,
           children: [
@@ -695,7 +735,7 @@ class _CatalogFilter extends StatelessWidget {
   static const _height = 36.0;
   static const _gap = 10.0;
   static const _minSearch = 280.0;
-  static const _chipText = TextStyle(fontSize: 13);
+  static const _chipText = TextStyle(fontSize: FontSizes.row);
 
   @override
   Widget build(BuildContext context) {
@@ -748,7 +788,7 @@ class _CatalogFilter extends StatelessWidget {
   Widget _search(AppColors c) => Container(
     key: const ValueKey('catalog-search'),
     height: _height,
-    padding: const EdgeInsets.symmetric(horizontal: 10),
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
     decoration: BoxDecoration(
       color: c.ground3,
       border: .all(color: c.line2),
@@ -762,7 +802,7 @@ class _CatalogFilter extends StatelessWidget {
           child: TextFormField(
             initialValue: cat.query.value,
             onChanged: (v) => cat.query.onChanged(v.isEmpty ? null : v),
-            style: TextStyle(fontSize: 13, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.row, color: c.text1),
             decoration: InputDecoration(
               isCollapsed: true,
               contentPadding: EdgeInsets.zero,
@@ -771,7 +811,7 @@ class _CatalogFilter extends StatelessWidget {
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               hintText: cat.searchHint,
-              hintStyle: TextStyle(fontSize: 13, color: c.text4),
+              hintStyle: TextStyle(fontSize: FontSizes.row, color: c.text4),
             ),
           ),
         ),
@@ -785,7 +825,7 @@ class _CatalogFilter extends StatelessWidget {
     borderRadius: Radii.pill,
     child: Container(
       height: _height,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
       decoration: BoxDecoration(
         color: selected ? c.ground4 : null,
         border: .all(color: selected ? c.line3 : c.line1),
@@ -796,7 +836,10 @@ class _CatalogFilter extends StatelessWidget {
         child: Text(
           k,
           maxLines: 1,
-          style: TextStyle(fontSize: 13, color: selected ? c.text1 : c.text3),
+          style: TextStyle(
+            fontSize: FontSizes.row,
+            color: selected ? c.text1 : c.text3,
+          ),
         ),
       ),
     ),

@@ -53,12 +53,12 @@ class FactGrid extends StatelessWidget {
                     waitDuration: const Duration(milliseconds: 600),
                     child: Text(
                       f.label,
-                      style: TextStyle(fontSize: 13, color: c.text4),
+                      style: TextStyle(fontSize: FontSizes.row, color: c.text4),
                     ),
                   ),
                   _ => Text(
                     f.label,
-                    style: TextStyle(fontSize: 13, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
                   ),
                 },
               ),
@@ -67,7 +67,7 @@ class FactGrid extends StatelessWidget {
                   f.value,
                   style: f.mono
                       ? mono(color: c.text1)
-                      : TextStyle(fontSize: 13, color: c.text1),
+                      : TextStyle(fontSize: FontSizes.row, color: c.text1),
                 ),
               ),
             ],

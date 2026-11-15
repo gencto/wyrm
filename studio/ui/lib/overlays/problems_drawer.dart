@@ -5,6 +5,8 @@ import '../indicators/app_icon.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One failure in the Problems drawer.
@@ -112,7 +114,7 @@ class ProblemsDrawer extends StatelessWidget {
             border: Border(left: BorderSide(color: c.line1)),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x66000000),
+                color: Shades.black40,
                 offset: Offset(-24, 0),
                 blurRadius: 48,
               ),
@@ -123,8 +125,8 @@ class ProblemsDrawer extends StatelessWidget {
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
+                  horizontal: AppSpacing.s20,
+                  vertical: AppSpacing.md,
                 ),
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: c.line1)),
@@ -150,7 +152,9 @@ class ProblemsDrawer extends StatelessWidget {
                       borderRadius: Radii.segment,
                       child: Container(
                         height: 30,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s10,
+                        ),
                         decoration: BoxDecoration(
                           border: .all(color: c.line2),
                           borderRadius: Radii.segment,
@@ -188,7 +192,12 @@ class ProblemsDrawer extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s20,
+                  AppSpacing.s12,
+                  AppSpacing.s20,
+                  AppSpacing.xs,
+                ),
                 child: Text(
                   labels.note,
                   style: boardText(size: 12, height: 1.5, color: c.text4),
@@ -197,7 +206,7 @@ class ProblemsDrawer extends StatelessWidget {
               Expanded(
                 child: problems.isEmpty
                     ? Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(AppSpacing.s20),
                         child: Text(
                           labels.empty,
                           style: boardText(size: 13, color: c.text3),
@@ -205,11 +214,12 @@ class ProblemsDrawer extends StatelessWidget {
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
+                          horizontal: AppSpacing.s12,
+                          vertical: AppSpacing.sm,
                         ),
                         itemCount: problems.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: AppSpacing.sm),
                         itemBuilder: (context, i) => _card(c, problems[i]),
                       ),
               ),
@@ -244,7 +254,7 @@ class ProblemsDrawer extends StatelessWidget {
       opacity: p.shown || p.tone == .neutral ? 0.72 : 1,
       child: Container(
         key: ValueKey('problem-${p.id}'),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSpacing.s12),
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),
@@ -256,7 +266,10 @@ class ProblemsDrawer extends StatelessWidget {
             Container(
               width: 8,
               height: 8,
-              margin: const EdgeInsets.only(top: 6, right: 10),
+              margin: const EdgeInsets.only(
+                top: AppSpacing.s6,
+                right: AppSpacing.s10,
+              ),
               decoration: BoxDecoration(color: dot, shape: .circle),
             ),
             Expanded(
@@ -298,7 +311,7 @@ class ProblemsDrawer extends StatelessWidget {
                       style: boardText(size: 12, height: 1.45, color: c.text3),
                     ),
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
+                    padding: const EdgeInsets.only(top: AppSpacing.s2),
                     child: Wrap(
                       spacing: 14,
                       children: [

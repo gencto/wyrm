@@ -8,6 +8,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One row of the tree.
@@ -148,8 +149,10 @@ class TreeRow extends StatelessWidget {
       child: Container(
         height: height,
         padding: EdgeInsets.only(
-          left: compact ? 6.0 + vm.depth * 12 : 10.0 + vm.depth * 16,
-          right: compact ? 8 : 10,
+          left: compact
+              ? AppSpacing.s6 + vm.depth * AppSpacing.s12
+              : AppSpacing.s10 + vm.depth * AppSpacing.md,
+          right: compact ? AppSpacing.sm : AppSpacing.s10,
         ),
         decoration: BoxDecoration(
           color: sel ? c.emberTint : (vm.marked ? c.ground3 : null),
@@ -160,7 +163,7 @@ class TreeRow extends StatelessWidget {
           children: [
             if (!leaf)
               SizedBox(
-                width: 16,
+                width: AppSpacing.md,
                 child: vm.hasChildren
                     ? GestureDetector(
                         onTap: onToggle == null ? null : () => onToggle!(vm.id),
@@ -178,7 +181,7 @@ class TreeRow extends StatelessWidget {
               ),
             if (vm.tag case final tag?)
               SizedBox(
-                width: 24,
+                width: AppSpacing.lg,
                 child: Text(
                   tag,
                   maxLines: 1,
@@ -234,7 +237,10 @@ class TreeRow extends StatelessWidget {
             if (vm.hasHistory) AppIcon('action_hist', size: 14, color: c.text4),
             if (vm.chip case final chip?) _Chip(chip),
             if (vm.meta case final m?)
-              Text(m, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                m,
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              ),
             if (vm.dot case final t?)
               Tooltip(
                 message: vm.dotLabel ?? '',
@@ -272,9 +278,15 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s6,
+        vertical: AppSpacing.s2,
+      ),
       decoration: BoxDecoration(color: c.ground4, borderRadius: Radii.chip),
-      child: Text(label, style: TextStyle(fontSize: 11, color: c.text3)),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: FontSizes.tag, color: c.text3),
+      ),
     );
   }
 }

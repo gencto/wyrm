@@ -3,6 +3,9 @@ import 'package:flutter/widgets.dart';
 /// Corner-radius tokens (board *Design system* §04) — layer 3 of the theme
 /// strategy (see `common.dart`).
 abstract final class AppRadii {
+  /// A small mark: a tick box, a swatch, a bar's end.
+  static const double mark = 3;
+
   /// A chip, a tag.
   static const double chip = 4;
 
@@ -18,8 +21,14 @@ abstract final class AppRadii {
   /// A card, a flow block.
   static const double card = 10;
 
+  /// The board's switch (40 × 22): half its height.
+  static const double toggle = 11;
+
   /// A panel or a large card.
   static const double panel = 12;
+
+  /// A dialog (Account › Security, the step-up).
+  static const double dialog = 14;
 
   /// A status pill.
   static const double pill = 999;
@@ -28,12 +37,15 @@ abstract final class AppRadii {
 /// The same tokens as ready `BorderRadius`, so a widget does not restate
 /// `BorderRadius.circular` at every call.
 abstract final class Radii {
+  static const mark = BorderRadius.all(Radius.circular(AppRadii.mark));
   static const chip = BorderRadius.all(Radius.circular(AppRadii.chip));
   static const segment = BorderRadius.all(Radius.circular(AppRadii.segment));
   static const control = BorderRadius.all(Radius.circular(AppRadii.control));
   static const input = BorderRadius.all(Radius.circular(AppRadii.input));
   static const button = BorderRadius.all(Radius.circular(AppRadii.button));
   static const card = BorderRadius.all(Radius.circular(AppRadii.card));
+  static const toggle = BorderRadius.all(Radius.circular(AppRadii.toggle));
   static const panel = BorderRadius.all(Radius.circular(AppRadii.panel));
+  static const dialog = BorderRadius.all(Radius.circular(AppRadii.dialog));
   static const pill = BorderRadius.all(Radius.circular(AppRadii.pill));
 }

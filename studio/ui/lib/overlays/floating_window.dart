@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 
 /// A window that floats over the page without blocking it (not a modal):
 /// the [header] row is its handle to move it, the corner at the bottom
@@ -129,10 +130,10 @@ class _FloatingWindowState extends State<FloatingWindow> {
                                   cursor: SystemMouseCursors.move,
                                   child: Container(
                                     padding: const EdgeInsets.fromLTRB(
-                                      14,
-                                      8,
-                                      6,
-                                      8,
+                                      AppSpacing.s14,
+                                      AppSpacing.sm,
+                                      AppSpacing.s6,
+                                      AppSpacing.sm,
                                     ),
                                     decoration: BoxDecoration(
                                       color: c.ground3,

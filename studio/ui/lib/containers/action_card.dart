@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/level_badge.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One action of a node, as Explorer's Actions tab shows it.
@@ -63,7 +64,7 @@ class ActionCard extends StatelessWidget {
         onTap: onTap == null ? null : () => onTap!(vm.id),
         borderRadius: Radii.card,
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(AppSpacing.s14),
           child: Column(
             crossAxisAlignment: .start,
             spacing: 6,
@@ -76,7 +77,7 @@ class ActionCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: .ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: FontSizes.body,
                         fontWeight: .w600,
                         color: off ? c.text3 : c.text1,
                       ),
@@ -88,7 +89,7 @@ class ActionCard extends StatelessWidget {
               Text(
                 vm.disabledReason ?? vm.detail,
                 style: off
-                    ? TextStyle(fontSize: 12, color: c.text4)
+                    ? TextStyle(fontSize: FontSizes.meta, color: c.text4)
                     : mono(size: 11, color: c.text4),
               ),
             ],

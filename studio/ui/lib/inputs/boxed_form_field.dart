@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// A labelled text field in a box, as the log-in board draws its fields
@@ -153,14 +155,14 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
         final style = widget.mono
             ? TextStyle(
                 fontFamily: AppFonts.mono,
-                fontSize: 13,
+                fontSize: FontSizes.row,
                 height: 1.3,
                 letterSpacing: 0,
                 color: c.text1,
               )
             : TextStyle(
                 fontFamily: AppFonts.sans,
-                fontSize: 15,
+                fontSize: FontSizes.lead,
                 height: 1.3,
                 color: c.text1,
                 // 0.2 em while hidden; none of the theme's spacing otherwise.
@@ -170,19 +172,28 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
           crossAxisAlignment: .stretch,
           spacing: 8,
           children: [
-            Text(widget.label, style: TextStyle(fontSize: 13, color: c.text2)),
+            Text(
+              widget.label,
+              style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+            ),
             _beside(
               Container(
                 height: 46,
                 padding: EdgeInsets.only(
-                  left: widget.leading == null ? 14 : 12,
+                  left: widget.leading == null
+                      ? AppSpacing.s14
+                      : AppSpacing.s12,
                   right: widget.obscure
-                      ? 6
-                      : (widget.leading == null ? 14 : 12),
+                      ? AppSpacing.s6
+                      : (widget.leading == null
+                            ? AppSpacing.s14
+                            : AppSpacing.s12),
                 ),
                 decoration: BoxDecoration(
                   color: c.ground2,
-                  borderRadius: const BorderRadius.all(Radius.circular(10)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadii.card),
+                  ),
                   border: .all(
                     color: widget.alert || error != null
                         ? c.badLine
@@ -219,7 +230,9 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
                           // the browser's 2 px on each side.
                           contentPadding:
                               widget.leading != null || widget.obscure
-                              ? const EdgeInsets.symmetric(horizontal: 2)
+                              ? const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.s2,
+                                )
                               : .zero,
                           border: .none,
                           enabledBorder: .none,
@@ -247,7 +260,7 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
                           style: IconButton.styleFrom(
                             shape: const RoundedRectangleBorder(
                               borderRadius: BorderRadius.all(
-                                Radius.circular(8),
+                                Radius.circular(AppRadii.control),
                               ),
                             ),
                           ),
@@ -265,7 +278,7 @@ class _BoxedFormFieldState extends State<BoxedFormField> {
             if (error != null)
               Text(
                 error,
-                style: TextStyle(fontSize: 13, color: c.badText),
+                style: TextStyle(fontSize: FontSizes.row, color: c.badText),
               ),
           ],
         );

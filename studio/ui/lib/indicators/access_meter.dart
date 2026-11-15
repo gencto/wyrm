@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
 import '../theme/typography.dart';
 
 /// Board *Design system* §05 access level: five segments, filled up to the
@@ -36,7 +37,7 @@ class AccessMeter extends StatelessWidget {
                   height: 8,
                   decoration: BoxDecoration(
                     color: i <= at ? fills[i.clamp(0, 3)] : c.ground4,
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(AppRadii.chip),
                     border: i > at && i <= need
                         ? Border.all(color: c.bad)
                         : (i > at ? Border.all(color: c.muted) : null),

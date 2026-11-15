@@ -12,6 +12,8 @@ import '../overlays/task_sheet.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// A setting shown as a card above the Quarantine table.
 final class SettingCardVm extends Equatable {
@@ -116,7 +118,12 @@ class LinksPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s28,
+        AppSpacing.s28,
+        AppSpacing.s28,
+        AppSpacing.s40,
+      ),
       children: [
         PageHeader(
           title: title,
@@ -140,11 +147,14 @@ class LinksPage extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: AppSpacing.s22),
         SegmentedTabs(tabs: tabs, selected: tab, onSelect: onTab),
-        const SizedBox(height: 18),
-        Text(description, style: TextStyle(fontSize: 13, color: c.text2)),
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.s18),
+        Text(
+          description,
+          style: TextStyle(fontSize: FontSizes.row, color: c.text2),
+        ),
+        const SizedBox(height: AppSpacing.md),
         if (settings.isNotEmpty) ...[
           LayoutBuilder(
             builder: (context, box) {
@@ -152,8 +162,8 @@ class LinksPage extends StatelessWidget {
                 for (final s in settings)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
+                      horizontal: AppSpacing.s14,
+                      vertical: AppSpacing.s6,
                     ),
                     decoration: BoxDecoration(
                       color: c.ground1,
@@ -178,7 +188,7 @@ class LinksPage extends StatelessWidget {
                   : Column(spacing: 12, children: cards);
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
         ],
         RowTable(columns: columns, rows: rows, onTap: onRow, empty: empty),
       ],

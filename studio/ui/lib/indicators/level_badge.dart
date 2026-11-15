@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// An access level (`read`, `write`, `config`) as a mono chip; `config` is
@@ -17,7 +18,7 @@ class LevelBadge extends StatelessWidget {
     final config = level == 'config';
     return Container(
       height: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
       alignment: .center,
       decoration: BoxDecoration(
         color: config ? c.emberTint : c.ground4,

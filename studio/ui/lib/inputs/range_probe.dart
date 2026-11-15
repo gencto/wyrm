@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// *Probe a range instead* (docs/design/specs/unlock-discover.md §4): the
@@ -39,7 +41,7 @@ class RangeProbe extends StatelessWidget {
       children: [
         Text(
           S.current.probeRangeTitle,
-          style: TextStyle(fontSize: 13, color: c.text2),
+          style: TextStyle(fontSize: FontSizes.row, color: c.text2),
         ),
         Row(
           spacing: 8,
@@ -65,21 +67,27 @@ class RangeProbe extends StatelessWidget {
             Material(
               color: c.ember,
               shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(8)),
+                borderRadius: BorderRadius.all(
+                  Radius.circular(AppRadii.control),
+                ),
               ),
               child: InkWell(
                 onTap: busy ? null : onProbe,
-                borderRadius: const BorderRadius.all(Radius.circular(8)),
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppRadii.control),
+                ),
                 child: SizedBox(
                   height: 38,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.s14,
+                    ),
                     child: Center(
                       widthFactor: 1,
                       child: Text(
                         S.current.probeButton,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: FontSizes.row,
                           fontWeight: .w600,
                           color: c.onEmber,
                         ),
@@ -92,11 +100,14 @@ class RangeProbe extends StatelessWidget {
           ],
         ),
         if (error != null)
-          Text(error, style: TextStyle(fontSize: 12, color: c.badText)),
+          Text(
+            error,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.badText),
+          ),
         Text(
           S.current.probeNote,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: FontSizes.meta,
             height: 1.5,
             leadingDistribution: .even,
             color: c.text4,
@@ -155,10 +166,12 @@ class _SmallState extends State<_Small> {
       textField: true,
       child: Container(
         height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
         decoration: BoxDecoration(
           color: c.ground2,
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppRadii.control),
+          ),
           border: .all(color: widget.bad ? c.badLine : c.line2),
         ),
         alignment: .centerLeft,
@@ -172,7 +185,7 @@ class _SmallState extends State<_Small> {
           ],
           style: TextStyle(
             fontFamily: AppFonts.mono,
-            fontSize: 13,
+            fontSize: FontSizes.row,
             height: 1.3,
             color: c.text1,
           ),

@@ -5,6 +5,7 @@ import '../indicators/app_icon.dart';
 import '../inputs/switch_row.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// How one parameter is edited (docs/studio.md §6.6).
@@ -181,9 +182,15 @@ class ParamField extends StatelessWidget {
         _label(c),
         _field(context, c),
         if (vm.error case final e?)
-          Text(e, style: TextStyle(fontSize: 12, color: c.bad))
+          Text(
+            e,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
+          )
         else if (vm.description case final d?)
-          Text(d, style: TextStyle(fontSize: 12, color: c.text4)),
+          Text(
+            d,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+          ),
       ],
     );
   }
@@ -214,7 +221,7 @@ class ParamField extends StatelessWidget {
       ],
     ),
     style: TextStyle(
-      fontSize: 12,
+      fontSize: FontSizes.meta,
       color: vm.error != null ? c.bad : c.text3,
     ),
   );
@@ -224,10 +231,13 @@ class ParamField extends StatelessWidget {
     isDense: true,
     filled: true,
     fillColor: c.ground3,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.s10,
+      vertical: AppSpacing.s10,
+    ),
     suffixText: vm.unit,
-    suffixStyle: TextStyle(fontSize: 12, color: c.text4),
-    hintStyle: TextStyle(fontSize: 13, color: c.text4),
+    suffixStyle: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+    hintStyle: TextStyle(fontSize: FontSizes.row, color: c.text4),
     border: _border(c.line2),
     enabledBorder: _border(vm.error != null ? c.bad : c.line2),
     disabledBorder: _border(c.line1),
@@ -240,7 +250,7 @@ class ParamField extends StatelessWidget {
   );
 
   Widget _field(BuildContext context, AppColors c) {
-    final style = TextStyle(fontSize: 13, color: c.text1);
+    final style = TextStyle(fontSize: FontSizes.row, color: c.text1);
     switch (vm.kind) {
       case .choice:
         final value = vm.value as String?;
@@ -269,7 +279,7 @@ class ParamField extends StatelessWidget {
           borderRadius: Radii.segment,
           child: Container(
             height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
             decoration: BoxDecoration(
               color: c.ground3,
               borderRadius: Radii.segment,
@@ -284,7 +294,7 @@ class ParamField extends StatelessWidget {
                     name ?? vm.hint ?? '',
                     overflow: .ellipsis,
                     style: name == null
-                        ? TextStyle(fontSize: 13, color: c.text4)
+                        ? TextStyle(fontSize: FontSizes.row, color: c.text4)
                         : mono(color: c.text1),
                   ),
                 ),

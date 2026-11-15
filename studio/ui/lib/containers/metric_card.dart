@@ -5,6 +5,8 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One figure of a broker: a label, the value, one line under it.
 final class MetricVm extends Equatable {
@@ -36,7 +38,7 @@ class MetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -46,13 +48,16 @@ class MetricCard extends StatelessWidget {
         crossAxisAlignment: .start,
         spacing: 6,
         children: [
-          Text(vm.label, style: TextStyle(fontSize: 13, color: c.text3)),
+          Text(
+            vm.label,
+            style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+          ),
           Text(
             vm.value,
             maxLines: 1,
             overflow: .ellipsis,
             style: TextStyle(
-              fontSize: 22,
+              fontSize: FontSizes.display,
               color: vm.tone == .neutral ? c.text1 : toneColor(c, vm.tone),
             ),
           ),
@@ -61,7 +66,7 @@ class MetricCard extends StatelessWidget {
               vm.sub,
               maxLines: 1,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: 12, color: c.text4),
+              style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
             ),
         ],
       ),

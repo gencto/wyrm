@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [CommandCard] draws: shell commands the user runs on a host.
@@ -48,7 +49,7 @@ class CommandCard extends StatelessWidget {
     final c = context.colors;
     final dark = Theme.of(context).brightness == .dark;
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(AppSpacing.s14),
       decoration: BoxDecoration(
         color: c.ground0,
         border: .all(color: c.line1),
@@ -61,13 +62,16 @@ class CommandCard extends StatelessWidget {
           Text(
             vm.title,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: FontSizes.row,
               fontWeight: .w600,
               color: c.text1,
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s12,
+              vertical: AppSpacing.s10,
+            ),
             decoration: BoxDecoration(
               color: Color.alphaBlend(
                 Colors.black.withValues(alpha: dark ? 0.2 : 0.03),
@@ -88,7 +92,7 @@ class CommandCard extends StatelessWidget {
                     vm.code.split('').join('\u200B'),
                     style: TextStyle(
                       fontFamily: AppFonts.mono,
-                      fontSize: 12,
+                      fontSize: FontSizes.meta,
                       height: 1.7,
                       color: c.text2,
                     ),
@@ -126,7 +130,11 @@ class CommandCard extends StatelessWidget {
           ),
           Text(
             vm.note,
-            style: TextStyle(fontSize: 12, height: 1.5, color: c.text4),
+            style: TextStyle(
+              fontSize: FontSizes.meta,
+              height: 1.5,
+              color: c.text4,
+            ),
           ),
         ],
       ),

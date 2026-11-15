@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'quality_mark.dart';
 
@@ -37,14 +39,17 @@ class CheckList extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: c.line1),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadii.card),
         color: c.ground2,
       ),
       child: Column(
         children: [
           for (var i = 0; i < rows.length; i++)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s14,
+                vertical: AppSpacing.s10,
+              ),
               decoration: BoxDecoration(
                 border: i == 0 ? null : Border(top: BorderSide(color: c.line1)),
               ),
@@ -53,7 +58,7 @@ class CheckList extends StatelessWidget {
                 spacing: 10,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
                     child: StateMark(
                       mark: switch (rows[i].result) {
                         .ok => Mark.check,
@@ -74,7 +79,10 @@ class CheckList extends StatelessWidget {
                       children: [
                         Text(
                           rows[i].title,
-                          style: TextStyle(fontSize: 13, color: c.text1),
+                          style: TextStyle(
+                            fontSize: FontSizes.row,
+                            color: c.text1,
+                          ),
                         ),
                         if (rows[i].detail.isNotEmpty)
                           Text(

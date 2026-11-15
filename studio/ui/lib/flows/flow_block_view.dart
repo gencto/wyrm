@@ -5,6 +5,8 @@ import '../indicators/app_icon.dart';
 import '../indicators/lines_text.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What a block is (spec §3 header chip): a point of the tree, logic, a
@@ -396,7 +398,7 @@ class FlowBlockView extends StatelessWidget {
       width: vm.width,
       decoration: BoxDecoration(
         color: c.ground2,
-        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.control)),
         border: .all(
           color: vm.selected ? c.ember : c.line2,
           width: vm.selected ? 1.5 : 1,
@@ -419,7 +421,7 @@ class FlowBlockView extends StatelessWidget {
             cursor: SystemMouseCursors.move,
             child: Container(
               height: FlowBlockVm.headerHeight,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
               decoration: BoxDecoration(
                 color: headerFill,
                 borderRadius: const BorderRadius.vertical(
@@ -431,12 +433,14 @@ class FlowBlockView extends StatelessWidget {
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 1,
+                      horizontal: AppSpacing.xs,
+                      vertical: AppSpacing.s1,
                     ),
                     decoration: BoxDecoration(
                       border: .all(color: ink),
-                      borderRadius: const BorderRadius.all(Radius.circular(3)),
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(AppRadii.mark),
+                      ),
                     ),
                     child: Text(
                       vm.kind.chip,
@@ -459,13 +463,13 @@ class FlowBlockView extends StatelessWidget {
                   if (tag != null)
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 1,
+                        horizontal: AppSpacing.xs,
+                        vertical: AppSpacing.s1,
                       ),
                       decoration: BoxDecoration(
                         color: c.emberTint,
                         borderRadius: const BorderRadius.all(
-                          Radius.circular(3),
+                          Radius.circular(AppRadii.mark),
                         ),
                       ),
                       child: Text(
@@ -490,7 +494,10 @@ class FlowBlockView extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(top: FlowBlockVm.bodyTop, bottom: 8),
+            padding: const EdgeInsets.only(
+              top: FlowBlockVm.bodyTop,
+              bottom: AppSpacing.sm,
+            ),
             child: Column(
               crossAxisAlignment: .stretch,
               children: [
@@ -512,7 +519,9 @@ class FlowBlockView extends StatelessWidget {
                     child: SizedBox(
                       height: FlowBlockVm.rowHeight,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s12,
+                        ),
                         child: Row(
                           spacing: 6,
                           children: [
@@ -522,7 +531,7 @@ class FlowBlockView extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: .ellipsis,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: FontSizes.meta,
                                   color: c.emberSoft,
                                 ),
                               ),
@@ -539,8 +548,13 @@ class FlowBlockView extends StatelessWidget {
                   ),
                 if (vm.variadic case final v?)
                   Container(
-                    margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                    padding: const EdgeInsets.only(top: 6),
+                    margin: const EdgeInsets.fromLTRB(
+                      AppSpacing.s12,
+                      AppSpacing.xs,
+                      AppSpacing.s12,
+                      AppSpacing.none,
+                    ),
+                    padding: const EdgeInsets.only(top: AppSpacing.s6),
                     decoration: BoxDecoration(
                       border: Border(top: BorderSide(color: c.line1)),
                     ),
@@ -563,7 +577,10 @@ class FlowBlockView extends StatelessWidget {
                         ),
                         Text(
                           v.label,
-                          style: TextStyle(fontSize: 12, color: c.text4),
+                          style: TextStyle(
+                            fontSize: FontSizes.meta,
+                            color: c.text4,
+                          ),
                         ),
                       ],
                     ),
@@ -645,7 +662,7 @@ class _FieldRow extends StatelessWidget {
           // the ports are.
           Positioned.fill(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
               child: Row(
                 spacing: 6,
                 children: [
@@ -654,8 +671,8 @@ class _FieldRow extends StatelessWidget {
                       key: ValueKey('command-$block-${vm.id}'),
                       constraints: const BoxConstraints(maxWidth: 140),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.s2,
                       ),
                       decoration: BoxDecoration(
                         color: c.ground3,
@@ -674,7 +691,10 @@ class _FieldRow extends StatelessWidget {
                               vm.label,
                               maxLines: 1,
                               overflow: .ellipsis,
-                              style: TextStyle(fontSize: 11, color: c.text2),
+                              style: TextStyle(
+                                fontSize: FontSizes.tag,
+                                color: c.text2,
+                              ),
                             ),
                           ),
                         ],
@@ -687,7 +707,10 @@ class _FieldRow extends StatelessWidget {
                         vm.label,
                         maxLines: 1,
                         overflow: .ellipsis,
-                        style: TextStyle(fontSize: 12, color: c.text3),
+                        style: TextStyle(
+                          fontSize: FontSizes.meta,
+                          color: c.text3,
+                        ),
                       ),
                     ),
                   Expanded(
@@ -717,13 +740,13 @@ class _FieldRow extends StatelessWidget {
                       child: InkWell(
                         key: ValueKey('row-action-$block-${vm.id}'),
                         borderRadius: const BorderRadius.all(
-                          Radius.circular(4),
+                          Radius.circular(AppRadii.chip),
                         ),
                         onTap: actions.onRowAction == null
                             ? null
                             : () => actions.onRowAction!(block, vm.id),
                         child: Padding(
-                          padding: const EdgeInsets.all(3),
+                          padding: const EdgeInsets.all(AppSpacing.s3),
                           child: AppIcon(icon, size: 12, color: c.text3),
                         ),
                       ),
@@ -785,19 +808,21 @@ class _ToolButton extends StatelessWidget {
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
         child: Container(
           width: 28,
           height: 28,
           alignment: .center,
           decoration: BoxDecoration(
             border: .all(color: c.line2),
-            borderRadius: const BorderRadius.all(Radius.circular(6)),
+            borderRadius: const BorderRadius.all(
+              Radius.circular(AppRadii.segment),
+            ),
           ),
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: FontSizes.lead,
               color: onTap == null ? c.muted : c.text2,
             ),
           ),
@@ -820,7 +845,7 @@ class _Dashed extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final r = RRect.fromRectAndRadius(
       Offset.zero & size,
-      const Radius.circular(4),
+      const Radius.circular(AppRadii.chip),
     );
     canvas.drawRRect(r, Paint()..color = fill);
     final p = Paint()

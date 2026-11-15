@@ -8,6 +8,7 @@ import '../models/tone.dart';
 import '../overlays/account_menu.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'window_bar.dart';
 import 'wyrm_logo.dart';
@@ -233,14 +234,17 @@ class _SiteSwitcher extends StatelessWidget {
                   ),
                 ),
                 if (s.detail case final d?)
-                  Text(d, style: TextStyle(fontSize: 12, color: c.text4)),
+                  Text(
+                    d,
+                    style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  ),
               ],
             ),
           ),
       ],
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line2),
@@ -268,7 +272,7 @@ class _SiteSwitcher extends StatelessWidget {
                   vm.siteDetail!,
                   maxLines: 1,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
                 ),
               ),
             AppIcon('ui_chevron_down', size: 16, color: c.text3),
@@ -293,7 +297,7 @@ class _SearchBox extends StatelessWidget {
       borderRadius: Radii.control,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
         decoration: BoxDecoration(
           color: c.ground2,
           border: .all(color: c.line1),
@@ -311,14 +315,14 @@ class _SearchBox extends StatelessWidget {
                     hint,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: TextStyle(fontSize: 14, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.body, color: c.text4),
                   ),
                 ),
               if (box.maxWidth >= 140)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
+                    horizontal: AppSpacing.s6,
+                    vertical: AppSpacing.s2,
                   ),
                   decoration: BoxDecoration(
                     border: .all(color: c.line2),
@@ -362,14 +366,14 @@ class _ReviewButton extends StatelessWidget {
         borderRadius: Radii.button,
         child: Container(
           height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
           child: Row(
             spacing: 10,
             children: [
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: FontSizes.body,
                   fontWeight: .w600,
                   color: enabled ? c.onEmber : c.muted,
                 ),
@@ -377,16 +381,16 @@ class _ReviewButton extends StatelessWidget {
               Container(
                 constraints: const BoxConstraints(minWidth: 22),
                 height: 22,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
                 alignment: .center,
                 decoration: BoxDecoration(
                   color: enabled ? c.ground0 : c.ground4,
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(AppRadii.toggle),
                 ),
                 child: Text(
                   '$count',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: FontSizes.meta,
                     color: enabled ? c.emberSoft : c.muted,
                   ),
                 ),
@@ -463,7 +467,7 @@ class _Account extends StatelessWidget {
           child: Text(
             initials,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: FontSizes.row,
               fontWeight: .w600,
               color: c.text1,
             ),

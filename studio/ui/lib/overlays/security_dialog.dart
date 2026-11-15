@@ -6,6 +6,10 @@ import '../inputs/boxed_form_field.dart';
 import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One device of *Your devices on `<site>`*.
 final class SecurityDeviceVm extends Equatable {
@@ -181,7 +185,11 @@ class _SecurityDialogState extends State<SecurityDialog> {
       padding: EdgeInsets.only(top: top),
       child: Text(
         text.toUpperCase(),
-        style: TextStyle(fontSize: 12, letterSpacing: 0.72, color: c.text4),
+        style: TextStyle(
+          fontSize: FontSizes.meta,
+          letterSpacing: 0.72,
+          color: c.text4,
+        ),
       ),
     );
     final lockWord = [
@@ -192,11 +200,13 @@ class _SecurityDialogState extends State<SecurityDialog> {
       child: Material(
         color: c.ground1,
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(14)),
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppRadii.dialog),
+          ),
           side: BorderSide(color: c.line2),
         ),
         elevation: 24,
-        shadowColor: const Color(0x80000000),
+        shadowColor: Shades.black50,
         clipBehavior: .antiAlias,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 680, maxHeight: 900),
@@ -208,8 +218,8 @@ class _SecurityDialogState extends State<SecurityDialog> {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 20,
+                    horizontal: AppSpacing.lg,
+                    vertical: AppSpacing.s20,
                   ),
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: c.ground3)),
@@ -220,7 +230,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                       Text(
                         vm.title,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: FontSizes.panel,
                           fontWeight: .w600,
                           color: c.text1,
                         ),
@@ -231,7 +241,10 @@ class _SecurityDialogState extends State<SecurityDialog> {
                         onTap: widget.onClose,
                         child: Text(
                           '×',
-                          style: TextStyle(fontSize: 18, color: c.text4),
+                          style: TextStyle(
+                            fontSize: FontSizes.heading,
+                            color: c.text4,
+                          ),
                         ),
                       ),
                     ],
@@ -240,8 +253,8 @@ class _SecurityDialogState extends State<SecurityDialog> {
                 Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 18,
+                      horizontal: AppSpacing.lg,
+                      vertical: AppSpacing.s18,
                     ),
                     child: Column(
                       crossAxisAlignment: .stretch,
@@ -300,11 +313,11 @@ class _SecurityDialogState extends State<SecurityDialog> {
                             child: Container(
                               height: 32,
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
+                                horizontal: AppSpacing.s12,
                               ),
                               decoration: BoxDecoration(
                                 borderRadius: const BorderRadius.all(
-                                  Radius.circular(8),
+                                  Radius.circular(AppRadii.control),
                                 ),
                                 border: Border.all(color: c.line2),
                               ),
@@ -315,7 +328,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                                   Text(
                                     lockWord ?? '${vm.lockAfter}',
                                     style: TextStyle(
-                                      fontSize: 13,
+                                      fontSize: FontSizes.row,
                                       color: c.text1,
                                     ),
                                   ),
@@ -341,7 +354,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                         DecoratedBox(
                           decoration: BoxDecoration(
                             borderRadius: const BorderRadius.all(
-                              Radius.circular(10),
+                              Radius.circular(AppRadii.card),
                             ),
                             border: Border.all(color: c.ground3),
                           ),
@@ -350,11 +363,11 @@ class _SecurityDialogState extends State<SecurityDialog> {
                             children: [
                               if (vm.devices.isEmpty && vm.empty != null)
                                 Padding(
-                                  padding: const EdgeInsets.all(14),
+                                  padding: const EdgeInsets.all(AppSpacing.s14),
                                   child: Text(
                                     vm.empty!,
                                     style: TextStyle(
-                                      fontSize: 13,
+                                      fontSize: FontSizes.row,
                                       color: c.text4,
                                     ),
                                   ),
@@ -375,7 +388,7 @@ class _SecurityDialogState extends State<SecurityDialog> {
                               child: Text(
                                 vm.policy,
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: FontSizes.meta,
                                   height: 1.5,
                                   color: c.text4,
                                 ),
@@ -427,10 +440,13 @@ class _Option extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s14,
+        vertical: AppSpacing.s12,
+      ),
       decoration: BoxDecoration(
         color: c.ground0,
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
         border: Border.all(color: c.ground3),
       ),
       child: Column(
@@ -445,11 +461,17 @@ class _Option extends StatelessWidget {
                   crossAxisAlignment: .start,
                   spacing: 3,
                   children: [
-                    Text(title, style: TextStyle(fontSize: 14, color: c.text1)),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: FontSizes.body,
+                        color: c.text1,
+                      ),
+                    ),
                     Text(
                       text,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: FontSizes.meta,
                         height: 1.45,
                         color: c.text4,
                       ),
@@ -491,7 +513,9 @@ class _Switch extends StatelessWidget {
             height: 22,
             decoration: BoxDecoration(
               color: on ? c.ember : c.line3,
-              borderRadius: const BorderRadius.all(Radius.circular(11)),
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppRadii.toggle),
+              ),
             ),
             child: Stack(
               children: [
@@ -537,7 +561,10 @@ class _Device extends StatelessWidget {
       _ => c.text4,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s14,
+        vertical: AppSpacing.s12,
+      ),
       decoration: BoxDecoration(
         border: first ? null : Border(top: BorderSide(color: c.ground3)),
       ),
@@ -549,10 +576,15 @@ class _Device extends StatelessWidget {
             height: 34,
             decoration: BoxDecoration(
               color: c.ground3,
-              borderRadius: const BorderRadius.all(Radius.circular(8)),
+              borderRadius: const BorderRadius.all(
+                Radius.circular(AppRadii.control),
+              ),
             ),
             alignment: .center,
-            child: Text(vm.os, style: TextStyle(fontSize: 11, color: c.text2)),
+            child: Text(
+              vm.os,
+              style: TextStyle(fontSize: FontSizes.tag, color: c.text2),
+            ),
           ),
           Expanded(
             child: Column(
@@ -562,19 +594,22 @@ class _Device extends StatelessWidget {
                 Text.rich(
                   TextSpan(
                     text: vm.name,
-                    style: TextStyle(fontSize: 14, color: c.text1),
+                    style: TextStyle(fontSize: FontSizes.body, color: c.text1),
                     children: [
                       if (vm.tag case final t?)
                         TextSpan(
                           text: ' $t',
-                          style: TextStyle(fontSize: 12, color: tag),
+                          style: TextStyle(
+                            fontSize: FontSizes.meta,
+                            color: tag,
+                          ),
                         ),
                     ],
                   ),
                 ),
                 Text(
                   vm.detail,
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
                 ),
               ],
             ),
@@ -584,7 +619,6 @@ class _Device extends StatelessWidget {
             ink: vm.own ? c.text1 : c.badText,
             border: c.line3,
             height: 30,
-            fontSize: 12,
             onPressed: onPressed,
           ),
         ],
@@ -601,7 +635,6 @@ class _SmallButton extends StatelessWidget {
     required this.onPressed,
     this.fill,
     this.border,
-    this.fontSize = 12,
   });
 
   final String label;
@@ -609,14 +642,13 @@ class _SmallButton extends StatelessWidget {
   final Color? fill;
   final Color? border;
   final double height;
-  final double fontSize;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) => Material(
     color: fill ?? Colors.transparent,
     shape: RoundedRectangleBorder(
-      borderRadius: const BorderRadius.all(Radius.circular(8)),
+      borderRadius: const BorderRadius.all(Radius.circular(AppRadii.control)),
       side: border == null ? BorderSide.none : BorderSide(color: border!),
     ),
     clipBehavior: .antiAlias,
@@ -624,11 +656,11 @@ class _SmallButton extends StatelessWidget {
       onTap: onPressed,
       child: Container(
         height: height,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
         alignment: .center,
         child: Text(
           label,
-          style: TextStyle(fontSize: fontSize, color: ink),
+          style: TextStyle(fontSize: FontSizes.meta, color: ink),
         ),
       ),
     ),

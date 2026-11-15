@@ -7,6 +7,8 @@ import '../containers/page_header.dart';
 import '../forms/action_form.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// Board *Studio · Sites* (and its shapes Chain, Star, Two upstreams): a
 /// header with Connect to an upstream and Token for a site below, the
@@ -62,7 +64,12 @@ class SitesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s28,
+        AppSpacing.s28,
+        AppSpacing.s28,
+        AppSpacing.s40,
+      ),
       children: [
         PageHeader(
           title: title,
@@ -74,7 +81,7 @@ class SitesPage extends StatelessWidget {
             onPressed: connectReason == null ? onConnect : null,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: AppSpacing.s14),
         Align(
           alignment: .centerLeft,
           child: Button.secondary(
@@ -85,9 +92,12 @@ class SitesPage extends StatelessWidget {
           ),
         ),
         if (waiting case final w?) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s14,
+              vertical: AppSpacing.s10,
+            ),
             decoration: BoxDecoration(
               color: c.warnTint,
               border: .all(color: c.warnLine),
@@ -98,7 +108,7 @@ class SitesPage extends StatelessWidget {
                 Expanded(
                   child: Text(
                     w,
-                    style: TextStyle(fontSize: 14, color: c.text1),
+                    style: TextStyle(fontSize: FontSizes.body, color: c.text1),
                   ),
                 ),
                 if (onReview != null)
@@ -113,9 +123,9 @@ class SitesPage extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: 18),
+        const SizedBox(height: AppSpacing.s18),
         Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(AppSpacing.s18),
           decoration: BoxDecoration(
             color: c.ground0,
             border: .all(color: c.line1),

@@ -53,7 +53,7 @@ class TagChip extends StatelessWidget {
                   color: neutral ? c.text2 : toneColor(c, vm.tone),
                 )
               : TextStyle(
-                  fontSize: 12,
+                  fontSize: FontSizes.meta,
                   color: neutral ? c.text2 : toneColor(c, vm.tone),
                 ),
         ),

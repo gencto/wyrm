@@ -15,6 +15,7 @@ import '../tables/table_edits.dart';
 import '../tables/table_grid.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/json_tree.dart';
 import 'floating_window.dart';
@@ -597,7 +598,7 @@ class _ValueViewerState extends State<ValueViewer> {
           children: [
             if (csv != null && !_editing)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
                 child: SegmentedTabs(
                   key: const ValueKey('viewer-tabs'),
                   height: 34,
@@ -627,7 +628,12 @@ class _ValueViewerState extends State<ValueViewer> {
               ),
             if (csv != null && _asTable && !_editing)
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s14,
+                  AppSpacing.sm,
+                  AppSpacing.s14,
+                  AppSpacing.none,
+                ),
                 child: Text(
                   [
                     s.viewerCsvRules(
@@ -636,19 +642,24 @@ class _ValueViewerState extends State<ValueViewer> {
                     ),
                     if (csv.note.isNotEmpty) csv.note,
                   ].join(' · '),
-                  style: TextStyle(fontSize: 12, color: c.text4),
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
                 ),
               ),
             Expanded(
               child: _editing
                   ? Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.s14,
+                        AppSpacing.s12,
+                        AppSpacing.s14,
+                        AppSpacing.s10,
+                      ),
                       child: _editor(context, vm.edit!),
                     )
                   : grid
                   ? (table == null
                         ? Padding(
-                            padding: const EdgeInsets.all(14),
+                            padding: const EdgeInsets.all(AppSpacing.s14),
                             child: Text(
                               s.viewerCsvRefused,
                               key: const ValueKey('viewer-csv-refused'),
@@ -668,7 +679,12 @@ class _ValueViewerState extends State<ValueViewer> {
                           ))
                   : Scrollbar(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.s14,
+                          AppSpacing.s12,
+                          AppSpacing.s14,
+                          AppSpacing.md,
+                        ),
                         child: _body(context, vm.content),
                       ),
                     ),
@@ -693,7 +709,12 @@ class _ValueViewerState extends State<ValueViewer> {
               )
             else if (vm.locked case final why?)
               Container(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s14,
+                  AppSpacing.sm,
+                  AppSpacing.s14,
+                  AppSpacing.s10,
+                ),
                 decoration: BoxDecoration(
                   border: Border(top: BorderSide(color: c.line1)),
                 ),
@@ -702,13 +723,16 @@ class _ValueViewerState extends State<ValueViewer> {
                   spacing: 8,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(top: 1),
+                      padding: const EdgeInsets.only(top: AppSpacing.s1),
                       child: AppIcon('action_lock', size: 14, color: c.text4),
                     ),
                     Expanded(
                       child: Text(
                         why,
-                        style: TextStyle(fontSize: 12, color: c.text4),
+                        style: TextStyle(
+                          fontSize: FontSizes.meta,
+                          color: c.text4,
+                        ),
                       ),
                     ),
                   ],
@@ -716,7 +740,12 @@ class _ValueViewerState extends State<ValueViewer> {
               ),
             if (vm.quality case final q?)
               Container(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s14,
+                  AppSpacing.sm,
+                  AppSpacing.s14,
+                  AppSpacing.s10,
+                ),
                 decoration: BoxDecoration(
                   border: Border(top: BorderSide(color: c.line1)),
                 ),
@@ -744,7 +773,12 @@ class _ValueViewerState extends State<ValueViewer> {
   }) {
     final c = context.colors;
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s14,
+        AppSpacing.sm,
+        AppSpacing.s10,
+        AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -756,7 +790,10 @@ class _ValueViewerState extends State<ValueViewer> {
               text,
               maxLines: 2,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: 12, color: bad ? c.badText : c.text4),
+              style: TextStyle(
+                fontSize: FontSizes.meta,
+                color: bad ? c.badText : c.text4,
+              ),
             ),
           ),
           Button.quiet(
@@ -794,7 +831,10 @@ class _ValueViewerState extends State<ValueViewer> {
       case .text || .json || .table:
         return Container(
           decoration: box,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.s10,
+            vertical: AppSpacing.sm,
+          ),
           child: TextField(
             key: const ValueKey('viewer-editor'),
             controller: _text,
@@ -816,7 +856,7 @@ class _ValueViewerState extends State<ValueViewer> {
           child: Container(
             height: 44,
             decoration: box,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
             alignment: .centerLeft,
             child: TextField(
               key: const ValueKey('viewer-editor'),
@@ -858,7 +898,7 @@ class _ValueViewerState extends State<ValueViewer> {
           child: Container(
             height: 40,
             decoration: box,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 key: const ValueKey('viewer-editor'),

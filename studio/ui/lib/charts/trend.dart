@@ -9,6 +9,8 @@ import 'package:material_ui/material_ui.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/shades.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'trend_scale.dart';
 
@@ -438,15 +440,21 @@ class _TrendState extends State<Trend> {
           ],
         ),
         Padding(
-          padding: EdgeInsets.only(left: side, right: hasRight ? side : 0),
+          padding: EdgeInsets.only(
+            left: side,
+            right: hasRight ? side : AppSpacing.none,
+          ),
           child: SizedBox(
-            height: 14,
+            height: AppSpacing.s14,
             child: _ticks(_plotTicks(), mono(size: 11, color: c.text4)),
           ),
         ),
         if (vm.brush) ...[
           Padding(
-            padding: EdgeInsets.only(right: hasRight ? side : 0, top: 4),
+            padding: EdgeInsets.only(
+              right: hasRight ? side : AppSpacing.none,
+              top: AppSpacing.xs,
+            ),
             child: Row(
               crossAxisAlignment: .start,
               spacing: 8,
@@ -454,11 +462,11 @@ class _TrendState extends State<Trend> {
                 SizedBox(
                   width: yW,
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
                     child: Text(
                       s.trendAll,
                       textAlign: .right,
-                      style: TextStyle(fontSize: 11, color: c.muted),
+                      style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
                     ),
                   ),
                 ),
@@ -467,9 +475,12 @@ class _TrendState extends State<Trend> {
             ),
           ),
           Padding(
-            padding: EdgeInsets.only(left: side, right: hasRight ? side : 0),
+            padding: EdgeInsets.only(
+              left: side,
+              right: hasRight ? side : AppSpacing.none,
+            ),
             child: SizedBox(
-              height: 14,
+              height: AppSpacing.s14,
               child: _ticks(_brushTicks(s), mono(size: 10, color: c.muted)),
             ),
           ),
@@ -480,20 +491,20 @@ class _TrendState extends State<Trend> {
                 ? const SizedBox.shrink()
                 : Text(
                     s.trendHint,
-                    style: TextStyle(fontSize: 11, color: c.muted),
+                    style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
                   ),
           ),
       ],
     );
     final content = DefaultTextStyle.merge(
-      style: TextStyle(fontSize: 13, color: c.text1),
+      style: TextStyle(fontSize: FontSizes.row, color: c.text1),
       child: body,
     );
     if (!vm.card) {
       return content;
     }
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -534,11 +545,11 @@ class _TrendState extends State<Trend> {
         customBorder: const StadiumBorder(),
         child: Container(
           height: 26,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
           alignment: .center,
           child: Text(
             label,
-            style: TextStyle(fontSize: 12, color: c.emberSoft),
+            style: TextStyle(fontSize: FontSizes.meta, color: c.emberSoft),
           ),
         ),
       ),
@@ -556,7 +567,7 @@ class _TrendState extends State<Trend> {
                 text: '  · ${vm.rollup}',
                 style: TextStyle(
                   fontFamily: AppFonts.sans,
-                  fontSize: 12,
+                  fontSize: FontSizes.meta,
                   color: c.muted,
                 ),
               ),
@@ -587,8 +598,8 @@ class _TrendState extends State<Trend> {
                 spacing: 6,
                 children: [
                   SizedBox(
-                    width: 14,
-                    height: 10,
+                    width: AppSpacing.s14,
+                    height: AppSpacing.s10,
                     child: CustomPaint(
                       painter: _DashedBox(
                         fill: c.bad.withValues(alpha: 0.18),
@@ -598,7 +609,7 @@ class _TrendState extends State<Trend> {
                   ),
                   Text(
                     s.trendNoData,
-                    style: TextStyle(fontSize: 12, color: c.bad),
+                    style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
                   ),
                 ],
               ),
@@ -627,7 +638,7 @@ class _TrendState extends State<Trend> {
           borderRadius: Radii.segment,
           child: Container(
             height: 28,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
             child: Row(
               mainAxisSize: .min,
               spacing: 8,
@@ -638,7 +649,10 @@ class _TrendState extends State<Trend> {
                   Container(width: 16, height: 2, color: x.color.of(c)),
                 Text(x.name, style: mono(size: 13, color: c.text1)),
                 if (x.label.isNotEmpty)
-                  Text(x.label, style: TextStyle(fontSize: 13, color: c.text4)),
+                  Text(
+                    x.label,
+                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                  ),
               ],
             ),
           ),
@@ -791,7 +805,7 @@ class _TrendState extends State<Trend> {
                 Center(
                   child: Text(
                     message,
-                    style: TextStyle(fontSize: 13, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
                   ),
                 ),
               if (vm.refining)
@@ -846,7 +860,7 @@ class _TrendState extends State<Trend> {
   }
 
   Widget _skeleton(AppColors c, {required int bars}) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
+    padding: const EdgeInsets.symmetric(vertical: AppSpacing.s12),
     child: Column(
       mainAxisAlignment: .spaceEvenly,
       crossAxisAlignment: .start,
@@ -1039,7 +1053,9 @@ class _TrendState extends State<Trend> {
                         translation: const Offset(-0.5, 0),
                         child: Container(
                           height: 20,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.s6,
+                          ),
                           alignment: .center,
                           decoration: BoxDecoration(
                             color: c.line2,
@@ -1150,14 +1166,17 @@ class _TrendState extends State<Trend> {
     final right = x > w * 0.6;
     final tip = Container(
       width: 232,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s12,
+        vertical: AppSpacing.s10,
+      ),
       decoration: BoxDecoration(
         color: c.ground2.withValues(alpha: 0.97),
         border: .all(color: c.line2),
         borderRadius: Radii.card,
         boxShadow: const [
           BoxShadow(
-            color: Color(0x80000000),
+            color: Shades.black50,
             blurRadius: 32,
             offset: Offset(0, 12),
           ),
@@ -1174,14 +1193,17 @@ class _TrendState extends State<Trend> {
             spacing: 8,
             children: [
               Text(f.clock(d), style: mono(size: 13, color: c.text1)),
-              Text(f.day(d), style: TextStyle(fontSize: 11, color: c.text4)),
+              Text(
+                f.day(d),
+                style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+              ),
               Expanded(
                 child: Text(
                   bucket,
                   textAlign: .right,
                   maxLines: 2,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: 11, color: c.muted),
+                  style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
                 ),
               ),
             ],
@@ -1189,18 +1211,18 @@ class _TrendState extends State<Trend> {
           ...rows,
           for (final line in delta)
             Container(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: AppSpacing.s6),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 line,
-                style: TextStyle(fontSize: 11, color: c.text3),
+                style: TextStyle(fontSize: FontSizes.tag, color: c.text3),
               ),
             ),
           Text(
             _marker == null ? s.trendSetMarker : s.trendClearMarker,
-            style: TextStyle(fontSize: 11, color: c.muted),
+            style: TextStyle(fontSize: FontSizes.tag, color: c.muted),
           ),
         ],
       ),
@@ -1254,20 +1276,26 @@ class _TrendState extends State<Trend> {
               label,
               maxLines: 1,
               overflow: .ellipsis,
-              style: TextStyle(fontSize: 13, color: c.text3),
+              style: TextStyle(fontSize: FontSizes.row, color: c.text3),
             ),
           ),
           Text(value, style: mono(size: 14, color: valueColor)),
           ConstrainedBox(
             constraints: const BoxConstraints(minWidth: 18),
-            child: Text(unit, style: TextStyle(fontSize: 11, color: c.text4)),
+            child: Text(
+              unit,
+              style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+            ),
           ),
         ],
       ),
       if (sub != null)
         Padding(
-          padding: const EdgeInsets.only(left: 18),
-          child: Text(sub, style: TextStyle(fontSize: 11, color: subColor)),
+          padding: const EdgeInsets.only(left: AppSpacing.s18),
+          child: Text(
+            sub,
+            style: TextStyle(fontSize: FontSizes.tag, color: subColor),
+          ),
         ),
     ],
   );
@@ -1341,7 +1369,7 @@ class _TrendState extends State<Trend> {
                       decoration: BoxDecoration(
                         color: c.ember,
                         borderRadius: const BorderRadius.all(
-                          Radius.circular(3),
+                          Radius.circular(AppRadii.mark),
                         ),
                         border: node.hasFocus
                             ? .all(color: c.text1, width: 1.5)
@@ -1385,7 +1413,9 @@ class _TrendState extends State<Trend> {
               clipBehavior: .antiAlias,
               child: vm.loading
                   ? Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                      ),
                       child: _skeleton(c, bars: 1),
                     )
                   : Stack(

@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/sweep_bar.dart';
 import '../indicators/wyrm_loader.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/typography.dart';
 
 /// The log-in's button (docs/design/specs/login.md §3.6): 50 high, radius 10,
@@ -29,12 +31,12 @@ class LogInButton extends StatelessWidget {
       color: busy ? busyFill : c.ember,
       clipBehavior: .antiAlias,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(10)),
+        borderRadius: BorderRadius.all(Radius.circular(AppRadii.card)),
       ),
       child: InkWell(
         onTap: busy ? null : onPressed,
         child: SizedBox(
-          height: 50,
+          height: AppSizes.tallButton,
           child: Stack(
             children: [
               Center(
@@ -47,7 +49,7 @@ class LogInButton extends StatelessWidget {
                       busy ? S.current.signingIn : S.current.logIn,
                       style: TextStyle(
                         fontFamily: AppFonts.sans,
-                        fontSize: 16,
+                        fontSize: FontSizes.section,
                         fontWeight: .w600,
                         color: c.onEmber,
                       ),

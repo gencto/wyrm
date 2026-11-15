@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
+import '../theme/typography.dart';
 import 'arc_spinner.dart';
 
 /// The live steps under the busy Log in button
@@ -70,7 +71,7 @@ class LoginSteps extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: FontSizes.row,
                   color: i < current
                       ? c.text3
                       : i == current

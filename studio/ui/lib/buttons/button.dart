@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// The app's button, in the four roles of board *Design system* §06.
@@ -158,7 +159,9 @@ class Button extends StatelessWidget {
             minWidth: iconOnly ? height : 0,
           ),
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: iconOnly ? 0 : inset),
+            padding: EdgeInsets.symmetric(
+              horizontal: iconOnly ? AppSpacing.none : inset,
+            ),
             child: Center(widthFactor: expand ? null : 1, child: child),
           ),
         ),

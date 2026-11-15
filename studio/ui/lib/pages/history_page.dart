@@ -11,6 +11,8 @@ import '../models/value_changed.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One watch group in the left list.
 final class GroupItemVm extends Equatable {
@@ -121,7 +123,12 @@ class HistoryPage extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 14, 6, 6),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s12,
+              AppSpacing.s14,
+              AppSpacing.s6,
+              AppSpacing.s6,
+            ),
             child: Row(
               children: [
                 Expanded(child: SectionLabel(groupsLabel)),
@@ -137,15 +144,15 @@ class HistoryPage extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
               children: [
                 for (final g in groups)
                   InkWell(
                     onTap: () => onGroup(g.id),
                     borderRadius: Radii.control,
                     child: Container(
-                      padding: const EdgeInsets.all(10),
-                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.all(AppSpacing.s10),
+                      margin: const EdgeInsets.only(bottom: AppSpacing.xs),
                       decoration: BoxDecoration(
                         color: g.selected ? c.emberTint : null,
                         borderRadius: Radii.control,
@@ -157,14 +164,17 @@ class HistoryPage extends StatelessWidget {
                           Text(
                             g.title,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: FontSizes.body,
                               fontWeight: g.selected ? .w600 : .w400,
                               color: c.text1,
                             ),
                           ),
                           Text(
                             g.sub,
-                            style: TextStyle(fontSize: 12, color: c.text4),
+                            style: TextStyle(
+                              fontSize: FontSizes.meta,
+                              color: c.text4,
+                            ),
                           ),
                         ],
                       ),
@@ -175,13 +185,17 @@ class HistoryPage extends StatelessWidget {
           ),
           if (footer case final f?)
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppSpacing.s12),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 f,
-                style: TextStyle(fontSize: 12, height: 1.5, color: c.text3),
+                style: TextStyle(
+                  fontSize: FontSizes.meta,
+                  height: 1.5,
+                  color: c.text3,
+                ),
               ),
             ),
         ],
@@ -192,7 +206,12 @@ class HistoryPage extends StatelessWidget {
             child: Text(empty, style: TextStyle(color: c.text4)),
           )
         : ListView(
-            padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s28,
+              AppSpacing.lg,
+              AppSpacing.s28,
+              AppSpacing.s40,
+            ),
             children: [
               Row(
                 crossAxisAlignment: .start,
@@ -209,7 +228,10 @@ class HistoryPage extends StatelessWidget {
                         if (subtitle case final s?)
                           Text(
                             s,
-                            style: TextStyle(fontSize: 14, color: c.text3),
+                            style: TextStyle(
+                              fontSize: FontSizes.body,
+                              color: c.text3,
+                            ),
                           ),
                       ],
                     ),
@@ -224,7 +246,7 @@ class HistoryPage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: AppSpacing.s18),
               if (trend case final t?)
                 Trend(
                   vm: t,
@@ -243,16 +265,19 @@ class HistoryPage extends StatelessWidget {
                   ),
                   child: Text(
                     trendEmpty,
-                    style: TextStyle(fontSize: 13, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.row, color: c.text4),
                   ),
                 ),
-              const SizedBox(height: 22),
+              const SizedBox(height: AppSpacing.s22),
               SectionLabel(pointsLabel),
               if (pointsHint case final hint?) ...[
-                const SizedBox(height: 4),
-                Text(hint, style: TextStyle(fontSize: 12, color: c.text4)),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  hint,
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                ),
               ],
-              const SizedBox(height: 10),
+              const SizedBox(height: AppSpacing.s10),
               RowTable(
                 columns: columns,
                 rows: points,

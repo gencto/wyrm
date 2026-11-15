@@ -5,6 +5,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One segment of [PillTabs].
@@ -61,7 +62,7 @@ class PillTabs extends StatelessWidget {
     final c = context.colors;
     final gap = inset ? 3.0 : 4.0;
     final track = Container(
-      padding: const EdgeInsets.all(3),
+      padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
         color: inset ? c.ground3 : c.ground2,
         border: .all(color: c.line1),
@@ -101,7 +102,9 @@ class PillTabs extends StatelessWidget {
             height: height,
             alignment: Alignment.center,
             padding: EdgeInsets.symmetric(
-              horizontal: equal ? 4 : (inset ? 10 : 12),
+              horizontal: equal
+                  ? AppSpacing.xs
+                  : (inset ? AppSpacing.s10 : AppSpacing.s12),
             ),
             child: Row(
               mainAxisSize: .min,

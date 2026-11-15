@@ -10,6 +10,8 @@ import 'package:material_ui/material_ui.dart';
 import '../models/value_changed.dart';
 import '../overlays/floating_window.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
@@ -1291,7 +1293,7 @@ class _FlowCanvasState extends State<FlowCanvas> {
               ),
               Positioned.fill(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(AppSpacing.lg),
                   child: Center(
                     child: ShortcutCard(
                       key: const ValueKey('flow-shortcuts'),
@@ -1386,7 +1388,9 @@ class _CanvasTools extends StatelessWidget {
         key: key,
         color: (on ? c.emberTint : c.ground1).withValues(alpha: 0.92),
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppRadii.control),
+          ),
           side: BorderSide(color: on ? c.emberLine : c.line1),
         ),
         clipBehavior: .antiAlias,
@@ -1395,7 +1399,7 @@ class _CanvasTools extends StatelessWidget {
           child: Container(
             width: width,
             height: 34,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
             alignment: .center,
             child: child,
           ),
@@ -1422,7 +1426,7 @@ class _CanvasTools extends StatelessWidget {
           child: Text(
             '?',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: FontSizes.body,
               fontWeight: .w600,
               color: helpOpen ? c.emberSoft : c.text2,
             ),
@@ -1467,14 +1471,19 @@ class _WarnChip extends StatelessWidget {
       message: note,
       child: Container(
         height: 22,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
         alignment: .center,
         decoration: BoxDecoration(
           color: c.warnTint,
           border: .all(color: c.warnLine),
-          borderRadius: const BorderRadius.all(Radius.circular(11)),
+          borderRadius: const BorderRadius.all(
+            Radius.circular(AppRadii.toggle),
+          ),
         ),
-        child: Text(text, style: TextStyle(fontSize: 11, color: c.warn)),
+        child: Text(
+          text,
+          style: TextStyle(fontSize: FontSizes.tag, color: c.warn),
+        ),
       ),
     );
   }
@@ -1491,12 +1500,12 @@ class _Refusal extends StatelessWidget {
     final c = context.colors;
     return Container(
       height: 24,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
       alignment: .center,
       decoration: BoxDecoration(
         color: c.badTint,
         border: .all(color: c.badLine),
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
       child: Text(text, style: mono(size: 11, color: c.bad)),
     );

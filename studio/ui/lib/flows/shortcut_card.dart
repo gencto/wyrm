@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What the flow canvas can be told to do, by a key, by the pointer or
@@ -583,7 +584,7 @@ class ShortcutCard extends StatelessWidget {
     Widget chip(String t) => Container(
       constraints: const BoxConstraints(minWidth: 22),
       height: 22,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
       decoration: BoxDecoration(
         color: c.ground4,
         border: .all(color: c.line2),
@@ -615,17 +616,17 @@ class ShortcutCard extends StatelessWidget {
               for (final g in sc.gestures) flowGestureChips(g, mac: m),
             ];
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
         child: Row(
           crossAxisAlignment: .start,
           spacing: 12,
           children: [
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(top: 3),
+                padding: const EdgeInsets.only(top: AppSpacing.s3),
                 child: Text(
                   flowCommandLabel(sc.command),
-                  style: TextStyle(fontSize: 13, color: c.text2),
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text2),
                 ),
               ),
             ),
@@ -641,7 +642,10 @@ class ShortcutCard extends StatelessWidget {
                     if (i > 0)
                       Text(
                         nudge ? '·' : s.scOr,
-                        style: TextStyle(fontSize: 11, color: c.text4),
+                        style: TextStyle(
+                          fontSize: FontSizes.tag,
+                          color: c.text4,
+                        ),
                       ),
                     combo(x),
                   ],
@@ -658,7 +662,7 @@ class ShortcutCard extends StatelessWidget {
       mainAxisSize: .min,
       children: [
         Padding(
-          padding: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.only(bottom: AppSpacing.s6),
           child: Text(
             switch (g) {
               .select => s.scGroupSelect,
@@ -666,7 +670,7 @@ class ShortcutCard extends StatelessWidget {
               .view => s.scGroupView,
             }.toUpperCase(),
             style: TextStyle(
-              fontSize: 11,
+              fontSize: FontSizes.tag,
               fontWeight: .w600,
               letterSpacing: 0.66,
               color: c.text4,
@@ -694,7 +698,12 @@ class ShortcutCard extends StatelessWidget {
           crossAxisAlignment: .stretch,
           children: [
             Container(
-              padding: const EdgeInsets.fromLTRB(18, 10, 8, 10),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s18,
+                AppSpacing.s10,
+                AppSpacing.sm,
+                AppSpacing.s10,
+              ),
               decoration: BoxDecoration(
                 color: c.ground3,
                 border: Border(bottom: BorderSide(color: c.line1)),
@@ -705,7 +714,7 @@ class ShortcutCard extends StatelessWidget {
                     child: Text(
                       s.scTitle,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: FontSizes.body,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -722,7 +731,12 @@ class ShortcutCard extends StatelessWidget {
             ),
             Flexible(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s18,
+                  AppSpacing.s14,
+                  AppSpacing.s18,
+                  AppSpacing.md,
+                ),
                 child: Row(
                   crossAxisAlignment: .start,
                   spacing: 28,
@@ -741,13 +755,18 @@ class ShortcutCard extends StatelessWidget {
               ),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s18,
+                AppSpacing.s10,
+                AppSpacing.s18,
+                AppSpacing.s12,
+              ),
               decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: c.line1)),
               ),
               child: Text(
                 s.scNote,
-                style: TextStyle(fontSize: 12, color: c.text4),
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
               ),
             ),
           ],

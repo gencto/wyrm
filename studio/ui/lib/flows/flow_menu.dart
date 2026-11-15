@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'shortcut_card.dart';
 
@@ -164,14 +166,14 @@ class _FlowMenuState extends State<FlowMenu> {
       elevation: 12,
       shadowColor: Colors.black,
       shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.card)),
         side: BorderSide(color: c.line3),
       ),
       clipBehavior: .antiAlias,
       child: SizedBox(
         width: FlowMenu.width,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
           child: Column(
             crossAxisAlignment: .stretch,
             mainAxisSize: .min,
@@ -203,7 +205,7 @@ class _FlowMenuState extends State<FlowMenu> {
         child: Container(
           height: 34,
           color: isFields && _fields ? c.ground4 : null,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
           child: Row(
             spacing: 8,
             children: [
@@ -215,7 +217,7 @@ class _FlowMenuState extends State<FlowMenu> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: FontSizes.row,
                     color: !enabled
                         ? c.muted
                         : (i.danger ? c.badText : c.text1),
@@ -259,7 +261,7 @@ class _FlowMenuState extends State<FlowMenu> {
               },
         child: Container(
           height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
           child: Row(
             spacing: 8,
             children: [
@@ -270,7 +272,9 @@ class _FlowMenuState extends State<FlowMenu> {
                 decoration: BoxDecoration(
                   color: on ? (locked ? c.ground4 : c.emberTint) : null,
                   border: .all(color: on && !locked ? c.ember : c.line3),
-                  borderRadius: const BorderRadius.all(Radius.circular(4)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadii.chip),
+                  ),
                 ),
                 child: on
                     ? AppIcon(
@@ -286,13 +290,16 @@ class _FlowMenuState extends State<FlowMenu> {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: FontSizes.row,
                     color: locked ? c.text3 : c.text1,
                   ),
                 ),
               ),
               if (f.lockedReason case final why?)
-                Text(why, style: TextStyle(fontSize: 11, color: c.text4)),
+                Text(
+                  why,
+                  style: TextStyle(fontSize: FontSizes.tag, color: c.text4),
+                ),
             ],
           ),
         ),
@@ -307,7 +314,12 @@ class _FlowMenuState extends State<FlowMenu> {
       children: [
         panel([
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s14,
+              AppSpacing.s6,
+              AppSpacing.s14,
+              AppSpacing.s6,
+            ),
             child: Row(
               spacing: 8,
               children: [
@@ -326,7 +338,7 @@ class _FlowMenuState extends State<FlowMenu> {
                     vm.subtitle,
                     maxLines: 1,
                     overflow: .ellipsis,
-                    style: TextStyle(fontSize: 12, color: c.text4),
+                    style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
                   ),
                 ),
               ],
@@ -336,14 +348,19 @@ class _FlowMenuState extends State<FlowMenu> {
         ]),
         if (_fields && vm.fields.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(top: 40),
+            padding: const EdgeInsets.only(top: AppSpacing.s40),
             child: panel([
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s12,
+                  AppSpacing.s6,
+                  AppSpacing.s12,
+                  AppSpacing.s6,
+                ),
                 child: Text(
                   S.current.fmFieldsTitle.toUpperCase(),
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: FontSizes.tag,
                     fontWeight: .w600,
                     letterSpacing: 0.66,
                     color: c.text4,

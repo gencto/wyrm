@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'app_icon.dart';
 import 'quality_mark.dart';
@@ -47,8 +48,8 @@ class ProgressList extends StatelessWidget {
             spacing: 10,
             children: [
               SizedBox(
-                width: 16,
-                height: 20,
+                width: AppSpacing.md,
+                height: AppSpacing.s20,
                 child: Center(child: _mark(c, r.state)),
               ),
               Expanded(
@@ -59,7 +60,7 @@ class ProgressList extends StatelessWidget {
                     Text(
                       r.label,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.row,
                         fontWeight: r.state == .now ? .w600 : .w400,
                         color: switch (r.state) {
                           .waiting || .skipped => c.text4,

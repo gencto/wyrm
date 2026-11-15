@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// Asks for a reason before something is refused (Reject of a plan): a
 /// message, one text field, and the two buttons. The reason may stay empty.
@@ -68,7 +70,7 @@ class _ReasonDialogState extends State<ReasonDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(AppSpacing.s22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -80,7 +82,7 @@ class _ReasonDialogState extends State<ReasonDialog> {
               ),
               Text(
                 widget.message,
-                style: TextStyle(fontSize: 14, color: c.text2),
+                style: TextStyle(fontSize: FontSizes.body, color: c.text2),
               ),
               TextField(
                 controller: _text,
@@ -88,13 +90,13 @@ class _ReasonDialogState extends State<ReasonDialog> {
                 minLines: 1,
                 maxLines: 4,
                 onSubmitted: (_) => _done(),
-                style: TextStyle(fontSize: 14, color: c.text1),
+                style: TextStyle(fontSize: FontSizes.body, color: c.text1),
                 decoration: InputDecoration(
                   hintText: widget.hint,
                   isDense: true,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               Row(
                 mainAxisAlignment: .end,
                 spacing: 10,

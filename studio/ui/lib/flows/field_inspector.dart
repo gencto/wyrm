@@ -9,6 +9,8 @@ import '../indicators/lines_text.dart';
 import '../models/value_changed.dart';
 import '../overlays/confirm_dialog.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'field_drop_zone.dart';
 import 'flow_block_view.dart';
@@ -325,7 +327,12 @@ class FieldInspector extends StatelessWidget {
         children: [
           ?header,
           Container(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s18,
+              AppSpacing.md,
+              AppSpacing.s18,
+              AppSpacing.s12,
+            ),
             decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: c.line1)),
             ),
@@ -336,7 +343,7 @@ class FieldInspector extends StatelessWidget {
                 Text(
                   (s?.label ?? kindLabel).toUpperCase(),
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: FontSizes.meta,
                     fontWeight: .w600,
                     letterSpacing: 0.72,
                     color: c.text4,
@@ -347,19 +354,25 @@ class FieldInspector extends StatelessWidget {
                   style: mono(size: 18, weight: .w600, color: c.text1),
                 ),
                 if (s == null && note.isNotEmpty)
-                  Text(note, style: TextStyle(fontSize: 12, color: c.text4)),
+                  Text(
+                    note,
+                    style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+                  ),
               ],
             ),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s18,
+                vertical: AppSpacing.s10,
+              ),
               children: s != null
                   ? _summary(context, s)
                   : [
                       for (final (label, onTap) in links)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.only(bottom: AppSpacing.s6),
                           child: Align(
                             alignment: .centerLeft,
                             child: Button.quiet(
@@ -374,13 +387,15 @@ class FieldInspector extends StatelessWidget {
                             (i == 0 || rows[i - 1].group != r.group))
                           Padding(
                             padding: EdgeInsets.only(
-                              top: i == 0 ? 2 : 14,
-                              bottom: 2,
+                              top: i == AppSpacing.none
+                                  ? AppSpacing.s2
+                                  : AppSpacing.s14,
+                              bottom: AppSpacing.s2,
                             ),
                             child: Text(
                               r.group.toUpperCase(),
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: FontSizes.tag,
                                 fontWeight: .w600,
                                 letterSpacing: 0.66,
                                 color: c.text4,
@@ -410,7 +425,7 @@ class FieldInspector extends StatelessWidget {
                         ),
                       ],
                       if (onRemove != null) ...[
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSpacing.md),
                         Align(
                           alignment: .centerLeft,
                           child: Button.danger(
@@ -424,7 +439,12 @@ class FieldInspector extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s18,
+              AppSpacing.s14,
+              AppSpacing.s18,
+              AppSpacing.s18,
+            ),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
             ),
@@ -435,7 +455,11 @@ class FieldInspector extends StatelessWidget {
                 for (final f in footer)
                   Text(
                     f,
-                    style: TextStyle(fontSize: 12, height: 1.5, color: c.text4),
+                    style: TextStyle(
+                      fontSize: FontSizes.meta,
+                      height: 1.5,
+                      color: c.text4,
+                    ),
                   ),
               ],
             ),
@@ -451,7 +475,7 @@ class FieldInspector extends StatelessWidget {
       for (final (k, v) in s.facts)
         Container(
           constraints: const BoxConstraints(minHeight: 36),
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
           decoration: BoxDecoration(
             border: Border(bottom: BorderSide(color: c.ground3)),
           ),
@@ -460,38 +484,46 @@ class FieldInspector extends StatelessWidget {
             children: [
               SizedBox(
                 width: 104,
-                child: Text(k, style: TextStyle(fontSize: 13, color: c.text4)),
+                child: Text(
+                  k,
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+                ),
               ),
               Expanded(
-                child: Text(v, style: TextStyle(fontSize: 13, color: c.text1)),
+                child: Text(
+                  v,
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+                ),
               ),
             ],
           ),
         ),
       if (s.problems.isNotEmpty) ...[
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.md),
         Text(
           s.problemsLabel.toUpperCase(),
           style: TextStyle(
-            fontSize: 12,
+            fontSize: FontSizes.meta,
             fontWeight: .w600,
             letterSpacing: 0.72,
             color: c.text4,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: AppSpacing.s6),
         for (final p in s.problems)
           InkWell(
             onTap: p.block == null ? null : () => onProblem(p.block!),
-            borderRadius: const BorderRadius.all(Radius.circular(6)),
+            borderRadius: const BorderRadius.all(
+              Radius.circular(AppRadii.segment),
+            ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
               child: Row(
                 crossAxisAlignment: .start,
                 spacing: 8,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.only(top: AppSpacing.s6),
                     child: Container(
                       width: 6,
                       height: 6,
@@ -505,7 +537,7 @@ class FieldInspector extends StatelessWidget {
                     child: Text(
                       p.text,
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: FontSizes.row,
                         color: p.block == null ? c.text2 : c.badText,
                         decoration: p.block == null ? null : .underline,
                         decorationColor: c.badLine,
@@ -582,8 +614,8 @@ class _Row extends StatelessWidget {
       children: [
         if (hasPin)
           SizedBox(
-            width: 18,
-            height: 32,
+            width: AppSpacing.s18,
+            height: AppSpacing.xl,
             child: Tooltip(
               message: vm.pinLocked
                   ? pinLockedLabel
@@ -591,7 +623,9 @@ class _Row extends StatelessWidget {
               waitDuration: const Duration(milliseconds: 400),
               child: InkWell(
                 key: ValueKey('pin-${vm.id}'),
-                borderRadius: const BorderRadius.all(Radius.circular(4)),
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppRadii.chip),
+                ),
                 onTap: vm.pinLocked ? null : () => pin(vm.id, on: !pinned),
                 child: Align(
                   alignment: .centerLeft,
@@ -618,7 +652,7 @@ class _Row extends StatelessWidget {
                   vm.name,
                   maxLines: 2,
                   overflow: .ellipsis,
-                  style: TextStyle(fontSize: 13, color: c.text2),
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text2),
                 ),
                 if (vm.engine.isNotEmpty)
                   Text(
@@ -631,32 +665,34 @@ class _Row extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: wide
-              ? const SizedBox(height: 32)
+              ? const SizedBox(height: AppSpacing.xl)
               : vm.error.isEmpty
               ? _editor(context)
               : Column(
                   mainAxisSize: .min,
                   crossAxisAlignment: .start,
                   children: [
-                    const SizedBox(height: 6),
+                    const SizedBox(height: AppSpacing.s6),
                     _editor(context),
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xs,
+                      ),
                       child: Text(
                         vm.error,
-                        style: TextStyle(fontSize: 11, color: c.bad),
+                        style: TextStyle(fontSize: FontSizes.tag, color: c.bad),
                       ),
                     ),
                   ],
                 ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: AppSpacing.s6),
         SizedBox(
-          width: 28,
-          height: 32,
+          width: AppSpacing.s28,
+          height: AppSpacing.xl,
           child: bound
               ? _LinkMenu(
                   icon: AppIcon('ui_bind', size: 16, color: c.emberSoft),
@@ -679,8 +715,8 @@ class _Row extends StatelessWidget {
         ),
         if (onView case final view?)
           SizedBox(
-            width: 28,
-            height: 32,
+            width: AppSpacing.s28,
+            height: AppSpacing.xl,
             child: IconButton(
               tooltip: viewLabel,
               padding: EdgeInsets.zero,
@@ -702,7 +738,12 @@ class _Row extends StatelessWidget {
               children: [
                 head(),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 0, 6, 8),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.none,
+                    AppSpacing.none,
+                    AppSpacing.s6,
+                    AppSpacing.sm,
+                  ),
                   child: _editor(context),
                 ),
               ],
@@ -729,7 +770,7 @@ class _Row extends StatelessWidget {
     final box = BoxDecoration(
       color: c.ground3,
       border: .all(color: c.line2),
-      borderRadius: const BorderRadius.all(Radius.circular(6)),
+      borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
     );
     switch (vm.editor) {
       case FieldEditorVm.bound:
@@ -737,11 +778,13 @@ class _Row extends StatelessWidget {
         // accent colour in a frame; the wire on the canvas shows its source.
         return Container(
           height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
           decoration: BoxDecoration(
             color: c.ground3,
             border: .all(color: vm.writes ? c.emberLine : c.goodLine),
-            borderRadius: const BorderRadius.all(Radius.circular(6)),
+            borderRadius: const BorderRadius.all(
+              Radius.circular(AppRadii.segment),
+            ),
           ),
           child: Row(
             spacing: 8,
@@ -759,7 +802,7 @@ class _Row extends StatelessWidget {
                 Text(
                   boundLabel,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: FontSizes.micro,
                     color: vm.writes ? c.emberSoft : c.good,
                   ),
                 ),
@@ -770,7 +813,7 @@ class _Row extends StatelessWidget {
         return Container(
           height: 32,
           decoration: box,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: vm.choices.contains(vm.value) ? vm.value : null,
@@ -794,7 +837,7 @@ class _Row extends StatelessWidget {
         return Align(
           alignment: .centerLeft,
           child: SizedBox(
-            height: 32,
+            height: AppSpacing.xl,
             child: FittedBox(
               child: Switch(
                 key: ValueKey('toggle-${vm.id}'),
@@ -833,7 +876,10 @@ class _Row extends StatelessWidget {
         return ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 32),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s10,
+              vertical: AppSpacing.xs,
+            ),
             child: Column(
               mainAxisAlignment: .center,
               crossAxisAlignment: .start,
@@ -859,7 +905,9 @@ class _Row extends StatelessWidget {
         // Off, it says why under the button, not only in its tooltip.
         return Padding(
           padding: EdgeInsets.symmetric(
-            vertical: vm.disabledReason == null ? 0 : 6,
+            vertical: vm.disabledReason == null
+                ? AppSpacing.none
+                : AppSpacing.s6,
           ),
           child: Column(
             mainAxisSize: .min,
@@ -879,7 +927,11 @@ class _Row extends StatelessWidget {
               if (vm.disabledReason case final why?)
                 Text(
                   why,
-                  style: TextStyle(fontSize: 11, height: 1.35, color: c.text4),
+                  style: TextStyle(
+                    fontSize: FontSizes.tag,
+                    height: 1.35,
+                    color: c.text4,
+                  ),
                 ),
             ],
           ),
@@ -909,7 +961,7 @@ class _Row extends StatelessWidget {
           return const SizedBox.shrink();
         }
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
           child: RowsEditor(
             key: ValueKey('rows-editor-${vm.id}'),
             vm: rows,
@@ -919,9 +971,9 @@ class _Row extends StatelessWidget {
         );
       case FieldEditorVm.sample:
         return SizedBox(
-          height: 32,
+          height: AppSpacing.xl,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
             child: Align(
               alignment: .centerLeft,
               child: LinesText(
@@ -1003,7 +1055,7 @@ class _DurationEditorState extends State<_DurationEditor> {
           height: 32,
           width: 64,
           decoration: widget.decoration,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _unit,
@@ -1078,7 +1130,10 @@ class _TextEditorState extends State<_TextEditor> {
       height: lines ? null : 32,
       constraints: lines ? const BoxConstraints(minHeight: 32) : null,
       decoration: widget.decoration,
-      padding: EdgeInsets.symmetric(horizontal: 10, vertical: lines ? 6 : 0),
+      padding: EdgeInsets.symmetric(
+        horizontal: AppSpacing.s10,
+        vertical: lines ? AppSpacing.s6 : AppSpacing.none,
+      ),
       alignment: .centerLeft,
       child: TextField(
         key: lines ? const ValueKey('text-editor-lines') : null,
@@ -1129,7 +1184,10 @@ class _LinkMenu extends StatelessWidget {
           PopupMenuItem(
             value: i,
             height: 36,
-            child: Text(label, style: TextStyle(fontSize: 13, color: c.text1)),
+            child: Text(
+              label,
+              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
+            ),
           ),
       ],
       child: Center(child: icon),

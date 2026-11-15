@@ -4,6 +4,7 @@ import '../buttons/button.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/page_header.dart';
 import '../tables/row_table.dart';
+import '../theme/spacing.dart';
 
 /// Board *Studio · Flows*: the site's flows with their state, what they
 /// read and write, and the inspector of the selected one with Edit.
@@ -40,7 +41,12 @@ class FlowsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final body = ListView(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 40),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s28,
+        AppSpacing.s28,
+        AppSpacing.s28,
+        AppSpacing.s40,
+      ),
       children: [
         PageHeader(
           title: title,
@@ -52,7 +58,7 @@ class FlowsPage extends StatelessWidget {
             onPressed: newReason == null ? onTapFlowEditor : null,
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: AppSpacing.s20),
         RowTable(columns: columns, rows: rows, onTap: onRow, empty: empty),
       ],
     );

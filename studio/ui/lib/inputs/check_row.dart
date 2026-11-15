@@ -2,6 +2,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
+import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// A checkbox 16 in ember and its label (13, `text2`), 10 apart — the
 /// log-in's `Remember the gateway and user on this computer`. The whole row
@@ -21,7 +24,7 @@ class CheckRow extends StatelessWidget {
       enabled: vm.enabled,
       child: InkWell(
         onTap: vm.enabled ? () => vm.onChanged(!on) : null,
-        borderRadius: const BorderRadius.all(Radius.circular(4)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.chip)),
         child: Row(
           spacing: 10,
           children: [
@@ -29,10 +32,17 @@ class CheckRow extends StatelessWidget {
               width: 16,
               height: 16,
               // The system checkbox's own margin (3 px, 4 on the left).
-              margin: const EdgeInsets.fromLTRB(4, 3, 3, 3),
+              margin: const EdgeInsets.fromLTRB(
+                AppSpacing.xs,
+                AppSpacing.s3,
+                AppSpacing.s3,
+                AppSpacing.s3,
+              ),
               decoration: BoxDecoration(
                 color: on ? c.ember : c.ground2,
-                borderRadius: const BorderRadius.all(Radius.circular(3)),
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppRadii.mark),
+                ),
                 border: on ? null : .all(color: c.line3),
               ),
               child: on ? CustomPaint(painter: _Tick(c.onEmber)) : null,
@@ -40,7 +50,7 @@ class CheckRow extends StatelessWidget {
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(fontSize: 13, color: c.text2),
+                style: TextStyle(fontSize: FontSizes.row, color: c.text2),
               ),
             ),
           ],

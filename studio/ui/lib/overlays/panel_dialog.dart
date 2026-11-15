@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// A dialog in the panel style: title, a note, the content, buttons.
 class PanelDialog extends StatelessWidget {
@@ -26,7 +28,7 @@ class PanelDialog extends StatelessWidget {
     final c = context.colors;
     return Dialog(
       backgroundColor: c.ground1,
-      insetPadding: const EdgeInsets.all(24),
+      insetPadding: const EdgeInsets.all(AppSpacing.lg),
       shape: RoundedRectangleBorder(
         borderRadius: Radii.panel,
         side: BorderSide(color: c.line2),
@@ -34,7 +36,7 @@ class PanelDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: width),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(AppSpacing.s22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -55,7 +57,10 @@ class PanelDialog extends StatelessWidget {
                 ],
               ),
               if (note case final n?)
-                Text(n, style: TextStyle(fontSize: 13, color: c.text3)),
+                Text(
+                  n,
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+                ),
               Flexible(child: SingleChildScrollView(child: child)),
               if (actions.isNotEmpty)
                 Row(mainAxisAlignment: .end, spacing: 10, children: actions),

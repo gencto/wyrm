@@ -27,6 +27,8 @@ import '../tables/points_table.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import '../trees/node_tree.dart';
 import '../trees/tree_row.dart';
@@ -597,11 +599,19 @@ class ExplorerPage extends StatelessWidget {
     final c = context.colors;
     if (title == null) {
       return Center(
-        child: Text(empty, style: TextStyle(fontSize: 14, color: c.text4)),
+        child: Text(
+          empty,
+          style: TextStyle(fontSize: FontSizes.body, color: c.text4),
+        ),
       );
     }
     final header = Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.s20,
+        AppSpacing.lg,
+        AppSpacing.none,
+      ),
       child: Column(
         crossAxisAlignment: .stretch,
         spacing: 14,
@@ -649,13 +659,19 @@ class ExplorerPage extends StatelessWidget {
     final body = switch (tab) {
       'params' => _padded([
         if (paramsNote case final n?)
-          Text(n, style: TextStyle(fontSize: 13, color: c.text3)),
+          Text(
+            n,
+            style: TextStyle(fontSize: FontSizes.row, color: c.text3),
+          ),
         InspectorSections(sections: params),
       ]),
       'actions' => _padded(_actions(c)),
       'history' => _padded([
         if (historyNote case final n?)
-          Text(n, style: TextStyle(fontSize: 13, color: c.text4))
+          Text(
+            n,
+            style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+          )
         else ...[
           if (historyFail case final f?)
             Align(
@@ -679,7 +695,10 @@ class ExplorerPage extends StatelessWidget {
       ]),
       'audit' => _padded([
         if (auditNote case final n?)
-          Text(n, style: TextStyle(fontSize: 13, color: c.text4)),
+          Text(
+            n,
+            style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+          ),
         if (auditRows.isNotEmpty)
           RowTable(columns: auditColumns, rows: auditRows, rowHeight: 40),
       ]),
@@ -692,13 +711,16 @@ class ExplorerPage extends StatelessWidget {
           empty: childrenEmpty,
         ),
         if (childrenNote case final n?)
-          Text(n, style: TextStyle(fontSize: 13, color: c.text4)),
+          Text(
+            n,
+            style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+          ),
       ]),
       'points' => _pointsTab(c),
       _ => const SizedBox.shrink(),
     };
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       children: [header, body],
     );
   }
@@ -727,7 +749,7 @@ class ExplorerPage extends StatelessWidget {
                 style: titleName == null
                     ? mono(size: 26, weight: .w600, color: c.text1)
                     : TextStyle(
-                        fontSize: 26,
+                        fontSize: FontSizes.page,
                         fontWeight: .w600,
                         color: c.text1,
                       ),
@@ -753,7 +775,7 @@ class ExplorerPage extends StatelessWidget {
             s,
             maxLines: 1,
             overflow: .ellipsis,
-            style: TextStyle(fontSize: 14, color: c.text3),
+            style: TextStyle(fontSize: FontSizes.body, color: c.text3),
           ),
         ),
     ],
@@ -795,7 +817,12 @@ class ExplorerPage extends StatelessWidget {
   );
 
   Widget _padded(List<Widget> children) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.lg,
+      AppSpacing.s18,
+      AppSpacing.lg,
+      AppSpacing.none,
+    ),
     child: Column(
       crossAxisAlignment: .stretch,
       spacing: 16,
@@ -806,9 +833,12 @@ class ExplorerPage extends StatelessWidget {
   Widget _pointsTab(AppColors c) {
     final bar = selectionBar;
     final toolbarRow = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
       child: SizedBox(
-        height: 40,
+        height: AppSpacing.s40,
         child: bar != null
             ? Row(
                 spacing: 8,
@@ -816,12 +846,12 @@ class ExplorerPage extends StatelessWidget {
                   Text(
                     bar.count,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: FontSizes.body,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: AppSpacing.xs),
                   Expanded(
                     child: SingleChildScrollView(
                       scrollDirection: .horizontal,
@@ -869,7 +899,7 @@ class ExplorerPage extends StatelessWidget {
       children: [
         toolbarRow,
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
           child: showEmpty
               ? _empty(c)
               : PointsTable(
@@ -884,8 +914,16 @@ class ExplorerPage extends StatelessWidget {
         ),
         if (pointsNote case final n?)
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-            child: Text(n, style: TextStyle(fontSize: 13, color: c.text4)),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.s12,
+              AppSpacing.lg,
+              AppSpacing.none,
+            ),
+            child: Text(
+              n,
+              style: TextStyle(fontSize: FontSizes.row, color: c.text4),
+            ),
           ),
       ],
     );
@@ -899,7 +937,7 @@ class ExplorerPage extends StatelessWidget {
 
   Widget _filterBox(AppColors c) => Container(
     height: 40,
-    padding: const EdgeInsets.symmetric(horizontal: 12),
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s12),
     decoration: BoxDecoration(
       color: c.ground1,
       border: .all(color: c.line1),
@@ -913,7 +951,7 @@ class ExplorerPage extends StatelessWidget {
           child: TextFormField(
             initialValue: pointFilter,
             onChanged: onPointFilter,
-            style: TextStyle(fontSize: 13, color: c.text1),
+            style: TextStyle(fontSize: FontSizes.row, color: c.text1),
             decoration: InputDecoration(
               isCollapsed: true,
               contentPadding: EdgeInsets.zero,
@@ -922,7 +960,7 @@ class ExplorerPage extends StatelessWidget {
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               hintText: pointFilterHint,
-              hintStyle: TextStyle(fontSize: 13, color: c.text4),
+              hintStyle: TextStyle(fontSize: FontSizes.row, color: c.text4),
             ),
           ),
         ),
@@ -942,7 +980,11 @@ class ExplorerPage extends StatelessWidget {
       children: [
         Text(
           pointsEmpty!,
-          style: TextStyle(fontSize: 16, fontWeight: .w600, color: c.text1),
+          style: TextStyle(
+            fontSize: FontSizes.section,
+            fontWeight: .w600,
+            color: c.text1,
+          ),
         ),
         Wrap(
           spacing: 8,
@@ -965,7 +1007,10 @@ class ExplorerPage extends StatelessWidget {
             spacing: 4,
             children: [
               SectionLabel(g.label),
-              Text(g.note, style: TextStyle(fontSize: 12, color: c.text4)),
+              Text(
+                g.note,
+                style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+              ),
             ],
           ),
           LayoutBuilder(
@@ -993,7 +1038,7 @@ class ExplorerPage extends StatelessWidget {
         children: [
           Text(
             r.title,
-            style: const TextStyle(fontSize: 14, fontWeight: .w600),
+            style: const TextStyle(fontSize: FontSizes.body, fontWeight: .w600),
           ),
           QualityMark(
             vm: QualityMarkVm(label: r.status, tone: .good),
@@ -1003,7 +1048,10 @@ class ExplorerPage extends StatelessWidget {
       if (r.rows.isNotEmpty)
         RowTable(columns: r.columns, rows: r.rows)
       else
-        SizedBox(height: 260, child: LogView(lines: r.lines)),
+        SizedBox(
+          height: AppSizes.logPane,
+          child: LogView(lines: r.lines),
+        ),
     ],
   ];
 
@@ -1029,7 +1077,7 @@ class ExplorerPage extends StatelessWidget {
                   maxLines: 1,
                   overflow: .ellipsis,
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: FontSizes.heading,
                     fontWeight: .w600,
                     color: c.text1,
                   ),
@@ -1134,11 +1182,15 @@ class ExplorerPage extends StatelessWidget {
             ),
             Text(
               ins.note,
-              style: TextStyle(fontSize: 12, height: 1.5, color: c.text3),
+              style: TextStyle(
+                fontSize: FontSizes.meta,
+                height: 1.5,
+                color: c.text3,
+              ),
             ),
             SectionLabel(ins.cliLabel),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppSpacing.s12),
               decoration: BoxDecoration(
                 color: c.ground0,
                 border: .all(color: c.line1),
@@ -1191,12 +1243,15 @@ class ExplorerPage extends StatelessWidget {
       borderRadius: Radii.button,
       child: Container(
         height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s14),
         child: Row(
           mainAxisSize: .min,
           spacing: 8,
           children: [
-            Text(label, style: TextStyle(fontSize: 14, color: c.text1)),
+            Text(
+              label,
+              style: TextStyle(fontSize: FontSizes.body, color: c.text1),
+            ),
             AppIcon('ui_chevron_down', size: 14, color: c.text1),
           ],
         ),

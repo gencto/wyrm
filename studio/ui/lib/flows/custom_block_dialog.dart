@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One port the new block will have: the name the editor proposes for it
@@ -179,7 +180,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
     Widget label(String text) => Text(
       text.toUpperCase(),
       style: TextStyle(
-        fontSize: 11,
+        fontSize: FontSizes.tag,
         fontWeight: .w600,
         letterSpacing: 0.66,
         color: c.text4,
@@ -192,23 +193,23 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       Key? key,
     }) => Container(
       height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
       alignment: .centerLeft,
       decoration: BoxDecoration(
         color: c.ground3,
         border: .all(color: c.line2),
-        borderRadius: const BorderRadius.all(Radius.circular(6)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadii.segment)),
       ),
       child: TextField(
         key: key,
         controller: controller,
         style: code
             ? mono(size: 12, color: c.text1)
-            : TextStyle(fontSize: 13, color: c.text1),
+            : TextStyle(fontSize: FontSizes.row, color: c.text1),
         decoration:
             InputDecoration.collapsed(
               hintText: hint,
-              hintStyle: TextStyle(fontSize: 12, color: c.text4),
+              hintStyle: TextStyle(fontSize: FontSizes.meta, color: c.text4),
             ).copyWith(
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
@@ -227,7 +228,10 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       children: [
         label(title),
         if (list.isEmpty)
-          Text(vm.noPorts, style: TextStyle(fontSize: 12, color: c.text4)),
+          Text(
+            vm.noPorts,
+            style: TextStyle(fontSize: FontSizes.meta, color: c.text4),
+          ),
         for (final (i, p) in list.indexed)
           Row(
             spacing: 8,
@@ -260,7 +264,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520, maxHeight: 640),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(AppSpacing.s22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -276,7 +280,7 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                   ),
                   Text(
                     vm.note,
-                    style: TextStyle(fontSize: 13, color: c.text3),
+                    style: TextStyle(fontSize: FontSizes.row, color: c.text3),
                   ),
                 ],
               ),
@@ -314,7 +318,10 @@ class _CustomBlockDialogState extends State<CustomBlockDialog> {
                 ),
               ),
               if (problem != null)
-                Text(problem, style: TextStyle(fontSize: 12, color: c.bad)),
+                Text(
+                  problem,
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
+                ),
               Row(
                 mainAxisAlignment: .end,
                 spacing: 10,
@@ -411,7 +418,7 @@ class _NameDialogState extends State<NameDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380),
         child: Padding(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(AppSpacing.s22),
           child: Column(
             mainAxisSize: .min,
             crossAxisAlignment: .stretch,
@@ -420,12 +427,14 @@ class _NameDialogState extends State<NameDialog> {
               Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
               Container(
                 height: 36,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
                 alignment: .centerLeft,
                 decoration: BoxDecoration(
                   color: c.ground3,
                   border: .all(color: c.line2),
-                  borderRadius: const BorderRadius.all(Radius.circular(6)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadii.segment),
+                  ),
                 ),
                 child: TextField(
                   controller: _name,
@@ -445,7 +454,10 @@ class _NameDialogState extends State<NameDialog> {
                 ),
               ),
               if (problem != null && text != widget.value)
-                Text(problem, style: TextStyle(fontSize: 12, color: c.bad)),
+                Text(
+                  problem,
+                  style: TextStyle(fontSize: FontSizes.meta, color: c.bad),
+                ),
               Row(
                 mainAxisAlignment: .end,
                 spacing: 10,

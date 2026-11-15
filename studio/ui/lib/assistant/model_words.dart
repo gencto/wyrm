@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/typography.dart';
 
 /// What [ModelWords] draws: text the model wrote about a step or a run,
 /// under a label that says so.
@@ -47,12 +48,19 @@ class ModelWords extends StatelessWidget {
             spacing: 6,
             children: [
               AppIcon('ws_assistant', size: 12, color: c.ember),
-              Text(vm.label, style: TextStyle(fontSize: 11, color: c.text3)),
+              Text(
+                vm.label,
+                style: TextStyle(fontSize: FontSizes.tag, color: c.text3),
+              ),
             ],
           ),
           SelectableText(
             vm.text,
-            style: TextStyle(fontSize: 13, height: 1.45, color: c.text2),
+            style: TextStyle(
+              fontSize: FontSizes.row,
+              height: 1.45,
+              color: c.text2,
+            ),
           ),
         ],
       ),

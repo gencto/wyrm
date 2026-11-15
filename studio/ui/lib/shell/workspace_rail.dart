@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One workspace of the rail.
 final class RailItemVm extends Equatable {
@@ -48,7 +50,7 @@ class WorkspaceRail extends StatelessWidget {
           borderRadius: Radii.control,
           child: Container(
             width: 60,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
             decoration: BoxDecoration(
               color: on ? c.ground4 : null,
               borderRadius: Radii.control,
@@ -66,7 +68,7 @@ class WorkspaceRail extends StatelessWidget {
                 Text(
                   it.label,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: FontSizes.meta,
                     color: on ? c.text1 : c.text3,
                   ),
                 ),
@@ -79,7 +81,7 @@ class WorkspaceRail extends StatelessWidget {
 
     return Container(
       width: 76,
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s12),
       decoration: BoxDecoration(
         color: c.ground0,
         border: Border(right: BorderSide(color: c.line1)),

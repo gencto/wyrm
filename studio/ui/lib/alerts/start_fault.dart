@@ -5,6 +5,7 @@ import '../buttons/button.dart';
 import '../dialogs/error_dialog.dart' show ErrorRowVm;
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [StartFault] draws.
@@ -100,7 +101,10 @@ class StartFault extends StatelessWidget {
       ),
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.xl,
+          ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
             child: Semantics(
@@ -148,8 +152,8 @@ class StartFault extends StatelessWidget {
                   Container(
                     width: .infinity,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.s14,
                     ),
                     decoration: BoxDecoration(
                       color: c.ground1,
@@ -167,8 +171,10 @@ class StartFault extends StatelessWidget {
                             children: [
                               Padding(
                                 padding: EdgeInsets.only(
-                                  right: 16,
-                                  top: i == 0 ? 0 : 6,
+                                  right: AppSpacing.md,
+                                  top: i == AppSpacing.none
+                                      ? AppSpacing.none
+                                      : AppSpacing.s6,
                                 ),
                                 child: Text(
                                   r.label,
@@ -176,7 +182,11 @@ class StartFault extends StatelessWidget {
                                 ),
                               ),
                               Padding(
-                                padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
+                                padding: EdgeInsets.only(
+                                  top: i == AppSpacing.none
+                                      ? AppSpacing.none
+                                      : AppSpacing.s6,
+                                ),
                                 child: SelectableText(
                                   r.value,
                                   style: boardText(
@@ -218,7 +228,7 @@ class StartFault extends StatelessWidget {
                           height: 44,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
+                              horizontal: AppSpacing.md,
                             ),
                             child: Center(
                               widthFactor: 1,

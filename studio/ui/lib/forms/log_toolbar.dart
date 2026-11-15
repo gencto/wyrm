@@ -10,6 +10,7 @@ import '../inputs/check_row.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// What [LogToolbar] shows: the arguments of one `get_log`.
@@ -282,7 +283,10 @@ class _LogToolbarState extends State<LogToolbar> {
     final vm = widget.vm;
     final enabled = vm.disabledReason == null;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.s14,
+      ),
       decoration: BoxDecoration(
         color: c.ground1,
         border: .all(color: c.line1),
@@ -394,7 +398,7 @@ class _LogToolbarState extends State<LogToolbar> {
               onPressed: enabled ? widget.onGet : null,
               disabledReason: vm.disabledReason,
               size: ButtonSize.compact,
-              fontSize: 13,
+              fontSize: FontSizes.row,
             ),
           ];
           return wide
@@ -419,7 +423,10 @@ class _LogToolbarState extends State<LogToolbar> {
     crossAxisAlignment: .start,
     spacing: 6,
     children: [
-      Text(label, style: TextStyle(fontSize: 12, color: c.text3)),
+      Text(
+        label,
+        style: TextStyle(fontSize: FontSizes.meta, color: c.text3),
+      ),
       control,
     ],
   );
@@ -462,14 +469,17 @@ class _LogToolbarState extends State<LogToolbar> {
             height: 36,
             child: Text(
               i.label,
-              style: TextStyle(fontSize: 13, color: c.text1),
+              style: TextStyle(fontSize: FontSizes.row, color: c.text1),
             ),
           ),
       ],
       child: Container(
         height: 36,
         width: minWidth,
-        padding: const EdgeInsets.only(left: 12, right: 8),
+        padding: const EdgeInsets.only(
+          left: AppSpacing.s12,
+          right: AppSpacing.sm,
+        ),
         decoration: _box(c),
         child: Row(
           spacing: 8,
@@ -480,7 +490,7 @@ class _LogToolbarState extends State<LogToolbar> {
                 maxLines: 1,
                 overflow: .ellipsis,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: FontSizes.row,
                   color: enabled ? c.text1 : c.muted,
                 ),
               ),
@@ -521,7 +531,7 @@ class _LogToolbarState extends State<LogToolbar> {
       cursorColor: c.ember,
       style: TextStyle(
         fontFamily: mono ? AppFonts.mono : AppFonts.sans,
-        fontSize: 13,
+        fontSize: FontSizes.row,
         color: c.text1,
       ),
       decoration: InputDecoration(
@@ -536,11 +546,11 @@ class _LogToolbarState extends State<LogToolbar> {
         enabledBorder: InputBorder.none,
         focusedBorder: InputBorder.none,
         disabledBorder: InputBorder.none,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+        contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.s10),
         hintText: hint,
         hintStyle: TextStyle(
           fontFamily: AppFonts.sans,
-          fontSize: 13,
+          fontSize: FontSizes.row,
           color: c.text4,
         ),
       ),

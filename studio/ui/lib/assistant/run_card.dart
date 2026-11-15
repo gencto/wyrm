@@ -6,6 +6,7 @@ import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// Where a step of a run stands.
@@ -68,7 +69,10 @@ class RunCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
+      margin: const EdgeInsets.only(
+        left: AppSpacing.s42,
+        bottom: AppSpacing.s12,
+      ),
       clipBehavior: .antiAlias,
       decoration: BoxDecoration(
         color: c.ground1,
@@ -79,19 +83,29 @@ class RunCard extends StatelessWidget {
         crossAxisAlignment: .stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s14,
+              AppSpacing.s12,
+              AppSpacing.s14,
+              AppSpacing.s10,
+            ),
             child: SectionLabel(vm.title),
           ),
           for (final r in vm.rows) _Row(vm: r),
           Container(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s14,
+              AppSpacing.s10,
+              AppSpacing.s14,
+              AppSpacing.s12,
+            ),
             decoration: BoxDecoration(
               border: Border(top: BorderSide(color: c.line1)),
             ),
             child: Text(
               vm.note,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: FontSizes.meta,
                 height: 1.45,
                 color: vm.noteTone == .neutral
                     ? c.text3
@@ -120,7 +134,12 @@ class _Row extends StatelessWidget {
       .waiting || .skipped => c.text3,
     };
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s14,
+        AppSpacing.sm,
+        AppSpacing.s14,
+        AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.line1)),
       ),
@@ -129,7 +148,7 @@ class _Row extends StatelessWidget {
         spacing: 12,
         children: [
           SizedBox(
-            width: 22,
+            width: AppSpacing.s22,
             child: Text('${vm.n}', style: mono(size: 12, color: c.text3)),
           ),
           Expanded(

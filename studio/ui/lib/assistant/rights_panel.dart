@@ -6,6 +6,7 @@ import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One mode of *Who approves*.
@@ -104,7 +105,11 @@ class RightsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: 11, height: 1.4, color: c.text3);
+    final small = TextStyle(
+      fontSize: FontSizes.tag,
+      height: 1.4,
+      color: c.text3,
+    );
     final can = vm.editReason == null;
     return Column(
       crossAxisAlignment: .stretch,
@@ -129,8 +134,8 @@ class RightsPanel extends StatelessWidget {
                     : null,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
+                    horizontal: AppSpacing.s10,
+                    vertical: AppSpacing.sm,
                   ),
                   child: Row(
                     crossAxisAlignment: .start,
@@ -139,7 +144,7 @@ class RightsPanel extends StatelessWidget {
                       Container(
                         width: 14,
                         height: 14,
-                        margin: const EdgeInsets.only(top: 2),
+                        margin: const EdgeInsets.only(top: AppSpacing.s2),
                         decoration: BoxDecoration(
                           shape: .circle,
                           border: Border.all(
@@ -155,7 +160,10 @@ class RightsPanel extends StatelessWidget {
                           children: [
                             Text(
                               m.label,
-                              style: TextStyle(fontSize: 13, color: c.text1),
+                              style: TextStyle(
+                                fontSize: FontSizes.row,
+                                color: c.text1,
+                              ),
                             ),
                             Text(m.detail, style: small),
                           ],
@@ -167,7 +175,7 @@ class RightsPanel extends StatelessWidget {
               ),
             ),
           ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.s10),
         SectionLabel(vm.prefixesLabel),
         Wrap(
           spacing: 6,
@@ -178,7 +186,10 @@ class RightsPanel extends StatelessWidget {
               Container(
                 height: 24,
                 constraints: const BoxConstraints(maxWidth: 260),
-                padding: const EdgeInsets.only(left: 8, right: 2),
+                padding: const EdgeInsets.only(
+                  left: AppSpacing.sm,
+                  right: AppSpacing.s2,
+                ),
                 decoration: BoxDecoration(
                   color: c.ground3,
                   border: Border.all(color: c.line2),
@@ -204,7 +215,7 @@ class RightsPanel extends StatelessWidget {
                             ? () => onRemovePrefix!(p)
                             : null,
                         child: Padding(
-                          padding: const EdgeInsets.all(4),
+                          padding: const EdgeInsets.all(AppSpacing.xs),
                           child: AppIcon(
                             'ui_close',
                             size: 11,
@@ -223,13 +234,13 @@ class RightsPanel extends StatelessWidget {
                   onTap: can ? onAddPrefix : null,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 3,
+                      horizontal: AppSpacing.s6,
+                      vertical: AppSpacing.s3,
                     ),
                     child: Text(
                       a,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: FontSizes.meta,
                         color: can ? c.text2 : c.text4,
                       ),
                     ),
@@ -241,7 +252,10 @@ class RightsPanel extends StatelessWidget {
         Text(vm.prefixesNote, style: small),
         if (vm.staged case final s?)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s10,
+              vertical: AppSpacing.s6,
+            ),
             decoration: BoxDecoration(
               color: c.warnTint,
               border: Border.all(color: c.warnLine),
@@ -249,7 +263,7 @@ class RightsPanel extends StatelessWidget {
             ),
             child: Text(s, style: small.copyWith(color: c.warn)),
           ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.s10),
         FactGrid(facts: vm.facts, labelWidth: 96),
         Text(vm.note, style: small),
       ],

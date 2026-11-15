@@ -6,6 +6,7 @@ import '../indicators/app_icon.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// How a row of [FoundCard] is marked: from the node's live value as the
@@ -137,9 +138,12 @@ class FoundCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: 11, color: c.text3);
+    final small = TextStyle(fontSize: FontSizes.tag, color: c.text3);
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
+      margin: const EdgeInsets.only(
+        left: AppSpacing.s42,
+        bottom: AppSpacing.s12,
+      ),
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.line2),
@@ -163,7 +167,7 @@ class FoundCard extends StatelessWidget {
                     child: Text(
                       vm.title.toUpperCase(),
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: FontSizes.tag,
                         fontWeight: .w600,
                         letterSpacing: 0.66,
                         color: c.text3,
@@ -174,7 +178,12 @@ class FoundCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s12,
+                AppSpacing.s10,
+                AppSpacing.s12,
+                AppSpacing.xs,
+              ),
               child: Column(
                 crossAxisAlignment: .stretch,
                 spacing: 7,
@@ -183,23 +192,39 @@ class FoundCard extends StatelessWidget {
             ),
             if (vm.missing.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s12,
+                  AppSpacing.s6,
+                  AppSpacing.s12,
+                  AppSpacing.none,
+                ),
                 child: Column(
                   crossAxisAlignment: .stretch,
                   spacing: 2,
                   children: [
                     for (final m in vm.missing)
-                      Text(m, style: TextStyle(fontSize: 11, color: c.warn)),
+                      Text(
+                        m,
+                        style: TextStyle(
+                          fontSize: FontSizes.tag,
+                          color: c.warn,
+                        ),
+                      ),
                   ],
                 ),
               ),
             if (vm.rows.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.s12,
+                  AppSpacing.s2,
+                  AppSpacing.s12,
+                  AppSpacing.s10,
+                ),
                 child: Text(vm.note, style: small),
               )
             else
-              const SizedBox(height: 10),
+              const SizedBox(height: AppSpacing.s10),
           ],
           if (vm.timeline case final t?) ...[
             Container(
@@ -212,11 +237,21 @@ class FoundCard extends StatelessWidget {
               child: Text(vm.timelineLabel ?? '', style: small),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 12, 8),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xs,
+                AppSpacing.none,
+                AppSpacing.s12,
+                AppSpacing.sm,
+              ),
               child: Trend(vm: t, onWindow: onWindow, onReset: onReset),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.s12,
+                AppSpacing.sm,
+                AppSpacing.s12,
+                AppSpacing.s10,
+              ),
               decoration: BoxDecoration(
                 color: c.ground2,
                 border: Border(top: BorderSide(color: c.line1)),
@@ -268,8 +303,8 @@ class FoundCard extends StatelessWidget {
           child: Semantics(
             label: r.markLabel,
             child: SizedBox(
-              width: 14,
-              height: 18,
+              width: AppSpacing.s14,
+              height: AppSpacing.s18,
               child: Center(
                 child: switch (r.mark) {
                   .good => AppIcon('ui_check', size: 12, color: color),
@@ -296,12 +331,15 @@ class FoundCard extends StatelessWidget {
               Text.rich(
                 TextSpan(
                   text: r.label,
-                  style: TextStyle(fontSize: 13, color: c.text1),
+                  style: TextStyle(fontSize: FontSizes.row, color: c.text1),
                   children: [
                     if (r.detail.isNotEmpty)
                       TextSpan(
                         text: '  ${r.detail}',
-                        style: TextStyle(fontSize: 12, color: c.text2),
+                        style: TextStyle(
+                          fontSize: FontSizes.meta,
+                          color: c.text2,
+                        ),
                       ),
                   ],
                 ),

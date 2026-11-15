@@ -6,6 +6,8 @@ import '../containers/section_label.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/spacing.dart';
+import '../theme/typography.dart';
 
 /// One option of a question: its label, the detail under it, and whether
 /// it is picked.
@@ -96,10 +98,22 @@ class ChoicesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final small = TextStyle(fontSize: 12, height: 1.45, color: c.text3);
+    final small = TextStyle(
+      fontSize: FontSizes.meta,
+      height: 1.45,
+      color: c.text3,
+    );
     return Container(
-      margin: const EdgeInsets.only(left: 42, bottom: 12),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      margin: const EdgeInsets.only(
+        left: AppSpacing.s42,
+        bottom: AppSpacing.s12,
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s14,
+        AppSpacing.s12,
+        AppSpacing.s14,
+        AppSpacing.s12,
+      ),
       decoration: BoxDecoration(
         color: c.ground1,
         border: Border.all(color: c.line2),
@@ -113,7 +127,11 @@ class ChoicesCard extends StatelessWidget {
           for (final q in vm.questions) ...[
             Text(
               q.text,
-              style: TextStyle(fontSize: 14, height: 1.4, color: c.text1),
+              style: TextStyle(
+                fontSize: FontSizes.body,
+                height: 1.4,
+                color: c.text1,
+              ),
             ),
             if (q.answer case final a?)
               Text(a, style: small.copyWith(color: c.text2))
@@ -176,10 +194,12 @@ class _Option extends StatelessWidget {
             Container(
               width: 14,
               height: 14,
-              margin: const EdgeInsets.only(top: 3),
+              margin: const EdgeInsets.only(top: AppSpacing.s3),
               decoration: BoxDecoration(
                 shape: multiple ? .rectangle : .circle,
-                borderRadius: multiple ? BorderRadius.circular(3) : null,
+                borderRadius: multiple
+                    ? BorderRadius.circular(AppRadii.mark)
+                    : null,
                 color: vm.picked ? c.ember : null,
                 border: Border.all(color: vm.picked ? c.ember : c.line3),
               ),
@@ -192,7 +212,7 @@ class _Option extends StatelessWidget {
                   Text(
                     vm.label,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: FontSizes.body,
                       fontWeight: .w500,
                       color: c.text1,
                     ),
@@ -201,7 +221,7 @@ class _Option extends StatelessWidget {
                     Text(
                       vm.detail,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: FontSizes.meta,
                         height: 1.4,
                         color: c.text3,
                       ),
