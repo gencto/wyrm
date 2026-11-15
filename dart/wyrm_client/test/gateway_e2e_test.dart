@@ -77,7 +77,7 @@ void main() {
   });
 
   test('info and users decode', () async {
-    final info = await WyrmGateway.info(base);
+    final info = await WyrmGateway.gatewayInfo(base);
     expect(info.site, 'test');
     expect(info.role, GatewayRole.active);
     expect(info.tls, isFalse);
@@ -222,7 +222,7 @@ void main() {
       final rows = await c.agentAsk(agent, 'set two points').toList();
       final task = '$agent/tasks/${last(rows).task}';
       final rec = await c.agentRecord(task);
-      final hash = rec.shownPlanHash!;
+      final hash = rec.shownPlanHash;
       // another plan than the one that is stored
       await expectLater(
           c.agentApprove(task, steps: [1], plan: '00'),

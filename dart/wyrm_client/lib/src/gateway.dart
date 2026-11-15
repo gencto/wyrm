@@ -304,13 +304,27 @@ class WyrmGateway {
 
   // ---- ADR 0050: gateway info, device keys, step-up ----
 
-  /// `GET /api/info` without a session: what a log-in page needs.
-  static Future<GatewayInfo> info(Uri base, {HttpClient? http}) async {
+  /// `GET /api/info` without a session: what a log-in page needs. A reply
+  /// that is not one is `invalid_message` naming the field.
+  static Future<GatewayInfo> gatewayInfo(Uri base, {HttpClient? http}) =>
+      _info(base, http, GatewayInfo.fromValue);
+
+  /// `GET /api/info` read with the old tolerant reader: a field that is
+  /// absent or of another type takes its default.
+  @Deprecated('Use gatewayInfo: it names a malformed field')
+  static Future<GatewayInfo> info(Uri base, {HttpClient? http}) =>
+      _info(base, http, GatewayInfo.of);
+
+  static Future<GatewayInfo> _info(
+    Uri base,
+    HttpClient? http,
+    GatewayInfo Function(Value) decode,
+  ) async {
     final c = http ?? HttpClient();
     try {
       return decodeReply<GatewayInfo>(
         await _get(c, base.resolve('/api/info')),
-        GatewayInfo.fromValue,
+        decode,
       );
     } finally {
       if (http == null) c.close();

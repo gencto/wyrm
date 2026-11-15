@@ -215,17 +215,41 @@ void main() {
       expect((p[4].node, p[4].seconds), (null, 2.0));
     });
 
-    test('an older record: absent fields take their defaults', () {
-      final r = AgentTaskRecord.fromValue(
-        VMap({'state': const VStr('done'), 'plan': VArray(const [])}),
-      );
+    test('optional fields may be absent; required ones may not', () {
+      final minimal = VMap({
+        'state': const VStr('done'),
+        'owner': const VStr('user:olena'),
+        'ask': const VStr('x'),
+        'plan': VArray(const []),
+        'plan_hash': VStr(planHash(VArray(const []))!),
+        'step': const VInt(0),
+        'log': VArray(const []),
+        'tokens': const VInt(0),
+      });
+      final r = AgentTaskRecord.fromValue(minimal);
       expect(r.plan, isEmpty);
       expect(r.suggestions, isEmpty);
       expect(r.findingsRefused, isEmpty);
+      expect(r.shownPlanHash, r.planHash);
       expect(
-        (r.planHash, r.replacedBy, r.review, r.reviewing),
-        (null, null, null, false),
+        (r.replacedBy, r.review, r.reviewing, r.error),
+        (null, null, false, null),
       );
+      for (final k in [
+        'owner',
+        'ask',
+        'plan',
+        'plan_hash',
+        'step',
+        'log',
+        'tokens',
+      ]) {
+        expect(
+          () => AgentTaskRecord.fromValue(VMap({...minimal.v}..remove(k))),
+          throwsA(_decodeError('AgentTaskRecord.$k')),
+          reason: k,
+        );
+      }
     });
 
     test('a malformed record names the field', () {
@@ -318,6 +342,12 @@ void main() {
       expect(
         () => AgentTaskValue.fromValue(VMap({'state': const VInt(2)})),
         throwsA(_decodeError('AgentTaskValue.state')),
+      );
+      expect(
+        () => AgentTaskValue.fromValue(
+          VMap({'state': const VStr('done'), 'step': const VInt(1)}),
+        ),
+        throwsA(_decodeError('AgentTaskValue.of')),
       );
     });
   });

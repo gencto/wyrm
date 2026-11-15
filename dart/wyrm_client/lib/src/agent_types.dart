@@ -224,12 +224,36 @@ abstract class TaskSuggestion with _$TaskSuggestion {
   }
 
   /// The suggestions of a task's `~state` [record]; empty for a record of an
-  /// agent link older than the field. Skips what does not decode.
+  /// agent link older than the field. The old tolerant reader: an item that
+  /// is not a map is skipped, a field of another type is empty.
   @Deprecated('Use AgentTaskRecord.fromValue(record).suggestions')
   static List<TaskSuggestion> of(Value? record) => [
     if (record?['suggestions'] case VArray(:final v))
       for (final s in v)
-        ?_tryDecode(() => TaskSuggestion.fromValue(s)),
+        if (s is VMap)
+          TaskSuggestion(
+            id: _text(s['id']),
+            label: _text(s['label']),
+            detail: _text(s['detail']),
+            changes: switch (s['changes']) {
+              VInt(:final v) => v,
+              _ => 0,
+            },
+            step: switch (s['step']) {
+              VInt(:final v) => v,
+              _ => null,
+            },
+            rows: [
+              if (s['rows'] case VArray(:final v))
+                for (final r in v)
+                  if (r is VMap)
+                    TaskRow(
+                      key: _text(r['key']),
+                      label: _text(r['label']),
+                      detail: _text(r['detail']),
+                    ),
+            ],
+          ),
   ];
 
   /// The text of the follow-up ask: what the person saw on the card, and
@@ -275,12 +299,17 @@ abstract class TaskFinding with _$TaskFinding {
 
   /// The findings of a task's `~state` [record], in the order the model
   /// noted them; empty for a record of an agent link older than the field.
-  /// Skips what does not decode.
+  /// The old tolerant reader: an item without a key is skipped.
   @Deprecated('Use AgentTaskRecord.fromValue(record).findings')
   static List<TaskFinding> of(Value? record) => [
     if (record?['findings'] case VArray(:final v))
       for (final f in v)
-        ?_tryDecode(() => TaskFinding.fromValue(f)),
+        if (f is VMap && _text(f['key']).isNotEmpty)
+          TaskFinding(
+            key: _text(f['key']),
+            label: _text(f['label']),
+            detail: _text(f['detail']),
+          ),
   ];
 }
 
@@ -515,8 +544,8 @@ abstract class AgentTaskValue with _$AgentTaskValue {
     required AgentTaskState state,
 
     /// Steps run so far, of [of].
-    @Default(0) int step,
-    @Default(0) int of,
+    required int step,
+    required int of,
     AgentLastStep? last,
 
     /// How many suggestions and findings the record holds.
@@ -530,12 +559,14 @@ abstract class AgentTaskValue with _$AgentTaskValue {
     String? replacedBy,
   }) = _AgentTaskValue;
 
+  /// `state`, `step` and `of` are required (`lib.rs` module doc); the
+  /// others are optional.
   factory AgentTaskValue.fromValue(Value v) {
     final m = WireMap.of(v, 'AgentTaskValue');
     return AgentTaskValue(
       state: m.name('state', AgentTaskState.values),
-      step: m.integerOr('step', 0),
-      of: m.integerOr('of', 0),
+      step: m.integer('step'),
+      of: m.integer('of'),
       last: m.has('last')
           ? AgentLastStep.fromValue(m['last']!, 'AgentTaskValue.last')
           : null,
@@ -561,14 +592,14 @@ abstract class AgentTaskRecord with _$AgentTaskRecord {
 
     /// What the person asked.
     required String ask,
-    @Default(<AgentPlanStep>[]) List<AgentPlanStep> plan,
+    required List<AgentPlanStep> plan,
 
     /// The hash of the plan the link holds (`plan_hash`).
-    String? planHash,
+    required String planHash,
 
     /// [planHash] of the plan in this record, made here: what an approval
     /// of the plan as shown sends (`approve {plan}`).
-    String? shownPlanHash,
+    required String shownPlanHash,
     @Default(<AgentQuestion>[]) List<AgentQuestion> questions,
     @Default(<TaskSuggestion>[]) List<TaskSuggestion> suggestions,
     @Default(<TaskFinding>[]) List<TaskFinding> findings,
@@ -589,8 +620,8 @@ abstract class AgentTaskRecord with _$AgentTaskRecord {
     @Default(<String>[]) List<String> context,
 
     /// Steps run so far.
-    @Default(0) int step,
-    @Default(<String>[]) List<String> log,
+    required int step,
+    required List<String> log,
     String? error,
 
     /// What the model found after the run stopped.
@@ -601,18 +632,22 @@ abstract class AgentTaskRecord with _$AgentTaskRecord {
     @Default(false) bool reviewing,
 
     /// LLM tokens the task used.
-    @Default(0) int tokens,
+    required int tokens,
   }) = _AgentTaskRecord;
 
+  /// `state`, `owner`, `ask`, `plan`, `plan_hash`, `step`, `log` and
+  /// `tokens` are required (`lib.rs` module doc); the fields marked `?`
+  /// there are optional.
   factory AgentTaskRecord.fromValue(Value v) {
     final m = WireMap.of(v, 'AgentTaskRecord');
     return AgentTaskRecord(
       state: m.name('state', AgentTaskState.values),
-      owner: m.strOr('owner', ''),
-      ask: m.strOr('ask', ''),
-      plan: m.listOr('plan', AgentPlanStep.fromValue),
-      planHash: m.textOrNull('plan_hash'),
-      shownPlanHash: planHash(m['plan']),
+      owner: m.str('owner'),
+      ask: m.str('ask'),
+      plan: m.list('plan', AgentPlanStep.fromValue),
+      planHash: m.str('plan_hash'),
+      // never null: every step decoded as a map
+      shownPlanHash: planHash(m['plan'])!,
       questions: m.listOr('questions', AgentQuestion.fromValue),
       suggestions: m.listOr('suggestions', TaskSuggestion.fromValue),
       findings: m.listOr('findings', TaskFinding.fromValue),
@@ -625,12 +660,12 @@ abstract class AgentTaskRecord with _$AgentTaskRecord {
       parent: m.textOrNull('parent'),
       replacedBy: m.textOrNull('replaced_by'),
       context: m.stringsOr('context'),
-      step: m.integerOr('step', 0),
-      log: m.stringsOr('log'),
+      step: m.integer('step'),
+      log: m.strings('log'),
       error: m.strOrNull('error'),
       review: m.textOrNull('review'),
       reviewing: m.booleanOr('reviewing', false),
-      tokens: m.integerOr('tokens', 0),
+      tokens: m.integer('tokens'),
     );
   }
 }
@@ -676,10 +711,5 @@ sealed class AgentReply with _$AgentReply {
   }
 }
 
-T? _tryDecode<T>(T Function() f) {
-  try {
-    return f();
-  } on DecodeError {
-    return null;
-  }
-}
+/// The old tolerant text read: anything but text is empty.
+String _text(Value? v) => v is VStr ? v.v : '';

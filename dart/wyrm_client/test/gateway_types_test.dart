@@ -72,18 +72,44 @@ void main() {
       expect(i.devices.stepUp, StepUp.config);
     });
 
-    test('optional fields take their defaults', () {
-      final i = GatewayInfo.fromValue(
-        VMap({
-          'site': const VStr('s'),
-          'version': const VStr('1'),
-          'tls': const VBool(false),
-        }),
+    test('optional fields may be absent; required ones may not', () {
+      final minimal = VMap({..._info.v})
+        ..v.remove('ca_fp')
+        ..v.remove('ca')
+        ..v.remove('pair')
+        ..v.remove('names');
+      final i = GatewayInfo.fromValue(minimal);
+      expect((i.caFp, i.ca, i.pair), (null, null, null));
+      expect(i.names, isEmpty);
+      for (final k in [
+        'site',
+        'version',
+        'tls',
+        'role',
+        'devices',
+        'min_studio',
+        'up',
+      ]) {
+        expect(
+          () => GatewayInfo.fromValue(VMap({...minimal.v}..remove(k))),
+          throwsA(_decodeError('GatewayInfo.$k')),
+          reason: k,
+        );
+      }
+      expect(
+        () => GatewayInfo.fromValue(
+          VMap({
+            ...minimal.v,
+            'devices': VMap({'enabled': const VBool(true)}),
+          }),
+        ),
+        throwsA(_decodeError('GatewayInfo.devices.max_per_user')),
       );
-      expect(i, const GatewayInfo(site: 's', version: '1', tls: false));
-      expect(i.role, GatewayRole.active);
-      expect(i.devices, const DevicePolicy());
-      expect(i.devices.stepUp, StepUp.none);
+      // a gateway that sends no policy: the defaults (device keys off)
+      expect(
+        const GatewayInfo(site: 's', version: '1', tls: false).devices,
+        const DevicePolicy(),
+      );
     });
 
     test('a malformed reply names the field', () {
@@ -106,10 +132,16 @@ void main() {
         () => GatewayInfo.fromValue(
           VMap({
             ..._info.v,
-            'devices': VMap({'step_up': const VStr('always')}),
+            'devices': VMap({
+              ...switch (_info.v['devices']) {
+                VMap(:final v) => v,
+                _ => const <String, Value>{},
+              },
+              'step_up': const VStr('always'),
+            }),
           }),
         ),
-        throwsA(_decodeError('DevicePolicy.step_up')),
+        throwsA(_decodeError('GatewayInfo.devices.step_up')),
       );
       expect(
         () => GatewayInfo.fromValue(const VStr('not a map')),
@@ -162,6 +194,12 @@ void main() {
       expect(
         () => GatewayDevice.fromValue(_device(alg: 'ed25519')),
         throwsA(_decodeError('GatewayDevice.alg')),
+      );
+      expect(
+        () => GatewayDevice.fromValue(
+          VMap({..._device().v}..remove('last_used')),
+        ),
+        throwsA(_decodeError('GatewayDevice.last_used')),
       );
       expect(
         () => GatewayDevice.fromValue(_device(state: 'gone')),
@@ -255,6 +293,35 @@ void main() {
       expect(s.session, 'secret-token');
       expect('$s', isNot(contains('secret-token')));
     });
+  });
+
+  test('the deprecated .of readers keep their old tolerance', () {
+    final partial = VMap({
+      'site': const VStr('lab'),
+      'version': const VStr('0.1.0'),
+      'tls': const VBool(true),
+    });
+    // ignore: deprecated_member_use_from_same_package
+    final i = GatewayInfo.of(partial);
+    expect(
+      (i.site, i.role, i.devices),
+      ('lab', GatewayRole.active, const DevicePolicy()),
+    );
+    // ignore: deprecated_member_use_from_same_package
+    final d = GatewayDevice.of(
+      VMap({'id': const VStr('d'), 'platform': const VStr('web')}),
+    );
+    expect(
+      (d.id, d.platform, d.alg, d.state),
+      ('d', null, DeviceAlg.es256, GatewayDeviceState.active),
+    );
+    // ignore: deprecated_member_use_from_same_package
+    expect(
+      GatewayUser.of(VMap({'name': const VStr('ann')})),
+      const GatewayUser('ann', []),
+    );
+    // ignore: deprecated_member_use_from_same_package
+    expect(DevicePolicy.of(null), const DevicePolicy());
   });
 
   test('WyrmException.refusal is typed; an unknown code keeps its text', () {
@@ -362,10 +429,10 @@ void main() {
     test('info decodes; a reply that is not one is invalid_message', () async {
       final base = Uri.parse('http://127.0.0.1:${server.port}');
       answers['/api/info'] = _info;
-      expect((await WyrmGateway.info(base)).site, 'plant');
+      expect((await WyrmGateway.gatewayInfo(base)).site, 'plant');
       answers['/api/info'] = VMap({'site': const VStr('plant')});
       await expectLater(
-        WyrmGateway.info(base),
+        WyrmGateway.gatewayInfo(base),
         throwsA(_malformed('GatewayInfo.version')),
       );
     });

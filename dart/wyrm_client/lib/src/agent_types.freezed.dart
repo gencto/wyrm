@@ -2874,13 +2874,13 @@ return $default(_that.state,_that.step,_that.of,_that.last,_that.suggestions,_th
 
 
 class _AgentTaskValue implements AgentTaskValue {
-  const _AgentTaskValue({required this.state, this.step = 0, this.of = 0, this.last, this.suggestions = 0, this.findings = 0, this.reviewing = false, this.replacedBy});
+  const _AgentTaskValue({required this.state, required this.step, required this.of, this.last, this.suggestions = 0, this.findings = 0, this.reviewing = false, this.replacedBy});
   
 
 @override final  AgentTaskState state;
 /// Steps run so far, of [of].
-@override@JsonKey() final  int step;
-@override@JsonKey() final  int of;
+@override final  int step;
+@override final  int of;
 @override final  AgentLastStep? last;
 /// How many suggestions and findings the record holds.
 @override@JsonKey() final  int suggestions;
@@ -2974,9 +2974,9 @@ mixin _$AgentTaskRecord {
  AgentTaskState get state;/// The subject who asked.
  String get owner;/// What the person asked.
  String get ask; List<AgentPlanStep> get plan;/// The hash of the plan the link holds (`plan_hash`).
- String? get planHash;/// [planHash] of the plan in this record, made here: what an approval
+ String get planHash;/// [planHash] of the plan in this record, made here: what an approval
 /// of the plan as shown sends (`approve {plan}`).
- String? get shownPlanHash; List<AgentQuestion> get questions; List<TaskSuggestion> get suggestions; List<TaskFinding> get findings;/// The findings not noted, by why (reasons this client does not know
+ String get shownPlanHash; List<AgentQuestion> get questions; List<TaskSuggestion> get suggestions; List<TaskFinding> get findings;/// The findings not noted, by why (reasons this client does not know
 /// are left out).
  Map<AgentFindingRefusal, int> get findingsRefused;/// The task this one follows (a retry, an undo, another plan).
  String? get parent;/// The follow-up task that took this one's place: its plan is shown as
@@ -3023,7 +3023,7 @@ abstract mixin class $AgentTaskRecordCopyWith<$Res>  {
   factory $AgentTaskRecordCopyWith(AgentTaskRecord value, $Res Function(AgentTaskRecord) _then) = _$AgentTaskRecordCopyWithImpl;
 @useResult
 $Res call({
- AgentTaskState state, String owner, String ask, List<AgentPlanStep> plan, String? planHash, String? shownPlanHash, List<AgentQuestion> questions, List<TaskSuggestion> suggestions, List<TaskFinding> findings, Map<AgentFindingRefusal, int> findingsRefused, String? parent, String? replacedBy, List<String> context, int step, List<String> log, String? error, String? review, bool reviewing, int tokens
+ AgentTaskState state, String owner, String ask, List<AgentPlanStep> plan, String planHash, String shownPlanHash, List<AgentQuestion> questions, List<TaskSuggestion> suggestions, List<TaskFinding> findings, Map<AgentFindingRefusal, int> findingsRefused, String? parent, String? replacedBy, List<String> context, int step, List<String> log, String? error, String? review, bool reviewing, int tokens
 });
 
 
@@ -3040,15 +3040,15 @@ class _$AgentTaskRecordCopyWithImpl<$Res>
 
 /// Create a copy of AgentTaskRecord
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? planHash = freezed,Object? shownPlanHash = freezed,Object? questions = null,Object? suggestions = null,Object? findings = null,Object? findingsRefused = null,Object? parent = freezed,Object? replacedBy = freezed,Object? context = null,Object? step = null,Object? log = null,Object? error = freezed,Object? review = freezed,Object? reviewing = null,Object? tokens = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? planHash = null,Object? shownPlanHash = null,Object? questions = null,Object? suggestions = null,Object? findings = null,Object? findingsRefused = null,Object? parent = freezed,Object? replacedBy = freezed,Object? context = null,Object? step = null,Object? log = null,Object? error = freezed,Object? review = freezed,Object? reviewing = null,Object? tokens = null,}) {
   return _then(AgentTaskRecord(
 state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as AgentTaskState,owner: null == owner ? _self.owner : owner // ignore: cast_nullable_to_non_nullable
 as String,ask: null == ask ? _self.ask : ask // ignore: cast_nullable_to_non_nullable
 as String,plan: null == plan ? _self.plan : plan // ignore: cast_nullable_to_non_nullable
-as List<AgentPlanStep>,planHash: freezed == planHash ? _self.planHash : planHash // ignore: cast_nullable_to_non_nullable
-as String?,shownPlanHash: freezed == shownPlanHash ? _self.shownPlanHash : shownPlanHash // ignore: cast_nullable_to_non_nullable
-as String?,questions: null == questions ? _self.questions : questions // ignore: cast_nullable_to_non_nullable
+as List<AgentPlanStep>,planHash: null == planHash ? _self.planHash : planHash // ignore: cast_nullable_to_non_nullable
+as String,shownPlanHash: null == shownPlanHash ? _self.shownPlanHash : shownPlanHash // ignore: cast_nullable_to_non_nullable
+as String,questions: null == questions ? _self.questions : questions // ignore: cast_nullable_to_non_nullable
 as List<AgentQuestion>,suggestions: null == suggestions ? _self.suggestions : suggestions // ignore: cast_nullable_to_non_nullable
 as List<TaskSuggestion>,findings: null == findings ? _self.findings : findings // ignore: cast_nullable_to_non_nullable
 as List<TaskFinding>,findingsRefused: null == findingsRefused ? _self.findingsRefused : findingsRefused // ignore: cast_nullable_to_non_nullable
@@ -3146,7 +3146,7 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AgentTaskState state,  String owner,  String ask,  List<AgentPlanStep> plan,  String? planHash,  String? shownPlanHash,  List<AgentQuestion> questions,  List<TaskSuggestion> suggestions,  List<TaskFinding> findings,  Map<AgentFindingRefusal, int> findingsRefused,  String? parent,  String? replacedBy,  List<String> context,  int step,  List<String> log,  String? error,  String? review,  bool reviewing,  int tokens)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AgentTaskState state,  String owner,  String ask,  List<AgentPlanStep> plan,  String planHash,  String shownPlanHash,  List<AgentQuestion> questions,  List<TaskSuggestion> suggestions,  List<TaskFinding> findings,  Map<AgentFindingRefusal, int> findingsRefused,  String? parent,  String? replacedBy,  List<String> context,  int step,  List<String> log,  String? error,  String? review,  bool reviewing,  int tokens)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _AgentTaskRecord() when $default != null:
 return $default(_that.state,_that.owner,_that.ask,_that.plan,_that.planHash,_that.shownPlanHash,_that.questions,_that.suggestions,_that.findings,_that.findingsRefused,_that.parent,_that.replacedBy,_that.context,_that.step,_that.log,_that.error,_that.review,_that.reviewing,_that.tokens);case _:
@@ -3167,7 +3167,7 @@ return $default(_that.state,_that.owner,_that.ask,_that.plan,_that.planHash,_tha
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AgentTaskState state,  String owner,  String ask,  List<AgentPlanStep> plan,  String? planHash,  String? shownPlanHash,  List<AgentQuestion> questions,  List<TaskSuggestion> suggestions,  List<TaskFinding> findings,  Map<AgentFindingRefusal, int> findingsRefused,  String? parent,  String? replacedBy,  List<String> context,  int step,  List<String> log,  String? error,  String? review,  bool reviewing,  int tokens)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AgentTaskState state,  String owner,  String ask,  List<AgentPlanStep> plan,  String planHash,  String shownPlanHash,  List<AgentQuestion> questions,  List<TaskSuggestion> suggestions,  List<TaskFinding> findings,  Map<AgentFindingRefusal, int> findingsRefused,  String? parent,  String? replacedBy,  List<String> context,  int step,  List<String> log,  String? error,  String? review,  bool reviewing,  int tokens)  $default,) {final _that = this;
 switch (_that) {
 case _AgentTaskRecord():
 return $default(_that.state,_that.owner,_that.ask,_that.plan,_that.planHash,_that.shownPlanHash,_that.questions,_that.suggestions,_that.findings,_that.findingsRefused,_that.parent,_that.replacedBy,_that.context,_that.step,_that.log,_that.error,_that.review,_that.reviewing,_that.tokens);case _:
@@ -3187,7 +3187,7 @@ return $default(_that.state,_that.owner,_that.ask,_that.plan,_that.planHash,_tha
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AgentTaskState state,  String owner,  String ask,  List<AgentPlanStep> plan,  String? planHash,  String? shownPlanHash,  List<AgentQuestion> questions,  List<TaskSuggestion> suggestions,  List<TaskFinding> findings,  Map<AgentFindingRefusal, int> findingsRefused,  String? parent,  String? replacedBy,  List<String> context,  int step,  List<String> log,  String? error,  String? review,  bool reviewing,  int tokens)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AgentTaskState state,  String owner,  String ask,  List<AgentPlanStep> plan,  String planHash,  String shownPlanHash,  List<AgentQuestion> questions,  List<TaskSuggestion> suggestions,  List<TaskFinding> findings,  Map<AgentFindingRefusal, int> findingsRefused,  String? parent,  String? replacedBy,  List<String> context,  int step,  List<String> log,  String? error,  String? review,  bool reviewing,  int tokens)?  $default,) {final _that = this;
 switch (_that) {
 case _AgentTaskRecord() when $default != null:
 return $default(_that.state,_that.owner,_that.ask,_that.plan,_that.planHash,_that.shownPlanHash,_that.questions,_that.suggestions,_that.findings,_that.findingsRefused,_that.parent,_that.replacedBy,_that.context,_that.step,_that.log,_that.error,_that.review,_that.reviewing,_that.tokens);case _:
@@ -3202,7 +3202,7 @@ return $default(_that.state,_that.owner,_that.ask,_that.plan,_that.planHash,_tha
 
 
 class _AgentTaskRecord implements AgentTaskRecord {
-  const _AgentTaskRecord({required this.state, required this.owner, required this.ask,  List<AgentPlanStep> plan = const <AgentPlanStep>[], this.planHash, this.shownPlanHash,  List<AgentQuestion> questions = const <AgentQuestion>[],  List<TaskSuggestion> suggestions = const <TaskSuggestion>[],  List<TaskFinding> findings = const <TaskFinding>[],  Map<AgentFindingRefusal, int> findingsRefused = const <AgentFindingRefusal, int>{}, this.parent, this.replacedBy,  List<String> context = const <String>[], this.step = 0,  List<String> log = const <String>[], this.error, this.review, this.reviewing = false, this.tokens = 0}): _plan = plan,_questions = questions,_suggestions = suggestions,_findings = findings,_findingsRefused = findingsRefused,_context = context,_log = log;
+  const _AgentTaskRecord({required this.state, required this.owner, required this.ask, required  List<AgentPlanStep> plan, required this.planHash, required this.shownPlanHash,  List<AgentQuestion> questions = const <AgentQuestion>[],  List<TaskSuggestion> suggestions = const <TaskSuggestion>[],  List<TaskFinding> findings = const <TaskFinding>[],  Map<AgentFindingRefusal, int> findingsRefused = const <AgentFindingRefusal, int>{}, this.parent, this.replacedBy,  List<String> context = const <String>[], required this.step, required  List<String> log, this.error, this.review, this.reviewing = false, required this.tokens}): _plan = plan,_questions = questions,_suggestions = suggestions,_findings = findings,_findingsRefused = findingsRefused,_context = context,_log = log;
   
 
 @override final  AgentTaskState state;
@@ -3211,17 +3211,17 @@ class _AgentTaskRecord implements AgentTaskRecord {
 /// What the person asked.
 @override final  String ask;
  final  List<AgentPlanStep> _plan;
-@override@JsonKey() List<AgentPlanStep> get plan {
+@override List<AgentPlanStep> get plan {
   if (_plan is EqualUnmodifiableListView) return _plan;
   // ignore: implicit_dynamic_type
   return EqualUnmodifiableListView(_plan);
 }
 
 /// The hash of the plan the link holds (`plan_hash`).
-@override final  String? planHash;
+@override final  String planHash;
 /// [planHash] of the plan in this record, made here: what an approval
 /// of the plan as shown sends (`approve {plan}`).
-@override final  String? shownPlanHash;
+@override final  String shownPlanHash;
  final  List<AgentQuestion> _questions;
 @override@JsonKey() List<AgentQuestion> get questions {
   if (_questions is EqualUnmodifiableListView) return _questions;
@@ -3269,9 +3269,9 @@ class _AgentTaskRecord implements AgentTaskRecord {
 }
 
 /// Steps run so far.
-@override@JsonKey() final  int step;
+@override final  int step;
  final  List<String> _log;
-@override@JsonKey() List<String> get log {
+@override List<String> get log {
   if (_log is EqualUnmodifiableListView) return _log;
   // ignore: implicit_dynamic_type
   return EqualUnmodifiableListView(_log);
@@ -3284,7 +3284,7 @@ class _AgentTaskRecord implements AgentTaskRecord {
 /// suggestions when it ends.
 @override@JsonKey() final  bool reviewing;
 /// LLM tokens the task used.
-@override@JsonKey() final  int tokens;
+@override final  int tokens;
 
 /// Create a copy of AgentTaskRecord
 /// with the given fields replaced by the non-null parameter values.
@@ -3318,7 +3318,7 @@ abstract mixin class _$AgentTaskRecordCopyWith<$Res> implements $AgentTaskRecord
   factory _$AgentTaskRecordCopyWith(_AgentTaskRecord value, $Res Function(_AgentTaskRecord) _then) = __$AgentTaskRecordCopyWithImpl;
 @override @useResult
 $Res call({
- AgentTaskState state, String owner, String ask, List<AgentPlanStep> plan, String? planHash, String? shownPlanHash, List<AgentQuestion> questions, List<TaskSuggestion> suggestions, List<TaskFinding> findings, Map<AgentFindingRefusal, int> findingsRefused, String? parent, String? replacedBy, List<String> context, int step, List<String> log, String? error, String? review, bool reviewing, int tokens
+ AgentTaskState state, String owner, String ask, List<AgentPlanStep> plan, String planHash, String shownPlanHash, List<AgentQuestion> questions, List<TaskSuggestion> suggestions, List<TaskFinding> findings, Map<AgentFindingRefusal, int> findingsRefused, String? parent, String? replacedBy, List<String> context, int step, List<String> log, String? error, String? review, bool reviewing, int tokens
 });
 
 
@@ -3335,15 +3335,15 @@ class __$AgentTaskRecordCopyWithImpl<$Res>
 
 /// Create a copy of AgentTaskRecord
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? planHash = freezed,Object? shownPlanHash = freezed,Object? questions = null,Object? suggestions = null,Object? findings = null,Object? findingsRefused = null,Object? parent = freezed,Object? replacedBy = freezed,Object? context = null,Object? step = null,Object? log = null,Object? error = freezed,Object? review = freezed,Object? reviewing = null,Object? tokens = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? state = null,Object? owner = null,Object? ask = null,Object? plan = null,Object? planHash = null,Object? shownPlanHash = null,Object? questions = null,Object? suggestions = null,Object? findings = null,Object? findingsRefused = null,Object? parent = freezed,Object? replacedBy = freezed,Object? context = null,Object? step = null,Object? log = null,Object? error = freezed,Object? review = freezed,Object? reviewing = null,Object? tokens = null,}) {
   return _then(_AgentTaskRecord(
 state: null == state ? _self.state : state // ignore: cast_nullable_to_non_nullable
 as AgentTaskState,owner: null == owner ? _self.owner : owner // ignore: cast_nullable_to_non_nullable
 as String,ask: null == ask ? _self.ask : ask // ignore: cast_nullable_to_non_nullable
 as String,plan: null == plan ? _self._plan : plan // ignore: cast_nullable_to_non_nullable
-as List<AgentPlanStep>,planHash: freezed == planHash ? _self.planHash : planHash // ignore: cast_nullable_to_non_nullable
-as String?,shownPlanHash: freezed == shownPlanHash ? _self.shownPlanHash : shownPlanHash // ignore: cast_nullable_to_non_nullable
-as String?,questions: null == questions ? _self._questions : questions // ignore: cast_nullable_to_non_nullable
+as List<AgentPlanStep>,planHash: null == planHash ? _self.planHash : planHash // ignore: cast_nullable_to_non_nullable
+as String,shownPlanHash: null == shownPlanHash ? _self.shownPlanHash : shownPlanHash // ignore: cast_nullable_to_non_nullable
+as String,questions: null == questions ? _self._questions : questions // ignore: cast_nullable_to_non_nullable
 as List<AgentQuestion>,suggestions: null == suggestions ? _self._suggestions : suggestions // ignore: cast_nullable_to_non_nullable
 as List<TaskSuggestion>,findings: null == findings ? _self._findings : findings // ignore: cast_nullable_to_non_nullable
 as List<TaskFinding>,findingsRefused: null == findingsRefused ? _self._findingsRefused : findingsRefused // ignore: cast_nullable_to_non_nullable

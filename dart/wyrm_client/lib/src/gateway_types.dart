@@ -148,30 +148,48 @@ abstract class GatewayInfo with _$GatewayInfo {
     @Default(DevicePolicy()) DevicePolicy devices,
   }) = _GatewayInfo;
 
-  /// `site`, `version` and `tls` are required; the others are optional
-  /// (`role` absent: `active`; `devices` absent: device keys off).
+  /// ADR 0050 decision 10: `site`, `version`, `tls`, `role`, `devices`,
+  /// `min_studio` and `up` are required (all came with the endpoint);
+  /// `pair`, `ca_fp`, `ca` and `names` are optional.
   factory GatewayInfo.fromValue(Value v) {
     final m = WireMap.of(v, 'GatewayInfo');
     return GatewayInfo(
       site: m.str('site'),
       version: m.str('version'),
       tls: m.boolean('tls'),
-      role: m.nameOr('role', GatewayRole.values, GatewayRole.active),
+      role: m.name('role', GatewayRole.values),
       pair: m.strOrNull('pair'),
-      up: m.stringsOr('up'),
-      minStudio: m.strOr('min_studio', '0'),
+      up: m.strings('up'),
+      minStudio: m.str('min_studio'),
       caFp: m.strOrNull('ca_fp'),
       ca: m.bytesOrNull('ca'),
       names: m.stringsOr('names'),
-      devices: m.has('devices')
-          ? DevicePolicy.fromValue(m['devices']!)
-          : const DevicePolicy(),
+      devices: DevicePolicy.fromValue(
+        VMap(m.map('devices').fields),
+        'GatewayInfo.devices',
+      ),
     );
   }
 
-  /// The old tolerant reader.
+  /// The old tolerant reader: a field that is absent or of another type
+  /// takes its default.
   @Deprecated('Use GatewayInfo.fromValue: it names a malformed field')
-  factory GatewayInfo.of(Value v) => GatewayInfo.fromValue(v);
+  factory GatewayInfo.of(Value v) => GatewayInfo(
+    site: _str(v['site']) ?? '',
+    version: _str(v['version']) ?? '',
+    tls: v['tls'] == const VBool(true),
+    role: GatewayRole.fromWire(_str(v['role']) ?? '') ?? GatewayRole.active,
+    pair: _str(v['pair']),
+    up: _strs(v['up']),
+    minStudio: _str(v['min_studio']) ?? '0',
+    caFp: _str(v['ca_fp']),
+    ca: switch (v['ca']) {
+      VBytes(:final v) => v,
+      _ => null,
+    },
+    names: _strs(v['names']),
+    devices: _policy(v['devices']),
+  );
 }
 
 /// `gateway.devices` as `/api/info` tells it (`devices.rs` `DevicePolicy`).
@@ -188,23 +206,24 @@ abstract class DevicePolicy with _$DevicePolicy {
     @Default(false) bool allowDeviceCredential,
   }) = _DevicePolicy;
 
-  /// Every field is optional, with the defaults above.
-  factory DevicePolicy.fromValue(Value v) {
-    final m = WireMap.of(v, 'DevicePolicy');
+  /// Every field is required (`devices.rs` `DevicePolicy::to_value`); the
+  /// defaults above are for a gateway that sends no policy.
+  factory DevicePolicy.fromValue(Value v, [String path = 'DevicePolicy']) {
+    final m = WireMap.of(v, path);
     return DevicePolicy(
-      enabled: m.booleanOr('enabled', false),
-      maxPerUser: m.integerOr('max_per_user', 5),
-      passwordEveryDays: m.integerOr('password_every_days', 30),
-      idleLockMaxMin: m.integerOr('idle_lock_max_min', 30),
-      stepUp: m.nameOr('step_up', StepUp.values, StepUp.none),
-      allowDeviceCredential: m.booleanOr('allow_device_credential', false),
+      enabled: m.boolean('enabled'),
+      maxPerUser: m.integer('max_per_user'),
+      passwordEveryDays: m.integer('password_every_days'),
+      idleLockMaxMin: m.integer('idle_lock_max_min'),
+      stepUp: m.name('step_up', StepUp.values),
+      allowDeviceCredential: m.boolean('allow_device_credential'),
     );
   }
 
-  /// The old tolerant reader; null gives the defaults.
+  /// The old tolerant reader; null, or a field that is absent or of
+  /// another type, gives the defaults.
   @Deprecated('Use DevicePolicy.fromValue: it names a malformed field')
-  factory DevicePolicy.of(Value? v) =>
-      v == null ? const DevicePolicy() : DevicePolicy.fromValue(v);
+  factory DevicePolicy.of(Value? v) => _policy(v);
 }
 
 /// A device record (`GET /api/devices`, `devices.rs` `devices_of`).
@@ -233,21 +252,21 @@ abstract class GatewayDevice with _$GatewayDevice {
     int? removedAt,
   }) = _GatewayDevice;
 
-  /// `id`, `name`, `platform` and `state` are required; `alg` absent (a
-  /// gateway older than it) is `es256`.
+  /// Every field is required (`devices.rs` `devices_of`) except
+  /// `removed_by` and `removed_at`, which a removed record carries.
   factory GatewayDevice.fromValue(Value v, [String path = 'GatewayDevice']) {
     final m = WireMap.of(v, path);
     return GatewayDevice(
       id: m.str('id'),
       name: m.str('name'),
       platform: DevicePlatform.fromWire(m.str('platform')),
-      alg: m.nameOr('alg', DeviceAlg.values, DeviceAlg.es256),
-      added: m.integerOr('added', 0),
-      lastUsed: m.integerOr('last_used', 0),
-      passwordAt: m.integerOr('password_at', 0),
-      passwordDueAt: m.integerOr('password_due_at', 0),
+      alg: m.name('alg', DeviceAlg.values),
+      added: m.integer('added'),
+      lastUsed: m.integer('last_used'),
+      passwordAt: m.integer('password_at'),
+      passwordDueAt: m.integer('password_due_at'),
       state: m.name('state', GatewayDeviceState.values),
-      thisSession: m.booleanOr('this', false),
+      thisSession: m.boolean('this'),
       removedBy: m.strOrNull('removed_by'),
       removedAt: m.integerOrNull('removed_at'),
     );
@@ -262,9 +281,25 @@ abstract class GatewayDevice with _$GatewayDevice {
     _ => throw DecodeError.of('GatewayDevice[]', 'an array', v),
   };
 
-  /// The old tolerant reader.
+  /// The old tolerant reader: a field that is absent or of another type
+  /// takes its default.
   @Deprecated('Use GatewayDevice.fromValue: it names a malformed field')
-  factory GatewayDevice.of(Value v) => GatewayDevice.fromValue(v);
+  factory GatewayDevice.of(Value v) => GatewayDevice(
+    id: _str(v['id']) ?? '',
+    name: _str(v['name']) ?? '',
+    platform: DevicePlatform.fromWire(_str(v['platform']) ?? ''),
+    alg: DeviceAlg.fromWire(_str(v['alg']) ?? '') ?? DeviceAlg.es256,
+    added: _int(v['added']) ?? 0,
+    lastUsed: _int(v['last_used']) ?? 0,
+    passwordAt: _int(v['password_at']) ?? 0,
+    passwordDueAt: _int(v['password_due_at']) ?? 0,
+    state:
+        GatewayDeviceState.fromWire(_str(v['state']) ?? '') ??
+        GatewayDeviceState.active,
+    thisSession: v['this'] == const VBool(true),
+    removedBy: _str(v['removed_by']),
+    removedAt: _int(v['removed_at']),
+  );
 }
 
 /// A user of the gateway (`GET /api/users`). Roles are the gateway's role
@@ -282,13 +317,14 @@ abstract class GatewayUser with _$GatewayUser {
     @Default(0) int devices,
   }) = _GatewayUser;
 
-  /// `name` and `roles` are required.
+  /// `name`, `roles` and `disabled` are required; `devices` came with ADR
+  /// 0050 (2026-11-14) and is 0 from an older gateway.
   factory GatewayUser.fromValue(Value v, [String path = 'GatewayUser']) {
     final m = WireMap.of(v, path);
     return GatewayUser(
       m.str('name'),
       m.strings('roles'),
-      disabled: m.booleanOr('disabled', false),
+      disabled: m.boolean('disabled'),
       devices: m.integerOr('devices', 0),
     );
   }
@@ -302,9 +338,15 @@ abstract class GatewayUser with _$GatewayUser {
     _ => throw DecodeError.of('GatewayUser[]', 'an array', v),
   };
 
-  /// The old tolerant reader.
+  /// The old tolerant reader: a field that is absent or of another type
+  /// takes its default.
   @Deprecated('Use GatewayUser.fromValue: it names a malformed field')
-  factory GatewayUser.of(Value v) => GatewayUser.fromValue(v);
+  factory GatewayUser.of(Value v) => GatewayUser(
+    _str(v['name']) ?? '',
+    _strs(v['roles']),
+    disabled: v['disabled'] == const VBool(true),
+    devices: _int(v['devices']) ?? 0,
+  );
 }
 
 /// Who the session is (`GET /api/me`): `{sub, roles, grants, max, exp,
@@ -368,3 +410,30 @@ abstract class GatewaySession with _$GatewaySession {
   @override
   String toString() => 'GatewaySession(exp: $exp)';
 }
+
+// ---- the old tolerant readers (the deprecated `.of` factories) ----
+
+DevicePolicy _policy(Value? v) => DevicePolicy(
+  enabled: v?['enabled'] == const VBool(true),
+  maxPerUser: _int(v?['max_per_user']) ?? 5,
+  passwordEveryDays: _int(v?['password_every_days']) ?? 30,
+  idleLockMaxMin: _int(v?['idle_lock_max_min']) ?? 30,
+  stepUp: StepUp.fromWire(_str(v?['step_up']) ?? '') ?? StepUp.none,
+  allowDeviceCredential: v?['allow_device_credential'] == const VBool(true),
+);
+
+String? _str(Value? v) => switch (v) {
+  VStr(:final v) => v,
+  _ => null,
+};
+
+int? _int(Value? v) => switch (v) {
+  VInt(:final v) => v,
+  _ => null,
+};
+
+List<String> _strs(Value? v) => [
+  if (v case VArray(:final v))
+    for (final s in v)
+      if (s case VStr(:final v)) v,
+];

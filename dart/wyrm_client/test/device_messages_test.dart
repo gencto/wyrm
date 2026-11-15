@@ -78,9 +78,16 @@ void main() {
         'tls': const VBool(true),
         'ca_fp': const VStr('68f7dfccc43c1853c1d268219414440b'),
         'names': VArray([const VStr('gw.plant.example')]),
+        'role': const VStr('active'),
+        'min_studio': const VStr('1.0.0'),
+        'up': VArray(const []),
         'devices': VMap({
           'enabled': const VBool(true),
+          'max_per_user': const VInt(5),
+          'password_every_days': const VInt(30),
+          'idle_lock_max_min': const VInt(30),
           'step_up': const VStr('config'),
+          'allow_device_credential': const VBool(false),
         }),
       }),
     );
@@ -93,6 +100,11 @@ void main() {
         'id': const VStr('ab'),
         'name': const VStr('Mac'),
         'platform': const VStr('macos'),
+        'alg': const VStr('es256'),
+        'added': const VInt(1),
+        'last_used': const VInt(2),
+        'password_at': const VInt(1),
+        'password_due_at': const VInt(3),
         'state': const VStr('removed'),
         'removed_by': const VStr('user:root'),
         'this': const VBool(true),
@@ -102,7 +114,6 @@ void main() {
       (d.state, d.removedBy, d.thisSession),
       (GatewayDeviceState.removed, 'user:root', true),
     );
-    // a record of a gateway older than `alg`
     expect(d.alg, DeviceAlg.es256);
   });
 }
