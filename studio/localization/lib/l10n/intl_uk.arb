@@ -799,6 +799,7 @@
     "@fmUnpinField": {"placeholders": {"label": {"type": "String"}}},
     "fmCreateCustom": "Створити власний блок…",
     "fmEditCustom": "Редагувати власний блок",
+    "fmTidy": "Упорядкувати",
     "fmBound": "зв’язане",
     "fmNeedsEngine": "Потрібні власні блоки в рушії",
     "fmNothingSelected": "Спершу виділіть блок",

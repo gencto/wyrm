@@ -799,6 +799,7 @@
     "@fmUnpinField": {"placeholders": {"label": {"type": "String"}}},
     "fmCreateCustom": "Create custom block…",
     "fmEditCustom": "Edit custom block",
+    "fmTidy": "Tidy up",
     "fmBound": "bound",
     "fmNeedsEngine": "Needs custom blocks in the engine",
     "fmNothingSelected": "Select a block first",

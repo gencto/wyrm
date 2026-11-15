@@ -6278,6 +6278,11 @@ class S {
     );
   }
 
+  /// `Tidy up`
+  String get fmTidy {
+    return Intl.message('Tidy up', name: 'fmTidy', desc: '', args: []);
+  }
+
   /// `bound`
   String get fmBound {
     return Intl.message('bound', name: 'fmBound', desc: '', args: []);

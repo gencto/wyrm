@@ -1,0 +1,2198 @@
+{
+ "blocks": [
+  {
+   "id": "c_ack",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 740.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "ack",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "c_cancel",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 880.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "cancel",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "c_confirm",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 1020.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "confirm",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "c_group2_to_in2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 1160.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "group2_to_in2",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "c_log",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 1320.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "log",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "c_status",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 1460.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "status",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "c_u",
+   "type": "subscribe",
+   "role": "node",
+   "x": 40.0,
+   "y": 1600.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "u",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_a1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 40.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l1",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_a2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 40.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l1",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_ag",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 180.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l1",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_al",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 40.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "alarms_active",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_b1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 40.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l2",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_b2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 180.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l2",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_bg",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 320.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l2",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_c1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 180.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l3",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_c2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 320.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l3",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_cg",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 460.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "l3",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_cs",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 600.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "confirm_s",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_g1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 180.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "source",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_g2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 320.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "source",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_g3",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 320.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "source",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_i1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 460.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "icon",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_i2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 600.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "icon",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_ig",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 600.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "icon",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_lg",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 760.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "log",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_m2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 360.0,
+   "y": 900.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "min_1h",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_mode",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 460.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "mode",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_p1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 600.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "pos",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_p2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 760.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "pos",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_p3",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 760.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "pos",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_s1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 760.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "state",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_s2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 460.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "state",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_sg",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 900.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "state",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_ss",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 900.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "stable_s",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_u1",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 900.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "unbalance",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_u2",
+   "type": "subscribe",
+   "role": "node",
+   "x": 620.0,
+   "y": 1040.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "unbalance",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_umax",
+   "type": "subscribe",
+   "role": "node",
+   "x": 880.0,
+   "y": 1040.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "umax",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "d_umin",
+   "type": "subscribe",
+   "role": "node",
+   "x": 1140.0,
+   "y": 1040.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "p:key",
+     "label": "Point",
+     "in": "in.key",
+     "out": "key"
+    },
+    {
+     "id": "out:out",
+     "label": "umin",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "e_ack",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 620.0,
+   "y": 1180.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "e_cancel",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 620.0,
+   "y": 1320.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "e_confirm",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 880.0,
+   "y": 1320.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "e_group2_to_in2",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 360.0,
+   "y": 1040.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "e_log",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 360.0,
+   "y": 1180.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "e_status",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 1140.0,
+   "y": 1180.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "e_u",
+   "type": "rising_edge",
+   "role": "logic",
+   "x": 880.0,
+   "y": 1180.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "Input",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "out:on_edge",
+     "label": "On edge",
+     "in": null,
+     "out": "on_edge"
+    }
+   ]
+  },
+  {
+   "id": "r_ack",
+   "type": "set",
+   "role": "node",
+   "x": 1980.0,
+   "y": 1020.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "ack",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "r_cancel",
+   "type": "set",
+   "role": "node",
+   "x": 1980.0,
+   "y": 1360.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "cancel",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "r_confirm",
+   "type": "set",
+   "role": "node",
+   "x": 1480.0,
+   "y": 1600.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "confirm",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "r_group2_to_in2",
+   "type": "set",
+   "role": "node",
+   "x": 1740.0,
+   "y": 1060.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "group2_to_in2",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "r_log",
+   "type": "set",
+   "role": "node",
+   "x": 1480.0,
+   "y": 1220.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "log",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "r_status",
+   "type": "set",
+   "role": "node",
+   "x": 1740.0,
+   "y": 1240.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "status",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "r_u",
+   "type": "set",
+   "role": "node",
+   "x": 1980.0,
+   "y": 1200.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "u",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "s_ack_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1480.0,
+   "y": 980.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:text",
+     "label": "text",
+     "in": "arg.text",
+     "out": null
+    },
+    {
+     "id": "arg:to",
+     "label": "to",
+     "in": "arg.to",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "s_cancel_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1480.0,
+   "y": 1380.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:text",
+     "label": "text",
+     "in": "arg.text",
+     "out": null
+    },
+    {
+     "id": "arg:to",
+     "label": "to",
+     "in": "arg.to",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "s_confirm_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1740.0,
+   "y": 1400.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:text",
+     "label": "text",
+     "in": "arg.text",
+     "out": null
+    },
+    {
+     "id": "arg:to",
+     "label": "to",
+     "in": "arg.to",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "s_group2_to_in2_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1480.0,
+   "y": 380.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:a2",
+     "label": "a2",
+     "in": "arg.a2",
+     "out": null
+    },
+    {
+     "id": "arg:b2",
+     "label": "b2",
+     "in": "arg.b2",
+     "out": null
+    },
+    {
+     "id": "arg:c2",
+     "label": "c2",
+     "in": "arg.c2",
+     "out": null
+    },
+    {
+     "id": "arg:elapsed",
+     "label": "elapsed",
+     "in": "arg.elapsed",
+     "out": null
+    },
+    {
+     "id": "arg:s2",
+     "label": "s2",
+     "in": "arg.s2",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "s_log_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1480.0,
+   "y": 780.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:lg",
+     "label": "lg",
+     "in": "arg.lg",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "s_status_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1740.0,
+   "y": 180.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:a1",
+     "label": "a1",
+     "in": "arg.a1",
+     "out": null
+    },
+    {
+     "id": "arg:a2",
+     "label": "a2",
+     "in": "arg.a2",
+     "out": null
+    },
+    {
+     "id": "arg:al",
+     "label": "al",
+     "in": "arg.al",
+     "out": null
+    },
+    {
+     "id": "arg:b1",
+     "label": "b1",
+     "in": "arg.b1",
+     "out": null
+    },
+    {
+     "id": "arg:b2",
+     "label": "b2",
+     "in": "arg.b2",
+     "out": null
+    },
+    {
+     "id": "arg:c1",
+     "label": "c1",
+     "in": "arg.c1",
+     "out": null
+    },
+    {
+     "id": "arg:c2",
+     "label": "c2",
+     "in": "arg.c2",
+     "out": null
+    },
+    {
+     "id": "arg:g1",
+     "label": "g1",
+     "in": "arg.g1",
+     "out": null
+    },
+    {
+     "id": "arg:g2",
+     "label": "g2",
+     "in": "arg.g2",
+     "out": null
+    },
+    {
+     "id": "arg:g3",
+     "label": "g3",
+     "in": "arg.g3",
+     "out": null
+    },
+    {
+     "id": "arg:i1",
+     "label": "i1",
+     "in": "arg.i1",
+     "out": null
+    },
+    {
+     "id": "arg:i2",
+     "label": "i2",
+     "in": "arg.i2",
+     "out": null
+    },
+    {
+     "id": "arg:ig",
+     "label": "ig",
+     "in": "arg.ig",
+     "out": null
+    },
+    {
+     "id": "arg:mode",
+     "label": "mode",
+     "in": "arg.mode",
+     "out": null
+    },
+    {
+     "id": "arg:p1",
+     "label": "p1",
+     "in": "arg.p1",
+     "out": null
+    },
+    {
+     "id": "arg:p2",
+     "label": "p2",
+     "in": "arg.p2",
+     "out": null
+    },
+    {
+     "id": "arg:p3",
+     "label": "p3",
+     "in": "arg.p3",
+     "out": null
+    },
+    {
+     "id": "arg:s1",
+     "label": "s1",
+     "in": "arg.s1",
+     "out": null
+    },
+    {
+     "id": "arg:s2",
+     "label": "s2",
+     "in": "arg.s2",
+     "out": null
+    },
+    {
+     "id": "arg:sg",
+     "label": "sg",
+     "in": "arg.sg",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "s_u_0",
+   "type": "invoke",
+   "role": "action",
+   "x": 1980.0,
+   "y": 320.0,
+   "width": 210.0,
+   "rows": [
+    {
+     "id": "arg:a1",
+     "label": "a1",
+     "in": "arg.a1",
+     "out": null
+    },
+    {
+     "id": "arg:a2",
+     "label": "a2",
+     "in": "arg.a2",
+     "out": null
+    },
+    {
+     "id": "arg:ag",
+     "label": "ag",
+     "in": "arg.ag",
+     "out": null
+    },
+    {
+     "id": "arg:b1",
+     "label": "b1",
+     "in": "arg.b1",
+     "out": null
+    },
+    {
+     "id": "arg:b2",
+     "label": "b2",
+     "in": "arg.b2",
+     "out": null
+    },
+    {
+     "id": "arg:bg",
+     "label": "bg",
+     "in": "arg.bg",
+     "out": null
+    },
+    {
+     "id": "arg:c1",
+     "label": "c1",
+     "in": "arg.c1",
+     "out": null
+    },
+    {
+     "id": "arg:c2",
+     "label": "c2",
+     "in": "arg.c2",
+     "out": null
+    },
+    {
+     "id": "arg:cg",
+     "label": "cg",
+     "in": "arg.cg",
+     "out": null
+    },
+    {
+     "id": "arg:cs",
+     "label": "cs",
+     "in": "arg.cs",
+     "out": null
+    },
+    {
+     "id": "arg:i1",
+     "label": "i1",
+     "in": "arg.i1",
+     "out": null
+    },
+    {
+     "id": "arg:i2",
+     "label": "i2",
+     "in": "arg.i2",
+     "out": null
+    },
+    {
+     "id": "arg:ig",
+     "label": "ig",
+     "in": "arg.ig",
+     "out": null
+    },
+    {
+     "id": "arg:m2",
+     "label": "m2",
+     "in": "arg.m2",
+     "out": null
+    },
+    {
+     "id": "arg:ss",
+     "label": "ss",
+     "in": "arg.ss",
+     "out": null
+    },
+    {
+     "id": "arg:u1",
+     "label": "u1",
+     "in": "arg.u1",
+     "out": null
+    },
+    {
+     "id": "arg:u2",
+     "label": "u2",
+     "in": "arg.u2",
+     "out": null
+    },
+    {
+     "id": "arg:umax",
+     "label": "umax",
+     "in": "arg.umax",
+     "out": null
+    },
+    {
+     "id": "arg:umin",
+     "label": "umin",
+     "in": "arg.umin",
+     "out": null
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "out:ok",
+     "label": "Ok",
+     "in": null,
+     "out": "ok"
+    },
+    {
+     "id": "out:error",
+     "label": "Error",
+     "in": null,
+     "out": "error"
+    }
+   ]
+  },
+  {
+   "id": "v_confirm_0",
+   "type": "const",
+   "role": "logic",
+   "x": 1140.0,
+   "y": 1540.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "p:value",
+     "label": "Value",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  },
+  {
+   "id": "w_confirm_0",
+   "type": "set",
+   "role": "node",
+   "x": 1980.0,
+   "y": 1540.0,
+   "width": 200.0,
+   "rows": [
+    {
+     "id": "in:in",
+     "label": "source",
+     "in": "in",
+     "out": "in"
+    },
+    {
+     "id": "in:trigger",
+     "label": "Trigger",
+     "in": "trigger",
+     "out": null
+    },
+    {
+     "id": "p:auto_run",
+     "label": "Auto run",
+     "in": "in.auto_run",
+     "out": null
+    }
+   ]
+  },
+  {
+   "id": "zero",
+   "type": "const",
+   "role": "logic",
+   "x": 360.0,
+   "y": 1320.0,
+   "width": 220.0,
+   "rows": [
+    {
+     "id": "p:value",
+     "label": "Value",
+     "in": null,
+     "out": "out"
+    }
+   ]
+  }
+ ],
+ "wires": [
+  [
+   "c_status",
+   "out",
+   "e_status",
+   "in"
+  ],
+  [
+   "e_status",
+   "on_edge",
+   "s_status_0",
+   "trigger"
+  ],
+  [
+   "d_mode",
+   "out",
+   "s_status_0",
+   "arg.mode"
+  ],
+  [
+   "d_i1",
+   "out",
+   "s_status_0",
+   "arg.i1"
+  ],
+  [
+   "d_s1",
+   "out",
+   "s_status_0",
+   "arg.s1"
+  ],
+  [
+   "d_a1",
+   "out",
+   "s_status_0",
+   "arg.a1"
+  ],
+  [
+   "d_b1",
+   "out",
+   "s_status_0",
+   "arg.b1"
+  ],
+  [
+   "d_c1",
+   "out",
+   "s_status_0",
+   "arg.c1"
+  ],
+  [
+   "d_i2",
+   "out",
+   "s_status_0",
+   "arg.i2"
+  ],
+  [
+   "d_s2",
+   "out",
+   "s_status_0",
+   "arg.s2"
+  ],
+  [
+   "d_a2",
+   "out",
+   "s_status_0",
+   "arg.a2"
+  ],
+  [
+   "d_b2",
+   "out",
+   "s_status_0",
+   "arg.b2"
+  ],
+  [
+   "d_c2",
+   "out",
+   "s_status_0",
+   "arg.c2"
+  ],
+  [
+   "d_ig",
+   "out",
+   "s_status_0",
+   "arg.ig"
+  ],
+  [
+   "d_sg",
+   "out",
+   "s_status_0",
+   "arg.sg"
+  ],
+  [
+   "d_g1",
+   "out",
+   "s_status_0",
+   "arg.g1"
+  ],
+  [
+   "d_g2",
+   "out",
+   "s_status_0",
+   "arg.g2"
+  ],
+  [
+   "d_g3",
+   "out",
+   "s_status_0",
+   "arg.g3"
+  ],
+  [
+   "d_p1",
+   "out",
+   "s_status_0",
+   "arg.p1"
+  ],
+  [
+   "d_p2",
+   "out",
+   "s_status_0",
+   "arg.p2"
+  ],
+  [
+   "d_p3",
+   "out",
+   "s_status_0",
+   "arg.p3"
+  ],
+  [
+   "d_al",
+   "out",
+   "s_status_0",
+   "arg.al"
+  ],
+  [
+   "zero",
+   "out",
+   "r_status",
+   "in"
+  ],
+  [
+   "e_status",
+   "on_edge",
+   "r_status",
+   "trigger"
+  ],
+  [
+   "c_u",
+   "out",
+   "e_u",
+   "in"
+  ],
+  [
+   "e_u",
+   "on_edge",
+   "s_u_0",
+   "trigger"
+  ],
+  [
+   "d_a1",
+   "out",
+   "s_u_0",
+   "arg.a1"
+  ],
+  [
+   "d_b1",
+   "out",
+   "s_u_0",
+   "arg.b1"
+  ],
+  [
+   "d_c1",
+   "out",
+   "s_u_0",
+   "arg.c1"
+  ],
+  [
+   "d_a2",
+   "out",
+   "s_u_0",
+   "arg.a2"
+  ],
+  [
+   "d_b2",
+   "out",
+   "s_u_0",
+   "arg.b2"
+  ],
+  [
+   "d_c2",
+   "out",
+   "s_u_0",
+   "arg.c2"
+  ],
+  [
+   "d_i1",
+   "out",
+   "s_u_0",
+   "arg.i1"
+  ],
+  [
+   "d_i2",
+   "out",
+   "s_u_0",
+   "arg.i2"
+  ],
+  [
+   "d_ig",
+   "out",
+   "s_u_0",
+   "arg.ig"
+  ],
+  [
+   "d_ag",
+   "out",
+   "s_u_0",
+   "arg.ag"
+  ],
+  [
+   "d_bg",
+   "out",
+   "s_u_0",
+   "arg.bg"
+  ],
+  [
+   "d_cg",
+   "out",
+   "s_u_0",
+   "arg.cg"
+  ],
+  [
+   "d_u1",
+   "out",
+   "s_u_0",
+   "arg.u1"
+  ],
+  [
+   "d_u2",
+   "out",
+   "s_u_0",
+   "arg.u2"
+  ],
+  [
+   "d_m2",
+   "out",
+   "s_u_0",
+   "arg.m2"
+  ],
+  [
+   "d_umin",
+   "out",
+   "s_u_0",
+   "arg.umin"
+  ],
+  [
+   "d_umax",
+   "out",
+   "s_u_0",
+   "arg.umax"
+  ],
+  [
+   "d_cs",
+   "out",
+   "s_u_0",
+   "arg.cs"
+  ],
+  [
+   "d_ss",
+   "out",
+   "s_u_0",
+   "arg.ss"
+  ],
+  [
+   "zero",
+   "out",
+   "r_u",
+   "in"
+  ],
+  [
+   "e_u",
+   "on_edge",
+   "r_u",
+   "trigger"
+  ],
+  [
+   "c_log",
+   "out",
+   "e_log",
+   "in"
+  ],
+  [
+   "e_log",
+   "on_edge",
+   "s_log_0",
+   "trigger"
+  ],
+  [
+   "d_lg",
+   "out",
+   "s_log_0",
+   "arg.lg"
+  ],
+  [
+   "zero",
+   "out",
+   "r_log",
+   "in"
+  ],
+  [
+   "e_log",
+   "on_edge",
+   "r_log",
+   "trigger"
+  ],
+  [
+   "c_ack",
+   "out",
+   "e_ack",
+   "in"
+  ],
+  [
+   "e_ack",
+   "on_edge",
+   "s_ack_0",
+   "trigger"
+  ],
+  [
+   "zero",
+   "out",
+   "r_ack",
+   "in"
+  ],
+  [
+   "e_ack",
+   "on_edge",
+   "r_ack",
+   "trigger"
+  ],
+  [
+   "c_group2_to_in2",
+   "out",
+   "e_group2_to_in2",
+   "in"
+  ],
+  [
+   "e_group2_to_in2",
+   "on_edge",
+   "s_group2_to_in2_0",
+   "trigger"
+  ],
+  [
+   "d_s2",
+   "out",
+   "s_group2_to_in2_0",
+   "arg.s2"
+  ],
+  [
+   "d_a2",
+   "out",
+   "s_group2_to_in2_0",
+   "arg.a2"
+  ],
+  [
+   "d_b2",
+   "out",
+   "s_group2_to_in2_0",
+   "arg.b2"
+  ],
+  [
+   "d_c2",
+   "out",
+   "s_group2_to_in2_0",
+   "arg.c2"
+  ],
+  [
+   "zero",
+   "out",
+   "r_group2_to_in2",
+   "in"
+  ],
+  [
+   "e_group2_to_in2",
+   "on_edge",
+   "r_group2_to_in2",
+   "trigger"
+  ],
+  [
+   "c_confirm",
+   "out",
+   "e_confirm",
+   "in"
+  ],
+  [
+   "e_confirm",
+   "on_edge",
+   "s_confirm_0",
+   "trigger"
+  ],
+  [
+   "v_confirm_0",
+   "out",
+   "w_confirm_0",
+   "in"
+  ],
+  [
+   "e_confirm",
+   "on_edge",
+   "w_confirm_0",
+   "trigger"
+  ],
+  [
+   "zero",
+   "out",
+   "r_confirm",
+   "in"
+  ],
+  [
+   "e_confirm",
+   "on_edge",
+   "r_confirm",
+   "trigger"
+  ],
+  [
+   "c_cancel",
+   "out",
+   "e_cancel",
+   "in"
+  ],
+  [
+   "e_cancel",
+   "on_edge",
+   "s_cancel_0",
+   "trigger"
+  ],
+  [
+   "zero",
+   "out",
+   "r_cancel",
+   "in"
+  ],
+  [
+   "e_cancel",
+   "on_edge",
+   "r_cancel",
+   "trigger"
+  ]
+ ]
+}

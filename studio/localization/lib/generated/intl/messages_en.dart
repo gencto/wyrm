@@ -2254,6 +2254,7 @@ class MessageLookup extends MessageLookupByLibrary {
     ),
     "fmNothingToRedo": MessageLookupByLibrary.simpleMessage("Nothing to redo"),
     "fmNothingToUndo": MessageLookupByLibrary.simpleMessage("Nothing to undo"),
+    "fmTidy": MessageLookupByLibrary.simpleMessage("Tidy up"),
     "fmUnpin": MessageLookupByLibrary.simpleMessage("Unpin from block"),
     "fmUnpinField": m158,
     "followNeeds": MessageLookupByLibrary.simpleMessage(

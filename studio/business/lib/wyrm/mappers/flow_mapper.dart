@@ -9,11 +9,16 @@ import 'package:models/param_spec.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../decode/flow_permissions.dart';
-import 'flow_fields.dart';
 import 'values.dart';
 
 /// A `~def` (spec 06) as a [FlowDraft].
-FlowDraft flowDraftOf(String id, Value def) {
+FlowDraft flowDraftOf(String id, Value def) => flowReadOf(id, def).draft;
+
+/// A `~def` (spec 06) as a [FlowDraft], and the ids of the blocks its
+/// `layout` gives a place (the others stand on a grid until they are laid
+/// out, flow-editor.md §25).
+({FlowDraft draft, Set<String> placed}) flowReadOf(String id, Value def) {
+  final placed = <String>{};
   final layout = switch (def['layout']) {
     VMap(:final v) => v,
     _ => const <String, Value>{},
@@ -28,13 +33,17 @@ FlowDraft flowDraftOf(String id, Value def) {
       };
       final type = cfg.remove('type') as String? ?? '';
       final xy = layout[e.key];
-      final (x, y) = switch (xy) {
+      final saved = switch (xy) {
         VArray(:final v) when v.length == 2 => (
           (number(v[0]) ?? 0).toDouble(),
           (number(v[1]) ?? 0).toDouble(),
         ),
-        _ => (40.0 + 260 * (i % 4), 40.0 + 200 * (i ~/ 4)),
+        _ => null,
       };
+      if (saved != null) {
+        placed.add(e.key);
+      }
+      final (x, y) = saved ?? (40.0 + 260 * (i % 4), 40.0 + 200 * (i ~/ 4));
       blocks[e.key] = FlowBlock(
         id: e.key,
         type: type,
@@ -75,13 +84,16 @@ FlowDraft flowDraftOf(String id, Value def) {
       if (!const ['id', 'version', 'nodes', 'edges', 'layout'].contains(e.key))
         e.key: toDart(e.value),
   };
-  return FlowDraft(
-    id: id,
-    version: integer(def['version']) ?? 0,
-    blocks: blocks.lock,
-    edges: edges.lock,
-    rest: rest.lock,
-    permissions: flowPermissionsOf(def['permissions']).valueOrNull,
+  return (
+    draft: FlowDraft(
+      id: id,
+      version: integer(def['version']) ?? 0,
+      blocks: blocks.lock,
+      edges: edges.lock,
+      rest: rest.lock,
+      permissions: flowPermissionsOf(def['permissions']).valueOrNull,
+    ),
+    placed: placed,
   );
 }
 
@@ -364,58 +376,3 @@ String flowJson(Object? v) => const JsonEncoder.withIndent('  ').convert(v);
 
 /// The JSON text of a map or list field back as a value.
 Object? flowJsonDecode(String s) => jsonDecode(s);
-
-/// [d] with its blocks laid out in columns by depth (sources left, sinks
-/// right) when the stored layout overlaps at the editor's block sizes; else
-/// [d] as it is.
-FlowDraft tidyIfOverlapping(FlowDraft d, Map<String, NodeType> types) {
-  final rects = {
-    for (final b in d.blocks.values)
-      b.id: (
-        b.x,
-        b.y,
-        b.x + blockWidthOf(roleOf(b.type)),
-        b.y + blockHeight(types[b.type], b, edges: d.edges),
-      ),
-  };
-  var overlap = false;
-  final list = rects.values.toList();
-  for (var i = 0; i < list.length && !overlap; i++) {
-    for (var j = i + 1; j < list.length; j++) {
-      final a = list[i];
-      final c = list[j];
-      if (a.$1 < c.$3 && c.$1 < a.$3 && a.$2 < c.$4 && c.$2 < a.$4) {
-        overlap = true;
-        break;
-      }
-    }
-  }
-  if (!overlap) {
-    return d;
-  }
-  final depth = <String, int>{for (final id in d.blocks.keys) id: 0};
-  for (var round = 0; round < d.blocks.length; round++) {
-    var changed = false;
-    for (final e in d.edges) {
-      final next = (depth[e.from] ?? 0) + 1;
-      if (depth.containsKey(e.to) &&
-          next > depth[e.to]! &&
-          next < d.blocks.length) {
-        depth[e.to] = next;
-        changed = true;
-      }
-    }
-    if (!changed) {
-      break;
-    }
-  }
-  final y = <int, double>{};
-  final blocks = <String, FlowBlock>{};
-  for (final b in d.blocks.values) {
-    final col = depth[b.id] ?? 0;
-    final top = y[col] ?? 40;
-    blocks[b.id] = b.copyWith(x: 40 + 300.0 * col, y: top);
-    y[col] = top + blockHeight(types[b.type], b, edges: d.edges) + 28;
-  }
-  return d.copyWith(blocks: blocks.lock);
-}

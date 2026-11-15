@@ -45,6 +45,9 @@ enum FlowCommand {
   unpin,
   createCustomBlock,
   editCustomBlock,
+
+  /// The whole flow laid out again by its data flow (spec §25).
+  tidy,
 }
 
 /// What the pointer does in a [FlowGesture].
@@ -499,6 +502,7 @@ String flowCommandLabel(FlowCommand command) {
     .unpin => s.fmUnpin,
     .createCustomBlock => s.fmCreateCustom,
     .editCustomBlock => s.fmEditCustom,
+    .tidy => s.fmTidy,
   };
 }
 
