@@ -29,6 +29,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 use wyrm_core::codec::{from_slice, to_vec};
 use wyrm_core::status::StatusCode;
+use wyrm_core::weburl::{HttpUrl, SchemeCase, UrlError};
 use wyrm_core::{NodeMeta, Perm, Status, Value};
 
 /// How long a one-shot request waits for its reply.
@@ -58,6 +59,98 @@ mod tests {
 
     fn ep(url: &str) -> Result<Endpoint, super::Error> {
         Endpoint::parse(url, None)
+    }
+
+    /// The parser before review S4 (its URL part), kept to compare.
+    fn old_parts(url: &str) -> Result<(bool, String, u16), String> {
+        let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
+            (true, r)
+        } else if let Some(r) = url.strip_prefix("http://") {
+            (false, r)
+        } else if url.contains("://") {
+            return Err(format!(
+                "gateway url {url}: https://host[:port] or http://127.0.0.1:<port>"
+            ));
+        } else {
+            (false, url)
+        };
+        let hp = rest.trim_end_matches('/');
+        if hp.is_empty() || hp.contains('/') {
+            return Err(format!("gateway url {url}: https://host[:port] (no path)"));
+        }
+        let (host, port) = match hp.rsplit_once(':') {
+            // `[::1]` alone has colons inside the brackets only
+            Some((h, p)) if !p.contains(']') => (
+                h.to_owned(),
+                p.parse::<u16>()
+                    .map_err(|_| format!("gateway url {url}: bad port"))?,
+            ),
+            _ if tls => (hp.to_owned(), 443),
+            _ => return Err(format!("gateway url {url}: http://host:port")),
+        };
+        if host.is_empty() {
+            return Err(format!("gateway url {url}: no host"));
+        }
+        if !tls {
+            // A password goes there in clear: loopback only, never a name
+            // that could resolve elsewhere.
+            if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "[::1]") {
+                return Err(format!(
+                    "gateway url {url}: plain HTTP only on loopback (127.0.0.1, localhost, [::1]); \
+                     use https:// for a gateway on another host"
+                ));
+            }
+            return Ok((false, host, port));
+        }
+        Ok((true, host, port))
+    }
+
+    /// Review S4: every gateway URL the old parser took gives the same endpoint (the host
+    /// in lower case now); what it refused stays refused; no message repeats the URL.
+    #[test]
+    fn endpoints_parse_as_before() {
+        use super::endpoint_parts;
+        for s in [
+            "http://127.0.0.1:8445",
+            "localhost:8445",
+            "http://[::1]:8445/",
+            "https://broker.example",
+            "https://10.0.0.5:8445/",
+            "https://[fd00::1]:8445",
+            "https://Broker.Example//",
+            "127.0.0.1:1",
+        ] {
+            let (tls, host, port) = old_parts(s).unwrap();
+            assert_eq!(
+                endpoint_parts(s),
+                Ok((tls, host.to_ascii_lowercase(), port)),
+                "{s}"
+            );
+        }
+        for s in [
+            "http://10.0.0.5:8445",
+            "http://evil.example:80",
+            "http://127.0.0.1:1/x",
+            "ftp://127.0.0.1:1",
+            "https://",
+            "https://h:notaport",
+            "http://localhost",
+            "https://h/x/",
+            "10.0.0.5:80",
+        ] {
+            assert!(old_parts(s).is_err(), "old took {s}");
+            assert!(endpoint_parts(s).is_err(), "{s}");
+        }
+        // refused now, taken before: a credential before the host, a query, port 0
+        for s in [
+            "https://u:s3cret@h",
+            "https://h?x=1",
+            "https://h:0",
+            "http://127.0.0.1:0",
+        ] {
+            let e = endpoint_parts(s).unwrap_err();
+            assert!(!e.contains("s3cret"), "{s}: {e}");
+        }
     }
 
     #[test]
@@ -225,49 +318,8 @@ impl Endpoint {
     /// loopback only). `ca`: PEM roots for the gateway's certificate (a
     /// broker CA, a self-signed one); without it the public web roots.
     pub fn parse(url: &str, ca: Option<&Path>) -> Result<Self> {
-        let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
-            (true, r)
-        } else if let Some(r) = url.strip_prefix("http://") {
-            (false, r)
-        } else if url.contains("://") {
-            return Err(Error::Transport(format!(
-                "gateway url {url}: https://host[:port] or http://127.0.0.1:<port>"
-            )));
-        } else {
-            (false, url)
-        };
-        let hp = rest.trim_end_matches('/');
-        if hp.is_empty() || hp.contains('/') {
-            return Err(Error::Transport(format!(
-                "gateway url {url}: https://host[:port] (no path)"
-            )));
-        }
-        let (host, port) = match hp.rsplit_once(':') {
-            // `[::1]` alone has colons inside the brackets only
-            Some((h, p)) if !p.contains(']') => (
-                h.to_owned(),
-                p.parse::<u16>()
-                    .map_err(|_| Error::Transport(format!("gateway url {url}: bad port")))?,
-            ),
-            _ if tls => (hp.to_owned(), 443),
-            _ => {
-                return Err(Error::Transport(format!(
-                    "gateway url {url}: http://host:port"
-                )))
-            }
-        };
-        if host.is_empty() {
-            return Err(Error::Transport(format!("gateway url {url}: no host")));
-        }
+        let (tls, host, port) = endpoint_parts(url).map_err(Error::Transport)?;
         if !tls {
-            // A password goes there in clear: loopback only, never a name
-            // that could resolve elsewhere.
-            if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "[::1]") {
-                return Err(Error::Transport(format!(
-                    "gateway url {url}: plain HTTP only on loopback (127.0.0.1, localhost, [::1]); \
-                     use https:// for a gateway on another host"
-                )));
-            }
             return Ok(Self {
                 host,
                 port,
@@ -279,7 +331,7 @@ impl Endpoint {
             .trim_end_matches(']')
             .to_owned();
         let server_name = rustls::pki_types::ServerName::try_from(name)
-            .map_err(|e| Error::Transport(format!("gateway url {url}: {e}")))?;
+            .map_err(|e| Error::Transport(format!("gateway url: {e}")))?;
         let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config(ca)?));
         Ok(Self {
             host,
@@ -315,6 +367,40 @@ impl Endpoint {
             }
         }
     }
+}
+
+/// `(tls, host, port)` of a gateway URL: `https://host[:port]`, `http://host:port` or
+/// `host:port` (plain, both loopback only), no path; read by [`wyrm_core::weburl`]. The
+/// host is as in a URL (IPv6 in brackets). The message never repeats the URL.
+fn endpoint_parts(url: &str) -> std::result::Result<(bool, String, u16), String> {
+    const HELP: &str = "gateway url: https://host[:port] or http://127.0.0.1:<port>";
+    let u = match HttpUrl::parse(url, SchemeCase::Lower) {
+        Ok(u) => u,
+        // `host:port`: plain HTTP
+        Err(UrlError::NoScheme) => HttpUrl::parse(&format!("http://{url}"), SchemeCase::Lower)
+            .map_err(|e| format!("gateway url: {e}"))?,
+        Err(UrlError::Scheme) => return Err(HELP.into()),
+        Err(e) => return Err(format!("gateway url: {e}")),
+    };
+    if !u.url.path.bytes().all(|b| b == b'/') || u.url.query.is_some() || u.url.fragment.is_some() {
+        return Err("gateway url: https://host[:port] (no path)".into());
+    }
+    let host = u.url.host.url_form();
+    if !u.tls {
+        if u.url.port.is_none() {
+            return Err("gateway url: http://host:port".into());
+        }
+        // A password goes there in clear: loopback only, never a name that could
+        // resolve elsewhere.
+        if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "[::1]") {
+            return Err(
+                "gateway url: plain HTTP only on loopback (127.0.0.1, localhost, [::1]); \
+                 use https:// for a gateway on another host"
+                    .into(),
+            );
+        }
+    }
+    Ok((u.tls, host, u.port))
 }
 
 /// rustls on ring, HTTP/1.1 only (WebSockets need it).
