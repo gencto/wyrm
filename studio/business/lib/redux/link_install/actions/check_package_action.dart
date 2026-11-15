@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/install_source.dart';
 import 'package:models/link_mode.dart';
 
@@ -51,9 +50,9 @@ class CheckPackageAction extends Action {
       _ => null,
     };
     return state.copyWith.linkInstall(
-      checks: report.checks.lock,
+      checks: report.checks,
       manifest: report.manifest,
-      rights: report.rights?.lock,
+      rights: report.rights,
       name: linkInstall.name ?? report.name ?? fileName,
       // A package runs as its kind says; a backup keeps the mode its link
       // ran in.

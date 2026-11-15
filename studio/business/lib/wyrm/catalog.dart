@@ -1,10 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/catalog_form.dart';
 import 'package:models/catalog_item.dart';
+import 'package:models/catalog_row.dart';
 import 'package:models/link_mode.dart';
 
-import 'decode/catalog_rows.dart';
-
-export 'decode/catalog_rows.dart' show CatalogForm, CatalogRow, catalogRowsOf;
+export 'decode/catalog_rows.dart' show catalogRowsOf;
 
 /// What Studio says of a driver it knows: its short tag, title, one line
 /// and category.

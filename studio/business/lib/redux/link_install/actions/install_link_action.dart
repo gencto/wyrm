@@ -4,6 +4,7 @@ import 'package:models/error_kind.dart';
 import 'package:models/install_field.dart';
 import 'package:models/install_path.dart';
 import 'package:models/install_phase.dart';
+import 'package:models/install_request.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_step.dart';
 import 'package:models/link_mode.dart';
@@ -13,6 +14,7 @@ import 'package:wyrm_client/wyrm_client.dart';
 import '../../../wyrm/decode/install_field.dart';
 import '../../../wyrm/decode/sys_verdict.dart';
 import '../../../wyrm/failures.dart';
+import '../../../wyrm/install_args.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../../links/actions/retrieve_links_action.dart';
@@ -37,30 +39,29 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     if (broker == null || name == null || name.isEmpty) {
       return null;
     }
-    final accept = <String, Object?>{
-      if (li.acceptRights) 'accept': true,
-    };
-    final call = switch (li.path) {
+    final accept = li.acceptRights;
+    final request = switch (li.path) {
       InstallPath.official => switch (installItem) {
-        final item? => _official(name, item, li.mode, accept),
+        final item? => _official(name, item, li.mode, accept: accept),
         null => null,
       },
       InstallPath.custom ||
-      InstallPath.backup => _custom(name, li.source, accept),
+      InstallPath.backup => _custom(name, li.source, accept: accept),
     };
-    if (call == null) {
+    if (request == null) {
       return null;
     }
+    final action = request.call.wire;
     dispatchSync(InstallingAction());
     SysVerdict answer;
     InstallField? refusedField;
     String? refusedSaid;
     try {
       final rows = await deps.wyrm
-          .invoke('wy/$broker/sys/links', call.action, Value.from(call.args))
+          .invoke('wy/$broker/sys/links', action, installArgsOf(request))
           .toList();
       answer =
-          sysVerdictOf(rows).orWarn('${call.action} on $broker') ??
+          sysVerdictOf(rows).orWarn('$action on $broker') ??
           const SysVerdict(success: false);
     } on WyrmException catch (e) {
       answer = SysVerdict(
@@ -93,28 +94,33 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
     );
   }
 
-  /// The call for a package the user brought; null when nothing that can
-  /// be sent was brought.
-  static ({String action, Map<String, Object?> args})? _custom(
+  /// The install of a package the user brought; null when nothing that
+  /// can be sent was brought.
+  static InstallRequest? _custom(
     String name,
-    InstallSource? source,
-    Map<String, Object?> accept,
-  ) => switch (source) {
-    InstallSourceZip(:final bytes) => (
-      action: 'install_zip',
-      args: {'name': name, 'zip': bytes, ...accept},
+    InstallSource? source, {
+    required bool accept,
+  }) => switch (source) {
+    InstallSourceZip(:final bytes) => InstallRequest.zip(
+      name: name,
+      zip: bytes,
+      accept: accept,
     ),
-    InstallSourceWasm(:final bytes) => (
-      action: 'install_wasm',
-      args: {'name': name, 'wasm': bytes, ...accept},
+    InstallSourceWasm(:final bytes) => InstallRequest.wasm(
+      name: name,
+      wasm: bytes,
+      accept: accept,
     ),
-    InstallSourceUrl(:final url) => (
-      action: 'install_url',
-      args: {'name': name, 'url': url, ...accept},
+    InstallSourceUrl(:final url) => InstallRequest.url(
+      name: name,
+      url: url,
+      accept: accept,
     ),
-    InstallSourceGit(:final url, :final ref) => (
-      action: 'install_git',
-      args: {'name': name, 'url': url, 'ref': ?ref, ...accept},
+    InstallSourceGit(:final url, :final ref) => InstallRequest.git(
+      name: name,
+      url: url,
+      ref: ref,
+      accept: accept,
     ),
     InstallSourceBuiltIn() ||
     InstallSourceRepository() ||
@@ -124,22 +130,20 @@ class InstallLinkAction extends Action with NonReentrant, WaitingAction {
 
   /// A driver built into the broker (`install`) or a package of its
   /// repository (`install_repo`).
-  static ({String action, Map<String, Object?> args}) _official(
+  static InstallRequest _official(
     String name,
     CatalogItem item,
-    LinkMode? mode,
-    Map<String, Object?> accept,
-  ) => item.builtIn
-      ? (
-          action: 'install',
-          args: {
-            'id': name,
-            'driver': item.code,
-            'mode': (mode ?? LinkMode.embedded).wire,
-          },
+    LinkMode? mode, {
+    required bool accept,
+  }) => item.builtIn
+      ? InstallRequest.builtIn(
+          id: name,
+          driver: item.code,
+          mode: mode ?? LinkMode.embedded,
         )
-      : (
-          action: 'install_repo',
-          args: {'name': name, 'package': item.code, ...accept},
+      : InstallRequest.repository(
+          name: name,
+          package: item.code,
+          accept: accept,
         );
 }

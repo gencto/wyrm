@@ -1,37 +1,10 @@
+import 'package:models/catalog_form.dart';
+import 'package:models/catalog_row.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import 'decoded.dart';
 
 const _shape = 'catalog row';
-
-/// What form an item of the official list takes (`attr.catalog` row
-/// `form`, ADR 0043 §7): a driver built into wyrmd, a process package or a
-/// WASM package.
-enum CatalogForm implements WireName {
-  builtin('builtin'),
-  process('process'),
-  wasm('wasm');
-
-  const CatalogForm(this.wire);
-
-  @override
-  final String wire;
-
-  static CatalogForm? fromWire(String wire) =>
-      values.where((f) => f.wire == wire).firstOrNull;
-}
-
-/// One row of `attr.catalog` on `sys/links` (ADR 0043 §7): what the broker
-/// says of one item of its `install` / `install_repo` choices. An empty
-/// text is a field the broker left out; a null `form` too.
-typedef CatalogRow = ({
-  String title,
-  String summary,
-  String category,
-  String version,
-  CatalogForm? form,
-  bool official,
-});
 
 /// The rows of `attr.catalog` by `id` (`driver:<code>` / `package:<code>`);
 /// null when the broker sends none (built before ADR 0043). A row that is
@@ -41,16 +14,18 @@ Map<String, CatalogRow>? catalogRowsOf(Map<String, Value>? attr) {
   if (rows is! VArray) {
     return null;
   }
-  return {
-    for (final r in rows.v)
-      if (catalogRowOf(r).orWarn('attr.catalog') case (final id, final row))
-        id: row,
-  };
+  final byId = <String, CatalogRow>{};
+  for (final r in rows.v) {
+    if (catalogRowOf(r).orWarn('attr.catalog') case final row?) {
+      byId[row.id] = row;
+    }
+  }
+  return byId;
 }
 
-/// One row of `attr.catalog`: its `id` and what it says; a row without an
+/// One row of `attr.catalog` with its `id`; a row without an
 /// `id` or with a field of another type is [Invalid].
-Decoded<(String, CatalogRow)> catalogRowOf(Value r) {
+Decoded<CatalogRow> catalogRowOf(Value r) {
   if (r is! VMap) {
     return const Invalid(_shape, '', 'not a map');
   }
@@ -87,9 +62,9 @@ Decoded<(String, CatalogRow)> catalogRowOf(Value r) {
       return Invalid(_shape, field, 'not a text');
     }
   }
-  return Valid((
-    id,
-    (
+  return Valid(
+    CatalogRow(
+      id: id,
       title: title!,
       summary: summary!,
       category: category!,
@@ -97,5 +72,5 @@ Decoded<(String, CatalogRow)> catalogRowOf(Value r) {
       form: form!.isEmpty ? null : CatalogForm.fromWire(form),
       official: official,
     ),
-  ));
+  );
 }

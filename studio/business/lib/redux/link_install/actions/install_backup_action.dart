@@ -1,12 +1,15 @@
 import 'package:async_redux/async_redux.dart';
 import 'package:models/install_phase.dart';
+import 'package:models/install_request.dart';
 import 'package:models/install_source.dart';
 import 'package:models/install_step.dart';
+import 'package:models/link_install_call.dart';
 import 'package:models/sys_verdict.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 import '../../../wyrm/decode/sys_verdict.dart';
 import '../../../wyrm/failures.dart';
+import '../../../wyrm/install_args.dart';
 import '../../../wyrm/transfer.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
@@ -54,20 +57,22 @@ class InstallBackupAction extends Action with NonReentrant, WaitingAction {
         size: source.size,
         read: read,
       );
+      final request = InstallRequest.backup(
+        upload: upload,
+        id: name,
+        accept: li.acceptRights,
+        passphrase: passphrase,
+      );
       final rows = await deps.wyrm
           .invoke(
             'wy/$broker/sys/links',
-            'install_backup',
-            Value.from({
-              'upload': upload,
-              'id': name,
-              if (li.acceptRights) 'accept': true,
-              if (passphrase case final p? when p.isNotEmpty) 'passphrase': p,
-            }),
+            request.call.wire,
+            installArgsOf(request),
           )
           .toList();
       answer =
-          sysVerdictOf(rows).orWarn('install_backup on $broker') ??
+          sysVerdictOf(rows)
+              .orWarn('${LinkInstallCall.backup.wire} on $broker') ??
           const SysVerdict(success: false);
     } on WyrmException catch (e) {
       answer = SysVerdict(

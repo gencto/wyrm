@@ -7,6 +7,8 @@ import 'package:business/wyrm/decode/requested_rights.dart';
 import 'package:business/wyrm/decode/sys_verdict.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:models/catalog_form.dart';
+import 'package:models/catalog_row.dart';
 import 'package:models/install_field.dart';
 import 'package:models/requested_right.dart';
 import 'package:models/sys_verdict.dart';
@@ -95,22 +97,19 @@ void main() {
           {'id': 'driver:mock'},
         ]),
       })!;
-      expect(rows['package:alarm-process'], (
-        title: 'Alarms',
-        summary: 'Classes',
-        category: 'Apps',
-        version: '0.3.0',
-        form: CatalogForm.process,
-        official: true,
-      ));
-      expect(rows['driver:mock'], (
-        title: '',
-        summary: '',
-        category: '',
-        version: '',
-        form: null,
-        official: false,
-      ));
+      expect(
+        rows['package:alarm-process'],
+        const CatalogRow(
+          id: 'package:alarm-process',
+          title: 'Alarms',
+          summary: 'Classes',
+          category: 'Apps',
+          version: '0.3.0',
+          form: CatalogForm.process,
+          official: true,
+        ),
+      );
+      expect(rows['driver:mock'], const CatalogRow(id: 'driver:mock'));
     });
 
     test('a row that is not one is left out and logged with its field', () {
