@@ -54,7 +54,7 @@ class SecurityDialogConnector extends StatelessWidget {
 
 /// `mac`, `iOS`, `win`, `and` on the device tile.
 String _os(String platform) => switch (platform) {
-  'mac' => 'mac',
+  'macos' => 'mac',
   'ios' => 'iOS',
   'windows' => 'win',
   'android' => 'and',
@@ -63,7 +63,7 @@ String _os(String platform) => switch (platform) {
 
 /// The method a device record unlocks with, by its platform.
 String _method(String platform) => switch (platform) {
-  'mac' => 'Touch ID',
+  'macos' => 'Touch ID',
   'ios' => 'Face ID',
   'windows' => 'Windows Hello',
   'android' => S.current.unlockNameFingerprint,

@@ -32,7 +32,7 @@ BiometricGlyph unlockGlyph(KeyKind kind) => switch (kind) {
 
 /// Where the key lives: `this Mac’s Secure Enclave`, `this PC’s TPM`, …
 String unlockStore(String platform) => switch (platform) {
-  'mac' => S.current.unlockStoreMac,
+  'macos' => S.current.unlockStoreMac,
   'windows' => S.current.unlockStoreWindows,
   'ios' => S.current.unlockStoreIos,
   'android' => S.current.unlockStoreAndroid,
@@ -41,7 +41,7 @@ String unlockStore(String platform) => switch (platform) {
 
 /// `this Mac`, `this PC`, `this iPhone`, `this phone`, `this computer`.
 String unlockDevice(String platform) => switch (platform) {
-  'mac' => S.current.unlockDeviceMac,
+  'macos' => S.current.unlockDeviceMac,
   'windows' => S.current.unlockDevicePc,
   'ios' => S.current.unlockDeviceIphone,
   'android' => S.current.unlockDevicePhone,

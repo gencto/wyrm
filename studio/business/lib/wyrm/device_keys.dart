@@ -17,14 +17,15 @@ import 'session.dart';
 // platform names, the alias of a key, the signer that turns the OS prompt
 // into bytes, and the mapping of the gateway's answers.
 
-/// `mac`, `windows`, `linux`, `ios` or `android`: the platform a device
-/// record names and the log-in page draws (unlock-discover.md §1).
+/// `macos`, `windows`, `linux`, `ios` or `android`: the platform a device
+/// record names and the log-in page draws (unlock-discover.md §1). The
+/// gateway takes `macos | windows | ios | android` on the wire (ADR 0050).
 String devicePlatform() {
   if (kIsWeb) {
     return 'web';
   }
   return switch (defaultTargetPlatform) {
-    TargetPlatform.macOS => 'mac',
+    TargetPlatform.macOS => 'macos',
     TargetPlatform.windows => 'windows',
     TargetPlatform.iOS => 'ios',
     TargetPlatform.android => 'android',
