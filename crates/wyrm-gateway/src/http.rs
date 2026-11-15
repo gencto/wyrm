@@ -31,6 +31,8 @@ const INVOKE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Longest upload of a `POST /api/invoke` body: a slow sender cannot hold
 /// one of the two slots for long.
 const BODY_TIMEOUT: Duration = Duration::from_secs(120);
+/// Most refused `POST /api/invoke` bodies read to their end at once.
+pub(crate) const MAX_DRAINS: usize = 4;
 
 #[derive(Clone)]
 pub(crate) struct AppState {
@@ -534,36 +536,50 @@ fn client_failure(e: wyrm_client::ClientError) -> ApiError {
 }
 
 /// `POST /api/invoke?key=<node>&action=<a>`, body = the CBOR `args` map: one
-/// invoke of an action with an `editor: file` parameter whose arguments are
-/// too large for a WebSocket frame (ADR 0011). Before the body is read: the
-/// key, the file parameter (from the node's `~meta`) and the user's grant at
-/// the action's level ([`check_invoke`]). Then at most [`MAX_ARG_ITEMS`]
-/// items are decoded; two such calls run at a time. Replies `{result}` with
-/// the last value.
+/// invoke of an action with an `editor: file` parameter (a file or a part of
+/// one) whose arguments are too large for a WebSocket frame (ADR 0011, ADR
+/// 0028). Before the body is read: its declared length, the key, the file
+/// parameter (from the node's `~meta`) and the user's grant at the action's
+/// level ([`check_invoke`]); a refusal reaches the client ([`refuse`]). Then
+/// at most [`MAX_ARG_ITEMS`] items are decoded; two such calls run at a time.
+/// Replies `{result}` with the last value.
 async fn invoke(
     State(st): State<AppState>,
     Auth(p): Auth,
     Query(q): Query<InvokeQuery>,
+    headers: HeaderMap,
     body: axum::body::Body,
 ) -> ApiResult {
+    let too_large = || {
+        ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Status::InvalidParameter,
+            format!("body over {} MiB", MAX_INVOKE_BODY >> 20),
+        )
+    };
+    let len = headers
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok()?.parse::<u64>().ok());
+    if len.is_some_and(|n| n > MAX_INVOKE_BODY as u64) {
+        // not read: the client learns it only if it waits before sending
+        return Err(too_large());
+    }
+    let waits = headers
+        .get(axum::http::header::EXPECT)
+        .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"100-continue"));
     let c = match check_invoke(&st, &p, &q).await {
         Ok(c) => c,
-        Err(e) => {
-            // Read a small body anyway, so the client gets the answer and not
-            // a reset; a big one is cut off.
-            let _ = axum::body::to_bytes(body, MAX_BODY).await;
-            return Err(e);
-        }
+        Err(e) => return refuse(&st, body, waits, e).await,
     };
     let busy = |why: &str| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, Status::Busy, why);
     // One upload per user, two in all.
-    let Some(_slot) = st.gw.upload_slot(&p.name) else {
-        let _ = axum::body::to_bytes(body, MAX_BODY).await;
-        return Err(busy("an upload of this user is in progress"));
+    let Some(slot) = st.gw.upload_slot(&p.name) else {
+        let e = busy("an upload of this user is in progress");
+        return refuse(&st, body, waits, e).await;
     };
     let Ok(_permit) = st.gw.bulk.try_acquire() else {
-        let _ = axum::body::to_bytes(body, MAX_BODY).await;
-        return Err(busy("too many uploads at once"));
+        drop(slot); // a refused body holds no slot
+        return refuse(&st, body, waits, busy("too many uploads at once")).await;
     };
     let bytes = tokio::time::timeout(BODY_TIMEOUT, axum::body::to_bytes(body, MAX_INVOKE_BODY))
         .await
@@ -574,13 +590,7 @@ async fn invoke(
                 format!("body not received in {} s", BODY_TIMEOUT.as_secs()),
             )
         })?
-        .map_err(|_| {
-            ApiError::new(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                Status::InvalidParameter,
-                format!("body over {} MiB", MAX_INVOKE_BODY >> 20),
-            )
-        })?;
+        .map_err(|_| too_large())?;
     cbor_items(&bytes, MAX_ARG_ITEMS)?;
     let args = match wyrm_core::codec::from_slice::<Value>(&bytes) {
         Ok(v @ Value::Map(_)) => v,
@@ -609,6 +619,36 @@ async fn invoke(
         StatusCode::OK,
         &map([("result", last.unwrap_or(Value::Null))]),
     ))
+}
+
+/// Answer a refused `POST /api/invoke` with `e` after its body is read and
+/// dropped: a client that writes the whole body before it reads the answer
+/// (Dart's `HttpClient`) would otherwise get a reset (a broken pipe), not the
+/// refusal. Up to [`MAX_INVOKE_BODY`] within [`BODY_TIMEOUT`], one chunk in
+/// memory at a time, at most [`MAX_DRAINS`] at once; the caller holds neither
+/// the user's upload slot nor a bulk permit while it runs. Not read when the
+/// client waits for `100 Continue` (it reads the answer first) or when all
+/// drains are in use (cut off, as before).
+async fn refuse(st: &AppState, body: axum::body::Body, waits: bool, e: ApiError) -> ApiResult {
+    use futures_util::StreamExt;
+    if waits {
+        return Err(e);
+    }
+    let Ok(_drain) = st.gw.drains.try_acquire() else {
+        return Err(e);
+    };
+    let mut s = body.into_data_stream();
+    let mut n = 0usize;
+    let _ = tokio::time::timeout(BODY_TIMEOUT, async {
+        while let Some(Ok(chunk)) = s.next().await {
+            n += chunk.len();
+            if n > MAX_INVOKE_BODY {
+                break;
+            }
+        }
+    })
+    .await;
+    Err(e)
 }
 
 /// The checks of [`invoke`] before its body is read; returns the client

@@ -139,6 +139,16 @@ void main() {
     await c.invoke(root, 'reset').toList();
   });
 
+  test('a refused upload of 4 MiB carries the refusal, not a broken pipe', () async {
+    // The client writes the whole body before it reads the answer; the
+    // gateway reads a refused body to its end so that its answer arrives.
+    final big = VMap({'blob': VBytes(Uint8List(4 << 20))});
+    await expectLater(
+        c.invoke(root, 'reset', big).toList(),
+        throwsA(isA<WyrmException>().having((e) => e.message, 'message', contains('takes no file'))));
+    await c.invoke(root, 'reset').toList();
+  });
+
   test('invoke an unknown action fails', () async {
     await expectLater(c.invoke(root, 'nope').toList(), throwsA(isA<WyrmException>()));
   });
