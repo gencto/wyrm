@@ -11,11 +11,14 @@ Two checks run in CI job `check`:
    has `lints.workspace = true`. `cargo clippy --workspace --all-targets
    --all-features -- -D warnings` fails on one hit.
 2. **Baselined rules.** `python3 tool/check_rust_rules.py` counts the patterns
-   C1–C10 and seven costly clippy lints per file against
+   C1–C10, the exceptions A1–A2 and seven costly clippy lints per file against
    `tool/rust_rules_baseline.json`. **A count may only go down. A file that is
-   not in the baseline starts at zero.** After you remove hits, run
-   `python3 tool/check_rust_rules.py --lower` and commit the smaller baseline.
-   Never raise a number by hand.
+   not in the baseline starts at zero.** The check fails on a count above its
+   baseline and also on a count below it: after you remove hits, run
+   `python3 tool/check_rust_rules.py --lower` and commit the smaller baseline
+   with the change, so the fixed hit cannot be spent again by the next one.
+   Never raise a number by hand; a re-measure after a wider pattern goes in its
+   own commit that says so.
 
 Useful runs:
 
@@ -26,30 +29,38 @@ python3 tool/check_rust_rules.py               # what CI runs (one clippy run in
 ```
 
 **Exceptions.** A denied lint is allowed only at the narrowest item, with a
-reason: `#[allow(clippy::expect_used, reason = "…")]` (rule 3). A pattern hit
-that is right on purpose carries `// rust-rules: allow(C4) <why>` on its line
-or the line above; the reason is required. Prefer a restructure: an exception
-is for the place where the restructure reads worse.
+reason that says why the code is right: `#[allow(clippy::expect_used, reason =
+"…")]` (rule 3). A pattern hit that is right on purpose carries `// rust-rules:
+allow(C4) <why>` on its line or the line above. A reason under 12 characters
+does not count (A2), and every exception is itself counted (A1), so none is
+invisible. Prefer a restructure: an exception is for the place where the code
+is provably right as it is.
 
 Test code (`#[test]`, `#[cfg(test)]`) may unwrap, expect, panic and print
 (`clippy.toml`). Integration tests, benches and examples are crates of their
-own: they say so once at their crate root; test kits (`testkit`, `harness`) at
-their module. The pattern rules skip `tests/`, `benches/`, `examples/` and
-`#[cfg(test)]` items.
+own: they say so once at their crate root (also for `unreachable`, which clippy
+lints in tests too); test kits (`testkit`, `harness`) at their module, and a
+test kit is behind a `cfg(test)` or a feature, never in a release build. The
+pattern rules skip `tests/`, `benches/`, `examples/`, `#[cfg(test)]` and
+`#[cfg(all(test, …))]` items and the files of `#[cfg(test)] mod x;`.
 
 ---
 
 ## 1. No `unwrap`, `expect` or `panic!` in product code
 
 **Rule.** Product code returns an error or takes the other branch. It does not
-call `unwrap()`, `expect()`, `panic!`, `todo!`, `unimplemented!` or `dbg!`.
-Where a value is known to be there, restructure so the type says it: a
-`let … else`, a slice pattern, an array from `get(..)`, `if let Some` after a
-lookup. `expect` stays only for a true invariant that no restructure states
-better (an HMAC key of any length, an encode into memory, build-time data
-that a test parses), with `#[allow(clippy::expect_used, reason = "…")]`. An
-RNG failure is never an `expect`: the function returns `None`/`Err` and its
-caller refuses (rule 10).
+call `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`,
+`unimplemented!` or `dbg!`, and it does not write the same panic another way
+(`unwrap_or_else(|_| unreachable!())`). Where a value is known to be there,
+restructure so the type says it: a `let … else`, a slice pattern, an array from
+`get(..)`, a `to_map()` that returns the map instead of a `Value` matched back,
+an `Infallible` future. A lookup that "cannot" miss returns its error or logs
+(`tracing::error!`), never a silent `continue`. `expect`/`unreachable!` stay
+only where the code is provably right and no type can say it, with
+`#[allow(…, reason = "…")]` that gives the proof (today: `encode_to_vec`, the
+embedded manifest, three `unreachable!`). An HMAC is made with
+`wyrm_core::mac::hmac_sha256` (infallible); an RNG failure is never an
+`expect`: the function returns `None`/`Err` and its caller refuses (rule 10).
 
 **Why.** The audit found the code "much better on panics than feared": 14
 guarded `unwrap()` in product code. The rule keeps it that way. A panic
@@ -80,21 +91,35 @@ let Some(s) = self.sinks.get_mut(name) else {
 let old = std::mem::replace(&mut s.def, def);
 ```
 
-An in-memory `Value` encodes with `wyrm_core::codec::value_to_vec` (one
-documented `expect` for the whole workspace), not `to_vec(v).expect(…)`.
+A `Value`, `NodeMeta`, `Attachment` or `PtokClaims` encodes with
+`wyrm_core::codec::encode_to_vec` (one documented `expect` for the whole
+workspace), never `to_vec(v).expect(…)` and never
+`to_vec(v).unwrap_or_default()`, which writes empty bytes (an empty sealed
+secret, an empty history row, an HMAC over nothing) where an error was.
 
-**Check.** clippy `unwrap_used`, `expect_used`, `panic`, `todo`,
-`unimplemented`, `dbg_macro`: deny.
+**Check.** clippy `unwrap_used`, `expect_used`, `panic`, `unreachable`, `todo`,
+`unimplemented`, `dbg_macro`: deny. C8 counts `to_vec(..).unwrap_or_default()`
+and `.ok()`.
 
-## 2. `unsafe` only in `wyrm-ffi`, one `// SAFETY:` per operation
+## 2. `unsafe` only where it is listed, one `// SAFETY:` per operation
 
-**Rule.** `unsafe` is denied in the workspace. `wyrm-ffi` (the C ABI) allows it
-and denies `unsafe_op_in_unsafe_fn` and `clippy::undocumented_unsafe_blocks`:
-every unsafe operation sits in its own `unsafe {}` block, also inside an
-`unsafe fn`, with a `// SAFETY:` line that names the caller contract (the
-function's `# Safety` section) it relies on. A new test helper that needs
-`unsafe` (a counting `GlobalAlloc`) allows it on that item with a reason and
-the same SAFETY lines.
+**Rule.** `unsafe` is denied in the workspace. It is allowed in these places
+only, each with its reason:
+
+| Where | Why |
+|---|---|
+| `wyrm-ffi` (crate) | the C ABI: raw pointers and `#[no_mangle]` entry points |
+| `wyrm-link-guest/src/lib.rs`, the `bindings` module | code generated by `wit-bindgen`: the component model's canonical ABI exports are `unsafe` |
+| `wyrm-flow/tests/preview_cost.rs` | a counting `GlobalAlloc` (an `unsafe` trait) |
+| `wyrm-ffi/tests/abi.rs` | calls the C ABI as a C program does |
+
+`wyrm-ffi` also denies `unsafe_op_in_unsafe_fn` and
+`clippy::undocumented_unsafe_blocks`: every unsafe operation sits in its own
+`unsafe {}` block, also inside an `unsafe fn`, with a `// SAFETY:` line that
+names the caller contract (the function's `# Safety` section) it relies on and
+why it holds, not what the line does. A thread-safety claim is checked by the
+compiler: `WyrmHandle` is asserted `Send + Sync` at compile time, because C
+calls in from any thread.
 
 **Why.** **S5**: 39 unsafe operations in `unsafe fn` bodies had no SAFETY note;
 `wyrm_buf_free(p, len)` is sound only if `len` is the exact length handed
@@ -116,7 +141,8 @@ drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, len)) });
 ```
 
 **Check.** rustc `unsafe_code`: deny (workspace); in `wyrm-ffi`
-`unsafe_op_in_unsafe_fn` and clippy `undocumented_unsafe_blocks`: deny.
+`unsafe_op_in_unsafe_fn` and clippy `undocumented_unsafe_blocks`: deny. A1
+counts each of the allows above.
 
 ## 3. Every exception says why
 
@@ -138,7 +164,9 @@ reason goes away; 17 allows in product code had none.
 )]
 ```
 
-**Check.** clippy `allow_attributes_without_reason`: deny.
+**Check.** clippy `allow_attributes_without_reason`: deny; A2 counts a reason
+under 12 characters; A1 counts every `allow`/`expect` and `rust-rules` marker
+per file, so a new exception shows in the review as a count that went up.
 
 ## 4. Output and exit codes belong to command lines
 
@@ -146,8 +174,10 @@ reason goes away; 17 allows in product code had none.
 stdout. Command lines (`tools/wyr`, `wyrm-agent`, `wyrmd`'s `cli` module and
 `wyrmd release`, the `wyrm-*-sim` simulators) allow `print_stdout` once, at
 their crate or module root. An exit code goes back to `main` as a
-`std::process::ExitCode` (`wyrmd check` → 1, a given-up update trial →
-`TRIAL_EXIT`), so every `Drop` runs first. `std::process::exit` stays only in
+`std::process::ExitCode` (`wyrmd`: `check` → 1, a given-up update trial →
+`TRIAL_EXIT`; `wyrm-agent`, `wyrm-mcp`, `wyr` on an error), so the runtime
+shuts down and every `Drop` runs first. clippy does not lint `exit` inside
+`main`, so this holds there too by review. `std::process::exit` stays only in
 `wyr`'s `out!`, where a closed stdout ends the CLI and nothing is open.
 
 **Why.** stdout of a broker or a link process is captured by the supervisor as
@@ -181,10 +211,13 @@ Value::UInt(u) => u8::try_from(*u).ok(),          // then Quality::try_from(c)
 let level = Perm::from_name(level)
 ```
 
-**Check.** C1 `int-cast`, C2 `name-lookup`: `ALL…name() ==` and any
-`.find(|x| x.name() == s)` or `name(*x) == s` search. C2 is at zero: keep it
-there. A plain enum's own `from_name` (or `parse`, `from_str`) is its one
-definition and is not counted.
+**Check.** C1 `int-cast`: `as u8/u16/u32/i8/i16/i32`, `as _`, and any
+`as <int>` within six lines after a float (`as_f64`, `f64`, `Float(`,
+`.round()`…). C2 `name-lookup`: any `.name() == s`, `.name().eq(s)` or
+`name(*x) == s` comparison, and a `match` whose string arms give enum variants
+(`"read" => Perm::Read`), once per `match`. No function is exempt by its name:
+a plain enum's own hand-written lookup counts too, until its names are
+declared once by a macro that generates the lookup (`wire_enum!` today).
 
 ## 6. A closed set is an enum, not a `String`
 
@@ -215,7 +248,13 @@ pub status: JobStatus,
 if job.status != JobStatus::Done { … }
 ```
 
-**Check.** C3 `string-closed-set`, C6 `string-set`.
+**Check.** C3 `string-closed-set`: a text field (`String`, `&str`,
+`Box<str>`, `Cow<str>`, in `Option` too, the last field of a struct too) or a
+`fn` argument whose doc lists its values (backticked or quoted alternatives,
+"one of …", "a, b or c"). C6 `string-set`: inline `["a", "b"]` (with or
+without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
+"b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
+tuples).
 
 ## 7. One typed decoder per `Value` shape
 
@@ -240,8 +279,11 @@ struct EnableArgs { #[param(default = true)] enabled: bool }
 let a = EnableArgs::from_value(&args)?;
 ```
 
-**Check.** C4 `value-field-read` (files named `decode.rs`, `decode/` and the
-codec in `wyrm-core/src/value.rs` are exempt).
+**Check.** C4 `value-field-read`: `Some(Value::…`, `if let Value::…(`,
+`let Value::…(..) =`, `.get`/`.get_mut`/`.remove`/`.contains_key` with a
+literal or a `CONST` key, `m["x"]`, `Value::as_*`, and the argument helpers
+(`arg_str(&args, "x")`, `opt_str`, `get_u64`, …). Files named `decode.rs`,
+`decode/` and the codec in `wyrm-core/src/value.rs` are exempt.
 
 ## 8. A public error is a type, not a `String`
 
@@ -263,9 +305,11 @@ pub enum PackageError { #[error("manifest: {0}")] Manifest(#[from] serde_json::E
 pub fn read_manifest(zip: &[u8]) -> Result<Manifest, PackageError>
 ```
 
-**Check.** C5 `string-error` (also through a `type Out = Result<_, String>` or
-`type Result<T> = …Result<T, String>` alias of the same file); clippy
-`map_err_ignore` (baselined).
+**Check.** C5 `string-error`: a `pub`/`pub(crate)` `fn` or a method of a
+`pub trait` whose error is text (`String`, `std::string::String`, `&str`,
+`Box<str>`, `Cow<str>`), also through an alias of the same file (`type Out =
+Result<_, String>`) or a text error type of the crate (`pub type Error =
+String;`); clippy `map_err_ignore` (baselined).
 
 ## 9. A selector or query is written from typed values
 
@@ -287,28 +331,36 @@ struct HistoryQuery { from_us: u64, to_us: Option<u64>, agg: Option<Rollup>, lim
 let mut p = format!("history={}..", iso(self.from_us)); // only typed values go in
 ```
 
-**Check.** C7 `selector-format` (it also counts URL queries; review each).
+**Check.** C7 `selector-format`: a `format!`/`write!`/`writeln!` string (raw
+too) with `?x={…}`, `&x={…}`, `;x={…}`, `?{p}={…}` or `history={…}`, and a
+text piece that ends a parameter for a value to follow (`"&x="` in a
+`push_str` or a `concat`). It also counts URL queries; review each.
 
 ## 10. A security or persistence result is never dropped
 
 **Rule.** The result of an RNG fill, a store `apply`, a `save`, `persist`,
-`sync_all` or `flush` is handled: `?`, a refusal, or a logged error with the
-state it leaves. A failing RNG fails closed.
+`sync_all`, `flush`, `rename` or `write_all` is handled: `?`, a refusal, or a
+logged error with the state it leaves. A failing RNG fails closed: the gateway
+has one source, `rng::fill`, whose error the caller refuses with.
 
 **Why.** **S3**: three RNG-failure policies; `let _ = getrandom::fill(key)`
 leaves the device nonce MAC key at zero, and `new_jti` leaves every session's
 `jti` at zero. `let _ = store.apply(…)` hides a write failure.
 
 ```rust
-// bad — crates/wyrm-gateway/src/devices.rs
+// bad — crates/wyrm-gateway/src/devices.rs (before): a zero MAC key on failure
 let _ = getrandom::fill(key.as_mut());
 
-// good
-getrandom::fill(key.as_mut()).map_err(|_| Error::NoRandomness)?;
+// good — crates/wyrm-gateway/src/devices.rs: the gateway does not start without it
+pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
+    let mut key = Zeroizing::new([0u8; 32]);
+    crate::rng::fill(key.as_mut())?;
 ```
 
-**Check.** C8 `dropped-result` (`let _ =`, `_ =`, and such a call ended with
-`.ok();`); clippy `let_underscore_must_use` (baselined).
+**Check.** C8 `dropped-result`: `let _ =`, `let _x =`, `let _: T =`, `_ =`,
+`drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}` and
+`.unwrap_or_default()` on such a call, and `to_vec(..).unwrap_or_default()` /
+`.ok()`; clippy `let_underscore_must_use` (baselined).
 
 ## 11. One clock and one hex helper
 
@@ -319,8 +371,9 @@ define its own.
 **Why.** **X2**: 33 clock helpers, each with its own `as u64` from `u128`; 12
 hex helpers (one named `wyrm_core_hex` in `wyrm-flow`), 4 `sha256_hex`.
 
-**Check.** C9 `duplicate-helper`: a `fn` outside `wyrm-core` whose name starts
-with `now_` or contains `hex` or `sha256`.
+**Check.** C9 `duplicate-helper`: a `fn` or a closure (`let now = || …`)
+outside `wyrm-core` named `now…`, `…_now`, `unix_…`, `timestamp…`, or holding
+`hex`, `sha256` or `digest`.
 
 ## 12. A secret parameter is a `Secret`
 
@@ -344,7 +397,8 @@ password: String,
 password: Secret,
 ```
 
-**Check.** C10 `plain-secret`.
+**Check.** C10 `plain-secret` (a type alias of the file is followed to its
+type).
 
 ## 13. Baselined clippy lints
 
@@ -360,12 +414,13 @@ password: Secret,
 
 **Check.** `tool/check_rust_rules.py` runs `cargo clippy --workspace --lib
 --bins --all-features` with these lints as warnings, in JSON, and counts per
-file (test code is not counted). The counts depend on the platform and the
-clippy version (`cfg(target_os)` code, libc field widths, new lint behaviour),
-so the baseline must match CI's platform: Linux x86_64, newest stable. The
-first baseline was measured on macOS aarch64 with stable 1.99.1, and CI on
-Linux x86_64 got the same counts. When a new stable clippy counts differently,
-lower or re-measure the baseline in its own commit and say why.
+file (test code is not counted). The counts must not depend on the platform:
+code that differs per target is written so both count the same (`nofollow`
+compares `stat(2)` with `stat(2)` instead of casting a `dev_t` that is `i32` on
+macOS and `u64` on Linux: that one cast made macOS count 121 `cast_sign_loss`
+and Linux 120). The check fails on a difference in either direction, so a
+platform drift shows at once. When a new stable clippy counts differently,
+re-measure the baseline in its own commit and say why.
 
 ---
 
@@ -373,5 +428,6 @@ lower or re-measure the baseline in its own commit and say why.
 
 1. `cargo fmt --all`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `python3 tool/check_rust_rules.py`; after removing hits, `--lower`.
+3. `python3 tool/check_rust_rules.py`; after removing hits, `--lower` and
+   commit the baseline with the change.
 4. `cargo test --workspace --all-features`
