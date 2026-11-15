@@ -9,6 +9,7 @@ import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/quality.dart';
 
+import '../decode/block_cfg.dart';
 import '../mappers/csv_table.dart';
 import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';
@@ -202,7 +203,7 @@ ViewerView? viewerViewOf(
       ),
       FieldEdit.toggle => ViewerEdit(
         ViewerEditMode.toggle,
-        text: text == 'true' ? 'true' : 'false',
+        text: '${bool.tryParse(text) ?? false}',
       ),
       FieldEdit.number => ViewerEdit(ViewerEditMode.number, text: text),
       _ when typedTable != null => ViewerEdit(
@@ -216,7 +217,9 @@ ViewerView? viewerViewOf(
       ),
     },
     locked: how.locked,
-    csv: b.type.known == KnownBlock.tableFromCsv && f.name == 'in'
+    csv:
+        b.type.known == KnownBlock.tableFromCsv &&
+            EnginePort.fromWire(f.name) == EnginePort.in_
         ? _csvRules(b, all, d, live)
         : null,
   );
@@ -232,18 +235,18 @@ CsvRules _csvRules(
   LiveValue? Function(String) live,
 ) {
   var wired = false;
-  Object? read(String name) {
-    final f = all.where((x) => x.spec?.name == name).firstOrNull;
+  Object? read(BlockCfgKey key) {
+    final f = all.where((x) => x.spec?.name == key.wire).firstOrNull;
     if (f == null) {
-      return b.cfg[name];
+      return b.cfg[key.wire];
     }
     final shown = fieldValue(b, f, d, live);
     wired = wired || shown.bound;
-    return shown.raw ?? (b.cfg[name] ?? f.spec?.defaultValue);
+    return shown.raw ?? (b.cfg[key.wire] ?? f.spec?.defaultValue);
   }
 
-  final delimiter = read('delimiter');
-  final header = read('with_header');
+  final delimiter = read(BlockCfgKey.delimiter);
+  final header = read(BlockCfgKey.withHeader);
   return CsvRules(
     delimiter: csvDelimiter(delimiter),
     header: header is! bool || header,

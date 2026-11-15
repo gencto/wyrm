@@ -26,7 +26,13 @@ enum BlockCfgKey {
   value('value'),
   intervalMs('interval_ms'),
   autoRun('auto_run'),
-  runOnStart('run_on_start');
+  runOnStart('run_on_start'),
+  timeZone('time_zone'),
+  mapping('mapping'),
+  aggregates('aggregates'),
+  method('method'),
+  delimiter('delimiter'),
+  withHeader('with_header');
 
   const BlockCfgKey(this.wire);
 

@@ -2118,6 +2118,7 @@ FlowEditorPage flowActionBlock({
       engine: 'enabled',
       editor: FieldEditorVm.toggle,
       value: 'true',
+      on: true,
       inPort: 'enabled',
       group: .behaviour,
       pinned: false,

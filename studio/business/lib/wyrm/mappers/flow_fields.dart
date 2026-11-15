@@ -51,7 +51,10 @@ enum EnginePort {
   sent('sent'),
   ok('ok'),
   error('error'),
-  lastRun('last_run');
+  lastRun('last_run'),
+  right('right'),
+  value('value'),
+  actions('actions');
 
   const EnginePort(this.wire);
 
@@ -495,7 +498,7 @@ bool isTimeField(BlockType type, String name) =>
 /// The time zone parameters of the date blocks (ADR 0044 §3): an IANA name,
 /// `UTC` or `±HH:MM`; `date_format` also takes `auto`.
 bool isTimeZoneParam(BlockType type, String name) =>
-    name == 'time_zone' &&
+    BlockCfgKey.fromWire(name) == BlockCfgKey.timeZone &&
     const {
       KnownBlock.dateTime,
       KnownBlock.dateFormat,
@@ -620,13 +623,23 @@ List<String> timeZoneChoicesOf(BlockType type) => [
 /// blocks, the rows a reader gives (`list_children`, `load_history`) and
 /// the actions of `get_node`. A value `{columns, rows}` is a table
 /// anywhere.
-bool holdsTable(NodeType? t, String name) => switch ((t?.type.known, name)) {
-  (KnownBlock.listChildren || KnownBlock.loadHistory, 'out') => true,
-  (KnownBlock.getNode, 'actions') => true,
-  (KnownBlock.table, 'value' || 'out' || 'in') => true,
-  (_, 'in' || 'right' || 'out') => t?.category == 'Tables',
-  _ => false,
-};
+bool holdsTable(NodeType? t, String name) =>
+    switch ((t?.type.known, EnginePort.fromWire(name))) {
+      (
+        KnownBlock.listChildren || KnownBlock.loadHistory,
+        EnginePort.out,
+      ) =>
+        true,
+      (KnownBlock.getNode, EnginePort.actions) => true,
+      (
+        KnownBlock.table,
+        EnginePort.value || EnginePort.out || EnginePort.in_,
+      ) =>
+        true,
+      (_, EnginePort.in_ || EnginePort.right || EnginePort.out) =>
+        BlockCategory.fromWire(t?.category ?? '') == BlockCategory.tables,
+      _ => false,
+    };
 
 /// The methods of an aggregate (`crates/wyrm-flow/src/blocks/tables.rs`
 /// `METHODS`), for a type whose catalog gives no `method` choices.
@@ -651,31 +664,55 @@ const aggregateMethods = [
 /// `aggregates` `[{column, method, as}]` with the method a choice (the
 /// type's own `method` choices when its catalog has them). Null for any
 /// other parameter.
-List<({String key, List<String> choices})>? listItemsOf(
-  NodeType? t,
-  String name,
-) {
-  switch ((t?.type.known, name)) {
-    case (KnownBlock.tableMapColumns, 'mapping'):
-      return const [(key: 'name', choices: []), (key: 'from', choices: [])];
-    case (KnownBlock.tableGroupBy || KnownBlock.tableRollup, 'aggregates'):
+List<ListColumn>? listItemsOf(NodeType? t, String name) {
+  switch ((t?.type.known, BlockCfgKey.fromWire(name))) {
+    case (KnownBlock.tableMapColumns, BlockCfgKey.mapping):
+      return const [ListColumn('name'), ListColumn('from')];
+    case (
+      KnownBlock.tableGroupBy || KnownBlock.tableRollup,
+      BlockCfgKey.aggregates,
+    ):
       final listed = t?.params
-          .where((p) => p.name == 'method')
+          .where((p) => BlockCfgKey.fromWire(p.name) == BlockCfgKey.method)
           .firstOrNull
           ?.choices;
       return [
-        (key: 'column', choices: const []),
-        (
-          key: 'method',
+        const ListColumn('column'),
+        ListColumn(
+          'method',
           choices: listed == null || listed.isEmpty
               ? aggregateMethods
               : listed.unlock,
         ),
-        (key: 'as', choices: const []),
+        const ListColumn('as'),
       ];
     default:
       return null;
   }
+}
+
+/// One key of the items of a list parameter ([listItemsOf]): the key each
+/// item map holds (`column`, `method`) and, for a choice, its choices.
+final class ListColumn {
+  const ListColumn(this.key, {this.choices = const []});
+
+  /// The key in each item's map, as the engine reads it.
+  final String key;
+
+  /// The values it takes; empty: any text.
+  final List<String> choices;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ListColumn &&
+      other.key == key &&
+      other.choices.length == choices.length &&
+      [
+        for (var i = 0; i < choices.length; i++) other.choices[i] == choices[i],
+      ].every((x) => x);
+
+  @override
+  int get hashCode => Object.hash(key, Object.hashAll(choices));
 }
 
 /// The items of a list parameter as rows of texts by key ([listItemsOf]):
@@ -692,24 +729,37 @@ bool isCommandInput(BlockType type, String port) =>
 /// text and its codecs, data and tables, time, then what the flow does to
 /// the tree. A category the engine adds later comes after these, in the
 /// catalog's order.
-const paletteCategories = [
-  'Sources',
-  'Variables',
-  'Math',
-  'Trigonometry',
-  'Statistics',
-  'Logic',
-  'Text',
-  'Codecs',
-  'Data',
-  'Tables',
-  'Date and time',
-  'Alarms',
-  'Outputs',
-  'WASM',
-];
+enum BlockCategory {
+  sources('Sources'),
+  variables('Variables'),
+  math('Math'),
+  trigonometry('Trigonometry'),
+  statistics('Statistics'),
+  logic('Logic'),
+  textual('Text'),
+  codecs('Codecs'),
+  data('Data'),
+  tables('Tables'),
+  dateAndTime('Date and time'),
+  alarms('Alarms'),
+  outputs('Outputs'),
+  wasm('WASM');
 
-/// [types] in the palette's order: by [paletteCategories], the catalog's
+  const BlockCategory(this.wire);
+
+  /// The category as the catalog names it (`node_types` `category`).
+  final String wire;
+
+  static final Map<String, BlockCategory> _byWire = {
+    for (final c in values) c.wire: c,
+  };
+
+  /// The category named [s]; null for one the editor does not know (it
+  /// comes after these, in the catalog's order).
+  static BlockCategory? fromWire(String s) => _byWire[s];
+}
+
+/// [types] in the palette's order: by [BlockCategory], the catalog's
 /// order within a category.
 List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
   final seen = <String>[];
@@ -718,10 +768,9 @@ List<NodeType> inPaletteOrder(Iterable<NodeType> types) {
       seen.add(t.category);
     }
   }
-  int rank(String c) {
-    final i = paletteCategories.indexOf(c);
-    return i >= 0 ? i : paletteCategories.length + seen.indexOf(c);
-  }
+  int rank(String c) =>
+      BlockCategory.fromWire(c)?.index ??
+      BlockCategory.values.length + seen.indexOf(c);
 
   final all = types.toList();
   final at = <BlockType, int>{for (final (i, t) in all.indexed) t.type: i};

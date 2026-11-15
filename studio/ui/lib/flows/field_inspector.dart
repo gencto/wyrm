@@ -181,6 +181,7 @@ final class InspectorRowVm extends Equatable {
     required this.editor,
     this.engine = '',
     this.value = '',
+    this.on = false,
     this.choices = const [],
     this.sourceBlock,
     this.writes = false,
@@ -232,6 +233,9 @@ final class InspectorRowVm extends Equatable {
   /// The typed value (text, choice, `true`/`false`) or the sample shown;
   /// null: an event that has not fired yet (or a run not made).
   final String? value;
+
+  /// What a [FieldEditorVm.toggle] shows: on or off.
+  final bool on;
   final List<String> choices;
 
   /// The block a bound field's wire comes from: `Go to source` selects
@@ -278,6 +282,7 @@ final class InspectorRowVm extends Equatable {
         editor: editor,
         engine: engine,
         value: value,
+        on: on,
         choices: choices,
         sourceBlock: sourceBlock,
         writes: writes,
@@ -304,6 +309,7 @@ final class InspectorRowVm extends Equatable {
     engine,
     editor,
     value,
+    on,
     choices,
     sourceBlock,
     writes,
@@ -1133,7 +1139,7 @@ class _Row extends StatelessWidget {
             child: FittedBox(
               child: Switch(
                 key: ValueKey('toggle-${vm.id}'),
-                value: vm.value == 'true',
+                value: vm.on,
                 onChanged: (v) async {
                   // A toggle with a warning asks before it goes on.
                   if (v) {

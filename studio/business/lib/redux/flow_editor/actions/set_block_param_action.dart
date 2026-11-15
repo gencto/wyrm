@@ -24,9 +24,10 @@ class SetBlockParamAction extends Action {
       return null;
     }
     final tag = UndoTag(UndoKind.param, block: id, name: name);
-    final cfg = value == null || value == ''
-        ? b.cfg.remove(name)
-        : b.cfg.add(name, value);
+    final cfg = switch (value) {
+      null || String(isEmpty: true) => b.cfg.remove(name),
+      _ => b.cfg.add(name, value),
+    };
     _validate();
     return state.copyWith.flowEditor(
       draft: d.copyWith(blocks: d.blocks.add(id, b.copyWith(cfg: cfg))),

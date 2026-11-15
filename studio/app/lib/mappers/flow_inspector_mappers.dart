@@ -146,6 +146,7 @@ extension InspectorRowOf on InspectorRow {
     InspectorRowVm row(
       FieldEditorVm editor, {
       String? value = '',
+      bool on = false,
       List<String> choices = const [],
       String? source,
       bool writes = false,
@@ -162,6 +163,7 @@ extension InspectorRowOf on InspectorRow {
       editor: editor,
       engine: engine,
       value: value,
+      on: on,
       choices: choices,
       sourceBlock: source,
       writes: writes,
@@ -199,6 +201,7 @@ extension InspectorRowOf on InspectorRow {
       ParamRowView(
         :final editor,
         :final value,
+        :final on,
         :final choices,
         :final rows,
         :final confirm,
@@ -206,13 +209,15 @@ extension InspectorRowOf on InspectorRow {
         row(
           editor.vm,
           value: value,
+          on: on,
           choices: choices.unlock,
           rows: rows?.vm(id),
           confirm: confirm,
         ),
-      ArgRowView(:final editor, :final value, :final choices) => row(
+      ArgRowView(:final editor, :final value, :final on, :final choices) => row(
         editor.vm,
         value: value,
+        on: on,
         choices: choices.unlock,
       ),
       OperandRowView(:final value, :final range) => row(

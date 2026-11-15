@@ -236,6 +236,7 @@ final class ParamRowView extends InspectorRow {
     required super.name,
     required this.editor,
     required this.value,
+    this.on = false,
     this.choices = const IListConst([]),
     this.rows,
     this.scopeError,
@@ -250,6 +251,9 @@ final class ParamRowView extends InspectorRow {
 
   final ParamRowEditor editor;
   final String value;
+
+  /// What a [ParamRowEditor.toggle] shows: the typed value is `true`.
+  final bool on;
   final IList<String> choices;
   final RowsEditorView? rows;
 
@@ -264,6 +268,7 @@ final class ParamRowView extends InspectorRow {
     ..._common,
     editor,
     value,
+    on,
     choices,
     rows,
     scopeError,
@@ -278,6 +283,7 @@ final class ArgRowView extends InspectorRow {
     required super.name,
     required this.editor,
     required this.value,
+    this.on = false,
     this.choices = const IListConst([]),
     super.engine,
     super.inPort,
@@ -289,10 +295,13 @@ final class ArgRowView extends InspectorRow {
 
   final ArgRowEditor editor;
   final String value;
+
+  /// What an [ArgRowEditor.toggle] shows: the typed value is `true`.
+  final bool on;
   final IList<String> choices;
 
   @override
-  List<Object?> get props => [..._common, editor, value, choices];
+  List<Object?> get props => [..._common, editor, value, on, choices];
 }
 
 /// An operand: its typed constant until a binding replaces it.
@@ -608,7 +617,9 @@ InspectorRow _row(
           ? scopeProblemOf(v is String ? v : '')
           : null,
       // `Run on start` asks first, with the catalog's own warning.
-      confirm: p.name == 'run_on_start' && hint.startsWith('WARNING:')
+      confirm:
+          BlockCfgKey.fromWire(p.name) == BlockCfgKey.runOnStart &&
+              hint.startsWith('WARNING:')
           ? hint
           : null,
       editor: items != null
@@ -620,10 +631,11 @@ InspectorRow _row(
           : p.type == TypeCode.bool_
           ? ParamRowEditor.toggle
           // `now`'s clock is a period as a command's (spec 06 0.2.30)
-          : (p.name == 'interval_ms' &&
+          : (BlockCfgKey.fromWire(p.name) == BlockCfgKey.intervalMs &&
                     (behaves || b.type.known == KnownBlock.now)
                 ? ParamRowEditor.duration
                 : ParamRowEditor.text),
+      on: v == true,
       value: switch (v) {
         Map() || List() => jsonEditText(v),
         null => '',
@@ -651,6 +663,7 @@ InspectorRow _row(
                 ? ArgRowEditor.toggle
                 : ArgRowEditor.text),
       value: _text(b.cfgArgs[f.name]),
+      on: b.cfgArgs[f.name] == true,
       choices: spec?.choices ?? const IListConst([]),
       inPort: f.inPort,
       hint: spec?.description ?? '',

@@ -92,7 +92,7 @@ IMap<String, Object?>? cfgWithOperandValue(
     return null;
   }
   final m = Map<String, Object?>.of(operandValuesOf(b));
-  if (value == null || value == '') {
+  if (value case null || String(isEmpty: true)) {
     m.remove(port);
   } else {
     m[port] = value;
