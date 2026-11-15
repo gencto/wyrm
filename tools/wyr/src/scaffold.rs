@@ -582,8 +582,8 @@ mod tests {
             assert_eq!(zip, out.join("gen-app-0.1.0.zip"));
             let bytes = std::fs::read(&zip).unwrap();
             let m = wyrm_link_sdk::package::read_manifest(&bytes).unwrap();
-            assert_eq!(m.kind, "wasm");
-            assert_eq!(m.world.as_deref(), Some("wyrm:app@0.3.0"));
+            assert_eq!(m.kind, wyrm_link_sdk::package::PackageForm::Wasm);
+            assert_eq!(m.world, Some(wyrm_link_sdk::package::PackageWorld::App030));
             assert_eq!(m.capabilities.unwrap().store_mb, Some(1));
             let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
             let mut component = Vec::new();

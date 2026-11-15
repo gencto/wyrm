@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use wyrm_core::Value;
-use wyrm_link_sdk::package::{Capabilities, Manifest};
+use wyrm_link_sdk::package::{Capabilities, Manifest, PackageForm, PackageWorld};
 use wyrm_wasm_host::ComponentWorld;
 
 // The format is the SDK's (ADR 0021): `wyr` builds what this checks.
@@ -53,7 +53,7 @@ pub fn wrap_component(name: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
         version: format!("0+{}", &sha[..12]),
         description: String::new(),
         wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-        kind: "wasm".into(),
+        kind: PackageForm::Wasm,
         entries: Default::default(),
         args: Vec::new(),
         entry: Some("component.wasm".into()),
@@ -272,14 +272,14 @@ fn wasm_world(m: &Manifest, path: &Path, entry: &str) -> Result<Option<Capabilit
         // a `wyrm:app/host` version this broker does not run is refused here
         ComponentWorld::App => {
             let v = wyrm_wasm_host::app_version(&bytes).map_err(|e| format!("{entry}: {e}"))?;
-            match m.world.as_deref() {
+            match m.world.map(PackageWorld::name) {
                 Some(w) if w.starts_with("wyrm:app@") => format!("wyrm:app@{v}"),
                 _ => world.name().to_owned(),
             }
         }
         _ => world.name().to_owned(),
     };
-    if let Some(w) = m.world.as_deref().filter(|w| *w != actual) {
+    if let Some(w) = m.world.map(PackageWorld::name).filter(|w| *w != actual) {
         return Err(format!(
             "invalid_parameter: the manifest says world {w:?}, the component is {actual:?}"
         ));
@@ -379,8 +379,8 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
     let m: Manifest = serde_json::from_str(&text).map_err(|e| format!("{MANIFEST}: {e}"))?;
     crate::registry::validate_link_id(&m.name).map_err(|e| format!("name: {e}"))?;
     m.check()?;
-    let (kind, entry) = match m.kind.as_str() {
-        "process" => {
+    let (kind, entry) = match m.kind {
+        PackageForm::Process => {
             let p = platform();
             let e = m
                 .entries
@@ -388,11 +388,10 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
                 .ok_or_else(|| format!("no entry for this host ({p})"))?;
             (PackageKind::Process, e.clone())
         }
-        "wasm" => (
+        PackageForm::Wasm => (
             PackageKind::Wasm,
             m.entry.clone().ok_or("a wasm package needs `entry`")?,
         ),
-        k => return Err(format!("kind {k:?}: process or wasm")),
     };
     // The entry must be one of the unpacked regular files.
     let entry_path = out.tmp.join(&entry);
@@ -415,9 +414,9 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
             .map_err(|e| e.to_string())?;
     }
     for g in &m.requester {
-        let level = wyrm_core::Perm::from_name(&g.level)
+        let level = Some(g.level)
             .filter(|p| *p != wyrm_core::Perm::None)
-            .ok_or_else(|| format!("requester level {:?}: list, read or write", g.level))?;
+            .ok_or_else(|| format!("requester level {:?}: list, read or write", g.level.name()))?;
         crate::registry::check_grant(&g.path, level).map_err(|e| format!("requester: {e}"))?;
         // A package names the branches it needs; a whole root (every link,
         // every flow) only an operator grants, with Grant access.

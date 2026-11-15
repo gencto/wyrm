@@ -19,7 +19,9 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use wyrm_link_sdk::package::{self, Asset, Capabilities, Grant, Manifest, PackFile, RepoEntry};
+use wyrm_link_sdk::package::{
+    self, Asset, Capabilities, Grant, Manifest, PackFile, PackageForm, PackageWorld, RepoEntry,
+};
 use wyrm_wasm_host::ComponentWorld;
 
 /// The target a `wasm` crate is built for.
@@ -46,8 +48,8 @@ pub enum LinkCmd {
         #[arg(long)]
         no_build: bool,
         /// Override `kind` of `[package.metadata.wyrm-link]`.
-        #[arg(long, value_parser = ["process", "wasm"])]
-        kind: Option<String>,
+        #[arg(long, value_parser = form_arg())]
+        kind: Option<PackageForm>,
         /// Where the zips go (default `<target dir>/wyrm-link`).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -94,8 +96,8 @@ pub enum RepoCmd {
     Build {
         #[command(flatten)]
         src: official::Source,
-        #[arg(long, value_parser = ["wasm", "process"])]
-        form: String,
+        #[arg(long, value_parser = form_arg())]
+        form: PackageForm,
         /// Rust target triples of a process build (the host when none).
         #[arg(long = "target")]
         targets: Vec<String>,
@@ -135,9 +137,9 @@ struct Meta {
     name: Option<String>,
     /// Default: the crate's description.
     description: Option<String>,
-    /// `process` (a binary per host) or `wasm` (a `wyrm:app` component).
+    /// A binary per host, or a `wyrm:app` component.
     #[serde(default = "process")]
-    kind: String,
+    kind: PackageForm,
     /// The binary (default: the crate's only one).
     bin: Option<String>,
     /// Cargo features of a process build (a wasm build uses `wasm`).
@@ -155,8 +157,15 @@ struct Meta {
     reads_state: Option<Vec<u32>>,
 }
 
-fn process() -> String {
-    "process".into()
+fn process() -> PackageForm {
+    PackageForm::Process
+}
+
+/// `--kind` / `--form`: a [`PackageForm`] by its name.
+fn form_arg() -> impl clap::builder::TypedValueParser<Value = PackageForm> {
+    use clap::builder::TypedValueParser;
+    clap::builder::PossibleValuesParser::new(PackageForm::NAMES)
+        .try_map(|s| s.parse::<PackageForm>())
 }
 
 /// The crate as `cargo metadata` describes it.
@@ -215,7 +224,7 @@ impl Plan {
 }
 
 /// The plan of crate `p`; `kind` overrides the metadata's.
-pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> {
+pub(crate) fn plan(p: &CargoPackage, kind: Option<PackageForm>) -> Result<Plan, Error> {
     let mut meta: Meta = match p.metadata.as_ref().and_then(|m| m.get("wyrm-link")) {
         Some(v) => serde_json::from_value(v.clone())
             .map_err(|e| format!("[package.metadata.wyrm-link]: {e}"))?,
@@ -225,7 +234,7 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
         },
     };
     if let Some(k) = kind {
-        meta.kind = k.to_owned();
+        meta.kind = k;
     }
     let name = meta.name.clone().unwrap_or_else(|| p.name.clone());
     let description = meta
@@ -233,9 +242,9 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
         .clone()
         .or_else(|| p.description.clone())
         .unwrap_or_default();
-    match meta.kind.as_str() {
-        "process" => {}
-        "wasm" => {
+    match meta.kind {
+        PackageForm::Process => {}
+        PackageForm::Wasm => {
             let lib = p
                 .targets
                 .iter()
@@ -255,11 +264,11 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
                 version: p.version.clone(),
                 description,
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: PackageForm::Wasm,
                 entries: BTreeMap::new(),
                 args: Vec::new(),
                 requester: meta.requester,
-                world: Some("app".into()),
+                world: Some(PackageWorld::App),
                 capabilities: meta.capabilities,
             };
             // before a long build
@@ -271,7 +280,6 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
                 manifest,
             });
         }
-        k => return Err(format!("kind {k:?}: process or wasm").into()),
     }
     let bins: Vec<&str> = p
         .targets
@@ -308,7 +316,7 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
             version: p.version.clone(),
             description,
             wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-            kind: "process".into(),
+            kind: PackageForm::Process,
             entries: BTreeMap::new(),
             args: meta.args,
             entry: None,
@@ -322,11 +330,12 @@ pub(crate) fn plan(p: &CargoPackage, kind: Option<&str>) -> Result<Plan, Error> 
 
 /// The manifest `world` of a component: `wyrm:app@<v>` for an app (ADR 0030), else `driver` or
 /// `point`.
-fn manifest_world(component: &[u8]) -> Result<String, Error> {
-    Ok(match wyrm_wasm_host::component_world(component)? {
+fn manifest_world(component: &[u8]) -> Result<PackageWorld, Error> {
+    let name = match wyrm_wasm_host::component_world(component)? {
         ComponentWorld::App => format!("wyrm:app@{}", wyrm_wasm_host::app_version(component)?),
         w => w.name().to_owned(),
-    })
+    };
+    Ok(name.parse::<PackageWorld>()?)
 }
 
 /// A core module built with `wyrm-link-guest` as a component, which must be of world `wyrm:app`.
@@ -470,7 +479,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
             version: version.clone(),
             description,
             wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-            kind: "wasm".into(),
+            kind: PackageForm::Wasm,
             entries: BTreeMap::new(),
             args: Vec::new(),
             entry: Some(file.clone()),
@@ -495,7 +504,7 @@ pub fn run_link(cmd: LinkCmd) -> Result<(), Error> {
     }
     let md = cargo_metadata(&manifest_path)?;
     let p = pick(&md, &manifest_path, krate.as_deref())?;
-    let mut plan = plan(p, kind.as_deref())?;
+    let mut plan = plan(p, kind)?;
     if let Some(n) = &name {
         plan.rename(n)?;
     }
@@ -599,7 +608,7 @@ fn add_to_index(index: &mut Vec<RepoEntry>, m: &Manifest, url: String, sha256: S
     };
     let e = &mut index[i];
     e.description.clone_from(&m.description);
-    if m.kind == "wasm" {
+    if m.kind == PackageForm::Wasm {
         e.url = Some(url);
         e.sha256 = Some(sha256);
     } else {
@@ -627,7 +636,7 @@ pub fn run_repo(cmd: RepoCmd) -> Result<(), Error> {
             only,
             no_build,
             out,
-        } => return official::build_cmd(&src, &form, &targets, &only, no_build, &out),
+        } => return official::build_cmd(&src, form, &targets, &only, no_build, &out),
         RepoCmd::Index {
             src,
             zips,
@@ -739,7 +748,7 @@ pub(crate) mod tests {
         assert_eq!(got.manifest.name, "recorder");
         assert_eq!(got.manifest.version, "1.2.0");
         assert_eq!(got.manifest.description, "records values");
-        assert_eq!(got.manifest.requester[0].level, "read");
+        assert_eq!(got.manifest.requester[0].level, wyrm_core::Perm::Read);
         // without the section: the crate as it is
         let plain = plan(&cargo_pkg(serde_json::json!({}), &["a"]), None).unwrap();
         assert_eq!(plain.manifest.name, "wyrm-example-recorder");
@@ -773,15 +782,15 @@ pub(crate) mod tests {
         }});
         let got = plan(&app_pkg(meta.clone()), None).unwrap();
         assert_eq!(got.artifact, Artifact::Component("wyrm_link_acme".into()));
-        assert_eq!(got.manifest.kind, "wasm");
-        assert_eq!(got.manifest.world.as_deref(), Some("app"));
+        assert_eq!(got.manifest.kind, PackageForm::Wasm);
+        assert_eq!(got.manifest.world, Some(PackageWorld::App));
         assert_eq!(got.manifest.entry.as_deref(), Some("acme.wasm"));
         let caps = got.manifest.capabilities.clone().unwrap();
         assert_eq!(caps.store_mb, Some(4));
         assert_eq!(caps.net, ["127.0.0.1:502"]);
-        assert_eq!(got.manifest.requester[0].level, "read");
+        assert_eq!(got.manifest.requester[0].level, wyrm_core::Perm::Read);
         // `--kind process` packs the binary of the same crate, with the same capabilities
-        let proc = plan(&app_pkg(meta), Some("process")).unwrap();
+        let proc = plan(&app_pkg(meta), Some(PackageForm::Process)).unwrap();
         assert_eq!(proc.artifact, Artifact::Bin("wyrm-link-acme".into()));
         assert_eq!(proc.features, ["process"]);
         assert_eq!(proc.manifest.capabilities, Some(caps));
@@ -790,7 +799,7 @@ pub(crate) mod tests {
         assert_eq!((got.manifest.state, proc.manifest.state()), (None, 1));
         let meta = serde_json::json!({ "wyrm-link": {
             "name": "acme", "kind": "wasm", "state": 3, "reads_state": [2, 3] } });
-        for kind in [None, Some("process")] {
+        for kind in [None, Some(PackageForm::Process)] {
             let m = plan(&app_pkg(meta.clone()), kind).unwrap().manifest;
             assert_eq!((m.state(), m.reads_state()), (3, vec![2, 3]));
         }
@@ -827,7 +836,7 @@ pub(crate) mod tests {
         wasm.rename("acme-wasm").unwrap();
         assert_eq!(wasm.manifest.name, "acme-wasm");
         assert_eq!(wasm.manifest.entry.as_deref(), Some("acme-wasm.wasm"));
-        let mut proc = plan(&app_pkg(meta), Some("process")).unwrap();
+        let mut proc = plan(&app_pkg(meta), Some(PackageForm::Process)).unwrap();
         proc.rename("acme-process").unwrap();
         assert_eq!(proc.manifest.name, "acme-process");
         assert_eq!(proc.manifest.entry, None);
@@ -842,7 +851,7 @@ pub(crate) mod tests {
             version: version.into(),
             description: format!("acme {version}"),
             wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-            kind: "process".into(),
+            kind: PackageForm::Process,
             entries: hosts
                 .iter()
                 .map(|h| (h.to_string(), format!("bin/{h}/acme")))

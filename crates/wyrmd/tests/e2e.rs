@@ -1505,12 +1505,12 @@ async fn portable_app_installs_as_wasm() {
             version: version.into(),
             description: "the echo app".into(),
             wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-            kind: "wasm".into(),
+            kind: wyrm_link_sdk::package::PackageForm::Wasm,
             entries: Default::default(),
             args: Vec::new(),
             entry: Some("echoapp.wasm".into()),
             requester: Vec::new(),
-            world: Some(world.into()),
+            world: Some(world.parse().unwrap()),
             capabilities: (world == "app").then(|| Capabilities {
                 store_mb: Some(2),
                 ..Capabilities::default()
@@ -1642,12 +1642,12 @@ fn echo_app_zip_of_world(
         version: version.into(),
         description: "the echo app".into(),
         wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-        kind: "wasm".into(),
+        kind: wyrm_link_sdk::package::PackageForm::Wasm,
         entries: Default::default(),
         args: Vec::new(),
         entry: Some(entry.clone()),
         requester: Vec::new(),
-        world: Some(world.into()),
+        world: Some(world.parse().unwrap()),
         capabilities: Some(capabilities),
     };
     let files = [PackFile {
@@ -2356,12 +2356,12 @@ async fn one_app_three_modes() {
                 version: "1.0.0".into(),
                 description: "the portable example as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("portable-echo.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(1),
                     ..Capabilities::default()
@@ -8357,12 +8357,12 @@ async fn scheduler_three_modes() {
                 version: "1.0.0".into(),
                 description: "the scheduler as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("scheduler.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(16),
                     ..Capabilities::default()
@@ -8922,12 +8922,12 @@ async fn dql_three_modes() {
                 version: "1.0.0".into(),
                 description: "the DQL link as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("dql.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(4),
                     ..Capabilities::default()
@@ -9291,12 +9291,12 @@ async fn alarm_three_modes() {
                 version: "1.0.0".into(),
                 description: "the alarm link as a component".into(),
                 wyrm_link: wyrm_link_sdk::LINK_PROTOCOL,
-                kind: "wasm".into(),
+                kind: wyrm_link_sdk::package::PackageForm::Wasm,
                 entries: Default::default(),
                 args: Vec::new(),
                 entry: Some("alarm.wasm".into()),
                 requester: Vec::new(),
-                world: Some("app".into()),
+                world: Some(wyrm_link_sdk::package::PackageWorld::App),
                 capabilities: Some(Capabilities {
                     store_mb: Some(16),
                     ..Capabilities::default()
