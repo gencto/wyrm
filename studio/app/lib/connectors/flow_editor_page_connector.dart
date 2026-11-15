@@ -54,6 +54,8 @@ import 'package:business/wyrm/decode/block_cfg.dart';
 import 'package:business/wyrm/decode/block_def.dart';
 import 'package:business/wyrm/decode/flow_def.dart';
 import 'package:business/wyrm/decode/flow_val.dart';
+import 'package:business/wyrm/flow_view/flow_live.dart';
+import 'package:business/wyrm/flow_view/palette_view.dart' show treeSections;
 import 'package:business/wyrm/labels.dart';
 import 'package:business/wyrm/mappers/csv_table.dart';
 import 'package:business/wyrm/mappers/flow_blocks.dart';
@@ -77,6 +79,7 @@ import 'package:models/flow_problem_kind.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_entry.dart';
 import 'package:models/palette_tab.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/port_end.dart';
@@ -353,7 +356,7 @@ class FlowEditorPageConnector extends StatelessWidget {
       // The values of the leaves the Tree tab shows: every open node's.
       if (ed.palette == PaletteTab.tree)
         for (final k in nodes.expanded)
-          if (_treeSections.any((s) => k.startsWith('$root/$s'))) '$k/*',
+          if (treeSections.any((s) => k.startsWith('$root/$s'))) '$k/*',
       for (final b in ed.draft?.blocks.values ?? const <FlowBlock>[])
         if (isPoint(b.type))
           if (pointOf(b) case final k?) fullKey(root, k),
@@ -361,23 +364,10 @@ class FlowEditorPageConnector extends StatelessWidget {
       // What the deployed publish blocks last published: their inputs.
       if (id != newFlowId)
         for (final b in ed.deployed?.blocks.values ?? const <FlowBlock>[])
-          ?_published(root, id, b),
+          ?publishedKey(root, id, b),
     }.toList();
   }
 }
-
-/// The sections of a site the Tree tab shows: what a flow may read and
-/// write (spec 06 step 9).
-const _treeSections = ['downstream', 'dataflows', 'storage'];
-
-/// The value a `publish` block of flow [flow] publishes
-/// (`dataflows/<flow>/nodes/<node>`), null for any other block.
-String? _published(String root, String flow, FlowBlock b) =>
-    switch (b.cfgNode) {
-      final n? when b.type.known == KnownBlock.publish && flow.isNotEmpty =>
-        '$root/dataflows/$flow/nodes/$n',
-      _ => null,
-    };
 
 /// Factory that creates a view-model for the StoreConnector.
 class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
@@ -1220,7 +1210,17 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               .where((a) => a.name == full.substring(i + 1))
               .firstOrNull
         : null;
-    final made = blockOfEntry(entry, action: action, caps: flowEditor.caps);
+    // A bridge from the palette's text entries (phase B2-C removes it).
+    final made = blockOfEntry(
+      entry.startsWith('act:') && i > 0
+          ? ActionPick(full.substring(0, i), full.substring(i + 1))
+          : (entry.startsWith('act:')
+                ? const LibraryPick('')
+                : PointPick(full)),
+      write: entry.startsWith('set:'),
+      action: action,
+      caps: flowEditor.caps,
+    );
     if (made != null) {
       dispatchSync(
         AddBlockAction(made.type.type, x, y, cfg: made.cfg, pins: made.pins),
@@ -1488,7 +1488,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     for (final n in nodes.table.values)
       if (n.type != null &&
           n.writable != null &&
-          _treeSections.any((s) => n.key.startsWith('$root/$s/')))
+          treeSections.any((s) => n.key.startsWith('$root/$s/')))
         'key:${n.key}',
   };
 
@@ -1606,7 +1606,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       }
     }
 
-    for (final s in _treeSections) {
+    for (final s in treeSections) {
       walk('$root/$s', s, 0, section: true);
     }
     return out;
@@ -1666,7 +1666,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
     final flow = ed.root?.id ?? '';
     final pub = previewing || !same || inside
         ? null
-        : _published(root, flow, b);
+        : publishedKey(root, flow, b);
     final tree = pub != null
         ? live.values[pub]
         : (point == null ? null : live.values[fullKey(root, point)]);
@@ -1730,7 +1730,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
         // block last published.
         for (final e in ed.deployed?.edges ?? const IListConst<FlowEdge>([])) {
           final to = ed.deployed?.blocks[e.to];
-          final key = to == null ? null : _published(root, flow, to);
+          final key = to == null ? null : publishedKey(root, flow, to);
           if (e.from == b.id && e.fromPort == port && key != null) {
             if (live.values[key] case final v?) {
               return v;

@@ -9,6 +9,7 @@ import 'package:models/flow_frame.dart';
 import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_entry.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/port_end.dart';
 import 'package:models/port_side.dart';
@@ -270,40 +271,32 @@ String connectionOf(String? key, {required bool parent}) {
   return parts.join('/');
 }
 
-/// The block of [entry]: `key:<point>` reads it (`subscribe`), `set:<point>`
-/// writes it (`set`), `act:<node>/<action>` runs it (`invoke`, with one
+/// The block of [entry]: a point reads it (`subscribe`), or writes it
+/// (`set`) when dropped as [write]; an action runs it (`invoke`, with one
 /// argument per parameter of [action]: its default, else nothing yet).
 /// Required arguments are rows of the block; the others stay in the
-/// inspector. Null for anything else.
+/// inspector. Null for a type or a library block (they are placed as they
+/// are).
 ///
 /// On a broker without argument ports ([FlowCaps.args]) an action keeps the
 /// shape of before ADR 0040: it runs on a rising `in`, and only arguments
 /// with a default are written (an empty one would be sent).
 EntryBlock? blockOfEntry(
-  String entry, {
+  PaletteEntry entry, {
+  bool write = false,
   ActionInfo? action,
   FlowCaps caps = const FlowCaps(),
 }) {
-  if (entry.startsWith('key:')) {
-    return EntryBlock(KnownBlock.subscribe, {
-      'key': relativeKey(entry.substring(4)),
-    });
+  if (entry is PointPick) {
+    return write
+        ? EntryBlock(KnownBlock.set, {'path': relativeKey(entry.key)})
+        : EntryBlock(KnownBlock.subscribe, {'key': relativeKey(entry.key)});
   }
-  if (entry.startsWith('set:')) {
-    return EntryBlock(KnownBlock.set, {
-      'path': relativeKey(entry.substring(4)),
-    });
-  }
-  if (!entry.startsWith('act:')) {
+  if (entry is! ActionPick) {
     return null;
   }
-  final full = entry.substring(4);
-  final i = full.lastIndexOf('/');
-  if (i <= 0) {
-    return null;
-  }
-  final node = full.substring(0, i);
-  final name = full.substring(i + 1);
+  final node = entry.node;
+  final name = entry.action;
   final params = action?.params ?? const IListConst<ParamSpec>([]);
   if (!caps.args) {
     return EntryBlock(KnownBlock.invoke, {

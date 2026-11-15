@@ -46,6 +46,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/library_off.dart';
 import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
+import 'package:models/palette_entry.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/port_end.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -327,19 +328,24 @@ void main() {
     );
 
     test('a value reads, a writable value may write', () {
-      final read = blockOfEntry('key:wy/plant/downstream/plc/level')!;
+      final read = blockOfEntry(
+        const PointPick('wy/plant/downstream/plc/level'),
+      )!;
       expect(read.type.wire, 'subscribe');
       expect(read.cfg, {'key': 'downstream/plc/level'});
-      final write = blockOfEntry('set:wy/plant/downstream/plc/fan')!;
+      final write = blockOfEntry(
+        const PointPick('wy/plant/downstream/plc/fan'),
+        write: true,
+      )!;
       expect(write.type.wire, 'set');
       expect(write.cfg, {'path': 'downstream/plc/fan'});
-      expect(blockOfEntry('type:scale'), isNull);
+      expect(blockOfEntry(EnginePick(bt('scale'))), isNull);
     });
 
     test('an action is an invoke with one argument per parameter; the '
         'required ones are rows of the block', () {
       final e = blockOfEntry(
-        'act:wy/plant/downstream/plc/pump/ramp',
+        const ActionPick('wy/plant/downstream/plc/pump', 'ramp'),
         action: ramp,
         caps: caps,
       )!;
@@ -383,11 +389,14 @@ void main() {
     test('an action without parameters, and on a broker without argument '
         'ports', () {
       expect(
-        blockOfEntry('act:wy/plant/downstream/plc/pump/stop', caps: caps)!.cfg,
+        blockOfEntry(
+          const ActionPick('wy/plant/downstream/plc/pump', 'stop'),
+          caps: caps,
+        )!.cfg,
         {'path': 'downstream/plc/pump', 'action': 'stop'},
       );
       final old = blockOfEntry(
-        'act:wy/plant/downstream/plc/pump/ramp',
+        const ActionPick('wy/plant/downstream/plc/pump', 'ramp'),
         action: ramp,
       )!;
       expect(old.cfg, {
@@ -943,7 +952,7 @@ void main() {
         'and the trigger call', () async {
       const caps = FlowCaps(scopes: true, trigger: true, args: true);
       final e = blockOfEntry(
-        'act:wy/central/downstream/plc/pump/ramp',
+        const ActionPick('wy/central/downstream/plc/pump', 'ramp'),
         action: ActionInfo(
           name: 'ramp',
           params: [
