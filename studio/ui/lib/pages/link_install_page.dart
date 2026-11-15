@@ -168,12 +168,21 @@ class LinkInstallPage extends StatelessWidget {
                         color: c.text1,
                       ),
                     ),
-                    const Spacer(),
-                    Text(
-                      S.current.needsConfigOnSys,
-                      style: TextStyle(
-                        fontSize: FontSizes.sm,
-                        color: c.text3,
+                    // The rest of the bar, the note at its right end: on
+                    // a narrow window the note ends in an ellipsis instead
+                    // of pushing the bar past the edge.
+                    Expanded(
+                      child: Align(
+                        alignment: .centerRight,
+                        child: Text(
+                          S.current.needsConfigOnSys,
+                          maxLines: 1,
+                          overflow: .ellipsis,
+                          style: TextStyle(
+                            fontSize: FontSizes.sm,
+                            color: c.text3,
+                          ),
+                        ),
                       ),
                     ),
                     IconButton(

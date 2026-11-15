@@ -139,10 +139,7 @@ void main() {
   testWidgets('on a narrow window the chips wrap under the field', (
     tester,
   ) async {
-    // 700, not 600: the page now says its own header (`Links on plant /
-    // Add a link … Needs config on sys`), which the old test left empty
-    // and which does not fit 600; the chips still wrap at 700.
-    await pump(tester, 700);
+    await pump(tester, 600);
     expect(tester.takeException(), isNull);
     final field = find.byKey(const ValueKey('catalog-search'));
     final chip = find.byKey(const ValueKey('category:*'));
