@@ -1,6 +1,3 @@
-// Calls deprecated wyrm_client shims until this file moves to the typed API
-// (dart/ PR "typed wire"; list in its body).
-// ignore_for_file: deprecated_member_use
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+import 'package:models/broker_role.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
 import 'package:models/found_problem.dart';
@@ -321,10 +319,23 @@ final class HttpInfoReader implements GatewayInfoReader {
           'HTTP ${res.statusCode}',
         );
       }
+      final Value body;
       try {
-        return GatewayInfo.of(Value.fromCbor(bytes.takeBytes()));
+        body = Value.fromCbor(bytes.takeBytes());
       } on Object {
         throw const InfoFailure(InfoFault.missing, 'not a WYRM gateway');
+      }
+      try {
+        return GatewayInfo.fromValue(body);
+      } on DecodeError catch (e) {
+        // ADR 0050 decision 10 names the fields; a gateway that sends
+        // another shape is not one Studio can use, and the reason says
+        // which field.
+        throw InfoFailure(
+          InfoFault.missing,
+          'not a WYRM gateway: ${e.path}: expected ${e.expected}, '
+          'got ${e.got}',
+        );
       }
     } on InfoFailure {
       rethrow;
@@ -607,7 +618,10 @@ FoundGateway _withInfo(FoundGateway row, GatewayInfo info, String studio) {
   return row.copyWith(
     version: info.version.isEmpty ? row.version : info.version,
     up: up,
-    role: info.role.wire,
+    role: switch (info.role) {
+      GatewayRole.active => BrokerRole.active,
+      GatewayRole.standby => BrokerRole.standby,
+    },
     standby: _standbyOf(info.pair, tls: row.tls) ?? row.standby,
     problem: atLeast(studio, info.minStudio) ? null : FoundProblem.studioTooOld,
     detail: atLeast(studio, info.minStudio) ? null : info.minStudio,
@@ -649,8 +663,8 @@ IMap<String, FoundGateway> mergeFound(
   final rowFirst =
       (had.problem != null && row.problem == null) ||
       (had.problem == null) == (row.problem == null) &&
-          row.role == 'active' &&
-          had.role != 'active';
+          row.role == BrokerRole.active &&
+          had.role != BrokerRole.active;
   final (main, other) = rowFirst ? (row, had) : (had, row);
   return found.add(
     row.site,

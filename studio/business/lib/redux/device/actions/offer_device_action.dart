@@ -5,6 +5,7 @@ import '../../../wyrm/device_keys.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import '../models/device_state.dart';
+import 'enable_device_action.dart';
 
 /// What comes after a password login and before Welcome (ADR 0050,
 /// unlock-discover.md §2):
@@ -13,8 +14,9 @@ import '../models/device_state.dart';
 ///    removed now (`DELETE /api/devices/<id>`; a failure is ignored, the
 ///    record cannot log in anyway).
 /// 2. After `changed` or `signedOut` with `Turn <name> on again` ticked, the
-///    new key is made at once (`EnableDeviceAction` via [enable]) and no
-///    offer is shown; `password_due` needs no new key.
+///    new key is made at once (`EnableDeviceAction`, its prompt in the
+///    words of `deps.prompts`) and no offer is shown; `password_due` needs
+///    no new key.
 /// 3. Else the offer (`device.stage` = `offer`) once per gateway, user and
 ///    computer: devices on at the gateway, a strong biometric here, Remember
 ///    on, no key yet, never `Don't ask on this computer`.
@@ -24,12 +26,6 @@ import '../models/device_state.dart';
 /// Returns with `device.stage` = `offer` when the page must wait for the
 /// person, else `none`.
 class OfferDeviceAction extends Action {
-  OfferDeviceAction({required this.enable});
-
-  /// Makes and registers a key (the connector passes `EnableDeviceAction`
-  /// with its prompt's words).
-  final Future<void> Function() enable;
-
   @override
   Future<AppState?> reduce() async {
     final account = accountOf(login.gateway, login.user);
@@ -84,12 +80,12 @@ class OfferDeviceAction extends Action {
       offered: record.offered,
       stale: false,
       refusal: null,
-      reason: null,
+      fallback: null,
     );
     deps.idleLock.arm(Duration(minutes: record.lockAfter));
     if (back && on && d.available && !record.usable) {
       dispatchSync(_Device(base.copyWith(stage: UnlockStage.none)));
-      await enable();
+      await dispatchAndWait(EnableDeviceAction());
       return null;
     }
     if (on &&

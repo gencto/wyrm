@@ -2,6 +2,7 @@ import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:models/ca_pin.dart';
 import 'package:models/found_gateway.dart';
+import 'package:models/trust_refusal.dart';
 
 part 'discovery_state.freezed.dart';
 
@@ -15,7 +16,7 @@ abstract class DiscoveryState with _$DiscoveryState {
     @Default(IMapConst({})) IMap<String, FoundGateway> found,
     @Default(IMapConst({})) IMap<String, CaPin> pins,
     String? trustPending,
-    String? trustRefused,
+    TrustRefusal? trustRefused,
     String? picked,
     String? network,
     String? subnet,

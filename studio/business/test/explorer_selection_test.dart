@@ -19,7 +19,6 @@ import 'package:business/redux/nodes/actions/stage_point_edit_action.dart';
 import 'package:business/redux/nodes/actions/stage_value_action.dart';
 import 'package:business/wyrm/keys.dart';
 import 'package:business/wyrm/points.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/node_info.dart';
@@ -57,7 +56,7 @@ void main() {
   Future<void> logIn({List<(String, String)> grants = const []}) async {
     login = FakeLogin(
       session: FakeSession(
-        who: WhoAmI(
+        who: identityOf(
           subject: 'user:olena',
           site: 'central',
           roles: const ['operator'],

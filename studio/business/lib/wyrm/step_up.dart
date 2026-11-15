@@ -55,7 +55,7 @@ final class StepUpApi implements WyrmApi {
   @override
   Future<void> set(String key, Value value) => withStepUp(
     _gate,
-    () => [StepUpLine(level: 'config', text: 'set ${_last(key)}', key: key)],
+    () => [StepUpLine(level: Perm.config, text: 'set ${_last(key)}', key: key)],
     () => _inner.set(key, value),
   );
 
@@ -76,7 +76,7 @@ final class StepUpApi implements WyrmApi {
             !isConfirmRequired(e) ||
             round >= _rounds ||
             !await _gate(e, [
-              StepUpLine(level: 'config', text: action, key: key),
+              StepUpLine(level: Perm.config, text: action, key: key),
             ])) {
           rethrow;
         }
@@ -139,7 +139,7 @@ final class StepUpSession implements WyrmSession {
   Future<T> _guard<T>(String text, String key, Future<T> Function() call) =>
       withStepUp(
         _gate,
-        () => [StepUpLine(level: 'config', text: text, key: key)],
+        () => [StepUpLine(level: Perm.config, text: text, key: key)],
         call,
       );
 
@@ -150,7 +150,7 @@ final class StepUpSession implements WyrmSession {
   Uri get base => inner.base;
 
   @override
-  Future<WhoAmI> me() => inner.me();
+  Future<GatewayIdentity> identity() => inner.identity();
 
   @override
   Future<List<GatewayUser>> users() => inner.users();
@@ -189,15 +189,15 @@ final class StepUpSession implements WyrmSession {
   );
 
   @override
-  Future<String> registerDevice({
+  Future<String> addDevice({
     required String site,
     required String user,
     required String name,
-    required String platform,
-    required String alg,
+    required DevicePlatform platform,
+    required DeviceAlg alg,
     required Uint8List publicKey,
     required Future<Uint8List> Function(Uint8List message) sign,
-  }) => inner.registerDevice(
+  }) => inner.addDevice(
     site: site,
     user: user,
     name: name,

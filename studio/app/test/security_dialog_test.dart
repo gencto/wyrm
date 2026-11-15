@@ -1,6 +1,7 @@
 import 'package:app/connectors/security_dialog_connector.dart';
 import 'package:app/dialogs/security_dialogs.dart';
 import 'package:app/navigation/leave_on_log_out_action.dart';
+import 'package:app/run_env.dart' show devicePrompts;
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
@@ -112,6 +113,7 @@ void main() {
         InMemoryKeyValueStorage(),
         login: FakeLogin(),
         deviceKey: FakeDeviceKey(availability: DeviceKeyAvailability.none),
+        prompts: devicePrompts,
       ),
     );
     await t.pumpWidget(
@@ -236,6 +238,7 @@ void main() {
         InMemoryKeyValueStorage(),
         login: FakeLogin(),
         deviceKey: FakeDeviceKey(availability: DeviceKeyAvailability.none),
+        prompts: devicePrompts,
       ),
     );
     final lang = locale ?? ValueNotifier(const Locale('en'));

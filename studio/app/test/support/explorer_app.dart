@@ -1,5 +1,6 @@
 import 'package:app/connectors/explorer_page_connector.dart';
 import 'package:app/connectors/toast_stack_connector.dart';
+import 'package:app/run_env.dart' show devicePrompts;
 import 'package:async_redux/async_redux.dart';
 import 'package:business/dependencies.dart';
 import 'package:business/redux/app_state.dart';
@@ -12,7 +13,6 @@ import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/redux/nodes/actions/add_nodes_action.dart';
 import 'package:business/redux/nodes/actions/toggle_node_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
-import 'package:business/wyrm/session.dart';
 import 'package:device_key/testing.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter/services.dart';
@@ -41,7 +41,7 @@ class ExplorerApp {
   ExplorerApp({String level = 'config', this.connected = true})
     : login = FakeLogin(
         session: FakeSession(
-          who: WhoAmI(
+          who: identityOf(
             subject: 'olena',
             site: 'central',
             roles: const ['engineer'],
@@ -60,6 +60,7 @@ class ExplorerApp {
         login: login,
         deviceKey: FakeDeviceKey(availability: DeviceKeyAvailability.none),
         clock: () => now,
+        prompts: devicePrompts,
       ),
     );
     _broker();

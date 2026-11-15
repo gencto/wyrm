@@ -1,6 +1,7 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'step_up_error.dart';
 import 'step_up_line.dart';
 
 part 'step_up_request.freezed.dart';
@@ -19,8 +20,8 @@ abstract class StepUpRequest with _$StepUpRequest {
     /// Confirmed: the request goes again.
     @Default(false) bool done,
 
-    /// The last try failed: `bad_password`, a cancelled prompt, …
-    String? error,
+    /// Why the last try failed; null before one did.
+    StepUpError? error,
 
     /// The session has no device key here, or it stopped working: the
     /// password is the only way.

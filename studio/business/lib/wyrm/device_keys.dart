@@ -8,6 +8,10 @@ import 'package:flutter/foundation.dart';
 import 'package:models/device_tag.dart';
 import 'package:models/host_platform.dart';
 import 'package:models/key_kind.dart';
+import 'package:models/lock_error.dart';
+import 'package:models/refusal_code.dart';
+import 'package:models/step_up_error.dart';
+import 'package:models/unlock_fallback.dart';
 import 'package:models/unlock_refusal.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
@@ -65,8 +69,19 @@ String keyAlias(String origin, String user) {
   return 'wyrm-${hash.substring(0, 32)}';
 }
 
-/// The state's [KeyKind] for the plugin's.
-KeyKind keyKindOf(DeviceKeyKind k) => KeyKind.values.byName(k.name);
+/// The state's [KeyKind] for the plugin's: one exhaustive switch, so a
+/// kind the plugin adds is a compile error here.
+KeyKind keyKindOf(DeviceKeyKind k) => switch (k) {
+  DeviceKeyKind.none => KeyKind.none,
+  DeviceKeyKind.touchId => KeyKind.touchId,
+  DeviceKeyKind.faceId => KeyKind.faceId,
+  DeviceKeyKind.opticId => KeyKind.opticId,
+  DeviceKeyKind.windowsHello => KeyKind.windowsHello,
+  DeviceKeyKind.fingerprint => KeyKind.fingerprint,
+  DeviceKeyKind.face => KeyKind.face,
+  DeviceKeyKind.iris => KeyKind.iris,
+  DeviceKeyKind.biometric => KeyKind.biometric,
+};
 
 /// A moment given in seconds since the Unix epoch; null for 0 (not known).
 DateTime? momentOf(int seconds) =>
@@ -129,19 +144,106 @@ DeviceRow deviceRowOf(GatewayDevice d, String? thisDeviceId, DateTime now) {
 IList<GatewayDevice> newestFirst(List<GatewayDevice> ds) =>
     ([...ds]..sort((a, b) => b.lastUsed.compareTo(a.lastUsed))).lock;
 
-/// Why the gateway refused a device login, from its `code`; null for a
-/// failure that is not a refusal of the key.
-UnlockRefusal? unlockRefusalOf(WyrmException e) => switch (e.code) {
-  'device_removed' => UnlockRefusal.removed,
-  'password_changed' => UnlockRefusal.passwordChanged,
-  'password_due' => UnlockRefusal.passwordDue,
-  'devices_off' => UnlockRefusal.devicesOff,
+/// Why the gateway refused a device login, from its refusal code; null
+/// for a failure that is not a refusal of the key.
+UnlockRefusal? unlockRefusalOf(WyrmException e) => switch (e.refusal) {
+  GatewayRefusal.deviceRemoved => UnlockRefusal.removed,
+  GatewayRefusal.passwordChanged => UnlockRefusal.passwordChanged,
+  GatewayRefusal.passwordDue => UnlockRefusal.passwordDue,
+  GatewayRefusal.devicesOff => UnlockRefusal.devicesOff,
+  GatewayRefusal.confirmRequired ||
+  GatewayRefusal.passwordRequired ||
+  GatewayRefusal.tooManyDevices ||
+  GatewayRefusal.badPassword => null,
   // A bare 401 (unknown device, bad signature, a nonce out of time) has no
-  // code: the gateway does not take this key (decision 1 of ADR 0050).
-  null when e.status == StatusCode.of(Status.permissionDenied) =>
-    UnlockRefusal.unknown,
-  _ => null,
+  // code: the gateway does not take this key (decision 1 of ADR 0050). A
+  // code this client does not know is not about the key.
+  null =>
+    e.code == null && e.status == StatusCode.of(Status.permissionDenied)
+        ? UnlockRefusal.unknown
+        : null,
 };
+
+/// Why the page falls back to the password when the prompt gave [r]
+/// instead of a signature (the key kept).
+UnlockFallback fallbackOf(SignResult r) => switch (r) {
+  SignLockout() => UnlockFallback.lockedOut,
+  SignCancelled() ||
+  SignUnavailable() ||
+  SignFailed() ||
+  SignInvalidated() ||
+  Signed() => UnlockFallback.notOpened,
+};
+
+/// What the step-up dialog says when the prompt gave [r] instead of a
+/// signature. A signature is never a stop ([signer] returns it), so
+/// [Signed] reads as the prompt that gave none.
+StepUpError stepUpErrorOf(SignResult r) => switch (r) {
+  SignCancelled() ||
+  SignLockout() ||
+  SignUnavailable() ||
+  Signed() => const .stopped(),
+  SignInvalidated() => const .keyGone(),
+  SignFailed(:final message) => .refused(message),
+};
+
+/// The code of a refusal the gateway named, as Studio keeps it.
+RefusalCode refusalCodeOf(GatewayRefusal r) => switch (r) {
+  GatewayRefusal.deviceRemoved => .deviceRemoved,
+  GatewayRefusal.passwordChanged => .passwordChanged,
+  GatewayRefusal.passwordDue => .passwordDue,
+  GatewayRefusal.devicesOff => .devicesOff,
+  GatewayRefusal.confirmRequired => .confirmRequired,
+  GatewayRefusal.passwordRequired => .passwordRequired,
+  GatewayRefusal.tooManyDevices => .tooManyDevices,
+  GatewayRefusal.badPassword => .badPassword,
+};
+
+/// Why the lock stays on after the gateway refused [e]: the password, a
+/// refusal it named, else its message.
+LockError lockErrorOf(WyrmException e) => switch (e.refusal) {
+  GatewayRefusal.badPassword => const .wrongPassword(),
+  final r? => .gateway(refusalCodeOf(r)),
+  null => .refused(e.message),
+};
+
+/// What the step-up says after the gateway refused [e]: the password, a
+/// refusal it named, else its message.
+StepUpError stepUpRefusalOf(WyrmException e) => switch (e.refusal) {
+  GatewayRefusal.badPassword => const .wrongPassword(),
+  final r? => .gateway(refusalCodeOf(r)),
+  null => .refused(e.message),
+};
+
+/// The words of the OS prompts of the device key (unlock-discover.md §2):
+/// `ui`'s, handed to `AppDependencies` by `app`, so that `business` writes
+/// none (studio-rules §5). Each is asked with the site and the user at the
+/// moment the prompt opens.
+abstract interface class DevicePrompts {
+  /// A device login or an idle unlock.
+  String unlock(String site, String user);
+
+  /// Making and registering a new key.
+  String enable(String site, String user);
+
+  /// A step-up of a refused request.
+  String confirm(String site);
+}
+
+/// No words: the site and the user as they are, for a store no words were
+/// given to (tests). The app always gives its own.
+final class PlainPrompts implements DevicePrompts {
+  const PlainPrompts();
+
+  @override
+  String unlock(String site, String user) => '$site · $user';
+
+  @override
+  String enable(String site, String user) => '$site · $user';
+
+  @override
+  String confirm(String site) => site;
+}
 
 /// The OS prompt gave no signature: what it gave instead.
 final class SignStopped implements Exception {

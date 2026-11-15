@@ -1,4 +1,5 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:wyrm_core/wyrm_core.dart' show Perm;
 
 part 'step_up_line.freezed.dart';
 
@@ -7,8 +8,8 @@ part 'step_up_line.freezed.dart';
 @freezed
 abstract class StepUpLine with _$StepUpLine {
   const factory StepUpLine({
-    /// `config` or `write`.
-    required String level,
+    /// The level the change needs: its badge (`config` coral, else grey).
+    required Perm level,
     required String text,
     @Default('') String key,
   }) = _StepUpLine;

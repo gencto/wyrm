@@ -5,6 +5,8 @@ import 'package:material_ui/material_ui.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
+import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// *Probe a range instead* (docs/design/specs/unlock-discover.md §4): the
@@ -54,7 +56,7 @@ class RangeProbe extends StatelessWidget {
               ),
             ),
             SizedBox(
-              width: 70,
+              width: AppSizes.portField,
               child: _Small(
                 vm: port,
                 label: S.current.probePortField,
@@ -76,11 +78,9 @@ class RangeProbe extends StatelessWidget {
                   Radius.circular(AppRadii.control),
                 ),
                 child: SizedBox(
-                  height: 38,
+                  height: AppSizes.probeRow,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                    ),
+                    padding: Insets.button,
                     child: Center(
                       widthFactor: 1,
                       child: Text(
@@ -164,8 +164,8 @@ class _SmallState extends State<_Small> {
       label: widget.label,
       textField: true,
       child: Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: AppSizes.probeRow,
+        padding: Insets.smallField,
         decoration: BoxDecoration(
           color: c.ground2,
           borderRadius: const BorderRadius.all(

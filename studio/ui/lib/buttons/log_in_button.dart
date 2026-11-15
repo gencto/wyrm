@@ -22,13 +22,12 @@ class LogInButton extends StatelessWidget {
   final bool busy;
 
   /// The ember of a pressed, busy button (the board's `#C9772F`).
-  static const busyFill = Color(0xFFC9772F);
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return Material(
-      color: busy ? busyFill : c.ember,
+      color: busy ? c.emberBusy : c.ember,
       clipBehavior: .antiAlias,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(AppRadii.card)),
@@ -49,7 +48,7 @@ class LogInButton extends StatelessWidget {
                       busy ? S.current.signingIn : S.current.logIn,
                       style: TextStyle(
                         fontFamily: AppFonts.sans,
-                        fontSize: 16,
+                        fontSize: FontSizes.tallButton,
                         fontWeight: .w600,
                         color: c.onEmber,
                       ),

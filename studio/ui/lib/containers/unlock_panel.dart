@@ -14,6 +14,7 @@ import '../models/tone.dart';
 import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
+import '../theme/sizes.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'rise.dart';
@@ -270,7 +271,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
     final c = context.colors;
     final vm = widget.vm;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: Insets.unlockButton,
       child: Column(
         spacing: 14,
         children: [
@@ -283,7 +284,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
           Text(
             vm.unlockLabel,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: FontSizes.lead,
               fontWeight: .w600,
               color: c.text1,
             ),
@@ -348,7 +349,7 @@ class _UnlockPanelState extends State<UnlockPanel> {
       _ => c.good,
     };
     return Container(
-      padding: const EdgeInsets.only(top: 14),
+      padding: Insets.footer,
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: c.ground3)),
       ),
@@ -390,10 +391,7 @@ class _AccountCard extends StatelessWidget {
       _ => c.muted,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: 14,
-      ),
+      padding: Insets.accountCard,
       decoration: BoxDecoration(
         color: c.ground1,
         borderRadius: const BorderRadius.all(Radius.circular(AppRadii.panel)),
@@ -403,8 +401,8 @@ class _AccountCard extends StatelessWidget {
         spacing: 14,
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: AppSizes.avatar,
+            height: AppSizes.avatar,
             decoration: BoxDecoration(
               color: c.emberTint,
               shape: BoxShape.circle,
@@ -413,7 +411,7 @@ class _AccountCard extends StatelessWidget {
             child: Text(
               vm.initials,
               style: TextStyle(
-                fontSize: 15,
+                fontSize: FontSizes.lead,
                 fontWeight: .w600,
                 color: c.emberSoft,
               ),
@@ -428,7 +426,7 @@ class _AccountCard extends StatelessWidget {
                   TextSpan(
                     text: vm.user,
                     style: TextStyle(
-                      fontSize: 15,
+                      fontSize: FontSizes.lead,
                       fontWeight: .w600,
                       color: c.text1,
                     ),
@@ -450,8 +448,8 @@ class _AccountCard extends StatelessWidget {
                   spacing: 6,
                   children: [
                     Container(
-                      width: 6,
-                      height: 6,
+                      width: AppSizes.dot,
+                      height: AppSizes.dot,
                       decoration: BoxDecoration(
                         color: dot,
                         shape: BoxShape.circle,

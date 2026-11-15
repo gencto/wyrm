@@ -100,4 +100,89 @@ abstract final class Insets {
 
   /// Around a small text button beside chips (`+ prefix`).
   static const textLink = EdgeInsets.symmetric(horizontal: 6, vertical: 3);
+
+  // ---- the log-in page, the unlock, the lock and the step-up ----
+
+  /// Around the log-in form, in its panel (login.md §1: 40 × 32).
+  static const logInForm = EdgeInsets.symmetric(
+    horizontal: AppSpacing.xl,
+    vertical: 40,
+  );
+
+  /// Around the welcome while the tree opens.
+  static const welcome = EdgeInsets.symmetric(vertical: 40);
+
+  /// Around the hero's content (login.md §2: 40 × 48).
+  static const hero = EdgeInsets.fromLTRB(48, 40, 48, 40);
+
+  /// Beside the hero's logo mark.
+  static const heroMark = EdgeInsets.only(right: 1);
+
+  /// Above the trust card or the panel of found gateways, under the
+  /// gateway field's status line.
+  static const underGateway = EdgeInsets.only(top: 12);
+
+  /// Above a footer's text, under its rule (the log-in form, the unlock).
+  static const footer = EdgeInsets.only(top: 14);
+
+  /// Beside the label of a button of a fixed height (the alert's buttons,
+  /// *Find on this network*, *Probe*).
+  static const button = EdgeInsets.symmetric(horizontal: 14);
+
+  /// Inside a small field of a row of fields (*Probe a range*).
+  static const smallField = EdgeInsets.symmetric(horizontal: 12);
+
+  /// Inside the box of the CA code on the trust card.
+  static const caCode = EdgeInsets.all(12);
+
+  /// Inside the panel of found gateways, and the step-up's device row.
+  static const panelBox = EdgeInsets.all(14);
+
+  /// Above a bullet's dot, to sit on the first line of its text.
+  static const bulletDot = EdgeInsets.only(top: 7);
+
+  /// Above *Probe a range instead*, under the reasons.
+  static const probeRange = EdgeInsets.only(top: 10);
+
+  /// Inside a tag of a found gateway.
+  static const foundTag = EdgeInsets.symmetric(horizontal: 7, vertical: 1);
+
+  /// Above and below the round unlock button and its lines.
+  static const unlockButton = EdgeInsets.symmetric(vertical: 6);
+
+  /// Inside the account card of the unlock.
+  static const accountCard = EdgeInsets.symmetric(
+    horizontal: AppSpacing.md,
+    vertical: 14,
+  );
+
+  /// The step-up dialog: its head, the box of changes, a row under them
+  /// (the password, the device), the gap above its foot and the foot.
+  static const dialogHead = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    22,
+    AppSpacing.lg,
+    6,
+  );
+  static const dialogList = EdgeInsets.symmetric(
+    horizontal: AppSpacing.lg,
+    vertical: 10,
+  );
+  static const dialogRow = EdgeInsets.fromLTRB(
+    AppSpacing.lg,
+    6,
+    AppSpacing.lg,
+    AppSpacing.none,
+  );
+  static const dialogFootGap = EdgeInsets.only(top: 12);
+  static const dialogFoot = EdgeInsets.symmetric(
+    horizontal: AppSpacing.lg,
+    vertical: 18,
+  );
+
+  /// Inside the level badge of a step-up change.
+  static const levelBadge = EdgeInsets.symmetric(
+    horizontal: AppSpacing.sm,
+    vertical: 2,
+  );
 }
