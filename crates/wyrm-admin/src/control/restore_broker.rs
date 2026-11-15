@@ -1934,7 +1934,7 @@ mod tests {
         for (i, (path, data, seal)) in files.iter().enumerate() {
             let source = src.join(i.to_string());
             let stored = if *seal {
-                format::seal_bytes(&key, path, data)
+                format::seal_bytes(&key, path, data).unwrap()
             } else {
                 data.to_vec()
             };

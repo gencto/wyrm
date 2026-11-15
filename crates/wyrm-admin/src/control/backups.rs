@@ -444,7 +444,8 @@ impl Stager<'_> {
     fn sealed_bytes(&self, path: &str, bytes: &[u8]) -> Result<Staged, String> {
         let key = self.key(path)?;
         let p = self.place(path)?;
-        std::fs::write(&p, format::seal_bytes(key, path, bytes)).map_err(|e| io_err(&p, e))?;
+        let sealed = format::seal_bytes(key, path, bytes).map_err(|e| format!("{path}: {e}"))?;
+        std::fs::write(&p, sealed).map_err(|e| io_err(&p, e))?;
         Ok(Staged {
             path: path.to_owned(),
             source: p,
