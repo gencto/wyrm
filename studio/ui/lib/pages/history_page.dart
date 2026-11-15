@@ -77,7 +77,7 @@ class HistoryPage extends StatelessWidget {
   final String? title;
   final String? subtitle;
   final String empty;
-  final List<TabItemVm> ranges;
+  final List<TabItemVm<String>> ranges;
   final String range;
   final ValueChanged<String> onRange;
 

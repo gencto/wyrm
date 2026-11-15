@@ -5,19 +5,24 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:models/backup_sealed.dart';
+import 'package:models/link_mode.dart';
 import 'package:models/package_check.dart';
+import 'package:models/package_check_result.dart';
+import 'package:models/requested_right.dart';
 
 /// The link protocol of this Studio's brokers (`LINK_PROTOCOL`).
 const linkProtocol = 1;
 
 /// What a package check found: the checks, the manifest as indented JSON,
-/// and the package name from it.
+/// the package name and how it runs from it, and the rights it asks for
+/// (null: none).
 typedef PackageReport = ({
   List<PackageCheck> checks,
   String? manifest,
   String? name,
-  String? kind,
-  String? rights,
+  LinkMode? kind,
+  List<RequestedRight>? rights,
 });
 
 const _fields = {
@@ -37,9 +42,9 @@ const _fields = {
 PackageCheck _ok(String t, [String d = '']) =>
     PackageCheck(title: t, detail: d);
 PackageCheck _bad(String t, String d) =>
-    PackageCheck(title: t, detail: d, result: 'failed');
+    PackageCheck(title: t, detail: d, result: PackageCheckResult.failed);
 PackageCheck _skip(String t, String d) =>
-    PackageCheck(title: t, detail: d, result: 'skipped');
+    PackageCheck(title: t, detail: d, result: PackageCheckResult.skipped);
 
 /// The checks of docs/links.md §4 on a package zip, run here before the
 /// broker runs them again. [host] is the target broker's `os-arch`, when
@@ -220,29 +225,36 @@ PackageReport checkZip(Uint8List bytes, {String? host}) {
     );
     checks.add(_skip('World', 'read from the component by the broker'));
   }
-  final rights = <String>[
+  final rights = [
     if (json['capabilities'] case final Map<String, Object?> c) ...[
       if (c['net'] case final List<Object?> n when n.isNotEmpty)
-        'network ${n.join(', ')}',
-      if (c['store_mb'] case final s?) 'store $s MiB',
-      if (c['memory_mb'] case final m?) 'memory $m MiB',
-      if (c['call_ms'] case final t?) 'call $t ms',
+        RequestedRight(what: 'network', detail: n.join(', ')),
+      if (c['store_mb'] case final s?)
+        RequestedRight(what: 'store', detail: '$s MiB'),
+      if (c['memory_mb'] case final m?)
+        RequestedRight(what: 'memory', detail: '$m MiB'),
+      if (c['call_ms'] case final t?)
+        RequestedRight(what: 'call', detail: '$t ms'),
     ],
     if (json['requester'] case final List<Object?> r)
       for (final g in r)
-        if (g case {'path': final p, 'level': final l}) '$l on $p',
+        if (g case {'path': final p, 'level': final l})
+          RequestedRight(what: '$l', detail: 'on $p'),
   ];
   checks.add(
     rights.isEmpty
         ? _ok('Rights asked', 'none')
-        : _ok('Rights asked', rights.join('; ')),
+        : _ok(
+            'Rights asked',
+            [for (final r in rights) '${r.what} ${r.detail}'].join('; '),
+          ),
   );
   return (
     checks: checks,
     manifest: pretty,
     name: name is String ? name : null,
-    kind: kind is String ? kind : null,
-    rights: rights.isEmpty ? null : rights.join('; '),
+    kind: kind is String ? LinkMode.fromWire(kind) : null,
+    rights: rights.isEmpty ? null : rights,
   );
 }
 
@@ -261,7 +273,7 @@ PackageReport checkWasm(Uint8List bytes) => (
   ],
   manifest: null,
   name: null,
-  kind: 'wasm',
+  kind: LinkMode.wasm,
   rights: null,
 );
 
@@ -334,19 +346,19 @@ PackageReport checkBackup(Uint8List bytes) {
     );
   }
   final how = switch (m['sealed']) {
-    final Map<String, Object?> s => s['how'] as String? ?? 'none',
-    _ => 'none',
+    {'how': final String h} => BackupSealed.fromWire(h) ?? BackupSealed.none,
+    _ => BackupSealed.none,
   };
   checks
     ..add(
       switch (how) {
-        'passphrase' => _ok('Secrets', 'sealed with a passphrase'),
-        'broker' => _skip(
+        BackupSealed.passphrase => _ok('Secrets', 'sealed with a passphrase'),
+        BackupSealed.broker => _skip(
           'Secrets',
           'sealed for ${m['site']}: the file opens only on a broker with '
               'the keys of that site',
         ),
-        _ => _ok('Secrets', 'none in the file'),
+        BackupSealed.none => _ok('Secrets', 'none in the file'),
       },
     )
     ..add(_ok('Sections', sections.join(', ')))
@@ -361,12 +373,15 @@ PackageReport checkBackup(Uint8List bytes) {
     manifest: const JsonEncoder.withIndent('  ').convert({
       for (final k in ['wyrm_backup', 'kind', 'site', 'broker', 'created'])
         k: m[k],
-      'sealed': how,
+      'sealed': how.wire,
       'link': link,
       'sections': sections,
     }),
     name: link['id'] as String?,
-    kind: link['mode'] as String?,
+    kind: switch (link['mode']) {
+      final String mode => LinkMode.fromWire(mode),
+      _ => null,
+    },
     rights: null,
   );
 }

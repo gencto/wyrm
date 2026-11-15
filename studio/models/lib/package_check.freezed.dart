@@ -15,8 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$PackageCheck {
 
- String get title; String get detail;/// `ok`, `failed` or `skipped`.
- String get result;
+ String get title; String get detail; PackageCheckResult get result;
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -52,7 +51,7 @@ abstract mixin class $PackageCheckCopyWith<$Res>  {
   factory $PackageCheckCopyWith(PackageCheck value, $Res Function(PackageCheck) _then) = _$PackageCheckCopyWithImpl;
 @useResult
 $Res call({
- String title, String detail, String result
+ String title, String detail, PackageCheckResult result
 });
 
 
@@ -74,7 +73,7 @@ class _$PackageCheckCopyWithImpl<$Res>
 title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,detail: null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
 as String,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
-as String,
+as PackageCheckResult,
   ));
 }
 
@@ -86,13 +85,12 @@ as String,
 
 
 class _PackageCheck implements PackageCheck {
-  const _PackageCheck({required this.title, this.detail = '', this.result = 'ok'});
+  const _PackageCheck({required this.title, this.detail = '', this.result = PackageCheckResult.ok});
   
 
 @override final  String title;
 @override@JsonKey() final  String detail;
-/// `ok`, `failed` or `skipped`.
-@override@JsonKey() final  String result;
+@override@JsonKey() final  PackageCheckResult result;
 
 /// Create a copy of PackageCheck
 /// with the given fields replaced by the non-null parameter values.
@@ -126,7 +124,7 @@ abstract mixin class _$PackageCheckCopyWith<$Res> implements $PackageCheckCopyWi
   factory _$PackageCheckCopyWith(_PackageCheck value, $Res Function(_PackageCheck) _then) = __$PackageCheckCopyWithImpl;
 @override @useResult
 $Res call({
- String title, String detail, String result
+ String title, String detail, PackageCheckResult result
 });
 
 
@@ -148,7 +146,7 @@ class __$PackageCheckCopyWithImpl<$Res>
 title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
 as String,detail: null == detail ? _self.detail : detail // ignore: cast_nullable_to_non_nullable
 as String,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
-as String,
+as PackageCheckResult,
   ));
 }
 

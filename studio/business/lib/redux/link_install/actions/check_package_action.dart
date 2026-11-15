@@ -53,12 +53,14 @@ class CheckPackageAction extends Action {
     return state.copyWith.linkInstall(
       checks: report.checks.lock,
       manifest: report.manifest,
-      rights: report.rights,
+      rights: report.rights?.lock,
       name: linkInstall.name ?? report.name ?? fileName,
+      // A package runs as its kind says; a backup keeps the mode its link
+      // ran in.
       mode: switch (report.kind) {
-        'wasm' => LinkMode.wasm,
-        'embedded' when source is InstallSourceBackup => LinkMode.embedded,
-        'external' when source is InstallSourceBackup => LinkMode.external,
+        LinkMode.wasm => LinkMode.wasm,
+        LinkMode.embedded ||
+        LinkMode.external when source is InstallSourceBackup => report.kind,
         _ => LinkMode.process,
       },
     );

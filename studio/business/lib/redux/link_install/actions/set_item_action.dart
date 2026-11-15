@@ -13,12 +13,6 @@ class SetItemAction extends Action {
   @override
   AppState reduce() {
     final it = linkInstall.catalog.where((c) => c.id == item).firstOrNull;
-    final mode = switch (it?.modes.firstOrNull) {
-      'process' => LinkMode.process,
-      'external' => LinkMode.external,
-      'wasm' => LinkMode.wasm,
-      _ => LinkMode.embedded,
-    };
     var name = it?.code.replaceAll(RegExp(r'-process$'), '') ?? '';
     final base = name;
     for (var n = 2; links.table.containsKey(name); n++) {
@@ -26,7 +20,7 @@ class SetItemAction extends Action {
     }
     return state.copyWith.linkInstall(
       item: item,
-      mode: mode,
+      mode: it?.modes.firstOrNull ?? LinkMode.embedded,
       name: name.isEmpty ? null : name,
       acceptRights: false,
       message: null,

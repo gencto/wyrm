@@ -1,6 +1,8 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'link_mode.dart';
+
 part 'catalog_item.freezed.dart';
 
 /// One entry of Add a link's official list: a driver built into the broker
@@ -26,8 +28,8 @@ abstract class CatalogItem with _$CatalogItem {
     /// (`install_repo`).
     @Default(true) bool builtIn,
 
-    /// How it can run: `embedded`, `process`, `external`, or `wasm`.
-    @Default(IListConst([])) IList<String> modes,
+    /// How it can run, the first the default.
+    @Default(IListConst([])) IList<LinkMode> modes,
 
     /// Links of it the broker already has.
     @Default(0) int existing,

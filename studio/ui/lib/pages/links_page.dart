@@ -84,7 +84,7 @@ class LinksPage extends StatelessWidget {
   /// Opens Add a link; null when the user may not install.
   final VoidCallback? onTapLinkInstall;
   final String? addReason;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final String description;
   final List<SettingCardVm> settings;

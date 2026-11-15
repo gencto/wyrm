@@ -21,8 +21,8 @@ mixin _$CatalogItem {
  String get tag;/// `Equipment`, `History sync`, `File stores`, `Apps`.
  String get category;/// Built into wyrmd (`install`), else a repository package
 /// (`install_repo`).
- bool get builtIn;/// How it can run: `embedded`, `process`, `external`, or `wasm`.
- IList<String> get modes;/// Links of it the broker already has.
+ bool get builtIn;/// How it can run, the first the default.
+ IList<LinkMode> get modes;/// Links of it the broker already has.
  int get existing;/// What the card says of its version: `wyrmd 0.1.0` for a driver built
 /// into the broker (its `sys/version`); null when the broker does not
 /// say (a repository package of an old broker: `install_repo` lists
@@ -68,7 +68,7 @@ abstract mixin class $CatalogItemCopyWith<$Res>  {
   factory $CatalogItemCopyWith(CatalogItem value, $Res Function(CatalogItem) _then) = _$CatalogItemCopyWithImpl;
 @useResult
 $Res call({
- String id, String code, String name, String description, String tag, String category, bool builtIn, IList<String> modes, int existing, String? version, bool official
+ String id, String code, String name, String description, String tag, String category, bool builtIn, IList<LinkMode> modes, int existing, String? version, bool official
 });
 
 
@@ -95,7 +95,7 @@ as String,tag: null == tag ? _self.tag : tag // ignore: cast_nullable_to_non_nul
 as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
 as String,builtIn: null == builtIn ? _self.builtIn : builtIn // ignore: cast_nullable_to_non_nullable
 as bool,modes: null == modes ? _self.modes : modes // ignore: cast_nullable_to_non_nullable
-as IList<String>,existing: null == existing ? _self.existing : existing // ignore: cast_nullable_to_non_nullable
+as IList<LinkMode>,existing: null == existing ? _self.existing : existing // ignore: cast_nullable_to_non_nullable
 as int,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String?,official: null == official ? _self.official : official // ignore: cast_nullable_to_non_nullable
 as bool,
@@ -126,8 +126,8 @@ class _CatalogItem implements CatalogItem {
 /// Built into wyrmd (`install`), else a repository package
 /// (`install_repo`).
 @override@JsonKey() final  bool builtIn;
-/// How it can run: `embedded`, `process`, `external`, or `wasm`.
-@override@JsonKey() final  IList<String> modes;
+/// How it can run, the first the default.
+@override@JsonKey() final  IList<LinkMode> modes;
 /// Links of it the broker already has.
 @override@JsonKey() final  int existing;
 /// What the card says of its version: `wyrmd 0.1.0` for a driver built
@@ -174,7 +174,7 @@ abstract mixin class _$CatalogItemCopyWith<$Res> implements $CatalogItemCopyWith
   factory _$CatalogItemCopyWith(_CatalogItem value, $Res Function(_CatalogItem) _then) = __$CatalogItemCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String code, String name, String description, String tag, String category, bool builtIn, IList<String> modes, int existing, String? version, bool official
+ String id, String code, String name, String description, String tag, String category, bool builtIn, IList<LinkMode> modes, int existing, String? version, bool official
 });
 
 
@@ -201,7 +201,7 @@ as String,tag: null == tag ? _self.tag : tag // ignore: cast_nullable_to_non_nul
 as String,category: null == category ? _self.category : category // ignore: cast_nullable_to_non_nullable
 as String,builtIn: null == builtIn ? _self.builtIn : builtIn // ignore: cast_nullable_to_non_nullable
 as bool,modes: null == modes ? _self.modes : modes // ignore: cast_nullable_to_non_nullable
-as IList<String>,existing: null == existing ? _self.existing : existing // ignore: cast_nullable_to_non_nullable
+as IList<LinkMode>,existing: null == existing ? _self.existing : existing // ignore: cast_nullable_to_non_nullable
 as int,version: freezed == version ? _self.version : version // ignore: cast_nullable_to_non_nullable
 as String?,official: null == official ? _self.official : official // ignore: cast_nullable_to_non_nullable
 as bool,

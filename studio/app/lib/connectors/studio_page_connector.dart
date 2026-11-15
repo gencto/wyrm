@@ -285,8 +285,8 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
               site: c.site,
               current: c.site == viewed,
               detail: switch (c.relation) {
-                'this' => S.current.thisBroker,
-                'upstream' => S.current.upstream,
+                .here => S.current.thisBroker,
+                .upstream => S.current.upstream,
                 _ => c.via == null ? null : S.current.viaSite(c.via!),
               },
             ),
@@ -347,7 +347,7 @@ class _Factory extends VmFactory<AppState, StudioPageConnector, _Vm>
             id: 'site:${c.site}',
             title: c.site,
             icon: 'node_site',
-            detail: c.relation,
+            detail: c.relation.wire,
           ),
         for (final id in links.view)
           SearchEntryVm(

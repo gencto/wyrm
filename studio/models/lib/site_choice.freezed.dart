@@ -15,8 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$SiteChoice {
 
- String get site;/// `this`, `downstream` or `upstream`.
- String get relation;/// The site it is reached through, when not directly.
+ String get site; SiteRelation get relation;/// The site it is reached through, when not directly.
  String? get via;
 /// Create a copy of SiteChoice
 /// with the given fields replaced by the non-null parameter values.
@@ -53,7 +52,7 @@ abstract mixin class $SiteChoiceCopyWith<$Res>  {
   factory $SiteChoiceCopyWith(SiteChoice value, $Res Function(SiteChoice) _then) = _$SiteChoiceCopyWithImpl;
 @useResult
 $Res call({
- String site, String relation, String? via
+ String site, SiteRelation relation, String? via
 });
 
 
@@ -74,7 +73,7 @@ class _$SiteChoiceCopyWithImpl<$Res>
   return _then(SiteChoice(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,relation: null == relation ? _self.relation : relation // ignore: cast_nullable_to_non_nullable
-as String,via: freezed == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
+as SiteRelation,via: freezed == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
@@ -87,12 +86,11 @@ as String?,
 
 
 class _SiteChoice implements SiteChoice {
-  const _SiteChoice({required this.site, this.relation = 'this', this.via});
+  const _SiteChoice({required this.site, this.relation = SiteRelation.here, this.via});
   
 
 @override final  String site;
-/// `this`, `downstream` or `upstream`.
-@override@JsonKey() final  String relation;
+@override@JsonKey() final  SiteRelation relation;
 /// The site it is reached through, when not directly.
 @override final  String? via;
 
@@ -128,7 +126,7 @@ abstract mixin class _$SiteChoiceCopyWith<$Res> implements $SiteChoiceCopyWith<$
   factory _$SiteChoiceCopyWith(_SiteChoice value, $Res Function(_SiteChoice) _then) = __$SiteChoiceCopyWithImpl;
 @override @useResult
 $Res call({
- String site, String relation, String? via
+ String site, SiteRelation relation, String? via
 });
 
 
@@ -149,7 +147,7 @@ class __$SiteChoiceCopyWithImpl<$Res>
   return _then(_SiteChoice(
 site: null == site ? _self.site : site // ignore: cast_nullable_to_non_nullable
 as String,relation: null == relation ? _self.relation : relation // ignore: cast_nullable_to_non_nullable
-as String,via: freezed == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
+as SiteRelation,via: freezed == via ? _self.via : via // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }

@@ -5,6 +5,9 @@ import 'package:archive/archive.dart';
 import 'package:business/wyrm/catalog.dart';
 import 'package:business/wyrm/package_check.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/link_mode.dart';
+import 'package:models/package_check_result.dart';
+import 'package:models/requested_right.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
 Uint8List zipOf(Map<String, List<int>> files) {
@@ -37,10 +40,15 @@ void main() {
         host: 'linux-aarch64',
       );
 
-      expect(r.checks.where((c) => c.result == 'failed'), isEmpty);
+      expect(
+        r.checks.where((c) => c.result == PackageCheckResult.failed),
+        isEmpty,
+      );
       expect(r.name, 'acme-meter');
-      expect(r.kind, 'process');
-      expect(r.rights, 'read on wy/{site}/downstream/modbus');
+      expect(r.kind, LinkMode.process);
+      expect(r.rights, const [
+        RequestedRight(what: 'read', detail: 'on wy/{site}/downstream/modbus'),
+      ]);
       expect(r.manifest, contains('"wyrm_link": 1'));
     });
 
@@ -61,7 +69,10 @@ void main() {
       );
 
       final failed = {
-        for (final c in r.checks.where((c) => c.result == 'failed')) c.title,
+        for (final c in r.checks.where(
+          (c) => c.result == PackageCheckResult.failed,
+        ))
+          c.title,
       };
       expect(failed, containsAll(['Manifest', 'Protocol', 'This host']));
     });
@@ -75,14 +86,14 @@ void main() {
       );
       expect(
         r.checks.firstWhere((c) => c.title == 'Paths').result,
-        'failed',
+        PackageCheckResult.failed,
       );
     });
 
     test('not a zip, or no manifest, stops early', () {
       expect(
         checkZip(Uint8List.fromList([1, 2, 3])).checks.single.result,
-        'failed',
+        PackageCheckResult.failed,
       );
       expect(
         checkZip(
@@ -112,8 +123,14 @@ void main() {
         }),
       );
 
-      expect(r.checks.firstWhere((c) => c.title == 'Component').result, 'ok');
-      expect(r.rights, 'network 10.0.5.0/24:502; store 1 MiB');
+      expect(
+        r.checks.firstWhere((c) => c.title == 'Component').result,
+        PackageCheckResult.ok,
+      );
+      expect(r.rights, const [
+        RequestedRight(what: 'network', detail: '10.0.5.0/24:502'),
+        RequestedRight(what: 'store', detail: '1 MiB'),
+      ]);
     });
   });
 
@@ -131,11 +148,19 @@ void main() {
       'package:scheduler-process',
     ]);
     expect(c[0].existing, 2);
-    expect(c[0].modes, ['embedded', 'process', 'external']);
-    expect(c[1].modes, ['embedded'], reason: 'the agent runs in the broker');
-    expect(c[2].modes, ['wasm']);
+    expect(c[0].modes, [
+      LinkMode.embedded,
+      LinkMode.process,
+      LinkMode.external,
+    ]);
+    expect(
+      c[1].modes,
+      [LinkMode.embedded],
+      reason: 'the agent runs in the broker',
+    );
+    expect(c[2].modes, [LinkMode.wasm]);
     expect(c[2].existing, 1);
-    expect(c[3].modes, ['process']);
+    expect(c[3].modes, [LinkMode.process]);
     expect(c[3].name, 'Scheduler (process)');
     expect(c.map((i) => i.version), everyElement(isNull));
   });
@@ -226,7 +251,7 @@ void main() {
       expect(c[1].official, isFalse);
       final alarm = c[2];
       expect(alarm.name, 'Alarms (process)');
-      expect(alarm.modes, ['process']);
+      expect(alarm.modes, [LinkMode.process]);
       expect(alarm.version, '0.1.3');
       expect(alarm.official, isTrue);
       // A package with empty fields reads its own name, never Studio's.
@@ -235,7 +260,7 @@ void main() {
       expect(tg.description, '');
       expect(tg.category, 'Packages', reason: 'no empty category chip');
       expect(tg.version, '1.0.0');
-      expect(tg.modes, ['wasm']);
+      expect(tg.modes, [LinkMode.wasm]);
       expect(tg.official, isFalse);
     });
 

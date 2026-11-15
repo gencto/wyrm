@@ -1719,6 +1719,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "cantReachGateway": MessageLookupByLibrary.simpleMessage(
       "Gateway не відповідає",
     ),
+    "catalogAll": MessageLookupByLibrary.simpleMessage("All"),
     "catalogNote": MessageLookupByLibrary.simpleMessage(
       "Вбудований: у wyrmd, нічого не завантажується. Пакет: з індексу packages.repository, SHA-256 перевіряється; брокер показує лише пакети, які може встановити.",
     ),

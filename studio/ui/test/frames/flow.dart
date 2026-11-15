@@ -56,7 +56,7 @@ void _two(String _, String _) {}
 void _three(String _, String _, String _) {}
 void _resize(String _, {required bool add}) {}
 
-List<TabItemVm> _tabs() => const [
+List<TabItemVm<String>> _tabs() => const [
   TabItemVm(id: 'blocks', label: 'Blocks'),
   TabItemVm(
     id: 'my',
@@ -1676,7 +1676,7 @@ FlowEditorPage flowViewerJson() => flowLongOutput(
 
 // ---------- wave 2 (flow-editor.md §17–§20, ADR 0040) ----------
 
-List<TabItemVm> _tabs2() => const [
+List<TabItemVm<String>> _tabs2() => const [
   TabItemVm(id: 'blocks', label: 'Blocks'),
   TabItemVm(id: 'my', label: 'My blocks'),
   TabItemVm(id: 'tree', label: 'Tree'),

@@ -21,7 +21,13 @@ import 'package:models/grant.dart';
 import 'package:models/hist_detail.dart';
 import 'package:models/hist_point.dart';
 import 'package:models/hist_window.dart';
+import 'package:models/install_block.dart';
+import 'package:models/install_field.dart';
+import 'package:models/install_name_problem.dart';
+import 'package:models/install_path.dart';
+import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
 import 'package:models/install_target.dart';
 import 'package:models/key_kind.dart';
 import 'package:models/link_info.dart';
@@ -38,7 +44,9 @@ import 'package:models/node_detail.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/package_check.dart';
+import 'package:models/package_check_result.dart';
 import 'package:models/package_info.dart';
+import 'package:models/package_method.dart';
 import 'package:models/panel_slot.dart';
 import 'package:models/param_spec.dart';
 import 'package:models/peer.dart';
@@ -47,6 +55,7 @@ import 'package:models/plan_step.dart';
 import 'package:models/profile_info.dart';
 import 'package:models/quarantine_entry.dart';
 import 'package:models/quarantine_kind.dart';
+import 'package:models/requested_right.dart';
 import 'package:models/restore_check.dart';
 import 'package:models/role_grant.dart';
 import 'package:models/send_link.dart';
@@ -75,6 +84,7 @@ import 'package:wyrm_client/wyrm_client.dart'
     show DevicePolicy, GatewayDevice, StepUp;
 
 import '../wyrm/approval.dart';
+import '../wyrm/catalog.dart';
 import '../wyrm/context_keys.dart';
 import '../wyrm/decode/agent_params.dart';
 import '../wyrm/decode/backup_job.dart';
@@ -696,6 +706,182 @@ extension SelectComposites on Selectors {
                 w.isWaitingForType<RetrieveSystemLogAction>()) ||
             (state.system.profiles.isNotEmpty &&
                 w.isWaitingForType<RetrieveProfilesAction>()),
+    };
+  }
+}
+
+/// A link name: a key segment of letters, digits, `.`, `_`, `-`.
+final _linkName = RegExp(r'^[A-Za-z0-9._-]{1,64}$');
+
+/// What Add a link shows, computed from state once (studio-rules §3): the
+/// connector maps these, it decides none of them.
+extension LinkInstallScreen on Selectors {
+  /// The steps of the path: the official list Choose → Where → Install; a
+  /// custom package or a backup Bring → Check → Where → Install.
+  List<InstallStep> get installSteps => switch (linkInstall.path) {
+    InstallPath.official => const [
+      InstallStep.choose,
+      InstallStep.run,
+      InstallStep.result,
+    ],
+    InstallPath.custom || InstallPath.backup => InstallStep.values,
+  };
+
+  /// The step on screen, one of [installSteps].
+  InstallStep get installStep => installSteps.contains(linkInstall.step)
+      ? linkInstall.step
+      : installSteps.first;
+
+  /// The item of the official list picked; null before one is.
+  CatalogItem? get installItem =>
+      linkInstall.catalog.where((c) => c.id == linkInstall.item).firstOrNull;
+
+  /// The broker the new link goes to.
+  String get installBroker => linkInstall.broker ?? site.viewed ?? '';
+
+  /// What was brought, as the user knows it: the file's name, the URL,
+  /// the driver or the package; null before anything is.
+  String? get installSourceName => switch (linkInstall.source) {
+    null => null,
+    InstallSourceZip(:final fileName) ||
+    InstallSourceBackup(:final fileName) ||
+    InstallSourceWasm(:final fileName) => fileName,
+    InstallSourceUrl(:final url) || InstallSourceGit(:final url) => url,
+    InstallSourceBuiltIn(:final driver) => driver,
+    InstallSourceRepository(:final package) => package,
+  };
+
+  /// The name of the file brought (a zip, a component, a backup); null
+  /// for a URL or nothing.
+  String? get installFileName => switch (linkInstall.source) {
+    InstallSourceZip(:final fileName) ||
+    InstallSourceBackup(:final fileName) ||
+    InstallSourceWasm(:final fileName) => fileName,
+    _ => null,
+  };
+
+  /// The URL brought: the package's, or the Git repository's.
+  String? get installUrl => switch (linkInstall.source) {
+    InstallSourceUrl(:final url) || InstallSourceGit(:final url) => url,
+    _ => null,
+  };
+
+  /// The Git ref brought.
+  String? get installRef => switch (linkInstall.source) {
+    InstallSourceGit(:final ref) => ref,
+    _ => null,
+  };
+
+  /// The branch of the link just installed: `wy/<broker>/downstream/<name>`.
+  String get installedLinkKey =>
+      'wy/$installBroker/downstream/${linkInstall.name ?? ''}';
+
+  /// The official list as filtered on screen: by category and by the
+  /// words searched for in an item's name, code or description.
+  List<CatalogItem> get installShownCatalog {
+    final q = (linkInstall.query ?? '').toLowerCase();
+    final category = linkInstall.category;
+    return [
+      for (final c in linkInstall.catalog)
+        if ((category == null || c.category == category) &&
+            (q.isEmpty ||
+                '${c.name} ${c.code} ${c.description}'.toLowerCase().contains(
+                  q,
+                )))
+          c,
+    ];
+  }
+
+  /// The categories of the official list, each once.
+  List<String> get installCategories => categoriesOf(linkInstall.catalog);
+
+  /// A check of the package or the backup failed.
+  bool get installCheckFailed => linkInstall.checks.any(
+    (c) => c.result == PackageCheckResult.failed,
+  );
+
+  /// A link of the backup's id is on the broker: the install replaces it
+  /// (in place, after a restore point).
+  bool get installReplaces =>
+      linkInstall.path == InstallPath.backup &&
+      installBroker == site.viewed &&
+      links.table.containsKey(linkInstall.name);
+
+  /// What is wrong with the name; null when nothing is, or no name is
+  /// given yet. What the broker said of a name it refused stays until the
+  /// name changes (docs/design/specs/errors.md §3, *Back to the form*).
+  InstallNameProblem? get installNameProblem {
+    final name = linkInstall.name ?? '';
+    if (name.isEmpty) {
+      return null;
+    }
+    if (!_linkName.hasMatch(name)) {
+      return InstallNameProblem.rule;
+    }
+    // A backup may replace the link of its id: the name is then no
+    // problem.
+    if (linkInstall.path != InstallPath.backup &&
+        installBroker == site.viewed &&
+        links.table.containsKey(name)) {
+      return InstallNameProblem.taken;
+    }
+    return linkInstall.refusedField == InstallField.name
+        ? InstallNameProblem.refused
+        : null;
+  }
+
+  /// The rights must be accepted before Install: a package that asks for
+  /// some. A backup's grants are in its sealed part: the broker lists them
+  /// when the install needs `accept`, so accepting is offered, not asked.
+  bool get installNeedsRights =>
+      linkInstall.path != InstallPath.backup &&
+      (linkInstall.rights != null || !(installItem?.builtIn ?? true));
+
+  /// *Accept requested rights* is offered.
+  bool get installOffersAccept =>
+      linkInstall.path == InstallPath.backup || installNeedsRights;
+
+  /// Why the user may not install on the broker: no config on its
+  /// `sys/links`; null when they may.
+  String? get installConfigReason =>
+      site.needs('config', 'wy/$installBroker/sys/links');
+
+  /// How the new link can run there, the one to pick first.
+  List<LinkMode> get installModes => switch (linkInstall.path) {
+    InstallPath.official =>
+      installItem?.modes.unlock ?? const [LinkMode.embedded],
+    InstallPath.backup => [linkInstall.mode ?? LinkMode.process],
+    InstallPath.custom => [
+      if (linkInstall.mode == LinkMode.wasm)
+        LinkMode.wasm
+      else
+        LinkMode.process,
+    ],
+  };
+
+  /// How the new link runs.
+  LinkMode get installMode => linkInstall.mode ?? installModes.first;
+
+  /// Why the step on screen offers no *Continue* (or *Install*); null when
+  /// it does, and on the last step.
+  InstallBlock? get installBlock {
+    final li = linkInstall;
+    return switch (installStep) {
+      InstallStep.choose
+          when li.path == InstallPath.official && installItem == null =>
+        InstallBlock.pickOne,
+      InstallStep.choose
+          when li.path != InstallPath.official && li.source == null =>
+        InstallBlock.bringOne,
+      InstallStep.check when installCheckFailed => InstallBlock.checkFailed,
+      InstallStep.run when (li.name ?? '').isEmpty => InstallBlock.nameIt,
+      InstallStep.run when installNameProblem != null =>
+        InstallBlock.nameProblem,
+      InstallStep.run when installNeedsRights && !li.acceptRights =>
+        InstallBlock.acceptFirst,
+      InstallStep.run when installConfigReason != null =>
+        InstallBlock.needsConfig,
+      _ => null,
     };
   }
 }
@@ -1334,7 +1520,7 @@ extension type SelectPackages(AppState _state) {
 
 extension type SelectLinkInstall(AppState _state) {
   /// Returns step
-  int get step => _state.linkInstall.step;
+  InstallStep get step => _state.linkInstall.step;
 
   /// Returns source
   InstallSource? get source => _state.linkInstall.source;
@@ -1364,22 +1550,22 @@ extension type SelectLinkInstall(AppState _state) {
   bool get isWaiting => _state.wait.isWaitingForType<InstallLinkAction>();
 
   /// Returns path
-  String get path => _state.linkInstall.path;
+  InstallPath get path => _state.linkInstall.path;
 
   /// Returns category
-  String get category => _state.linkInstall.category;
+  String? get category => _state.linkInstall.category;
 
   /// Returns query
   String? get query => _state.linkInstall.query;
 
   /// Returns phase
-  String? get phase => _state.linkInstall.phase;
+  InstallPhase? get phase => _state.linkInstall.phase;
 
   /// Returns manifest
   String? get manifest => _state.linkInstall.manifest;
 
   /// Returns rights
-  String? get rights => _state.linkInstall.rights;
+  IList<RequestedRight>? get rights => _state.linkInstall.rights;
 
   /// Returns catalog
   IList<CatalogItem> get catalog => _state.linkInstall.catalog;
@@ -1388,10 +1574,10 @@ extension type SelectLinkInstall(AppState _state) {
   IList<InstallTarget> get targets => _state.linkInstall.targets;
 
   /// Returns method
-  String get method => _state.linkInstall.method;
+  PackageMethod get method => _state.linkInstall.method;
 
   /// Returns refusedField
-  String? get refusedField => _state.linkInstall.refusedField;
+  InstallField? get refusedField => _state.linkInstall.refusedField;
 
   /// Returns refusedSaid
   String? get refusedSaid => _state.linkInstall.refusedSaid;

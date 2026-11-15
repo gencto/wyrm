@@ -1699,6 +1699,7 @@ class MessageLookup extends MessageLookupByLibrary {
     "cantReachGateway": MessageLookupByLibrary.simpleMessage(
       "Can’t reach this gateway",
     ),
+    "catalogAll": MessageLookupByLibrary.simpleMessage("All"),
     "catalogNote": MessageLookupByLibrary.simpleMessage(
       "Built in: in wyrmd, nothing to download. Package: from the index in packages.repository, SHA-256 checked; a broker lists only packages it can install.",
     ),

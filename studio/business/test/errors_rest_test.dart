@@ -15,8 +15,14 @@ import 'package:business/redux/nodes/actions/select_node_action.dart';
 import 'package:business/redux/problems/actions/retry_problem_action.dart';
 import 'package:business/redux/system/actions/set_around_action.dart';
 import 'package:business/wyrm/mappers/log_line_mapper.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:models/catalog_item.dart';
+import 'package:models/install_field.dart';
+import 'package:models/install_path.dart';
+import 'package:models/install_phase.dart';
 import 'package:models/install_source.dart';
+import 'package:models/install_step.dart';
 import 'package:models/log_level.dart';
 import 'package:models/log_line.dart';
 import 'package:wyrm_client/wyrm_client.dart';
@@ -154,23 +160,30 @@ void main() {
   group('Add a link: the refused answer (errors.md §3)', () {
     const links = 'wy/central/sys/links';
 
-    void answers({required String path, InstallSource? source}) =>
+    void answers({required InstallPath path, InstallSource? source}) =>
         s.dispatchSync(
           _Set(
             (st) => st.copyWith.linkInstall(
               path: path,
               item: 'driver:modbus',
+              catalog: const IListConst([
+                CatalogItem(
+                  id: 'driver:modbus',
+                  code: 'modbus',
+                  name: 'Modbus',
+                ),
+              ]),
               name: 'Bad Name',
               broker: 'central',
               source: source,
-              step: 2,
+              step: InstallStep.run,
             ),
           ),
         );
 
     test('the name the broker refused is kept with its words; a new name '
         'takes them away', () async {
-      answers(path: 'official');
+      answers(path: InstallPath.official);
       api.errors['$links ▸ install'] = WyrmException.of(
         Status.invalidParameter,
         'id: only lowercase letters, digits and `-`',
@@ -178,9 +191,9 @@ void main() {
       await s.dispatchAndWait(InstallLinkAction());
 
       final li = s.state.linkInstall;
-      expect(li.phase, 'failed');
+      expect(li.phase, InstallPhase.failed);
       expect(li.name, 'Bad Name', reason: 'the answers stay');
-      expect(li.refusedField, 'name');
+      expect(li.refusedField, InstallField.name);
       expect(li.refusedSaid, 'only lowercase letters, digits and `-`');
 
       s.dispatchSync(SetNameAction('good-name'));
@@ -190,7 +203,7 @@ void main() {
 
     test('a refused URL is the field of the source in use', () async {
       answers(
-        path: 'custom',
+        path: InstallPath.custom,
         source: const InstallSource.git(url: 'ftp://x', ref: 'main'),
       );
       api.errors['$links ▸ install_git'] = WyrmException.of(
@@ -198,12 +211,12 @@ void main() {
         'url: only https',
       );
       await s.dispatchAndWait(InstallLinkAction());
-      expect(s.state.linkInstall.refusedField, 'git');
+      expect(s.state.linkInstall.refusedField, InstallField.git);
       expect(s.state.linkInstall.refusedSaid, 'only https');
 
       // The name changing does not clear what was said of the URL.
       s.dispatchSync(SetNameAction('other'));
-      expect(s.state.linkInstall.refusedField, 'git');
+      expect(s.state.linkInstall.refusedField, InstallField.git);
       s.dispatchSync(
         SetSourceAction(const InstallSource.git(url: 'https://x')),
       );
@@ -212,7 +225,7 @@ void main() {
 
     test('a refusal that names no field of the wizard marks none; a new '
         'run clears the last', () async {
-      answers(path: 'official');
+      answers(path: InstallPath.official);
       api.errors['$links ▸ install'] = WyrmException.of(
         Status.invalidParameter,
         'driver: unknown',

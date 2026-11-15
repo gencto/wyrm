@@ -9,9 +9,6 @@ abstract class InstallTarget with _$InstallTarget {
   const factory InstallTarget({
     required String site,
 
-    /// `this broker` or `downstream`.
-    @Default('this broker') String role,
-
     /// Its `sys/distribution` (`linux-aarch64`), when read.
     String? host,
 

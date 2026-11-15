@@ -2260,6 +2260,11 @@ class S {
     return Intl.message('Zip file', name: 'zipFile', desc: '', args: []);
   }
 
+  /// `All`
+  String get catalogAll {
+    return Intl.message('All', name: 'catalogAll', desc: '', args: []);
+  }
+
   /// `Search the list`
   String get searchLinks {
     return Intl.message(

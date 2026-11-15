@@ -1,9 +1,10 @@
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/install_target.dart';
-import 'package:wyrm_client/wyrm_client.dart';
+import 'package:models/site_relation.dart';
 
 import '../../../wyrm/calls.dart';
 import '../../../wyrm/catalog.dart';
+import '../../../wyrm/decode/broker_text.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -39,10 +40,11 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
       drivers: choices('install', 'driver'),
       packages: choices('install_repo', 'package'),
       existing: counts,
-      brokerVersion: switch (version) {
-        VStr(:final v) => v,
-        _ => null,
-      },
+      brokerVersion: brokerTextOf(
+        version,
+        'sys',
+        'version',
+      ).orWarn('sys/version of $viewed'),
       // ADR 0043 §7: titles, versions and the official mark from the
       // broker; an older broker sends none.
       rows: catalogRowsOf(meta.attr),
@@ -50,22 +52,20 @@ class RetrieveInstallCatalogAction extends Action with WaitingAction {
     final sites = [
       viewed,
       for (final c in site.choices)
-        if (c.relation == 'downstream' && c.site != viewed) c.site,
+        if (c.relation == SiteRelation.downstream && c.site != viewed) c.site,
     ];
     final targets = await Future.wait([
       for (final s in sites)
         readValue(api, 'wy/$s/sys/distribution').then(
           (d) => InstallTarget(
             site: s,
-            role: s == viewed ? 'this broker' : 'downstream',
-            // `os-arch` when the broker says it; `sys/distribution` of
-            // these brokers names the build (`rust (prod)`), not the host.
-            host: switch (d) {
-              VStr(:final v)
-                  when RegExp('^(linux|macos|windows)-').hasMatch(v) =>
-                v,
-              _ => null,
-            },
+            host: hostOf(
+              brokerTextOf(
+                d,
+                'sys',
+                'distribution',
+              ).orWarn('sys/distribution of $s'),
+            ),
             refused: site.needs('config', 'wy/$s/sys/links'),
           ),
         ),

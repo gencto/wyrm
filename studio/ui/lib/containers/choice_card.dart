@@ -9,8 +9,8 @@ import '../theme/spacing.dart';
 import '../theme/typography.dart';
 
 /// One option of a choice drawn as a card (the source, the broker, the run
-/// mode).
-final class ChoiceCardVm extends Equatable {
+/// mode): [id] is what the composer gets back on a tap.
+final class ChoiceCardVm<T> extends Equatable {
   const ChoiceCardVm({
     required this.id,
     required this.title,
@@ -25,7 +25,7 @@ final class ChoiceCardVm extends Equatable {
     this.radio = false,
   });
 
-  final String id;
+  final T id;
   final String title;
 
   /// Grey text beside the title (`this broker`).
@@ -66,11 +66,13 @@ final class ChoiceCardVm extends Equatable {
 }
 
 /// Selected: a 1.5 px ember border on the ember fill.
-class ChoiceCard extends StatelessWidget {
+class ChoiceCard<T> extends StatelessWidget {
   const ChoiceCard({required this.vm, this.onTap, super.key});
 
-  final ChoiceCardVm vm;
-  final ValueChanged<String>? onTap;
+  final ChoiceCardVm<T> vm;
+
+  /// A tap on the card; null when no card of its choice can be picked.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +90,7 @@ class ChoiceCard extends StatelessWidget {
           ),
         ),
         child: InkWell(
-          onTap: off || onTap == null ? null : () => onTap!(vm.id),
+          onTap: off ? null : onTap,
           borderRadius: Radii.card,
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.md),

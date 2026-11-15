@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'site_relation.dart';
+
 part 'site_choice.freezed.dart';
 
 /// A site the top-bar switcher offers: the one logged into, the ones below
@@ -9,8 +11,7 @@ abstract class SiteChoice with _$SiteChoice {
   const factory SiteChoice({
     required String site,
 
-    /// `this`, `downstream` or `upstream`.
-    @Default('this') String relation,
+    @Default(SiteRelation.here) SiteRelation relation,
 
     /// The site it is reached through, when not directly.
     String? via,

@@ -35,7 +35,6 @@ flowchart LR
     assistant -->|"onAddAgent"| linkInstall
     linkInstall -.->|"onClose"| frxBack
     linkInstall -.->|"onBack"| frxBack
-    linkInstall -.->|"onResultAction"| frxBack
     flowEditor -.->|"onClose"| frxBack
     flowEditor ==>|"onLogo (navigate)"| explorer
 
@@ -59,5 +58,5 @@ Solid arrow: `push`. Dashed: `pop` (drawn back to the only screen that pushes it
 | `SitesPage` | `/studio/sites` | no | 8 | [sites](sites.md) |
 | `AssistantPage` | `/studio/assistant` | no | 23 | [assistant](assistant.md) |
 | `SystemPage` | `/studio/system` | no | 26 | [system](system.md) |
-| `LinkInstallPage` | `/link-install` | no | 15 | [linkInstall](linkInstall.md) |
+| `LinkInstallPage` | `/link-install` | no | 17 | [linkInstall](linkInstall.md) |
 | `FlowEditorPage` | `/flow-editor/:id` | no | 42 | [flowEditor](flowEditor.md) |

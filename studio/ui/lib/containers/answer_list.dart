@@ -1,9 +1,22 @@
+import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/extensions/colors.dart';
 import '../theme/spacing.dart';
 import '../theme/typography.dart';
 import 'section_label.dart';
+
+/// One answer of a wizard: what was asked, and what was answered (`—`
+/// for none yet).
+final class AnswerVm extends Equatable {
+  const AnswerVm({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  List<Object?> get props => [label, value];
+}
 
 /// The right column of a wizard: what was answered so far.
 class AnswerList extends StatelessWidget {
@@ -17,8 +30,7 @@ class AnswerList extends StatelessWidget {
   final String title;
   final String note;
 
-  /// Label and answer pairs; `—` for none yet.
-  final List<(String, String)> answers;
+  final List<AnswerVm> answers;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +45,7 @@ class AnswerList extends StatelessWidget {
           style: TextStyle(fontSize: FontSizes.sm, color: c.text3),
         ),
         const SizedBox(height: 10),
-        for (final (label, value) in answers)
+        for (final a in answers)
           Container(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
             decoration: BoxDecoration(
@@ -44,11 +56,11 @@ class AnswerList extends StatelessWidget {
               spacing: 2,
               children: [
                 Text(
-                  label,
+                  a.label,
                   style: TextStyle(fontSize: FontSizes.sm, color: c.text4),
                 ),
                 Text(
-                  value,
+                  a.value,
                   style: TextStyle(fontSize: FontSizes.lg, color: c.text1),
                 ),
               ],

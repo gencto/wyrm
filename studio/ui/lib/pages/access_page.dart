@@ -32,7 +32,7 @@ class AccessPage extends StatelessWidget {
 
   final String title;
   final String subtitle;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final ValueChanged<String> onTab;
   final List<ColumnVm> columns;

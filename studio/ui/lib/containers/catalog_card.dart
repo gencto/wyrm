@@ -1,24 +1,26 @@
 import 'package:equatable/equatable.dart';
+import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../models/link_run_mode.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
 
-/// One entry of the official list.
+/// One entry of the official list, as typed values: [CatalogCard] words
+/// them.
 final class CatalogCardVm extends Equatable {
   const CatalogCardVm({
     required this.id,
     required this.tag,
     required this.name,
     required this.description,
-    required this.source,
     required this.builtIn,
     required this.modes,
-    this.note,
+    this.existing = 0,
     this.version,
-    this.official,
+    this.official = false,
     this.selected = false,
   });
 
@@ -27,23 +29,25 @@ final class CatalogCardVm extends Equatable {
   final String name;
   final String description;
 
-  /// `built in` or `package`.
-  final String source;
+  /// Built into wyrmd; else a package of the repository.
   final bool builtIn;
 
-  /// `embedded · process · external`.
-  final String modes;
+  /// How it can run.
+  final List<LinkRunMode> modes;
 
-  /// `1 link already`.
-  final String? note;
+  /// Links of it the broker already has.
+  final int existing;
 
   /// `wyrmd 0.1.0`, `1.2.0`; none when the broker does not say.
   final String? version;
 
-  /// The mark of an official link (`official`); null: none. Only the
-  /// broker says a link is official (ADR 0043 §5).
-  final String? official;
+  /// The broker says it is an official link (ADR 0043 §5); only then the
+  /// card has the mark.
+  final bool official;
   final bool selected;
+
+  /// The run modes as the card says them: `embedded · process · external`.
+  String get modeCodes => [for (final m in modes) m.code].join(' · ');
 
   @override
   List<Object?> get props => [
@@ -51,10 +55,9 @@ final class CatalogCardVm extends Equatable {
     tag,
     name,
     description,
-    source,
     builtIn,
     modes,
-    note,
+    existing,
     version,
     official,
     selected,
@@ -127,9 +130,9 @@ class CatalogCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (vm.note case final n?)
+                  if (vm.existing > 0)
                     Text(
-                      n,
+                      S.current.linksAlready(vm.existing),
                       style: TextStyle(fontSize: FontSizes.xs, color: c.good),
                     ),
                 ],
@@ -164,14 +167,14 @@ class CatalogCard extends StatelessWidget {
                       borderRadius: Radii.chip,
                     ),
                     child: Text(
-                      vm.source,
+                      vm.builtIn ? S.current.builtIn : S.current.package,
                       style: TextStyle(
                         fontSize: FontSizes.xs,
                         color: vm.builtIn ? c.text2 : c.good,
                       ),
                     ),
                   ),
-                  if (vm.official case final o?)
+                  if (vm.official)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 6,
@@ -187,7 +190,7 @@ class CatalogCard extends StatelessWidget {
                         children: [
                           AppIcon('ui_check', size: 12, color: c.ember),
                           Text(
-                            o,
+                            S.current.officialMark,
                             style: TextStyle(
                               fontSize: FontSizes.xs,
                               color: c.ember,
@@ -198,7 +201,7 @@ class CatalogCard extends StatelessWidget {
                     ),
                   Expanded(
                     child: Text(
-                      vm.modes,
+                      vm.modeCodes,
                       maxLines: 1,
                       overflow: .ellipsis,
                       style: mono(size: 11, color: c.text4),

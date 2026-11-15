@@ -1,3 +1,4 @@
+import 'package:models/install_field.dart';
 import 'package:models/install_source.dart';
 
 import '../../app_state.dart';
@@ -12,8 +13,10 @@ class SetSourceAction extends Action {
 
   @override
   AppState reduce() => switch (linkInstall.refusedField) {
-    null || 'name' => state.copyWith.linkInstall(source: source),
-    _ => state.copyWith.linkInstall(
+    null || InstallField.name => state.copyWith.linkInstall(source: source),
+    InstallField.url ||
+    InstallField.git ||
+    InstallField.ref => state.copyWith.linkInstall(
       source: source,
       refusedField: null,
       refusedSaid: null,

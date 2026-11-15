@@ -402,7 +402,7 @@ class ExplorerPage extends StatelessWidget {
 
   /// Shown when nothing is selected.
   final String empty;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final ValueChanged<String> onTab;
 
@@ -442,7 +442,7 @@ class ExplorerPage extends StatelessWidget {
   final ValueChanged<String>? onAction;
   final ResultVm? result;
 
-  final List<TabItemVm> ranges;
+  final List<TabItemVm<String>> ranges;
   final String range;
   final ValueChanged<String>? onHistoryRange;
 

@@ -1099,7 +1099,7 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
   /// The tabs of [kind]'s frame (docs/design/specs/explorer.md "Frames by
   /// node kind"): a device has its points, a flow its state and actions,
   /// any other node its children.
-  static List<TabItemVm> _tabs(
+  static List<TabItemVm<String>> _tabs(
     NodeKind kind,
     int points,
     List<NodeInfo> kids,
@@ -2108,7 +2108,7 @@ class _Vm extends Vm {
 
   /// A flow's Edit dataflow; its id is the flow's.
   final ToolButtonVm? openButton;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String tab;
   final List<ToolButtonVm> toolbar;
   final SelectionBarVm? selectionBar;

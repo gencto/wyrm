@@ -1057,7 +1057,7 @@ class _Vm extends Vm {
   final String site;
   final String? addReason;
   final String tab;
-  final List<TabItemVm> tabs;
+  final List<TabItemVm<String>> tabs;
   final String description;
   final List<SettingCardVm> settings;
   final List<ColumnVm> columns;

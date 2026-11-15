@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'package_check_result.dart';
+
 part 'package_check.freezed.dart';
 
 @freezed
@@ -8,8 +10,6 @@ abstract class PackageCheck with _$PackageCheck {
   const factory PackageCheck({
     required String title,
     @Default('') String detail,
-
-    /// `ok`, `failed` or `skipped`.
-    @Default('ok') String result,
+    @Default(PackageCheckResult.ok) PackageCheckResult result,
   }) = _PackageCheck;
 }

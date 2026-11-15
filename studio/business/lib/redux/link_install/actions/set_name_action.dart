@@ -1,3 +1,5 @@
+import 'package:models/install_field.dart';
+
 import '../../app_state.dart';
 import '../../common/action.dart';
 
@@ -9,7 +11,7 @@ class SetNameAction extends Action {
   final String? name;
 
   @override
-  AppState reduce() => linkInstall.refusedField == 'name'
+  AppState reduce() => linkInstall.refusedField == InstallField.name
       ? state.copyWith.linkInstall(
           name: name,
           refusedField: null,
