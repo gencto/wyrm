@@ -4,6 +4,20 @@
 //! keeps the names as text; a name outside a set refuses the definition.
 
 wyrm_core::name_enum! {
+    /// The type of a node parameter in the catalog (`params[].type` of `node_types`).
+    pub enum ParamTy as "parameter type" {
+        Number => "number",
+        String => "string",
+        Bool => "bool",
+        Map => "map",
+        /// Of names.
+        Array => "array",
+        /// Any value.
+        Dynamic => "dynamic",
+    }
+}
+
+wyrm_core::name_enum! {
     /// `expression.trigger`: calculate on any input, or once all have a value.
     pub enum Trigger as "trigger" {
         Any => "any",
@@ -95,6 +109,10 @@ mod tests {
     /// catalog's order: `node_types` sends the same `choices`.
     #[test]
     fn the_sets_are_the_lists_they_replace() {
+        assert_eq!(
+            ParamTy::NAMES,
+            ["number", "string", "bool", "map", "array", "dynamic"]
+        );
         assert_eq!(Trigger::NAMES, ["any", "all"]);
         assert_eq!(QualityMode::NAMES, ["worst", "ignore", "custom"]);
         assert_eq!(WindowKind::NAMES, ["tumbling", "sliding"]);
