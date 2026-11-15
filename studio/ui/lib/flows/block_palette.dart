@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 import '../trees/tree_row.dart';
@@ -149,7 +150,7 @@ class BlockPalette extends StatefulWidget {
   final ValueChanged<String>? onQuery;
 
   /// An item of an entry's context menu: the entry's id, the item's.
-  final void Function(String entry, String item)? onMenu;
+  final ItemChanged<String, String>? onMenu;
 
   /// Said in place of the list when there is nothing to list.
   final String empty;

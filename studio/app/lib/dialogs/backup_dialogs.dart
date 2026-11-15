@@ -364,10 +364,10 @@ class _BackupDialogState extends State<_BackupDialog> {
     }
   }
 
-  void _toggle(String id, {required bool value}) => _store.dispatchSync(
+  void _toggle(String id, {required bool on}) => _store.dispatchSync(
     switch (id) {
-      'replaceKeys' => SetBackupFormAction(replaceKeys: value),
-      'accept' => SetBackupFormAction(acceptRights: value),
+      'replaceKeys' => SetBackupFormAction(replaceKeys: on),
+      'accept' => SetBackupFormAction(acceptRights: on),
       _ => SetBackupFormAction(toggle: id),
     },
   );

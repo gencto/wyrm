@@ -17,6 +17,7 @@ import '../indicators/code_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
 import '../models/tone.dart';
+import '../models/value_changed.dart';
 import '../tables/log_table.dart';
 import '../tables/row_list.dart';
 import '../tables/term_table.dart';
@@ -380,7 +381,7 @@ class SystemPage extends StatelessWidget {
   final ValueChanged<String> onMeasure;
 
   /// The traffic trend's window (µs), `Follow now` and `Reset zoom`.
-  final void Function(int start, int end)? onTrafficWindow;
+  final RangeChanged<int>? onTrafficWindow;
   final VoidCallback? onTrafficFollow;
   final VoidCallback? onTrafficReset;
   final VoidCallback? onBanner;

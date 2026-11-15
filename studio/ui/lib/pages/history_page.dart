@@ -7,6 +7,7 @@ import '../charts/trend.dart';
 import '../containers/detail_inspector.dart';
 import '../containers/section_label.dart';
 import '../containers/side_panels.dart';
+import '../models/value_changed.dart';
 import '../tables/row_table.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
@@ -83,7 +84,7 @@ class HistoryPage extends StatelessWidget {
   final String trendEmpty;
 
   /// The trend's window (µs), its legend toggles and `Reset zoom`.
-  final void Function(int start, int end) onTrendWindow;
+  final RangeChanged<int> onTrendWindow;
   final ValueChanged<String>? onTrendToggle;
   final VoidCallback? onTrendReset;
   final String pointsLabel;
@@ -96,7 +97,7 @@ class HistoryPage extends StatelessWidget {
 
   /// A point row was clicked (its id); `add` when ⌘ or Ctrl was held: the
   /// point joins the trend instead of replacing what it shows.
-  final void Function(String id, bool add) onPoint;
+  final ItemChanged<String, bool> onPoint;
 
   /// The historian's size, under the groups.
   final String? footer;
@@ -105,7 +106,7 @@ class HistoryPage extends StatelessWidget {
 
   /// The groups and inspector widths the viewer chose.
   final SidePanelWidths panels;
-  final void Function(PanelSide side, double width)? onPanelWidth;
+  final ItemChanged<PanelSide, double>? onPanelWidth;
 
   @override
   Widget build(BuildContext context) {

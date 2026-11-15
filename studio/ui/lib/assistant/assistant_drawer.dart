@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 import 'assistant_composer.dart';
@@ -64,10 +65,10 @@ class AssistantDrawer extends StatelessWidget {
 
   final List<ConversationEventVm> events;
   final ChoicesCardVm? choices;
-  final void Function(String question, String option)? onPick;
+  final ItemChanged<String, String>? onPick;
   final VoidCallback? onAnswer;
   final PlanCardVm? plan;
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
   final ValueChanged<String>? onFix;
   final ValueChanged<int>? onReveal;
   final RunCardVm? run;
@@ -100,7 +101,7 @@ class AssistantDrawer extends StatelessWidget {
   /// *What I found* and the mini timeline of the selected point; null when
   /// there is neither.
   final FoundCardVm? found;
-  final void Function(int start, int end)? onTimelineWindow;
+  final RangeChanged<int>? onTimelineWindow;
   final VoidCallback? onTimelineReset;
 
   @override

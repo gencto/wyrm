@@ -446,14 +446,14 @@ class TaskSheet extends StatelessWidget {
   final VoidCallback? onSecondary;
 
   /// A checkbox of a [SheetOption] or a [SheetSection] by its id.
-  final void Function(String id, {required bool value})? onToggle;
+  final Toggled<String>? onToggle;
 
   /// A chip (`group`, `chip id`) or an option of a [SheetChoice]
   /// (`choice id`, `value`).
-  final void Function(String group, String value)? onPick;
+  final ItemChanged<String, String>? onPick;
 
   /// The text of a [SheetField] by its id.
-  final void Function(String id, String text)? onText;
+  final ItemChanged<String, String>? onText;
 
   /// The link of a [SheetRow].
   final ValueChanged<String>? onAction;
@@ -751,7 +751,7 @@ class TaskSheet extends StatelessWidget {
           vm: FieldVm(
             value: b.value,
             enabled: b.enabled && onToggle != null,
-            onChanged: (v) => onToggle?.call(b.id, value: v),
+            onChanged: (v) => onToggle?.call(b.id, on: v),
           ),
         );
         final shown = b.enabled ? row : Opacity(opacity: 0.55, child: row);
@@ -1073,7 +1073,7 @@ class TaskSheet extends StatelessWidget {
     final c = context.colors;
     final can = !b.locked && onToggle != null;
     final head = InkWell(
-      onTap: can ? () => onToggle!(b.id, value: !b.on) : null,
+      onTap: can ? () => onToggle!(b.id, on: !b.on) : null,
       borderRadius: Radii.chip,
       child: Row(
         crossAxisAlignment: .start,
@@ -1400,7 +1400,7 @@ class _SheetInput extends StatefulWidget {
 
   final SheetField field;
   final Color ground;
-  final void Function(String id, String text)? onText;
+  final ItemChanged<String, String>? onText;
 
   @override
   State<_SheetInput> createState() => _SheetInputState();

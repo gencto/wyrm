@@ -108,7 +108,7 @@ class LinksPage extends StatelessWidget {
   final TaskSheetVm? sheet;
   final VoidCallback? onSheetPrimary;
   final VoidCallback? onSheetSecondary;
-  final void Function(String id, {required bool value})? onSheetToggle;
+  final Toggled<String>? onSheetToggle;
   final ValueChanged<String>? onSheetAction;
   final VoidCallback? onSheetClose;
 

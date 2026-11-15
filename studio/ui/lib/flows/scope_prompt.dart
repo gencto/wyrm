@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 
@@ -70,7 +71,7 @@ class ScopePrompt extends StatefulWidget {
   final VoidCallback onCancel;
 
   /// What is wrong with a scope; null: it can be saved.
-  final String? Function(String scope)? validate;
+  final Validate<String>? validate;
 
   static const width = 320.0;
 

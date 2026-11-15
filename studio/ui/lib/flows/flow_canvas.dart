@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../models/value_changed.dart';
 import '../overlays/floating_window.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
@@ -130,7 +131,7 @@ class FlowCanvas extends StatefulWidget {
   final ScopePromptVm? prompt;
   final ValueChanged<String>? onPromptSave;
   final VoidCallback? onPromptCancel;
-  final String? Function(String scope)? validatePrompt;
+  final Validate<String>? validatePrompt;
 
   final List<FlowBlockVm> blocks;
   final List<FlowWireVm> wires;
@@ -170,7 +171,7 @@ class FlowCanvas extends StatefulWidget {
   onPin;
 
   /// `V` over a row: opens its value in the viewer.
-  final void Function(String block, String row)? onViewField;
+  final RowAction<String, String>? onViewField;
   final FlowLegendVm? legend;
 
   /// The zoom and scroll; the canvas keeps its own when none is given.
@@ -785,9 +786,9 @@ class _FlowCanvasState extends State<FlowCanvas> {
       context,
       at: global,
       vm: build(ids, b?.id, row),
-      onPin: (field, {required pinned}) {
+      onPin: (field, {required on}) {
         if (b != null) {
-          widget.onPin?.call(b.id, field, pinned: pinned);
+          widget.onPin?.call(b.id, field, pinned: on);
         }
       },
     );

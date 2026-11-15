@@ -3,6 +3,7 @@ import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 import 'shortcut_card.dart';
@@ -99,7 +100,7 @@ class FlowMenu extends StatefulWidget {
 
   final FlowMenuVm vm;
   final ValueChanged<FlowCommand> onPick;
-  final void Function(String field, {required bool pinned}) onPin;
+  final Toggled<String> onPin;
 
   /// Whether the `Fields ▸` checklist is open at first.
   final bool fieldsOpen;
@@ -114,7 +115,7 @@ class FlowMenu extends StatefulWidget {
     BuildContext context, {
     required Offset at,
     required FlowMenuVm vm,
-    required void Function(String field, {required bool pinned}) onPin,
+    required Toggled<String> onPin,
   }) => showDialog<FlowCommand>(
     context: context,
     barrierColor: Colors.transparent,
@@ -254,7 +255,7 @@ class _FlowMenuState extends State<FlowMenu> {
             ? null
             : () {
                 setState(() => _pinned[f.id] = !on);
-                widget.onPin(f.id, pinned: !on);
+                widget.onPin(f.id, on: !on);
               },
         child: Container(
           height: 30,

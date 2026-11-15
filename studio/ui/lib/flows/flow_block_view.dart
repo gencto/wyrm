@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../indicators/app_icon.dart';
 import '../indicators/lines_text.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 
@@ -305,13 +306,13 @@ final class FlowBlockActions {
 
   /// The mark of a value of several lines (`↲ +1`) on a row: opens the
   /// row's value in the viewer (block, row id).
-  final void Function(String block, String rowId)? onView;
+  final RowAction<String, String>? onView;
 
   /// The link row of a block ([FlowBlockVm.link]).
   final ValueChanged<String>? onOpen;
 
   /// The icon button of a row ([FieldRowVm.action]): block, row id.
-  final void Function(String block, String rowId)? onRowAction;
+  final RowAction<String, String>? onRowAction;
 
   final ValueChanged<String> onSelect;
 
@@ -330,7 +331,7 @@ final class FlowBlockActions {
 
   /// Double click or Alt-click on a bound input, or its wire picked up and
   /// let go on the empty canvas.
-  final void Function(String block, String rowId) onUnbind;
+  final RowAction<String, String> onUnbind;
 
   /// A palette entry (`key:<point>`) dropped on input `toPort` of `block`.
   final void Function(String entry, String block, String toPort) onDropEntry;

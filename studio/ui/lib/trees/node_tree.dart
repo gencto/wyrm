@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../containers/section_label.dart';
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -71,7 +72,7 @@ class NodeTree extends StatefulWidget {
   final ValueChanged<String> onToggle;
 
   /// A right click, a long press or the `⋯` of the selected row: its actions.
-  final void Function(String id, Offset at)? onMenu;
+  final ItemAt<String>? onMenu;
   final ValueChanged<String>? onMark;
   final ValueChanged<String>? onMarkRange;
   final String? filter;

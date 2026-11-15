@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -106,7 +107,7 @@ class CustomBlockDialog extends StatefulWidget {
   const CustomBlockDialog({required this.vm, this.validate, super.key});
 
   final CustomBlockDialogVm vm;
-  final String? Function(CustomBlockResult result)? validate;
+  final Validate<CustomBlockResult>? validate;
 
   /// Shows it; null when cancelled.
   static Future<CustomBlockResult?> ask(
@@ -355,7 +356,7 @@ class NameDialog extends StatefulWidget {
   final String value;
   final String confirm;
   final String cancel;
-  final String? Function(String name)? validate;
+  final Validate<String>? validate;
 
   /// Shows it; null when cancelled.
   static Future<String?> ask(

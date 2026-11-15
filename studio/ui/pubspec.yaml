@@ -11,6 +11,7 @@ resolution: workspace
 dependencies:
   equatable: ^3.0.0
   extended_image: ^10.1.0
+  fast_immutable_collections: ^12.0.0
   file_picker: ^13.3.3
   flutter:
     sdk: flutter

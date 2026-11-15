@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../charts/trend.dart';
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -130,7 +131,7 @@ class FoundCard extends StatelessWidget {
   final FoundCardVm vm;
 
   /// The timeline's window, as [Trend.onWindow].
-  final void Function(int start, int end) onWindow;
+  final RangeChanged<int> onWindow;
   final VoidCallback? onReset;
 
   @override

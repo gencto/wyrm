@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:localization/localization.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -293,7 +294,7 @@ class Trend extends StatefulWidget {
 
   /// The window the user chose (µs), already clamped to the range and to
   /// [TrendVm.minWindow].
-  final void Function(int start, int end) onWindow;
+  final RangeChanged<int> onWindow;
   final ValueChanged<String>? onSeriesToggle;
 
   /// `Reset zoom` and a double-click: the whole range.

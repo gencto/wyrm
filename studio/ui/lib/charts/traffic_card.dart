@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/pill_tabs.dart';
 import '../containers/sys_tile.dart';
 import '../indicators/code_text.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -81,7 +82,7 @@ class TrafficCard extends StatelessWidget {
   final ValueChanged<String> onMeasure;
 
   /// The trend's window (µs), `Follow now` and `Reset zoom`.
-  final void Function(int start, int end)? onWindow;
+  final RangeChanged<int>? onWindow;
   final VoidCallback? onFollow;
   final VoidCallback? onReset;
 

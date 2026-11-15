@@ -20,6 +20,7 @@ import '../indicators/key_text.dart';
 import '../indicators/lines_text.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/status_pill.dart';
+import '../models/value_changed.dart';
 import '../overlays/log_view.dart';
 import '../overlays/value_viewer.dart';
 import '../tables/points_table.dart';
@@ -350,7 +351,7 @@ class ExplorerPage extends StatelessWidget {
   final List<TreeRowVm> tree;
   final ValueChanged<String> onTap;
   final ValueChanged<String> onToggle;
-  final void Function(String id, Offset at)? onMenu;
+  final ItemAt<String>? onMenu;
   final ValueChanged<String>? onMark;
   final ValueChanged<String>? onMarkRange;
   final String treeFilter;
@@ -387,7 +388,7 @@ class ExplorerPage extends StatelessWidget {
   final ToolButtonVm? openButton;
 
   /// Opens the flow editor on a flow id.
-  final void Function(String) onTapFlowEditor;
+  final ValueChanged<String> onTapFlowEditor;
 
   /// `Actions`: the node menu, opened at a point.
   final String? actionsLabel;
@@ -446,7 +447,7 @@ class ExplorerPage extends StatelessWidget {
   final TrendVm? trend;
 
   /// The trend's window (µs) and `Reset zoom`.
-  final void Function(int start, int end)? onTrendWindow;
+  final RangeChanged<int>? onTrendWindow;
   final VoidCallback? onTrendReset;
   final List<ColumnVm> historyColumns;
   final List<RowVm> historyRows;
@@ -478,7 +479,7 @@ class ExplorerPage extends StatelessWidget {
 
   /// The tree and inspector widths the viewer chose (§1).
   final SidePanelWidths panels;
-  final void Function(PanelSide side, double width)? onPanelWidth;
+  final ItemChanged<PanelSide, double>? onPanelWidth;
 
   /// The open value viewer of a point, live; null: none is open.
   final ValueViewerVm? viewer;

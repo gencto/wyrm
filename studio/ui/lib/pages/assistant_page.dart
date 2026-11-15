@@ -16,6 +16,7 @@ import '../buttons/segmented_tabs.dart';
 import '../containers/fact_grid.dart';
 import '../containers/section_label.dart';
 import '../indicators/status_pill.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
 
@@ -102,7 +103,7 @@ class AssistantPage extends StatelessWidget {
   final PlanCardVm? plan;
 
   /// A step of [plan] was ticked; null: the plan is only shown.
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
 
   /// A fix of a step (a suggestion id) was picked.
   final ValueChanged<String>? onFix;
@@ -127,7 +128,7 @@ class AssistantPage extends StatelessWidget {
 
   /// What the assistant asked the person, answered or not.
   final ChoicesCardVm? choices;
-  final void Function(String question, String option)? onPick;
+  final ItemChanged<String, String>? onPick;
 
   /// The picks of [choices] are sent (`Write the plan`).
   final VoidCallback? onAnswer;

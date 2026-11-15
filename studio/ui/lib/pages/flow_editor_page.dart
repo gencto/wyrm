@@ -18,6 +18,7 @@ import '../flows/scope_prompt.dart';
 import '../flows/shortcut_card.dart';
 import '../forms/param_form.dart';
 import '../indicators/app_icon.dart';
+import '../models/value_changed.dart';
 import '../overlays/confirm_dialog.dart';
 import '../overlays/value_viewer.dart';
 import '../shell/window_bar.dart';
@@ -156,7 +157,7 @@ class FlowEditorPage extends StatelessWidget {
 
   /// An item of a palette entry's context menu. `rename` asks for the new
   /// name first and goes to [onRenameBlock].
-  final void Function(String entry, String item)? onPaletteMenu;
+  final ItemChanged<String, String>? onPaletteMenu;
   final String paletteEmpty;
 
   /// The `key:<point>` entries that may also be written: dropped on the
@@ -169,12 +170,12 @@ class FlowEditorPage extends StatelessWidget {
   /// What `Create custom block…` asks of the selection; null: nothing to
   /// make a block of.
   final CustomBlockDialogVm? Function()? createBlock;
-  final String? Function(CustomBlockResult result)? validateBlock;
+  final Validate<CustomBlockResult>? validateBlock;
   final ValueChanged<CustomBlockResult>? onCreateBlock;
 
   /// `Rename` of a custom block of the palette: the entry, the new name.
-  final void Function(String entry, String name)? onRenameBlock;
-  final String? Function(String name)? validateBlockName;
+  final ItemChanged<String, String>? onRenameBlock;
+  final Validate<String>? validateBlockName;
   final String renameTitle;
   final String renameLabel;
 
@@ -182,7 +183,7 @@ class FlowEditorPage extends StatelessWidget {
   final ScopePromptVm? prompt;
   final ValueChanged<String>? onPromptSave;
   final VoidCallback? onPromptCancel;
-  final String? Function(String scope)? validatePrompt;
+  final Validate<String>? validatePrompt;
 
   /// The `Run` button of an inspector row (an unbound `Trigger`).
   final ValueChanged<String>? onRun;
@@ -213,10 +214,10 @@ class FlowEditorPage extends StatelessWidget {
   onPin;
 
   /// `V` over a row of the canvas: opens its value in the viewer.
-  final void Function(String block, String row)? onViewField;
+  final RowAction<String, String>? onViewField;
 
   /// The pin of an inspector row (a field of the selected block).
-  final void Function(String id, {required bool pinned})? onFieldPin;
+  final Toggled<String>? onFieldPin;
   final String pinLabel;
   final String unpinLabel;
   final String pinLockedLabel;
@@ -225,7 +226,7 @@ class FlowEditorPage extends StatelessWidget {
   final ValueChanged<String>? onSaveViewer;
 
   /// What is wrong with a text typed in the viewer; null: it saves.
-  final String? Function(String text)? validateViewer;
+  final Validate<String>? validateViewer;
 
   /// How the viewer reads and writes tables (a date cell, CSV).
   final ViewerTables? viewerTables;
@@ -287,9 +288,9 @@ class FlowEditorPage extends StatelessWidget {
   final List<InspectorRowVm> inspectorRows;
   final FlowSummaryVm? summary;
   final List<String> inspectorFooter;
-  final void Function(String id, String value) onFieldChanged;
+  final ItemChanged<String, String> onFieldChanged;
   final ValueChanged<String> onFieldUnbind;
-  final void Function(String id, FieldRefVm from) onFieldBind;
+  final ItemChanged<String, FieldRefVm> onFieldBind;
   final ValueChanged<String> onProblem;
   final String removeLabel;
   final VoidCallback? onRemove;
@@ -693,9 +694,9 @@ class FlowEditorPage extends StatelessWidget {
   }
 
   /// The logo: to Explorer (spec §1).
-  final void Function() onLogo;
+  final VoidCallback onLogo;
 
   /// The palette and inspector widths the viewer chose (spec §1).
   final SidePanelWidths panels;
-  final void Function(PanelSide side, double width)? onPanelWidth;
+  final ItemChanged<PanelSide, double>? onPanelWidth;
 }

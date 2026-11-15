@@ -25,7 +25,7 @@ Widget over(Widget page, TaskSheetVm sheet, {double width = 680}) => Stack(
         width: width,
         onPrimary: () {},
         onSecondary: () {},
-        onToggle: (_, {required value}) {},
+        onToggle: (_, {required on}) {},
         onPick: (_, _) {},
         onText: (_, _) {},
         onAction: (_) {},

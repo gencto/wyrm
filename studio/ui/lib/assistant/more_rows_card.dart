@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -83,7 +84,7 @@ class MoreRowsCard extends StatelessWidget {
   final MoreRowsCardVm vm;
 
   /// A row (by its key) was ticked or unticked.
-  final void Function(String key, {required bool on}) onRow;
+  final Toggled<String> onRow;
 
   /// The button was pressed.
   final VoidCallback onAsk;

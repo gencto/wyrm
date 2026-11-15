@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../buttons/button.dart';
 import '../containers/section_label.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 
@@ -89,7 +90,7 @@ class ChoicesCard extends StatelessWidget {
   final ChoicesCardVm vm;
 
   /// An option of a question was tapped.
-  final void Function(String question, String option) onPick;
+  final ItemChanged<String, String> onPick;
   final VoidCallback onConfirm;
 
   @override

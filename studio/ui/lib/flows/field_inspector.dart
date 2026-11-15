@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../buttons/button.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/lines_text.dart';
+import '../models/value_changed.dart';
 import '../overlays/confirm_dialog.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/typography.dart';
@@ -280,9 +281,9 @@ class FieldInspector extends StatelessWidget {
   /// Shown above everything (the id field of a new flow).
   final Widget? header;
   final List<String> footer;
-  final void Function(String id, String value) onChanged;
+  final ItemChanged<String, String> onChanged;
   final ValueChanged<String> onUnbind;
-  final void Function(String id, FieldRefVm from) onBind;
+  final ItemChanged<String, FieldRefVm> onBind;
   final ValueChanged<String> onProblem;
 
   /// `Go to source` of a bound field: selects the block its wire comes
@@ -296,7 +297,7 @@ class FieldInspector extends StatelessWidget {
 
   /// The pin before a row's label: puts the field on the block or takes
   /// it off (spec §12); null: rows have none.
-  final void Function(String id, {required bool pinned})? onPin;
+  final Toggled<String>? onPin;
   final String pinLabel;
   final String unpinLabel;
   final String pinLockedLabel;
@@ -551,15 +552,15 @@ class _Row extends StatelessWidget {
   final String confirmLabel;
   final String cancelLabel;
   final InspectorRowVm vm;
-  final void Function(String id, {required bool pinned})? onPin;
+  final Toggled<String>? onPin;
   final String pinLabel;
   final String unpinLabel;
   final String pinLockedLabel;
   final ValueChanged<String>? onView;
   final String viewLabel;
-  final void Function(String id, String value) onChanged;
+  final ItemChanged<String, String> onChanged;
   final ValueChanged<String> onUnbind;
-  final void Function(String id, FieldRefVm from) onBind;
+  final ItemChanged<String, FieldRefVm> onBind;
   final ValueChanged<String>? onGoToSource;
   final String unbindLabel;
   final String bindLabel;
@@ -591,7 +592,7 @@ class _Row extends StatelessWidget {
               child: InkWell(
                 key: ValueKey('pin-${vm.id}'),
                 borderRadius: const BorderRadius.all(Radius.circular(4)),
-                onTap: vm.pinLocked ? null : () => pin(vm.id, pinned: !pinned),
+                onTap: vm.pinLocked ? null : () => pin(vm.id, on: !pinned),
                 child: Align(
                   alignment: .centerLeft,
                   child: AppIcon(

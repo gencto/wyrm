@@ -10,6 +10,7 @@ import '../buttons/button.dart';
 import '../buttons/segmented_tabs.dart';
 import '../indicators/app_icon.dart';
 import '../indicators/quality_mark.dart';
+import '../models/value_changed.dart';
 import '../tables/table_edits.dart';
 import '../tables/table_grid.dart';
 import '../theme/extensions/colors.dart';
@@ -289,7 +290,7 @@ class ValueViewer extends StatefulWidget {
   final ValueChanged<String>? onSave;
 
   /// What is wrong with a typed text (`Not a number`); null: it saves.
-  final String? Function(String text)? validate;
+  final Validate<String>? validate;
 
   /// How tables are read and written; null: by the grid alone (no Copy
   /// CSV, no "As table" tab).

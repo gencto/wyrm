@@ -5,6 +5,7 @@ import '../indicators/app_icon.dart';
 import '../indicators/fail_chip.dart';
 import '../indicators/quality_mark.dart';
 import '../models/tone.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -129,7 +130,7 @@ class TreeRow extends StatelessWidget {
   final ValueChanged<String>? onToggle;
 
   /// The `⋯` button of the selected row: the node menu at that point.
-  final void Function(String id, Offset at)? onMore;
+  final ItemAt<String>? onMore;
   final double height;
 
   @override

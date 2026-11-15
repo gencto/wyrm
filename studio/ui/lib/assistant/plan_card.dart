@@ -9,6 +9,7 @@ import '../indicators/level_badge.dart';
 import '../indicators/quality_mark.dart';
 import '../indicators/tag_chip.dart';
 import '../models/tone.dart';
+import '../models/value_changed.dart';
 import '../theme/extensions/colors.dart';
 import '../theme/radii.dart';
 import '../theme/typography.dart';
@@ -189,7 +190,7 @@ class PlanCard extends StatefulWidget {
   final PlanCardVm vm;
 
   /// A step (by its number) was ticked or unticked.
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
 
   /// A fix (a suggestion, by its id) was picked.
   final ValueChanged<String>? onFix;
@@ -307,7 +308,7 @@ class _Step extends StatelessWidget {
   });
 
   final PlanStepVm vm;
-  final void Function(int n, {required bool ticked})? onTick;
+  final Toggled<int>? onTick;
   final ValueChanged<String>? onFix;
   final ValueChanged<int>? onReveal;
 
@@ -452,7 +453,7 @@ class _Step extends StatelessWidget {
               child: Checkbox(
                 value: t,
                 onChanged: can
-                    ? (v) => onTick!(vm.n, ticked: v ?? false)
+                    ? (v) => onTick!(vm.n, on: v ?? false)
                     : null,
               ),
             ),
