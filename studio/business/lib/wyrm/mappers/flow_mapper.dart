@@ -92,6 +92,15 @@ FlowDraft flowDraftOf(String id, Value def) {
   return i <= 0 ? null : (s.substring(0, i), s.substring(i + 1));
 }
 
+/// `permissions.maxperm` of a definition by its name: spec 06 takes a code
+/// (`3`, as a definition written by a tool or the agent has it) or a name
+/// (`"write"`). Anything else is none.
+String? maxpermName(Object? v) => switch (v) {
+  final String s => s,
+  final int c => Perm.fromCode(c)?.wireName,
+  _ => null,
+};
+
 /// The definition of [d] at [version], with the editor's layout; a flow
 /// that sets or invokes gets `permissions.maxperm: write` when it has none
 /// (spec 06 rule 7).
