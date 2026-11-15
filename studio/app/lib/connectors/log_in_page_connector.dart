@@ -28,6 +28,7 @@ import 'package:business/redux/login/actions/set_remember_action.dart';
 import 'package:business/redux/login/actions/set_user_action.dart';
 import 'package:business/wyrm/device_keys.dart';
 import 'package:business/wyrm/discovery.dart';
+import 'package:business/wyrm/gateway_label.dart';
 import 'package:business/wyrm/session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:localization/localization.dart';
@@ -47,6 +48,7 @@ import 'package:ui/containers/unlock_offer.dart';
 import 'package:ui/containers/unlock_panel.dart';
 import 'package:ui/containers/welcome_panel.dart';
 import 'package:ui/indicators/biometric_icon.dart';
+import 'package:ui/models/gateway_note.dart';
 import 'package:ui/models/tone.dart';
 import 'package:ui/models/value_changed.dart';
 import 'package:ui/pages/log_in_page.dart';
@@ -123,19 +125,8 @@ class LogInPageConnector extends StatelessWidget {
   );
 }
 
-/// The gateway of the demo's central site (examples/demo/run.sh).
-const defaultGateway = 'http://127.0.0.1:8445';
-
 /// The version in the log-in footer (`app/pubspec.yaml`).
 const studioVersion = '1.0';
-
-/// A gateway's short name, as the board writes it: the first label of a host
-/// name (`plant.local` → `plant`), an address whole (`127.0.0.1`).
-String shortHost(Uri uri) {
-  final host = uri.host;
-  final address = RegExp(r'^[\d.]+$').hasMatch(host) || host.contains(':');
-  return address ? host : host.split('.').first;
-}
 
 /// `user:olena@plant` → `olena`.
 String _userName(String subject) {
@@ -171,6 +162,9 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
 
     final uri = parseGateways(main).firstOrNull;
     final short = uri == null ? main : shortHost(uri);
+    // The status line and the first step name the gateway as its chip does.
+    final labels = login.gatewayLabels;
+    final label = uri == null ? main : labels[gatewayKey(uri)] ?? short;
     final failure = login.failure;
     final ms = uri == null ? null : login.probes[gatewayKey(uri)];
     final down = failure == LoginFailure.unreachable || ms == -1;
@@ -190,8 +184,8 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
             picked.url != null &&
             parseGateways(picked.url!).firstOrNull?.origin == uri?.origin
         ? picked.standby == null
-              ? S.current.pickedFrom(picked.site)
-              : S.current.pickedWithStandby(picked.site)
+              ? GatewayNote.picked(picked.site)
+              : GatewayNote.pickedWithStandby(picked.site)
         : null;
     final pin = uri == null ? null : discovery.pins[uri.origin];
 
@@ -283,10 +277,10 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       gatewayNote: pickedNote != null && !down
           ? pickedNote
           : down
-          ? S.current.gatewayNoAnswer(short)
+          ? GatewayNote.noAnswer(label)
           : ms == null
-          ? (main.isEmpty ? S.current.typeOrFind : null)
-          : S.current.gatewayAnswered(short, ms),
+          ? (main.isEmpty ? const GatewayNote.typeOrFind() : null)
+          : GatewayNote.answered(label, ms),
       checking: login.isProbing,
       onGatewayLeave: () => unawaited(dispatchAndWait(ProbeGatewayAction())),
       recent: [
@@ -294,7 +288,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
           if (parseGateways(r).firstOrNull case final u?)
             RecentChipVm(
               id: r,
-              label: shortHost(u),
+              label: labels[gatewayKey(u)] ?? shortHost(u),
               tone: switch (login.probes[gatewayKey(u)]) {
                 null => Tone.neutral,
                 -1 => Tone.bad,
@@ -314,7 +308,7 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
         enabled: !busy,
       ),
       steps: [
-        S.current.stepReaching(short),
+        S.current.stepReaching(label),
         S.current.stepChecking,
         S.current.stepReading,
       ],
@@ -954,7 +948,7 @@ class _Vm extends Vm {
   final VoidCallback onPressedLogIn;
   final String version;
   final Tone gatewayTone;
-  final String? gatewayNote;
+  final GatewayNote? gatewayNote;
   final bool checking;
   final VoidCallback onGatewayLeave;
   final List<RecentChipVm> recent;

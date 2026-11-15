@@ -28,6 +28,13 @@ Gap 22 between the blocks; fields gap 16; field label 13 `#C5CBCE`, gap 8 to the
 
 1. Title `Log in` (26/600), under it `to a broker’s gateway. Your role there decides what you can change.` (`#A3ABAF`).
 2. **Gateway**: field 46 high, radius 10, fill `#161A1D`, border `#2F373D`; a status dot 8 with a 4 px halo (teal `rgba(108,196,176,0.15)` / coral `rgba(224,122,95,0.15)`), the URL in mono 13, a spinner (§4.8) while it is being checked. Under it a status line (12): `<host> · answered in <n> ms` (`#8E979C`) or `No answer from <host>` (`#F0A28D`). Under that, the **recent gateways** as chips (28 high, radius 14, mono 12, a 6 px dot with the last result; the current one ember `#F6C59A` on `#1E1813`, border `#5A3E25`); a click fills the field.
+
+   **Gateway labels** (decided 2026-11-15; the boards show one gateway per host). `<host>` in the status line, in the first sign-in step (`Reaching <host>`) and on each recent chip is the gateway's label, made among the recent gateways and the one in the field (`gatewayLabel` in `business/lib/wyrm/gateway_label.dart`, selector `SelectLogin.gatewayLabels`). Gateways with the same origin are one gateway.
+   1. **Host:** the first label of a host name (`plant.local` → `plant`), an address whole (`127.0.0.1`). When another gateway has the same first label on another host, the whole host name (`plant.local`, `plant.example`).
+   2. **Port:** `:<port>` when the port is not the scheme's default (80 for `http`, 443 for `https`): `127.0.0.1:8445`, `plant:8446`. Always, the default too, when another gateway is on the same host: `plant:443` beside `plant:8443`. So five gateways on one computer read `127.0.0.1:8444` … `127.0.0.1:18449`. An IPv6 address with a port is in brackets (`[::1]:8445`).
+   3. **Scheme:** `http://` or `https://` first when another gateway has the same host and port.
+
+   The site names of the unlock prompts and the pinned-CA line stay the short host: they name a site, not a gateway.
 3. **User**: 46 high, radius 10, 15 px text.
 4. **Password**: 46 high, a show/hide eye button 36 × 36 inside on the right; hidden text spaced 0.2 em.
 5. `Remember the gateway and user on this computer` (checkbox 16, ember).
