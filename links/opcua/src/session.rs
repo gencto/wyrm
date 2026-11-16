@@ -340,6 +340,13 @@ fn identity(conn: &Conn) -> Result<IdentityToken, DriverError> {
 
 impl Transport {
     pub async fn open(conn: &Conn) -> Result<Transport, DriverError> {
+        if conn.tofu_block.is_set() {
+            return Err(transport(
+                "the first use of this server's certificate could not be kept: the \
+                 connection does not open again (it would trust any server). Make the link's \
+                 data directory writable, then Edit or Start the connection",
+            ));
+        }
         let p = &conn.p;
         let policy = policy_of(p.security_policy);
         let mode = mode_of(p.security_mode);
@@ -474,12 +481,15 @@ impl Transport {
             Err(_) => return Err(transport("session event loop stopped")),
         }
         if let Some(mut prep) = prep {
-            prep.opened().map_err(|e| {
-                transport(format!(
-                    "the server's certificate is not kept for the next connection ({e}): \
-                     the session is not used"
-                ))
-            })?;
+            if let Err(e) = prep.opened() {
+                // until an operator acts: see `TofuBlock`
+                conn.tofu_block.set();
+                return Err(transport(format!(
+                    "the server's certificate is not kept for the next connection ({e}): the \
+                     session is not used, and the connection does not open again until it is \
+                     edited or started"
+                )));
+            }
             // The library read the key file when it built the channel and
             // for ActivateSession; renewals use the key in memory, and its
             // own reconnect is off. The plain-text copy goes now.
