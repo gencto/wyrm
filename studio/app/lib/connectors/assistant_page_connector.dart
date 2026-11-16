@@ -626,11 +626,7 @@ class _Factory extends VmFactory<AppState, StatelessWidget, _Vm>
       used: budgetUsed,
       budget: config?.budgetTokensDay,
       apiKeyRef: config?.apiKeyRef,
-      apiKey: switch (apiKeySet) {
-        true => .set,
-        false => .notSet,
-        null => .unknown,
-      },
+      apiKey: apiKeySet.apiKey,
       sentTo: config?.sentTo,
       blocked: editHold?.blocked,
       staged: params.staged,
@@ -810,6 +806,10 @@ class _Vm extends Vm {
            rights,
            onNewTask != null,
            onOpenFull != null,
+           onPick != null,
+           onAnswer != null,
+           onPickSuggestion != null,
+           onReveal != null,
          ],
        );
 

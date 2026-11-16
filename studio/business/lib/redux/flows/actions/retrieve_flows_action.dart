@@ -1,3 +1,4 @@
+import 'package:async_redux/async_redux.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:models/flow_summary.dart';
 
@@ -10,8 +11,16 @@ import 'retrieve_flow_defs_action.dart';
 /// Reads the flows of the site: `dataflows` children, each flow's `~val`
 /// (`{state, error, version, deployed_by}`) and its newest definition
 /// (`dataflows/<id>` ▸ `history`) for what it reads and writes.
-class RetrieveFlowsAction extends Action with WaitingAction {
+///
+/// Started again after a deploy, which does not wait for it: the reads run
+/// one at a time in the order they were started, so the last table kept is
+/// the newest; a table of a site no longer viewed is dropped.
+class RetrieveFlowsAction extends Action
+    with WaitingAction, Sequential<AppState> {
   RetrieveFlowsAction({super.quiet});
+
+  @override
+  Object? sequentialKeyParams() => runtimeType;
 
   @override
   Action again() => RetrieveFlowsAction(quiet: quiet);
@@ -45,6 +54,9 @@ class RetrieveFlowsAction extends Action with WaitingAction {
           running: state == 0,
         ),
       );
+    }
+    if (site.root != root) {
+      return null;
     }
     return state.copyWith.flows(
       table: IMap<String, FlowSummary>.fromValues(

@@ -195,7 +195,6 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
       onCheckAll: () => dispatchSync(CheckPointsAction.all()),
       onClear: () => dispatchSync(ClearSelectionAction()),
       onCopy: (keys) => dispatch(CopyKeysAction(keys)),
-      // keyed by `shown.pointValue`, which the view-model compares
       onCopyValue: switch (shown.pointValue) {
         final v? => () => dispatch(CopyValueAction(v)),
         null => null,
@@ -219,7 +218,6 @@ class _Factory extends VmFactory<AppState, ExplorerPageConnector, _Vm>
         SetPanelWidthAction(WorkspacePanels.explorer.slot(p.side), p.width),
       ),
       onTapFlowEditor: (id) => dispatch(GoAction.push(FlowEditorRoute(id: id))),
-      // keyed by `shown.point`, which the view-model compares
       onViewPoint: switch (shown.point) {
         final p? => () => dispatchSync(SetViewedPointAction(p)),
         null => null,
@@ -269,7 +267,9 @@ class _Vm extends Vm {
     required this.onTapFlowEditor,
     required this.onViewPoint,
     required this.onCloseViewer,
-  }) : super(equals: [shown, submit]);
+  }) : super(
+         equals: [shown, submit, onCopyValue != null, onViewPoint != null],
+       );
 
   /// Everything drawn, as `ui` render models.
   final ExplorerShown shown;

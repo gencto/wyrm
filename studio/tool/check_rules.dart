@@ -164,6 +164,134 @@ final _rules = <Rule>[
     'app/lib/dialogs/',
     'app/lib/common/',
   ], _multiDispatch),
+  // 9. a rebuild is decided: a view-model compares what is drawn. A plain
+  // List/Set/Map made in `fromStore` is never equal to the last one (the
+  // screen is built on every dispatch in the app); an optional callback is
+  // compared as `onX != null`, or a view-model kept as equal holds a
+  // callback of a moment that has passed (audit of 2026-11-16)
+  const Rule('vm-equality', ['app/lib/', 'ui/lib/'], _vmEquality),
+  // 1, 9. a dispatch whose Future is dropped behind a method of its own
+  // (`void _start(a) => dispatch(a);`): `unawaited` by another name
+  Rule(
+    'dispatch-wrapper',
+    ['app/lib/', 'business/lib/', 'ui/lib/'],
+    (t) => _matches(
+      _code(t),
+      RegExp(
+        r'^[ \t]*(?:[\w<>?,]+[ \t]+)?_?\w+\([^()]*\)\s*=>\s*'
+        // `dispatchSync` gives its status at once: no Future is dropped
+        r'(?:\w+\.)?dispatch(?:AndWait\w*|All\w*)?(?:<[^>]*>)?\(',
+        multiLine: true,
+      ),
+    ),
+  ),
+  // 9. one dispatch per intent: a cascade of dispatches is several states,
+  // each one built
+  Rule('dispatch-cascade', [
+    'app/lib/',
+    'business/lib/',
+    'ui/lib/',
+  ], (t) => _matches(_code(t), RegExp(r'\.\.\s*dispatch\w*\('))),
+];
+
+/// The body of each `class … extends Vm { … }` in [text].
+Iterable<String> _vmBodies(String text) sync* {
+  for (final m in RegExp(r'class\s+\w+\s+extends\s+Vm\s*\{').allMatches(text)) {
+    var depth = 1;
+    var j = m.end;
+    while (j < text.length && depth > 0) {
+      final ch = text[j];
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+      }
+      j++;
+    }
+    yield text.substring(m.end, j);
+  }
+}
+
+/// In a view-model: each field that is a plain collection, and each
+/// optional callback its `equals` does not hold as `name != null`.
+int _vmEquality(String text) {
+  var n = 0;
+  for (final body in _vmBodies(_code(text))) {
+    n += _matches(
+      body,
+      RegExp(r'^\s*final\s+(?:List|Set|Map|Iterable)\b[^;]*;', multiLine: true),
+    );
+    final equals =
+        RegExp(r'equals:\s*\[([\s\S]*?)\]').firstMatch(body)?.group(1) ?? '';
+    for (final f in RegExp(
+      r'^\s*final\s+(?:VoidCallback|ValueChanged<[^;]*>|[\w<>?, ]*'
+      r'Function\([^;]*\))\?\s+(\w+);',
+      multiLine: true,
+    ).allMatches(body)) {
+      if (!RegExp('\\b${f.group(1)}\\s*!=\\s*null').hasMatch(equals)) {
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
+/// Samples each rule must count ([bad], at least once) and must not
+/// ([good]): a change to a pattern that stops seeing what it is for fails
+/// here, not in review.
+const _probes = <String, ({String bad, String good})>{
+  'vm-equality': (
+    bad: '''
+class _Vm extends Vm {
+  _Vm({required this.rows, this.onTap}) : super(equals: [rows]);
+  final List<RowVm> rows;
+  final VoidCallback? onTap;
+}
+''',
+    good: '''
+class _Vm extends Vm {
+  _Vm({required this.rows, this.onTap})
+    : super(equals: [rows, onTap != null]);
+  final IList<RowVm> rows;
+  final VoidCallback? onTap;
+  final ValueChanged<String> onPick;
+}
+''',
+  ),
+  'dispatch-wrapper': (
+    bad: '''
+  void _start(ReduxAction<AppState> action) => dispatch(action);
+  void _load(String id) =>
+      _store.dispatchAndWait(LoadAction(id));
+''',
+    good: '''
+      onShow: () => dispatch(ShowAction()),
+      onPick: (k) => dispatchSync(PickAction(k)),
+  void _toggle(String id, {required bool on}) => _store.dispatchSync(
+    ToggleAction(id, on: on),
+  );
+  Future<void> run() async => await dispatchAndWait(RunAction());
+''',
+  ),
+  'dispatch-cascade': (
+    bad: '''
+    store
+      ..dispatchSync(AAction())
+      ..dispatchSync(BAction());
+''',
+    good: '''
+    store.dispatchSync(OneAction());
+''',
+  ),
+};
+
+/// Runs [_probes]; the names of the rules that fail them.
+List<String> _failedProbes() => [
+  for (final e in _probes.entries)
+    for (final r in _rules)
+      if (r.name == e.key &&
+          (r.count(e.value.bad) == 0 || r.count(e.value.good) != 0))
+        r.name,
 ];
 
 /// Callback bodies with two or more dispatches: one intent is one action
@@ -258,6 +386,12 @@ void _write(Map<String, Map<String, int>> counts) {
 }
 
 void main(List<String> args) {
+  final probes = _failedProbes();
+  if (probes.isNotEmpty) {
+    stderr.writeln('studio rules: probes not counted right: $probes');
+    exitCode = 1;
+    return;
+  }
   final now = _measure();
   if (args.contains('--init')) {
     _write(now);

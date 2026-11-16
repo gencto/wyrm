@@ -25,6 +25,7 @@ import 'package:ui/assistant/choices_card.dart';
 import 'package:ui/assistant/conversation.dart';
 import 'package:ui/assistant/found_card.dart';
 import 'package:ui/assistant/plan_card.dart';
+import 'package:ui/assistant/rights_panel.dart';
 import 'package:ui/assistant/run_card.dart';
 import 'package:ui/assistant/suggestion_tile.dart';
 import 'package:ui/assistant/task_badge.dart';
@@ -355,4 +356,14 @@ PlanStepVm planStepVm(
     outcome: s.result?.status.outcome,
     message: s.result?.message ?? '',
   );
+}
+
+extension ApiKeySetState on bool? {
+  /// Whether the agent's API key is set, as the rights panel draws it;
+  /// null: not read yet.
+  ApiKeyState get apiKey => switch (this) {
+    true => ApiKeyState.set,
+    false => ApiKeyState.notSet,
+    null => ApiKeyState.unknown,
+  };
 }

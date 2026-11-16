@@ -30,7 +30,6 @@ import 'package:business/redux/flow_editor/actions/validate_flow_action.dart';
 import 'package:business/redux/panels/actions/set_panel_width_action.dart';
 import 'package:business/wyrm/flow_view/flow_view.dart';
 import 'package:material_ui/material_ui.dart' hide Action;
-import 'package:models/field_id.dart';
 import 'package:ui/containers/side_panels.dart';
 import 'package:ui/flows/block_palette.dart';
 import 'package:ui/flows/custom_block_dialog.dart';
@@ -190,7 +189,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
               onChanged: (v) => dispatchSync(NewFlowAction(v)),
             )
           : null,
-      onView: (i) => _run(view.onField(i, _viewing)),
+      onView: (i) => _run(view.onField(i, SetViewedFieldAction.at)),
       onCloseViewer: () => dispatchSync(SetViewedFieldAction(null)),
       onDeploy: () => dispatch(DeployFlowAction()),
       onValidate: () => dispatch(ValidateFlowAction()),
@@ -205,7 +204,7 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       onPin: (p) =>
           dispatchSync(SetFieldPinAction(p.block, p.field, pinned: p.on)),
       onFieldPin: (p) => _run(view.fieldPin(p)),
-      onViewField: (r) => _run(view.onRow(r, _viewing)),
+      onViewField: (r) => _run(view.onRow(r, SetViewedFieldAction.at)),
       onSaveViewer: (text) => _run(view.savedViewer(text)),
       onBind: (w) => dispatchSync(
         ConnectPortsAction(w.from.block, w.from.port, w.block, w.port),
@@ -225,9 +224,6 @@ class _Factory extends VmFactory<AppState, FlowEditorPageConnector, _Vm>
       ),
     );
   }
-
-  static Action _viewing(String block, RowId row) =>
-      SetViewedFieldAction(FieldAt(block, row));
 
   /// Runs what a gesture does; null: it does nothing.
   void _run(Action? action) {
@@ -297,6 +293,8 @@ class _Vm extends Vm {
            panelWidths,
            // Made of [view], with a callback that only names what was done.
            newFlowName,
+           onOpenInside != null,
+           onRemove != null,
          ],
        );
 

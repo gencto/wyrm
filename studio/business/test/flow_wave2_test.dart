@@ -1193,6 +1193,91 @@ void main() {
       expect(blockDefsOf(now()), isEmpty);
     });
 
+    test('two reads of the library, the first answered last: the newer '
+        'library stays', () async {
+      Value lib(String name) => Value.from([
+        {
+          'name': name,
+          'version': 1,
+          'inputs': ['x'],
+          'outputs': ['out'],
+        },
+      ]);
+      api.invokesInTurn['wy/central/dataflows ▸ list_blocks'] = [
+        (const Duration(milliseconds: 60), [lib('older')]),
+        (const Duration(milliseconds: 5), [lib('newer')]),
+      ];
+      await Future.wait([
+        s.dispatchAndWait(RetrieveBlockLibraryAction()),
+        s.dispatchAndWait(RetrieveBlockLibraryAction()),
+      ]);
+      expect([for (final b in ed().library) b.name], ['newer']);
+    });
+
+    test('a library block whose answer comes after its flow was left is '
+        'not placed there', () async {
+      final get = api.invokes['wy/central/dataflows ▸ get_block']!;
+      api
+        ..invokesInTurn['wy/central/dataflows ▸ get_block'] = [
+          (const Duration(milliseconds: 60), get),
+        ]
+        ..invokes['wy/central/dataflows/other ▸ history'] = [
+          Value.from([
+            {...line, 'id': 'other'},
+          ]),
+        ];
+      final placed = s.dispatchAndWait(
+        PlaceLibraryBlockAction('scaled', 300, 600),
+      );
+      await s.dispatchAndWait(LoadFlowAction('other'));
+      await placed;
+      expect(s.state.flowEditor.flowId, 'other');
+      expect(blockDefsOf(now()), isEmpty);
+      expect(now().blocks.keys, isNot(contains('scaled1')));
+    });
+
+    test('one flow opened, then another before the first answered: the '
+        'one opened last stays', () async {
+      api
+        ..invokesInTurn['wy/central/dataflows/line ▸ history'] = [
+          (
+            const Duration(milliseconds: 60),
+            [
+              Value.from([line]),
+            ],
+          ),
+        ]
+        ..invokes['wy/central/dataflows/other ▸ history'] = [
+          Value.from([
+            {...line, 'id': 'other'},
+          ]),
+        ];
+      await Future.wait([
+        s.dispatchAndWait(LoadFlowAction('line')),
+        s.dispatchAndWait(LoadFlowAction('other')),
+      ]);
+      expect(s.state.flowEditor.flowId, 'other');
+      expect(now().id, 'other');
+    });
+
+    test('a check answered after the flow changed is dropped: the newer '
+        'check stands', () async {
+      Value ok(bool ok) => Value.from(
+        ok ? {'ok': true} : {'ok': false, 'error': 'node path: bad'},
+      );
+      api.invokesInTurn['wy/central/dataflows ▸ validate'] = [
+        (const Duration(milliseconds: 600), [ok(false)]),
+        (const Duration(milliseconds: 5), [ok(true)]),
+      ];
+      final first = s.dispatchAndWait(ValidateFlowAction());
+      // the first check is sent (after its 400 ms pause) and waits
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      s.dispatchSync(RemoveBlocksAction(const ['path']));
+      final second = s.dispatchAndWait(ValidateFlowAction());
+      await Future.wait([first, second]);
+      expect(ed().problems, isEmpty);
+    });
+
     test('the library: listed, a block placed is copied with what it '
         'uses, saved back with its blocks first', () async {
       expect(ed().caps.blocks, isTrue);

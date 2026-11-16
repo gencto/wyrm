@@ -91,7 +91,6 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
     final field = login.field;
     final standby = field.standbyUri;
     final platform = hostPlatform();
-    final keyReady = login.keyReady;
     return _Vm(
       screen: LogInScreenVm(
         window: windowBar(fullScreen: window.fullScreen),
@@ -212,10 +211,10 @@ class _Factory extends VmFactory<AppState, LogInPageConnector, _Vm>
       onOfferNotNow: () => dispatch(EnterStudioAction(DeclineOfferAction())),
       onOfferDontAsk: () =>
           dispatch(EnterStudioAction(DeclineOfferAction(dontAsk: true))),
-      onUnlock: keyReady
+      onUnlock: login.keyReady
           ? () => dispatch(EnterStudioAction(UnlockWithDeviceAction()))
           : null,
-      onAutoUnlock: keyReady
+      onAutoUnlock: login.keyReady
           ? () =>
                 dispatch(EnterStudioAction(UnlockWithDeviceAction(auto: true)))
           : null,
@@ -305,6 +304,7 @@ class _Vm extends Vm {
            onOpenSettings != null,
            onTrust != null,
            onUnlock != null,
+           onAutoUnlock != null,
          ],
        );
 
