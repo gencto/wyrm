@@ -127,6 +127,16 @@ pub fn private_dir(root: &Path, rel: &Path) -> std::io::Result<PrivateDir> {
     }
 }
 
+/// Write `rel` (plain segments, a file name last) below `root` as
+/// [`private_dir`] reaches its directory: never through a symlink, the
+/// directory 0700 and this user's, the file 0600 through its handle.
+pub fn write_private_under(root: &Path, rel: &Path, data: &[u8]) -> std::io::Result<()> {
+    let (Some(dir), Some(name)) = (rel.parent(), rel.file_name().and_then(|n| n.to_str())) else {
+        return Err(refused(&root.join(rel), "not a file name"));
+    };
+    private_dir(root, dir)?.write_file(name, data, false)
+}
+
 /// [`private_dir`] for a directory of the broker's own (backups, restore
 /// points, staging): its parent is made if missing (0700) and trusted, the
 /// directory itself is checked as [`private_dir`] does.
@@ -240,8 +250,11 @@ pub struct Pki {
 }
 
 impl Pki {
+    /// `dir` (`data_dir/pki`) is reached as [`private_dir_of`] does: its parent is
+    /// the broker's own, `dir` itself is never a symlink, belongs to this user and
+    /// is 0700; a new CA's files are written through its handle.
     pub fn open_or_create(dir: &Path) -> Result<Self, Error> {
-        create_missing_private(dir)?;
+        let pd = private_dir_of(dir)?;
         let (cert_p, key_p) = (dir.join("ca.pem"), dir.join("ca.key"));
         let issuer = match (
             std::fs::read_to_string(&cert_p),
@@ -259,8 +272,8 @@ impl Pki {
                 p.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
                 p.not_after = rcgen::date_time_ymd(2046, 1, 1);
                 let cert = p.self_signed(&key)?;
-                write_private(&key_p, key.serialize_pem().as_bytes())?;
-                std::fs::write(&cert_p, cert.pem())?;
+                pd.write_file("ca.key", key.serialize_pem().as_bytes(), false)?;
+                pd.write_file("ca.pem", cert.pem().as_bytes(), false)?;
                 Issuer::new(p, key)
             }
         };
@@ -312,9 +325,15 @@ impl Pki {
         let key = KeyPair::generate()?;
         let p = leaf_params(cn, sans, server, days)?;
         let cert = p.signed_by(&key, &self.issuer)?;
-        write_private(&files.key, key.serialize_pem().as_bytes())?;
-        std::fs::create_dir_all(out)?;
-        std::fs::write(&files.cert, cert.pem())?;
+        // `out` (`pki`, `links/<id>`, `operators`) as a private directory: never
+        // through a symlink, the key written through its handle
+        let pd = private_dir_of(out)?;
+        pd.write_file(
+            &format!("{name}.key"),
+            key.serialize_pem().as_bytes(),
+            false,
+        )?;
+        pd.write_file(&format!("{name}.pem"), cert.pem().as_bytes(), false)?;
         Ok(files)
     }
 
@@ -562,6 +581,56 @@ mod tests {
         let mode = std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o755, "the target is not touched");
         assert!(!outside.join("deeper").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Re-audit of #125: a broker start made its CA through a symlinked `pki` (that `keys
+    /// import` refuses), and certificates and peer keys too. The CA's directory, an issued
+    /// identity's directory and the peer files are reached without following a symlink.
+    #[cfg(unix)]
+    #[test]
+    fn the_ca_and_issued_keys_follow_no_symlink() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let base = std::env::temp_dir().join(format!("wyrm-pki-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (data, outside) = (base.join("data"), base.join("outside"));
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&outside, data.join("pki")).unwrap();
+        let e = Pki::open_or_create(&data.join("pki"))
+            .err()
+            .map(|e| e.to_string());
+        assert!(
+            e.is_some_and(|e| e.contains("symlink")),
+            "the CA is not made there"
+        );
+        assert!(!outside.join("ca.key").exists());
+        // a real `pki`: the CA is made, 0700; an identity's directory as a symlink is refused
+        std::fs::remove_file(data.join("pki")).unwrap();
+        let pki = Pki::open_or_create(&data.join("pki")).unwrap();
+        let mode = std::fs::metadata(data.join("pki"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700);
+        std::fs::create_dir_all(data.join("links")).unwrap();
+        symlink(&outside, data.join("links/l1")).unwrap();
+        assert!(pki
+            .issue("l1", &[], false, &data.join("links/l1"), "link")
+            .is_err());
+        assert!(!outside.join("link.key").exists());
+        // the peer files below `data_dir` the same way
+        symlink(&outside, data.join("pki/peers")).unwrap();
+        let rel = Path::new("pki/peers/up.key");
+        assert!(write_private_under(&data, rel, b"k").is_err());
+        assert!(!outside.join("up.key").exists());
+        assert_eq!(
+            std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777,
+            0o755,
+            "the target is not touched"
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 

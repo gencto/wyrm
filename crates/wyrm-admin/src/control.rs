@@ -1811,13 +1811,18 @@ impl Control {
             if d.dir != PeerDir::Upstream {
                 continue;
             }
-            let path = self.peer_ca_path(&d.site);
-            std::fs::create_dir_all(path.parent().unwrap_or(&self.cfg.data_dir))?;
-            std::fs::write(&path, &d.ca_pem)?;
-            std::fs::write(self.peer_file(&d.site, "cert.pem"), &d.cert_pem)?;
+            // `pki/peers` below `data_dir`, never through a symlink (as `keys import`)
+            let root = &self.cfg.data_dir;
+            let rel = |ext: &str| {
+                Path::new("pki")
+                    .join("peers")
+                    .join(format!("{}.{ext}", d.site))
+            };
+            secret::write_private_under(root, &rel("pem"), d.ca_pem.as_bytes())?;
+            secret::write_private_under(root, &rel("cert.pem"), d.cert_pem.as_bytes())?;
             let key = self.secrets.for_link(&peer_secret(&d.site));
             if let Some(k) = key.get(PEER_KEY) {
-                secret::write_private(&self.peer_file(&d.site, "key"), k)?;
+                secret::write_private_under(root, &rel("key"), k)?;
             }
         }
         if tls {
