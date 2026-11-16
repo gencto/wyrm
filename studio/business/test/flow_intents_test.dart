@@ -68,7 +68,7 @@ void main() {
   FlowDraft now() => s.state.flowEditor.draft!;
 
   /// The id of the field of [block] its input [port] feeds.
-  RowId rowOf(String block, String port) =>
+  FieldId rowOf(String block, String port) =>
       SelectFlowEditor(s.state).base.fields[block]!
           .firstWhere((f) => f.inPort == port)
           .id;

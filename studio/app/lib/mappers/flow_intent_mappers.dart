@@ -28,7 +28,7 @@ extension FlowViewIntents on FlowView {
       };
 
   /// [act] on the field of the selected block at the inspector's row [i].
-  Action? onField(int i, Action Function(String block, RowId row) act) =>
+  Action? onField(int i, Action? Function(String block, RowId row) act) =>
       switch ((selected, inspector?.rowAt(i))) {
         (final at?, final row?) => act(at, row),
         _ => null,
@@ -49,9 +49,15 @@ extension FlowViewIntents on FlowView {
     _ => null,
   };
 
-  /// A text typed into an inspector row.
-  Action? fieldTyped(RowTyped t) =>
-      onField(t.row, (at, row) => TypeFieldAction(at, row, t.text));
+  /// A text typed into an inspector row: a field's (a form is picked,
+  /// [form]).
+  Action? fieldTyped(RowTyped t) => onField(
+    t.row,
+    (at, row) => switch (row) {
+      final FieldId field => TypeFieldAction(at, field, t.text),
+      FormRow() => null,
+    },
+  );
 
   /// An output dropped on an inspector row.
   Action? fieldBound(RowBound b) =>
@@ -59,8 +65,13 @@ extension FlowViewIntents on FlowView {
 
   /// The viewer's Save: the text typed into the field it shows.
   Action? savedViewer(String text) => switch (questions.viewed) {
-    FieldAt(:final block, :final row) => TypeFieldAction(block, row, text),
-    null => null,
+    FieldAt(:final block, row: final FieldId field) => TypeFieldAction(
+      block,
+      field,
+      text,
+    ),
+    // The Form row's viewer only shows the form: it is picked, not typed.
+    FieldAt(row: FormRow()) || null => null,
   };
 
   /// A command of the canvas the editor answers (the canvas and the page

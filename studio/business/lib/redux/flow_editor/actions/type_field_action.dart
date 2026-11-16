@@ -6,22 +6,21 @@ import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_fields.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
-import 'set_block_form_action.dart';
 import 'set_block_param_action.dart';
 import 'set_operand_value_action.dart';
 
-/// [text] typed into the field [row] of block [block]: what an inspector
+/// [text] typed into the field [field] of block [block]: what an inspector
 /// row and the value viewer's Save both do (spec §15). The field's kind
 /// reads the text (a number, a bool, JSON; `fieldEditOf`, `typedText`); a
 /// parameter goes into the config, an operand into `values`, an argument
 /// into `args`, a custom block's input into its `defaults`. A field that is
-/// not typed (bound, an output) changes nothing. The Form row takes the
-/// name of a form of the block.
+/// not typed (bound, an output) changes nothing. A block's form is picked,
+/// not typed (`SetBlockFormAction` with its id).
 class TypeFieldAction extends Action {
-  TypeFieldAction(this.block, this.row, this.text);
+  TypeFieldAction(this.block, this.field, this.text);
 
   final String block;
-  final RowId row;
+  final FieldId field;
   final String text;
 
   @override
@@ -32,18 +31,7 @@ class TypeFieldAction extends Action {
     if (d == null || b == null) {
       return null;
     }
-    final row = this.row;
-    final f = switch (row) {
-      FormRow() => null,
-      FieldId() => base.fields[block]?.where((x) => x.id == row).firstOrNull,
-    };
-    if (row is FormRow) {
-      final form = formsOf(b.type).where((f) => f.label == text).firstOrNull;
-      if (form != null) {
-        dispatchSync(SetBlockFormAction(b.id, form.id));
-      }
-      return null;
-    }
+    final f = base.fields[block]?.where((x) => x.id == field).firstOrNull;
     final edit = f == null ? null : fieldEditOf(b, f, d.edges).edit;
     if (f == null || edit == null) {
       return null;
