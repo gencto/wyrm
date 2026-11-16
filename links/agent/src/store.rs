@@ -31,15 +31,19 @@ pub const COMPACT_AT: u64 = 10_000;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// A task's state as the store keeps it: a [`TaskState`], or a name a newer build wrote.
+/// Such a task is not loaded (it is never read as some other state) and its record is
+/// kept as written, so the build that wrote it reads it again (owner decision, typing
+/// audit of #127: one task, not the whole store).
+pub type StoredState = wyrm_core::named::OrUnknown<TaskState>;
+
 /// One task as persisted.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct TaskRec {
     /// Kept by its name ([`TaskState::name`]), not its code: the text the field held
-    /// as a `String`. A name this build does not know does not decode.
+    /// as a `String`.
     #[n(0)]
-    #[cbor(with = "wyrm_core::named::cbor")]
-    #[serde(with = "wyrm_core::named::serde")]
-    pub state: TaskState,
+    pub state: StoredState,
     #[n(1)]
     pub owner: String,
     #[n(2)]
@@ -510,18 +514,23 @@ mod tests {
         for st in TaskState::ALL {
             let pc = postcard::to_stdvec(&old(st.name())).unwrap();
             let rec: TaskRec = postcard::from_bytes(&pc).unwrap();
-            assert_eq!(rec.state, *st);
+            assert_eq!(rec.state, wyrm_core::named::OrUnknown::Known(*st));
             assert_eq!(postcard::to_stdvec(&rec).unwrap(), pc);
             let cbor = minicbor::to_vec(old(st.name())).unwrap();
             let rec: TaskRec = minicbor::decode(&cbor).unwrap();
-            assert_eq!(rec.state, *st);
+            assert_eq!(rec.state, wyrm_core::named::OrUnknown::Known(*st));
             assert_eq!(minicbor::to_vec(&rec).unwrap(), cbor);
         }
+        // a name this build does not know is kept as written, never read as another state
         for bad in ["paused", "Done", ""] {
-            assert!(
-                postcard::from_bytes::<TaskRec>(&postcard::to_stdvec(&old(bad)).unwrap()).is_err()
-            );
-            assert!(minicbor::decode::<TaskRec>(&minicbor::to_vec(old(bad)).unwrap()).is_err());
+            let pc = postcard::to_stdvec(&old(bad)).unwrap();
+            let rec: TaskRec = postcard::from_bytes(&pc).unwrap();
+            assert_eq!(rec.state, wyrm_core::named::OrUnknown::Unknown(bad.into()));
+            assert_eq!(postcard::to_stdvec(&rec).unwrap(), pc);
+            let cbor = minicbor::to_vec(old(bad)).unwrap();
+            let rec: TaskRec = minicbor::decode(&cbor).unwrap();
+            assert_eq!(rec.state, wyrm_core::named::OrUnknown::Unknown(bad.into()));
+            assert_eq!(minicbor::to_vec(&rec).unwrap(), cbor);
         }
     }
 
@@ -537,7 +546,7 @@ mod tests {
 
     fn rec(seq: u64) -> TaskRec {
         TaskRec {
-            state: TaskState::Done,
+            state: TaskState::Done.into(),
             owner: "user:op".into(),
             ask: "x".into(),
             plan: encode_plan(
@@ -698,7 +707,7 @@ mod tests {
         let put = Op::Put(
             "t1-2".into(),
             TaskRec {
-                state: TaskState::AwaitingApproval,
+                state: TaskState::AwaitingApproval.into(),
                 owner: "user:op".into(),
                 ask: "set p".into(),
                 plan: wyrm_core::codec::to_vec(&plan).unwrap(),
@@ -724,7 +733,10 @@ mod tests {
         };
         assert_eq!(
             (id.as_str(), rec.state),
-            ("t1-2", TaskState::AwaitingApproval)
+            (
+                "t1-2",
+                wyrm_core::named::OrUnknown::Known(TaskState::AwaitingApproval)
+            )
         );
         let (steps, extras) = decode_plan(&rec.plan).unwrap();
         assert_eq!(steps.len(), 1);
@@ -781,7 +793,7 @@ mod tests {
         let put = Op::Put(
             "t1-2".into(),
             TaskRec {
-                state: TaskState::Failed,
+                state: TaskState::Failed.into(),
                 owner: "user:op".into(),
                 ask: "set p".into(),
                 plan: wyrm_core::codec::to_vec(&plan).unwrap(),
