@@ -714,20 +714,17 @@ async fn fetch_file(
         // while the other side was active too
         a.keep_file(data_dir, &entry.name);
     }
-    if let Some(parent) = path.parent() {
-        secret::private_dir(parent).map_err(|e| e.to_string())?;
-    }
-    // a scratch name the listings leave out, then one rename
-    let tmp = path.with_extension("tmp");
-    secret::write_private(&tmp, &buf).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    if entry.exec {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| e.to_string())?;
-    }
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    Ok(())
+    // under `links/<id>/data/**` a process link may have planted symlinks: the
+    // directory is reached below `data_dir` without following one, and the file is
+    // written through its handle (a `*.tmp` scratch name the listings leave out,
+    // then one rename)
+    let rel = Path::new(&entry.name);
+    let (Some(dir), Some(file)) = (rel.parent(), rel.file_name().and_then(|f| f.to_str())) else {
+        return Err(format!("{}: not a file name", entry.name));
+    };
+    secret::private_dir(data_dir, dir)
+        .and_then(|d| d.write_file(file, &buf, entry.exec))
+        .map_err(|e| e.to_string())
 }
 
 /// Bring the replicated files in line with the active's list: fetch what

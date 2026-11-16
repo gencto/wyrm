@@ -9,8 +9,8 @@
 //! key = Argon2id(passphrase, salt)
 //! ```
 
+use crate::secret::private_dir;
 use crate::secret::Error;
-use crate::secret::{private_dir, write_private};
 use argon2::Argon2;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -122,11 +122,13 @@ pub fn import(data_dir: &Path, bundle: &[u8], passphrase: &[u8]) -> Result<Vec<S
         let Value::Bytes(bytes) = v else {
             continue;
         };
-        let path = data_dir.join(&name);
-        if let Some(parent) = path.parent() {
-            private_dir(parent)?;
-        }
-        write_private(&path, &bytes)?;
+        // `name` is one of FILES: plain segments
+        let rel = Path::new(&name);
+        let (Some(dir), Some(file)) = (rel.parent(), rel.file_name().and_then(|f| f.to_str()))
+        else {
+            return Err(format!("bundle: {name}: not a file name").into());
+        };
+        private_dir(data_dir, dir)?.write_file(file, &bytes, false)?;
     }
     Ok(names)
 }
@@ -174,13 +176,14 @@ mod tests {
         assert!(export(&dir("e"), pass).is_err());
     }
 
-    /// A key directory that cannot be made private refuses the import before
-    /// a key is written (it was passed over, and the keys landed in it).
-    /// `pki` is a link to `/tmp`: shared, owned by root, never ours to chmod.
+    /// A key directory that is a symlink refuses the import before a key is
+    /// written. Audit of #125: a symlink to a directory the broker's own user
+    /// owns was followed, that directory was made 0700 and the CA key landed in
+    /// it, outside `data_dir`.
     #[cfg(unix)]
     #[test]
-    fn a_key_directory_that_cannot_be_made_private_refuses_the_import() {
-        use std::os::unix::fs::MetadataExt;
+    fn a_key_directory_that_is_a_symlink_refuses_the_import() {
+        use std::os::unix::fs::PermissionsExt;
         let a = dir("perm-a");
         std::fs::create_dir_all(a.join("pki")).unwrap();
         std::fs::write(a.join("pki/ca.pem"), b"cert").unwrap();
@@ -188,25 +191,18 @@ mod tests {
         std::fs::write(a.join("state.key"), b"state key").unwrap();
         let pass = b"correct horse battery";
         let bundle = export(&a, pass).unwrap();
-        let shared = Path::new("/tmp");
-        let me = std::fs::metadata(&a).unwrap().uid();
-        let Ok(tmp) = std::fs::metadata(shared) else {
-            return; // no shared /tmp on this host
-        };
-        if me == 0 || tmp.uid() == me || shared.join("ca.key").exists() {
-            return; // root (or the owner of /tmp) may chmod it: nothing to show
-        }
+        let elsewhere = dir("perm-elsewhere");
+        std::fs::set_permissions(&elsewhere, std::fs::Permissions::from_mode(0o755)).unwrap();
         let b = dir("perm-b");
-        std::os::unix::fs::symlink(shared, b.join("pki")).unwrap();
-        let r = import(&b, &bundle, pass);
-        let leaked = shared.join("ca.key").exists();
-        if leaked {
-            let _ = std::fs::remove_file(shared.join("ca.key"));
-            let _ = std::fs::remove_file(shared.join("ca.pem"));
-        }
-        let e = r.expect_err("the import is refused").to_string();
-        assert!(e.contains("cannot make it private"), "{e}");
-        assert!(!leaked, "no key written into a directory others can read");
+        std::os::unix::fs::symlink(&elsewhere, b.join("pki")).unwrap();
+        let e = import(&b, &bundle, pass).expect_err("the import is refused");
+        assert!(e.to_string().contains("symlink"), "{e}");
+        assert!(
+            !elsewhere.join("ca.key").exists(),
+            "no key outside data_dir"
+        );
+        let mode = std::fs::metadata(&elsewhere).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "the target is not touched");
         assert!(!b.join("state.key").exists());
     }
 }

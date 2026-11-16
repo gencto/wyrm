@@ -15,10 +15,14 @@ use zeroize::Zeroizing;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-/// Write a file readable by the owner only (created fresh, 0600 on unix).
+/// Write a file readable by the owner only (created fresh, 0600 on unix). A
+/// directory of `path` that is missing is made 0700; one that exists is left
+/// as it is (an operator's output directory). The file is created new (a
+/// symlink in its place is not followed) and renamed into place. For a
+/// directory that must itself be private, use [`private_dir`].
 pub fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        create_missing_private(dir)?;
     }
     let tmp = path.with_extension("tmp");
     let _ = std::fs::remove_file(&tmp);
@@ -37,23 +41,152 @@ pub fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// Create `dir` (and its parents) and make it the owner's only (0700 on
-/// unix). `Err` names the directory when it cannot be made private: a
-/// directory meant for keys that stays open to others is a failure, never
-/// passed over.
-pub fn private_dir(dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)?;
+/// The directories of `dir` that are missing, made 0700 (each of them);
+/// existing ones are not changed.
+pub fn create_missing_private(dir: &Path) -> std::io::Result<()> {
+    let mut b = std::fs::DirBuilder::new();
+    b.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+    b.create(dir)
+}
+
+/// A directory only its owner enters, held open: what is written into it
+/// through [`PrivateDir::write_file`] lands in this very directory, whatever
+/// is swapped on its path afterwards.
+#[derive(Debug)]
+pub struct PrivateDir {
+    path: PathBuf,
+    #[cfg(unix)]
+    fd: std::os::fd::OwnedFd,
+}
+
+fn refused(path: &Path, why: impl std::fmt::Display) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        format!("{}: not a private directory: {why}", path.display()),
+    )
+}
+
+/// `root/rel` as a private directory. `root` is the broker's own directory
+/// (`data_dir`; it may be a symlink the operator set up) and must exist.
+/// Each component of `rel` is made (0700) or opened below the held handle of
+/// the one before, never through a symlink: a symlink or a non-directory on
+/// the way is refused, not followed (a link's own data, `links/<id>/data/**`,
+/// may hold symlinks it planted). The last directory must be owned by the
+/// user this process runs as, and is set to 0700 through its open handle.
+/// `rel` is plain segments only.
+pub fn private_dir(root: &Path, rel: &Path) -> std::io::Result<PrivateDir> {
+    let path = root.join(rel);
+    for c in rel.components() {
+        if !matches!(c, std::path::Component::Normal(_)) {
+            return Err(refused(
+                &path,
+                "the path has a part that is not a plain name",
+            ));
+        }
+    }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!("{}: cannot make it private (0700): {e}", dir.display()),
-            )
-        })?;
+        use rustix::fs::{fchmod, fstat, mkdirat, open, openat, Mode, OFlags};
+        let dir_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+        let mut fd = open(root, dir_flags, Mode::empty())
+            .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", root.display())))?;
+        for c in rel.components() {
+            let name = c.as_os_str();
+            match mkdirat(&fd, name, Mode::RWXU) {
+                Ok(()) => {}
+                Err(e) if e == rustix::io::Errno::EXIST => {}
+                Err(e) => return Err(refused(&path, e)),
+            }
+            fd = openat(&fd, name, dir_flags | OFlags::NOFOLLOW, Mode::empty()).map_err(|e| {
+                refused(
+                    &path,
+                    format!(
+                        "{} is a symlink or not a directory ({e})",
+                        name.to_string_lossy()
+                    ),
+                )
+            })?;
+        }
+        let st = fstat(&fd).map_err(|e| refused(&path, e))?;
+        let me = rustix::process::geteuid().as_raw();
+        if st.st_uid != me {
+            return Err(refused(
+                &path,
+                format!("owned by uid {}, not by this process's uid {me}", st.st_uid),
+            ));
+        }
+        fchmod(&fd, Mode::RWXU).map_err(|e| refused(&path, e))?;
+        Ok(PrivateDir { path, fd })
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(&path)?;
+        Ok(PrivateDir { path })
+    }
+}
+
+/// [`private_dir`] for a directory of the broker's own (backups, restore
+/// points, staging): its parent is made if missing (0700) and trusted, the
+/// directory itself is checked as [`private_dir`] does.
+pub fn private_dir_of(dir: &Path) -> std::io::Result<PrivateDir> {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(refused(dir, "no parent directory"));
+    };
+    create_missing_private(parent)?;
+    private_dir(parent, Path::new(name))
+}
+
+impl PrivateDir {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Write the file `name` (one plain name) in this directory: created new,
+    /// 0600 or 0700 with `exec` (a symlink in its place is not followed),
+    /// synced, and renamed into place, all through the held handle.
+    pub fn write_file(&self, name: &str, data: &[u8], exec: bool) -> std::io::Result<()> {
+        let mut parts = Path::new(name).components();
+        let plain = matches!(
+            (parts.next(), parts.next()),
+            (Some(std::path::Component::Normal(n)), None) if n == std::ffi::OsStr::new(name)
+        );
+        if !plain {
+            return Err(refused(
+                &self.path,
+                format!("{name:?} is not a plain file name"),
+            ));
+        }
+        let tmp = format!("{name}.tmp");
+        #[cfg(unix)]
+        {
+            use rustix::fs::{openat, renameat, unlinkat, AtFlags, Mode, OFlags};
+            match unlinkat(&self.fd, tmp.as_str(), AtFlags::empty()) {
+                Ok(()) => {}
+                Err(e) if e == rustix::io::Errno::NOENT => {}
+                Err(e) => return Err(e.into()),
+            }
+            let flags =
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+            let mode = if exec {
+                Mode::RWXU
+            } else {
+                Mode::RUSR | Mode::WUSR
+            };
+            let fd = openat(&self.fd, tmp.as_str(), flags, mode)?;
+            let mut f = std::fs::File::from(fd);
+            f.write_all(data)?;
+            f.sync_all()?;
+            renameat(&self.fd, tmp.as_str(), &self.fd, name)?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = exec;
+            write_private(&self.path.join(name), data)
+        }
+    }
 }
 
 /// 32 random bytes, hex encoded: the plaintext link token.
@@ -108,7 +241,7 @@ pub struct Pki {
 
 impl Pki {
     pub fn open_or_create(dir: &Path) -> Result<Self, Error> {
-        std::fs::create_dir_all(dir)?;
+        create_missing_private(dir)?;
         let (cert_p, key_p) = (dir.join("ca.pem"), dir.join("ca.key"));
         let issuer = match (
             std::fs::read_to_string(&cert_p),
@@ -380,13 +513,56 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        private_dir(&dir.join("pki")).unwrap();
-        private_dir(&dir).unwrap();
-        for d in [dir.clone(), dir.join("pki")] {
+        std::fs::create_dir_all(dir.join("links/l1")).unwrap();
+        std::fs::set_permissions(dir.join("links/l1"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let pki = private_dir(&dir, Path::new("pki")).unwrap();
+        private_dir(&dir, Path::new("")).unwrap();
+        let deep = private_dir(&dir, Path::new("links/l1/data/a")).unwrap();
+        for d in [dir.clone(), dir.join("pki"), dir.join("links/l1/data/a")] {
             let mode = std::fs::metadata(&d).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o700, "{}", d.display());
         }
+        // a file written through the handle is the owner's only and lands there
+        pki.write_file("ca.key", b"key", false).unwrap();
+        deep.write_file("run", b"#!", true).unwrap();
+        let m = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(m(&dir.join("pki/ca.key")), 0o600);
+        assert_eq!(m(&dir.join("links/l1/data/a/run")), 0o700);
+        assert_eq!(std::fs::read(dir.join("pki/ca.key")).unwrap(), b"key");
+        assert!(pki.write_file("../x", b"", false).is_err());
+        assert!(private_dir(&dir, Path::new("../x")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit of #125: `pki` (or a directory a link planted under its data) as a
+    /// symlink to a directory the broker's own user owns was followed: the target
+    /// was made 0700 and the keys landed outside `data_dir`. A symlink anywhere
+    /// below the root is refused now, and nothing outside is touched.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_an_own_directory_is_not_a_private_dir() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let base = std::env::temp_dir().join(format!("wyrm-private-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (data, outside) = (base.join("data"), base.join("outside"));
+        std::fs::create_dir_all(data.join("links/l1/data")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&outside, data.join("pki")).unwrap();
+        symlink(&outside, data.join("links/l1/data/sub")).unwrap();
+        // as the last part and as a part on the way
+        for rel in ["pki", "links/l1/data/sub", "links/l1/data/sub/deeper"] {
+            let e = private_dir(&data, Path::new(rel)).unwrap_err();
+            assert!(e.to_string().contains("symlink"), "{rel}: {e}");
+        }
+        // a file in the way is refused too
+        std::fs::write(data.join("plain"), b"").unwrap();
+        assert!(private_dir(&data, Path::new("plain")).is_err());
+        let mode = std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "the target is not touched");
+        assert!(!outside.join("deeper").exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// ADR 0015: the downstream's request carries its key; the upstream

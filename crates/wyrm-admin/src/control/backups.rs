@@ -399,12 +399,12 @@ impl Drop for StageDir {
     }
 }
 
+/// A directory only its owner enters (an existing one is made so too; a
+/// symlink is refused): `secret::private_dir_of`.
 pub(super) fn make_private_dir(dir: &Path) -> Result<(), String> {
-    let mut b = std::fs::DirBuilder::new();
-    b.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-    b.create(dir).map_err(|e| io_err(dir, e))
+    crate::secret::private_dir_of(dir)
+        .map(drop)
+        .map_err(|e| io_err(dir, e))
 }
 
 /// Puts files of one backup into its stage directory.

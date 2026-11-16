@@ -6632,6 +6632,7 @@ dependencies = [
  "postcard",
  "rcgen",
  "ring",
+ "rustix 1.1.5",
  "rustls",
  "rustls-pki-types",
  "serde",

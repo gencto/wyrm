@@ -1366,20 +1366,12 @@ impl Control {
     /// 0700), created on demand and removed with the link. Embedded and
     /// process links get it; external links keep their state themselves.
     fn link_data_dir(&self, id: &str) -> Result<PathBuf, LinkError> {
-        let dir = self.link_dir(id)?.join("data");
-        let mut b = std::fs::DirBuilder::new();
-        b.recursive(true);
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-        b.create(&dir)
-            .map_err(|e| LinkError::internal(format!("{}: {e}", dir.display())))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| LinkError::internal(format!("{}: {e}", dir.display())))?;
-        }
-        Ok(dir)
+        crate::registry::validate_link_id(id).map_err(LinkError::invalid_parameter)?;
+        let rel = Path::new("links").join(id).join("data");
+        secret::create_missing_private(&self.cfg.data_dir)
+            .and_then(|()| secret::private_dir(&self.cfg.data_dir, &rel))
+            .map(|d| d.path().to_path_buf())
+            .map_err(|e| LinkError::internal(e.to_string()))
     }
 
     /// Certificate for a remote link (CN = id) under `links/<id>/`.

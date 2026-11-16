@@ -63,13 +63,11 @@ pub fn stamp(secs: u64) -> String {
     )
 }
 
-/// A directory only its owner enters.
+/// A directory only its owner enters (an existing one is made so too).
 fn private_dir(dir: &Path) -> Result<(), String> {
-    let mut b = std::fs::DirBuilder::new();
-    b.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-    b.create(dir).map_err(|e| format!("{}: {e}", dir.display()))
+    crate::secret::private_dir_of(dir)
+        .map(drop)
+        .map_err(|e| e.to_string())
 }
 
 fn link_dir(root: &Path, link: &str) -> Result<PathBuf, String> {
