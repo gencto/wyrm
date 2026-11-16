@@ -73,50 +73,109 @@ List<ResizeEdge>? get windowResizeEdges => defaultTargetPlatform == .windows
     ? const [.topLeft, .top, .topRight]
     : null;
 
-void dragWindow() => unawaited(windowManager.startDragging());
+void dragWindow() => appWindow.startDragging();
 
-void minimizeWindow() => unawaited(windowManager.minimize());
+void minimizeWindow() => appWindow.minimize();
 
-void closeWindow() => unawaited(windowManager.close());
+void closeWindow() => appWindow.close();
 
 /// Maximizes the window, or restores it (macOS: zoom).
-void zoomWindow() => unawaited(_zoom());
+void zoomWindow() => appWindow.zoom();
 
-Future<void> _zoom() async => await windowManager.isMaximized()
-    ? windowManager.unmaximize()
-    : windowManager.maximize();
+/// The app's desktop window as the top bars and the window buttons use it.
+abstract class AppWindow {
+  bool get isMaximized;
+  void maximize();
+  void unmaximize();
+  void minimize();
+  void close();
+  void startDragging();
+
+  void zoom() => isMaximized ? unmaximize() : maximize();
+}
+
+/// The window the buttons act on: the native one, or what a test records.
+@visibleForTesting
+AppWindow appWindow = _native;
+
+final _native = _NativeWindow();
+
+/// The native window, from the moment [setUpWindow] or [setUpPlainWindow]
+/// finds it; before that (the web, tests) every call does nothing.
+final class _NativeWindow extends AppWindow {
+  Window? _window;
+
+  /// The `NSWindow`, `HWND` or `GtkWindow` behind [_window]. macOS gives a
+  /// window closed with its red button and brought back from the Dock a new
+  /// id (`AppDelegate`, nativeapi 0.6): the native object is what stays.
+  int? _object;
+
+  void attach(Window window) {
+    _window = window;
+    _object = window.nativeObject.address;
+  }
+
+  /// Whether [id] is the app's window; the one shown again under a new id
+  /// becomes [_window]. Panels the app opens (a file picker) are windows of
+  /// the app too and are not.
+  bool owns(WindowId id) {
+    if (id == _window?.id) {
+      return true;
+    }
+    final w = WindowManager.instance.get(id);
+    if (w == null || w.nativeObject.address != _object) {
+      return false;
+    }
+    _window = w;
+    return true;
+  }
+
+  @override
+  bool get isMaximized => _window?.isMaximized ?? false;
+
+  @override
+  void maximize() => _window?.maximize();
+
+  @override
+  void unmaximize() => _window?.unmaximize();
+
+  @override
+  void minimize() => _window?.minimize();
+
+  @override
+  void close() => _window?.close();
+
+  @override
+  void startDragging() => _window?.startDragging();
+}
 
 /// Opens the desktop window without a title bar, where the user left it
 /// and as large, and keeps the store's `window` slice in step with it.
-Future<void> setUpWindow(Store<AppState> store) async {
-  await windowManager.ensureInitialized();
-
-  final saved = await _savedBounds(store.state);
-  final options = WindowOptions(
-    size: saved?.size ?? await _firstSize(),
-    center: saved == null,
-    minimumSize: minimumWindowSize,
-    title: 'WYRM Studio',
-    titleBarStyle: .hidden,
+void setUpWindow(Store<AppState> store) {
+  final window = WindowManager.instance.getCurrent();
+  if (window == null) {
+    return;
+  }
+  _native.attach(window);
+  // The style first: it sets the buttons back to its own default.
+  window
+    ..titleBarStyle = .hidden
     // macOS keeps its buttons; elsewhere the app draws them.
-    windowButtonVisibility: windowFrame == .macos,
-  );
-
-  unawaited(
-    windowManager.waitUntilReadyToShow(options, () async {
-      if (saved != null) {
-        await windowManager.setBounds(saved);
-      }
-      await windowManager.show();
-      await windowManager.focus();
-      windowManager.addListener(_WindowWatcher(store));
-      store.dispatchSync(
-        SetWindowModeAction(
-          maximized: await windowManager.isMaximized(),
-          fullScreen: await windowManager.isFullScreen(),
-        ),
-      );
-    }),
+    ..isWindowControlButtonsVisible = windowFrame == .macos;
+  _toNormal(window);
+  final saved = _savedBounds(store.state);
+  window
+    ..minimumSize = minimumWindowSize.toNative()
+    ..bounds = (saved ?? _centred(_firstSize())).toNative()
+    ..title = 'WYRM Studio'
+    ..show()
+    ..focus();
+  WindowManager.instance.addListener(_WindowWatcher(store).onEvent);
+  store.dispatchSync(
+    SetWindowModeAction(
+      maximized: window.isMaximized,
+      fullScreen: window.isFullScreen,
+    ),
   );
 }
 
@@ -124,24 +183,37 @@ Future<void> setUpWindow(Store<AppState> store) async {
 /// not open (docs/design/specs/errors.md §6): centred, with the system's
 /// own title bar and buttons, since no store is there to keep a frame or to
 /// draw them.
-Future<void> setUpPlainWindow() async {
-  await windowManager.ensureInitialized();
-  const options = WindowOptions(
-    size: Size(960, 720),
-    center: true,
-    title: 'WYRM Studio',
-  );
-  unawaited(
-    windowManager.waitUntilReadyToShow(options, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    }),
-  );
+void setUpPlainWindow() {
+  final window = WindowManager.instance.getCurrent();
+  if (window == null) {
+    return;
+  }
+  _native.attach(window);
+  _toNormal(window);
+  window
+    ..bounds = _centred(const Size(960, 720)).toNative()
+    ..title = 'WYRM Studio'
+    ..show()
+    ..focus();
+}
+
+/// A window the platform restored full screen, maximized or minimized
+/// comes back to a plain frame before it is given one.
+void _toNormal(Window window) {
+  if (window.isFullScreen) {
+    window.isFullScreen = false;
+  }
+  if (window.isMaximized) {
+    window.unmaximize();
+  }
+  if (window.isMinimized) {
+    window.restore();
+  }
 }
 
 /// The stored frame, when a screen still shows enough of it to find and
 /// move the window (a second monitor may be gone since).
-Future<Rect?> _savedBounds(AppState state) async {
+Rect? _savedBounds(AppState state) {
   final w = SelectWindow(state);
   if (w.left == null || w.top == null || w.width == null || w.height == null) {
     return null;
@@ -152,85 +224,98 @@ Future<Rect?> _savedBounds(AppState state) async {
     math.max(w.width!, minimumWindowSize.width),
     math.max(w.height!, minimumWindowSize.height),
   );
-  try {
-    for (final d in await screenRetriever.getAllDisplays()) {
-      final origin = d.visiblePosition ?? Offset.zero;
-      final seen = (origin & (d.visibleSize ?? d.size)).intersect(frame);
-      if (seen.width >= 200 && seen.height >= 80) {
-        return frame;
-      }
+  for (final d in DisplayManager.instance.getAll()) {
+    final seen = d.workArea.toRect().intersect(frame);
+    if (seen.width >= 200 && seen.height >= 80) {
+      return frame;
     }
-  } on Object {
-    // No screen list: the default size, centred.
   }
   return null;
 }
 
 /// 1440 × 900, or what the screen has room for.
-Future<Size> _firstSize() async {
-  try {
-    final d = await screenRetriever.getPrimaryDisplay();
-    final room = d.visibleSize ?? d.size;
-    return Size(
-      math.max(
-        minimumWindowSize.width,
-        math.min(_firstWindowSize.width, room.width),
-      ),
-      math.max(
-        minimumWindowSize.height,
-        math.min(_firstWindowSize.height, room.height),
-      ),
-    );
-  } on Object {
+Size _firstSize() {
+  final d = DisplayManager.instance.getPrimary();
+  if (d == null) {
     return _firstWindowSize;
   }
+  final room = d.workArea.toRect().size;
+  return Size(
+    math.max(
+      minimumWindowSize.width,
+      math.min(_firstWindowSize.width, room.width),
+    ),
+    math.max(
+      minimumWindowSize.height,
+      math.min(_firstWindowSize.height, room.height),
+    ),
+  );
+}
+
+/// A frame of [size] in the middle of the work area of the screen the
+/// pointer is on (the primary one when none holds it).
+Rect _centred(Size size) {
+  const displays = DisplayManager.instance;
+  final pointer = displays.getCursorPosition().toOffset();
+  final d =
+      displays.getAll().where((d) {
+        final whole = d.position.toOffset() & d.size.toSize();
+        return whole.contains(pointer);
+      }).firstOrNull ??
+      displays.getPrimary();
+  if (d == null) {
+    return Offset.zero & size;
+  }
+  return Alignment.center.inscribe(size, d.workArea.toRect());
 }
 
 /// Window events to the store: the mode at once, the frame when the user
 /// stops moving or resizing.
-final class _WindowWatcher with WindowListener {
+final class _WindowWatcher {
   _WindowWatcher(this._store);
 
   final Store<AppState> _store;
   Timer? _settle;
 
-  @override
-  void onWindowMaximize() =>
-      _store.dispatchSync(SetWindowModeAction(maximized: true));
-
-  @override
-  void onWindowUnmaximize() =>
-      _store.dispatchSync(SetWindowModeAction(maximized: false));
-
-  @override
-  void onWindowEnterFullScreen() =>
-      _store.dispatchSync(SetWindowModeAction(fullScreen: true));
-
-  @override
-  void onWindowLeaveFullScreen() =>
-      _store.dispatchSync(SetWindowModeAction(fullScreen: false));
-
-  @override
-  void onWindowResize() => _later();
-
-  @override
-  void onWindowMove() => _later();
+  void onEvent(WindowEvent event) {
+    if (!_native.owns(event.windowId)) {
+      return;
+    }
+    switch (event) {
+      case WindowMaximizedEvent():
+        _store.dispatchSync(SetWindowModeAction(maximized: true));
+      // One event for "no longer maximized" and "no longer minimized": the
+      // window says which.
+      case WindowRestoredEvent():
+        _store.dispatchSync(
+          SetWindowModeAction(maximized: _native.isMaximized),
+        );
+      case WindowEnteredFullScreenEvent():
+        _store.dispatchSync(SetWindowModeAction(fullScreen: true));
+      case WindowExitedFullScreenEvent():
+        _store.dispatchSync(SetWindowModeAction(fullScreen: false));
+      case WindowResizedEvent() || WindowMovedEvent():
+        _later();
+      default:
+        break;
+    }
+  }
 
   void _later() {
     _settle?.cancel();
-    _settle = Timer(const Duration(milliseconds: 400), () {
-      unawaited(_keep());
-    });
+    _settle = Timer(const Duration(milliseconds: 400), _keep);
   }
 
-  Future<void> _keep() async {
+  void _keep() {
+    final window = _native._window;
     // A maximized or full screen frame is not the one to come back to.
-    if (await windowManager.isMaximized() ||
-        await windowManager.isFullScreen() ||
-        await windowManager.isMinimized()) {
+    if (window == null ||
+        window.isMaximized ||
+        window.isFullScreen ||
+        window.isMinimized) {
       return;
     }
-    final b = await windowManager.getBounds();
+    final b = window.bounds.toRect();
     _store.dispatchSync(
       SetWindowBoundsAction(
         left: b.left,
