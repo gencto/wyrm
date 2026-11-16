@@ -488,12 +488,9 @@ async fn viewer_lists_and_subscribes_but_cannot_set() {
     assert_eq!(err_status(&r), Some(Status::InvalidParameter));
     let r = ws.call("meta", &format!("{ROOT}/~set"), vec![]).await;
     assert_eq!(err_status(&r), Some(Status::InvalidParameter));
-    assert!(env
-        .audit
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|e| matches!(e, AuditEvent::Denied { op, .. } if op == "set")));
+    assert!(env.audit.lock().unwrap().iter().any(
+        |e| matches!(e, AuditEvent::Denied { op, .. } if *op == wyrm_gateway::DeniedFor::Set)
+    ));
     env.stop().await;
 }
 
@@ -942,12 +939,9 @@ async fn http_invoke_takes_large_arguments() {
     // read rights pass the first check, not the action's level (write)
     let (st, _) = env.http("POST", &put, Some(&viewer), Some(data(10))).await;
     assert_eq!(st, 403);
-    assert!(env
-        .audit
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|e| matches!(e, AuditEvent::Denied { op, .. } if op == "invoke")));
+    assert!(env.audit.lock().unwrap().iter().any(
+        |e| matches!(e, AuditEvent::Denied { op, .. } if *op == wyrm_gateway::DeniedFor::Invoke)
+    ));
     // an action without a file parameter goes over the WebSocket
     let reset = format!("/api/invoke?key={ROOT}&action=reset");
     let (st, v) = env.http("POST", &reset, Some(&root), Some(map([]))).await;
@@ -1887,7 +1881,7 @@ async fn a_user_reads_a_plan_and_approves_the_ticked_steps() {
         format!("step 3 needs config on {k2}; you have write")
     );
     assert!(env.audit.lock().unwrap().iter().any(
-        |e| matches!(e, AuditEvent::Denied { op, user, .. } if op == "approve" && user == "ap")
+        |e| matches!(e, AuditEvent::Denied { op, user, .. } if *op == wyrm_gateway::DeniedFor::Approve && user == "ap")
     ));
     let r = ap.call("doc", &task, state.clone()).await;
     assert_eq!(text(get(&r, "result"), "state"), "awaiting_approval");

@@ -227,6 +227,26 @@ impl wyrm_client::TokenSource for UserTokens {
     }
 }
 
+wyrm_core::name_enum! {
+    /// What a request the gateway refused (`AuditEvent::Denied`) was: a WebSocket op
+    /// (`ws::op::OpName`, the same names), the approval of an agent's plan, or a
+    /// config-level change without its step-up. Its name is the audit record's `op`.
+    pub enum DeniedFor as "refused gateway request" without codec {
+        Meta => "meta",
+        Children => "children",
+        List => "list",
+        Subscribe => "subscribe",
+        Unsubscribe => "unsubscribe",
+        Set => "set",
+        Invoke => "invoke",
+        Check => "check",
+        History => "history",
+        Doc => "doc",
+        Approve => "approve",
+        ConfirmRequired => "confirm_required",
+    }
+}
+
 /// Security events for the audit trail. Never carries passwords or tokens.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -250,7 +270,7 @@ pub enum AuditEvent {
     /// Refused by the gateway's own grant check (before Zenoh).
     Denied {
         user: String,
-        op: String,
+        op: DeniedFor,
         key: String,
     },
     /// The user signed an MCP client in (ADR 0041): its name as it registered

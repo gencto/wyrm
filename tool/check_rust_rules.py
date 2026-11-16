@@ -329,6 +329,28 @@ def name_fields(code: str) -> set[tuple[str, str]]:
 
 
 STRUCT = re.compile(r"\bstruct\s+(\w+)\s*(?:<[^>{]*>)?\s*(?:where[^{]*)?\{")
+ENUM = re.compile(r"\benum\s+\w+\s*(?:<[^>{]*>)?\s*(?:where[^{]*)?\{")
+
+
+def field_bodies(code: str) -> list[tuple[str, int, int]]:
+    """`(name, open, end)` of every body that holds named fields: a `struct`, and each
+    brace variant of an `enum` (`Denied { op: String, … }`, named by the variant)."""
+    out = [(m.group(1), m.end() - 1, block_end(code, m.end() - 1)) for m in STRUCT.finditer(code)]
+    for em in ENUM.finditer(code):
+        end = block_end(code, em.end() - 1)
+        depth, j = 0, em.end()
+        while j < end - 1:
+            ch = code[j]
+            if ch == "{":
+                if depth == 0:
+                    v = re.search(r"(\w+)\s*$", code[em.end() : j])
+                    if v:
+                        out.append((v.group(1), j, block_end(code, j)))
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            j += 1
+    return out
 
 
 def c3(s: Source) -> list[int]:
@@ -338,11 +360,10 @@ def c3(s: Source) -> list[int]:
     hits = []
     filled = CRATE_NAME_FIELDS.get(crate_of(s.path), set()) | name_fields(s.masked)
     if filled:
-        for sm in STRUCT.finditer(s.masked):
-            end = block_end(s.masked, sm.end() - 1)
-            for k in range(s.line_of(sm.end()), s.line_of(end) + 1):
+        for name, open_at, end in field_bodies(s.masked):
+            for k in range(s.line_of(open_at + 1), s.line_of(end) + 1):
                 fm = FIELD.match(s.lines[k - 1]) if s.masked_lines[k - 1].strip() else None
-                if fm and ((sm.group(1), fm.group(1)) in filled or ("", fm.group(1)) in filled):
+                if fm and ((name, fm.group(1)) in filled or ("", fm.group(1)) in filled):
                     hits.append(s.starts[k - 1])
     for i, line in enumerate(s.lines):
         if not s.masked_lines[i].strip():
@@ -896,6 +917,13 @@ PROBES = [
         "C3",
         "x.rs",
         "struct Info {\n    mode: String,\n}\nfn f(i: &mut Info, m: Mode) { i.mode = String::from(m.name()); }",
+        1,
+    ),
+    (
+        "C3",
+        "x.rs",
+        "pub enum Event {\n    Denied {\n        user: String,\n        op: String,\n    },\n    Other(u8),\n}\n"
+        "fn f(o: Op) -> Event { Event::Denied { user: String::new(), op: o.name().to_owned() } }",
         1,
     ),
     (

@@ -277,10 +277,11 @@ if job.status != JobStatus::Done { … }
 **Check.** C3 `string-closed-set`: a text field (`String`, `&str`,
 `Box<str>`, `Cow<str>`, in `Option` too, the last field of a struct too) or a
 `fn` argument whose doc lists its values (backticked or quoted alternatives,
-"one of …", "a, b or c"); and a text field of a struct, documented or not,
-that the crate fills from an enum's `name()` (`mode: def.mode.name().to_owned()`
+"one of …", "a, b or c"); and a text field of a struct or of an enum's brace
+variant, documented or not, that the crate fills from an enum's `name()` (`mode: def.mode.name().to_owned()`
 in a literal of the struct, `x.mode = m.name().into()`, `String::from(m.name())`):
-its set is that enum (`LinkInfo.mode` was one, now `Mode`). C6 `string-set`: inline `["a", "b"]` (with or
+its set is that enum (`LinkInfo.mode` was one, now `Mode`; the gateway's
+`AuditEvent::Denied.op`, now `DeniedFor`). C6 `string-set`: inline `["a", "b"]` (with or
 without `&`, `vec![…]`; not the key list of `only(&[…])`), `matches!(x, "a" |
 "b")`, `x == "a" || x == "b"`, and `const`/`static` tables of `&str` (also of
 tuples). The bodies of the `name_enum!` and `wire_enum!` macros (in

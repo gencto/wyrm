@@ -25,6 +25,24 @@ wyrm_core::name_enum! {
     }
 }
 
+impl From<OpName> for crate::DeniedFor {
+    /// The same op, refused (every op has its own refusal, by the same name).
+    fn from(op: OpName) -> Self {
+        match op {
+            OpName::Meta => Self::Meta,
+            OpName::Children => Self::Children,
+            OpName::List => Self::List,
+            OpName::Subscribe => Self::Subscribe,
+            OpName::Unsubscribe => Self::Unsubscribe,
+            OpName::Set => Self::Set,
+            OpName::Invoke => Self::Invoke,
+            OpName::Check => Self::Check,
+            OpName::History => Self::History,
+            OpName::Doc => Self::Doc,
+        }
+    }
+}
+
 wyrm_core::name_enum! {
     /// The documents `doc` reads (spec 01).
     pub(crate) enum DocSuffix as "doc suffix" {
@@ -205,6 +223,15 @@ pub(crate) fn allowed(
 mod tests {
     use super::*;
     use wyrm_core::ptok::Grant;
+
+    /// The audit names a refused op as the op itself: `DeniedFor` holds every op name,
+    /// spelled the same (it was the op's text before it was typed).
+    #[test]
+    fn a_refused_op_keeps_its_name() {
+        for op in OpName::ALL {
+            assert_eq!(crate::DeniedFor::from(*op).name(), op.name());
+        }
+    }
     use wyrm_core::Status;
 
     fn sample(op: OpName) -> Op {

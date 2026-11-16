@@ -539,18 +539,29 @@ fn undo(data_dir: &Path, pending: &Path, before: &Before, why: &str) -> Result<(
 /// The folder becomes `restore.failed`: its plan and the reason stay,
 /// everything else (opened keys and secrets among it) goes.
 fn set_failed(data_dir: &Path, pending: &Path, why: &str) -> Result<(), String> {
-    // opened keys and secrets among them: each goes, or the folder is not kept as failed
+    // The state is the old one here; what is left of the folder is the broker's own
+    // private directory (0700). A part that does not go (opened keys and secrets among
+    // them) is named in the log, as in `apply_pending`, and never stops the start that
+    // runs on the old state: the next restore removes `restore.failed` first.
+    let left = |p: &Path, r: std::io::Result<()>| {
+        if let Err(e) = r {
+            tracing::error!("{} stays: {e}", p.display());
+        }
+    };
     for name in ["data", OLD, LINK_SECRETS, STORAGE_TREE, BEFORE] {
         let p = pending.join(name);
-        crate::nofollow::remove_any(&p).map_err(|e| io_err(&p, e))?;
+        left(&p, crate::nofollow::remove_any(&p));
     }
     secret::write_private(&pending.join(ERROR), why.as_bytes()).map_err(|e| io_err(pending, e))?;
-    // an undo mark that stayed would make the next start undo again
-    std::fs::remove_file(pending.join(UNDO))
-        .or_else(wyrm_core::files::gone_ok)
-        .map_err(|e| io_err(&pending.join(UNDO), e))?;
+    // moved with the folder when it stays; a folder that is not moved is undone again
+    // at the next start, which is safe (every step may run again)
+    let undo_mark = pending.join(UNDO);
+    left(
+        &undo_mark,
+        std::fs::remove_file(&undo_mark).or_else(wyrm_core::files::gone_ok),
+    );
     let failed = data_dir.join(FAILED);
-    crate::nofollow::remove_any(&failed).map_err(|e| io_err(&failed, e))?;
+    left(&failed, crate::nofollow::remove_any(&failed));
     std::fs::rename(pending, &failed).map_err(|e| io_err(&failed, e))
 }
 
