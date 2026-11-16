@@ -9,6 +9,7 @@ import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 import 'package:models/quality.dart';
 
+import '../mappers/block_cfg.dart';
 import '../mappers/csv_table.dart';
 import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';
@@ -237,11 +238,11 @@ CsvRules _csvRules(
   Object? read(BlockCfgKey key) {
     final f = all.where((x) => x.spec?.key == key).firstOrNull;
     if (f == null) {
-      return b.cfg[key.wire];
+      return b.param(key.wire);
     }
     final shown = fieldValue(b, f, d, live);
     wired = wired || shown.bound;
-    return shown.raw ?? (b.cfg[key.wire] ?? f.spec?.defaultValue);
+    return shown.raw ?? (b.param(key.wire) ?? f.spec?.defaultValue);
   }
 
   final delimiter = read(BlockCfgKey.delimiter);

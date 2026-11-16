@@ -7,7 +7,7 @@ import 'package:models/flow_draft.dart';
 import 'package:models/node_type.dart';
 import 'package:models/port_end.dart';
 
-import '../decode/block_cfg.dart';
+import '../mappers/block_cfg.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_canvas.dart';
 import '../mappers/flow_fields.dart';

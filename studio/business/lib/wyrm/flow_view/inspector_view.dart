@@ -10,7 +10,8 @@ import 'package:models/live_value.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
-import '../decode/block_cfg.dart';
+import '../mappers/block_cfg.dart';
+import '../mappers/config_text.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
 import '../mappers/flow_mapper.dart';
@@ -584,7 +585,7 @@ InspectorRow _row(
   }
   final p = f.spec;
   if (p != null) {
-    final v = b.cfg[p.name] ?? p.defaultValue;
+    final v = b.param(p.name) ?? p.defaultValue;
     final scoped = p.name == keyed?.scope;
     final keyBound =
         keyed != null &&

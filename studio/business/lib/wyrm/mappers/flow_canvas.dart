@@ -13,8 +13,9 @@ import 'package:models/port_end.dart';
 import 'package:models/undo_tag.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../decode/block_cfg.dart';
 import '../decode/flow_clip.dart';
+import 'block_cfg.dart';
+import 'config_text.dart';
 import 'flow_blocks.dart';
 import 'flow_fields.dart';
 import 'flow_mapper.dart';
@@ -488,7 +489,7 @@ enum FieldEditError { number, json, toggle }
 /// The typed value of [f] of [b] as the config holds it: the config's
 /// value, else the parameter's default; null when it has none.
 Object? fieldEditValue(FlowBlock b, FlowField f) => switch (f) {
-  FlowField(:final spec?) => b.cfg[spec.name] ?? spec.defaultValue,
+  FlowField(:final spec?) => b.param(spec.name) ?? spec.defaultValue,
   FlowField(kind: FieldKind.arg) => b.cfgArgs[f.name],
   FlowField(operand: true, :final inPort?) => operandValueOf(b, inPort),
   _ => null,

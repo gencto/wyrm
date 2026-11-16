@@ -1,9 +1,10 @@
-import 'package:business/wyrm/decode/block_cfg.dart';
 import 'package:business/wyrm/decode/decoded.dart';
 import 'package:business/wyrm/decode/flow_check.dart';
 import 'package:business/wyrm/decode/flow_clip.dart';
 import 'package:business/wyrm/decode/flow_rows.dart';
 import 'package:business/wyrm/decode/flow_val.dart';
+import 'package:business/wyrm/mappers/block_cfg.dart';
+import 'package:business/wyrm/mappers/config_text.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:models/block_type.dart';

@@ -1,7 +1,7 @@
 import 'package:models/field_id.dart';
 import 'package:models/port_end.dart';
 
-import '../../../wyrm/decode/block_cfg.dart';
+import '../../../wyrm/mappers/block_cfg.dart';
 import '../../app_state.dart';
 import '../../common/action.dart';
 import 'connect_ports_action.dart';

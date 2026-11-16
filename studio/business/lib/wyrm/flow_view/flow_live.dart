@@ -6,7 +6,7 @@ import 'package:models/flow_edge.dart';
 import 'package:models/flow_frame.dart';
 import 'package:models/live_value.dart';
 
-import '../decode/block_cfg.dart';
+import '../mappers/block_cfg.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
 import '../mappers/flow_mapper.dart';
@@ -209,7 +209,7 @@ final class FlowLive {
       if (ports?[portKey(PortSide.param, b.id, f.name)] case final v?) {
         return v;
       }
-      final typed = b.cfg[f.name] ?? f.spec?.defaultValue;
+      final typed = b.param(f.name) ?? f.spec?.defaultValue;
       return typed == null ? null : LiveValue(time: typedTime, value: typed);
     }
 

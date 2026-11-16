@@ -16,9 +16,10 @@ import 'package:models/port_type.dart';
 import 'package:models/quality.dart';
 import 'package:wyrm_client/wyrm_client.dart' show TypeCode;
 
-import '../decode/block_cfg.dart';
 import '../decode/flow_rows.dart';
 import '../labels.dart';
+import 'block_cfg.dart';
+import 'config_text.dart';
 import 'flow_blocks.dart';
 import 'flow_mapper.dart';
 import 'value_text.dart';
@@ -30,7 +31,6 @@ export 'package:models/field_id.dart' show FieldKind;
 export 'package:models/port_side.dart';
 
 export '../decode/flow_rows.dart' show portKey;
-
 export '../labels.dart' show humanize;
 
 // The flow editor draws a block as fields, not as engine ports
@@ -912,7 +912,7 @@ BlockForm? formOf(FlowBlock b, Iterable<FlowEdge> edges) {
   for (final f in forms.skip(1)) {
     final given = f.params.any(
       (p) =>
-          b.cfg[p] != null ||
+          b.hasParam(p) ||
           edges.any((e) => e.to == b.id && e.toPort == 'in.$p'),
     );
     if (given) {
@@ -935,7 +935,7 @@ bool _otherForm(FlowBlock b, String name, Iterable<FlowEdge> edges) {
     return false;
   }
   final kept =
-      b.cfg[name] != null ||
+      b.hasParam(name) ||
       edges.any(
         (e) =>
             (e.to == b.id && e.toPort == 'in.$name') ||
@@ -1084,10 +1084,10 @@ List<FlowField> fieldsOf(
             (final n, _) when n == keyed?.key => true,
             // Its scope shows once it matters: a wire feeds the key, or
             // a scope is written.
-            (final n, _) when n == keyed?.scope => keyBound || b.cfg[n] != null,
+            (final n, _) when n == keyed?.scope => keyBound || b.hasParam(n),
             // Behaviours are set in the inspector; one that is set shows.
             (final n, _) when behaves && behaviourParams.contains(n) =>
-              b.cfg[n] != null,
+              b.hasParam(n),
             // The action block names its action in its header.
             (_, BlockCfgKey.action || BlockCfgKey.on)
                 when behaves && role == BlockRole.action =>
@@ -1105,7 +1105,7 @@ List<FlowField> fieldsOf(
                   (portOf.containsKey(p.name) ||
                       (form?.params.contains(p.name) ?? false) ||
                       (_oneOf[known]?.contains(p.name) ?? false) ||
-                      b.cfg[p.name] != null ||
+                      b.hasParam(p.name) ||
                       p.defaultValue != null ||
                       p.required),
           },
@@ -1539,7 +1539,7 @@ FieldValue fieldValue(
   switch (f.kind) {
     case FieldKind.param:
       final p = f.spec!;
-      final typed = b.cfg[p.name] ?? p.defaultValue;
+      final typed = b.param(p.name) ?? p.defaultValue;
       if (f.variable) {
         sample =
             live(portKey(PortSide.output, b.id, f.outPort!)) ??

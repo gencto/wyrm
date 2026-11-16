@@ -15,10 +15,10 @@ import 'package:models/port_end.dart';
 import 'package:models/port_side.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../decode/block_cfg.dart';
 import '../decode/block_def.dart';
 import '../decode/flow_def.dart';
 import '../decode/flow_rows.dart';
+import 'block_cfg.dart';
 import 'flow_canvas.dart';
 import 'flow_mapper.dart';
 

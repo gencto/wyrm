@@ -7,7 +7,7 @@ import 'package:models/flow_draft.dart';
 import 'package:models/node_type.dart';
 import 'package:wyrm_client/wyrm_client.dart';
 
-import '../decode/block_cfg.dart';
+import 'block_cfg.dart';
 
 /// The ports of [b] by its type: fixed ones and the ones a parameter names.
 ({List<String> inputs, List<String> outputs}) portsOf(

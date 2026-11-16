@@ -1,6 +1,6 @@
 import 'package:models/field_id.dart';
 
-import '../../../wyrm/decode/block_cfg.dart';
+import '../../../wyrm/mappers/block_cfg.dart';
 import '../../../wyrm/mappers/flow_blocks.dart';
 import '../../../wyrm/mappers/flow_canvas.dart';
 import '../../../wyrm/mappers/flow_fields.dart';

@@ -9,7 +9,7 @@ import 'package:models/live_value.dart';
 import 'package:models/node_info.dart';
 import 'package:models/node_type.dart';
 
-import '../decode/block_cfg.dart';
+import '../mappers/block_cfg.dart';
 import '../mappers/flow_blocks.dart';
 import '../mappers/flow_fields.dart';
 import '../mappers/value_text.dart';
