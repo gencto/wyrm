@@ -277,7 +277,7 @@ fn target_params(a: ActionMeta, required: bool) -> ActionMeta {
         "confirm",
         param(TypeCode::Enum, "Confirm")
             .required(required)
-            .enum_values(Confirm::ALL.map(Confirm::as_str))
+            .enum_values(Confirm::ALL.iter().map(|c| c.name()))
             .description(CONFIRM_ABOUT),
     )
     .param(
@@ -316,7 +316,7 @@ pub fn target_meta(t: &Target) -> NodeMeta {
     let mut m = NodeMeta::leaf(TypeCode::String)
         .display(d.id.clone())
         .attr("point", d.point.clone())
-        .attr("confirm", d.confirm.as_str())
+        .attr("confirm", d.confirm.name())
         .attr(
             "feedback",
             d.feedback.clone().map_or(Value::Null, Value::Str),

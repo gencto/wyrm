@@ -282,12 +282,17 @@ pub fn make_dirs(root: &Path, rel: &Path) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// A new directory only its owner enters: refused when the name is taken.
+/// A new directory only its owner enters: refused when the name is taken
+/// (a symlink there too), then checked and set as `secret::private_dir_of`.
 pub fn new_private_dir(dir: &Path) -> Result<(), String> {
     let mut b = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-    b.create(dir).map_err(|e| format!("{}: {e}", dir.display()))
+    b.create(dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    crate::secret::private_dir_of(dir)
+        .map(drop)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove what is at `path` as what it is: a directory with its content, a

@@ -430,7 +430,9 @@ pub fn unpack(zip: &[u8], root: &Path, source: &str, now: u64) -> Result<Unpacke
                 g.path
             ));
         }
-        out.def.requester.push((g.path.clone(), level.code()));
+        out.def
+            .requester
+            .push(crate::registry::LinkGrant::new(g.path.clone(), level));
     }
     out.def.state = m.state();
     out.reads_state = m.reads_state();

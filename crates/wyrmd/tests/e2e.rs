@@ -5577,6 +5577,161 @@ async fn the_gateway_signs_approvals_for_the_agent_links_of_the_registry() {
     env.stop().await;
 }
 
+/// Audit of #125: the edit of an agent link drops its API key before the new base is stored,
+/// and a key that cannot be dropped refuses the edit. Driven through the edit itself: the
+/// secret store cannot save (no new file in `data_dir`) while the registry can (`state/`).
+/// Were the drop after `apply`, the new base would be stored and the key kept.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_key_that_cannot_be_dropped_refuses_the_edit() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let dir = temp_dir("agentkeykept");
+    let env = Env::start_in(&dir, "").await;
+    let links = format!("wy/{SITE}/sys/links");
+    let params = |base: &str| {
+        args_map(&[
+            (
+                "allowed_prefixes",
+                Value::Array(vec![Value::from("wy/e2e/downstream/mock")]),
+            ),
+            ("api_base", base.into()),
+        ])
+    };
+    let install = args_map(&[
+        ("id", "kept".into()),
+        ("driver", "agent".into()),
+        ("params", params("https://api.anthropic.com")),
+    ]);
+    invoke_rebuilt(&env, &links, "install", install)
+        .await
+        .expect("install the agent");
+    let node = format!("{links}/kept");
+    let secret = args_map(&[
+        ("name", "anthropic_api_key".into()),
+        ("value", Value::Bytes(b"sk-kept".to_vec())),
+    ]);
+    invoke_rebuilt(&env, &node, "set_secret", secret)
+        .await
+        .expect("set the key");
+    if std::fs::metadata(&dir).unwrap().uid() == 0 {
+        env.stop().await;
+        return; // root writes into a read-only directory: nothing to show
+    }
+    let c = slow_client(&env).await;
+    let before = env.ctl.registry().links["kept"].params.clone();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let r = c
+        .invoke_one(
+            &node,
+            "update",
+            args_map(&[("params", params("https://llm.example"))]),
+        )
+        .await;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(r.is_err(), "the edit is refused: {r:?}");
+    assert_eq!(
+        env.ctl.registry().links["kept"].params,
+        before,
+        "the new base is not stored"
+    );
+    let left = format!(
+        "{:?}",
+        c.invoke_one(&node, "secrets", args_map(&[])).await.unwrap()
+    );
+    assert!(left.contains("anthropic_api_key"), "{left}");
+    env.stop().await;
+}
+
+/// Audit of #125: review AI-3 by a restore. `install_backup` over an existing agent link put
+/// the backup's params (another `api_base`) in place without the drop the edit does, and the
+/// restored secrets were added to the old ones, so the link's API key stayed for the new base.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restored_agent_link_with_another_base_drops_the_key() {
+    let env = Env::start("agentrestore", "").await;
+    let links = format!("wy/{SITE}/sys/links");
+    let install = |id: &str, base: &str| {
+        args_map(&[
+            ("id", id.into()),
+            ("driver", "agent".into()),
+            (
+                "params",
+                args_map(&[
+                    (
+                        "allowed_prefixes",
+                        Value::Array(vec![Value::from("wy/e2e/downstream/mock")]),
+                    ),
+                    ("api_base", base.into()),
+                ]),
+            ),
+        ])
+    };
+    invoke_rebuilt(
+        &env,
+        &links,
+        "install",
+        install("real", "https://api.anthropic.com"),
+    )
+    .await
+    .expect("install the real agent");
+    let real = format!("{links}/real");
+    let secret = args_map(&[
+        ("name", "anthropic_api_key".into()),
+        ("value", Value::Bytes(b"sk-real".to_vec())),
+    ]);
+    invoke_rebuilt(&env, &real, "set_secret", secret)
+        .await
+        .expect("set the key");
+    invoke_rebuilt(
+        &env,
+        &links,
+        "install",
+        install("evil", "https://llm.example"),
+    )
+    .await
+    .expect("install the other agent");
+    let c = slow_client(&env).await;
+    let id = backup_id(
+        c.invoke_one(&format!("{links}/evil"), "backup", args_map(&[]))
+            .await
+            .unwrap(),
+    );
+    backup_done(&env, &id).await;
+    let bytes = download_backup(&c, &id, 16 << 20).await;
+    let over = args_map(&[
+        ("file", Value::Bytes(bytes)),
+        ("id", "real".into()),
+        ("accept", Value::Bool(true)),
+    ]);
+    // the restore of an agent's params rebuilds the router (its `allowed_prefixes` scope
+    // its key), so the reads after it retry across the rebuild
+    let (ok, msg) = install_outcome(c.invoke_one(&links, "install_backup", over).await.unwrap());
+    assert!(ok, "{msg}");
+    let restored = eventually("the restored params", 60, || async {
+        let p = env.ctl.registry().links.get("real")?.params.clone();
+        let text = String::from_utf8_lossy(&p).into_owned();
+        text.contains("llm.example").then_some(())
+    });
+    restored.await;
+    let left = eventually("the secrets of the restored link", 60, || async {
+        let c = slow_client(&env).await;
+        c.invoke_one(&real, "secrets", args_map(&[]))
+            .await
+            .ok()
+            .map(|v| format!("{v:?}"))
+    })
+    .await;
+    assert!(
+        !left.contains("anthropic_api_key"),
+        "the key stays with the new base: {left}"
+    );
+    assert!(env
+        .ctl
+        .audit_tail(100)
+        .iter()
+        .any(|r| r.op == "secret_dropped" && r.key == "real"));
+    env.stop().await;
+}
+
 /// Security review AI-3: the agent's LLM API key is dropped when `api_base` changes, so a
 /// `config` operator cannot send the key to a host of their own.
 #[tokio::test(flavor = "multi_thread")]
@@ -13472,8 +13627,8 @@ async fn package_update_with_new_grants_needs_accept() {
     assert_eq!(upd_text(&r, "result"), "ok", "{r:?}");
     let reg = env.ctl.registry();
     assert_eq!(reg.packages["updpkg"].version, "2.0.0");
-    let read = wyrm_core::Perm::Read.code();
-    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    let read = wyrm_admin::registry::LinkGrant::new(grant, wyrm_core::Perm::Read);
+    assert_eq!(reg.links["u1"].grants, std::slice::from_ref(&read));
     drop(reg);
     upd_c2(&env, "c2 is still there on 2.0.0").await;
 
@@ -13485,7 +13640,7 @@ async fn package_update_with_new_grants_needs_accept() {
     assert_eq!(upd_text(&r, "result"), "rolled_back", "{r:?}");
     let reg = env.ctl.registry();
     assert_eq!(reg.packages["updpkg"].version, "1.0.0");
-    assert_eq!(reg.links["u1"].grants, [(grant.to_owned(), read)]);
+    assert_eq!(reg.links["u1"].grants, [read]);
     drop(reg);
     env.stop().await;
 }

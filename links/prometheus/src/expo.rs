@@ -16,44 +16,25 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The type a `# TYPE` line gives a metric family.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MetricType {
-    Counter,
-    Gauge,
-    Histogram,
-    GaugeHistogram,
-    Summary,
-    Info,
-    StateSet,
-    Unknown,
+wyrm_core::name_enum! {
+    /// The type a `# TYPE` line gives a metric family.
+    pub enum MetricType {
+        Counter => "counter",
+        Gauge => "gauge",
+        Histogram => "histogram",
+        GaugeHistogram => "gaugehistogram",
+        Summary => "summary",
+        Info => "info",
+        StateSet => "stateset",
+        Unknown => "unknown",
+    }
 }
 
 impl MetricType {
+    /// A type this parser does not know is `unknown` (OpenMetrics: a family of no stated
+    /// type), never an error: the samples are still read.
     fn parse(s: &str) -> Self {
-        match s {
-            "counter" => Self::Counter,
-            "gauge" => Self::Gauge,
-            "histogram" => Self::Histogram,
-            "gaugehistogram" => Self::GaugeHistogram,
-            "summary" => Self::Summary,
-            "info" => Self::Info,
-            "stateset" => Self::StateSet,
-            _ => Self::Unknown,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Counter => "counter",
-            Self::Gauge => "gauge",
-            Self::Histogram => "histogram",
-            Self::GaugeHistogram => "gaugehistogram",
-            Self::Summary => "summary",
-            Self::Info => "info",
-            Self::StateSet => "stateset",
-            Self::Unknown => "unknown",
-        }
+        Self::from_name(s).unwrap_or(Self::Unknown)
     }
 }
 

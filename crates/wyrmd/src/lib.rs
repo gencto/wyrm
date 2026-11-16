@@ -1060,7 +1060,7 @@ impl Config {
                 return Err(format!("links.{id}: the id belongs to the broker").into());
             }
             if let Some(m) = &l.mode {
-                Mode::parse(m).ok_or_else(|| format!("links.{id}.mode: unknown mode {m}"))?;
+                Mode::from_name(m).ok_or_else(|| format!("links.{id}.mode: unknown mode {m}"))?;
             }
         }
         Ok(cfg)
@@ -1105,7 +1105,7 @@ impl Config {
                 mode: l
                     .mode
                     .as_deref()
-                    .and_then(Mode::parse)
+                    .and_then(Mode::from_name)
                     .unwrap_or(Mode::Embedded),
                 params: match &l.params {
                     serde_json::Value::Null => Value::Map(Default::default()),

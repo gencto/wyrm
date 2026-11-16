@@ -272,16 +272,17 @@ async fn main() -> std::process::ExitCode {
 }
 
 async fn run(cli: Cli) -> Result<(), Error> {
-    // Commands that need no broker connection.
+    // The broker connection, opened by the commands that need one.
+    let broker = || connect(&cli.connect, &cli.ca, &cli.cert, &cli.tls_key, cli.timeout);
     match cli.cmd {
-        Cmd::Keygen { out } => return keygen(&out),
+        Cmd::Keygen { out } => keygen(&out),
         Cmd::Probe {
             names,
             file,
             gateway,
             user,
             site,
-        } => return probe(names, file, &gateway, &user, &site).await,
+        } => probe(names, file, &gateway, &user, &site).await,
         Cmd::Token {
             key_expr,
             subject,
@@ -301,11 +302,11 @@ async fn run(cli: Cli) -> Result<(), Error> {
                     args_sha256.as_deref()
                 )?
             );
-            return Ok(());
+            Ok(())
         }
-        Cmd::New { what } => return scaffold::run(what),
-        Cmd::Link { cmd } => return pack::run_link(cmd),
-        Cmd::Repo { cmd } => return pack::run_repo(cmd),
+        Cmd::New { what } => scaffold::run(what),
+        Cmd::Link { cmd } => pack::run_link(cmd),
+        Cmd::Repo { cmd } => pack::run_repo(cmd),
         Cmd::Replay {
             file,
             flow,
@@ -326,25 +327,32 @@ async fn run(cli: Cli) -> Result<(), Error> {
                 settle: Duration::from_millis(settle_ms),
             })
             .await?;
-            return Ok(());
+            Ok(())
         }
         Cmd::Sim { what } => {
             let (ep, ca, cert, tls_key) = (&cli.connect, &cli.ca, &cli.cert, &cli.tls_key);
-            let broker = || client_config(ep, ca, cert, tls_key);
-            return sim::run(what, broker, &cli.key).await;
+            let config = || client_config(ep, ca, cert, tls_key);
+            sim::run(what, config, &cli.key).await
         }
-        _ => {}
-    }
-    let client = connect(&cli).await?;
-    match cli.cmd {
-        Cmd::Tree { node, depth } => tree(&client, &node, depth).await,
+        Cmd::Tree { node, depth } => {
+            let client = broker().await?;
+            tree(&client, &node, depth).await
+        }
         Cmd::Dev { flows, site } => {
+            let client = broker().await?;
             let c = client.with_site(&flow::root(&site), &cli.key)?;
             dev::run(&c, &site, &flows).await
         }
-        Cmd::Record { pattern, out, secs } => replay::record(&client, &pattern, &out, secs).await,
-        Cmd::List { node, watch } => list(&client, &node, watch).await,
+        Cmd::Record { pattern, out, secs } => {
+            let client = broker().await?;
+            replay::record(&client, &pattern, &out, secs).await
+        }
+        Cmd::List { node, watch } => {
+            let client = broker().await?;
+            list(&client, &node, watch).await
+        }
         Cmd::Meta { node } => {
+            let client = broker().await?;
             out!("{}", fmt_meta(&client.meta(&node).await?));
             Ok(())
         }
@@ -353,19 +361,26 @@ async fn run(cli: Cli) -> Result<(), Error> {
             matcher,
             depth,
         } => {
+            let client = broker().await?;
             for k in client.resolve(&node, matcher.as_deref(), depth).await? {
                 out!("{k}");
             }
             Ok(())
         }
-        Cmd::Sub { pattern, reliable } => sub(&client, &pattern, reliable).await,
+        Cmd::Sub { pattern, reliable } => {
+            let client = broker().await?;
+            sub(&client, &pattern, reliable).await
+        }
         Cmd::Query {
             text,
             once,
             every_ms,
             json,
             sinks,
-        } => query::run(&client, &text, once, every_ms, json, sinks).await,
+        } => {
+            let client = broker().await?;
+            query::run(&client, &text, once, every_ms, json, sinks).await
+        }
         Cmd::Values {
             node,
             from,
@@ -374,6 +389,7 @@ async fn run(cli: Cli) -> Result<(), Error> {
             window,
             limit,
         } => {
+            let client = broker().await?;
             let q = wyrm_client::HistoryQuery::from_text(
                 &from,
                 &to,
@@ -392,6 +408,7 @@ async fn run(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Cmd::Set { node, value } => {
+            let client = broker().await?;
             client
                 .with_site(&node, &cli.key)?
                 .set(&node, parse_value(&value))
@@ -400,6 +417,7 @@ async fn run(cli: Cli) -> Result<(), Error> {
             Ok(())
         }
         Cmd::Invoke { node, action, args } => {
+            let client = broker().await?;
             let mut map = BTreeMap::new();
             for a in &args {
                 let (k, v) = parse_param(a)?;
@@ -420,30 +438,19 @@ async fn run(cli: Cli) -> Result<(), Error> {
             }
             Ok(())
         }
-        Cmd::Bench { what } => bench::run(&client.inner, what).await,
+        Cmd::Bench { what } => {
+            let client = broker().await?;
+            bench::run(&client.inner, what).await
+        }
         Cmd::Flow { cmd } => {
+            let client = broker().await?;
             let c = client.with_site(&flow::root(cmd.site()), &cli.key)?;
             flow::run(&c, cmd).await
         }
         Cmd::Admin(cmd) => {
+            let client = broker().await?;
             let c = client.with_site(&format!("wy/{}/sys", cmd.site()), &cli.key)?;
             admin::run(&c, cmd).await
-        }
-        Cmd::Keygen { .. }
-        | Cmd::Probe { .. }
-        | Cmd::Token { .. }
-        | Cmd::New { .. }
-        | Cmd::Link { .. }
-        | Cmd::Repo { .. }
-        | Cmd::Replay { .. }
-        | Cmd::Sim { .. } => {
-            #[allow(
-                clippy::unreachable,
-                reason = "the first `match cli.cmd` of this function returns for each of these"
-            )]
-            {
-                unreachable!("handled above")
-            }
         }
     }
 }
@@ -535,11 +542,17 @@ fn client_config(
     Ok(wyrm_client::endpoint::client_config(connect, tls.as_ref())?)
 }
 
-async fn connect(cli: &Cli) -> Result<Ctx, Error> {
-    let zc = client_config(&cli.connect, &cli.ca, &cli.cert, &cli.tls_key)?;
+async fn connect(
+    endpoint: &str,
+    ca: &Option<PathBuf>,
+    cert: &Option<PathBuf>,
+    tls_key: &Option<PathBuf>,
+    timeout_s: u64,
+) -> Result<Ctx, Error> {
+    let zc = client_config(endpoint, ca, cert, tls_key)?;
     let session = zenoh::open(zc).await?;
     Ok(Ctx {
-        inner: WyrmClient::new(session).with_timeout(Duration::from_secs(cli.timeout)),
+        inner: WyrmClient::new(session).with_timeout(Duration::from_secs(timeout_s)),
     })
 }
 

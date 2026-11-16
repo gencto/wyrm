@@ -217,7 +217,10 @@ impl AgentParams {
         let require_approval = ApprovalMode::from_name(&mode).ok_or_else(|| {
             LinkError::invalid_parameter(format!(
                 "params.require_approval: expected one of {:?}",
-                ApprovalMode::NAMES
+                ApprovalMode::ALL
+                    .iter()
+                    .map(|m| m.name())
+                    .collect::<Vec<_>>()
             ))
         })?;
         let p = Self {

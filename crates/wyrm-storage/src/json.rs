@@ -59,11 +59,26 @@ pub fn from_json(j: &Json) -> Result<Value> {
     })
 }
 
+/// Why a subtree does not export.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ExportError {
+    /// The text would pass this many bytes.
+    #[error("more than {0} bytes")]
+    TooLarge(usize),
+    /// A node below `path` is named like a node's own field (`$type`,
+    /// `@editor`, `?value`): its JSON would land on its parent's field. Every
+    /// name is checked when it is made (`keyspace::validate_segment`), so
+    /// only a store written without that check holds one.
+    #[error("{0}: a node named like a node's field ($…, @…, ?…) cannot be exported")]
+    FieldName(String),
+}
+
 /// The subtree at `path` (`nodes` holds it, `path` itself included) as
-/// JSON text: the node's own fields and its children, nested. `None` once
-/// the text would pass `max` bytes: counted while it is built, so a large
-/// subtree never becomes a large tree in memory.
-pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Option<String> {
+/// JSON text: the node's own fields and its children, nested. Refused once
+/// the text would pass `max` bytes (counted while it is built, so a large
+/// subtree never becomes a large tree in memory), and for a node named like
+/// a field.
+pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Result<String, ExportError> {
     fn node(rec: Option<&Rec>) -> Map<String, Json> {
         let mut m = Map::new();
         if let Some(r) = rec {
@@ -101,12 +116,15 @@ pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Option<String>
         let Some((last, parents)) = segs.split_last() else {
             continue;
         };
+        if segs.iter().any(|s| s.starts_with(['$', '@', '?'])) {
+            return Err(ExportError::FieldName(p.clone()));
+        }
         let obj = node(Some(r));
         // At least the object, its quoted name and `:` (commas aside), so
         // passing `max` here means the text passes it too.
         size += Json::Object(obj.clone()).to_string().len() + last.len() + 3;
         if size > max {
-            return None;
+            return Err(ExportError::TooLarge(max));
         }
         let mut at = &mut root;
         for s in parents {
@@ -115,19 +133,17 @@ pub fn export(path: &str, nodes: &[(String, Rec)], max: usize) -> Option<String>
                 .or_insert_with(|| Json::Object(Map::new()))
             {
                 Json::Object(m) => m,
-                #[allow(
-                    clippy::unreachable,
-                    reason = "a node's own keys start with `$`, `@` or `?`, which \
-                              `keyspace::validate_segment` refuses in every child name, so \
-                              the entry of a child is always the object made for it"
-                )]
-                _ => unreachable!("children are objects"),
+                // a parent's own field (names are checked above): never a child
+                _ => return Err(ExportError::FieldName(p.clone())),
             };
         }
         at.insert(last.clone(), Json::Object(obj));
     }
     let text = Json::Object(root).to_string();
-    (text.len() <= max).then_some(text)
+    if text.len() > max {
+        return Err(ExportError::TooLarge(max));
+    }
+    Ok(text)
 }
 
 /// Nodes of an import into the folder `path`, parents first, checked
@@ -273,10 +289,13 @@ mod tests {
             ("a/note".to_owned(), note.clone()),
         ];
         let text = export("a", &nodes, usize::MAX).unwrap();
-        assert!(export("a", &nodes, text.len() - 1).is_none());
+        assert_eq!(
+            export("a", &nodes, text.len() - 1),
+            Err(ExportError::TooLarge(text.len() - 1))
+        );
         assert_eq!(
             export("a", &nodes, text.len()).as_deref(),
-            Some(text.as_str())
+            Ok(text.as_str())
         );
         let j: Json = serde_json::from_str(&text).unwrap();
         assert_eq!(j["b"]["t"]["$type"], "number");
@@ -290,6 +309,39 @@ mod tests {
             ("c/note".to_owned(), note),
         ];
         assert_eq!(got, want);
+    }
+
+    /// A store written without the name check (an old store, a restore) may hold a node
+    /// named like a field. Its export is refused with the node's path; it panicked the
+    /// storage link before (`unreachable!`), and a leaf of that name overwrote its parent's
+    /// field without a word.
+    #[test]
+    fn a_node_named_like_a_field_refuses_the_export() {
+        let value = Rec {
+            ty: Some(TypeCode::Number),
+            editor: None,
+            value: Some(Value::Float(1.0)),
+            t: None,
+        };
+        let below = vec![
+            ("a".to_owned(), Rec::folder()),
+            ("a/x".to_owned(), value.clone()),
+            ("a/x/?value".to_owned(), Rec::folder()),
+            ("a/x/?value/y".to_owned(), value.clone()),
+        ];
+        assert_eq!(
+            export("a", &below, usize::MAX),
+            Err(ExportError::FieldName("a/x/?value".into()))
+        );
+        let leaf = vec![
+            ("a".to_owned(), Rec::folder()),
+            ("a/x".to_owned(), value.clone()),
+            ("a/x/$type".to_owned(), value),
+        ];
+        assert_eq!(
+            export("a", &leaf, usize::MAX),
+            Err(ExportError::FieldName("a/x/$type".into()))
+        );
     }
 
     #[test]

@@ -1501,12 +1501,17 @@ pub fn now_s() -> u64 {
 /// Note that the guard ran (`data_dir/update.guard`): a broker in
 /// `updates.mode: "self"` updates only when the guard ran before it started.
 pub fn stamp_guard(data_dir: &Path, version: &str) {
-    // the first start of a broker: the guard runs before it made the directory
-    if std::fs::create_dir_all(data_dir).is_err() {
+    // the first start of a broker: the guard runs before it made the directory.
+    // Without the stamp the broker refuses a self update (fails closed): said here.
+    if let Err(e) = std::fs::create_dir_all(data_dir) {
+        tracing::error!(dir = %data_dir.display(), "guard: no stamp, self updates stay refused: {e}");
         return;
     }
     let v = serde_json::json!({ "at": now_s(), "version": version });
-    let _ = crate::secret::write_private(&data_dir.join(GUARD_STAMP), v.to_string().as_bytes());
+    let path = data_dir.join(GUARD_STAMP);
+    if let Err(e) = crate::secret::write_private(&path, v.to_string().as_bytes()) {
+        tracing::error!(file = %path.display(), "guard: no stamp, self updates stay refused: {e}");
+    }
 }
 
 /// When the guard ran last (unix seconds).

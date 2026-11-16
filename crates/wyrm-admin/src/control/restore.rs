@@ -675,9 +675,13 @@ pub(super) fn package_asks(p: &packages::Unpacked) -> Vec<String> {
             c.net.join(", ")
         ));
     }
-    for (path, code) in &p.def.requester {
-        let level = Perm::try_from(*code).map_or("?", |p| p.name());
-        asks.push(format!("package {}: {level} on {path}", p.def.name));
+    for g in &p.def.requester {
+        asks.push(format!(
+            "package {}: {} on {}",
+            p.def.name,
+            g.perm.name(),
+            g.path
+        ));
     }
     asks
 }
@@ -696,9 +700,8 @@ fn asks_of(def: &LinkDef, package: Option<&packages::Unpacked>) -> Vec<String> {
             asks.push(format!("network {net}"));
         }
     }
-    for (path, code) in &def.grants {
-        let level = Perm::try_from(*code).map_or("?", |p| p.name());
-        asks.push(format!("{level} on {path}"));
+    for g in &def.grants {
+        asks.push(format!("{} on {}", g.perm.name(), g.path));
     }
     asks
 }
@@ -826,15 +829,26 @@ impl Admin {
                 .validate(&r.def.driver, &params)
                 .map_err(|e| e.message)?;
         }
-        for (path, code) in &r.def.grants {
-            let level = Perm::try_from(*code).map_err(|c| format!("grant level {c}"))?;
-            crate::registry::check_grant(path, level).map_err(|e| format!("grant: {e}"))?;
+        for g in &r.def.grants {
+            crate::registry::check_grant(&g.path, g.perm).map_err(|e| format!("grant: {e}"))?;
         }
         if ctl.peers().downstream.contains(&id) || ctl.cfg.operators.contains(&id) {
             return Err(format!(
                 "link id {id:?} is a downstream site or an operator of this broker"
             ));
         }
+        // Review AI-3 holds for a restore as for an edit: when the backup's params move an
+        // existing agent link to another `api_base` or `api_key_ref`, its API key does not
+        // stay. The old secrets go before the backup's are placed (those are added to what
+        // the link has), and the backup's own copy under those names goes too: the key is
+        // entered again for the new base.
+        let agent_keys = match &existing {
+            Some(old) if old.driver == AGENT_DRIVER => {
+                agent_keys_to_drop(&decode_params(&old.params), &params)
+            }
+            _ => Vec::new(),
+        };
+        r.secrets.retain(|name, _| !agent_keys.contains(name));
         let mut message = match self.backup_package(&mut r, sub).await? {
             Some(m) => format!("{m}; "),
             None => String::new(),
@@ -862,6 +876,26 @@ impl Admin {
                 message.push_str(&format!("restore point {}; ", point.id));
                 if old.mode != Mode::External {
                     self.stop_link(&id, sub).await.map_err(|e| e.message)?;
+                }
+                if !agent_keys.is_empty() {
+                    let dropped = ctl.drop_agent_key_on_new_base(
+                        &id,
+                        &decode_params(&old.params),
+                        &params,
+                        sub,
+                    );
+                    if let Err(e) = dropped {
+                        // nothing was replaced: the link runs again as it was, key and all
+                        if old.mode != Mode::External {
+                            if let Err(s) = self.start_link(&id, sub).await {
+                                warn!(link = %id, "not started again after a refused restore: {}", s.message);
+                            }
+                        }
+                        return Err(format!(
+                            "the agent's API key for the old api_base cannot be dropped ({e}); \
+                             nothing is restored"
+                        ));
+                    }
                 }
             }
             None => {
@@ -918,16 +952,19 @@ impl Admin {
             .map_err(|e| e.to_string())?;
         }
         let mut grants = false;
-        for (path, code) in &r.def.grants {
-            let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
+        for g in &r.def.grants {
             grants |= self
-                .set_grant(&id, path, level, sub)
+                .set_grant(&id, &g.path, g.perm, sub)
                 .map_err(|e| e.message)?;
         }
         if r.def.mode != Mode::External && (existing.is_some() || r.has_data) {
             self.start_link(&id, sub).await.map_err(|e| e.message)?;
         }
-        if grants {
+        // an agent's `allowed_prefixes` scope its key in every link's trust list, as on an edit
+        let agent_params = existing
+            .as_ref()
+            .is_some_and(|o| o.driver == AGENT_DRIVER && o.params != r.def.params);
+        if grants || agent_params {
             ctl.schedule_reload();
         }
         let sections: Vec<&str> = r
@@ -1478,7 +1515,10 @@ mod tests {
             display: None,
             granted: None,
             log_level: None,
-            grants: vec![("wy/{site}/downstream/plc".into(), Perm::Write.code())],
+            grants: vec![crate::registry::LinkGrant::new(
+                "wy/{site}/downstream/plc",
+                Perm::Write,
+            )],
         };
         assert_eq!(
             asks_of(&def, None),

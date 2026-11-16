@@ -64,6 +64,16 @@ WantedBy=multi-user.target
 ```
 
 Notes:
+- `data_dir` must belong to the user the broker runs as. The broker makes
+  it 0700 when `wyrmd keys import` writes `state.key` and the other key
+  files into it, and a standby does the same when it copies `secrets.bin`
+  and the replicated files; `data_dir/pki`, `links/<id>`, `links/<id>/data`,
+  `operators`, the backups' and restore points' directories are made 0700
+  too. Each of them must be a real directory owned by that user: one that
+  is a symlink (below `data_dir`), or that another user owns, is refused
+  with its path, and the broker does not write keys into it. `data_dir`
+  itself may be a symlink the operator set up (`/var/lib/wyrm` →
+  `/srv/wyrm`).
 - `wyrmd` stops cleanly on SIGINT and SIGTERM. A clean stop flushes the
   historian's buffers and gives each process link its SIGTERM (10 s, then
   a kill). A process link whose broker vanished without a signal sees its

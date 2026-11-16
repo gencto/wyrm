@@ -295,35 +295,6 @@ void main() {
     });
   });
 
-  test('the deprecated .of readers keep their old tolerance', () {
-    final partial = VMap({
-      'site': const VStr('lab'),
-      'version': const VStr('0.1.0'),
-      'tls': const VBool(true),
-    });
-    // ignore: deprecated_member_use_from_same_package
-    final i = GatewayInfo.of(partial);
-    expect(
-      (i.site, i.role, i.devices),
-      ('lab', GatewayRole.active, const DevicePolicy()),
-    );
-    // ignore: deprecated_member_use_from_same_package
-    final d = GatewayDevice.of(
-      VMap({'id': const VStr('d'), 'platform': const VStr('web')}),
-    );
-    expect(
-      (d.id, d.platform, d.alg, d.state),
-      ('d', null, DeviceAlg.es256, GatewayDeviceState.active),
-    );
-    // ignore: deprecated_member_use_from_same_package
-    expect(
-      GatewayUser.of(VMap({'name': const VStr('ann')})),
-      const GatewayUser('ann', []),
-    );
-    // ignore: deprecated_member_use_from_same_package
-    expect(DevicePolicy.of(null), const DevicePolicy());
-  });
-
   test('WyrmException.refusal is typed; an unknown code keeps its text', () {
     WyrmException err(String code) => WyrmException.fromError(
       VMap({

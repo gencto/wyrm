@@ -163,7 +163,40 @@ const AGENT_API_BASE: &str = "https://api.anthropic.com";
 const AGENT_API_KEY_REF: &str = "anthropic_api_key";
 const AGENT_KEY_REF: &str = "agent_key";
 
-/// The agent's API key secret is never its signing key: the API key leaves the broker.
+fn agent_text(v: &Value, k: &str, d: &str) -> String {
+    match v {
+        Value::Map(m) => match m.get(k) {
+            Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
+            _ => d.to_owned(),
+        },
+        _ => d.to_owned(),
+    }
+}
+
+fn agent_base(params: &Value) -> String {
+    agent_text(params, "api_base", AGENT_API_BASE)
+}
+
+/// The secret names an agent link's API key may sit under that must go when
+/// its params change from `old` to `new` (review AI-3): both `api_key_ref`
+/// names when `api_base` or `api_key_ref` changes, none otherwise. Every
+/// change of an agent's params goes through it: an edit and a restore.
+pub(crate) fn agent_keys_to_drop(old: &Value, new: &Value) -> Vec<String> {
+    let name = agent_text(new, "api_key_ref", AGENT_API_KEY_REF);
+    let old_name = agent_text(old, "api_key_ref", AGENT_API_KEY_REF);
+    if agent_base(old) == agent_base(new) && name == old_name {
+        return Vec::new();
+    }
+    if name == old_name {
+        vec![name]
+    } else {
+        vec![name, old_name]
+    }
+}
+
+/// The agent's API key secret is never its signing key, nor a secret the broker makes for the
+/// link (`.requester_key`, `.store_key`: names that start with `.`): the API key leaves the
+/// broker, so whatever it names is sent to `api_base`.
 fn check_agent_refs(params: &Value) -> Result<(), LinkError> {
     let name = |k: &str, d: &str| match params {
         Value::Map(m) => match m.get(k) {
@@ -172,9 +205,16 @@ fn check_agent_refs(params: &Value) -> Result<(), LinkError> {
         },
         _ => d.to_owned(),
     };
-    if name("api_key_ref", AGENT_API_KEY_REF) == name("agent_key_ref", AGENT_KEY_REF) {
+    let api_key_ref = name("api_key_ref", AGENT_API_KEY_REF);
+    if api_key_ref == name("agent_key_ref", AGENT_KEY_REF) {
         return Err(LinkError::invalid_parameter(
             "api_key_ref: not the secret of agent_key_ref (the API key is sent out)",
+        ));
+    }
+    if api_key_ref.starts_with('.') {
+        return Err(LinkError::invalid_parameter(
+            "api_key_ref: not a secret the broker makes for the link (a name that starts with \
+             '.'); the API key is sent out",
         ));
     }
     Ok(())
@@ -908,6 +948,38 @@ impl Control {
             .map(|_| ())
     }
 
+    /// The agent's LLM API key is entered for one `api_base` and one `api_key_ref`: a change of
+    /// either drops the secrets both names held until someone enters the key again with
+    /// ▸ Set Secret (security review AI-3: a `config` operator who cannot read `secrets.bin`
+    /// pointed `api_base` at a host of their own and received the key; changing the name first
+    /// and the host next, then the name back, must not keep it either).
+    /// `Err` when a secret cannot be removed: the caller refuses the edit, so the key never
+    /// stays with a new base (fails closed).
+    pub(crate) fn drop_agent_key_on_new_base(
+        &self,
+        id: &str,
+        old: &Value,
+        new: &Value,
+        sub: &str,
+    ) -> Result<(), Error> {
+        let base = agent_base(new);
+        for n in agent_keys_to_drop(old, new) {
+            if self.secrets.remove(id, &n)? {
+                self.record(
+                    sub,
+                    "secret_dropped",
+                    id,
+                    Status::Ok,
+                    &format!(
+                        "{n}: dropped before the params move to api_base {base}; \
+                         enter the key again"
+                    ),
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// One record in the admin's audit journal (also for in-process
     /// components such as the user gateway). Never pass secret values.
     pub fn record(&self, sub: &str, op: &str, key: &str, status: Status, detail: &str) {
@@ -1023,14 +1095,11 @@ impl Control {
             let Some(key) = self.requester_key_of(&d.id) else {
                 continue;
             };
-            for (path, code) in &d.grants {
-                let Ok(cap) = Perm::try_from(*code) else {
-                    continue;
-                };
+            for g in &d.grants {
                 out.push(wyrm_link_sdk::LimitedKey {
                     key,
-                    cap,
-                    scopes: vec![path.replace("{site}", &self.cfg.site)],
+                    cap: g.perm,
+                    scopes: vec![g.path.replace("{site}", &self.cfg.site)],
                     subject: Some(format!("link:{}", d.id)),
                 });
             }
@@ -1074,8 +1143,8 @@ impl Control {
     }
 
     /// The grants of a link for the link itself: `(path, permission)`, the
-    /// `{site}` placeholder expanded. Grants with an unknown code are left
-    /// out, as in the router ACL.
+    /// `{site}` placeholder expanded. (A grant with an unknown code never
+    /// gets here: the registry does not open with one.)
     ///
     /// A history sink's link also gets `read` on its sink's node (ADR 0026),
     /// so its host lets `next` out and its token carries the grant; it is
@@ -1084,12 +1153,7 @@ impl Control {
         let mut out: Vec<(String, Perm)> = def
             .grants
             .iter()
-            .filter_map(|(path, code)| {
-                Some((
-                    path.replace("{site}", &self.cfg.site),
-                    Perm::try_from(*code).ok()?,
-                ))
-            })
+            .map(|g| (g.path.replace("{site}", &self.cfg.site), g.perm))
             .collect();
         out.extend(
             self.registry()
@@ -1330,20 +1394,12 @@ impl Control {
     /// 0700), created on demand and removed with the link. Embedded and
     /// process links get it; external links keep their state themselves.
     fn link_data_dir(&self, id: &str) -> Result<PathBuf, LinkError> {
-        let dir = self.link_dir(id)?.join("data");
-        let mut b = std::fs::DirBuilder::new();
-        b.recursive(true);
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
-        b.create(&dir)
-            .map_err(|e| LinkError::internal(format!("{}: {e}", dir.display())))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| LinkError::internal(format!("{}: {e}", dir.display())))?;
-        }
-        Ok(dir)
+        crate::registry::validate_link_id(id).map_err(LinkError::invalid_parameter)?;
+        let rel = Path::new("links").join(id).join("data");
+        secret::create_missing_private(&self.cfg.data_dir)
+            .and_then(|()| secret::private_dir(&self.cfg.data_dir, &rel))
+            .map(|d| d.path().to_path_buf())
+            .map_err(|e| LinkError::internal(e.to_string()))
     }
 
     /// Certificate for a remote link (CN = id) under `links/<id>/`.
@@ -1452,6 +1508,15 @@ impl Control {
                         })?;
                         self.link_cert(&l.id)?;
                     }
+                    if d.driver == AGENT_DRIVER {
+                        // review AI-3 for every change of an agent's params, the file too
+                        self.drop_agent_key_on_new_base(
+                            &l.id,
+                            &decode_params(&d.params),
+                            &decode_params(&params),
+                            "system",
+                        )?;
+                    }
                     self.apply(Op::Update {
                         id: l.id.clone(),
                         mode: l.mode,
@@ -1553,16 +1618,29 @@ impl Control {
             .filter(|s| !keep.contains(s))
             .collect();
         for site in &gone {
-            if self.apply(Op::RemovePeer(site.clone())).is_ok() {
-                let _ = std::fs::remove_file(self.peer_ca_path(site));
-                self.record(
-                    "system",
-                    "peer_remove",
-                    site,
-                    Status::Ok,
-                    "now in wyrmd.json5",
-                );
-                warn!(site = %site, "peer {site} is in wyrmd.json5: the runtime entry is removed");
+            match self.apply(Op::RemovePeer(site.clone())) {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(self.peer_ca_path(site));
+                    self.record(
+                        "system",
+                        "peer_remove",
+                        site,
+                        Status::Ok,
+                        "now in wyrmd.json5",
+                    );
+                    warn!(site = %site, "peer {site} is in wyrmd.json5: the runtime entry is removed");
+                }
+                Err(e) => {
+                    // both entries stay; the merged view takes the file's (`Control::peers`)
+                    error!(site = %site, error = %e, "peer {site} is in wyrmd.json5, but its runtime entry is not removed");
+                    self.record(
+                        "system",
+                        "peer_remove",
+                        site,
+                        Status::InternalError,
+                        &format!("now in wyrmd.json5; the runtime entry stays: {e}"),
+                    );
+                }
             }
         }
         gone
@@ -1742,13 +1820,18 @@ impl Control {
             if d.dir != PeerDir::Upstream {
                 continue;
             }
-            let path = self.peer_ca_path(&d.site);
-            std::fs::create_dir_all(path.parent().unwrap_or(&self.cfg.data_dir))?;
-            std::fs::write(&path, &d.ca_pem)?;
-            std::fs::write(self.peer_file(&d.site, "cert.pem"), &d.cert_pem)?;
+            // `pki/peers` below `data_dir`, never through a symlink (as `keys import`)
+            let root = &self.cfg.data_dir;
+            let rel = |ext: &str| {
+                Path::new("pki")
+                    .join("peers")
+                    .join(format!("{}.{ext}", d.site))
+            };
+            secret::write_private_under(root, &rel("pem"), d.ca_pem.as_bytes())?;
+            secret::write_private_under(root, &rel("cert.pem"), d.cert_pem.as_bytes())?;
             let key = self.secrets.for_link(&peer_secret(&d.site));
             if let Some(k) = key.get(PEER_KEY) {
-                secret::write_private(&self.peer_file(&d.site, "key"), k)?;
+                secret::write_private_under(root, &rel("key"), k)?;
             }
         }
         if tls {
@@ -2167,11 +2250,10 @@ fn link_reach(mut node: NodeMeta, def: &LinkDef) -> NodeMeta {
         let rows = def
             .grants
             .iter()
-            .map(|(path, code)| {
-                let level = Perm::try_from(*code).map_or("unknown", |p| p.name());
+            .map(|g| {
                 Value::Map(BTreeMap::from([
-                    ("path".to_owned(), Value::Str(path.clone())),
-                    ("level".to_owned(), Value::Str(level.to_owned())),
+                    ("path".to_owned(), Value::Str(g.path.clone())),
+                    ("level".to_owned(), Value::Str(g.perm.name().to_owned())),
                 ]))
             })
             .collect();
@@ -3206,10 +3288,26 @@ async fn enroll_upstreams(ctl: Arc<Control>, ctx: LinkCtx) {
                         endpoint,
                         cert_pem: cert.clone(),
                     });
-                    if applied.is_err() {
+                    if let Err(e) = applied {
+                        // asked again at the next round: the certificate is not kept
+                        error!(site = %def.site, error = %e, "the certificate from the upstream site is not stored");
                         continue;
                     }
-                    let _ = ctl.secrets.remove(&peer_secret(&def.site), PEER_TOKEN);
+                    if let Err(e) = ctl.secrets.remove(&peer_secret(&def.site), PEER_TOKEN) {
+                        // the token was single use: it is spent, but stays sealed in secrets.bin
+                        error!(
+                            site = %def.site,
+                            error = %e,
+                            "the used enrollment token is not removed from the secret store"
+                        );
+                        ctl.record(
+                            "system",
+                            "peer_token_kept",
+                            &def.site,
+                            Status::InternalError,
+                            &format!("the used enrollment token stays sealed: {e}"),
+                        );
+                    }
                     let how = if def.cert_pem.is_empty() {
                         "issued"
                     } else {
@@ -3273,13 +3371,26 @@ async fn expire_enrollments(ctl: Arc<Control>, ctx: LinkCtx) {
             stale_enrollments(&reg, &mut seen, now_s(), ENROLL_STALE_S)
         };
         for site in stale {
-            if ctl.apply(Op::DropEnrollment(site.clone())).is_ok() {
-                ctl.enroll_seen
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .remove(&site);
-                debug!(site = %site, "enrollment request expired");
-                let _ = ctx.remove_node(&format!("quarantine/{site}")).await;
+            match ctl.apply(Op::DropEnrollment(site.clone())) {
+                Ok(()) => {
+                    ctl.enroll_seen
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .remove(&site);
+                    debug!(site = %site, "enrollment request expired");
+                    let _ = ctx.remove_node(&format!("quarantine/{site}")).await;
+                }
+                Err(e) => {
+                    // it stays in quarantine and is tried again at the next round
+                    error!(site = %site, error = %e, "an expired enrollment request is not dropped");
+                    ctl.record(
+                        "system",
+                        "enrollment_expire",
+                        &site,
+                        Status::InternalError,
+                        &format!("not dropped: {e}"),
+                    );
+                }
             }
         }
         // also shows the polls counted in memory since the last change
@@ -3638,9 +3749,8 @@ fn install_detail(def: &PackageDef, caps: Option<&wyrm_link_sdk::package::Capabi
     if let Some(c) = caps {
         d.push_str(&format!("; capabilities {}", c.describe()));
     }
-    for (path, code) in &def.requester {
-        let level = Perm::try_from(*code).map_or("?", |p| p.name());
-        d.push_str(&format!("; requester {path} {level}"));
+    for g in &def.requester {
+        d.push_str(&format!("; requester {} {}", g.path, g.perm.name()));
     }
     d
 }
@@ -4228,10 +4338,8 @@ impl Link for Admin {
                     .map(|(role, key, p)| perm_row("gateway", &role, &key, p.name()))
                     .collect();
                 for d in self.ctl.registry().links.values() {
-                    for (path, code) in &d.grants {
-                        if let Ok(p) = Perm::try_from(*code) {
-                            rows.push(perm_row("link", &d.id, path, p.name()));
-                        }
+                    for g in &d.grants {
+                        rows.push(perm_row("link", &d.id, &g.path, g.perm.name()));
                     }
                 }
                 rows.extend(acl_rows(&self.ctl.acl()));
@@ -4376,7 +4484,7 @@ impl Admin {
             PackageKind::Wasm => Mode::Embedded,
         };
         let mode = match arg_str(args, "mode") {
-            Some(m) => Mode::parse(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
+            Some(m) => Mode::from_name(m).ok_or_else(|| LinkError::invalid_parameter("mode"))?,
             None => match &package {
                 Some(p) => package_mode(p),
                 None if compiled => Mode::Embedded,
@@ -4530,9 +4638,8 @@ impl Admin {
             if let Some(c) = app.as_ref().filter(|c| !c.net.is_empty()) {
                 asks.push(format!("network {}", c.net.join(", ")));
             }
-            for (path, code) in &def.requester {
-                let level = Perm::try_from(*code).map_or("?", |p| p.name());
-                asks.push(format!("{level} on {path}"));
+            for g in &def.requester {
+                asks.push(format!("{} on {}", g.perm.name(), g.path));
             }
             if !asks.is_empty() {
                 return Err(format!(
@@ -4625,12 +4732,11 @@ impl Admin {
             }
             // the grants the package asks for, shown and audited; one restart for all of them
             let mut changed = false;
-            for (path, code) in &def.requester {
-                let level = Perm::try_from(*code).map_err(|c| format!("level {c}"))?;
+            for g in &def.requester {
                 changed |= self
-                    .set_grant(link, path, level, sub)
+                    .set_grant(link, &g.path, g.perm, sub)
                     .map_err(|e| e.to_string())?;
-                message.push_str(&format!("; grant {path} {}", level.name()));
+                message.push_str(&format!("; grant {} {}", g.path, g.perm.name()));
             }
             if changed {
                 self.restart_for_grants(link, sub)
@@ -4864,19 +4970,44 @@ impl Admin {
         if def.mode != Mode::External && !process_package {
             self.ctl.host.validate(&def.driver, &params)?;
         }
-        self.ctl
-            .apply(Op::Update {
-                id: id.to_owned(),
-                mode: def.mode,
-                params: encode_params(&params)?,
-            })
-            .map_err(rejected)?;
+        let old_params = decode_params(&def.params);
+        let drops_key =
+            def.driver == AGENT_DRIVER && !agent_keys_to_drop(&old_params, &params).is_empty();
+        if drops_key {
+            // before the new base is stored: a key that cannot be dropped refuses the edit
+            self.ctl
+                .drop_agent_key_on_new_base(id, &old_params, &params, sub)
+                .map_err(|e| {
+                    LinkError::internal(format!(
+                        "the agent's API key for the old api_base cannot be dropped ({e}); \
+                         nothing changed"
+                    ))
+                })?;
+        }
+        let applied = self.ctl.apply(Op::Update {
+            id: id.to_owned(),
+            mode: def.mode,
+            params: encode_params(&params)?,
+        });
+        if let Err(e) = applied {
+            if drops_key {
+                // the base did not change, but the key is gone: the audit says both
+                self.ctl.record(
+                    sub,
+                    op,
+                    id,
+                    Status::InvalidParameter,
+                    &format!(
+                        "refused ({e}); the params stay, the API key dropped for this edit \
+                         stays dropped: enter it again"
+                    ),
+                );
+            }
+            return Err(rejected(e));
+        }
         let rev = self.def(id)?.rev;
         self.ctl
             .record(sub, op, id, Status::Ok, &format!("rev {rev}"));
-        if def.driver == AGENT_DRIVER {
-            self.drop_agent_key_on_new_base(id, &decode_params(&def.params), &params, sub);
-        }
         if def.driver == AGENT_DRIVER {
             // allowed_prefixes scope its key in every link's trust list
             self.ctl.schedule_reload();
@@ -4885,41 +5016,6 @@ impl Admin {
             self.start_link(id, sub).await?;
         }
         Ok(Some(Value::UInt(rev.into())))
-    }
-
-    /// The agent's LLM API key is entered for one `api_base` and one `api_key_ref`: a change of
-    /// either drops the secrets both names held until someone enters the key again with
-    /// ▸ Set Secret (security review AI-3: a `config` operator who cannot read `secrets.bin`
-    /// pointed `api_base` at a host of their own and received the key; changing the name first
-    /// and the host next, then the name back, must not keep it either).
-    fn drop_agent_key_on_new_base(&self, id: &str, old: &Value, new: &Value, sub: &str) {
-        let text = |v: &Value, k: &str, d: &str| match v {
-            Value::Map(m) => match m.get(k) {
-                Some(Value::Str(s)) => s.trim_end_matches('/').to_owned(),
-                _ => d.to_owned(),
-            },
-            _ => d.to_owned(),
-        };
-        let base = |v: &Value| text(v, "api_base", AGENT_API_BASE);
-        let name = text(new, "api_key_ref", AGENT_API_KEY_REF);
-        let old_name = text(old, "api_key_ref", AGENT_API_KEY_REF);
-        if base(old) == base(new) && name == old_name {
-            return;
-        }
-        for n in [name, old_name] {
-            if self.ctl.secrets.remove(id, &n).unwrap_or(false) {
-                self.ctl.record(
-                    sub,
-                    "secret_dropped",
-                    id,
-                    Status::Ok,
-                    &format!(
-                        "{n}: api_base changed to {}; enter the key again",
-                        base(new)
-                    ),
-                );
-            }
-        }
     }
 
     /// Previous params (oldest first) and the current one: `[{rev, params}]`.
@@ -5381,7 +5477,7 @@ impl Admin {
                 None => Ok(()),
             });
         if let Err(e) = sealed {
-            let _ = self.ctl.secrets.drop_link(&store);
+            self.drop_peer_secrets(&store, site, "the upstream was not added");
             return Err(LinkError::internal(e.to_string()));
         }
         let def = PeerDef {
@@ -5398,7 +5494,7 @@ impl Admin {
             allow_config,
         };
         if let Err(e) = self.ctl.apply(Op::AddPeer(def.clone())) {
-            let _ = self.ctl.secrets.drop_link(&store);
+            self.drop_peer_secrets(&store, site, "the upstream was not added");
             return Err(rejected(e));
         }
         self.ctl.record(
@@ -5411,6 +5507,22 @@ impl Admin {
         declare_upstream(&self.ctx, &Upstream::of(&def), true).await?;
         self.ctl.enroll_wake.notify_one();
         Ok(None)
+    }
+
+    /// Drop the sealed key and token of peer `site` (store `store`) after
+    /// `why`. A failed save leaves them sealed in `secrets.bin`: logged and
+    /// in the audit, never passed over.
+    fn drop_peer_secrets(&self, store: &str, site: &str, why: &str) {
+        if let Err(e) = self.ctl.secrets.drop_link(store) {
+            error!(site, error = %e, "{why}, but its sealed key and token stay in the secret store");
+            self.ctl.record(
+                "system",
+                "peer_secrets_kept",
+                site,
+                Status::InternalError,
+                &format!("{why}; its sealed key and token stay: {e}"),
+            );
+        }
     }
 
     /// A new peer site: not this broker, not a peer (either direction, from
@@ -5445,7 +5557,7 @@ impl Admin {
         self.ctl
             .apply(Op::RemovePeer(site.to_owned()))
             .map_err(rejected)?;
-        let _ = self.ctl.secrets.drop_link(&peer_secret(site));
+        self.drop_peer_secrets(&peer_secret(site), site, "the upstream was removed");
         for ext in ["pem", "cert.pem", "key"] {
             let _ = std::fs::remove_file(self.ctl.peer_file(site, ext));
         }
@@ -5892,7 +6004,7 @@ impl Admin {
         level: Perm,
         sub: &str,
     ) -> wyrm_link_sdk::Result<bool> {
-        let sorted = |mut g: Vec<(String, u8)>| {
+        let sorted = |mut g: Vec<crate::registry::LinkGrant>| {
             g.sort();
             g
         };
@@ -6976,6 +7088,13 @@ mod tests {
         assert!(super::check_agent_refs(&p("anthropic_api_key", "agent_key")).is_ok());
         assert!(super::check_agent_refs(&p("agent_key", "agent_key")).is_err());
         assert!(super::check_agent_refs(&p("k", "k")).is_err());
+        // re-audit of #125: never a raw seed the broker made for the link
+        for seed in [".requester_key", ".store_key", "."] {
+            assert!(
+                super::check_agent_refs(&p(seed, "agent_key")).is_err(),
+                "{seed}"
+            );
+        }
         assert!(super::check_agent_refs(&Value::Map(std::collections::BTreeMap::new())).is_ok());
     }
 

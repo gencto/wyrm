@@ -22,60 +22,31 @@ impl TimeUs {
     }
 }
 
-/// How the samples of one window become one value (spec 01 `agg`; names as DSA's rollups).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Rollup {
-    None,
-    And,
-    Or,
-    Avg,
-    Min,
-    Max,
-    Sum,
-    First,
-    Last,
-    Count,
-    Delta,
+crate::name_enum! {
+    /// How the samples of one window become one value (spec 01 `agg`; names as DSA's rollups).
+    pub enum Rollup {
+        None => "none",
+        And => "and",
+        Or => "or",
+        Avg => "avg",
+        Min => "min",
+        Max => "max",
+        Sum => "sum",
+        First => "first",
+        Last => "last",
+        Count => "count",
+        Delta => "delta",
+    }
 }
 
 impl Rollup {
-    pub const ALL: [Rollup; 11] = [
-        Rollup::None,
-        Rollup::And,
-        Rollup::Or,
-        Rollup::Avg,
-        Rollup::Min,
-        Rollup::Max,
-        Rollup::Sum,
-        Rollup::First,
-        Rollup::Last,
-        Rollup::Count,
-        Rollup::Delta,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Rollup::None => "none",
-            Rollup::And => "and",
-            Rollup::Or => "or",
-            Rollup::Avg => "avg",
-            Rollup::Min => "min",
-            Rollup::Max => "max",
-            Rollup::Sum => "sum",
-            Rollup::First => "first",
-            Rollup::Last => "last",
-            Rollup::Count => "count",
-            Rollup::Delta => "delta",
-        }
-    }
-
     /// A name of [`Self::ALL`]; empty text is [`Rollup::None`].
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim();
         if s.is_empty() {
             return Some(Rollup::None);
         }
-        Self::ALL.into_iter().find(|r| r.name() == s)
+        Self::from_name(s)
     }
 }
 

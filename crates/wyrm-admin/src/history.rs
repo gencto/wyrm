@@ -107,7 +107,7 @@ pub fn groups(reg: &Registry) -> Vec<GroupCfg> {
         .iter()
         .map(|(name, g)| GroupCfg {
             name: name.clone(),
-            logging: Logging::from_code(g.logging).unwrap_or(Logging::None),
+            logging: Logging::try_from(g.logging).ok().unwrap_or(Logging::None),
             interval_ms: g.interval_ms,
             flush_ms: g.flush_ms,
             watches: g
@@ -141,7 +141,7 @@ fn arg_num(args: &Value, name: &str) -> Option<f64> {
     arg(args, name).and_then(Value::as_f64)
 }
 
-/// A logging type from its display name, name or index.
+/// A logging type from its name (`All Data`, as the parameter lists it) or its index.
 fn arg_logging(args: &Value) -> Result<Option<Logging>> {
     match arg(args, "logging_type") {
         None | Some(Value::Null) => Ok(None),
@@ -151,7 +151,7 @@ fn arg_logging(args: &Value) -> Result<Option<Logging>> {
             .map(Some)
             .ok_or_else(|| LinkError::invalid_parameter("logging_type?")),
         Some(Value::Str(s)) if s.trim().is_empty() => Ok(None),
-        Some(Value::Str(s)) => Logging::parse(s.trim())
+        Some(Value::Str(s)) => Logging::from_name(s.trim())
             .map(Some)
             .ok_or_else(|| LinkError::invalid_parameter(format!("logging type {s:?}?"))),
         Some(_) => Err(LinkError::invalid_parameter("logging_type: a name")),
@@ -173,14 +173,14 @@ fn str_param() -> ParamMeta {
 
 fn logging_param(current: Option<Logging>) -> ParamMeta {
     let mut p = str_param()
-        .enum_values(Logging::ALL.iter().map(|l| l.display()))
+        .enum_values(Logging::ALL.iter().map(|l| l.name()))
         .display("Logging type")
         .description(
             "None: record nothing. Interval: the last value every Interval. \
              All Data: every update. Point Change: updates whose value or quality changed.",
         );
     if let Some(l) = current {
-        p = p.placeholder(l.display());
+        p = p.placeholder(l.name());
     }
     p
 }
@@ -359,7 +359,7 @@ async fn declare_group(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<(
 /// A group's setting values, and its Edit action showing them.
 async fn group_values(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()> {
     let p = format!("{ROOT}/{name}");
-    let logging = Logging::from_code(g.logging).unwrap_or(Logging::None);
+    let logging = Logging::try_from(g.logging).ok().unwrap_or(Logging::None);
     let t = now_us();
     ctx.declare_node(
         &format!("{p}/logging_type"),
@@ -368,7 +368,7 @@ async fn group_values(ctx: &LinkCtx, name: &str, g: &WatchGroupDef) -> Result<()
     .await?;
     ctx.update(
         &format!("{p}/logging_type"),
-        Value::from(logging.display()),
+        Value::from(logging.name()),
         Quality::Good,
         t,
     )
@@ -801,7 +801,7 @@ pub(crate) async fn invoke(
                 .cloned()
                 .ok_or_else(|| LinkError::not_found(format!("watch group {group}")))?;
             let logging = arg_logging(args)?
-                .or(Logging::from_code(g.logging))
+                .or(Logging::try_from(g.logging).ok())
                 .unwrap_or(Logging::None);
             ctl.apply(Op::PutWatchGroup {
                 name: (*group).to_owned(),
@@ -1206,6 +1206,34 @@ async fn auto_purge(ctl: &Control) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Typing audit T6: the logging type was taken by its internal name or its display
+    /// name. Only the name the parameter lists (`All Data`) and its index are taken now.
+    #[test]
+    fn a_logging_type_is_taken_by_the_one_name_it_lists() {
+        let arg = |v: Value| Value::Map(BTreeMap::from([("logging_type".to_owned(), v)]));
+        for l in Logging::ALL {
+            assert_eq!(
+                arg_logging(&arg(Value::from(l.name()))).ok(),
+                Some(Some(*l))
+            );
+        }
+        assert_eq!(
+            arg_logging(&arg(Value::UInt(2))).ok(),
+            Some(Some(Logging::AllData))
+        );
+        assert_eq!(
+            logging_param(None)
+                .enum_values
+                .as_deref()
+                .map(<[String]>::len),
+            Some(4)
+        );
+        for other in ["all_data", "point_change", "none", "ALL DATA", "Every"] {
+            assert!(arg_logging(&arg(Value::from(other))).is_err(), "{other}");
+        }
+        assert!(arg_logging(&arg(Value::UInt(4))).is_err());
+    }
 
     #[test]
     fn purge_rules_in_order() {

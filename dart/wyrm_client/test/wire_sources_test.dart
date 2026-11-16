@@ -36,6 +36,13 @@ Set<String> _names(String text, String ty) {
   return _all(f, RegExp(r'=> "([a-z0-9_]+)"'), '$ty::name');
 }
 
+/// The `Variant => "name"` lines of a `name_enum!` enum `ty` (one list of
+/// names on the Rust side, `wyrm_core::name_enum!`).
+Set<String> _nameEnum(String text, String ty) {
+  final e = _block(text, 'enum $ty {', '\n    }\n', what: 'name_enum $ty');
+  return _all(e, RegExp(r'=> "([a-z0-9_~]+)"'), 'name_enum $ty');
+}
+
 Set<String> _wires(List<WireName> values) => {for (final v in values) v.wire};
 
 void main() {
@@ -99,17 +106,8 @@ void main() {
     });
 
     test('FrameOp = the ops ws.rs serves', () {
-      final allowed = _block(
-        ws,
-        'let allowed = match req.op.as_str() {',
-        '\n        };',
-      );
-      final ops = {
-        ..._all(allowed, RegExp(r'^\s+"([a-z_]+)"', multiLine: true), 'ops'),
-        ..._all(allowed, RegExp(r'\| "([a-z_]+)"'), 'more ops'),
-        ..._all(ws, RegExp(r'req\.op == "([a-z_]+)"'), 'req.op =='),
-      };
-      expect(_wires(FrameOp.values), ops);
+      final op = _src('crates/wyrm-gateway/src/ws/op.rs');
+      expect(_wires(FrameOp.values), _nameEnum(op, 'OpName'));
     });
 
     test('FrameEventKind = the event types ws.rs sends', () {
@@ -148,7 +146,7 @@ void main() {
     });
 
     test('AgentStepStatus = StepStatus::name', () {
-      expect(_wires(AgentStepStatus.values), _names(tools, 'StepStatus'));
+      expect(_wires(AgentStepStatus.values), _nameEnum(tools, 'StepStatus'));
     });
 
     test('AgentStepCheck = Check::name', () {
@@ -156,7 +154,7 @@ void main() {
     });
 
     test('AgentFindingRefusal = Refused::name', () {
-      expect(_wires(AgentFindingRefusal.values), _names(tools, 'Refused'));
+      expect(_wires(AgentFindingRefusal.values), _nameEnum(tools, 'Refused'));
     });
 
     test('AgentStepKind = the keys of run_format', () {

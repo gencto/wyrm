@@ -1565,7 +1565,7 @@ impl App for Uplink {
             upstreams: configured,
         } = params_of(config)?;
         // the link root belongs to the host; the actions go on it
-        for kind in Kind::ALL {
+        for &kind in Kind::ALL {
             let (name, a) = tree::add_action(kind);
             host.declare_action("", &name, a);
         }

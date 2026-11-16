@@ -57,8 +57,9 @@ restructure so the type says it: a `let … else`, a slice pattern, an array fro
 an `Infallible` future. A lookup that "cannot" miss returns its error or logs
 (`tracing::error!`), never a silent `continue`. `expect`/`unreachable!` stay
 only where the code is provably right and no type can say it, with
-`#[allow(…, reason = "…")]` that gives the proof (today: `encode_to_vec`, the
-embedded manifest, three `unreachable!`). An HMAC is made with
+`#[allow(…, reason = "…")]` that gives the proof (today: `encode_to_vec` and
+the embedded manifest; the last three `unreachable!` went by a restructure on
+2026-11-15). An HMAC is made with
 `wyrm_core::mac::hmac_sha256` (infallible); an RNG failure is never an
 `expect`: the function returns `None`/`Err` and its caller refuses (rule 10).
 
@@ -217,13 +218,21 @@ let level = Perm::from_name(level)
 `name(*x) == s` comparison, and a `match` whose string arms give enum variants
 (`"read" => Perm::Read`), once per `match`. No function is exempt by its name:
 a plain enum's own hand-written lookup counts too, until its names are
-declared once by a macro that generates the lookup (`wire_enum!` today).
+declared once by a macro that generates the lookup: `wire_enum!` for a set
+with codes, `name_enum!` (`wyrm_core`, names only: `ALL`, `name`,
+`from_name`, `FromStr`) for one without. Either takes its one name and no
+other form; a second form (another case, a display text) is mapped by the
+caller in one place that says why (`Freq`: RFC 5545 names are
+case-insensitive, so the text is upper-cased first). Left in C2 (19 after
+2026-11-15): lookups that build a variant with data (`Answer::Granted
+{left}`, `DType::String(n)`), names of other crates' types (`tracing`
+levels), comparisons that are not a lookup, and the closed sets of T5.
 
 ## 6. A closed set is an enum, not a `String`
 
 **Rule.** A field, argument or state whose values are a fixed list is an enum
 (`wire_enum!` when it has wire codes, `ParamEnum` for an action argument,
-otherwise a plain enum with `name()`/`from_name()`). The string becomes the
+otherwise `name_enum!`). The string becomes the
 enum once, where it is decoded. No `String` field documented as "`a`, `b` or
 `c`", no inline `&["a", "b"]` set, no `const NAMES: [&str; N]` checked by
 hand. The key list of `Fields::only(&[…])` (the names an argument map may
@@ -339,9 +348,13 @@ text piece that ends a parameter for a value to follow (`"&x="` in a
 ## 10. A security or persistence result is never dropped
 
 **Rule.** The result of an RNG fill, a store `apply`, a `save`, `persist`,
-`sync_all`, `flush`, `rename` or `write_all` is handled: `?`, a refusal, or a
-logged error with the state it leaves. A failing RNG fails closed: the gateway
-has one source, `rng::fill`, whose error the caller refuses with.
+`sync_all`, `flush`, `rename` or `write_all`, a seal (`seal`, `seal_stream`,
+`seal_bytes`), a file mode (`set_permissions`, `write_private`,
+`private_dir`) or a secret store change (`secrets.set/remove/drop_link`) is
+handled: `?`, a refusal, or a logged error with the state it leaves. A
+failing RNG fails closed: the gateway has one source, `rng::fill`, whose
+error the caller refuses with; a link refuses the session or the call (the
+SNMP link opens no session without a random salt).
 
 **Why.** **S3**: three RNG-failure policies; `let _ = getrandom::fill(key)`
 leaves the device nonce MAC key at zero, and `new_jti` leaves every session's
@@ -358,9 +371,26 @@ pub(crate) fn new() -> Result<Self, crate::rng::NoRandomness> {
 ```
 
 **Check.** C8 `dropped-result`: `let _ =`, `let _x =`, `let _: T =`, `_ =`,
-`drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}` and
-`.unwrap_or_default()` on such a call, and `to_vec(..).unwrap_or_default()` /
-`.ok()`; clippy `let_underscore_must_use` (baselined).
+`drop(…)`, `….ok();` (also after `.await`), `if ….is_err() {}`,
+`.unwrap_or_default()`, `.unwrap_or(false|true|0|None|())`,
+`.unwrap_or_else(|_| …)`, `if let Ok(..) = … { … }` and `if ….is_ok() { … }`
+without `else` (bodies nested to any depth), `match … { …, Err(_) => {} }`
+(or `=> ()`, `continue`, `break`, `None`, `return`, `return None`, `return
+Ok(..)`), `let ok = ….is_ok();`, `.ok().is_some()` and `matches!(…, Ok(_))`
+on such a call, and `to_vec(..).unwrap_or_default()` / `.ok()`. The secret
+store counts under any receiver (`.drop_link(`, `.unstash(`, `set`/`remove`
+on a receiver named for secrets). The calls are a name list in `tool/check_rust_rules.py`
+(`PERSIST_CALLS`); a new security or persistence call that returns `Result`
+goes there with a sample in `PROBE_CALLS`. Every run first checks that list
+against samples (`probe()`): each call in each dropped form is counted, none
+in a handled form, or the check fails. clippy `let_underscore_must_use`
+(baselined) counts every dropped `Result` whatever its name. The list was
+too short until 2026-11-15: C8 read 0 while a backup dropped a failed seal
+(audit B1–B4). Measured on a copy of `main` (756075c1) with the rule as it
+is now, C8 counts 14: B1–B5, the AI-3 `remove(..).unwrap_or(false)`, the
+localfs mode, the guard stamp, the OPC UA first-use marker, and two refused
+`apply` calls taken as "nothing to do" (`RemovePeer`, `DropEnrollment`); the
+first widening counted 10 of them. All are fixed in PR #125.
 
 ## 11. One clock and one hex helper
 

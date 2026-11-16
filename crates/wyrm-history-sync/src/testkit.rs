@@ -30,6 +30,8 @@ pub struct TcpHost {
     /// `Some(b)`: `random_bytes(n)` answers `n` times `b`; `None`: the host has no random
     /// source (`not_supported`, as a component of `wyrm:app@0.2.0` sees it).
     pub random: Option<u8>,
+    /// `true`: the host has a random source and it fails (`internal_error`).
+    pub random_fails: bool,
     ids: u64,
 }
 
@@ -123,6 +125,12 @@ impl Host for TcpHost {
         self.conns.remove(&c.0);
     }
     fn random_bytes(&mut self, n: u32) -> Result<Vec<u8>, AppError> {
+        if self.random_fails {
+            return Err(AppError::new(
+                wyrm_core::Status::InternalError,
+                "random_bytes: no randomness from the OS",
+            ));
+        }
         match self.random {
             Some(b) => Ok(vec![b; n as usize]),
             None => unsupported(),

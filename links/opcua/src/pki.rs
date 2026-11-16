@@ -28,6 +28,14 @@
 //! (the library stores an unknown certificate there before it checks host
 //! name, validity and application URI, and an open can also be cut by its
 //! timeout), so a refused first answer never pins the store.
+//!
+//! A first use is kept or it does not happen: before it, `prepare` writes
+//! `tofu-pending` into the store (a store that takes no file refuses the
+//! connect, before anything goes to the server), and `opened` renames it to
+//! `tofu-ok`. When even that rename fails ([`NotKept`]), the connection does
+//! not open again until an operator edits or starts it (`Conn::tofu_block`):
+//! the next `prepare` would otherwise forget the certificate and trust any
+//! server, with a full session (and the user's credentials) each time.
 
 use opcua::crypto::{CertificateStore, PrivateKey, X509Data, X509};
 use sha2::{Digest, Sha256};
@@ -115,8 +123,23 @@ pub struct Prepared {
     pub lease: Option<KeyLease>,
 }
 
+/// The first-use marker of a store was not written (why, as the file system said).
+#[derive(Debug)]
+pub struct NotKept(String);
+
+impl std::fmt::Display for NotKept {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the first use is not kept: {}", self.0)
+    }
+}
+
+impl std::error::Error for NotKept {}
+
 /// The marker of a trust-on-first-use store whose first use made a session.
 const TOFU_OK: &str = "tofu-ok";
+/// Written by `prepare` before a first use: the proof the store keeps files,
+/// renamed to [`TOFU_OK`] when the session is active.
+const TOFU_PENDING: &str = "tofu-pending";
 
 impl Prepared {
     /// `cert` (a server certificate) is in this store's `trusted/` and not
@@ -141,10 +164,16 @@ impl Prepared {
     }
 
     /// A session was activated: a first-use store keeps what it trusts.
-    pub fn opened(&self) {
+    /// `Err` when the marker that says so is not written: the next `prepare`
+    /// would forget the certificate and trust any server again, so the
+    /// caller does not use the session (the first use did not happen).
+    pub fn opened(&self) -> Result<(), NotKept> {
         if self.trust_unknown {
-            let _ = write_file(&self.store.join(TOFU_OK), b"", false);
+            let ok = self.store.join(TOFU_OK);
+            fs::rename(self.store.join(TOFU_PENDING), &ok)
+                .map_err(|e| NotKept(format!("{}: {e}", ok.display())))?;
         }
+        Ok(())
     }
 }
 
@@ -226,6 +255,10 @@ pub fn prepare(root: &Path, r: &Request<'_>) -> Result<Prepared, String> {
             let empty = dir_is_empty(&trusted)?;
             if empty {
                 let _ = fs::remove_file(&marker);
+                // a first use is kept or it does not happen: the store must take a
+                // file now, before anything is sent to the server
+                write_file(&store.join(TOFU_PENDING), b"", false)
+                    .map_err(|e| format!("the trust store keeps no file, so no first use: {e}"))?;
             }
             empty
         }
@@ -563,10 +596,68 @@ mod tests {
             server.to_der().unwrap(),
         )
         .unwrap();
-        p.opened();
+        p.opened().unwrap();
         let p = prepare(&root, &req).unwrap();
         assert!(!p.trust_unknown);
         assert!(p.trusts(&server));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Audit of #125: the first-use marker was written with `let _ =`. When it was not
+    /// written, the session went on, and the next `prepare` cleared `trusted/` and trusted
+    /// any server again. `opened` says so now, and the session is not used.
+    #[cfg(unix)]
+    #[test]
+    fn a_first_use_that_is_not_kept_is_an_error() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = std::env::temp_dir().join(format!("wyrm-opcua-tofu-ro-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (cert_pem, key_pem) = test_keypair();
+        let req = Request {
+            url: "opc.tcp://h:4840/",
+            application_uri: "urn:t",
+            own: Some((&cert_pem, &key_pem)),
+            trust: Trust::FirstUse,
+        };
+        let p = prepare(&root, &req).unwrap();
+        assert!(p.trust_unknown);
+        if fs::metadata(&p.store).unwrap().uid() == 0 {
+            return; // root writes into a read-only directory: nothing to show
+        }
+        fs::set_permissions(&p.store, fs::Permissions::from_mode(0o500)).unwrap();
+        let r = p.opened();
+        fs::set_permissions(&p.store, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(r.is_err(), "a marker that is not written is an error");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Re-audit of #125: with an unwritable store the marker failed only after a session,
+    /// and every reconnect made a full session with a server nobody had checked. `prepare`
+    /// now proves the store keeps files before a first use: no connect without it.
+    #[cfg(unix)]
+    #[test]
+    fn an_unwritable_store_is_refused_before_a_first_use() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = std::env::temp_dir().join(format!("wyrm-opcua-tofu-pre-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (cert_pem, key_pem) = test_keypair();
+        let req = Request {
+            url: "opc.tcp://h:4840/",
+            application_uri: "urn:t",
+            own: Some((&cert_pem, &key_pem)),
+            trust: Trust::FirstUse,
+        };
+        let p = prepare(&root, &req).unwrap();
+        assert!(p.store.join(TOFU_PENDING).is_file());
+        if fs::metadata(&p.store).unwrap().uid() == 0 {
+            return; // root writes into a read-only directory: nothing to show
+        }
+        fs::remove_file(p.store.join(TOFU_PENDING)).unwrap();
+        fs::set_permissions(&p.store, fs::Permissions::from_mode(0o500)).unwrap();
+        let again = prepare(&root, &req);
+        fs::set_permissions(&p.store, fs::Permissions::from_mode(0o700)).unwrap();
+        let e = again.expect_err("no first use without a store that keeps files");
+        assert!(e.contains("keeps no file"), "{e}");
         let _ = fs::remove_dir_all(&root);
     }
 

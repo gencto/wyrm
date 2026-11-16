@@ -101,12 +101,23 @@ fn same(a: &[u8], b: &[u8]) -> bool {
 
 /// A client nonce: 18 bytes from the host's random source (`Host::random_bytes`, ADR 0030: the
 /// native and process hosts and a WASM component of `wyrm:app@0.3.0`), as base64 (no `,`, so it
-/// fits a SCRAM attribute). A host without one (an older world, a test host) gets
-/// [`nonce_from_clock`].
-pub fn nonce(host: &mut dyn wyrm_link_api::Host, conn: u32) -> String {
+/// fits a SCRAM attribute). Only a host that has no random source (`not_supported`: an older
+/// world, a test host) gets [`nonce_from_clock`]. A host that has one and fails (the OS gave no
+/// randomness), or gives a short answer, fails the login: `Retry`, never a guessable nonce.
+pub fn nonce(host: &mut dyn wyrm_link_api::Host, conn: u32) -> Result<String, crate::TargetError> {
     match host.random_bytes(18) {
-        Ok(b) if b.len() == 18 => B64.encode(b),
-        _ => nonce_from_clock(host.now_us(), conn),
+        Ok(b) if b.len() == 18 => Ok(B64.encode(b)),
+        Ok(b) => Err(crate::TargetError::Retry(format!(
+            "scram: the host gave {} random bytes, not 18",
+            b.len()
+        ))),
+        Err(e) if e.status == wyrm_core::Status::NotSupported => {
+            Ok(nonce_from_clock(host.now_us(), conn))
+        }
+        Err(e) => Err(crate::TargetError::Retry(format!(
+            "scram: no randomness for the nonce ({})",
+            e.msg
+        ))),
     }
 }
 
@@ -169,10 +180,27 @@ mod tests {
     fn nonce_takes_the_hosts_random_bytes() {
         use crate::testkit::TcpHost;
         let mut h = TcpHost::default();
-        let a = nonce(&mut h, 1);
+        let a = nonce(&mut h, 1).unwrap();
         assert_eq!(B64.decode(&a).unwrap().len(), 18);
-        assert_ne!(a, nonce(&mut h, 1), "unique without a random source");
+        assert_ne!(
+            a,
+            nonce(&mut h, 1).unwrap(),
+            "unique without a random source"
+        );
         h.random = Some(0xab);
-        assert_eq!(nonce(&mut h, 1), B64.encode([0xab; 18]));
+        assert_eq!(nonce(&mut h, 1).unwrap(), B64.encode([0xab; 18]));
+    }
+
+    /// Audit of #125: any error of the random source fell back to the clock nonce. Only a host
+    /// without one (`not_supported`) does now; a source that fails fails the login.
+    #[test]
+    fn a_random_source_that_fails_gives_no_clock_nonce() {
+        use crate::testkit::TcpHost;
+        let mut h = TcpHost::default();
+        h.random_fails = true;
+        assert!(matches!(
+            nonce(&mut h, 1),
+            Err(crate::TargetError::Retry(_))
+        ));
     }
 }

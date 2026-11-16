@@ -18,64 +18,19 @@ use wyrm_client::{ValEvent, WyrmClient};
 use wyrm_core::{Quality, Sample};
 use zenoh::Session;
 
-/// What a group records (DSA `Logging Type`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Logging {
-    /// Nothing (the group is paused).
-    None,
-    /// The last value of each point every `interval`, changed or not.
-    Interval,
-    /// Every update.
-    AllData,
-    /// Updates whose value or quality differ from the last one recorded.
-    PointChange,
-}
-
-impl Logging {
-    pub const ALL: [Logging; 4] = [
-        Logging::None,
-        Logging::Interval,
-        Logging::AllData,
-        Logging::PointChange,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Logging::None => "none",
-            Logging::Interval => "interval",
-            Logging::AllData => "all_data",
-            Logging::PointChange => "point_change",
-        }
-    }
-
-    /// The DSA names, shown to people.
-    pub fn display(self) -> &'static str {
-        match self {
-            Logging::None => "None",
-            Logging::Interval => "Interval",
-            Logging::AllData => "All Data",
-            Logging::PointChange => "Point Change",
-        }
-    }
-
-    pub fn code(self) -> u8 {
-        match self {
-            Logging::None => 0,
-            Logging::Interval => 1,
-            Logging::AllData => 2,
-            Logging::PointChange => 3,
-        }
-    }
-
-    pub fn from_code(c: u8) -> Option<Self> {
-        Self::ALL.into_iter().find(|l| l.code() == c)
-    }
-
-    /// By name or display name.
-    pub fn parse(s: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|l| l.name() == s || l.display() == s)
+wyrm_core::wire_enum! {
+    /// What a group records (DSA `Logging Type`). The code is what the
+    /// registry stores (`PutWatchGroup.logging`); the name is the DSA name,
+    /// the one form the `logging_type` parameter lists, shows and takes.
+    pub enum Logging {
+        /// Nothing (the group is paused).
+        None = 0 => "None",
+        /// The last value of each point every `interval`, changed or not.
+        Interval = 1 => "Interval",
+        /// Every update.
+        AllData = 2 => "All Data",
+        /// Updates whose value or quality differ from the last one recorded.
+        PointChange = 3 => "Point Change",
     }
 }
 
