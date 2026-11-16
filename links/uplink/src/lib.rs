@@ -1297,6 +1297,9 @@ pub struct Uplink {
     total_published: u64,
     total_dropped: u64,
     stats_shown: BTreeMap<&'static str, u64>,
+    /// Stored upstreams this build could not load (a URL it refuses, a newer form): kept
+    /// in the index, so a later Add or Remove does not drop them from the store.
+    unloaded: Vec<String>,
 }
 
 /// `(site, own, net, upstreams)` of the params.
@@ -1472,7 +1475,8 @@ impl Uplink {
                 .map(|u| u.def.name.clone())
                 .chain([def.name.clone()])
                 .collect();
-            store::put_index(host, &names)?;
+            self.unloaded.retain(|n| *n != def.name);
+            store::put_index(host, &self.with_unloaded(names))?;
         }
         let name = def.name.clone();
         let up = Up::new(def, rights);
@@ -1514,8 +1518,18 @@ impl Uplink {
             .filter(|u| !u.def.from_config)
             .map(|u| u.def.name.clone())
             .collect();
-        store::put_index(host, &names)?;
+        store::put_index(host, &self.with_unloaded(names))?;
         Ok(())
+    }
+
+    /// `names` and the stored upstreams that did not load: the index to write.
+    fn with_unloaded(&self, mut names: Vec<String>) -> Vec<String> {
+        for n in &self.unloaded {
+            if !names.contains(n) {
+                names.push(n.clone());
+            }
+        }
+        names
     }
 
     /// The form of an Edit: the stored fields with the given ones over them.
@@ -1587,6 +1601,7 @@ impl App for Uplink {
             total_published: 0,
             total_dropped: 0,
             stats_shown: BTreeMap::new(),
+            unloaded: Vec::new(),
         };
         // from wyrmd.json5 first: a name there wins over a stored one
         for v in configured {
@@ -1639,7 +1654,13 @@ impl App for Uplink {
                         }
                     }
                 }
-                Err(e) => host.log(Level::Error, &format!("uplink {name}: {e}")),
+                Err(e) => {
+                    host.log(
+                        Level::Error,
+                        &format!("uplink {name}: {e}; kept in the store"),
+                    );
+                    app.unloaded.push(name);
+                }
             }
         }
         let now = host.now_us();
